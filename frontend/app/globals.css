@@ -131,7 +131,13 @@ button { touch-action: manipulation; }
 .local-dot { width: 6px; height: 6px; border-radius: 50%; background: #829e77; }
 .mvp-label { margin-left: auto; border: 1px solid #d3dccd; border-radius: 4px; padding: 2px 5px; font-size: 9px; letter-spacing: .6px; }
 
-.main-content { min-width: 0; }
+.main-content {
+  min-width: 0;
+  background-color: var(--paper);
+  background-image: url("/hexagon-pattern.svg");
+  background-repeat: repeat;
+  background-size: 72px 42px;
+}
 .topbar { display: flex; align-items: center; justify-content: space-between; height: 75px; padding: 0 48px; border-bottom: 1px solid var(--line); }
 .breadcrumb { display: flex; align-items: center; gap: 12px; font-size: 12px; min-width: 0; }
 .breadcrumb > span:first-child, .breadcrumb-slash { color: var(--faint); }
