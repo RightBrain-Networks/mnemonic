@@ -253,6 +253,7 @@ def test_two_simultaneous_writers_cannot_overwrite_each_other(api, project, hand
         {"status": "deleted"},
         {"q": "x" * 501},
         {"tag": " "},
+        {"semantic": "sometimes"},
         {"q": "bad\x00query"},
         {"unknown_field": "not-allowed"},
     ],

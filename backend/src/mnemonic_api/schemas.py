@@ -278,6 +278,7 @@ class ProjectListQuery(APIModel):
 
 class HandoffListQuery(APIModel):
     q: Annotated[str, StringConstraints(max_length=500), AfterValidator(no_nul)] | None = None
+    semantic: bool = False
     status: Literal["open", "done", "wont-do", "promoted", "all"] = "open"
     tag: Tag | None = None
     source_client: ClientName | None = None

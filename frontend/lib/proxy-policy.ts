@@ -10,7 +10,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   }
   if (PROJECT.test(path) && (method === "GET" || method === "PATCH")) return [];
   if (HANDOFFS.test(path)) {
-    if (method === "GET") return ["q", "status", "tag", "source_client", "source_session_id", "limit", "offset"];
+    if (method === "GET") return ["q", "semantic", "status", "tag", "source_client", "source_session_id", "limit", "offset"];
     if (method === "POST") return [];
   }
   if (HANDOFF.test(path)) {
@@ -18,6 +18,10 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     if (method === "DELETE") return ["expected_version"];
   }
   return null;
+}
+
+export function upstreamTimeoutMs(query: URLSearchParams): number {
+  return query.get("semantic") === "true" && Boolean(query.get("q")?.trim()) ? 60_000 : 15_000;
 }
 
 export function configuredOrigins(value?: string): Set<string> {

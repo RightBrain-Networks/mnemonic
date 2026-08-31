@@ -114,17 +114,20 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         project_id: UUID,
         q: Annotated[str | None, Field(max_length=500)] = None,
         status: SearchStatus = "open",
+        semantic: bool = False,
         tag: Annotated[str | None, Field(max_length=50)] = None,
         source_client: Annotated[str | None, Field(max_length=80)] = None,
         source_session_id: Annotated[str | None, Field(max_length=200)] = None,
         limit: Annotated[int, Field(ge=1, le=100)] = 30,
         offset: Annotated[int, Field(ge=0)] = 0,
     ) -> HandoffPage:
-        """Search one project's compact hand-off pointers (no prompt body). Defaults to open records. Omit q to browse; use all/done/wont-do/promoted only when lifecycle history is wanted."""
+        """Search one project's compact hand-off pointers (no prompt body). Defaults to open records and lexical search; set semantic only for opt-in hybrid retrieval. Omit q to browse; use all/done/wont-do/promoted only when lifecycle history is wanted."""
         params = {
             "q": q, "status": status, "tag": tag, "source_client": source_client,
             "source_session_id": source_session_id, "limit": limit, "offset": offset,
         }
+        if semantic:
+            params["semantic"] = True
         return cast(HandoffPage, await api.request(
             "GET", f"projects/{project_id}/handoffs",
             params={name: value for name, value in params.items() if value is not None},

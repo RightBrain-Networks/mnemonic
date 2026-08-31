@@ -1,4 +1,4 @@
-import { allowedQueryKeys, configuredOrigins, trustedRequest } from "@/lib/proxy-policy";
+import { allowedQueryKeys, configuredOrigins, trustedRequest, upstreamTimeoutMs } from "@/lib/proxy-policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,7 +90,7 @@ async function proxy(request: Request, context: Context): Promise<Response> {
       headers: { Authorization: `Bearer ${key}`, Accept: "application/json", ...(body ? { "Content-Type": "application/json" } : {}) },
       cache: "no-store",
       redirect: "manual",
-      signal: AbortSignal.timeout(15000)
+      signal: AbortSignal.timeout(upstreamTimeoutMs(query))
     });
     if (upstream.status >= 300 && upstream.status < 400) return fail(502, "Mnemonic's API returned an unexpected redirect.");
     if (upstream.status !== 204 && !upstream.headers.get("content-type")?.includes("application/json")) return fail(502, "Mnemonic's API returned an unexpected response.");

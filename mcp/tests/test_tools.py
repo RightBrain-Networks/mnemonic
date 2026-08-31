@@ -43,6 +43,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     search_schema = json.dumps(tools["search_handoffs"].outputSchema)
     assert '"prompt"' not in search_schema
     assert '"source_metadata"' not in search_schema
+    assert tools["search_handoffs"].inputSchema["properties"]["semantic"]["default"] is False
     changes_schema = tools["update_handoff"].inputSchema["$defs"]["HandoffChanges"]
     assert changes_schema["additionalProperties"] is False
     assert "source_session_id" not in changes_schema["properties"]
@@ -78,6 +79,7 @@ async def test_save_preserves_prompt_session_and_metadata(settings, handoff):
         assert request.method == "POST"
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/handoffs"
         data = json.loads(request.content)
+        assert request.extensions["timeout"]["read"] == 20.0
         assert data["prompt"] == prompt
         assert data["source_session_id"] == handoff["source_session_id"]
         assert data["source_metadata"] == metadata
@@ -98,6 +100,7 @@ async def test_search_is_open_only_and_pointer_only(settings, handoff):
         assert request.method == "GET"
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/handoffs"
         assert dict(request.url.params) == {"q": "src/search.py", "status": "open", "limit": "30", "offset": "0"}
+        assert request.extensions["timeout"]["read"] == 20.0
         # The adapter must still enforce a compact output if an API regression
         # accidentally adds full content to this response.
         return httpx.Response(200, json={"items": [handoff], "total": 1, "limit": 30, "offset": 0})
@@ -115,13 +118,28 @@ async def test_search_passes_explicit_filters_and_pagination(settings):
         assert dict(request.url.params) == {
             "status": "all", "tag": "search", "source_client": "opencode",
             "source_session_id": "ses_123/opaque", "limit": "5", "offset": "10",
+            "semantic": "true",
         }
+        assert request.extensions["timeout"]["read"] == 60.0
+        assert request.extensions["timeout"]["connect"] == 5.0
         return httpx.Response(200, json={"items": [], "total": 10, "limit": 5, "offset": 10})
 
     await adapter(settings, handler).call_tool("search_handoffs", {
         "project_id": PROJECT_ID, "status": "all", "tag": "search", "source_client": "opencode",
-        "source_session_id": "ses_123/opaque", "limit": 5, "offset": 10,
+        "source_session_id": "ses_123/opaque", "semantic": True, "limit": 5, "offset": 10,
     })
+
+
+async def test_semantic_search_unavailable_suggests_lexical_fallback(settings):
+    def handler(request):
+        assert request.url.params["semantic"] == "true"
+        return httpx.Response(503, json={"detail": f"private detail {API_KEY}"})
+
+    with pytest.raises(ToolError, match="semantic search is unavailable") as caught:
+        await adapter(settings, handler).call_tool("search_handoffs", {
+            "project_id": PROJECT_ID, "q": "conceptual query", "semantic": True,
+        })
+    assert API_KEY not in str(caught.value)
 
 
 async def test_recall_and_updates_are_project_scoped_and_do_not_clear_omitted_fields(settings, handoff):
@@ -198,7 +216,8 @@ async def test_resource_and_resume_prompt_carry_complete_record(settings, handof
 
 @pytest.mark.parametrize("status, expected", [
     (401, "authentication failed"), (403, "authentication failed"),
-    (404, "not found in this project"), (500, "could not complete"), (307, "could not complete"),
+    (404, "not found in this project"), (500, "could not complete"),
+    (503, "could not complete"), (307, "could not complete"),
 ])
 async def test_upstream_errors_are_actionable_and_do_not_leak_details(settings, status, expected):
     def handler(request):

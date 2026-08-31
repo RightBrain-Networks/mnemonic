@@ -26,6 +26,24 @@ inside an existing PostgreSQL volume. Rotate the database role password through
 PostgreSQL first, then update `.env` and recreate services. To rotate the API key,
 change `.env`, recreate API/MCP/web, and update connected clients.
 
+## Semantic search
+
+Semantic search is opt-in; ordinary dashboard and MCP searches continue using the
+existing PostgreSQL lexical path. A nonblank semantic query runs
+`BAAI/bge-small-en-v1.5` inside the API container and can fill stale rows in the
+derived `handoff_embeddings` table in batches of 16, so its first request after
+new or changed hand-offs can take longer than later requests.
+
+The image build downloads model artifacts into `/app/.embedding-cache`; image
+builds therefore need network access. The running image sets Hugging Face offline
+mode and will not download a missing model or send prompt/query text to a hosted
+model API.
+
+Each derived row carries the embedding configuration and a content digest. A
+mismatch is rebuilt lazily. The rows live in PostgreSQL and can be present in a
+backup, but canonical hand-offs are sufficient to regenerate them. If semantic
+retrieval returns 503, turn it off to keep using the independent lexical path.
+
 ## Backups
 
 The backup container starts after the API has migrated the database and become

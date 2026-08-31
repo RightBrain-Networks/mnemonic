@@ -34,10 +34,15 @@ $env:TEST_DATABASE_URL = 'postgresql+psycopg://mnemonic_test:mnemonic_test_only@
 
 Tests apply the real Alembic migration in an isolated random schema, then remove
 that schema. They cover authentication, project isolation, full-text ranking and
-stemming, literal identifier/path matching, lifecycle filtering, pagination,
-soft deletion, concurrent version checks, and hostile JSON validation. Without
-`TEST_DATABASE_URL`, database integration tests explicitly skip; do not treat a
-unit-only run as proof of PostgreSQL behavior.
+stemming, literal identifier/path matching, opt-in hybrid ranking,
+embedding-cache invalidation, lifecycle filtering, pagination, soft deletion,
+concurrent version checks, and hostile JSON validation. Semantic test cases use
+a deterministic
+local test embedder and disposable cache, so the suite does not download a model
+or contact a model service.
+
+Without `TEST_DATABASE_URL`, database integration tests explicitly skip; do not
+treat a unit-only run as proof of PostgreSQL behavior.
 
 Stop the disposable database after testing (from the repository root):
 
@@ -101,5 +106,8 @@ resources/prompts, conflicting edits, completion filtering, and deletion.
 
 For a browser pass, exercise the first-project empty state, project switching,
 search, status filters, prompt copy, cancel/save edits, deletion confirmation,
-and recovery from a stale version. Confirm a narrow viewport remains usable.
+and recovery from a stale version. With a nonblank search, confirm Semantic starts
+disabled, enabling it completes a hybrid request, and disabling it restores the
+ordinary lexical request. Repeat the enabled query once after its initial cache
+population. Confirm a narrow viewport remains usable.
 Do not leave fabricated hand-offs in a user's working queue after verification.

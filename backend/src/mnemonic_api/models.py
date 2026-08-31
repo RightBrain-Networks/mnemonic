@@ -3,6 +3,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    REAL,
     CheckConstraint,
     Computed,
     DateTime,
@@ -106,4 +107,21 @@ class Handoff(Base):
             "setweight(to_tsvector('english'::regconfig, coalesce(prompt, '')), 'C')",
             persisted=True,
         ),
+    )
+
+
+class HandoffEmbedding(Base):
+    """Disposable local-model output; hand-off text remains the canonical source."""
+
+    __tablename__ = "handoff_embeddings"
+    __table_args__ = (CheckConstraint("cardinality(vector) > 0", name="vector_nonempty"),)
+
+    handoff_id: Mapped[UUID] = mapped_column(
+        ForeignKey("handoffs.id", ondelete="CASCADE"), primary_key=True
+    )
+    model: Mapped[str] = mapped_column(String(300))
+    digest: Mapped[str] = mapped_column(String(64))
+    vector: Mapped[list[float]] = mapped_column(ARRAY(REAL))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

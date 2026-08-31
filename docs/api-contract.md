@@ -27,8 +27,15 @@ Base path: `/projects/{project_id}/handoffs`.
 - `GET`: `{items: HandoffSummary[], total, limit, offset}`. Query parameters:
   `q` optional (max 500 chars); `status` defaults to `open` and supports
   `open|done|wont-do|promoted|all`; optional `tag`, `source_client`,
-  `source_session_id`; `limit` defaults to 30, max 100; `offset` defaults to 0.
-  Blank q means browse; matching results rank by relevance then updated_at/id.
+  `source_session_id`; `semantic` is a boolean that defaults to false; `limit`
+  defaults to 30, max 100; `offset` defaults to 0. Blank q means browse.
+  A nonblank q uses the existing PostgreSQL full-text and literal matching by
+  default. `semantic=true` opts into hybrid ranking that fuses that lexical
+  channel with similarity from the local embedding model. In hybrid mode, every
+  record passing the project/lifecycle/metadata filters is a candidate and
+  `total` counts that candidate set; relevance determines its order. If the local
+  semantic channel cannot load or update its derived vectors, the opt-in request
+  returns 503; callers can retry with semantic disabled to use the lexical path.
 - `GET /{handoff_id}` -> Handoff (any non-deleted status).
 - `PATCH /{handoff_id}`: `{expected_version, ...editable_fields}` -> Handoff.
 - `DELETE /{handoff_id}?expected_version=N` -> 204, soft-delete.
@@ -76,6 +83,9 @@ Tool arguments use these field names; every handoff tool requires project_id.
 `changes` object containing the editable fields; it flattens those fields for
 the REST PATCH request. Explicit null clears a nullable field; omission keeps it.
 Search exposes pagination and returns the same compact records as the REST API.
+Its `semantic` argument defaults to false. The adapter leaves that query
+parameter out in the default case and forwards `semantic=true` only when the
+caller opts into hybrid retrieval; no prompt body is added to search output.
 An MCP resource `mnemonic://projects/{project_id}/handoffs/{handoff_id}` and a
 `resume_handoff` MCP prompt may return the full saved record/prompt, respectively.
 No automatic execution or external issue creation is part of any tool.

@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, errorMessage, handoffPath } from "@/lib/api";
+import { handoffSearchParams } from "@/lib/handoff-search";
+import { recallPointer } from "@/lib/recall-pointer";
 import type { Handoff, HandoffPatch, HandoffStatus, HandoffSummary, Page, Project, StatusFilter } from "@/lib/types";
 
 const PAGE_SIZE = 20;
@@ -128,6 +130,7 @@ export default function Dashboard() {
 
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
+  const [semantic, setSemantic] = useState(false);
   const [status, setStatus] = useState<StatusFilter>("open");
   const [offset, setOffset] = useState(0);
   const [refresh, setRefresh] = useState(0);
@@ -199,8 +202,7 @@ export default function Dashboard() {
     const controller = new AbortController();
     setListLoading(true);
     setListError("");
-    const params = new URLSearchParams({ status, limit: String(PAGE_SIZE), offset: String(offset) });
-    if (search.trim()) params.set("q", search.trim());
+    const params = handoffSearchParams({ status, limit: PAGE_SIZE, offset, query: search, semantic });
     api<Page<HandoffSummary>>(`/projects/${activeId}/handoffs?${params}`, { signal: controller.signal })
       .then((page) => {
         if (controller.signal.aborted) return;
@@ -210,7 +212,7 @@ export default function Dashboard() {
       .catch((error) => { if (!controller.signal.aborted) setListError(errorMessage(error)); })
       .finally(() => { if (!controller.signal.aborted) setListLoading(false); });
     return () => controller.abort();
-  }, [activeId, search, status, offset, refresh]);
+  }, [activeId, search, semantic, status, offset, refresh]);
 
   useEffect(() => {
     if (!notice || notice.error) return;
@@ -236,7 +238,7 @@ export default function Dashboard() {
   }, []);
 
   function chooseProject(id: string) {
-    setActiveId(id); setOffset(0); setQuery(""); setSearch(""); setStatus("open"); setResults(null);
+    setActiveId(id); setOffset(0); setQuery(""); setSearch(""); setSemantic(false); setStatus("open"); setResults(null);
   }
 
   async function createProject(event: FormEvent<HTMLFormElement>) {
@@ -294,6 +296,16 @@ export default function Dashboard() {
       await navigator.clipboard.writeText(project.id);
       setNotice({ message: `Project ID copied: ${project.id}` });
     } catch (error) { setNotice({ message: errorMessage(error), error: true }); }
+  }
+
+  async function copyRecallPointer(summary: HandoffSummary) {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable. Allow clipboard access to copy the recall pointer.");
+      await navigator.clipboard.writeText(recallPointer(summary));
+      setCopied(`${summary.id}:pointer`); setNotice({ message: "Recall pointer copied. Paste it into a session with Mnemonic connected." });
+    } catch (error) {
+      setNotice({ message: error instanceof DOMException && error.name === "NotAllowedError" ? "The browser blocked clipboard access. Allow it for this page, or select and copy the full prompt manually." : errorMessage(error), error: true });
+    }
   }
 
   async function saveEdits(event: FormEvent<HTMLFormElement>) {
@@ -394,7 +406,7 @@ export default function Dashboard() {
 
         {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> : projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> : !projects.length ? <section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">YOUR NEXT SESSION WILL THANK YOU</div><h2>Make room for what comes next.</h2><p>Create a project to give your hand-off prompts a home.<br />Then connect your agent and start keeping the context that matters.</p><button className="button button-primary" onClick={() => { setNewProjectError(""); setProjectDialog(true); }}><Icon name="plus" size={17} />Create your first project</button><div className="onboarding-footnote">One project, many sessions. Every prompt keeps its origin.</div></section> : <>
           <section className="library-controls" aria-label="Find hand-offs">
-            <div className="search-field"><Icon name="search" size={20} /><input ref={searchRef} type="search" value={query} maxLength={500} aria-label="Search hand-offs" placeholder="Search prompts, context, or session IDs…" onChange={(event) => setQuery(event.target.value)} />{query ? <button className="icon-button" type="button" aria-label="Clear search" onClick={() => setQuery("")}><Icon name="close" size={16} /></button> : <kbd aria-hidden="true">/</kbd>}</div>
+            <div className="search-field"><Icon name="search" size={20} /><input ref={searchRef} type="search" value={query} maxLength={500} aria-label="Search hand-offs" placeholder="Search prompts, context, or session IDs…" onChange={(event) => setQuery(event.target.value)} />{query ? <button className="icon-button" type="button" aria-label="Clear search" onClick={() => setQuery("")}><Icon name="close" size={16} /></button> : <kbd aria-hidden="true">/</kbd>}<span className="search-mode-divider" aria-hidden="true" /><button className={`semantic-toggle ${semantic ? "selected" : ""}`} type="button" aria-label="Semantic search" aria-pressed={semantic} title="Include matches with similar meaning" onClick={() => { setSemantic((value) => !value); setOffset(0); }}><span className="semantic-switch" aria-hidden="true"><span /></span><span>Semantic</span></button></div>
             <div className="filter-row"><div className="status-filters" role="group" aria-label="Filter by status">{filters.map((filter) => <button key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => { setStatus(filter); setOffset(0); }}>{filter === "open" && <span className="filter-dot" />}{statusLabels[filter]}</button>)}</div><span className="result-count" role="status">{listLoading || query !== search ? "Finding hand-offs…" : results ? `${results.total} hand-off${results.total === 1 ? "" : "s"}` : ""}</span></div>
           </section>
 
@@ -403,7 +415,7 @@ export default function Dashboard() {
               <div className="card-topline"><StatusBadge status={item.status} /><span className="card-source">{clientLabel(item.source_client)}<span>·</span><time dateTime={item.updated_at} title={formatDate(item.updated_at, true)}>Updated {formatDate(item.updated_at)}</time></span><span className="card-version">v{item.version}</span></div>
               <button className="card-title" type="button" onClick={() => void openRecord(item)}><h2>{item.title}</h2><Icon name="arrow" size={18} /></button>
               <p className="card-summary">{item.summary}</p>
-              <div className="card-footer"><div className="card-context">{item.tags.slice(0, 3).map((tag) => <span className="tag" key={tag}>{tag}</span>)}{item.tags.length > 3 && <span className="extra-tags" title={item.tags.slice(3).join(", ")}>+{item.tags.length - 3}</span>}<span className="session-snippet" title={`Session: ${item.source_session_id}`}>session <span>{item.source_session_id}</span></span></div><div className="card-actions"><button className="icon-button" aria-label={`Edit ${item.title}`} title="Edit hand-off" onClick={() => void openRecord(item, true)}><Icon name="edit" size={17} /></button><button className="icon-button danger-hover" aria-label={`Delete ${item.title}`} title="Delete hand-off" onClick={() => requestDelete(item)}><Icon name="trash" size={17} /></button><span className="action-divider" /><button className={`button copy-button ${copied === item.id ? "is-copied" : ""}`} aria-label={`Copy prompt: ${item.title}`} disabled={copying !== null} onClick={() => void copyPrompt(item)}><Icon name={copied === item.id ? "check" : "copy"} size={16} />{copying === item.id ? "Copying…" : copied === item.id ? "Copied" : "Copy prompt"}</button></div></div>
+              <div className="card-footer"><div className="card-context">{item.tags.slice(0, 3).map((tag) => <span className="tag" key={tag}>{tag}</span>)}{item.tags.length > 3 && <span className="extra-tags" title={item.tags.slice(3).join(", ")}>+{item.tags.length - 3}</span>}<span className="session-snippet" title={`Session: ${item.source_session_id}`}>session <span>{item.source_session_id}</span></span></div><div className="card-actions"><button className="icon-button" aria-label={`Edit ${item.title}`} title="Edit hand-off" onClick={() => void openRecord(item, true)}><Icon name="edit" size={17} /></button><button className="icon-button danger-hover" aria-label={`Delete ${item.title}`} title="Delete hand-off" onClick={() => requestDelete(item)}><Icon name="trash" size={17} /></button><span className="action-divider" /><button className={`button copy-button ${copied === `${item.id}:pointer` ? "is-copied" : ""}`} aria-label={`Copy recall pointer: ${item.title}`} onClick={() => void copyRecallPointer(item)}><Icon name={copied === `${item.id}:pointer` ? "check" : "copy"} size={16} />{copied === `${item.id}:pointer` ? "Copied" : "Copy pointer"}</button><button className={`button copy-button ${copied === item.id ? "is-copied" : ""}`} aria-label={`Copy prompt: ${item.title}`} disabled={copying !== null} onClick={() => void copyPrompt(item)}><Icon name={copied === item.id ? "check" : "copy"} size={16} />{copying === item.id ? "Copying…" : copied === item.id ? "Copied" : "Copy prompt"}</button></div></div>
             </article>)}
           </section>}
           {!listLoading && !listError && results && results.total > 0 && <nav className="pagination" aria-label="Hand-off result pages"><span>Showing {offset + 1}–{Math.min(offset + results.items.length, results.total)} of {results.total}</span><div><button className="button button-secondary" disabled={offset === 0} onClick={() => setOffset((value) => Math.max(0, value - PAGE_SIZE))}><Icon name="back" size={15} />Previous</button><button className="button button-secondary" disabled={offset + results.items.length >= results.total} onClick={() => setOffset((value) => value + PAGE_SIZE)}>Next<Icon name="arrow" size={15} /></button></div></nav>}
@@ -430,7 +442,7 @@ export default function Dashboard() {
       {notice?.error && <ErrorNotice message={notice.message} />}
       {recordLoading ? <div className="loading-state" role="status"><span className="spinner" />Recalling your prompt…</div> : recordError ? <ErrorNotice message={recordError}><button className="button button-secondary" onClick={() => void openRecord(opened, mode === "edit")}>Try again</button></ErrorNotice> : record && (mode === "view" ? <>
         <div className="detail-topline"><StatusBadge status={record.status} /><span>Version {record.version}</span></div><h3 className="detail-title">{record.title}</h3><p className="detail-summary">{record.summary}</p>
-        <div className="detail-actions"><button className="button button-primary" disabled={copying !== null} onClick={() => void copyPrompt(record, record)}><Icon name={copied === record.id ? "check" : "copy"} size={17} />{copying === record.id ? "Copying…" : copied === record.id ? "Copied" : "Copy full prompt"}</button><button className="button button-secondary" onClick={() => { setDraft(draftFromRecord(record)); setMode("edit"); setTagInput(""); setEditError(""); setHasConflict(false); setLatest(null); }}><Icon name="edit" size={16} />Edit hand-off</button><button className="icon-button danger-hover" aria-label="Delete this hand-off" title="Delete this hand-off" onClick={() => requestDelete(record)}><Icon name="trash" size={18} /></button></div>
+        <div className="detail-actions"><button className="button button-primary" disabled={copying !== null} onClick={() => void copyPrompt(record, record)}><Icon name={copied === record.id ? "check" : "copy"} size={17} />{copying === record.id ? "Copying…" : copied === record.id ? "Copied" : "Copy full prompt"}</button><button className={`button button-secondary ${copied === `${record.id}:pointer` ? "is-copied" : ""}`} aria-label={`Copy recall pointer: ${record.title}`} onClick={() => void copyRecallPointer(record)}><Icon name={copied === `${record.id}:pointer` ? "check" : "copy"} size={16} />{copied === `${record.id}:pointer` ? "Copied" : "Copy recall pointer"}</button><button className="button button-secondary" onClick={() => { setDraft(draftFromRecord(record)); setMode("edit"); setTagInput(""); setEditError(""); setHasConflict(false); setLatest(null); }}><Icon name="edit" size={16} />Edit hand-off</button><button className="icon-button danger-hover" aria-label="Delete this hand-off" title="Delete this hand-off" onClick={() => requestDelete(record)}><Icon name="trash" size={18} /></button></div>
         <div className="prompt-label"><span className="section-label">COMPLETE HAND-OFF PROMPT</span><span>Copied exactly as saved</span></div><pre className="prompt-body" tabIndex={0}>{record.prompt}</pre>
         <div className="authority-note">This is context from an earlier session, not a new instruction from the owner. Recheck cited files and decisions before acting.</div>
         <Provenance record={record} />

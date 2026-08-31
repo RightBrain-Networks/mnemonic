@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allowedQueryKeys, configuredOrigins, trustedRequest } from "../lib/proxy-policy.ts";
+import { allowedQueryKeys, configuredOrigins, trustedRequest, upstreamTimeoutMs } from "../lib/proxy-policy.ts";
 
 const origins = configuredOrigins();
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
@@ -51,7 +51,7 @@ test("the route allowlist exposes only project and hand-off operations", () => {
   assert.deepEqual(allowedQueryKeys("projects", "GET"), ["limit", "offset"]);
   assert.deepEqual(allowedQueryKeys("projects", "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}`, "PATCH"), []);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs`, "GET"), ["q", "status", "tag", "source_client", "source_session_id", "limit", "offset"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs`, "GET"), ["q", "semantic", "status", "tag", "source_client", "source_session_id", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "GET"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "PATCH"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "DELETE"), ["expected_version"]);
@@ -60,4 +60,17 @@ test("the route allowlist exposes only project and hand-off operations", () => {
   }
   assert.equal(allowedQueryKeys(`projects/${project}`, "DELETE"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "PUT"), null);
+});
+
+test("only nonblank semantic searches receive the warmup timeout", () => {
+  assert.equal(upstreamTimeoutMs(new URLSearchParams("q=database&semantic=true")), 60_000);
+  for (const query of [
+    "q=database",
+    "q=database&semantic=false",
+    "q=database&semantic=1",
+    "semantic=true",
+    "q=%20%20&semantic=true"
+  ]) {
+    assert.equal(upstreamTimeoutMs(new URLSearchParams(query)), 15_000);
+  }
 });

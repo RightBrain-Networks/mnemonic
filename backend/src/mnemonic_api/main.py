@@ -31,6 +31,7 @@ from mnemonic_api.schemas import (
     ProjectPatch,
     ProjectRead,
 )
+from mnemonic_api.semantic import Embedder, FastembedEmbedder, hybrid_rank
 
 logger = logging.getLogger(__name__)
 bearer = HTTPBearer(auto_error=False)
@@ -152,6 +153,7 @@ def save_handoff(project_id: UUID, payload: HandoffCreate, database: Database) -
 def search_handoffs(
     project_id: UUID,
     filters: Annotated[HandoffListQuery, Query()],
+    request: Request,
     database: Database,
 ) -> Page[HandoffSummary]:
     require_project(database, project_id)
@@ -166,7 +168,9 @@ def search_handoffs(
         conditions.append(Handoff.source_session_id == filters.source_session_id)
 
     query = (filters.q or "").strip()
+    semantic_search = filters.semantic and bool(query)
     ordering = []
+    lexical_match = None
     if query:
         terms = func.plainto_tsquery("english", query)
         full_text_match = Handoff.search_vector.bool_op("@@")(terms)
@@ -186,14 +190,47 @@ def search_handoffs(
             Handoff.verified_against,
             func.array_to_string(Handoff.tags, " "),
         ]
-        conditions.append(
-            or_(
-                full_text_match,
-                *(field.icontains(query, autoescape=True) for field in literal_fields),
-            )
+        lexical_match = or_(
+            full_text_match,
+            *(field.icontains(query, autoescape=True) for field in literal_fields),
         )
+        if not semantic_search:
+            conditions.append(lexical_match)
         ordering.append(func.ts_rank_cd(Handoff.search_vector, terms, 32).desc())
     ordering.extend([Handoff.updated_at.desc(), Handoff.id.desc()])
+
+    if semantic_search:
+        lexical_ids = list(
+            database.scalars(
+                select(Handoff.id).where(*conditions, lexical_match).order_by(*ordering)
+            )
+        )
+        candidates = list(
+            database.scalars(
+                select(Handoff)
+                .options(defer(Handoff.source_metadata), defer(Handoff.search_vector))
+                .where(*conditions)
+                .order_by(Handoff.updated_at.desc(), Handoff.id.desc())
+            )
+        )
+        try:
+            ranked = hybrid_rank(
+                database, candidates, lexical_ids, query, request.app.state.semantic_embedder
+            )
+        except Exception as exc:
+            database.rollback()
+            logger.error("Semantic search failed (%s)", type(exc).__name__)
+            raise HTTPException(
+                status_code=503,
+                detail="Semantic search is unavailable. Turn it off to use lexical search.",
+            ) from None
+        page = ranked[filters.offset : filters.offset + filters.limit]
+        return Page(
+            items=[HandoffSummary.model_validate(handoff) for handoff in page],
+            total=len(ranked),
+            limit=filters.limit,
+            offset=filters.offset,
+        )
 
     total = database.scalar(select(func.count()).select_from(Handoff).where(*conditions)) or 0
     handoffs = database.scalars(
@@ -252,7 +289,11 @@ def delete_handoff(
     return Response(status_code=204)
 
 
-def create_app(settings: Settings | None = None, engine: Engine | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    engine: Engine | None = None,
+    semantic_embedder: Embedder | None = None,
+) -> FastAPI:
     config = settings if settings is not None else Settings()
     connection_pool = engine if engine is not None else build_engine(config)
 
@@ -270,6 +311,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     )
     app.state.settings = config
     app.state.session_factory = build_session_factory(connection_pool)
+    app.state.semantic_embedder = semantic_embedder or FastembedEmbedder()
     app.include_router(router)
 
     @app.get("/healthz", include_in_schema=False)

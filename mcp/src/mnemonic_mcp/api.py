@@ -13,7 +13,7 @@ _VALIDATION_FIELDS = frozenset({
     "name", "slug", "description", "repository_url", "project_id", "handoff_id",
     "title", "summary", "prompt", "source_client", "source_session_id", "source_model",
     "source_session_url", "repository_branch", "verified_against", "tags", "source_metadata",
-    "status", "q", "tag", "limit", "offset", "expected_version",
+    "status", "q", "semantic", "tag", "limit", "offset", "expected_version",
 })
 
 
@@ -33,11 +33,15 @@ class MnemonicAPI:
     ) -> ResponseModel | None:
         # A request-scoped client avoids sharing event-loop state across SDK
         # stateless HTTP sessions or stdio clients. No automatic write retries.
+        semantic_read = method == "GET" and params is not None and params.get("semantic") is True
         try:
             async with httpx.AsyncClient(
                 base_url=f"{self.settings.api_url.rstrip('/')}/api/v1/",
                 headers={"Authorization": f"Bearer {self.settings.api_key}"},
-                timeout=httpx.Timeout(20.0, connect=5.0),
+                # The first opt-in semantic query can populate the API's derived
+                # embedding cache. Ordinary reads and every write keep the
+                # original timeout and its shorter unknown-outcome window.
+                timeout=httpx.Timeout(60.0 if semantic_read else 20.0, connect=5.0),
                 follow_redirects=False,
                 trust_env=False,
                 transport=self._transport,
@@ -76,6 +80,10 @@ class MnemonicAPI:
                 pass
             hint = f" Check: {', '.join(sorted(fields))}." if fields else " Check the field constraints."
             raise ToolError(f"Mnemonic rejected the input.{hint}")
+        if response.status_code == 503 and semantic_read:
+            raise ToolError(
+                "Mnemonic semantic search is unavailable. Retry with semantic disabled."
+            )
         if not 200 <= response.status_code < 300:
             raise ToolError("Mnemonic API could not complete this request. Check service health before retrying.")
         if response_model is None:

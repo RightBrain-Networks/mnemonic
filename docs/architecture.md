@@ -2,7 +2,8 @@
 
 This decision implements the owner's revised standalone-application scope. The
 original [`ADR.md`](../ADR.md) remains the historical proposal; its memory-store,
-hook, embedding-cache, and host integration decisions do not apply here.
+hook, and host integration decisions do not apply here. The optional local
+semantic retrieval described below is part of the standalone application.
 
 ## Product contract
 
@@ -46,11 +47,29 @@ flowchart LR
 ## Retrieval and lifecycle
 
 PostgreSQL full-text search ranks title and summary ahead of prompt content;
-literal matching also finds identifiers, paths, and session IDs. This MVP does
-not require embeddings, a hosted LLM, or model API keys. Search returns compact
-records without the full prompt. Recall explicitly fetches one complete record.
-Agents search before saving to detect possible duplicates; the database does
-not automatically merge similar work.
+literal matching also finds identifiers, paths, and session IDs. That lexical
+path remains the default. For a nonblank query, a caller can opt into semantic
+search; the API fuses the lexical ranking with similarity from a local embedding
+model. Both the dashboard toggle and MCP argument default to disabled, preserving
+the existing search behavior unless the user requests hybrid retrieval.
+
+The dense channel embeds each hand-off's title, summary, and first 1,500 prompt
+characters with `BAAI/bge-small-en-v1.5`; queries use the model's retrieval
+prefix. Weighted reciprocal-rank fusion (`k=60`) favors the lexical channel 3:1,
+retaining exact vocabulary as the stronger signal while adding conceptual matches.
+
+The Docker build downloads the model into `/app/.embedding-cache`. The running
+API sets Hugging Face offline mode, so it requires no hosted LLM, embedding
+service, or model API key and does not send search text off the host.
+
+The PostgreSQL `handoff_embeddings` table stores one `REAL[]` vector, model/config
+tag, and SHA-256 content digest per hand-off. Semantic queries fill stale rows
+lazily in batches of 16; a text or model/config change rebuilds that row. These
+rows are disposable derived state even though they live in PostgreSQL and may appear
+in a dump: canonical hand-off rows alone are sufficient for recovery. Search
+still returns compact records without the full prompt. Recall explicitly fetches
+one complete record. Agents search before saving to detect possible duplicates;
+the database does not automatically merge similar work.
 
 Statuses are `open`, `done`, `wont-do`, and `promoted`. Default searches only
 return `open` records. Other statuses remain available through explicit filters.
@@ -70,5 +89,5 @@ A persistent volume is not a backup: operators must monitor backup health and
 copy dumps off the machine, and manage retention to avoid filling the disk.
 
 There are no assignees, dependencies, due dates, issue synchronization, automatic
-execution, memory hooks, semantic embeddings, or claims of verified freshness.
+execution, memory hooks, or claims of verified freshness.
 Skills carry the provenance warning and recheck cited state before execution.

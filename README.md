@@ -91,9 +91,11 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 - Separates prompts by project, with a project dropdown and project creation.
 - Stores full prompt text, retrieval summary, tags, source client/session/model,
   optional session URL, branch, checked commit, custom metadata, and timestamps.
-- Searches PostgreSQL full-text indexes and literal identifiers without an
-  embedding service or a model API key. Search returns summaries; recall loads
-  the complete prompt.
+- Searches PostgreSQL full-text indexes and literal identifiers by default.
+  An opt-in Semantic dashboard toggle and `search_handoffs` argument add hybrid
+  similarity ranking from a local embedding model; both default to disabled.
+  The model runs offline and needs no hosted embedding service or model API key.
+  Search returns summaries; recall loads the complete prompt.
 - Lets a user view, edit, delete, and copy prompts from the dashboard. Concurrent
   edits are detected instead of silently overwriting changes.
 - Keeps `done`, `wont-do`, and `promoted` prompts out of the default open queue,
@@ -102,7 +104,7 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 - Saves a PostgreSQL backup at startup and daily, retaining earlier dumps.
 
 It does **not** automatically execute prompts, create GitHub issues, inject
-memory hooks, infer missing session IDs, provide semantic embeddings, or act as
+memory hooks, infer missing session IDs, or act as
 a multi-user issue tracker. Prompt quality and freshness are agent workflow
 obligations; storing a commit ID is not proof the service verified anything.
 
