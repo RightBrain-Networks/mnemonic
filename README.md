@@ -29,11 +29,17 @@ Open [Mnemonic](http://localhost:3000). Create your first project using the
 project selector, then connect your agent to save hand-offs. The application
 starts empty; there are no fabricated prompts or session IDs.
 
-| Service | Local address |
-| --- | --- |
-| Dashboard | [localhost:3000](http://localhost:3000) |
-| REST API documentation | [localhost:8000/docs](http://localhost:8000/docs) |
-| MCP Streamable HTTP | `http://127.0.0.1:8001/mcp` |
+| Service | `.env` variable | Default local address |
+| --- | --- | --- |
+| Dashboard | `MNEMONIC_WEB_PORT` | [localhost:3000](http://localhost:3000) |
+| REST API documentation | `MNEMONIC_API_PORT` | [localhost:8000/docs](http://localhost:8000/docs) |
+| MCP Streamable HTTP | `MNEMONIC_MCP_PORT` | `http://127.0.0.1:8001/mcp` |
+
+Those addresses are defaults, not fixed values. Each port is set in `.env`, so
+change one there if it collides with something already running on the host, and
+substitute your own value wherever this README shows a port. `python
+scripts/check-stack.py` resolves all three from `.env` and checks that the stack
+answers on them.
 
 The four application services run alongside a small backup container. PostgreSQL
 has no published port. Dashboard, REST, and MCP ports bind to loopback only.
@@ -44,16 +50,23 @@ For LAN access through your existing nginx TLS proxy, use the
 ## Connect Claude Code
 
 Set `MNEMONIC_API_KEY` in the terminal environment to the key from your private
-`.env` file, then register the HTTP MCP endpoint:
+`.env` file. Set `MNEMONIC_MCP_PORT` as well if you changed it from the default.
+Then register the HTTP MCP endpoint:
 
 ```sh
-claude mcp add --transport http --scope user mnemonic http://127.0.0.1:8001/mcp --header "Authorization: Bearer ${MNEMONIC_API_KEY}"
+claude mcp add --transport http --scope user mnemonic "http://127.0.0.1:${MNEMONIC_MCP_PORT:-8001}/mcp" --header "Authorization: Bearer ${MNEMONIC_API_KEY}"
 ```
 
-In PowerShell, the header expression is
-`"Authorization: Bearer $env:MNEMONIC_API_KEY"`. Do not paste the real key into
+Registering the endpoint does not connect it to a running session. Claude Code
+loads MCP servers at startup, so start a new session afterwards.
+
+In PowerShell, the URL and header expressions are
+`"http://127.0.0.1:$env:MNEMONIC_MCP_PORT/mcp"` and
+`"Authorization: Bearer $env:MNEMONIC_API_KEY"`; PowerShell has no `:-` default,
+so set the port variable explicitly there. Do not paste the real key into
 tracked project configuration. Configuration examples, including a Docker stdio
-alternative and OpenCode, live in [`examples/`](examples/).
+alternative and OpenCode, live in [`examples/`](examples/); they show the
+default ports and need the same substitution if yours differ.
 
 Copy the three folders under [`skills/`](skills/) into the target project's
 `.claude/skills/` directory, or into `~/.claude/skills/` for personal use:
