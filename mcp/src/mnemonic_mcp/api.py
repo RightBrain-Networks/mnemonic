@@ -13,7 +13,7 @@ _VALIDATION_FIELDS = frozenset({
     "name", "slug", "description", "repository_url", "project_id", "handoff_id",
     "title", "summary", "prompt", "source_client", "source_session_id", "source_model",
     "source_session_url", "repository_branch", "verified_against", "tags", "source_metadata",
-    "status", "q", "semantic", "tag", "limit", "offset", "expected_version",
+    "status", "body", "q", "semantic", "tag", "limit", "offset", "expected_version",
 })
 
 
@@ -60,7 +60,7 @@ class MnemonicAPI:
         if response.status_code == 404:
             raise ToolError("The requested project or hand-off was not found in this project.")
         if response.status_code == 409:
-            if method in {"PATCH", "DELETE"}:
+            if method in {"PATCH", "DELETE"} or path.endswith("/complete"):
                 raise ToolError(
                     "Version conflict. Recall the latest hand-off and review the changes before retrying."
                 )

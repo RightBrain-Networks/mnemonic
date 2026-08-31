@@ -7,6 +7,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 Status = Literal["open", "done", "wont-do", "promoted"]
+UpdateStatus = Literal["open", "wont-do", "promoted"]
+CommentKind = Literal["comment", "work-summary"]
 SearchStatus = Literal["open", "done", "wont-do", "promoted", "all"]
 
 
@@ -61,6 +63,29 @@ class HandoffPage(BaseModel):
     offset: int
 
 
+class HandoffComment(BaseModel):
+    id: UUID
+    handoff_id: UUID
+    body: str
+    kind: CommentKind
+    source_client: str
+    source_session_id: str
+    source_model: str | None
+    created_at: datetime
+
+
+class HandoffCommentPage(BaseModel):
+    items: list[HandoffComment]
+    total: int
+    limit: int
+    offset: int
+
+
+class HandoffCompletion(BaseModel):
+    handoff: Handoff
+    comment: HandoffComment
+
+
 class HandoffChanges(BaseModel):
     """Only supplied fields change. Explicit null clears a nullable field."""
 
@@ -73,7 +98,7 @@ class HandoffChanges(BaseModel):
     verified_against: str | None = Field(default=None, pattern=r"^[0-9a-fA-F]{7,64}$")
     tags: list[str] | None = Field(default=None, max_length=20)
     source_metadata: dict[str, JsonValue] | None = None
-    status: Status | None = None
+    status: UpdateStatus | None = None
 
     @model_validator(mode="after")
     def require_changes(self) -> "HandoffChanges":

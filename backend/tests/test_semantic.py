@@ -2,7 +2,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from mnemonic_api.semantic import EMBED_BODY_CHARS, cosine_similarity, embedding_text
+from mnemonic_api.semantic import (
+    EMBED_BODY_CHARS,
+    EMBED_COMMENT_CHARS,
+    cosine_similarity,
+    embedding_text,
+)
 
 
 def test_cosine_similarity_rejects_invalid_vectors():
@@ -21,3 +26,11 @@ def test_embedding_text_is_bounded_and_preserves_retrieval_fields():
     )
     text = embedding_text(handoff)
     assert text == f"Title\nRetrieval summary\n{'p' * EMBED_BODY_CHARS}"
+
+
+def test_embedding_text_includes_bounded_recent_comments():
+    handoff = SimpleNamespace(title="Title", summary="Summary", prompt="Prompt")
+    text = embedding_text(handoff, ["old", "x" * EMBED_COMMENT_CHARS, "new"])
+    assert text.startswith("Title\nSummary\nPrompt\n")
+    assert text.endswith("new")
+    assert len(text.split("Prompt\n", 1)[1]) == EMBED_COMMENT_CHARS

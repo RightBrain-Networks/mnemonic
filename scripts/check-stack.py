@@ -120,6 +120,9 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "save_handoff",
                         "search_handoffs",
                         "recall_handoff",
+                        "list_handoff_comments",
+                        "add_handoff_comment",
+                        "complete_handoff",
                         "update_handoff",
                         "delete_handoff",
                     },
@@ -213,15 +216,52 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         conflict.status_code == 409, "A stale edit was not rejected."
                     )
-                    done = await tool(
+                    progress_body = (
+                        "Live validation reached the completion step after an exact recall, "
+                        "dashboard edit, and stale-version rejection."
+                    )
+                    progress = await tool(
                         session,
-                        "update_handoff",
+                        "add_handoff_comment",
+                        {
+                            **identity,
+                            "body": progress_body,
+                            "source_client": "mnemonic-stack-check",
+                            "source_session_id": run_id,
+                        },
+                    )
+                    require(
+                        progress["body"] == progress_body
+                        and progress["kind"] == "comment",
+                        "Progress comment did not survive MCP -> REST -> database.",
+                    )
+                    timeline = await tool(session, "list_handoff_comments", identity)
+                    require(
+                        timeline["total"] == 1
+                        and timeline["items"][0]["id"] == progress["id"],
+                        "Progress timeline is incomplete.",
+                    )
+                    completion = await tool(
+                        session,
+                        "complete_handoff",
                         {
                             **identity,
                             "expected_version": current["version"],
-                            "changes": {"status": "done"},
+                            "summary": (
+                                "Synthetic validation completed: exact storage, search, "
+                                "recall, dashboard edit, conflict detection, and progress "
+                                "comments were observed working."
+                            ),
+                            "source_client": "mnemonic-stack-check",
+                            "source_session_id": run_id,
                         },
                     )
+                    require(
+                        completion["handoff"]["status"] == "done"
+                        and completion["comment"]["kind"] == "work-summary",
+                        "Completion did not atomically save its summary and done status.",
+                    )
+                    done = completion["handoff"]
                     found = await tool(
                         session,
                         "search_handoffs",
@@ -250,7 +290,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "Deleted prompt is still readable.",
                     )
                     print(
-                        "PASS: MCP save/search/recall/resource/prompt, browser proxy edit, conflicts, lifecycle and deletion"
+                        "PASS: MCP save/search/recall/resource/prompt, comments, completion summary, browser proxy edit, conflicts, lifecycle and deletion"
                     )
                 finally:
                     if saved is not None:

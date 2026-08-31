@@ -2,6 +2,8 @@ const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-
 const PROJECT = new RegExp(`^projects/${UUID}$`);
 const HANDOFFS = new RegExp(`^projects/${UUID}/handoffs$`);
 const HANDOFF = new RegExp(`^projects/${UUID}/handoffs/${UUID}$`);
+const COMMENTS = new RegExp(`^projects/${UUID}/handoffs/${UUID}/comments$`);
+const COMPLETE = new RegExp(`^projects/${UUID}/handoffs/${UUID}/complete$`);
 
 export function allowedQueryKeys(path: string, method: string): string[] | null {
   if (path === "projects") {
@@ -17,6 +19,11 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     if (method === "GET" || method === "PATCH") return [];
     if (method === "DELETE") return ["expected_version"];
   }
+  if (COMMENTS.test(path)) {
+    if (method === "GET") return ["limit", "offset"];
+    if (method === "POST") return [];
+  }
+  if (COMPLETE.test(path) && method === "POST") return [];
   return null;
 }
 

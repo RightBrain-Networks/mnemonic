@@ -96,6 +96,9 @@ Summary = Annotated[
 Prompt = Annotated[
     str, StringConstraints(min_length=1, max_length=100000), AfterValidator(nonblank)
 ]
+CommentBody = Annotated[
+    str, StringConstraints(min_length=1, max_length=50000), AfterValidator(nonblank)
+]
 ClientName = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=80),
@@ -132,6 +135,7 @@ Tag = Annotated[
 Tags = Annotated[list[Tag], Field(max_length=20)]
 Metadata = Annotated[dict[str, JsonValue], AfterValidator(metadata_is_bounded)]
 Status = Literal["open", "done", "wont-do", "promoted"]
+CreateStatus = Literal["open", "wont-do", "promoted"]
 ProjectName = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
@@ -207,7 +211,7 @@ class HandoffCreate(APIModel):
     verified_against: CommitID | None = None
     tags: Tags = Field(default_factory=list)
     source_metadata: Metadata = Field(default_factory=dict)
-    status: Status = "open"
+    status: CreateStatus = "open"
 
     @field_validator("tags")
     @classmethod
@@ -240,6 +244,8 @@ class HandoffPatch(APIModel):
         for field in fields - nullable_fields:
             if getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")
+        if "status" in fields and self.status == "done":
+            raise ValueError("Use the completion endpoint so done work has a durable summary")
         return self
 
 
@@ -264,6 +270,41 @@ class HandoffRead(HandoffSummary):
     source_metadata: dict[str, JsonValue]
 
 
+class HandoffCommentCreate(APIModel):
+    body: CommentBody
+    source_client: ClientName
+    source_session_id: SessionID
+    source_model: ModelName | None = None
+
+
+class HandoffCompletionCreate(APIModel):
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+    summary: CommentBody
+    source_client: ClientName
+    source_session_id: SessionID
+    source_model: ModelName | None = None
+
+
+class HandoffCommentRead(APIModel):
+    id: UUID
+    handoff_id: UUID
+    body: str
+    kind: Literal["comment", "work-summary"]
+    source_client: str
+    source_session_id: str
+    source_model: str | None
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def utc_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class HandoffCompletionRead(APIModel):
+    handoff: HandoffRead
+    comment: HandoffCommentRead
+
+
 class Page[T](APIModel):
     items: list[T]
     total: int
@@ -272,6 +313,11 @@ class Page[T](APIModel):
 
 
 class ProjectListQuery(APIModel):
+    limit: int = Field(default=100, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class HandoffCommentListQuery(APIModel):
     limit: int = Field(default=100, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
 

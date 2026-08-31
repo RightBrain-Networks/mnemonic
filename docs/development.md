@@ -35,7 +35,8 @@ $env:TEST_DATABASE_URL = 'postgresql+psycopg://mnemonic_test:mnemonic_test_only@
 Tests apply the real Alembic migration in an isolated random schema, then remove
 that schema. They cover authentication, project isolation, full-text ranking and
 stemming, literal identifier/path matching, opt-in hybrid ranking,
-embedding-cache invalidation, lifecycle filtering, pagination, soft deletion,
+embedding-cache invalidation, searchable append-only comments, atomic completion
+summaries, lifecycle filtering, pagination, project isolation, soft deletion,
 concurrent version checks, and hostile JSON validation. Semantic test cases use
 a deterministic
 local test embedder and disposable cache, so the suite does not download a model
@@ -101,12 +102,14 @@ uv run --project mcp python scripts/check-stack.py --project-id YOUR_TEST_PROJEC
 
 Supply `--other-project-id` for a cross-project negative check. The script tests
 actual MCP → REST → PostgreSQL communication, the dashboard server proxy,
-authentication, exact prompt/provenance preservation, compact search, MCP
-resources/prompts, conflicting edits, completion filtering, and deletion.
+authentication, exact prompt/provenance preservation, compact search, progress
+comment writes/listing, timeline-bearing MCP resources/prompts, conflicting
+edits, atomic completion summaries, lifecycle filtering, and deletion.
 
 For a browser pass, exercise the first-project empty state, project switching,
-search, status filters, prompt copy, cancel/save edits, deletion confirmation,
-and recovery from a stale version. With a nonblank search, confirm Semantic starts
+search, status filters, prompt copy, cancel/save edits, progress comments,
+completion with a work summary, deletion confirmation, and recovery from a stale
+version. With a nonblank search, confirm Semantic starts
 disabled, enabling it completes a hybrid request, and disabling it restores the
 ordinary lexical request. Repeat the enabled query once after its initial cache
 population. Confirm a narrow viewport remains usable.

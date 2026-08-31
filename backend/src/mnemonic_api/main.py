@@ -18,8 +18,13 @@ from sqlalchemy.orm import Session, defer
 
 from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine, build_session_factory, get_session
-from mnemonic_api.models import Handoff, Project
+from mnemonic_api.models import Handoff, HandoffComment, Project
 from mnemonic_api.schemas import (
+    HandoffCommentCreate,
+    HandoffCommentListQuery,
+    HandoffCommentRead,
+    HandoffCompletionCreate,
+    HandoffCompletionRead,
     HandoffCreate,
     HandoffListQuery,
     HandoffPatch,
@@ -190,9 +195,24 @@ def search_handoffs(
             Handoff.verified_against,
             func.array_to_string(Handoff.tags, " "),
         ]
+        comment_match = (
+            select(HandoffComment.id)
+            .where(
+                HandoffComment.handoff_id == Handoff.id,
+                or_(
+                    HandoffComment.search_vector.bool_op("@@")(terms),
+                    HandoffComment.body.icontains(query, autoescape=True),
+                    HandoffComment.source_client.icontains(query, autoescape=True),
+                    HandoffComment.source_session_id.icontains(query, autoescape=True),
+                    HandoffComment.source_model.icontains(query, autoescape=True),
+                ),
+            )
+            .exists()
+        )
         lexical_match = or_(
             full_text_match,
             *(field.icontains(query, autoescape=True) for field in literal_fields),
+            comment_match,
         )
         if not semantic_search:
             conditions.append(lexical_match)
@@ -248,6 +268,87 @@ def search_handoffs(
         total=total,
         limit=filters.limit,
         offset=filters.offset,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/handoffs/{handoff_id}/comments",
+    response_model=Page[HandoffCommentRead],
+)
+def list_handoff_comments(
+    project_id: UUID,
+    handoff_id: UUID,
+    filters: Annotated[HandoffCommentListQuery, Query()],
+    database: Database,
+) -> Page[HandoffCommentRead]:
+    require_handoff(database, project_id, handoff_id)
+    condition = HandoffComment.handoff_id == handoff_id
+    total = database.scalar(select(func.count()).select_from(HandoffComment).where(condition)) or 0
+    comments = database.scalars(
+        select(HandoffComment)
+        .where(condition)
+        .order_by(HandoffComment.created_at, HandoffComment.id)
+        .limit(filters.limit)
+        .offset(filters.offset)
+    )
+    return Page(
+        items=[HandoffCommentRead.model_validate(comment) for comment in comments],
+        total=total,
+        limit=filters.limit,
+        offset=filters.offset,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/handoffs/{handoff_id}/comments",
+    response_model=HandoffCommentRead,
+    status_code=201,
+)
+def add_handoff_comment(
+    project_id: UUID,
+    handoff_id: UUID,
+    payload: HandoffCommentCreate,
+    database: Database,
+) -> HandoffComment:
+    handoff = require_handoff(database, project_id, handoff_id)
+    comment = HandoffComment(handoff_id=handoff.id, kind="comment", **payload.model_dump())
+    database.add(comment)
+    handoff.updated_at = datetime.now(UTC)
+    database.commit()
+    database.refresh(comment)
+    return comment
+
+
+@router.post(
+    "/projects/{project_id}/handoffs/{handoff_id}/complete",
+    response_model=HandoffCompletionRead,
+)
+def complete_handoff(
+    project_id: UUID,
+    handoff_id: UUID,
+    payload: HandoffCompletionCreate,
+    database: Database,
+) -> HandoffCompletionRead:
+    handoff = require_handoff(database, project_id, handoff_id, lock=True)
+    require_version(handoff, payload.expected_version)
+    comment = HandoffComment(
+        handoff_id=handoff.id,
+        body=payload.summary,
+        kind="work-summary",
+        source_client=payload.source_client,
+        source_session_id=payload.source_session_id,
+        source_model=payload.source_model,
+    )
+    database.add(comment)
+    handoff.status = "done"
+    handoff.version += 1
+    handoff.updated_at = datetime.now(UTC)
+    database.commit()
+    database.refresh(handoff)
+    database.refresh(comment)
+    return HandoffCompletionRead(
+        handoff=HandoffRead.model_validate(handoff),
+        comment=HandoffCommentRead.model_validate(comment),
     )
 
 

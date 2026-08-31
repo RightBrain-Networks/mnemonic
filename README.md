@@ -1,8 +1,9 @@
 # Mnemonic
 
 A durable home for the work an AI session leaves behind. Save complete hand-off
-prompts, find them by project, and pick them up in a fresh session without
-reconstructing the context.
+prompts, carry progress forward through append-only comments, and preserve what a
+completing session changed and verified. Work can span sessions without
+reconstructing its history.
 
 Mnemonic is a standalone, local-first application: **PostgreSQL + FastAPI +
 Next.js**, with an **MCP server that calls the REST API**. It does not modify
@@ -75,8 +76,9 @@ Copy the three folders under [`skills/`](skills/) into the target project's
   saves its real originating client, session ID, and relevant metadata.
 - **`mnemonic-search`** finds compact leads within the chosen project, normally
   restricted to open work.
-- **`mnemonic-recall`** retrieves the full prompt and checks its provenance and
-  cited state before continuing work the user has authorized.
+- **`mnemonic-recall`** retrieves the full prompt and progress log, checks
+  provenance and cited state, records useful session progress, and saves a work
+  summary when authorized work is complete.
 
 Invoke `/mnemonic-save`, `/mnemonic-search`, or `/mnemonic-recall`, or ask Claude
 in natural language. The skills require the connected `mnemonic` MCP server.
@@ -95,17 +97,21 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   An opt-in Semantic dashboard toggle and `search_handoffs` argument add hybrid
   similarity ranking from a local embedding model; both default to disabled.
   The model runs offline and needs no hosted embedding service or model API key.
-  Search returns summaries; recall loads the complete prompt.
-- Lets a user view, edit, delete, and copy prompts from the dashboard. Concurrent
-  edits are detected instead of silently overwriting changes.
+  Comment text participates in lexical and semantic retrieval. Search returns
+  compact summaries; recall loads the complete prompt and progress timeline.
+- Lets a user view, edit, delete, and copy prompts from the dashboard, append
+  progress comments, and complete work with a required summary. Concurrent edits
+  and completions are detected instead of silently overwriting changes.
 - Keeps `done`, `wont-do`, and `promoted` prompts out of the default open queue,
   while retaining them under explicit filters. Deleted prompts are hidden from
   ordinary reads but retained in the database for recovery.
 - Saves a PostgreSQL backup at startup and daily, retaining earlier dumps.
 
 It does **not** automatically execute prompts, create GitHub issues, inject
-memory hooks, infer missing session IDs, or act as
-a multi-user issue tracker. Prompt quality and freshness are agent workflow
+memory hooks, infer missing session IDs, or provide a general-purpose multi-user
+human issue tracker. Mnemonic is deliberately LLM-centric: comments are durable
+session checkpoints, and completion summaries record an agent's claims rather
+than server-verified proof. Prompt quality and freshness remain agent workflow
 obligations; storing a commit ID is not proof the service verified anything.
 
 ## Operate and develop

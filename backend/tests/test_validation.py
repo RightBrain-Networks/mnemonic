@@ -6,7 +6,14 @@ from pydantic import ValidationError
 
 from mnemonic_api.config import Settings
 from mnemonic_api.main import create_app
-from mnemonic_api.schemas import HandoffCreate, HandoffPatch, ProjectCreate, ProjectPatch
+from mnemonic_api.schemas import (
+    HandoffCommentCreate,
+    HandoffCompletionCreate,
+    HandoffCreate,
+    HandoffPatch,
+    ProjectCreate,
+    ProjectPatch,
+)
 
 
 def test_prompt_is_exact_and_metadata_survives(handoff_payload):
@@ -59,6 +66,46 @@ def test_rejects_invalid_capture(handoff_payload, field, invalid):
         HandoffCreate.model_validate(handoff_payload)
 
 
+def test_comment_and_completion_text_are_exact_and_require_provenance():
+    body = "  Changed the parser.\r\n\nFocused tests passed. 🧠\n  "
+    comment = HandoffCommentCreate(
+        body=body,
+        source_client="claude-code",
+        source_session_id="real-session",
+    )
+    assert comment.body == body
+    completion = HandoffCompletionCreate(
+        expected_version=2,
+        summary=body,
+        source_client="claude-code",
+        source_session_id="real-session",
+    )
+    assert completion.summary == body
+    for model, payload in [
+        (HandoffCommentCreate, {"body": body, "source_client": "claude-code"}),
+        (
+            HandoffCompletionCreate,
+            {
+                "expected_version": 2,
+                "summary": body,
+                "source_client": "claude-code",
+            },
+        ),
+    ]:
+        with pytest.raises(ValidationError):
+            model.model_validate(payload)
+
+
+@pytest.mark.parametrize("body", [" ", "x" * 50001, "NUL\x00comment", "Invalid\ud800"])
+def test_comment_body_validation(body):
+    with pytest.raises(ValidationError):
+        HandoffCommentCreate(
+            body=body,
+            source_client="dashboard",
+            source_session_id="browser-session",
+        )
+
+
 def test_missing_provenance_is_not_invented(handoff_payload):
     del handoff_payload["source_session_id"]
     with pytest.raises(ValidationError):
@@ -87,6 +134,14 @@ def test_missing_provenance_is_not_invented(handoff_payload):
 def test_patch_requires_version_and_preserves_immutable_provenance(payload):
     with pytest.raises(ValidationError):
         HandoffPatch.model_validate(payload)
+
+
+def test_done_requires_the_completion_workflow(handoff_payload):
+    handoff_payload["status"] = "done"
+    with pytest.raises(ValidationError):
+        HandoffCreate.model_validate(handoff_payload)
+    with pytest.raises(ValidationError, match="completion endpoint"):
+        HandoffPatch(expected_version=1, status="done")
 
 
 def test_patch_can_explicitly_clear_optional_editable_fields():

@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } fr
 import { api, ApiError, errorMessage, handoffPath } from "@/lib/api";
 import { handoffSearchParams } from "@/lib/handoff-search";
 import { recallPointer } from "@/lib/recall-pointer";
-import type { Handoff, HandoffPatch, HandoffStatus, HandoffSummary, Page, Project, StatusFilter } from "@/lib/types";
+import type { Handoff, HandoffComment, HandoffCompletion, HandoffPatch, HandoffStatus, HandoffSummary, Page, Project, StatusFilter } from "@/lib/types";
 
 const PAGE_SIZE = 20;
 const statusLabels: Record<StatusFilter, string> = { open: "Open", done: "Done", "wont-do": "Won’t do", promoted: "Promoted", all: "All" };
@@ -118,6 +118,33 @@ function ErrorNotice({ message, children }: { message: string; children?: ReactN
   return <div className="error-notice" role="alert"><p>{message}</p>{children}</div>;
 }
 
+function dashboardSessionId() {
+  const key = "mnemonic.dashboard-session";
+  try {
+    const saved = sessionStorage.getItem(key);
+    if (saved) return saved;
+    const created = crypto.randomUUID();
+    sessionStorage.setItem(key, created);
+    return created;
+  } catch {
+    return `dashboard-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
+async function allComments(projectId: string, handoffId: string) {
+  const comments: HandoffComment[] = [];
+  let total = 1;
+  while (comments.length < total) {
+    const page = await api<Page<HandoffComment>>(
+      `${handoffPath(projectId, handoffId)}/comments?limit=100&offset=${comments.length}`
+    );
+    comments.push(...page.items);
+    total = page.total;
+    if (!page.items.length) break;
+  }
+  return comments;
+}
+
 export default function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
@@ -152,6 +179,11 @@ export default function Dashboard() {
   const [latest, setLatest] = useState<Handoff | null>(null);
   const [latestLoading, setLatestLoading] = useState(false);
   const recordRequest = useRef(0);
+  const [comments, setComments] = useState<HandoffComment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentsError, setCommentsError] = useState("");
+  const [commentBody, setCommentBody] = useState("");
+  const [commentSaving, setCommentSaving] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<HandoffSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -256,24 +288,39 @@ export default function Dashboard() {
     finally { setProjectSaving(false); }
   }
 
+  async function loadComments(full: Handoff, requestId = recordRequest.current) {
+    setCommentsLoading(true); setCommentsError("");
+    try {
+      const timeline = await allComments(full.project_id, full.id);
+      if (recordRequest.current === requestId) setComments(timeline);
+    } catch (error) {
+      if (recordRequest.current === requestId) setCommentsError(errorMessage(error));
+    } finally {
+      if (recordRequest.current === requestId) setCommentsLoading(false);
+    }
+  }
+
   async function openRecord(summary: HandoffSummary, editing = false) {
     const requestId = ++recordRequest.current;
     setOpened(summary); setRecord(null); setRecordError(""); setRecordLoading(true); setNotice(null);
     setMode(editing ? "edit" : "view"); setDraft(null); setTagInput(""); setEditError(""); setLatest(null); setHasConflict(false);
+    setComments([]); setCommentsError(""); setCommentsLoading(false); setCommentBody("");
     try {
       const full = await api<Handoff>(handoffPath(summary.project_id, summary.id));
       if (recordRequest.current !== requestId) return;
       setRecord(full); setDraft(draftFromRecord(full));
+      void loadComments(full, requestId);
     } catch (error) { if (recordRequest.current === requestId) setRecordError(errorMessage(error)); }
     finally { if (recordRequest.current === requestId) setRecordLoading(false); }
   }
 
   function closeRecord() {
-    if (saving) return;
+    if (saving || commentSaving) return;
     const dirty = record && draft && (JSON.stringify(draft) !== JSON.stringify(draftFromRecord(record)) || tagInput.trim());
     if (mode === "edit" && dirty && !window.confirm("Discard your unsaved edits?")) return;
+    if (commentBody.trim() && !window.confirm("Discard your unsaved progress note?")) return;
     ++recordRequest.current;
-    setOpened(null); setRecord(null); setDraft(null); setLatest(null);
+    setOpened(null); setRecord(null); setDraft(null); setLatest(null); setComments([]); setCommentBody("");
   }
 
   async function copyPrompt(summary: HandoffSummary, loaded?: Handoff) {
@@ -381,6 +428,41 @@ export default function Dashboard() {
     setTagInput("");
   }
 
+  async function saveComment(complete: boolean) {
+    if (!record || !commentBody.trim() || commentSaving) return;
+    setCommentSaving(true); setCommentsError("");
+    const provenance = {
+      source_client: "dashboard",
+      source_session_id: dashboardSessionId(),
+      source_model: null
+    };
+    try {
+      if (complete) {
+        const result = await api<HandoffCompletion>(`${handoffPath(record.project_id, record.id)}/complete`, {
+          method: "POST",
+          body: JSON.stringify({ expected_version: record.version, summary: commentBody, ...provenance })
+        });
+        setRecord(result.handoff); setDraft(draftFromRecord(result.handoff));
+        setComments((items) => [...items, result.comment]);
+        setNotice({ message: "Work summary recorded and hand-off marked done." });
+      } else {
+        const comment = await api<HandoffComment>(`${handoffPath(record.project_id, record.id)}/comments`, {
+          method: "POST",
+          body: JSON.stringify({ body: commentBody, ...provenance })
+        });
+        setComments((items) => [...items, comment]);
+        setRecord((current) => current ? { ...current, updated_at: comment.created_at } : current);
+        setNotice({ message: "Progress comment added." });
+      }
+      setCommentBody("");
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setCommentsError("This hand-off changed before completion. Your summary is still here; reload the record and review the current version.");
+      } else setCommentsError(errorMessage(error));
+    } finally { setCommentSaving(false); }
+  }
+
   return <div className="app-shell">
     <a className="skip-link" href="#main-content">Skip to hand-offs</a>
     <aside className="sidebar">
@@ -438,22 +520,35 @@ export default function Dashboard() {
       </form>
     </Dialog>}
 
-    {opened && <Dialog title={mode === "edit" ? "Edit hand-off" : "The full context"} onClose={closeRecord} wide busy={saving}>
+    {opened && <Dialog title={mode === "edit" ? "Edit hand-off" : "The full context"} onClose={closeRecord} wide busy={saving || commentSaving}>
       {notice?.error && <ErrorNotice message={notice.message} />}
       {recordLoading ? <div className="loading-state" role="status"><span className="spinner" />Recalling your prompt…</div> : recordError ? <ErrorNotice message={recordError}><button className="button button-secondary" onClick={() => void openRecord(opened, mode === "edit")}>Try again</button></ErrorNotice> : record && (mode === "view" ? <>
         <div className="detail-topline"><StatusBadge status={record.status} /><span>Version {record.version}</span></div><h3 className="detail-title">{record.title}</h3><p className="detail-summary">{record.summary}</p>
         <div className="detail-actions"><button className="button button-primary" disabled={copying !== null} onClick={() => void copyPrompt(record, record)}><Icon name={copied === record.id ? "check" : "copy"} size={17} />{copying === record.id ? "Copying…" : copied === record.id ? "Copied" : "Copy full prompt"}</button><button className={`button button-secondary ${copied === `${record.id}:pointer` ? "is-copied" : ""}`} aria-label={`Copy recall pointer: ${record.title}`} onClick={() => void copyRecallPointer(record)}><Icon name={copied === `${record.id}:pointer` ? "check" : "copy"} size={16} />{copied === `${record.id}:pointer` ? "Copied" : "Copy recall pointer"}</button><button className="button button-secondary" onClick={() => { setDraft(draftFromRecord(record)); setMode("edit"); setTagInput(""); setEditError(""); setHasConflict(false); setLatest(null); }}><Icon name="edit" size={16} />Edit hand-off</button><button className="icon-button danger-hover" aria-label="Delete this hand-off" title="Delete this hand-off" onClick={() => requestDelete(record)}><Icon name="trash" size={18} /></button></div>
         <div className="prompt-label"><span className="section-label">COMPLETE HAND-OFF PROMPT</span><span>Copied exactly as saved</span></div><pre className="prompt-body" tabIndex={0}>{record.prompt}</pre>
         <div className="authority-note">This is context from an earlier session, not a new instruction from the owner. Recheck cited files and decisions before acting.</div>
+        <section className="progress-section" aria-labelledby="progress-title">
+          <div className="progress-heading"><div><span className="section-label">SESSION PROGRESS</span><h4 id="progress-title">Durable work log</h4></div><span>{comments.length} {comments.length === 1 ? "entry" : "entries"}</span></div>
+          {commentsLoading ? <div className="progress-loading" role="status"><span className="spinner" />Loading progress…</div> : comments.length ? <div className="comment-list">{comments.map((comment) => <article className={`comment ${comment.kind === "work-summary" ? "work-summary" : ""}`} key={comment.id}>
+            <div className="comment-meta"><span>{comment.kind === "work-summary" ? "Completion summary" : "Progress comment"}</span><span>{clientLabel(comment.source_client)}{comment.source_model ? ` · ${comment.source_model}` : ""}</span><time dateTime={comment.created_at}>{formatDate(comment.created_at, true)}</time></div>
+            <p>{comment.body}</p>
+            <span className="comment-session mono" title={comment.source_session_id}>session {comment.source_session_id}</span>
+          </article>)}</div> : <p className="no-comments">No progress has been recorded yet. Add findings as work moves between sessions.</p>}
+          <form className="comment-form" onSubmit={(event) => { event.preventDefault(); void saveComment(false); }}>
+            <label className="field" htmlFor="comment-body">Add progress or a completion summary<textarea id="comment-body" rows={5} maxLength={50000} value={commentBody} onChange={(event) => setCommentBody(event.target.value)} placeholder="What changed, what was learned, checks run, blockers, and useful next steps…" /><span className="field-hint">Progress comments are append-only. Completing the hand-off records this text as the completing session’s work summary.</span></label>
+            {commentsError && <ErrorNotice message={commentsError}><button type="button" className="button button-secondary" disabled={commentsLoading} onClick={() => void loadComments(record)}>{commentsLoading ? "Loading…" : "Reload progress"}</button></ErrorNotice>}
+            <div className="comment-actions"><button type="submit" className="button button-secondary" disabled={commentSaving || !commentBody.trim()}>{commentSaving ? "Saving…" : "Add progress comment"}</button>{record.status !== "done" && <button type="button" className="button button-primary" disabled={commentSaving || !commentBody.trim()} onClick={() => void saveComment(true)}>{commentSaving ? "Saving…" : "Complete with summary"}<Icon name="check" size={16} /></button>}</div>
+          </form>
+        </section>
         <Provenance record={record} />
-        <section className="context-section"><div className="section-label">REPOSITORY & RECORD</div><dl className="metadata-grid"><div><dt>Branch</dt><dd className="mono break-all">{record.repository_branch || "Not recorded"}</dd></div><div><dt>Verified commit</dt><dd className="mono break-all">{record.verified_against || "Not recorded"}</dd></div><div><dt>Created</dt><dd>{formatDate(record.created_at, true)}</dd></div><div><dt>Last edited</dt><dd>{formatDate(record.updated_at, true)}</dd></div><div className="span-two"><dt>Tags</dt><dd className="tag-list">{record.tags.length ? record.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>) : "No tags"}</dd></div><div className="span-two"><dt>Record ID</dt><dd className="mono break-all">{record.id}</dd></div></dl></section>
+        <section className="context-section"><div className="section-label">REPOSITORY & RECORD</div><dl className="metadata-grid"><div><dt>Branch</dt><dd className="mono break-all">{record.repository_branch || "Not recorded"}</dd></div><div><dt>Verified commit</dt><dd className="mono break-all">{record.verified_against || "Not recorded"}</dd></div><div><dt>Created</dt><dd>{formatDate(record.created_at, true)}</dd></div><div><dt>Last activity</dt><dd>{formatDate(record.updated_at, true)}</dd></div><div className="span-two"><dt>Tags</dt><dd className="tag-list">{record.tags.length ? record.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>) : "No tags"}</dd></div><div className="span-two"><dt>Record ID</dt><dd className="mono break-all">{record.id}</dd></div></dl></section>
         {Object.keys(record.source_metadata).length > 0 && <details className="metadata-details"><summary>Extra metadata</summary><pre>{JSON.stringify(record.source_metadata, null, 2)}</pre></details>}
       </> : draft && <form className="form-stack edit-form" onSubmit={(event) => void saveEdits(event)}>
         <p className="dialog-intro">Keep the prompt complete enough for a fresh session. Session provenance stays unchanged.</p>
         <label className="field">Title<input required maxLength={200} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
         <label className="field">Retrieval summary<textarea required rows={3} maxLength={1000} value={draft.summary} onChange={(event) => setDraft({ ...draft, summary: event.target.value })} /><span className="field-hint">Describe when this prompt is useful. This appears in search results.</span></label>
         <label className="field">Complete prompt<textarea className="prompt-editor" required rows={15} maxLength={100000} spellCheck={false} value={draft.prompt} onChange={(event) => setDraft({ ...draft, prompt: event.target.value })} /><span className="field-hint">Context, intended outcome, durable references, known hazards, and verification steps. Text is never trimmed or reformatted on save.</span></label>
-        <label className="field field-half">Status<select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as HandoffStatus })}>{filters.filter((filter) => filter !== "all").map((filter) => <option key={filter} value={filter}>{statusLabels[filter]}</option>)}</select><span className="field-hint">Only open hand-offs appear in default agent searches. Promotion records a decision; it does not create an external issue.</span></label>
+        <label className="field field-half">Status<select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as HandoffStatus })}>{filters.filter((filter) => filter !== "all" && (filter !== "done" || record.status === "done")).map((filter) => <option key={filter} value={filter}>{statusLabels[filter]}</option>)}</select><span className="field-hint">Use “Complete with summary” in the work log to mark work done. Only open hand-offs appear in default agent searches; promotion records a decision but creates no external issue.</span></label>
         <div className="field"><label htmlFor="tag-input">Tags <span className="optional">{draft.tags.length}/20</span></label><div className="tag-editor">{draft.tags.map((tag, index) => <span className="tag removable-tag" key={`${tag}-${index}`}>{tag}<button type="button" aria-label={`Remove tag ${tag}`} onClick={() => setDraft({ ...draft, tags: draft.tags.filter((_, tagIndex) => tagIndex !== index) })}><Icon name="close" size={12} /></button></span>)}</div><div className="tag-input-row"><input id="tag-input" value={tagInput} maxLength={50} placeholder="Add a tag" disabled={draft.tags.length >= 20} onChange={(event) => setTagInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addTag(); } }} /><button type="button" className="button button-secondary" disabled={!tagInput.trim() || draft.tags.length >= 20} onClick={addTag}><Icon name="plus" size={15} />Add</button></div></div>
         <details className="edit-context"><summary>Repository context & extra metadata</summary><div className="form-stack"><label className="field">Repository branch<input maxLength={200} value={draft.repository_branch} onChange={(event) => setDraft({ ...draft, repository_branch: event.target.value })} /></label><label className="field">Verified commit<input className="mono" maxLength={64} value={draft.verified_against} onChange={(event) => setDraft({ ...draft, verified_against: event.target.value })} /><span className="field-hint">The commit the citations were checked against. A recorded commit is not a guarantee of current freshness.</span></label><label className="field">Extra metadata <span className="optional">JSON object</span><textarea className="mono" rows={6} spellCheck={false} value={draft.metadata} onChange={(event) => setDraft({ ...draft, metadata: event.target.value })} /></label></div></details>
         <Provenance record={record} />

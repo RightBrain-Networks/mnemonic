@@ -84,6 +84,21 @@ def test_semantic_search_finds_dense_only_matches_and_reuses_digest_cache(
     assert updated.status_code == 200
     api.get(path(project), params={"q": query, "semantic": "true"})
     assert [len(batch) for batch in embedder.document_batches] == [2, 1]
+    comment = api.post(
+        f"{path(project)}/{target['id']}/comments",
+        json={
+            "body": "[dense-target] Verified the durable progress path.",
+            "source_client": "claude-code",
+            "source_session_id": "semantic-comment-session",
+        },
+    )
+    assert comment.status_code == 201
+    api.get(path(project), params={"q": query, "semantic": "true"})
+    assert [len(batch) for batch in embedder.document_batches] == [2, 1, 1]
+    assert (
+        "[dense-target] Verified the durable progress path."
+        in embedder.document_batches[-1][0]
+    )
 
 
 def test_semantic_search_preserves_strong_lexical_results(api, project, handoff_payload):

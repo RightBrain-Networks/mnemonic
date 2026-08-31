@@ -55,11 +55,16 @@ test("the route allowlist exposes only project and hand-off operations", () => {
   assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "GET"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "PATCH"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "DELETE"), ["expected_version"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/comments`, "GET"), ["limit", "offset"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/comments`, "POST"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/complete`, "POST"), []);
   for (const path of ["healthz", "readyz", "docs", "openapi.json", "projects/../docs", "projects/%2e%2e/docs", "projects/not-a-uuid", `projects/${project}/handoffs/invalid`, "https://attacker.example", "//attacker.example"]) {
     assert.equal(allowedQueryKeys(path, "GET"), null);
   }
   assert.equal(allowedQueryKeys(`projects/${project}`, "DELETE"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "PUT"), null);
+  assert.equal(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/comments`, "DELETE"), null);
+  assert.equal(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/complete`, "GET"), null);
 });
 
 test("only nonblank semantic searches receive the warmup timeout", () => {

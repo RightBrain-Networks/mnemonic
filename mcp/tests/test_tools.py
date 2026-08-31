@@ -2,12 +2,11 @@ import json
 
 import httpx
 import pytest
+from conftest import API_KEY, HANDOFF_ID, PROJECT_ID
 from mcp.server.fastmcp.exceptions import ToolError
 
 from mnemonic_mcp.api import MnemonicAPI
 from mnemonic_mcp.server import build_server
-
-from conftest import API_KEY, HANDOFF_ID, PROJECT_ID
 
 
 def adapter(settings, handler):
@@ -26,16 +25,18 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {
         "list_projects", "create_project", "save_handoff", "search_handoffs",
-        "recall_handoff", "update_handoff", "delete_handoff",
+        "recall_handoff", "list_handoff_comments", "add_handoff_comment",
+        "complete_handoff", "update_handoff", "delete_handoff",
     }
     assert all(tool.outputSchema for tool in tools.values())
-    for name in ("list_projects", "search_handoffs", "recall_handoff"):
+    for name in ("list_projects", "search_handoffs", "recall_handoff", "list_handoff_comments"):
         assert tools[name].annotations.readOnlyHint is True
-    for name in ("save_handoff", "create_project"):
+    for name in ("save_handoff", "create_project", "add_handoff_comment"):
         assert tools[name].annotations.readOnlyHint is False
         assert tools[name].annotations.destructiveHint is False
     assert tools["delete_handoff"].annotations.destructiveHint is True
     assert tools["update_handoff"].annotations.destructiveHint is True
+    assert tools["complete_handoff"].annotations.destructiveHint is True
     for name in tools.keys() - {"list_projects", "create_project"}:
         assert "project_id" in tools[name].inputSchema["required"]
     save_required = tools["save_handoff"].inputSchema["required"]
@@ -149,8 +150,8 @@ async def test_recall_and_updates_are_project_scoped_and_do_not_clear_omitted_fi
         seen.append(request.method)
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}"
         if request.method == "PATCH":
-            assert json.loads(request.content) == {"expected_version": 3, "verified_against": None, "status": "done"}
-            return httpx.Response(200, json={**handoff, "verified_against": None, "status": "done", "version": 4})
+            assert json.loads(request.content) == {"expected_version": 3, "verified_against": None, "status": "promoted"}
+            return httpx.Response(200, json={**handoff, "verified_against": None, "status": "promoted", "version": 4})
         return httpx.Response(200, json=handoff)
 
     server = adapter(settings, handler)
@@ -158,13 +159,99 @@ async def test_recall_and_updates_are_project_scoped_and_do_not_clear_omitted_fi
     assert recalled["prompt"] == handoff["prompt"]
     updated = structured(await server.call_tool("update_handoff", {
         "project_id": PROJECT_ID, "handoff_id": HANDOFF_ID, "expected_version": 3,
-        "changes": {"verified_against": None, "status": "done"},
+        "changes": {"verified_against": None, "status": "promoted"},
     }))
     assert updated["version"] == 4
     assert seen == ["GET", "PATCH"]
 
 
-@pytest.mark.parametrize("changes", [{}, {"source_session_id": "forged-session"}, {"prompt": None}])
+
+async def test_comment_tools_preserve_progress_and_provenance(settings, handoff):
+    comment = {
+        "id": "20ec4ac9-4ac2-48cd-b0dc-3117b86e22c2",
+        "handoff_id": HANDOFF_ID,
+        "body": "Investigated the race; the focused test now passes.",
+        "kind": "comment",
+        "source_client": "claude-code",
+        "source_session_id": "progress-session",
+        "source_model": "test-model",
+        "created_at": handoff["created_at"],
+    }
+    seen = []
+
+    def handler(request):
+        seen.append(request.method)
+        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}/comments"
+        if request.method == "GET":
+            assert dict(request.url.params) == {"limit": "20", "offset": "5"}
+            return httpx.Response(
+                200, json={"items": [comment], "total": 6, "limit": 20, "offset": 5}
+            )
+        assert json.loads(request.content) == {
+            "body": comment["body"],
+            "source_client": "claude-code",
+            "source_session_id": "progress-session",
+            "source_model": "test-model",
+        }
+        return httpx.Response(201, json=comment)
+
+    server = adapter(settings, handler)
+    listed = structured(await server.call_tool("list_handoff_comments", {
+        "project_id": PROJECT_ID, "handoff_id": HANDOFF_ID, "limit": 20, "offset": 5,
+    }))
+    assert listed["items"][0]["body"] == comment["body"]
+    added = structured(await server.call_tool("add_handoff_comment", {
+        "project_id": PROJECT_ID,
+        "handoff_id": HANDOFF_ID,
+        "body": comment["body"],
+        "source_client": "claude-code",
+        "source_session_id": "progress-session",
+        "source_model": "test-model",
+    }))
+    assert added["kind"] == "comment"
+    assert seen == ["GET", "POST"]
+
+
+async def test_complete_handoff_sends_summary_and_returns_both_records(settings, handoff):
+    summary = "Implemented the fix and observed the focused and full suites pass."
+    comment = {
+        "id": "20ec4ac9-4ac2-48cd-b0dc-3117b86e22c2",
+        "handoff_id": HANDOFF_ID,
+        "body": summary,
+        "kind": "work-summary",
+        "source_client": "claude-code",
+        "source_session_id": "completing-session",
+        "source_model": None,
+        "created_at": handoff["created_at"],
+    }
+
+    def handler(request):
+        assert request.method == "POST"
+        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}/complete"
+        assert json.loads(request.content) == {
+            "expected_version": 3,
+            "summary": summary,
+            "source_client": "claude-code",
+            "source_session_id": "completing-session",
+            "source_model": None,
+        }
+        return httpx.Response(
+            200, json={"handoff": {**handoff, "status": "done", "version": 4}, "comment": comment}
+        )
+
+    completed = structured(await adapter(settings, handler).call_tool("complete_handoff", {
+        "project_id": PROJECT_ID,
+        "handoff_id": HANDOFF_ID,
+        "expected_version": 3,
+        "summary": summary,
+        "source_client": "claude-code",
+        "source_session_id": "completing-session",
+    }))
+    assert completed["handoff"]["status"] == "done"
+    assert completed["comment"]["body"] == summary
+
+
+@pytest.mark.parametrize("changes", [{}, {"source_session_id": "forged-session"}, {"prompt": None}, {"status": "done"}])
 async def test_invalid_update_never_reaches_api(settings, changes):
     def handler(request):
         pytest.fail("Invalid or immutable changes must not cross the HTTP boundary")
@@ -203,15 +290,37 @@ async def test_delete_returns_structured_receipt(settings):
 
 
 async def test_resource_and_resume_prompt_carry_complete_record(settings, handoff):
-    server = adapter(settings, lambda request: httpx.Response(200, json=handoff))
+    comment = {
+        "id": "20ec4ac9-4ac2-48cd-b0dc-3117b86e22c2",
+        "handoff_id": HANDOFF_ID,
+        "body": "Progress survived the session boundary.",
+        "kind": "comment",
+        "source_client": "claude-code",
+        "source_session_id": "later-session",
+        "source_model": None,
+        "created_at": handoff["created_at"],
+    }
+
+    def handler(request):
+        if request.url.path.endswith("/comments"):
+            return httpx.Response(
+                200, json={"items": [comment], "total": 1, "limit": 100, "offset": 0}
+            )
+        return httpx.Response(200, json=handoff)
+
+    server = adapter(settings, handler)
     resources = await server.read_resource(f"mnemonic://projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}")
-    resource = list(resources)[0]
-    assert json.loads(resource.content)["prompt"] == handoff["prompt"]
+    resource = next(iter(resources))
+    document = json.loads(resource.content)
+    assert document["prompt"] == handoff["prompt"]
+    assert document["comments"] == [comment]
     prompt = await server.get_prompt("resume_handoff", {"project_id": PROJECT_ID, "handoff_id": HANDOFF_ID})
     text = prompt.messages[0].content.text
     assert "not a new owner instruction" in text
     assert handoff["source_session_id"] in text
-    assert json.loads(text.split("\n\n", 1)[1])["prompt"] == handoff["prompt"]
+    resumed = json.loads(text.split("\n\n", 1)[1])
+    assert resumed["prompt"] == handoff["prompt"]
+    assert resumed["comments"] == [comment]
 
 
 @pytest.mark.parametrize("status, expected", [

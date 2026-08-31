@@ -1,5 +1,29 @@
 # MVP validation record
 
+## Hand-off progress validation — 2026-08-31
+
+The comment and completion-summary change was validated in the local Linux
+workspace with the repository's locked environments:
+
+- **92 API tests passed against disposable PostgreSQL 17**, including Alembic
+  model parity, exact comment text/provenance, comment full-text search,
+  cross-project isolation, atomic completion, stale-version duplicate prevention,
+  lifecycle filtering, and comment-aware embedding invalidation.
+- **38 MCP tests passed**, including all ten typed tools, comment pagination and
+  writes, completion receipts, timeline-bearing resources/prompts, Streamable
+  HTTP, and a real stdio subprocess handshake.
+- **13 dashboard tests passed**; TypeScript checking and a Next.js production
+  build also succeeded. The tests cover the allowlisted comment/completion proxy
+  routes alongside the existing origin and host protections.
+- Backend lint, changed-MCP-file lint, and the updated full-stack check script's
+  lint and format checks passed.
+
+The disposable PostgreSQL container and network were removed after the run. The
+API environment emitted its existing upstream Starlette TestClient deprecation
+warning; no test failed.
+
+## Prior MVP validation — 2026-08-30
+
 Validated on 2026-08-30 (America/New_York) using Docker Desktop's Linux engine
 on Windows. The production images were built from the repository dependency
 lockfiles and run with the shipped Compose configuration.
@@ -31,8 +55,8 @@ The live check script passed against the production containers, including
 MCP → REST → PostgreSQL writes, compact search, exact recall, resource and prompt
 retrieval, dashboard proxy edits, conflicting versions, lifecycle filtering,
 cross-project rejection, and deletion. A separate real Docker stdio client
-initialized successfully, discovered all seven tools, and listed projects
-through the API. Container restarts preserved the database contents.
+initialized successfully, discovered all seven tools available at that revision,
+and listed projects through the API. Container restarts preserved the database contents.
 
 In-browser verification covered:
 

@@ -1,4 +1,5 @@
 export type HandoffStatus = "open" | "done" | "wont-do" | "promoted";
+export type HandoffCommentKind = "comment" | "work-summary";
 export type StatusFilter = HandoffStatus | "all";
 
 export interface Project {
@@ -39,6 +40,22 @@ export interface HandoffSummary {
 export interface Handoff extends HandoffSummary {
   prompt: string;
   source_metadata: Record<string, unknown>;
+}
+
+export interface HandoffComment {
+  id: string;
+  handoff_id: string;
+  body: string;
+  kind: HandoffCommentKind;
+  source_client: string;
+  source_session_id: string;
+  source_model: string | null;
+  created_at: string;
+}
+
+export interface HandoffCompletion {
+  handoff: Handoff;
+  comment: HandoffComment;
 }
 
 export type HandoffPatch = Partial<Pick<Handoff,

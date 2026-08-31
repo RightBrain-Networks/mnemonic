@@ -12,7 +12,10 @@ prompt is enough context for a fresh session to investigate and continue work;
 it is not a ticket or an implicit instruction from the owner. Capture includes
 context, the intended outcome, durable references, known hazards, and concrete
 verification steps. Agent skills enforce this writing discipline. The service
-stores text without silently rewriting it or pretending to verify its content.
+stores prompt and comment text without silently rewriting it or pretending to
+verify its content. Each hand-off has an append-only, session-attributed progress
+timeline. Completion atomically adds the completing session's work summary and
+moves the hand-off to `done`, so lifecycle state retains its supporting context.
 
 Projects partition the store. Originating client and session ID are required;
 model, branch, verified commit, tags, and extensible JSON metadata travel with
@@ -35,8 +38,8 @@ flowchart LR
 - The MCP service calls the REST API over HTTP; it has no database credentials,
   SQL, or duplicate storage logic. It supports Streamable HTTP and stdio.
 - Next.js provides a project selector, search and status filters, full prompt
-  viewing, editing, deleting, and copy. Its same-origin server proxy holds the
-  API key; the browser never receives that key.
+  viewing, editing, deleting, copy, progress comments, and completion summaries.
+  Its same-origin server proxy holds the API key; the browser never receives that key.
 - All published ports bind to loopback by default. API and HTTP MCP requests
   require a shared bearer key. The dashboard is for a trusted local user, not
   a multi-user deployment. Its proxy rejects untrusted hosts and cross-origin
@@ -46,16 +49,17 @@ flowchart LR
 
 ## Retrieval and lifecycle
 
-PostgreSQL full-text search ranks title and summary ahead of prompt content;
-literal matching also finds identifiers, paths, and session IDs. That lexical
+PostgreSQL full-text search ranks title and summary ahead of prompt and comment
+content; literal matching also finds identifiers, paths, and hand-off or comment
+session IDs. That lexical
 path remains the default. For a nonblank query, a caller can opt into semantic
 search; the API fuses the lexical ranking with similarity from a local embedding
 model. Both the dashboard toggle and MCP argument default to disabled, preserving
 the existing search behavior unless the user requests hybrid retrieval.
 
-The dense channel embeds each hand-off's title, summary, and first 1,500 prompt
-characters with `BAAI/bge-small-en-v1.5`; queries use the model's retrieval
-prefix. Weighted reciprocal-rank fusion (`k=60`) favors the lexical channel 3:1,
+The dense channel embeds each hand-off's title, summary, first 1,500 prompt
+characters, and most recent 1,500 comment characters with
+`BAAI/bge-small-en-v1.5`; queries use the model's retrieval prefix. Weighted reciprocal-rank fusion (`k=60`) favors the lexical channel 3:1,
 retaining exact vocabulary as the stronger signal while adding conceptual matches.
 
 The Docker build downloads the model into `/app/.embedding-cache`. The running
@@ -73,10 +77,14 @@ the database does not automatically merge similar work.
 
 Statuses are `open`, `done`, `wont-do`, and `promoted`. Default searches only
 return `open` records. Other statuses remain available through explicit filters.
+Ordinary comments append without contending on the mutable hand-off version. A
+`done` transition requires an atomic completion operation with that version and
+a nonblank work summary; a stale completion cannot append a duplicate summary.
 Promotion records an owner's decision; it does not create external issues.
-Deletion removes a prompt from normal reads and searches, using a soft-delete
-timestamp for recovery. Edits and deletes require the version that was read to
-prevent one browser or agent silently overwriting another's changes.
+Deletion removes a prompt and its timeline from normal reads and searches, using
+a soft-delete timestamp for recovery. Edits, completion, and deletes require the
+version that was read to prevent one browser or agent silently overwriting
+another's changes.
 
 ## Durability and deliberate limits
 

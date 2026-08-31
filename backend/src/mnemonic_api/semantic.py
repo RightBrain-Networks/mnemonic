@@ -14,12 +14,15 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from mnemonic_api.models import Handoff, HandoffEmbedding
+from mnemonic_api.models import Handoff, HandoffComment, HandoffEmbedding
 
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 EMBED_BODY_CHARS = 1500
+EMBED_COMMENT_CHARS = 1500
 EMBED_BATCH_SIZE = 16
-EMBED_CONFIG = f"{EMBED_MODEL}:title-summary-prompt-{EMBED_BODY_CHARS}:v1"
+EMBED_CONFIG = (
+    f"{EMBED_MODEL}:title-summary-prompt-{EMBED_BODY_CHARS}-comments-{EMBED_COMMENT_CHARS}:v2"
+)
 BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 RRF_K = 60
 RRF_LEXICAL_WEIGHT = 3.0
@@ -61,8 +64,11 @@ def warm_embedding_model() -> None:
     FastembedEmbedder().embed_query(BGE_QUERY_PREFIX + "warm local semantic retrieval")
 
 
-def embedding_text(handoff: Handoff) -> str:
-    return f"{handoff.title}\n{handoff.summary}\n{handoff.prompt[:EMBED_BODY_CHARS]}"
+def embedding_text(handoff: Handoff, comments: Sequence[str] = ()) -> str:
+    prompt = handoff.prompt[:EMBED_BODY_CHARS]
+    progress = "\n".join(comments)[-EMBED_COMMENT_CHARS:]
+    base = f"{handoff.title}\n{handoff.summary}\n{prompt}"
+    return f"{base}\n{progress}" if progress else base
 
 
 def _digest(text: str) -> str:
@@ -70,8 +76,10 @@ def _digest(text: str) -> str:
 
 
 def _valid_vector(vector: Sequence[float], dimensions: int | None = None) -> bool:
-    return bool(vector) and (dimensions is None or len(vector) == dimensions) and all(
-        math.isfinite(value) for value in vector
+    return (
+        bool(vector)
+        and (dimensions is None or len(vector) == dimensions)
+        and all(math.isfinite(value) for value in vector)
     )
 
 
@@ -98,7 +106,19 @@ def _cached_embeddings(
             select(HandoffEmbedding).where(HandoffEmbedding.handoff_id.in_(ids))
         )
     }
-    texts = {handoff.id: embedding_text(handoff) for handoff in handoffs}
+    comment_texts: dict[UUID, str] = {}
+    for handoff_id, body in database.execute(
+        select(HandoffComment.handoff_id, HandoffComment.body)
+        .where(HandoffComment.handoff_id.in_(ids))
+        .order_by(HandoffComment.created_at, HandoffComment.id)
+    ):
+        previous = comment_texts.get(handoff_id, "")
+        combined = f"{previous}\n{body}" if previous else body
+        comment_texts[handoff_id] = combined[-EMBED_COMMENT_CHARS:]
+    texts = {
+        handoff.id: embedding_text(handoff, (comment_texts.get(handoff.id, ""),))
+        for handoff in handoffs
+    }
     digests = {handoff_id: _digest(text) for handoff_id, text in texts.items()}
     vectors = {
         handoff_id: list(row.vector)
@@ -171,9 +191,7 @@ def hybrid_rank(
     def fusion_score(handoff: Handoff) -> float:
         dense_score = 1.0 / (RRF_K + dense_rank[handoff.id])
         lexical_position = lexical_rank.get(handoff.id)
-        lexical_score = (
-            RRF_LEXICAL_WEIGHT / (RRF_K + lexical_position) if lexical_position else 0.0
-        )
+        lexical_score = RRF_LEXICAL_WEIGHT / (RRF_K + lexical_position) if lexical_position else 0.0
         return dense_score + lexical_score
 
     return sorted(

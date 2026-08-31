@@ -26,6 +26,10 @@ def path(project, handoff=None):
     return f"{base}/{handoff['id']}" if handoff else base
 
 
+def comment_path(project, handoff):
+    return f"{path(project, handoff)}/comments"
+
+
 def test_project_crud_counts_and_conflict(api, project):
     duplicate = api.post("/api/v1/projects", json={"name": "First Project"})
     assert duplicate.status_code == 409
@@ -86,14 +90,15 @@ def test_versions_provenance_lifecycle_and_soft_deletion(
     immutable = {"expected_version": 1, "source_session_id": "replacement"}
     assert api.patch(endpoint, json=immutable).status_code == 422
     updated = api.patch(
-        endpoint, json={"expected_version": 1, "status": "done", "prompt": " New exact prompt.\n"}
+        endpoint,
+        json={"expected_version": 1, "status": "wont-do", "prompt": " New exact prompt.\n"},
     )
     assert updated.status_code == 200
     assert updated.json()["version"] == 2
     assert updated.json()["source_session_id"] == handoff["source_session_id"]
     assert updated.json()["prompt"] == " New exact prompt.\n"
     assert api.get(path(project)).json()["total"] == 0
-    assert api.get(path(project), params={"status": "done"}).json()["total"] == 1
+    assert api.get(path(project), params={"status": "wont-do"}).json()["total"] == 1
     assert api.get(path(project), params={"status": "all"}).json()["total"] == 1
     assert api.patch(endpoint, json={"expected_version": 1, "title": "Stale"}).status_code == 409
     assert api.delete(endpoint, params={"expected_version": 1}).status_code == 409
@@ -108,6 +113,97 @@ def test_versions_provenance_lifecycle_and_soft_deletion(
         assert row is not None and row.deleted_at is not None
         assert row.prompt == " New exact prompt.\n"
         assert row.version == 3
+
+
+def test_comments_are_append_only_project_scoped_and_searchable(api, project, handoff_payload):
+    handoff = save(api, project, handoff_payload)
+    body = "  Found the frobnicated lock race.\n\npytest tests/test_cache.py passed.  "
+    created = api.post(
+        comment_path(project, handoff),
+        json={
+            "body": body,
+            "source_client": "claude-code",
+            "source_session_id": "session-progress-123",
+            "source_model": "test-model",
+        },
+    )
+    assert created.status_code == 201, created.text
+    comment = created.json()
+    assert comment["body"] == body
+    assert comment["kind"] == "comment"
+    assert comment["handoff_id"] == handoff["id"]
+    assert comment["source_session_id"] == "session-progress-123"
+    assert comment["created_at"].endswith("Z")
+    assert api.get(path(project, handoff)).json()["version"] == 1
+
+    timeline = api.get(comment_path(project, handoff), params={"limit": 1}).json()
+    assert timeline == {
+        "items": [comment],
+        "total": 1,
+        "limit": 1,
+        "offset": 0,
+    }
+    assert (
+        api.get(path(project), params={"q": "frobnicates"}).json()["items"][0]["id"]
+        == handoff["id"]
+    )
+    assert api.get(path(project), params={"q": "session-progress-123"}).json()["total"] == 1
+
+    other = api.post("/api/v1/projects", json={"name": "Comment isolation"}).json()
+    assert api.get(comment_path(other, handoff)).status_code == 404
+    assert (
+        api.post(
+            comment_path(other, handoff),
+            json={
+                "body": "Wrong project",
+                "source_client": "dashboard",
+                "source_session_id": "dashboard-session",
+            },
+        ).status_code
+        == 404
+    )
+
+
+def test_completion_requires_summary_and_is_atomic(api, project, handoff_payload):
+    handoff = save(api, project, handoff_payload)
+    endpoint = path(project, handoff)
+    assert api.patch(endpoint, json={"expected_version": 1, "status": "done"}).status_code == 422
+
+    completed = api.post(
+        f"{endpoint}/complete",
+        json={
+            "expected_version": 1,
+            "summary": (
+                "Implemented cache invalidation. Added a regression test. "
+                "Observed the focused and full suites pass; no known follow-up remains."
+            ),
+            "source_client": "claude-code",
+            "source_session_id": "completing-session",
+            "source_model": "test-model",
+        },
+    )
+    assert completed.status_code == 200, completed.text
+    result = completed.json()
+    assert result["handoff"]["status"] == "done"
+    assert result["handoff"]["version"] == 2
+    assert result["comment"]["kind"] == "work-summary"
+    assert result["comment"]["source_session_id"] == "completing-session"
+
+    stale = api.post(
+        f"{endpoint}/complete",
+        json={
+            "expected_version": 1,
+            "summary": "Duplicate summary must not be written.",
+            "source_client": "claude-code",
+            "source_session_id": "completing-session",
+        },
+    )
+    assert stale.status_code == 409
+    timeline = api.get(comment_path(project, handoff)).json()
+    assert timeline["total"] == 1
+    assert timeline["items"] == [result["comment"]]
+    assert api.get(path(project)).json()["total"] == 0
+    assert api.get(path(project), params={"status": "done"}).json()["total"] == 1
 
 
 def test_postgres_full_text_stemming_and_weighted_ranking(api, project, handoff_payload):

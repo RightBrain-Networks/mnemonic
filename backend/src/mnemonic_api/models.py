@@ -110,6 +110,37 @@ class Handoff(Base):
     )
 
 
+class HandoffComment(Base):
+    """Append-only progress recorded against a hand-off."""
+
+    __tablename__ = "handoff_comments"
+    __table_args__ = (
+        CheckConstraint("length(btrim(body)) BETWEEN 1 AND 50000", name="body_length"),
+        CheckConstraint("length(body) <= 50000", name="body_max_length"),
+        CheckConstraint("kind IN ('comment', 'work-summary')", name="kind_valid"),
+        CheckConstraint("length(btrim(source_client)) > 0", name="source_client_nonblank"),
+        CheckConstraint("length(btrim(source_session_id)) > 0", name="session_id_nonblank"),
+        Index("ix_handoff_comments_handoff_created", "handoff_id", "created_at", "id"),
+        Index("ix_handoff_comments_search_vector", "search_vector", postgresql_using="gin"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    handoff_id: Mapped[UUID] = mapped_column(ForeignKey("handoffs.id", ondelete="CASCADE"))
+    body: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(String(20), default="comment", server_default="comment")
+    source_client: Mapped[str] = mapped_column(String(80))
+    source_session_id: Mapped[str] = mapped_column(String(200))
+    source_model: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "setweight(to_tsvector('english'::regconfig, coalesce(body, '')), 'B')",
+            persisted=True,
+        ),
+    )
+
+
 class HandoffEmbedding(Base):
     """Disposable local-model output; hand-off text remains the canonical source."""
 

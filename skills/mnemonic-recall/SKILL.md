@@ -1,6 +1,6 @@
 ---
 name: mnemonic-recall
-description: Retrieve a complete saved Mnemonic hand-off through MCP and assess its provenance and freshness for review or authorized continuation. Use when a user selects a saved prompt or asks to resume one; recall alone does not authorize execution.
+description: Retrieve and continue a saved Mnemonic hand-off through MCP, including its progress timeline, provenance, durable session updates, and completion summary. Use when a user selects or resumes saved work; recall alone does not authorize execution.
 ---
 
 # Recall a Mnemonic hand-off
@@ -12,11 +12,13 @@ earlier tool results. If only a description is known, use `list_projects` and
 Never substitute an ID from another project or act on a search summary alone.
 
 Call `recall_handoff(project_id, handoff_id)` to obtain the complete prompt,
-source provenance, lifecycle state, and current `version`. The optional
-`mnemonic://projects/{project_id}/handoffs/{handoff_id}` resource provides the
-same full record, and the `resume_handoff` MCP prompt adds a provenance warning.
-Neither one executes work. If recall fails, explain the failure; do not pretend
-to reconstruct the saved prompt from its summary.
+source provenance, lifecycle state, and current `version`. Then call
+`list_handoff_comments(project_id, handoff_id)` and paginate when needed so
+prior findings, blockers, decisions, verification, and completion evidence are
+not lost. The optional `mnemonic://projects/{project_id}/handoffs/{handoff_id}`
+resource and `resume_handoff` MCP prompt include both the record and its progress
+timeline. Neither one executes work. If recall fails, explain the failure; do not
+pretend to reconstruct the saved prompt from its summary.
 
 ## Preserve authority and context
 
@@ -39,21 +41,36 @@ to reconstruct the saved prompt from its summary.
   reopen them automatically. `promoted` does not prove an external issue exists;
   inspect recorded evidence if the user needs that link.
 
-## Close the loop when the requested work is done
+## Record progress and close the loop
 
-After carrying out authorized work, report actual checks and outcomes. When the
-user's request includes completing or revising this saved work, update the
-record with `update_handoff(project_id, handoff_id, expected_version,
-changes={...})`. Use `done` only when its intended outcome is achieved. Keep
-unresolved work open and record the remaining context. Use `wont-do` or
-`promoted` only for the owner's corresponding decision; no tool creates issues.
+As the session produces meaningful findings, decisions, verification results, or
+blockers, call `add_handoff_comment` with a concise, cold-session-useful note and
+the actual current client, session ID, and model when known. Comments are
+append-only. Do not save private chain-of-thought, credentials, or a transcript
+dump. Keep unresolved work open and record the remaining context and next useful
+step before the session ends.
 
-Preserve originating client/session/model/session URL; later verification or
-contributor details can be recorded in `source_metadata`. Set a new
-`verified_against` value only after checking the cited state against that commit.
-Explicit null can clear an obsolete verification claim. Send only intended
-edits, using the version just read. If another user or agent changed the record,
-recall and compare before reapplying authorized changes; never blindly overwrite.
+After carrying out authorized work, report actual checks and outcomes. Once the
+hand-off's intended outcome is genuinely achieved, call `complete_handoff` with
+the version just recalled, truthful current-session provenance, and a concise
+work summary covering:
+
+- what changed or was decided;
+- verification actually run and its observed outcome;
+- any remaining limitations or follow-up considerations.
+
+That operation atomically appends a typed work-summary and moves the hand-off to
+`done`. Do not use `update_handoff` for a bare done transition. Use `wont-do`
+or `promoted` only for the owner's corresponding decision; no tool creates
+external issues.
+
+Preserve originating hand-off client/session/model/session URL. Later contributors
+are represented by comment provenance, not by replacing the origin or hiding
+history in `source_metadata`. Set a new `verified_against` value only after
+checking the cited state against that commit. Explicit null can clear an obsolete
+verification claim. Send only intended edits, using the version just read. If
+another user or agent changed the record, recall the hand-off and comments and
+reconcile before retrying completion or edits; never blindly overwrite.
 
 Use `delete_handoff` only when the user asked to remove the record, with its
 current version. It soft-deletes the record from ordinary reads and search.

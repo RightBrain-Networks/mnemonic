@@ -43,7 +43,7 @@ def test_http_protocol_initialize_list_and_call(settings, handoff):
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
-        assert len(listed.json()["result"]["tools"]) == 7
+        assert len(listed.json()["result"]["tools"]) == 10
         called = client.post("/mcp", json={
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
             "params": {"name": "recall_handoff", "arguments": {"project_id": PROJECT_ID, "handoff_id": HANDOFF_ID}},
@@ -126,5 +126,5 @@ async def test_stdio_transport_handshake_and_catalog():
             initialized = await session.initialize()
             assert initialized.serverInfo.name == "Mnemonic"
             result = await session.list_tools()
-            assert len(result.tools) == 7
+            assert len(result.tools) == 10
             assert all(tool.outputSchema is not None for tool in result.tools)
