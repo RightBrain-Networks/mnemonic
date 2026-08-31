@@ -77,6 +77,21 @@ async def check(args: argparse.Namespace, key: str) -> None:
             page.status_code == 200 and key not in page.text,
             "Dashboard render/key isolation failed.",
         )
+        for font_path in (
+            "/fonts/space-grotesk-500.woff2",
+            "/fonts/space-grotesk-700.woff2",
+            "/fonts/ibm-plex-sans-400.woff2",
+            "/fonts/ibm-plex-sans-600.woff2",
+            "/fonts/ibm-plex-mono-400.woff2",
+            "/fonts/ibm-plex-mono-500.woff2",
+        ):
+            font = await public.get(args.web_url.rstrip("/") + font_path)
+            require(
+                font.status_code == 200
+                and font.headers.get("content-type") == "font/woff2"
+                and font.content.startswith(b"wOF2"),
+                f"Dashboard font asset failed: {font_path}",
+            )
         proxy = args.web_url.rstrip("/") + "/api/mnemonic/"
         require(
             (await public.get(proxy + "projects")).status_code == 200,
@@ -101,7 +116,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
             "Dashboard accepted an untrusted host.",
         )
         print(
-            "PASS: service health, bearer authentication, dashboard proxy and origin protection"
+            "PASS: service health, font assets, bearer authentication, "
+            "dashboard proxy and origin protection"
         )
 
         async with streamablehttp_client(args.mcp_url, headers=auth, timeout=15) as (  # noqa: SIM117

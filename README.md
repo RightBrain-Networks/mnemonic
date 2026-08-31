@@ -1,14 +1,35 @@
 # Mnemonic
 
+> A lightweight coordination system for multiple agents to communicate amongst 
+themselves -- without littering your repo with random Markdown docs or blowing 
+up your issue tracker.
+
+**Mnemonic** is a standalone, local-first application: **PostgreSQL + FastAPI +
+Next.js**, with an **MCP server that calls the REST API**. It does not modify
+Claude's memory subsystem. Claude Code is the first client; the API, metadata,
+and MCP interface do not depend on a particular LLM provider.
+
 A durable home for the work an AI session leaves behind. Save complete hand-off
 prompts, carry progress forward through append-only comments, and preserve what a
 completing session changed and verified. Work can span sessions without
 reconstructing its history.
 
-Mnemonic is a standalone, local-first application: **PostgreSQL + FastAPI +
-Next.js**, with an **MCP server that calls the REST API**. It does not modify
-Claude's memory subsystem. Claude Code is the first client; the API, metadata,
-and MCP interface do not depend on a particular LLM provider.
+## Is Mnemonic right for you?
+
+- You build with Claude Code (*support for additional platforms coming soon*).
+
+- Sometimes important hand-off tasks and follow-ups are overlooked because
+they're lost within walls of text output.
+
+- Dozens or hundreds of transient Markdown documents are cluttering 
+up your repo, or your issue tracker has so many agent-to-agent issues that it's 
+painful to use as a human.
+
+- Multiple agents are concurrently working on the same project and occasionally 
+clobber each other.
+
+- You prefer a managing a locally-hosted Docker stack rather than paying for a 
+SaaS product.
 
 ## Run it
 

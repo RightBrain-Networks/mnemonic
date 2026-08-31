@@ -31,7 +31,7 @@ function Icon({ name, size = 18 }: { name: keyof typeof icons; size?: number }) 
 }
 
 function Logo() {
-  return <svg className="logo-mark" width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true"><rect width="34" height="34" rx="10" fill="currentColor" /><path d="M9 24V10h4l4 7 4-7h4v14h-4v-8l-4 6-4-6v8H9Z" fill="#f9f8f3" /></svg>;
+  return <svg className="logo-mark" width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true"><rect width="34" height="34" rx="10" fill="currentColor" /><path d="M9 27v-4.2A10.6 10.6 0 0 1 6.5 15C6.5 9.5 10.9 5 16.4 5c4.7 0 8.7 3.4 9.5 8l1.9 3.1c.6 1-.05 2.25-1.2 2.33l-1.4.1-.4 3.3a3.4 3.4 0 0 1-3.4 3h-2.2V27H9Z" fill="#f9f8f3" /><rect x="14.3" y="9.2" width="4.1" height="9" rx="2.05" fill="currentColor" /><circle cx="16.35" cy="21.5" r="2.1" fill="currentColor" /></svg>;
 }
 
 function clientLabel(client: string) {
