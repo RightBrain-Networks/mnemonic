@@ -1,11 +1,53 @@
 import { readFile } from "node:fs/promises";
-import { expect, test } from "@playwright/test";
+import { expect, request as playwrightRequest, test } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
 
 let state: E2EState;
 
 test.beforeAll(async () => {
   state = JSON.parse(await readFile(statePath, "utf8")) as E2EState;
+});
+
+test("external API writes appear through live browser sync", async ({ page }, testInfo) => {
+  const title = `Live sync ${testInfo.project.name} ${state.runId.slice(0, 8)}`;
+  const apiURL = process.env.MNEMONIC_E2E_API_URL;
+  const apiKey = process.env.MNEMONIC_E2E_API_KEY;
+  if (!apiURL || !apiKey) throw new Error("The disposable E2E API is not configured.");
+
+  await page.goto("/");
+  await page.locator("#project-select").selectOption(state.projectId);
+  await expect(page.locator(".sync-status")).toHaveText("Live updates");
+  await expect(page.getByRole("button", { name: "Refresh" })).toHaveCount(0);
+
+  const client = await playwrightRequest.newContext({
+    baseURL: apiURL,
+    extraHTTPHeaders: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" }
+  });
+  try {
+    const response = await client.post(
+      `/api/v1/projects/${state.projectId}/work-items`,
+      {
+        data: {
+          title,
+          summary: "Created outside the dashboard after its initial list loaded.",
+          priority: 5,
+          initial_checkpoint: {
+            prompt: "This item must arrive over the live invalidation connection.",
+            source_client: "playwright-api",
+            source_session_id: `live-sync-${state.runId}`,
+            tags: [],
+            source_metadata: {}
+          }
+        }
+      }
+    );
+    expect(response.ok(), await response.text()).toBe(true);
+  } finally {
+    await client.dispose();
+  }
+
+  const card = page.locator("article.work-item-card").filter({ hasText: title });
+  await expect(card).toHaveCount(1);
 });
 
 test("one work item groups immutable checkpoints through its full dashboard lifecycle", async ({ page }, testInfo) => {

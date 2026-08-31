@@ -7,7 +7,17 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    WebSocket,
+    status,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -19,6 +29,7 @@ from sqlalchemy.orm import Session
 from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine, build_session_factory, get_session
 from mnemonic_api.errors import ApplicationError, conflict
+from mnemonic_api.live_sync import LiveSyncHub, mutation_event
 from mnemonic_api.models import Checkpoint, Project, WorkItem
 from mnemonic_api.schemas import (
     CheckpointCreate,
@@ -94,6 +105,7 @@ def authenticate(
 
 
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(authenticate)])
+sync_router = APIRouter(prefix="/api/v1")
 
 
 def _matching_checkpoint_exists(work_item_id, *conditions):
@@ -447,6 +459,25 @@ def update_work(
     return work_item
 
 
+@sync_router.websocket("/sync")
+async def sync_dashboard(websocket: WebSocket) -> None:
+    """Stream data-free invalidations to browsers from an allowed dashboard origin."""
+    settings: Settings = websocket.app.state.settings
+    if websocket.headers.get("origin") not in settings.allowed_dashboard_origins:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    hub: LiveSyncHub = websocket.app.state.live_sync_hub
+    await hub.connect(websocket)
+    try:
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                break
+    finally:
+        hub.disconnect(websocket)
+
+
 # Deprecated compatibility routes. All reads and writes project canonical rows.
 @router.post(
     "/projects/{project_id}/handoffs",
@@ -659,7 +690,17 @@ def create_app(
     app.state.settings = config
     app.state.session_factory = build_session_factory(connection_pool)
     app.state.semantic_embedder = semantic_embedder or FastembedEmbedder()
+    app.state.live_sync_hub = LiveSyncHub()
     app.include_router(router)
+    app.include_router(sync_router)
+
+    @app.middleware("http")
+    async def broadcast_successful_mutations(request: Request, call_next):
+        response = await call_next(request)
+        event = mutation_event(request.method, request.url.path)
+        if event is not None and 200 <= response.status_code < 300:
+            await app.state.live_sync_hub.publish(event)
+        return response
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> dict[str, str]:

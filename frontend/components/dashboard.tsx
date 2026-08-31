@@ -7,6 +7,7 @@ import WorkItemList, { WORK_PAGE_SIZE } from "@/components/work-item-list";
 import { StatusBadge, formatDate } from "@/components/work-item-card";
 import { draftFromWork, type WorkEditDraft } from "@/components/work-item-editor";
 import { api, ApiError, errorMessage, workItemPath } from "@/lib/api";
+import { connectLiveSync, type LiveSyncStatus } from "@/lib/live-sync";
 import type {
   Checkpoint,
   CheckpointInput,
@@ -31,7 +32,6 @@ const iconPaths = {
   copy: "M9 5V3h12v14h-3M3 7h12v14H3V7Z",
   check: "m5 12 4 4L19 6",
   close: "m6 6 12 12M6 18 18 6",
-  refresh: "M20 7V2m0 5h-5M4 17v5m0-5h5M4 8a8 8 0 0 1 13-4l3 3M4 17l3 3a8 8 0 0 0 13-4",
   library: "M3 3h6v18H3V3Zm10 0h4l4 17-4 1-4-18Z",
   arrow: "M5 12h14m-5-5 5 5-5 5",
   back: "M19 12H5m5-5-5 5 5 5",
@@ -138,6 +138,7 @@ export default function Dashboard() {
   const [context, setContext] = useState<WorkContext | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
   const [contextError, setContextError] = useState("");
+  const [contextRefresh, setContextRefresh] = useState(0);
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [editDraft, setEditDraft] = useState<WorkEditDraft | null>(null);
   const [editSaving, setEditSaving] = useState(false);
@@ -163,7 +164,14 @@ export default function Dashboard() {
   const [deleteError, setDeleteError] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ message: string; error?: boolean } | null>(null);
+  const [liveSyncStatus, setLiveSyncStatus] = useState<LiveSyncStatus>("connecting");
   const project = projects.find((item) => item.id === activeId);
+  const activeIdRef = useRef(activeId);
+  const openedRef = useRef(opened);
+  const lastContextRefresh = useRef(0);
+
+  useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
+  useEffect(() => { openedRef.current = opened; }, [opened]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -239,6 +247,66 @@ export default function Dashboard() {
       .finally(() => { if (!controller.signal.aborted) setCheckpointLoading(false); });
     return () => controller.abort();
   }, [opened, checkpointOffset, checkpointRefresh]);
+
+  useEffect(() => {
+    const pending = { projects: false, list: false, open: false };
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+    function flush() {
+      refreshTimer = undefined;
+      if (pending.projects) setProjectsRefresh((value) => value + 1);
+      if (pending.list) setRefresh((value) => value + 1);
+      if (pending.open) {
+        setCheckpointRefresh((value) => value + 1);
+        setContextRefresh((value) => value + 1);
+      }
+      pending.projects = false;
+      pending.list = false;
+      pending.open = false;
+    }
+
+    function schedule() {
+      if (refreshTimer === undefined) refreshTimer = setTimeout(flush, 75);
+    }
+
+    const disconnect = connectLiveSync((message) => {
+      if (message.type === "ready") {
+        pending.projects = true;
+        pending.list = true;
+        pending.open = true;
+        schedule();
+        return;
+      }
+      if (message.scope === "projects") {
+        pending.projects = true;
+      } else {
+        if (message.project_id === activeIdRef.current) pending.list = true;
+        if (
+          message.work_item_id !== null
+          && message.work_item_id === openedRef.current?.work_item.id
+        ) {
+          pending.open = true;
+        }
+      }
+      schedule();
+    }, setLiveSyncStatus);
+
+    return () => {
+      disconnect();
+      if (refreshTimer !== undefined) clearTimeout(refreshTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (contextRefresh === lastContextRefresh.current) return;
+    if (!opened) {
+      lastContextRefresh.current = contextRefresh;
+      return;
+    }
+    if (mode === "edit") return;
+    lastContextRefresh.current = contextRefresh;
+    void loadContext(opened, ++recordRequest.current);
+  }, [contextRefresh, mode, opened]);
 
   useEffect(() => {
     if (!notice || notice.error) return;
@@ -549,7 +617,7 @@ export default function Dashboard() {
     <main id="main-content" className="main-content">
       <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span></div><span className="topbar-note"><span className="small-mark">m.</span>Context worth keeping</span></header>
       <div className="page-content">
-        <section className="page-heading"><div><div className="eyebrow">DURABLE WORK FOR TEMPORARY SESSIONS</div><h1>Work library<span>.</span></h1><p>{project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}</p></div><div className="heading-actions">{project && <button className="button button-primary" type="button" onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}<button className="button button-secondary refresh-button" type="button" disabled={projectsLoading || listLoading} onClick={() => { setProjectsRefresh((value) => value + 1); setRefresh((value) => value + 1); }}><Icon name="refresh" size={16} /><span>Refresh</span></button></div></section>
+        <section className="page-heading"><div><div className="eyebrow">DURABLE WORK FOR TEMPORARY SESSIONS</div><h1>Work library<span>.</span></h1><p>{project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}</p></div><div className="heading-actions">{project && <button className="button button-primary" type="button" onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
 
         {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
           projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :

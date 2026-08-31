@@ -1,5 +1,20 @@
 import type { NextConfig } from "next";
 
+function liveSyncDestination(): string {
+  const base = new URL(process.env.MNEMONIC_API_URL ?? "http://api:8000");
+  if (
+    !["http:", "https:"].includes(base.protocol)
+    || base.username
+    || base.password
+    || base.pathname !== "/"
+    || base.search
+    || base.hash
+  ) {
+    throw new Error("MNEMONIC_API_URL must be an HTTP(S) origin.");
+  }
+  return new URL("/api/v1/sync", base).toString();
+}
+
 const nextConfig: NextConfig = {
   output: "standalone",
   agentRules: false,
@@ -17,6 +32,15 @@ const nextConfig: NextConfig = {
         { key: "Content-Security-Policy", value: "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'" }
       ]
     }];
+  },
+  async rewrites() {
+    return {
+      beforeFiles: [
+        { source: "/api/mnemonic/sync", destination: liveSyncDestination() }
+      ],
+      afterFiles: [],
+      fallback: []
+    };
   }
 };
 

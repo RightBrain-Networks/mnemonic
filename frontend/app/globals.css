@@ -152,7 +152,6 @@ button { touch-action: manipulation; }
 .button-secondary:hover:not(:disabled) { background: #f1f5ee; border-color: #b9c9ba; }
 .button-danger { background: var(--danger); border-color: var(--danger); color: white; }
 .button-danger:hover:not(:disabled) { background: #88332d; }
-.refresh-button { margin-top: 9px; }
 .icon-button { width: 33px; height: 33px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0; border: 0; border-radius: 6px; color: var(--muted); background: transparent; }
 .icon-button:hover:not(:disabled) { background: #edf2eb; color: var(--accent); }
 .icon-button.danger-hover:hover:not(:disabled) { background: var(--danger-soft); color: var(--danger); }
@@ -397,8 +396,6 @@ button { touch-action: manipulation; }
   .page-heading h1 { font-size: 33px; letter-spacing: -1.2px; }
   .page-heading .eyebrow { font-size: 7px; letter-spacing: 1px; }
   .page-heading p { font-size: 12px; }
-  .refresh-button { width: 33px; height: 33px; padding: 0; margin-top: 29px; flex-shrink: 0; }
-  .refresh-button > span { display: none; }
   .search-field { height: 49px; padding: 0 13px; gap: 10px; }
   .search-field input { font-size: 12px; }
   .search-field kbd { display: none; }
@@ -592,6 +589,12 @@ button { touch-action: manipulation; }
 
 /* Phase 1 work/checkpoint views. Keep checkpoint records visually distinct from the editable objective. */
 .heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; flex-wrap: wrap; }
+.sync-status { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 10px; border: 1px solid #d8ded5; border-radius: 999px; color: var(--muted); background: #f8faf6; font: 650 9px/1 var(--mono); white-space: nowrap; }
+.sync-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #9aa39c; box-shadow: 0 0 0 3px #e8ece6; }
+.sync-status-live { color: #477800; border-color: #cfe3ad; background: #f4ffe3; }
+.sync-status-live .sync-status-dot { background: #70a622; box-shadow: 0 0 0 3px #dff1c4; }
+.sync-status-retrying { color: #866000; border-color: #e2c771; background: #fff8d8; }
+.sync-status-retrying .sync-status-dot { background: #bd8900; box-shadow: 0 0 0 3px #f4e7af; }
 .operational-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 8px; font: 700 9px/1.5 var(--mono); text-transform: uppercase; letter-spacing: .5px; }
 .operational-badge.ready { color: #477800; background: #efffd7; border: 1px solid #cfeaa5; }
 .work-card-facts { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin: -8px 0 16px; color: var(--muted); font-size: 10px; }

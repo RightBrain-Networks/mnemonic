@@ -42,6 +42,43 @@ def checkpoint_payload(prompt, session_id, *, kind="context", tags=None):
     }
 
 
+def test_successful_mutation_publishes_live_sync_invalidation(api, project, work_payload):
+    with api.websocket_connect(
+        "/api/v1/sync", headers={"origin": "http://localhost:3000"}
+    ) as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+        revision = ready["revision"]
+        created = create_work(api, project, work_payload)
+        work_item = created["work_item"]
+        assert websocket.receive_json() == {
+            "type": "invalidate",
+            "revision": revision + 1,
+            "scope": "work-items",
+            "project_id": project["id"],
+            "work_item_id": None,
+        }
+        api.patch(
+            item_path(project, work_item),
+            json={"expected_version": 1, "title": "Changed through another client"},
+        )
+        changed = websocket.receive_json()
+        assert changed["revision"] == revision + 2
+        assert changed["work_item_id"] == work_item["id"]
+        conflict = api.patch(
+            item_path(project, work_item),
+            json={"expected_version": 1, "title": "Stale overwrite"},
+        )
+        assert conflict.status_code == 409
+
+    with api.websocket_connect(
+        "/api/v1/sync", headers={"origin": "http://localhost:3000"}
+    ) as websocket:
+        assert websocket.receive_json() == {
+            "type": "ready", "revision": revision + 2
+        }
+
+
 def test_create_search_get_and_bounded_context_contract(api, project, work_payload):
     created = create_work(api, project, work_payload)
     work_item = created["work_item"]

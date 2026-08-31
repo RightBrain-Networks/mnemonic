@@ -68,7 +68,7 @@ test("the route allowlist exposes canonical Phase 1 work/checkpoint operations a
   assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/comments`, "GET"), ["limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/comments`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/complete`, "POST"), []);
-  for (const path of ["healthz", "readyz", "docs", "openapi.json", "projects/../docs", "projects/%2e%2e/docs", "projects/not-a-uuid", `projects/${project}/handoffs/invalid`, "https://attacker.example", "//attacker.example"]) {
+  for (const path of ["sync", "healthz", "readyz", "docs", "openapi.json", "projects/../docs", "projects/%2e%2e/docs", "projects/not-a-uuid", `projects/${project}/handoffs/invalid`, "https://attacker.example", "//attacker.example"]) {
     assert.equal(allowedQueryKeys(path, "GET"), null);
   }
   assert.equal(allowedQueryKeys(`projects/${project}`, "DELETE"), null);

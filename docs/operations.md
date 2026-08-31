@@ -15,7 +15,10 @@ adds the exact HTTPS host/origin without changing the local-only defaults.
 The published addresses are `127.0.0.1:3000` (dashboard), `:8000` (API), and
 `:8001` (MCP). Change the three port variables in `.env` if needed. When changing
 the web port, also change `MNEMONIC_DASHBOARD_ORIGINS` to list its exact origins,
-such as `http://localhost:3100,http://127.0.0.1:3100`.
+such as `http://localhost:3100,http://127.0.0.1:3100`. Both the web service’s
+HTTP proxy and the API’s data-free WebSocket endpoint consume this allowlist;
+recreate both services after changing it. Browser live sync reconnects
+automatically after a temporary interruption.
 
 Never set browser-public environment variables containing credentials. The
 dashboard's API key is a server-only setting. The database password must be

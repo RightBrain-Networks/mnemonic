@@ -13,12 +13,18 @@ loopback. This file is not installed by a container build or Compose startup.
 | Public path | Destination |
 | --- | --- |
 | `/` and `/api/mnemonic/*` | Next.js at `127.0.0.1:3000` |
+| `/api/mnemonic/sync` upgrade | Next.js WebSocket relay to the API |
 | `/mcp` (no trailing slash) | MCP at `127.0.0.1:8001/mcp` |
 | `/mcp/` and descendants | Rejected with 404 |
 | HTTP port 80 | Redirects to the fixed HTTPS hostname, preserving path and query |
 
 FastAPI and PostgreSQL are not routed publicly. In particular, do not send
 `/api/mnemonic/*` to port 8000: that path belongs to the dashboard's server proxy.
+
+The WebSocket carries data-free invalidation notices; browsers refetch changed
+records through the authenticated dashboard API proxy. nginx forwards the
+`Upgrade` and `Connection` headers, and the API checks the browser's exact
+origin before accepting the subscription.
 
 ## Trust and prerequisites
 
@@ -163,7 +169,8 @@ bounded retention period (for example, the example host's 30 days).
 Access logs exclude query strings and Referer to avoid retaining search text.
 Error logs can still include request URLs, so they also need private storage.
 The proxy does not cache responses; it preserves Next.js's own browser cache
-headers and does not buffer MCP or Next.js streaming responses.
+headers and does not buffer MCP, Next.js streaming responses, or upgraded
+WebSocket traffic.
 
 Directive behavior was checked against nginx's official
 [proxy documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html),

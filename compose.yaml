@@ -22,6 +22,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://mnemonic:${POSTGRES_PASSWORD}@postgres:5432/mnemonic
       MNEMONIC_API_KEY: ${MNEMONIC_API_KEY:?Run scripts/setup.py or configure .env first}
+      MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_DASHBOARD_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
     ports:
       - '127.0.0.1:${MNEMONIC_API_PORT:-8000}:8000'
     depends_on:
