@@ -1,51 +1,49 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { api, ApiError, errorMessage, handoffPath } from "@/lib/api";
-import { handoffSearchParams } from "@/lib/handoff-search";
-import { recallPointer } from "@/lib/recall-pointer";
-import type { Handoff, HandoffComment, HandoffCompletion, HandoffPatch, HandoffStatus, HandoffSummary, Page, Project, StatusFilter } from "@/lib/types";
+import { CHECKPOINT_PAGE_SIZE } from "@/components/checkpoint-timeline";
+import WorkItemDetail from "@/components/work-item-detail";
+import WorkItemList, { WORK_PAGE_SIZE } from "@/components/work-item-list";
+import { StatusBadge, formatDate } from "@/components/work-item-card";
+import { draftFromWork, type WorkEditDraft } from "@/components/work-item-editor";
+import { api, ApiError, errorMessage, workItemPath } from "@/lib/api";
+import type {
+  Checkpoint,
+  CheckpointInput,
+  CheckpointKind,
+  CompletionResult,
+  DeletionResult,
+  Page,
+  Project,
+  StatusFilter,
+  WorkContext,
+  WorkCreation,
+  WorkItem,
+  WorkPatch,
+  WorkSummary
+} from "@/lib/types";
+import { normalizedTags } from "@/lib/work-item-view";
+import { workSearchParams } from "@/lib/work-item-search";
 
-const PAGE_SIZE = 20;
-const statusLabels: Record<StatusFilter, string> = { open: "Open", done: "Done", "wont-do": "Won’t do", promoted: "Promoted", all: "All" };
-const filters: StatusFilter[] = ["open", "done", "wont-do", "promoted", "all"];
-const icons = {
+const iconPaths = {
   search: "m21 21-4.4-4.4M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0Z",
   plus: "M12 5v14M5 12h14",
   copy: "M9 5V3h12v14h-3M3 7h12v14H3V7Z",
   check: "m5 12 4 4L19 6",
   close: "m6 6 12 12M6 18 18 6",
-  edit: "m16 3 5 5M3 21l5-1L21 7l-5-5L3 15v6Z",
-  trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7",
   refresh: "M20 7V2m0 5h-5M4 17v5m0-5h5M4 8a8 8 0 0 1 13-4l3 3M4 17l3 3a8 8 0 0 0 13-4",
   library: "M3 3h6v18H3V3Zm10 0h4l4 17-4 1-4-18Z",
   arrow: "M5 12h14m-5-5 5 5-5 5",
   back: "M19 12H5m5-5-5 5 5 5",
-  box: "M4 8h16v13H4V8ZM2 3h20v5H2V3Zm7 10h6",
-  external: "M14 3h7v7m0-7L10 14M10 3H3v18h18v-7",
-  branch: "M6 3v12m0 0a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm0-5h7a5 5 0 0 0 5-5m0-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"
+  box: "M4 8h16v13H4V8ZM2 3h20v5H2V3Zm7 10h6"
 };
 
-function Icon({ name, size = 18 }: { name: keyof typeof icons; size?: number }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={icons[name]} /></svg>;
+function Icon({ name, size = 18 }: { name: keyof typeof iconPaths; size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[name]} /></svg>;
 }
 
 function Logo() {
-  return <svg className="logo-mark" width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true"><rect width="34" height="34" rx="10" fill="currentColor" /><path d="M9 27v-4.2A10.6 10.6 0 0 1 6.5 15C6.5 9.5 10.9 5 16.4 5c4.7 0 8.7 3.4 9.5 8l1.9 3.1c.6 1-.05 2.25-1.2 2.33l-1.4.1-.4 3.3a3.4 3.4 0 0 1-3.4 3h-2.2V27H9Z" fill="#f9f8f3" /><rect x="14.3" y="9.2" width="4.1" height="9" rx="2.05" fill="currentColor" /><circle cx="16.35" cy="21.5" r="2.1" fill="currentColor" /></svg>;
-}
-
-function clientLabel(client: string) {
-  return ({ "claude-code": "Claude Code", chatgpt: "ChatGPT", opencode: "OpenCode", manual: "Manual capture" } as Record<string, string>)[client] ?? client;
-}
-
-function formatDate(value: string, includeTime = false) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric", ...(includeTime ? { hour: "numeric", minute: "2-digit" } as const : {}) }).format(date);
-}
-
-function StatusBadge({ status }: { status: HandoffStatus }) {
-  return <span className={`status-badge status-${status}`}><span />{statusLabels[status]}</span>;
+  return <svg className="logo-mark" width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true"><rect width="34" height="34" rx="10" fill="currentColor" /><path d="M9 24V10h4l4 7 4-7h4v14h-4v-8l-4 6-4-6v8H9Z" fill="#f9f8f3" /></svg>;
 }
 
 function Dialog({ title, children, onClose, wide = false, busy = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; busy?: boolean }) {
@@ -60,58 +58,6 @@ function Dialog({ title, children, onClose, wide = false, busy = false }: { titl
     <div className="dialog-header"><h2 id={titleId}>{title}</h2><button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose} disabled={busy}><Icon name="close" /></button></div>
     <div className="dialog-content">{children}</div>
   </dialog>;
-}
-
-function Provenance({ record }: { record: HandoffSummary }) {
-  let sessionUrl: string | undefined;
-  try {
-    const url = new URL(record.source_session_url ?? "");
-    if (["http:", "https:"].includes(url.protocol)) sessionUrl = url.href;
-  } catch { /* Records without a session URL still retain their identifier. */ }
-  return <section className="provenance" aria-label="Original session information">
-    <div className="section-label">ORIGINATING SESSION <span>Preserved on every edit</span></div>
-    <dl className="metadata-grid">
-      <div><dt>Client</dt><dd>{clientLabel(record.source_client)}</dd></div>
-      <div><dt>Model</dt><dd>{record.source_model || "Not recorded"}</dd></div>
-      <div className="span-two"><dt>Session ID</dt><dd className="mono break-all">{record.source_session_id}</dd></div>
-      {sessionUrl && <div className="span-two"><dt>Session link</dt><dd><a className="text-link" href={sessionUrl} target="_blank" rel="noopener noreferrer">Open original session <Icon name="external" size={14} /></a></dd></div>}
-    </dl>
-  </section>;
-}
-
-type EditDraft = {
-  title: string; summary: string; prompt: string; status: HandoffStatus;
-  repository_branch: string; verified_against: string; tags: string[]; metadata: string;
-};
-
-function draftFromRecord(record: Handoff): EditDraft {
-  return {
-    title: record.title, summary: record.summary, prompt: record.prompt, status: record.status,
-    repository_branch: record.repository_branch ?? "", verified_against: record.verified_against ?? "",
-    tags: [...record.tags], metadata: JSON.stringify(record.source_metadata, null, 2)
-  };
-}
-
-function changedFields(draft: EditDraft, base: Handoff, pendingTag: string): HandoffPatch {
-  let metadata: unknown;
-  try { metadata = JSON.parse(draft.metadata); }
-  catch { throw new Error("Extra metadata must be valid JSON. Your other edits have been kept."); }
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new Error("Extra metadata must be a JSON object.");
-  if (draft.verified_against.trim() && !/^[a-fA-F0-9]{7,64}$/.test(draft.verified_against.trim())) throw new Error("Verified commit must be a Git commit ID with 7–64 hexadecimal characters.");
-  const tags = [...draft.tags];
-  if (pendingTag.trim() && !tags.some((tag) => tag.toLowerCase() === pendingTag.trim().toLowerCase())) tags.push(pendingTag.trim());
-  if (tags.length > 20) throw new Error("Use no more than 20 tags.");
-  const candidate = {
-    title: draft.title, summary: draft.summary, prompt: draft.prompt, status: draft.status,
-    repository_branch: draft.repository_branch.trim() || null,
-    verified_against: draft.verified_against.trim() || null,
-    tags, source_metadata: metadata as Record<string, unknown>
-  };
-  const patch: HandoffPatch = { expected_version: base.version };
-  for (const field of Object.keys(candidate) as Array<keyof typeof candidate>) {
-    if (JSON.stringify(candidate[field]) !== JSON.stringify(base[field])) Object.assign(patch, { [field]: candidate[field] });
-  }
-  return patch;
 }
 
 function ErrorNotice({ message, children }: { message: string; children?: ReactNode }) {
@@ -131,18 +77,36 @@ function dashboardSessionId() {
   }
 }
 
-async function allComments(projectId: string, handoffId: string) {
-  const comments: HandoffComment[] = [];
-  let total = 1;
-  while (comments.length < total) {
-    const page = await api<Page<HandoffComment>>(
-      `${handoffPath(projectId, handoffId)}/comments?limit=100&offset=${comments.length}`
-    );
-    comments.push(...page.items);
-    total = page.total;
-    if (!page.items.length) break;
+function checkpointPayload(
+  prompt: string,
+  branch = "",
+  commit = "",
+  tagText = ""
+): CheckpointInput {
+  const verified = commit.trim();
+  if (verified && !/^[a-fA-F0-9]{7,64}$/.test(verified)) {
+    throw new Error("Verified commit must be a Git commit ID with 7–64 hexadecimal characters.");
   }
-  return comments;
+  return {
+    prompt,
+    source_client: "dashboard",
+    source_session_id: dashboardSessionId(),
+    source_model: null,
+    repository_branch: branch.trim() || null,
+    verified_against: verified || null,
+    tags: normalizedTags(tagText),
+    source_metadata: {}
+  };
+}
+
+function summaryWithContext(base: WorkSummary, context: WorkContext): WorkSummary {
+  return {
+    ...base,
+    work_item: context.work_item,
+    checkpoint_count: context.checkpoint_total,
+    current_context: context.current_context,
+    readiness: context.readiness
+  };
 }
 
 export default function Dashboard() {
@@ -161,35 +125,42 @@ export default function Dashboard() {
   const [status, setStatus] = useState<StatusFilter>("open");
   const [offset, setOffset] = useState(0);
   const [refresh, setRefresh] = useState(0);
-  const [results, setResults] = useState<Page<HandoffSummary> | null>(null);
+  const [results, setResults] = useState<Page<WorkSummary> | null>(null);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const [opened, setOpened] = useState<HandoffSummary | null>(null);
-  const [record, setRecord] = useState<Handoff | null>(null);
-  const [recordLoading, setRecordLoading] = useState(false);
-  const [recordError, setRecordError] = useState("");
-  const [mode, setMode] = useState<"view" | "edit">("view");
-  const [draft, setDraft] = useState<EditDraft | null>(null);
-  const [tagInput, setTagInput] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [editError, setEditError] = useState("");
-  const [hasConflict, setHasConflict] = useState(false);
-  const [latest, setLatest] = useState<Handoff | null>(null);
-  const [latestLoading, setLatestLoading] = useState(false);
-  const recordRequest = useRef(0);
-  const [comments, setComments] = useState<HandoffComment[]>([]);
-  const [commentsLoading, setCommentsLoading] = useState(false);
-  const [commentsError, setCommentsError] = useState("");
-  const [commentBody, setCommentBody] = useState("");
-  const [commentSaving, setCommentSaving] = useState(false);
+  const [workDialog, setWorkDialog] = useState(false);
+  const [workSaving, setWorkSaving] = useState(false);
+  const [newWorkError, setNewWorkError] = useState("");
 
-  const [deleteTarget, setDeleteTarget] = useState<HandoffSummary | null>(null);
+  const [opened, setOpened] = useState<WorkSummary | null>(null);
+  const [context, setContext] = useState<WorkContext | null>(null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState("");
+  const [mode, setMode] = useState<"view" | "edit">("view");
+  const [editDraft, setEditDraft] = useState<WorkEditDraft | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [conflict, setConflict] = useState<WorkItem | null>(null);
+  const recordRequest = useRef(0);
+
+  const [checkpointPage, setCheckpointPage] = useState<Page<Checkpoint> | null>(null);
+  const [checkpointOffset, setCheckpointOffset] = useState(0);
+  const [checkpointLoading, setCheckpointLoading] = useState(false);
+  const [checkpointLoadError, setCheckpointLoadError] = useState("");
+  const [checkpointActionError, setCheckpointActionError] = useState("");
+  const [checkpointRefresh, setCheckpointRefresh] = useState(0);
+  const [checkpointKind, setCheckpointKind] = useState<Exclude<CheckpointKind, "completion">>("progress");
+  const [checkpointBody, setCheckpointBody] = useState("");
+  const [checkpointBranch, setCheckpointBranch] = useState("");
+  const [checkpointCommit, setCheckpointCommit] = useState("");
+  const [checkpointTags, setCheckpointTags] = useState("");
+  const [checkpointSaving, setCheckpointSaving] = useState(false);
+
+  const [deleteTarget, setDeleteTarget] = useState<WorkItem | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-  const [deleteConflict, setDeleteConflict] = useState(false);
-  const [copying, setCopying] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ message: string; error?: boolean } | null>(null);
   const project = projects.find((item) => item.id === activeId);
@@ -211,7 +182,7 @@ export default function Dashboard() {
       all.sort((a, b) => a.name.localeCompare(b.name));
       setProjects(all);
       let saved = "";
-      try { saved = localStorage.getItem("mnemonic.project") ?? ""; } catch { /* Storage can be disabled by the browser. */ }
+      try { saved = localStorage.getItem("mnemonic.project") ?? ""; } catch { /* optional */ }
       setActiveId((current) => all.some((item) => item.id === current) ? current : all.find((item) => item.id === saved)?.id ?? all[0]?.id ?? "");
     }
     load().catch((error) => { if (!controller.signal.aborted) setProjectsError(errorMessage(error)); })
@@ -221,30 +192,53 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!activeId) return;
-    try { localStorage.setItem("mnemonic.project", activeId); } catch { /* Project selection still works without browser storage. */ }
+    try { localStorage.setItem("mnemonic.project", activeId); } catch { /* optional */ }
   }, [activeId]);
 
   useEffect(() => {
-    const timeout = setTimeout(() => { setSearch(query); setOffset(0); }, 300);
-    return () => clearTimeout(timeout);
+    const timer = setTimeout(() => { setSearch(query); setOffset(0); }, 300);
+    return () => clearTimeout(timer);
   }, [query]);
 
   useEffect(() => {
-    if (!activeId) { setResults(null); setListLoading(false); return; }
+    if (!activeId) { setResults(null); return; }
     const controller = new AbortController();
     setListLoading(true);
     setListError("");
-    const params = handoffSearchParams({ status, limit: PAGE_SIZE, offset, query: search, semantic });
-    api<Page<HandoffSummary>>(`/projects/${activeId}/handoffs?${params}`, { signal: controller.signal })
+    const params = workSearchParams({ status, limit: WORK_PAGE_SIZE, offset, query: search, semantic });
+    api<Page<WorkSummary>>(`${workItemPath(activeId)}?${params}`, { signal: controller.signal })
       .then((page) => {
         if (controller.signal.aborted) return;
-        if (offset > 0 && offset >= page.total) { setOffset(Math.max(0, Math.floor((page.total - 1) / PAGE_SIZE) * PAGE_SIZE)); return; }
+        if (offset > 0 && offset >= page.total) {
+          setOffset(Math.max(0, Math.floor((page.total - 1) / WORK_PAGE_SIZE) * WORK_PAGE_SIZE));
+          return;
+        }
         setResults(page);
       })
       .catch((error) => { if (!controller.signal.aborted) setListError(errorMessage(error)); })
       .finally(() => { if (!controller.signal.aborted) setListLoading(false); });
     return () => controller.abort();
-  }, [activeId, search, semantic, status, offset, refresh]);
+  }, [activeId, offset, refresh, search, semantic, status]);
+
+  useEffect(() => {
+    if (!opened) { setCheckpointPage(null); return; }
+    const controller = new AbortController();
+    setCheckpointLoading(true);
+    setCheckpointLoadError("");
+    const base = workItemPath(opened.work_item.project_id, opened.work_item.id);
+    api<Page<Checkpoint>>(`${base}/checkpoints?order=newest&limit=${CHECKPOINT_PAGE_SIZE}&offset=${checkpointOffset}`, { signal: controller.signal })
+      .then((page) => {
+        if (controller.signal.aborted) return;
+        if (checkpointOffset > 0 && checkpointOffset >= page.total) {
+          setCheckpointOffset(Math.max(0, Math.floor((page.total - 1) / CHECKPOINT_PAGE_SIZE) * CHECKPOINT_PAGE_SIZE));
+          return;
+        }
+        setCheckpointPage(page);
+      })
+      .catch((error) => { if (!controller.signal.aborted) setCheckpointLoadError(errorMessage(error)); })
+      .finally(() => { if (!controller.signal.aborted) setCheckpointLoading(false); });
+    return () => controller.abort();
+  }, [opened, checkpointOffset, checkpointRefresh]);
 
   useEffect(() => {
     if (!notice || notice.error) return;
@@ -262,7 +256,8 @@ export default function Dashboard() {
     function focusSearch(event: KeyboardEvent) {
       const target = event.target as HTMLElement;
       if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) && !target.isContentEditable && !document.querySelector("dialog[open]")) {
-        event.preventDefault(); searchRef.current?.focus();
+        event.preventDefault();
+        searchRef.current?.focus();
       }
     }
     window.addEventListener("keydown", focusSearch);
@@ -270,298 +265,392 @@ export default function Dashboard() {
   }, []);
 
   function chooseProject(id: string) {
-    setActiveId(id); setOffset(0); setQuery(""); setSearch(""); setSemantic(false); setStatus("open"); setResults(null);
+    setActiveId(id);
+    setOffset(0);
+    setQuery("");
+    setSearch("");
+    setSemantic(false);
+    setStatus("open");
+    setResults(null);
   }
 
   async function createProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    setProjectSaving(true); setNewProjectError("");
+    setProjectSaving(true);
+    setNewProjectError("");
     try {
       const created = await api<Project>("/projects", {
         method: "POST",
-        body: JSON.stringify({ name: form.get("name"), description: form.get("description") || "", ...(form.get("slug") ? { slug: form.get("slug") } : {}), ...(form.get("repository_url") ? { repository_url: form.get("repository_url") } : {}) })
+        body: JSON.stringify({
+          name: form.get("name"),
+          description: form.get("description") || "",
+          ...(form.get("slug") ? { slug: form.get("slug") } : {}),
+          ...(form.get("repository_url") ? { repository_url: form.get("repository_url") } : {})
+        })
       });
       setProjects((items) => [...items, created].sort((a, b) => a.name.localeCompare(b.name)));
-      chooseProject(created.id); setProjectDialog(false); setNotice({ message: `“${created.name}” is ready for its first hand-off.` });
-    } catch (error) { setNewProjectError(errorMessage(error)); }
-    finally { setProjectSaving(false); }
-  }
-
-  async function loadComments(full: Handoff, requestId = recordRequest.current) {
-    setCommentsLoading(true); setCommentsError("");
-    try {
-      const timeline = await allComments(full.project_id, full.id);
-      if (recordRequest.current === requestId) setComments(timeline);
+      chooseProject(created.id);
+      setProjectDialog(false);
+      setNotice({ message: `“${created.name}” is ready for durable work.` });
     } catch (error) {
-      if (recordRequest.current === requestId) setCommentsError(errorMessage(error));
+      setNewProjectError(errorMessage(error));
     } finally {
-      if (recordRequest.current === requestId) setCommentsLoading(false);
+      setProjectSaving(false);
     }
   }
 
-  async function openRecord(summary: HandoffSummary, editing = false) {
-    const requestId = ++recordRequest.current;
-    setOpened(summary); setRecord(null); setRecordError(""); setRecordLoading(true); setNotice(null);
-    setMode(editing ? "edit" : "view"); setDraft(null); setTagInput(""); setEditError(""); setLatest(null); setHasConflict(false);
-    setComments([]); setCommentsError(""); setCommentsLoading(false); setCommentBody("");
+  async function createWork(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!project) return;
+    const form = new FormData(event.currentTarget);
+    setWorkSaving(true);
+    setNewWorkError("");
     try {
-      const full = await api<Handoff>(handoffPath(summary.project_id, summary.id));
-      if (recordRequest.current !== requestId) return;
-      setRecord(full); setDraft(draftFromRecord(full));
-      void loadComments(full, requestId);
-    } catch (error) { if (recordRequest.current === requestId) setRecordError(errorMessage(error)); }
-    finally { if (recordRequest.current === requestId) setRecordLoading(false); }
-  }
-
-  function closeRecord() {
-    if (saving || commentSaving) return;
-    const dirty = record && draft && (JSON.stringify(draft) !== JSON.stringify(draftFromRecord(record)) || tagInput.trim());
-    if (mode === "edit" && dirty && !window.confirm("Discard your unsaved edits?")) return;
-    if (commentBody.trim() && !window.confirm("Discard your unsaved progress note?")) return;
-    ++recordRequest.current;
-    setOpened(null); setRecord(null); setDraft(null); setLatest(null); setComments([]); setCommentBody("");
-  }
-
-  async function copyPrompt(summary: HandoffSummary, loaded?: Handoff) {
-    if (copying) return;
-    setCopying(summary.id);
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable. Open the full prompt and select its text to copy it manually.");
-      const full = loaded ?? await api<Handoff>(handoffPath(summary.project_id, summary.id));
-      await navigator.clipboard.writeText(full.prompt);
-      setCopied(summary.id); setNotice({ message: "Full prompt copied. Ready for a fresh session." });
+      const prompt = String(form.get("prompt") ?? "");
+      const initialCheckpoint = checkpointPayload(
+        prompt,
+        String(form.get("repository_branch") ?? ""),
+        String(form.get("verified_against") ?? ""),
+        String(form.get("tags") ?? "")
+      );
+      const created = await api<WorkCreation>(workItemPath(project.id), {
+        method: "POST",
+        body: JSON.stringify({
+          title: form.get("title"),
+          summary: form.get("summary"),
+          priority: Number(form.get("priority") ?? 0),
+          status: "open",
+          initial_checkpoint: initialCheckpoint
+        })
+      });
+      setWorkDialog(false);
+      setStatus("open");
+      setOffset(0);
+      setRefresh((value) => value + 1);
+      setNotice({ message: `“${created.work_item.title}” now has its first immutable checkpoint.` });
     } catch (error) {
-      setNotice({ message: error instanceof DOMException && error.name === "NotAllowedError" ? "The browser blocked clipboard access. Allow it for this page, or select and copy the full prompt manually." : errorMessage(error), error: true });
-    } finally { setCopying(null); }
+      setNewWorkError(errorMessage(error));
+    } finally {
+      setWorkSaving(false);
+    }
+  }
+
+  async function loadContext(summary: WorkSummary, requestId = recordRequest.current) {
+    setContextLoading(true);
+    setContextError("");
+    try {
+      const full = await api<WorkContext>(`${workItemPath(summary.work_item.project_id, summary.work_item.id)}/context?recent_limit=5`);
+      if (recordRequest.current !== requestId) return;
+      setContext(full);
+      setOpened((current) => current ? summaryWithContext(current, full) : current);
+      setEditDraft(draftFromWork(full.work_item));
+    } catch (error) {
+      if (recordRequest.current === requestId) setContextError(errorMessage(error));
+    } finally {
+      if (recordRequest.current === requestId) setContextLoading(false);
+    }
+  }
+
+  function openWork(summary: WorkSummary, editing = false) {
+    const requestId = ++recordRequest.current;
+    setOpened(summary);
+    setContext(null);
+    setContextError("");
+    setMode(editing ? "edit" : "view");
+    setEditDraft(draftFromWork(summary.work_item));
+    setEditError("");
+    setConflict(null);
+    setCheckpointOffset(0);
+    setCheckpointPage(null);
+    setCheckpointBody("");
+    setCheckpointBranch("");
+    setCheckpointCommit("");
+    setCheckpointTags("");
+    setCheckpointKind("progress");
+    setCheckpointActionError("");
+    void loadContext(summary, requestId);
+  }
+
+  function closeWork() {
+    if (editSaving || checkpointSaving) return;
+    if (checkpointBody.trim() && !window.confirm("Discard your unsaved checkpoint?")) return;
+    if (mode === "edit" && context && editDraft && JSON.stringify(editDraft) !== JSON.stringify(draftFromWork(context.work_item)) && !window.confirm("Discard your unsaved work-item edits?")) return;
+    ++recordRequest.current;
+    setOpened(null);
+    setContext(null);
+    setCheckpointPage(null);
+    setCheckpointBody("");
+  }
+
+  async function reloadOpenContext() {
+    if (!opened) return;
+    await loadContext(opened);
+  }
+
+  async function saveWorkEdits(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!context || !editDraft) return;
+    const base = context.work_item;
+    const patch: WorkPatch = { expected_version: base.version };
+    if (editDraft.title !== base.title) patch.title = editDraft.title;
+    if (editDraft.summary !== base.summary) patch.summary = editDraft.summary;
+    if (editDraft.priority !== base.priority) patch.priority = editDraft.priority;
+    if (editDraft.status !== base.status && editDraft.status !== "done") patch.status = editDraft.status;
+    if (Object.keys(patch).length === 1) { setMode("view"); return; }
+    setEditSaving(true);
+    setEditError("");
+    try {
+      const saved = await api<WorkItem>(workItemPath(base.project_id, base.id), { method: "PATCH", body: JSON.stringify(patch) });
+      setContext((value) => value ? { ...value, work_item: saved, readiness: { ...value.readiness, lifecycle_status: saved.status, is_terminal: saved.status !== "open", is_ready: saved.status === "open", display_state: saved.status === "open" ? "ready" : saved.status } } : value);
+      setOpened((value) => value ? { ...value, work_item: saved } : value);
+      setEditDraft(draftFromWork(saved));
+      setConflict(null);
+      setMode("view");
+      setRefresh((value) => value + 1);
+      setNotice({ message: "Work item saved. Checkpoint history was not changed." });
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 409 || error.code === "version_conflict")) {
+        setEditError("This work item changed after you opened it. Your edits are still here.");
+      } else {
+        setEditError(errorMessage(error));
+      }
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function loadLatestWork() {
+    if (!context) return;
+    setEditError("");
+    try {
+      const latest = await api<WorkItem>(workItemPath(context.work_item.project_id, context.work_item.id));
+      setConflict(latest);
+    } catch (error) {
+      setEditError(errorMessage(error));
+    }
+  }
+
+  function useCurrentVersion() {
+    if (!conflict) return;
+    setContext((value) => value ? { ...value, work_item: conflict } : value);
+    setOpened((value) => value ? { ...value, work_item: conflict } : value);
+    setConflict(null);
+    setEditError("");
+  }
+
+  async function saveCheckpoint(complete: boolean) {
+    if (!context || !checkpointBody.trim() || checkpointSaving) return;
+    setCheckpointSaving(true);
+    setCheckpointActionError("");
+    try {
+      const checkpoint = checkpointPayload(checkpointBody, checkpointBranch, checkpointCommit, checkpointTags);
+      const base = workItemPath(context.work_item.project_id, context.work_item.id);
+      if (complete) {
+        const result = await api<CompletionResult>(`${base}/complete`, {
+          method: "POST",
+          body: JSON.stringify({ expected_version: context.work_item.version, checkpoint })
+        });
+        setNotice({ message: "Completion checkpoint recorded and work marked done." });
+        setContext((value) => value ? { ...value, work_item: result.work_item, current_context: value.current_context, checkpoint_total: value.checkpoint_total + 1, readiness: { ...value.readiness, lifecycle_status: "done", is_terminal: true, is_ready: false, display_state: "done" } } : value);
+      } else {
+        await api<Checkpoint>(`${base}/checkpoints`, {
+          method: "POST",
+          body: JSON.stringify({ kind: checkpointKind, ...checkpoint })
+        });
+        setNotice({ message: checkpointKind === "context" ? "New current context recorded." : "Progress checkpoint recorded." });
+      }
+      setCheckpointBody("");
+      setCheckpointBranch("");
+      setCheckpointCommit("");
+      setCheckpointTags("");
+      setCheckpointOffset(0);
+      setCheckpointRefresh((value) => value + 1);
+      setRefresh((value) => value + 1);
+      await reloadOpenContext();
+    } catch (error) {
+      if (complete && error instanceof ApiError && (error.status === 409 || error.code === "version_conflict")) {
+        setCheckpointActionError("This work item changed before completion. Your summary is still here; the current version has been reloaded for review.");
+        await reloadOpenContext();
+      } else {
+        setCheckpointActionError(errorMessage(error));
+      }
+    } finally {
+      setCheckpointSaving(false);
+    }
+  }
+
+  async function deleteWork() {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await api<DeletionResult>(`${workItemPath(deleteTarget.project_id, deleteTarget.id)}/delete`, {
+        method: "POST",
+        body: JSON.stringify({ expected_version: deleteTarget.version })
+      });
+      if (opened?.work_item.id === deleteTarget.id) {
+        setOpened(null);
+        setContext(null);
+      }
+      setDeleteTarget(null);
+      setRefresh((value) => value + 1);
+      setNotice({ message: "Work item removed from ordinary project views. Its history remains recoverable." });
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 409 || error.code === "version_conflict")) {
+        try {
+          const latest = await api<WorkItem>(workItemPath(deleteTarget.project_id, deleteTarget.id));
+          setDeleteTarget(latest);
+          setDeleteError(`This work item changed. Deletion was not retried; review the current version ${latest.version} before trying again.`);
+        } catch (reloadError) {
+          setDeleteError(`The work item changed, and its current version could not be loaded. ${errorMessage(reloadError)}`);
+        }
+      } else {
+        setDeleteError(errorMessage(error));
+      }
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function copyText(value: string, key: string, success: string) {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable.");
+      await navigator.clipboard.writeText(value);
+      setCopied(key);
+      setNotice({ message: success });
+    } catch (error) {
+      setNotice({ message: errorMessage(error), error: true });
+    }
   }
 
   async function copyProjectId() {
-    if (!project) return;
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error(`Clipboard access is unavailable. Project ID: ${project.id}`);
-      await navigator.clipboard.writeText(project.id);
-      setNotice({ message: `Project ID copied: ${project.id}` });
-    } catch (error) { setNotice({ message: errorMessage(error), error: true }); }
-  }
-
-  async function copyRecallPointer(summary: HandoffSummary) {
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable. Allow clipboard access to copy the recall pointer.");
-      await navigator.clipboard.writeText(recallPointer(summary));
-      setCopied(`${summary.id}:pointer`); setNotice({ message: "Recall pointer copied. Paste it into a session with Mnemonic connected." });
-    } catch (error) {
-      setNotice({ message: error instanceof DOMException && error.name === "NotAllowedError" ? "The browser blocked clipboard access. Allow it for this page, or select and copy the full prompt manually." : errorMessage(error), error: true });
-    }
-  }
-
-  async function saveEdits(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!record || !draft) return;
-    setEditError("");
-    let patch: HandoffPatch;
-    try { patch = changedFields(draft, record, tagInput); }
-    catch (error) { setEditError(errorMessage(error)); return; }
-    if (Object.keys(patch).length === 1) { setMode("view"); return; }
-    setSaving(true);
-    try {
-      const saved = await api<Handoff>(handoffPath(record.project_id, record.id), { method: "PATCH", body: JSON.stringify(patch) });
-      setRecord(saved); setDraft(draftFromRecord(saved)); setMode("view"); setTagInput(""); setLatest(null); setHasConflict(false);
-      setRefresh((value) => value + 1); setNotice({ message: "Hand-off saved. Original session information preserved." });
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        setHasConflict(true); setLatest(null);
-        setEditError("This hand-off changed after you opened it. Your edits are still here. Compare the current version before saving again.");
-      } else setEditError(errorMessage(error));
-    } finally { setSaving(false); }
-  }
-
-  async function loadLatest() {
-    if (!record) return;
-    setLatestLoading(true);
-    try { setLatest(await api<Handoff>(handoffPath(record.project_id, record.id))); }
-    catch (error) { setEditError(errorMessage(error)); }
-    finally { setLatestLoading(false); }
-  }
-
-  function mergeLatest() {
-    if (!record || !draft || !latest) return;
-    try {
-      const { expected_version, ...changes } = changedFields(draft, record, tagInput);
-      void expected_version;
-      setDraft(draftFromRecord({ ...latest, ...changes })); setRecord(latest); setTagInput("");
-      setLatest(null); setHasConflict(false); setEditError("");
-    } catch (error) { setEditError(errorMessage(error)); }
-  }
-
-  function requestDelete(summary: HandoffSummary) {
-    setDeleteTarget(summary); setDeleteError(""); setDeleteConflict(false);
-  }
-
-  async function deleteHandoff() {
-    if (!deleteTarget) return;
-    setDeleting(true); setDeleteError("");
-    try {
-      await api<void>(`${handoffPath(deleteTarget.project_id, deleteTarget.id)}?expected_version=${deleteTarget.version}`, { method: "DELETE" });
-      if (opened?.id === deleteTarget.id) { setOpened(null); setRecord(null); }
-      setDeleteTarget(null); setRefresh((value) => value + 1); setNotice({ message: "Hand-off removed from the library." });
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 409) { setDeleteConflict(true); setDeleteError("This hand-off changed since it was listed. Load the current version and review it before deleting."); }
-      else setDeleteError(errorMessage(error));
-    } finally { setDeleting(false); }
-  }
-
-  async function refreshDelete() {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      const full = await api<Handoff>(handoffPath(deleteTarget.project_id, deleteTarget.id));
-      setDeleteTarget(full); setDeleteConflict(false); setDeleteError(""); setRefresh((value) => value + 1);
-    } catch (error) { setDeleteError(errorMessage(error)); }
-    finally { setDeleting(false); }
-  }
-
-  function addTag() {
-    if (!draft || !tagInput.trim() || draft.tags.length >= 20) return;
-    const tag = tagInput.trim();
-    if (!draft.tags.some((existing) => existing.toLowerCase() === tag.toLowerCase())) setDraft({ ...draft, tags: [...draft.tags, tag] });
-    setTagInput("");
-  }
-
-  async function saveComment(complete: boolean) {
-    if (!record || !commentBody.trim() || commentSaving) return;
-    setCommentSaving(true); setCommentsError("");
-    const provenance = {
-      source_client: "dashboard",
-      source_session_id: dashboardSessionId(),
-      source_model: null
-    };
-    try {
-      if (complete) {
-        const result = await api<HandoffCompletion>(`${handoffPath(record.project_id, record.id)}/complete`, {
-          method: "POST",
-          body: JSON.stringify({ expected_version: record.version, summary: commentBody, ...provenance })
-        });
-        setRecord(result.handoff); setDraft(draftFromRecord(result.handoff));
-        setComments((items) => [...items, result.comment]);
-        setNotice({ message: "Work summary recorded and hand-off marked done." });
-      } else {
-        const comment = await api<HandoffComment>(`${handoffPath(record.project_id, record.id)}/comments`, {
-          method: "POST",
-          body: JSON.stringify({ body: commentBody, ...provenance })
-        });
-        setComments((items) => [...items, comment]);
-        setRecord((current) => current ? { ...current, updated_at: comment.created_at } : current);
-        setNotice({ message: "Progress comment added." });
-      }
-      setCommentBody("");
-      setRefresh((value) => value + 1);
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        setCommentsError("This hand-off changed before completion. Your summary is still here; reload the record and review the current version.");
-      } else setCommentsError(errorMessage(error));
-    } finally { setCommentSaving(false); }
+    if (project) await copyText(project.id, "project", `Project ID copied: ${project.id}`);
   }
 
   return <div className="app-shell">
-    <a className="skip-link" href="#main-content">Skip to hand-offs</a>
+    <a className="skip-link" href="#main-content">Skip to work items</a>
     <aside className="sidebar">
       <a href="/" className="brand" aria-label="Mnemonic home"><Logo /><span>mnemonic<span className="brand-period">.</span></span></a>
       <div className="workspace-picker">
         <label className="section-label" htmlFor="project-select">YOUR WORKSPACE</label>
-        <div className="select-wrap"><select id="project-select" value={activeId} disabled={projectsLoading || !projects.length} onChange={(event) => chooseProject(event.target.value)} aria-label="Select project">
+        <div className="select-wrap"><select id="project-select" value={activeId} disabled={projectsLoading || !projects.length} onChange={(event) => chooseProject(event.target.value)}>
           {!projects.length && <option value="">{projectsLoading ? "Loading projects…" : "Select a project"}</option>}
           {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select><span className="select-chevron" aria-hidden="true">⌄</span></div>
         <button className="new-project-button" type="button" disabled={projectsLoading} onClick={() => { setNewProjectError(""); setProjectDialog(true); }}><Icon name="plus" size={15} />New project</button>
         {project && <button className="copy-project-button" type="button" title={`Project ID: ${project.id}`} onClick={() => void copyProjectId()}><Icon name="copy" size={13} />Copy project ID for your agent</button>}
       </div>
-      <nav aria-label="Workspace navigation"><a className="nav-item active" href="#main-content" aria-current="page"><Icon name="library" /><span>Hand-off library</span><Icon name="arrow" size={15} /></a></nav>
-      <div className="sidebar-note"><div className="note-art" aria-hidden="true"><span /><span /><span /></div><h2>Keep the context.<br />Pick up the work.</h2><p>A good next step deserves a longer memory than a session.</p></div>
-      <div className="sidebar-footer"><span className="local-dot" /><span>Local workspace</span><span className="mvp-label">MVP</span></div>
+      <nav aria-label="Workspace navigation"><a className="nav-item active" href="#main-content" aria-current="page"><Icon name="library" /><span>Work library</span><Icon name="arrow" size={15} /></a></nav>
+      <div className="sidebar-note"><div className="note-art" aria-hidden="true"><span /><span /><span /></div><h2>Keep the objective.<br />Pass on the context.</h2><p>Durable work survives while sessions leave immutable checkpoints.</p></div>
+      <div className="sidebar-footer"><span className="local-dot" /><span>Local workspace</span><span className="mvp-label">WORK GRAPH</span></div>
     </aside>
 
     <main id="main-content" className="main-content">
-      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span></div><span className="topbar-note"><span className="small-mark" aria-hidden="true">m.</span>Context worth keeping</span></header>
+      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span></div><span className="topbar-note"><span className="small-mark">m.</span>Context worth keeping</span></header>
       <div className="page-content">
-        <section className="page-heading"><div><div className="eyebrow">A PLACE TO PICK UP WHERE YOU LEFT OFF</div><h1>Hand-off library<span>.</span></h1><p>{project?.description || "Complete prompts. Original context. Ready for your next session."}</p></div><button className="button button-secondary refresh-button" type="button" aria-label="Refresh workspace" title="Refresh workspace" disabled={projectsLoading || listLoading} onClick={() => { setProjectsRefresh((value) => value + 1); setRefresh((value) => value + 1); }}><Icon name="refresh" size={16} /><span>Refresh</span></button></section>
+        <section className="page-heading"><div><div className="eyebrow">DURABLE WORK FOR TEMPORARY SESSIONS</div><h1>Work library<span>.</span></h1><p>{project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}</p></div><div className="heading-actions">{project && <button className="button button-primary" type="button" onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}<button className="button button-secondary refresh-button" type="button" disabled={projectsLoading || listLoading} onClick={() => { setProjectsRefresh((value) => value + 1); setRefresh((value) => value + 1); }}><Icon name="refresh" size={16} /><span>Refresh</span></button></div></section>
 
-        {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> : projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> : !projects.length ? <section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">YOUR NEXT SESSION WILL THANK YOU</div><h2>Make room for what comes next.</h2><p>Create a project to give your hand-off prompts a home.<br />Then connect your agent and start keeping the context that matters.</p><button className="button button-primary" onClick={() => { setNewProjectError(""); setProjectDialog(true); }}><Icon name="plus" size={17} />Create your first project</button><div className="onboarding-footnote">One project, many sessions. Every prompt keeps its origin.</div></section> : <>
-          <section className="library-controls" aria-label="Find hand-offs">
-            <div className="search-field"><Icon name="search" size={20} /><input ref={searchRef} type="search" value={query} maxLength={500} aria-label="Search hand-offs" placeholder="Search prompts, context, or session IDs…" onChange={(event) => setQuery(event.target.value)} />{query ? <button className="icon-button" type="button" aria-label="Clear search" onClick={() => setQuery("")}><Icon name="close" size={16} /></button> : <kbd aria-hidden="true">/</kbd>}<span className="search-mode-divider" aria-hidden="true" /><button className={`semantic-toggle ${semantic ? "selected" : ""}`} type="button" aria-label="Semantic search" aria-pressed={semantic} title="Include matches with similar meaning" onClick={() => { setSemantic((value) => !value); setOffset(0); }}><span className="semantic-switch" aria-hidden="true"><span /></span><span>Semantic</span></button></div>
-            <div className="filter-row"><div className="status-filters" role="group" aria-label="Filter by status">{filters.map((filter) => <button key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => { setStatus(filter); setOffset(0); }}>{filter === "open" && <span className="filter-dot" />}{statusLabels[filter]}</button>)}</div><span className="result-count" role="status">{listLoading || query !== search ? "Finding hand-offs…" : results ? `${results.total} hand-off${results.total === 1 ? "" : "s"}` : ""}</span></div>
-          </section>
-
-          {listError ? <ErrorNotice message={listError}><button className="button button-secondary" onClick={() => setRefresh((value) => value + 1)}>Try again</button></ErrorNotice> : listLoading ? <div className="card-skeletons" role="status" aria-label="Loading hand-offs">{[1, 2, 3].map((item) => <div className="card-skeleton" key={item}><span /><span /><span /></div>)}<span className="sr-only">Loading hand-offs…</span></div> : !results?.items.length ? <section className="empty-state"><div className="empty-art"><Icon name={search ? "search" : "box"} size={31} /><span /></div><h2>{search ? "No matches this time." : status === "open" ? "Your next chapter starts here." : `No ${statusLabels[status].toLowerCase()} hand-offs.`}</h2><p>{search ? "Try another search, or look across all statuses." : status === "open" ? "Ask your agent to save a complete hand-off to this project. It will be here when you’re ready to continue." : "Saved prompts with this status will appear here."}</p>{search || status !== "open" ? <button className="button button-secondary" onClick={() => { setQuery(""); setSearch(""); setStatus(search ? "all" : "open"); setOffset(0); }}>{search ? "Clear search & show all" : "Show open hand-offs"}</button> : <div className="agent-hint"><span>TRY ASKING YOUR CONNECTED AGENT</span><p>“Save a complete hand-off in Mnemonic for the {project?.name} project.”</p></div>}</section> : <section className="handoff-list" aria-label="Stored hand-off prompts">
-            {results.items.map((item) => <article className="handoff-card" key={item.id}>
-              <div className="card-topline"><StatusBadge status={item.status} /><span className="card-source">{clientLabel(item.source_client)}<span>·</span><time dateTime={item.updated_at} title={formatDate(item.updated_at, true)}>Updated {formatDate(item.updated_at)}</time></span><span className="card-version">v{item.version}</span></div>
-              <button className="card-title" type="button" onClick={() => void openRecord(item)}><h2>{item.title}</h2><Icon name="arrow" size={18} /></button>
-              <p className="card-summary">{item.summary}</p>
-              <div className="card-footer"><div className="card-context">{item.tags.slice(0, 3).map((tag) => <span className="tag" key={tag}>{tag}</span>)}{item.tags.length > 3 && <span className="extra-tags" title={item.tags.slice(3).join(", ")}>+{item.tags.length - 3}</span>}<span className="session-snippet" title={`Session: ${item.source_session_id}`}>session <span>{item.source_session_id}</span></span></div><div className="card-actions"><button className="icon-button" aria-label={`Edit ${item.title}`} title="Edit hand-off" onClick={() => void openRecord(item, true)}><Icon name="edit" size={17} /></button><button className="icon-button danger-hover" aria-label={`Delete ${item.title}`} title="Delete hand-off" onClick={() => requestDelete(item)}><Icon name="trash" size={17} /></button><span className="action-divider" /><button className={`button copy-button ${copied === `${item.id}:pointer` ? "is-copied" : ""}`} aria-label={`Copy recall pointer: ${item.title}`} onClick={() => void copyRecallPointer(item)}><Icon name={copied === `${item.id}:pointer` ? "check" : "copy"} size={16} />{copied === `${item.id}:pointer` ? "Copied" : "Copy pointer"}</button><button className={`button copy-button ${copied === item.id ? "is-copied" : ""}`} aria-label={`Copy prompt: ${item.title}`} disabled={copying !== null} onClick={() => void copyPrompt(item)}><Icon name={copied === item.id ? "check" : "copy"} size={16} />{copying === item.id ? "Copying…" : copied === item.id ? "Copied" : "Copy prompt"}</button></div></div>
-            </article>)}
-          </section>}
-          {!listLoading && !listError && results && results.total > 0 && <nav className="pagination" aria-label="Hand-off result pages"><span>Showing {offset + 1}–{Math.min(offset + results.items.length, results.total)} of {results.total}</span><div><button className="button button-secondary" disabled={offset === 0} onClick={() => setOffset((value) => Math.max(0, value - PAGE_SIZE))}><Icon name="back" size={15} />Previous</button><button className="button button-secondary" disabled={offset + results.items.length >= results.total} onClick={() => setOffset((value) => value + PAGE_SIZE)}>Next<Icon name="arrow" size={15} /></button></div></nav>}
-          <footer className="library-footer"><Icon name="box" size={15} /><span>Agent-authored context, kept across sessions. Review the source before acting.</span></footer>
-        </>}
+        {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
+          projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
+          !projects.length ? <section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">A DURABLE PLACE TO CONTINUE</div><h2>Create your first project.</h2><p>Projects hold stable objectives and the session checkpoints that move them forward.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}><Icon name="plus" size={17} />Create your first project</button></section> : <>
+            <WorkItemList
+              query={query}
+              searchedQuery={search}
+              searchRef={searchRef}
+              semantic={semantic}
+              status={status}
+              results={results}
+              loading={listLoading}
+              error={listError}
+              offset={offset}
+              copiedKey={copied}
+              onQuery={setQuery}
+              onToggleSemantic={() => { setSemantic((value) => !value); setOffset(0); }}
+              onStatus={(value) => { setStatus(value); setOffset(0); }}
+              onRetry={() => setRefresh((value) => value + 1)}
+              onClearFilters={() => { setQuery(""); setSearch(""); setStatus("open"); setOffset(0); }}
+              onCreate={() => setWorkDialog(true)}
+              onOpen={(item) => openWork(item)}
+              onEdit={(item) => openWork(item, true)}
+              onDelete={(item) => { setDeleteTarget(item.work_item); setDeleteError(""); }}
+              onCopy={(value, key, success) => void copyText(value, key, success)}
+              onOffset={setOffset}
+            />
+          </>}
       </div>
     </main>
 
     {notice && <div className={`toast ${notice.error ? "toast-error" : ""}`} role={notice.error ? "alert" : "status"}><Icon name={notice.error ? "close" : "check"} size={18} /><span>{notice.message}</span><button className="icon-button" aria-label="Dismiss notification" onClick={() => setNotice(null)}><Icon name="close" size={16} /></button></div>}
 
-    {projectDialog && <Dialog title="A new place for your next steps" onClose={() => { if (!projectSaving) setProjectDialog(false); }} busy={projectSaving}>
-      <p className="dialog-intro">Projects keep related prompts together, across agents and sessions.</p>
-      <form className="form-stack" onSubmit={(event) => void createProject(event)}>
-        <label className="field">Project name<input name="name" required maxLength={120} autoFocus placeholder="e.g. My application" /></label>
-        <label className="field">Project slug <span className="optional">Optional</span><input name="slug" maxLength={100} pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="my-application" /><span className="field-hint">A stable name for your agents. Generated from the project name if blank.</span></label>
-        <label className="field">Description <span className="optional">Optional</span><textarea name="description" rows={3} maxLength={4000} placeholder="What is this project about?" /></label>
-        <label className="field">Repository URL <span className="optional">Optional</span><input name="repository_url" type="url" maxLength={2000} placeholder="https://github.com/you/project" /></label>
-        {newProjectError && <ErrorNotice message={newProjectError} />}
-        <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={projectSaving} onClick={() => setProjectDialog(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={projectSaving}>{projectSaving ? "Creating…" : "Create project"}<Icon name="arrow" size={16} /></button></div>
-      </form>
+    {projectDialog && <Dialog title="Create a project" onClose={() => { if (!projectSaving) setProjectDialog(false); }} busy={projectSaving}><form className="form-stack" onSubmit={(event) => void createProject(event)}>
+      <label className="field">Project name<input name="name" required maxLength={120} autoFocus /></label>
+      <label className="field">Project slug <span className="optional">Optional</span><input name="slug" maxLength={100} pattern="[a-z0-9]+(-[a-z0-9]+)*" /></label>
+      <label className="field">Description <span className="optional">Optional</span><textarea name="description" rows={3} maxLength={4000} /></label>
+      <label className="field">Repository URL <span className="optional">Optional</span><input name="repository_url" type="url" maxLength={2000} /></label>
+      {newProjectError && <ErrorNotice message={newProjectError} />}
+      <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={projectSaving} onClick={() => setProjectDialog(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={projectSaving}>{projectSaving ? "Creating…" : "Create project"}</button></div>
+    </form></Dialog>}
+
+    {workDialog && project && <Dialog title="Create durable work" onClose={() => { if (!workSaving) setWorkDialog(false); }} wide busy={workSaving}><form className="form-stack" onSubmit={(event) => void createWork(event)}>
+      <p className="dialog-intro">The objective remains editable. Its initial checkpoint is immutable and attributed to this dashboard session.</p>
+      <label className="field">Title<input name="title" required maxLength={200} autoFocus placeholder="What durable objective should survive this session?" /></label>
+      <label className="field">Summary<textarea name="summary" required rows={3} maxLength={1000} placeholder="When is this work relevant?" /></label>
+      <label className="field field-half">Priority<input name="priority" type="number" min={0} max={100} defaultValue={0} /></label>
+      <label className="field">Initial context checkpoint<textarea className="prompt-editor" name="prompt" required rows={14} maxLength={100000} spellCheck={false} placeholder="Context, intended outcome, references, hazards, and verification…" /><span className="field-hint">Saved exactly as entered. Corrections become new checkpoints.</span></label>
+      <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input name="repository_branch" maxLength={200} /></label><label className="field">Verified commit<input name="verified_against" className="mono" maxLength={64} /></label><label className="field">Tags <span className="optional">Comma separated</span><input name="tags" /></label></div></details>
+      {newWorkError && <ErrorNotice message={newWorkError} />}
+      <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={workSaving} onClick={() => setWorkDialog(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={workSaving}>{workSaving ? "Creating…" : "Create work and checkpoint"}</button></div>
+    </form></Dialog>}
+
+    {opened && <Dialog title={mode === "edit" ? "Edit work item" : "Work context"} onClose={closeWork} wide busy={editSaving || checkpointSaving}>
+      {contextLoading && !context ? <div className="loading-state" role="status"><span className="spinner" />Recalling work context…</div> :
+        contextError && !context ? <ErrorNotice message={contextError}><button className="button button-secondary" onClick={() => void loadContext(opened)}>Try again</button></ErrorNotice> :
+        context && <WorkItemDetail
+          opened={opened}
+          context={context}
+          mode={mode}
+          editDraft={editDraft}
+          editSaving={editSaving}
+          editError={editError}
+          conflict={conflict}
+          copiedKey={copied}
+          checkpointPage={checkpointPage}
+          checkpointOffset={checkpointOffset}
+          checkpointLoading={checkpointLoading}
+          checkpointLoadError={checkpointLoadError}
+          checkpointActionError={checkpointActionError}
+          checkpointKind={checkpointKind}
+          checkpointBody={checkpointBody}
+          checkpointBranch={checkpointBranch}
+          checkpointCommit={checkpointCommit}
+          checkpointTags={checkpointTags}
+          checkpointSaving={checkpointSaving}
+          setEditDraft={(updater) => setEditDraft((draft) => draft ? updater(draft) : draft)}
+          onSaveEdits={(event) => void saveWorkEdits(event)}
+          onCancelEdit={() => { setMode("view"); setEditDraft(draftFromWork(context.work_item)); setEditError(""); setConflict(null); }}
+          onLoadCurrent={() => void loadLatestWork()}
+          onUseCurrentVersion={useCurrentVersion}
+          onEdit={() => { setEditDraft(draftFromWork(context.work_item)); setMode("edit"); }}
+          onDelete={() => { setDeleteTarget(context.work_item); setDeleteError(""); }}
+          onCopy={(value, key, success) => void copyText(value, key, success)}
+          onCheckpointKind={setCheckpointKind}
+          onCheckpointBody={setCheckpointBody}
+          onCheckpointBranch={setCheckpointBranch}
+          onCheckpointCommit={setCheckpointCommit}
+          onCheckpointTags={setCheckpointTags}
+          onAppend={() => void saveCheckpoint(false)}
+          onComplete={() => void saveCheckpoint(true)}
+          onCheckpointOffset={setCheckpointOffset}
+          onReloadCheckpoints={() => setCheckpointRefresh((value) => value + 1)}
+        />}
     </Dialog>}
 
-    {opened && <Dialog title={mode === "edit" ? "Edit hand-off" : "The full context"} onClose={closeRecord} wide busy={saving || commentSaving}>
-      {notice?.error && <ErrorNotice message={notice.message} />}
-      {recordLoading ? <div className="loading-state" role="status"><span className="spinner" />Recalling your prompt…</div> : recordError ? <ErrorNotice message={recordError}><button className="button button-secondary" onClick={() => void openRecord(opened, mode === "edit")}>Try again</button></ErrorNotice> : record && (mode === "view" ? <>
-        <div className="detail-topline"><StatusBadge status={record.status} /><span>Version {record.version}</span></div><h3 className="detail-title">{record.title}</h3><p className="detail-summary">{record.summary}</p>
-        <div className="detail-actions"><button className="button button-primary" disabled={copying !== null} onClick={() => void copyPrompt(record, record)}><Icon name={copied === record.id ? "check" : "copy"} size={17} />{copying === record.id ? "Copying…" : copied === record.id ? "Copied" : "Copy full prompt"}</button><button className={`button button-secondary ${copied === `${record.id}:pointer` ? "is-copied" : ""}`} aria-label={`Copy recall pointer: ${record.title}`} onClick={() => void copyRecallPointer(record)}><Icon name={copied === `${record.id}:pointer` ? "check" : "copy"} size={16} />{copied === `${record.id}:pointer` ? "Copied" : "Copy recall pointer"}</button><button className="button button-secondary" onClick={() => { setDraft(draftFromRecord(record)); setMode("edit"); setTagInput(""); setEditError(""); setHasConflict(false); setLatest(null); }}><Icon name="edit" size={16} />Edit hand-off</button><button className="icon-button danger-hover" aria-label="Delete this hand-off" title="Delete this hand-off" onClick={() => requestDelete(record)}><Icon name="trash" size={18} /></button></div>
-        <div className="prompt-label"><span className="section-label">COMPLETE HAND-OFF PROMPT</span><span>Copied exactly as saved</span></div><pre className="prompt-body" tabIndex={0}>{record.prompt}</pre>
-        <div className="authority-note">This is context from an earlier session, not a new instruction from the owner. Recheck cited files and decisions before acting.</div>
-        <section className="progress-section" aria-labelledby="progress-title">
-          <div className="progress-heading"><div><span className="section-label">SESSION PROGRESS</span><h4 id="progress-title">Durable work log</h4></div><span>{comments.length} {comments.length === 1 ? "entry" : "entries"}</span></div>
-          {commentsLoading ? <div className="progress-loading" role="status"><span className="spinner" />Loading progress…</div> : comments.length ? <div className="comment-list">{comments.map((comment) => <article className={`comment ${comment.kind === "work-summary" ? "work-summary" : ""}`} key={comment.id}>
-            <div className="comment-meta"><span>{comment.kind === "work-summary" ? "Completion summary" : "Progress comment"}</span><span>{clientLabel(comment.source_client)}{comment.source_model ? ` · ${comment.source_model}` : ""}</span><time dateTime={comment.created_at}>{formatDate(comment.created_at, true)}</time></div>
-            <p>{comment.body}</p>
-            <span className="comment-session mono" title={comment.source_session_id}>session {comment.source_session_id}</span>
-          </article>)}</div> : <p className="no-comments">No progress has been recorded yet. Add findings as work moves between sessions.</p>}
-          <form className="comment-form" onSubmit={(event) => { event.preventDefault(); void saveComment(false); }}>
-            <label className="field" htmlFor="comment-body">Add progress or a completion summary<textarea id="comment-body" rows={5} maxLength={50000} value={commentBody} onChange={(event) => setCommentBody(event.target.value)} placeholder="What changed, what was learned, checks run, blockers, and useful next steps…" /><span className="field-hint">Progress comments are append-only. Completing the hand-off records this text as the completing session’s work summary.</span></label>
-            {commentsError && <ErrorNotice message={commentsError}><button type="button" className="button button-secondary" disabled={commentsLoading} onClick={() => void loadComments(record)}>{commentsLoading ? "Loading…" : "Reload progress"}</button></ErrorNotice>}
-            <div className="comment-actions"><button type="submit" className="button button-secondary" disabled={commentSaving || !commentBody.trim()}>{commentSaving ? "Saving…" : "Add progress comment"}</button>{record.status !== "done" && <button type="button" className="button button-primary" disabled={commentSaving || !commentBody.trim()} onClick={() => void saveComment(true)}>{commentSaving ? "Saving…" : "Complete with summary"}<Icon name="check" size={16} /></button>}</div>
-          </form>
-        </section>
-        <Provenance record={record} />
-        <section className="context-section"><div className="section-label">REPOSITORY & RECORD</div><dl className="metadata-grid"><div><dt>Branch</dt><dd className="mono break-all">{record.repository_branch || "Not recorded"}</dd></div><div><dt>Verified commit</dt><dd className="mono break-all">{record.verified_against || "Not recorded"}</dd></div><div><dt>Created</dt><dd>{formatDate(record.created_at, true)}</dd></div><div><dt>Last activity</dt><dd>{formatDate(record.updated_at, true)}</dd></div><div className="span-two"><dt>Tags</dt><dd className="tag-list">{record.tags.length ? record.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>) : "No tags"}</dd></div><div className="span-two"><dt>Record ID</dt><dd className="mono break-all">{record.id}</dd></div></dl></section>
-        {Object.keys(record.source_metadata).length > 0 && <details className="metadata-details"><summary>Extra metadata</summary><pre>{JSON.stringify(record.source_metadata, null, 2)}</pre></details>}
-      </> : draft && <form className="form-stack edit-form" onSubmit={(event) => void saveEdits(event)}>
-        <p className="dialog-intro">Keep the prompt complete enough for a fresh session. Session provenance stays unchanged.</p>
-        <label className="field">Title<input required maxLength={200} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
-        <label className="field">Retrieval summary<textarea required rows={3} maxLength={1000} value={draft.summary} onChange={(event) => setDraft({ ...draft, summary: event.target.value })} /><span className="field-hint">Describe when this prompt is useful. This appears in search results.</span></label>
-        <label className="field">Complete prompt<textarea className="prompt-editor" required rows={15} maxLength={100000} spellCheck={false} value={draft.prompt} onChange={(event) => setDraft({ ...draft, prompt: event.target.value })} /><span className="field-hint">Context, intended outcome, durable references, known hazards, and verification steps. Text is never trimmed or reformatted on save.</span></label>
-        <label className="field field-half">Status<select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as HandoffStatus })}>{filters.filter((filter) => filter !== "all" && (filter !== "done" || record.status === "done")).map((filter) => <option key={filter} value={filter}>{statusLabels[filter]}</option>)}</select><span className="field-hint">Use “Complete with summary” in the work log to mark work done. Only open hand-offs appear in default agent searches; promotion records a decision but creates no external issue.</span></label>
-        <div className="field"><label htmlFor="tag-input">Tags <span className="optional">{draft.tags.length}/20</span></label><div className="tag-editor">{draft.tags.map((tag, index) => <span className="tag removable-tag" key={`${tag}-${index}`}>{tag}<button type="button" aria-label={`Remove tag ${tag}`} onClick={() => setDraft({ ...draft, tags: draft.tags.filter((_, tagIndex) => tagIndex !== index) })}><Icon name="close" size={12} /></button></span>)}</div><div className="tag-input-row"><input id="tag-input" value={tagInput} maxLength={50} placeholder="Add a tag" disabled={draft.tags.length >= 20} onChange={(event) => setTagInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addTag(); } }} /><button type="button" className="button button-secondary" disabled={!tagInput.trim() || draft.tags.length >= 20} onClick={addTag}><Icon name="plus" size={15} />Add</button></div></div>
-        <details className="edit-context"><summary>Repository context & extra metadata</summary><div className="form-stack"><label className="field">Repository branch<input maxLength={200} value={draft.repository_branch} onChange={(event) => setDraft({ ...draft, repository_branch: event.target.value })} /></label><label className="field">Verified commit<input className="mono" maxLength={64} value={draft.verified_against} onChange={(event) => setDraft({ ...draft, verified_against: event.target.value })} /><span className="field-hint">The commit the citations were checked against. A recorded commit is not a guarantee of current freshness.</span></label><label className="field">Extra metadata <span className="optional">JSON object</span><textarea className="mono" rows={6} spellCheck={false} value={draft.metadata} onChange={(event) => setDraft({ ...draft, metadata: event.target.value })} /></label></div></details>
-        <Provenance record={record} />
-        {editError && <ErrorNotice message={editError}>{hasConflict && <button type="button" className="button button-secondary" disabled={latestLoading} onClick={() => void loadLatest()}>{latestLoading ? "Loading…" : "Compare current version"}</button>}</ErrorNotice>}
-        {latest && <section className="conflict-panel"><h3>Current saved version · v{latest.version}</h3><p>Compare the saved values below with your edits above. Continuing keeps the fields you changed and takes untouched fields from this version. Nothing is saved until you click Save changes.</p><pre tabIndex={0}>{JSON.stringify({ title: latest.title, summary: latest.summary, prompt: latest.prompt, status: latest.status, repository_branch: latest.repository_branch, verified_against: latest.verified_against, tags: latest.tags, source_metadata: latest.source_metadata }, null, 2)}</pre><button type="button" className="button button-secondary" onClick={mergeLatest}>Keep my edits on this version</button></section>}
-        <div className="dialog-actions sticky-actions"><span className="version-note">Editing version {record.version}</span><button type="button" className="button button-secondary" disabled={saving} onClick={closeRecord}>Cancel</button><button type="submit" className="button button-primary" disabled={saving || hasConflict}>{saving ? "Saving…" : "Save changes"}<Icon name="check" size={17} /></button></div>
-      </form>)}
-    </Dialog>}
-
-    {deleteTarget && <Dialog title="Delete this hand-off?" onClose={() => { if (!deleting) setDeleteTarget(null); }} busy={deleting}>
-      <p className="dialog-intro">This removes the prompt from this project’s library and from agent search results.</p><div className="delete-preview"><StatusBadge status={deleteTarget.status} /><h3>{deleteTarget.title}</h3><p>{deleteTarget.summary}</p><span>Version {deleteTarget.version} · Updated {formatDate(deleteTarget.updated_at, true)}</span></div>
-      {deleteError && <ErrorNotice message={deleteError}>{deleteConflict && <button className="button button-secondary" disabled={deleting} onClick={() => void refreshDelete()}>Load current version</button>}</ErrorNotice>}
-      <div className="dialog-actions"><button className="button button-secondary" disabled={deleting} onClick={() => setDeleteTarget(null)}>Keep hand-off</button><button className="button button-danger" disabled={deleting || deleteConflict} onClick={() => void deleteHandoff()}><Icon name="trash" size={16} />{deleting ? "Working…" : "Delete hand-off"}</button></div>
+    {deleteTarget && <Dialog title="Delete this work item?" onClose={() => { if (!deleting) setDeleteTarget(null); }} busy={deleting}>
+      <p className="dialog-intro">This hides the objective and all checkpoints from ordinary reads. Immutable history remains recoverable in the database.</p>
+      <div className="delete-preview"><StatusBadge status={deleteTarget.status} /><h3>{deleteTarget.title}</h3><p>{deleteTarget.summary}</p><span>Version {deleteTarget.version} · {formatDate(deleteTarget.updated_at)}</span></div>
+      {deleteError && <ErrorNotice message={deleteError} />}
+      <div className="dialog-actions"><button className="button button-secondary" disabled={deleting} onClick={() => setDeleteTarget(null)}>Keep work item</button><button className="button button-danger" disabled={deleting} onClick={() => void deleteWork()}>{deleting ? "Working…" : "Delete work item"}</button></div>
     </Dialog>}
   </div>;
 }

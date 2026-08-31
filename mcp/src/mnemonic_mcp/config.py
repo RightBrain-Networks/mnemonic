@@ -1,7 +1,7 @@
 """Environment configuration, deliberately independent of the API package."""
 
-from dataclasses import dataclass, field
 import os
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 
@@ -23,6 +23,7 @@ class Settings:
             raise ValueError("MNEMONIC_API_KEY must contain at least 32 ASCII characters without spaces.")
         try:
             parsed = urlsplit(self.api_url)
+            parsed_port = parsed.port
             valid_url = (
                 parsed.scheme in {"http", "https"}
                 and bool(parsed.hostname)
@@ -31,8 +32,8 @@ class Settings:
                 and not parsed.query
                 and not parsed.fragment
                 and parsed.path in {"", "/"}
+                and (parsed_port is None or 1 <= parsed_port <= 65535)
             )
-            parsed.port
         except ValueError:
             valid_url = False
         if not valid_url:

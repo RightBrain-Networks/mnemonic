@@ -8,11 +8,14 @@ from sqlalchemy import (
     Computed,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     MetaData,
+    SmallInteger,
     String,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -46,6 +49,133 @@ class Project(Base):
     repository_url: Mapped[str | None] = mapped_column(String(2000))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WorkItem(Base):
+    """The durable, intentionally small identity and lifecycle for work."""
+
+    __tablename__ = "work_items"
+    __table_args__ = (
+        CheckConstraint("length(btrim(title)) > 0", name="title_nonblank"),
+        CheckConstraint("length(btrim(summary)) > 0", name="summary_nonblank"),
+        CheckConstraint("status IN ('open', 'done', 'wont-do', 'promoted')", name="status_valid"),
+        CheckConstraint("priority BETWEEN 0 AND 100", name="priority_range"),
+        CheckConstraint("version >= 1", name="version_positive"),
+        UniqueConstraint("project_id", "id", name="uq_work_items_project_id_id"),
+        ForeignKeyConstraint(
+            ["id", "initial_checkpoint_id"],
+            ["checkpoints.work_item_id", "checkpoints.id"],
+            name="fk_work_items_initial_checkpoint",
+            use_alter=True,
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        Index(
+            "ix_work_items_project_status_updated",
+            "project_id",
+            "status",
+            text("updated_at DESC"),
+            text("id DESC"),
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+        Index("ix_work_items_search_vector", "search_vector", postgresql_using="gin"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id", ondelete="RESTRICT"))
+    title: Mapped[str] = mapped_column(String(200))
+    summary: Mapped[str] = mapped_column(String(1000))
+    status: Mapped[str] = mapped_column(String(20), default="open", server_default="open")
+    priority: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
+    initial_checkpoint_id: Mapped[UUID] = mapped_column()
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "setweight(to_tsvector('english'::regconfig, coalesce(title, '')), 'A') || "
+            "setweight(to_tsvector('english'::regconfig, coalesce(summary, '')), 'B')",
+            persisted=True,
+        ),
+    )
+
+
+class Checkpoint(Base):
+    """Immutable, session-attributed context appended to durable work."""
+
+    __tablename__ = "checkpoints"
+    __table_args__ = (
+        CheckConstraint("kind IN ('context', 'progress', 'completion')", name="kind_valid"),
+        CheckConstraint("length(btrim(prompt)) BETWEEN 1 AND 100000", name="prompt_length"),
+        CheckConstraint("length(prompt) <= 100000", name="prompt_max_length"),
+        CheckConstraint("length(btrim(source_client)) > 0", name="source_client_nonblank"),
+        CheckConstraint("length(btrim(source_session_id)) > 0", name="session_id_nonblank"),
+        CheckConstraint("cardinality(tags) <= 20", name="tags_count"),
+        CheckConstraint("jsonb_typeof(source_metadata) = 'object'", name="metadata_object"),
+        CheckConstraint(
+            "verified_against IS NULL OR verified_against ~ '^[0-9a-f]{7,64}$'",
+            name="commit_format",
+        ),
+        CheckConstraint(
+            "(migration_origin IS NULL AND legacy_record_id IS NULL) OR "
+            "(migration_origin IN ('legacy-handoff-snapshot', 'legacy-comment') "
+            "AND legacy_record_id IS NOT NULL)",
+            name="migration_fields_valid",
+        ),
+        UniqueConstraint("work_item_id", "id", name="uq_checkpoints_work_item_id_id"),
+        UniqueConstraint(
+            "migration_origin", "legacy_record_id", name="uq_checkpoints_migration_origin_legacy"
+        ),
+        Index("ix_checkpoints_work_item_created", "work_item_id", "created_at", "id"),
+        Index("ix_checkpoints_search_vector", "search_vector", postgresql_using="gin"),
+        Index("ix_checkpoints_tags", "tags", postgresql_using="gin"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    work_item_id: Mapped[UUID] = mapped_column(ForeignKey("work_items.id", ondelete="RESTRICT"))
+    kind: Mapped[str] = mapped_column(String(20), default="context", server_default="context")
+    prompt: Mapped[str] = mapped_column(Text)
+    source_client: Mapped[str] = mapped_column(String(80))
+    source_session_id: Mapped[str] = mapped_column(String(200))
+    source_model: Mapped[str | None] = mapped_column(String(120))
+    source_session_url: Mapped[str | None] = mapped_column(String(2000))
+    repository_branch: Mapped[str | None] = mapped_column(String(200))
+    verified_against: Mapped[str | None] = mapped_column(String(64))
+    tags: Mapped[list[str]] = mapped_column(
+        ARRAY(String(50)), default=list, server_default=text("'{}'::varchar[]")
+    )
+    source_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb")
+    )
+    migration_origin: Mapped[str | None] = mapped_column(String(40))
+    legacy_record_id: Mapped[UUID | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "setweight(to_tsvector('english'::regconfig, coalesce(prompt, '')), 'C')",
+            persisted=True,
+        ),
+    )
+
+
+class WorkItemEmbedding(Base):
+    """Disposable local-model output; work/checkpoint rows remain canonical."""
+
+    __tablename__ = "work_item_embeddings"
+    __table_args__ = (CheckConstraint("cardinality(vector) > 0", name="vector_nonempty"),)
+
+    work_item_id: Mapped[UUID] = mapped_column(
+        ForeignKey("work_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    model: Mapped[str] = mapped_column(String(300))
+    digest: Mapped[str] = mapped_column(String(64))
+    vector: Mapped[list[float]] = mapped_column(ARRAY(REAL))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class Handoff(Base):

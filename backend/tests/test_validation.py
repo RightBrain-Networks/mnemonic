@@ -7,12 +7,15 @@ from pydantic import ValidationError
 from mnemonic_api.config import Settings
 from mnemonic_api.main import create_app
 from mnemonic_api.schemas import (
+    CheckpointCreate,
+    CompletionCheckpointCreate,
     HandoffCommentCreate,
     HandoffCompletionCreate,
     HandoffCreate,
     HandoffPatch,
     ProjectCreate,
     ProjectPatch,
+    WorkItemCreate,
 )
 
 
@@ -140,17 +143,43 @@ def test_done_requires_the_completion_workflow(handoff_payload):
     handoff_payload["status"] = "done"
     with pytest.raises(ValidationError):
         HandoffCreate.model_validate(handoff_payload)
-    with pytest.raises(ValidationError, match="completion endpoint"):
+    with pytest.raises(ValidationError):
         HandoffPatch(expected_version=1, status="done")
 
 
-def test_patch_can_explicitly_clear_optional_editable_fields():
-    patch = HandoffPatch(expected_version=1, repository_branch=None, verified_against=None)
-    assert patch.model_dump(exclude_unset=True) == {
-        "expected_version": 1,
-        "repository_branch": None,
-        "verified_against": None,
+def test_legacy_patch_cannot_rewrite_checkpoint_fields():
+    for field, value in [
+        ("prompt", "rewritten"),
+        ("source_client", "replacement"),
+        ("source_session_id", "replacement"),
+        ("repository_branch", None),
+        ("verified_against", None),
+        ("tags", ["replacement"]),
+        ("source_metadata", {}),
+    ]:
+        with pytest.raises(ValidationError):
+            HandoffPatch.model_validate({"expected_version": 1, field: value})
+
+
+def test_canonical_create_priority_status_and_checkpoint_kind_contract(work_payload):
+    assert WorkItemCreate.model_validate(work_payload).priority == 30
+    for value in [-1, 101, True, 1.5]:
+        with pytest.raises(ValidationError):
+            WorkItemCreate.model_validate({**work_payload, "priority": value})
+    with pytest.raises(ValidationError):
+        WorkItemCreate.model_validate({**work_payload, "status": "done"})
+
+    provenance = {
+        "prompt": "Exact context.",
+        "source_client": "claude-code",
+        "source_session_id": "validation-session",
     }
+    assert CheckpointCreate.model_validate(provenance).kind == "context"
+    with pytest.raises(ValidationError):
+        CheckpointCreate.model_validate({**provenance, "kind": "completion"})
+    assert CompletionCheckpointCreate.model_validate(provenance).prompt == "Exact context."
+    with pytest.raises(ValidationError):
+        CompletionCheckpointCreate.model_validate({**provenance, "kind": "completion"})
 
 
 def test_project_slug_normalization():

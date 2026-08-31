@@ -14,14 +14,15 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from mnemonic_api.models import Handoff, HandoffComment, HandoffEmbedding
+from mnemonic_api.models import Checkpoint, WorkItem, WorkItemEmbedding
 
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 EMBED_BODY_CHARS = 1500
 EMBED_COMMENT_CHARS = 1500
 EMBED_BATCH_SIZE = 16
 EMBED_CONFIG = (
-    f"{EMBED_MODEL}:title-summary-prompt-{EMBED_BODY_CHARS}-comments-{EMBED_COMMENT_CHARS}:v2"
+    f"{EMBED_MODEL}:work-title-summary-initial-{EMBED_BODY_CHARS}-later-"
+    f"{EMBED_COMMENT_CHARS}:v3"
 )
 BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 RRF_K = 60
@@ -64,10 +65,12 @@ def warm_embedding_model() -> None:
     FastembedEmbedder().embed_query(BGE_QUERY_PREFIX + "warm local semantic retrieval")
 
 
-def embedding_text(handoff: Handoff, comments: Sequence[str] = ()) -> str:
-    prompt = handoff.prompt[:EMBED_BODY_CHARS]
-    progress = "\n".join(comments)[-EMBED_COMMENT_CHARS:]
-    base = f"{handoff.title}\n{handoff.summary}\n{prompt}"
+def embedding_text(
+    work_item: WorkItem, initial_prompt: str, later_checkpoints: Sequence[str] = ()
+) -> str:
+    prompt = initial_prompt[:EMBED_BODY_CHARS]
+    progress = "\n".join(later_checkpoints)[-EMBED_COMMENT_CHARS:]
+    base = f"{work_item.title}\n{work_item.summary}\n{prompt}"
     return f"{base}\n{progress}" if progress else base
 
 
@@ -95,29 +98,44 @@ def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
 
 
 def _cached_embeddings(
-    database: Session, handoffs: Sequence[Handoff], embedder: Embedder
+    database: Session, work_items: Sequence[WorkItem], embedder: Embedder
 ) -> dict[UUID, list[float]]:
-    ids = [handoff.id for handoff in handoffs]
+    ids = [work_item.id for work_item in work_items]
     if not ids:
         return {}
     cached = {
-        row.handoff_id: row
+        row.work_item_id: row
         for row in database.scalars(
-            select(HandoffEmbedding).where(HandoffEmbedding.handoff_id.in_(ids))
+            select(WorkItemEmbedding).where(WorkItemEmbedding.work_item_id.in_(ids))
         )
     }
-    comment_texts: dict[UUID, str] = {}
-    for handoff_id, body in database.execute(
-        select(HandoffComment.handoff_id, HandoffComment.body)
-        .where(HandoffComment.handoff_id.in_(ids))
-        .order_by(HandoffComment.created_at, HandoffComment.id)
+    initial_ids = {work_item.initial_checkpoint_id for work_item in work_items}
+    initial_prompts = dict(
+        database.execute(
+            select(Checkpoint.id, Checkpoint.prompt).where(Checkpoint.id.in_(initial_ids))
+        ).all()
+    )
+    later_texts: dict[UUID, str] = {}
+    initial_by_work = {
+        work_item.id: work_item.initial_checkpoint_id for work_item in work_items
+    }
+    for work_item_id, checkpoint_id, prompt in database.execute(
+        select(Checkpoint.work_item_id, Checkpoint.id, Checkpoint.prompt)
+        .where(Checkpoint.work_item_id.in_(ids))
+        .order_by(Checkpoint.created_at, Checkpoint.id)
     ):
-        previous = comment_texts.get(handoff_id, "")
-        combined = f"{previous}\n{body}" if previous else body
-        comment_texts[handoff_id] = combined[-EMBED_COMMENT_CHARS:]
+        if checkpoint_id == initial_by_work[work_item_id]:
+            continue
+        previous = later_texts.get(work_item_id, "")
+        combined = f"{previous}\n{prompt}" if previous else prompt
+        later_texts[work_item_id] = combined[-EMBED_COMMENT_CHARS:]
     texts = {
-        handoff.id: embedding_text(handoff, (comment_texts.get(handoff.id, ""),))
-        for handoff in handoffs
+        work_item.id: embedding_text(
+            work_item,
+            initial_prompts[work_item.initial_checkpoint_id],
+            (later_texts.get(work_item.id, ""),),
+        )
+        for work_item in work_items
     }
     digests = {handoff_id: _digest(text) for handoff_id, text in texts.items()}
     vectors = {
@@ -127,10 +145,10 @@ def _cached_embeddings(
         and row.digest == digests[handoff_id]
         and _valid_vector(row.vector)
     }
-    stale = [handoff for handoff in handoffs if handoff.id not in vectors]
+    stale = [work_item for work_item in work_items if work_item.id not in vectors]
     for start in range(0, len(stale), EMBED_BATCH_SIZE):
         batch = stale[start : start + EMBED_BATCH_SIZE]
-        embedded = embedder.embed_documents([texts[handoff.id] for handoff in batch])
+        embedded = embedder.embed_documents([texts[work_item.id] for work_item in batch])
         if len(embedded) != len(batch):
             raise ValueError("Embedding model returned the wrong number of vectors")
         dimensions = len(embedded[0]) if embedded else 0
@@ -138,17 +156,17 @@ def _cached_embeddings(
             raise ValueError("Embedding model returned an invalid vector")
         rows = [
             {
-                "handoff_id": handoff.id,
+                "work_item_id": work_item.id,
                 "model": EMBED_CONFIG,
-                "digest": digests[handoff.id],
+                "digest": digests[work_item.id],
                 "vector": vector,
             }
-            for handoff, vector in zip(batch, embedded, strict=True)
+            for work_item, vector in zip(batch, embedded, strict=True)
         ]
-        statement = insert(HandoffEmbedding).values(rows)
+        statement = insert(WorkItemEmbedding).values(rows)
         database.execute(
             statement.on_conflict_do_update(
-                index_elements=[HandoffEmbedding.handoff_id],
+                index_elements=[WorkItemEmbedding.work_item_id],
                 set_={
                     "model": statement.excluded.model,
                     "digest": statement.excluded.digest,
@@ -157,40 +175,39 @@ def _cached_embeddings(
                 },
             )
         )
-        database.commit()
         vectors.update(
-            {handoff.id: vector for handoff, vector in zip(batch, embedded, strict=True)}
+            {work_item.id: vector for work_item, vector in zip(batch, embedded, strict=True)}
         )
     return vectors
 
 
 def hybrid_rank(
     database: Session,
-    handoffs: Sequence[Handoff],
+    work_items: Sequence[WorkItem],
     lexical_ids: Sequence[UUID],
     query: str,
     embedder: Embedder,
-) -> list[Handoff]:
+) -> list[WorkItem]:
     """Fuse current lexical/literal ranks with dense ranks using weighted RRF."""
-    if not handoffs:
+    if not work_items:
         return []
-    vectors = _cached_embeddings(database, handoffs, embedder)
+    vectors = _cached_embeddings(database, work_items, embedder)
     query_vector = embedder.embed_query(BGE_QUERY_PREFIX + query)
     if not _valid_vector(query_vector):
         raise ValueError("Embedding model returned an invalid query vector")
     similarities = {
-        handoff.id: cosine_similarity(query_vector, vectors.get(handoff.id, []))
-        for handoff in handoffs
+        work_item.id: cosine_similarity(query_vector, vectors.get(work_item.id, []))
+        for work_item in work_items
     }
     # Python's stable sort preserves the deterministic updated/id base order for ties.
-    base = sorted(handoffs, key=lambda item: (item.updated_at, item.id.int), reverse=True)
+    base = sorted(work_items, key=lambda item: (item.updated_at, item.id.int), reverse=True)
     dense = sorted(base, key=lambda item: similarities[item.id], reverse=True)
-    dense_rank = {handoff.id: rank for rank, handoff in enumerate(dense, start=1)}
-    lexical_rank = {handoff_id: rank for rank, handoff_id in enumerate(lexical_ids, start=1)}
+    dense_rank = {work_item.id: rank for rank, work_item in enumerate(dense, start=1)}
+    lexical_rank = {work_item_id: rank for rank, work_item_id in enumerate(lexical_ids, start=1)}
 
-    def fusion_score(handoff: Handoff) -> float:
-        dense_score = 1.0 / (RRF_K + dense_rank[handoff.id])
-        lexical_position = lexical_rank.get(handoff.id)
+    def fusion_score(work_item: WorkItem) -> float:
+        dense_score = 1.0 / (RRF_K + dense_rank[work_item.id])
+        lexical_position = lexical_rank.get(work_item.id)
         lexical_score = RRF_LEXICAL_WEIGHT / (RRF_K + lexical_position) if lexical_position else 0.0
         return dense_score + lexical_score
 

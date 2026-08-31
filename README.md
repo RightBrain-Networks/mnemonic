@@ -9,10 +9,10 @@ Next.js**, with an **MCP server that calls the REST API**. It does not modify
 Claude's memory subsystem. Claude Code is the first client; the API, metadata,
 and MCP interface do not depend on a particular LLM provider.
 
-A durable home for the work an AI session leaves behind. Save complete hand-off
-prompts, carry progress forward through append-only comments, and preserve what a
-completing session changed and verified. Work can span sessions without
-reconstructing its history.
+A durable home for objectives that outlive any one AI session. Save one work
+item, carry it forward through immutable session-attributed checkpoints, and
+preserve what each session knew, changed, and verified. Many sessions can
+continue the same objective without multiplying its human-visible identity.
 
 ## Is Mnemonic right for you?
 
@@ -48,8 +48,9 @@ URL-safe PostgreSQL password and an API key of at least 32 characters. The
 example deliberately contains no usable credentials. Never commit `.env`.
 
 Open [Mnemonic](http://localhost:3000). Create your first project using the
-project selector, then connect your agent to save hand-offs. The application
-starts empty; there are no fabricated prompts or session IDs.
+project selector, then connect your agent to create or continue durable work.
+The application starts empty; there are no fabricated objectives, checkpoints,
+or session IDs.
 
 | Service | `.env` variable | Default local address |
 | --- | --- | --- |
@@ -93,13 +94,13 @@ default ports and need the same substitution if yours differ.
 Copy the three folders under [`skills/`](skills/) into the target project's
 `.claude/skills/` directory, or into `~/.claude/skills/` for personal use:
 
-- **`mnemonic-save`** searches for duplicates, writes a complete hand-off, and
-  saves its real originating client, session ID, and relevant metadata.
-- **`mnemonic-search`** finds compact leads within the chosen project, normally
-  restricted to open work.
-- **`mnemonic-recall`** retrieves the full prompt and progress log, checks
-  provenance and cited state, records useful session progress, and saves a work
-  summary when authorized work is complete.
+- **`mnemonic-save`** searches for existing work, creates a durable objective
+  with its initial checkpoint, or appends corrective context to an existing one.
+- **`mnemonic-search`** finds compact work-item leads within the chosen project,
+  normally restricted to open work.
+- **`mnemonic-recall`** loads bounded current context, pages older checkpoints
+  when needed, appends useful progress, and records an atomic completion
+  checkpoint when authorized work is complete.
 
 Invoke `/mnemonic-save`, `/mnemonic-search`, or `/mnemonic-recall`, or ask Claude
 in natural language. The skills require the connected `mnemonic` MCP server.
@@ -109,31 +110,39 @@ refer to the originating LLM conversation, not the MCP transport session.
 
 See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 
-## What the MVP does
+## What Phase 1 does
 
-- Separates prompts by project, with a project dropdown and project creation.
-- Stores full prompt text, retrieval summary, tags, source client/session/model,
-  optional session URL, branch, checked commit, custom metadata, and timestamps.
+- Separates durable work by project, with a project selector and project
+  creation. One work-item card can represent checkpoints from many sessions.
+- Stores immutable checkpoint text, tags, source client/session/model, optional
+  session URL, branch, checked commit, custom metadata, and timestamps.
+- Keeps title, retrieval summary, priority, lifecycle, and optimistic version on
+  the small mutable work item rather than rewriting historical session context.
 - Searches PostgreSQL full-text indexes and literal identifiers by default.
-  An opt-in Semantic dashboard toggle and `search_handoffs` argument add hybrid
+  An opt-in Semantic dashboard toggle and `search_work` argument add hybrid
   similarity ranking from a local embedding model; both default to disabled.
   The model runs offline and needs no hosted embedding service or model API key.
-  Comment text participates in lexical and semantic retrieval. Search returns
-  compact summaries; recall loads the complete prompt and progress timeline.
-- Lets a user view, edit, delete, and copy prompts from the dashboard, append
-  progress comments, and complete work with a required summary. Concurrent edits
-  and completions are detected instead of silently overwriting changes.
-- Keeps `done`, `wont-do`, and `promoted` prompts out of the default open queue,
-  while retaining them under explicit filters. Deleted prompts are hidden from
-  ordinary reads but retained in the database for recovery.
+  Checkpoint text participates in lexical and semantic retrieval. Search returns
+  one compact result per work item; recall returns bounded current context, and
+  older history is explicitly paginated.
+- Lets a user edit work identity, append immutable context/progress checkpoints,
+  complete work with a required completion checkpoint, copy current context, and
+  soft-delete work. Concurrent edits and completions are detected rather than
+  silently overwriting changes; independent checkpoint appenders can both
+  succeed.
+- Keeps `done`, `wont-do`, and `promoted` work out of the default open view
+  while retaining it under explicit filters. Deleted work and its checkpoints
+  are hidden from ordinary reads but retained for recovery.
+- Preserves deprecated hand-off REST/MCP calls as projections over the canonical
+  work/checkpoint tables during the migration window.
 - Saves a PostgreSQL backup at startup and daily, retaining earlier dumps.
 
-It does **not** automatically execute prompts, create GitHub issues, inject
-memory hooks, infer missing session IDs, or provide a general-purpose multi-user
-human issue tracker. Mnemonic is deliberately LLM-centric: comments are durable
-session checkpoints, and completion summaries record an agent's claims rather
-than server-verified proof. Prompt quality and freshness remain agent workflow
-obligations; storing a commit ID is not proof the service verified anything.
+It does **not** automatically execute checkpoints, create GitHub issues, inject
+memory hooks, infer missing session IDs, lease/claim work, or model
+relationships. Mnemonic is deliberately LLM-centric: checkpoints record an
+agent's claims rather than server-verified proof. Context quality and freshness
+remain agent workflow obligations; storing a commit ID is not proof the service
+verified anything.
 
 ## Operate and develop
 

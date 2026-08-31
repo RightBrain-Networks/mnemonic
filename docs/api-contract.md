@@ -1,118 +1,272 @@
-# Internal MVP API contract
+# Phase 1 API contract
 
-All routes below use `/api/v1` and `Authorization: Bearer <MNEMONIC_API_KEY>`.
-`GET /healthz` (liveness) and `GET /readyz` (database readiness) are unauthenticated
-and disclose no credentials. JSON dates are ISO 8601 UTC. IDs are UUID strings.
-Unknown fields are rejected. Errors use FastAPI's `detail` field. Invalid input
-is 422, missing resources 404, conflicts 409, bad/missing authorization 401.
+All application routes use `/api/v1` and
+`Authorization: Bearer <MNEMONIC_API_KEY>`. `GET /healthz` and
+`GET /readyz` are unauthenticated and disclose no credentials. IDs are UUID
+strings; timestamps are ISO 8601 UTC. Request models reject unknown fields.
+
+Application errors use a stable sanitized envelope:
+
+```json
+{
+  "detail": {
+    "code": "version_conflict",
+    "message": "The work item changed after the supplied version was read.",
+    "context": {}
+  }
+}
+```
+
+FastAPI's structured list remains the validation-error format. Invalid input is
+422, missing or cross-project resources are 404, lifecycle/version conflicts are
+409, and bad or missing authorization is 401. Error context never contains
+checkpoint text, metadata, credentials, or request bodies.
 
 ## Projects
 
-- `GET /projects?limit=100&offset=0`: `{items: Project[], total, limit, offset}`.
-- `POST /projects`: `{name, slug?, description?, repository_url?}` -> Project (201).
-  Slug defaults to a normalized name, is unique, lowercase, and hyphen separated.
-- `GET /projects/{project_id}` -> Project.
-- `PATCH /projects/{project_id}`: optional name, description, repository_url.
+- `GET /projects?limit=100&offset=0` returns
+  `{items: Project[], total, limit, offset}`.
+- `POST /projects` accepts
+  `{name, slug?, description?, repository_url?}` and returns a project (201).
+- `GET /projects/{project_id}` returns a project.
+- `PATCH /projects/{project_id}` updates name, description, or repository URL.
 
-Project fields: `id`, `name`, `slug`, `description` (default empty string),
-`repository_url` (nullable), `created_at`, `updated_at`.
-Name is nonblank, at most 120 characters; slug at most 100; description at most
-4000; repository_url must be an http(s) URL of at most 2000 characters.
+Project fields are `id`, `name`, `slug`, `description`,
+`repository_url`, `created_at`, and `updated_at`. Slugs are unique,
+lowercase, and hyphen-separated; omitting one derives it from the name.
 
-## Hand-offs
+## Canonical work-item routes
 
-Base path: `/projects/{project_id}/handoffs`.
+Base path: `/projects/{project_id}/work-items`.
 
-- `POST`: HandoffCreate -> Handoff (201).
-- `GET`: `{items: HandoffSummary[], total, limit, offset}`. Query parameters:
-  `q` optional (max 500 chars); `status` defaults to `open` and supports
-  `open|done|wont-do|promoted|all`; optional `tag`, `source_client`,
-  `source_session_id`; `semantic` is a boolean that defaults to false; `limit`
-  defaults to 30, max 100; `offset` defaults to 0. Blank q means browse.
-  A nonblank q uses PostgreSQL full-text and literal matching across the
-  hand-off and its comments by default. `semantic=true` opts into hybrid ranking that fuses that lexical
-  channel with similarity from the local embedding model. In hybrid mode, every
-  record passing the project/lifecycle/metadata filters is a candidate and
-  `total` counts that candidate set; relevance determines its order. If the local
-  semantic channel cannot load or update its derived vectors, the opt-in request
-  returns 503; callers can retry with semantic disabled to use the lexical path.
-- `GET /{handoff_id}` -> Handoff (any non-deleted status).
-- `PATCH /{handoff_id}`: `{expected_version, ...editable_fields}` -> Handoff.
-  A direct transition to `done` is rejected; use the completion operation.
-- `GET /{handoff_id}/comments?limit=100&offset=0` -> an oldest-first page of
-  append-only HandoffComment records.
-- `POST /{handoff_id}/comments`: HandoffCommentCreate -> HandoffComment (201).
-- `POST /{handoff_id}/complete`: HandoffCompletionCreate ->
-  `{handoff, comment}`. This atomically appends a `work-summary` comment,
-  sets status to `done`, and increments the hand-off version.
-- `DELETE /{handoff_id}?expected_version=N` -> 204, soft-delete.
+- `POST /` creates one work item and its initial context checkpoint
+  atomically, returning `WorkCreation` (201).
+- `GET /` browses or searches one compact `WorkSummary` per work item.
+- `GET /{work_item_id}` returns `WorkItemRead` only.
+- `PATCH /{work_item_id}` performs a version-protected work identity or
+  lifecycle edit.
+- `POST /{work_item_id}/delete` soft-deletes version-protected work and
+  returns `DeletionResult`.
+- `GET /{work_item_id}/checkpoints` returns a stable checkpoint page.
+- `POST /{work_item_id}/checkpoints` appends an immutable `context` or
+  `progress` checkpoint (201).
+- `GET /{work_item_id}/context` returns bounded `WorkContext`.
+- `POST /{work_item_id}/complete` atomically adds a completion checkpoint and
+  marks open work done.
 
-HandoffCreate fields:
+There are no checkpoint update/delete routes. PostgreSQL also rejects direct
+`UPDATE` and `DELETE` against checkpoint rows.
 
-| Field | Shape |
+### Work-item requests
+
+`WorkItemCreate`:
+
+```json
+{
+  "title": "Investigate stale cache entries",
+  "summary": "Cached state survives invalidation after a branch switch.",
+  "priority": 40,
+  "status": "open",
+  "initial_checkpoint": {
+    "prompt": "Exact complete cold-session context",
+    "source_client": "claude-code",
+    "source_session_id": "opaque-session-id",
+    "source_model": null,
+    "source_session_url": null,
+    "repository_branch": "feature/cache",
+    "verified_against": "abc1234",
+    "tags": ["cache", "correctness"],
+    "source_metadata": {}
+  }
+}
+```
+
+`status` may initially be `open`, `wont-do`, or `promoted`, never
+`done`. Priority is an integer from 0 through 100 and defaults to 0.
+
+`WorkItemPatch` contains `expected_version` and at least one of `title`,
+`summary`, `priority`, or `status`. It may move open work to
+`wont-do`/`promoted`, return either to `open`, or reopen `done` work to
+`open`. It cannot set `done`.
+
+`WorkDeletionCreate` is `{"expected_version": N}`. Successful deletion is
+body-bearing JSON:
+
+```json
+{
+  "deleted": true,
+  "project_id": "...",
+  "work_item_id": "...",
+  "version": 3
+}
+```
+
+### Checkpoint requests
+
+Every checkpoint payload contains exact nonblank `prompt`,
+`source_client`, and `source_session_id`, plus optional `source_model`,
+`source_session_url`, `repository_branch`, `verified_against`, `tags`,
+and `source_metadata`. Prompt text is not stripped or rewritten. Tags are
+normalized, de-duplicated, and capped at 20; metadata must be a JSON object no
+larger than 16 KiB.
+
+The append route adds `kind: "context" | "progress"`, defaulting to
+`context`. Callers cannot append `completion` through this generic route.
+Appending changes work activity time but not its version and remains allowed on
+terminal work.
+
+Completion accepts:
+
+```json
+{
+  "expected_version": 2,
+  "checkpoint": {
+    "prompt": "What changed, verification observed, and remaining considerations",
+    "source_client": "claude-code",
+    "source_session_id": "opaque-completing-session",
+    "tags": [],
+    "source_metadata": {}
+  }
+}
+```
+
+Only current `open` work can complete. Repeated completion returns
+`work_not_open`; stale completion returns `version_conflict`.
+
+### Search and pagination
+
+Work list/search accepts:
+
+| Key | Contract |
 | --- | --- |
-| title | required nonblank string, max 200 |
-| summary | required nonblank retrieval description, max 1000 |
-| prompt | required nonblank complete prompt, max 100000; preserve exact text |
-| source_client | required nonblank string, max 80, e.g. claude-code |
-| source_session_id | required nonblank opaque string, max 200 |
-| source_model | nullable string, max 120 |
-| source_session_url | nullable http(s) URL, max 2000 |
-| repository_branch | nullable string, max 200 |
-| verified_against | nullable git commit ID, 7-64 hexadecimal characters |
-| tags | list of at most 20 nonblank strings, max 50 each; normalize and dedupe |
-| source_metadata | JSON object, max 16 KB, default {} |
-| status | open (default), wont-do, promoted; completion creates done |
+| `q` | optional text, at most 500 characters |
+| `semantic` | false by default; true opts into hybrid retrieval |
+| `status` | `open` by default; one lifecycle status or `all` |
+| `tag` | matches any checkpoint |
+| `source_client` | matches any checkpoint |
+| `source_session_id` | matches any checkpoint |
+| `view` | Phase 1 supports `all` only |
+| `limit` | 30 by default, maximum 100 |
+| `offset` | 0 by default |
 
-Handoff adds `id`, `project_id`, `created_at`, `updated_at`, `version` (starts 1).
-HandoffSummary has all Handoff fields except `prompt` and `source_metadata`.
-The originating `source_client`, `source_session_id`, `source_model`, and
-`source_session_url` are immutable. Other create fields are editable, including
-source_metadata. PATCH requires `expected_version` and at least one editable
-field. DELETE also requires the current version. A mismatch returns 409.
-New records and ordinary PATCH requests cannot set `done`; completion requires
-a nonblank work summary and the current version.
+Blank `q` browses by recent activity. A nonblank query searches weighted work
+title/summary, checkpoint text, and literal IDs/provenance/tags without
+duplicating work rows. Lexical `total` is the number of matching work items.
+Hybrid `total` retains the full lifecycle/metadata-qualified candidate count;
+relevance controls its page order. Search results never contain prompt or
+source-metadata bodies.
 
-HandoffCommentCreate contains exact `body` text (nonblank, max 50000),
-`source_client` (max 80), the real `source_session_id` (max 200), and optional
-`source_model` (max 120). HandoffComment adds `id`, `handoff_id`, `kind`
-(`comment` or `work-summary`), and `created_at`. Comments are append-only:
-there are no edit or delete routes. HandoffCompletionCreate contains
-`expected_version`, exact `summary` text with the same bound, and the same
-source provenance. Ordinary comments update hand-off activity time without
-changing its version; completion changes lifecycle state and therefore increments
-the version.
+Checkpoint list accepts `order=oldest|newest`, `limit` up to 100, and
+`offset`. Context accepts `recent_limit`, default 5 and maximum 20.
 
-Cross-project IDs always return 404. Soft-deleted records are absent from all
-ordinary reads. Status=all includes lifecycle states, never deleted records.
+### Core response shapes
+
+`WorkItemRead` contains:
+
+```text
+id, project_id, title, summary, status, priority, initial_checkpoint_id,
+version, created_at, updated_at
+```
+
+`CheckpointRead` contains:
+
+```text
+id, work_item_id, kind, prompt, source_client, source_session_id, source_model,
+source_session_url, repository_branch, verified_against, tags, source_metadata,
+migration_origin, legacy_record_id, created_at
+```
+
+`CheckpointPointer` omits prompt, source session URL, and source metadata. It
+retains compact source/session/model, repository, tag, migration, kind, ID, and
+time fields.
+
+`WorkSummary` contains `work_item`, `checkpoint_count`, an empty Phase 1
+`ancestor_path`, `ancestor_path_truncated=false`, `current_context` as a
+pointer, and `readiness`. Phase 1 readiness is derived only from lifecycle:
+open is ready; terminal work reports its lifecycle value. It has no active
+lease or blockers.
+
+`WorkCreation` contains `work_item`, `initial_checkpoint`, and an empty
+`initial_relationships` list.
+
+`WorkContext` contains:
+
+```text
+work_item
+initial_checkpoint
+current_context
+recent_checkpoints
+checkpoint_total
+omitted_checkpoint_count
+readiness
+incoming_relationships
+outgoing_relationships
+undirected_relationships
+relationship_counts
+```
+
+`current_context` is the newest context-kind checkpoint, not the newest
+progress or completion record. Recent checkpoints are chronological and exclude
+the initial/current IDs. The three relationship lists and counts are empty in
+Phase 1.
+
+Pages retain `items`, `total`, `limit`, and `offset`.
+`CompletionResult` contains `work_item` and `checkpoint`.
+
+## Deprecated hand-off compatibility
+
+The old `/projects/{project_id}/handoffs` routes remain available during the
+cutover window, but all reads and writes use canonical tables:
+
+- save creates work plus its initial checkpoint;
+- search returns a unique compact work projection;
+- recall flattens work fields with the preserved initial checkpoint;
+- comment listing projects every later checkpoint (`completion` becomes
+  `work-summary`, other kinds become `comment`);
+- comment append creates a progress checkpoint;
+- completion uses canonical atomic completion;
+- update permits title, summary, and non-completion lifecycle changes only;
+- `DELETE /{handoff_id}?expected_version=N` remains query-versioned and
+  returns 204.
+
+Legacy source/tag filters apply to the initial checkpoint to preserve their old
+meaning. Prompt, checkpoint provenance, repository fields, tags, and metadata
+cannot be rewritten through legacy update. Old IDs remain resolvable.
+
+## MCP contract
+
+Canonical tools are:
+
+```text
+list_projects, create_project,
+create_work, search_work, get_work, add_checkpoint, list_checkpoints,
+recall_work, update_work, complete_work, delete_work
+```
+
+The resource
+`mnemonic://projects/{project_id}/work-items/{work_item_id}` and prompt
+`resume_work` return bounded context. Neither executes stored work or grants
+authority.
+
+The eight hand-off tools, old resource URI, and `resume_handoff` remain as
+deprecated projections. MCP error handling maps stable application codes and
+also accepts legacy string errors during the compatibility window.
+
+## Browser proxy
+
+The same-origin proxy allows exact project and Phase 1 work/checkpoint
+read/write routes and their documented query keys. It rejects arbitrary paths,
+unknown query keys, untrusted hosts/origins, bodies over 1 MiB, and every
+`lease_token` field. Future claim/renew/release paths are denied. The API URL
+and bearer key remain server-only.
 
 ## Runtime configuration
 
-API: `DATABASE_URL`, `MNEMONIC_API_KEY` (required, >=32 chars).
-MCP: `MNEMONIC_API_URL` (default http://api:8000), `MNEMONIC_API_KEY`,
-`MNEMONIC_MCP_HOST` (default 0.0.0.0), `MNEMONIC_MCP_PORT` (default 8001).
-Dashboard server: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`,
-`MNEMONIC_DASHBOARD_ORIGINS` (comma-separated allowed origins; default
-http://localhost:3000,http://127.0.0.1:3000). Never NEXT_PUBLIC_* credentials.
+API: `DATABASE_URL`, `MNEMONIC_API_KEY` (required, at least 32 characters).
 
-MCP tool names: `list_projects`, `create_project`, `save_handoff`,
-`search_handoffs`, `recall_handoff`, `list_handoff_comments`,
-`add_handoff_comment`, `complete_handoff`, `update_handoff`, and
-`delete_handoff`.
-Tool arguments use these field names; every handoff tool requires project_id.
-`update_handoff` takes `project_id`, `handoff_id`, `expected_version`, and a
-`changes` object containing the editable fields; it flattens those fields for
-the REST PATCH request. Explicit null clears a nullable field; omission keeps it;
-`done` is intentionally absent and requires `complete_handoff`.
-`list_handoff_comments` exposes oldest-first pagination.
-`add_handoff_comment` appends progress with current-session provenance.
-`complete_handoff` requires the current hand-off version and atomically saves the
-completing session's work summary with the `done` transition.
-Search exposes pagination and returns the same compact records as the REST API.
-Its `semantic` argument defaults to false. The adapter leaves that query
-parameter out in the default case and forwards `semantic=true` only when the
-caller opts into hybrid retrieval; no prompt body is added to search output.
-The MCP resource `mnemonic://projects/{project_id}/handoffs/{handoff_id}` and
-`resume_handoff` MCP prompt return the full saved record with its complete
-progress timeline.
-No automatic execution or external issue creation is part of any tool.
+MCP: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, `MNEMONIC_MCP_HOST`, and
+`MNEMONIC_MCP_PORT`.
+
+Dashboard server: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, and
+`MNEMONIC_DASHBOARD_ORIGINS`. Credentials must never use a
+`NEXT_PUBLIC_*` variable.

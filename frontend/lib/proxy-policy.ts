@@ -1,5 +1,11 @@
 const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 const PROJECT = new RegExp(`^projects/${UUID}$`);
+const WORK_ITEMS = new RegExp(`^projects/${UUID}/work-items$`);
+const WORK_ITEM = new RegExp(`^projects/${UUID}/work-items/${UUID}$`);
+const CHECKPOINTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/checkpoints$`);
+const WORK_CONTEXT = new RegExp(`^projects/${UUID}/work-items/${UUID}/context$`);
+const WORK_COMPLETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/complete$`);
+const WORK_DELETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/delete$`);
 const HANDOFFS = new RegExp(`^projects/${UUID}/handoffs$`);
 const HANDOFF = new RegExp(`^projects/${UUID}/handoffs/${UUID}$`);
 const COMMENTS = new RegExp(`^projects/${UUID}/handoffs/${UUID}/comments$`);
@@ -11,6 +17,20 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     if (method === "POST") return [];
   }
   if (PROJECT.test(path) && (method === "GET" || method === "PATCH")) return [];
+  if (WORK_ITEMS.test(path)) {
+    if (method === "GET") {
+      return ["q", "semantic", "status", "tag", "source_client", "source_session_id", "view", "limit", "offset"];
+    }
+    if (method === "POST") return [];
+  }
+  if (WORK_ITEM.test(path) && (method === "GET" || method === "PATCH")) return [];
+  if (CHECKPOINTS.test(path)) {
+    if (method === "GET") return ["order", "limit", "offset"];
+    if (method === "POST") return [];
+  }
+  if (WORK_CONTEXT.test(path) && method === "GET") return ["recent_limit"];
+  if (WORK_COMPLETE.test(path) && method === "POST") return [];
+  if (WORK_DELETE.test(path) && method === "POST") return [];
   if (HANDOFFS.test(path)) {
     if (method === "GET") return ["q", "semantic", "status", "tag", "source_client", "source_session_id", "limit", "offset"];
     if (method === "POST") return [];
@@ -24,6 +44,23 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     if (method === "POST") return [];
   }
   if (COMPLETE.test(path) && method === "POST") return [];
+  return null;
+}
+
+export function forbiddenMutationField(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const forbidden = forbiddenMutationField(entry);
+      if (forbidden) return forbidden;
+    }
+    return null;
+  }
+  if (!value || typeof value !== "object") return null;
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "lease_token") return key;
+    const forbidden = forbiddenMutationField(entry);
+    if (forbidden) return forbidden;
+  }
   return null;
 }
 

@@ -1,0 +1,60 @@
+import type { FormEvent } from "react";
+import type { WorkItem, WorkStatus } from "@/lib/types";
+import { statusLabels } from "@/components/work-item-card";
+
+export type WorkEditDraft = {
+  title: string;
+  summary: string;
+  priority: number;
+  status: WorkStatus;
+};
+
+export function draftFromWork(work: WorkItem): WorkEditDraft {
+  return { title: work.title, summary: work.summary, priority: work.priority, status: work.status };
+}
+
+type Props = {
+  work: WorkItem;
+  draft: WorkEditDraft;
+  setDraft: (updater: (draft: WorkEditDraft) => WorkEditDraft) => void;
+  saving: boolean;
+  error: string;
+  conflict: WorkItem | null;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onCancel: () => void;
+  onLoadCurrent: () => void;
+  onUseCurrentVersion: () => void;
+};
+
+export default function WorkItemEditor({
+  work,
+  draft,
+  setDraft,
+  saving,
+  error,
+  conflict,
+  onSubmit,
+  onCancel,
+  onLoadCurrent,
+  onUseCurrentVersion
+}: Props) {
+  return <form className="form-stack edit-form" onSubmit={onSubmit}>
+    <p className="dialog-intro">Edit the durable objective. Existing checkpoint text and provenance cannot be changed.</p>
+    <label className="field">Title<input required maxLength={200} value={draft.title} onChange={(event) => setDraft((value) => ({ ...value, title: event.target.value }))} /></label>
+    <label className="field">Summary<textarea required rows={4} maxLength={1000} value={draft.summary} onChange={(event) => setDraft((value) => ({ ...value, summary: event.target.value }))} /></label>
+    <label className="field field-half">Priority<input type="number" min={0} max={100} value={draft.priority} onChange={(event) => setDraft((value) => ({ ...value, priority: Number(event.target.value) }))} /><span className="field-hint">0–100. Higher values are more important; ordinary search is not a scheduler.</span></label>
+    {draft.status === "done" ? <div className="field field-half"><span>Lifecycle</span><div className="readonly-lifecycle">Done</div><button type="button" className="button button-secondary" onClick={() => setDraft((value) => ({ ...value, status: "open" }))}>Reopen as open</button><span className="field-hint">Done is created only through “Complete with summary.” Reopening keeps every completion checkpoint.</span></div> :
+      <label className="field field-half">Lifecycle<select value={draft.status} onChange={(event) => setDraft((value) => ({ ...value, status: event.target.value as WorkStatus }))}>
+        <option value="open">{statusLabels.open}</option>
+        <option value="wont-do">{statusLabels["wont-do"]}</option>
+        <option value="promoted">{statusLabels.promoted}</option>
+      </select><span className="field-hint">Done is available only through the completion workflow.</span></label>}
+    {error && <div className="error-notice" role="alert"><p>{error}</p>{!conflict && <button type="button" className="button button-secondary" onClick={onLoadCurrent}>Load current version</button>}</div>}
+    {conflict && <section className="conflict-panel"><h3>Current saved version · v{conflict.version}</h3><pre>{JSON.stringify({ title: conflict.title, summary: conflict.summary, priority: conflict.priority, status: conflict.status }, null, 2)}</pre><button type="button" className="button button-secondary" onClick={onUseCurrentVersion}>Keep my edits on version {conflict.version}</button></section>}
+    <div className="dialog-actions sticky-actions">
+      <span className="version-note">Editing version {work.version}</span>
+      <button type="button" className="button button-secondary" disabled={saving} onClick={onCancel}>Cancel</button>
+      <button type="submit" className="button button-primary" disabled={saving || Boolean(conflict)}>{saving ? "Saving…" : "Save changes"}</button>
+    </div>
+  </form>;
+}

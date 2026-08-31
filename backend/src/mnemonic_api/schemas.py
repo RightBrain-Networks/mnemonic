@@ -1,4 +1,4 @@
-"""Wire models. In particular, prompt text is never stripped or rewritten."""
+"""Strict wire models. Agent-authored prompt text is never stripped or rewritten."""
 
 import json
 import re
@@ -43,7 +43,6 @@ def http_url(value: str) -> str:
     try:
         parsed = urlsplit(value)
         valid = parsed.scheme in {"http", "https"} and bool(parsed.hostname)
-        # Accessing .port also rejects malformed/non-numeric/out-of-range ports.
         _ = parsed.port
     except ValueError as exc:
         raise ValueError("Must be a valid HTTP or HTTPS URL") from exc
@@ -54,7 +53,6 @@ def http_url(value: str) -> str:
 
 def normalized_tag(value: str) -> str:
     value = nonblank(value).lower()
-    # Some Unicode letters expand to multiple characters when lowercased.
     if len(value) > 50:
         raise ValueError("Normalized tags must contain at most 50 characters")
     return value
@@ -68,7 +66,6 @@ def metadata_is_bounded(value: dict[str, JsonValue]) -> dict[str, JsonValue]:
     if len(encoded) > 16384:
         raise ValueError("Metadata must be at most 16 KB of UTF-8 JSON")
     if b"\\u0000" in encoded:
-        # PostgreSQL JSONB cannot represent the NUL codepoint in keys or values.
         def contains_nul(item: JsonValue) -> bool:
             if isinstance(item, str):
                 return "\x00" in item
@@ -135,7 +132,11 @@ Tag = Annotated[
 Tags = Annotated[list[Tag], Field(max_length=20)]
 Metadata = Annotated[dict[str, JsonValue], AfterValidator(metadata_is_bounded)]
 Status = Literal["open", "done", "wont-do", "promoted"]
+MutableStatus = Literal["open", "wont-do", "promoted"]
 CreateStatus = Literal["open", "wont-do", "promoted"]
+CheckpointKind = Literal["context", "progress", "completion"]
+AppendCheckpointKind = Literal["context", "progress"]
+MigrationOrigin = Literal["legacy-handoff-snapshot", "legacy-comment"]
 ProjectName = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
@@ -199,6 +200,236 @@ class ProjectRead(Timestamps):
     repository_url: str | None
 
 
+class CheckpointPayload(APIModel):
+    prompt: Prompt
+    source_client: ClientName
+    source_session_id: SessionID
+    source_model: ModelName | None = None
+    source_session_url: HTTPURL | None = None
+    repository_branch: BranchName | None = None
+    verified_against: CommitID | None = None
+    tags: Tags = Field(default_factory=list)
+    source_metadata: Metadata = Field(default_factory=dict)
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(tag.lower() for tag in value))
+
+
+class InitialCheckpointCreate(CheckpointPayload):
+    pass
+
+
+class CheckpointCreate(CheckpointPayload):
+    kind: AppendCheckpointKind = "context"
+
+
+class CompletionCheckpointCreate(CheckpointPayload):
+    pass
+
+
+class WorkItemCreate(APIModel):
+    title: Title
+    summary: Summary
+    priority: Annotated[StrictInt, Field(ge=0, le=100)] = 0
+    status: CreateStatus = "open"
+    initial_checkpoint: InitialCheckpointCreate
+
+
+class WorkItemPatch(APIModel):
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+    title: Title | None = None
+    summary: Summary | None = None
+    priority: Annotated[StrictInt, Field(ge=0, le=100)] | None = None
+    status: MutableStatus | None = None
+
+    @model_validator(mode="after")
+    def editable_fields(self) -> Self:
+        fields = self.model_fields_set - {"expected_version"}
+        if not fields:
+            raise ValueError("Provide at least one editable field besides expected_version")
+        for field in fields:
+            if getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
+
+
+class WorkCompletionCreate(APIModel):
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+    checkpoint: CompletionCheckpointCreate
+
+
+class WorkDeletionCreate(APIModel):
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+
+
+class WorkItemRead(Timestamps):
+    id: UUID
+    project_id: UUID
+    title: str
+    summary: str
+    status: Status
+    priority: int
+    initial_checkpoint_id: UUID
+    version: int
+
+
+class CheckpointRead(APIModel):
+    id: UUID
+    work_item_id: UUID
+    kind: CheckpointKind
+    prompt: str
+    source_client: str
+    source_session_id: str
+    source_model: str | None
+    source_session_url: str | None
+    repository_branch: str | None
+    verified_against: str | None
+    tags: list[str]
+    source_metadata: dict[str, JsonValue]
+    migration_origin: MigrationOrigin | None
+    legacy_record_id: UUID | None
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def utc_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class CheckpointPointer(APIModel):
+    id: UUID
+    work_item_id: UUID
+    kind: CheckpointKind
+    source_client: str
+    source_session_id: str
+    source_model: str | None
+    repository_branch: str | None
+    verified_against: str | None
+    tags: list[str]
+    migration_origin: MigrationOrigin | None
+    legacy_record_id: UUID | None
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def utc_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class LeasePublic(APIModel):
+    holder_client: str
+    holder_session_id: str
+    acquired_at: datetime
+    renewed_at: datetime
+    expires_at: datetime
+
+
+class Readiness(APIModel):
+    lifecycle_status: Status
+    is_terminal: bool
+    has_active_lease: bool = False
+    active_lease: LeasePublic | None = None
+    unresolved_blocker_count: int = 0
+    is_blocked: bool = False
+    is_ready: bool
+    display_state: Literal["ready", "active", "blocked", "done", "wont-do", "promoted"]
+
+
+class WorkIdentityPointer(APIModel):
+    id: UUID
+    title: str
+    status: Status
+
+
+class WorkSummary(APIModel):
+    work_item: WorkItemRead
+    checkpoint_count: int
+    ancestor_path: list[WorkIdentityPointer] = Field(default_factory=list)
+    ancestor_path_truncated: bool = False
+    current_context: CheckpointPointer
+    readiness: Readiness
+
+
+class WorkCreation(APIModel):
+    work_item: WorkItemRead
+    initial_checkpoint: CheckpointRead
+    initial_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
+
+
+class RelationshipCounts(APIModel):
+    incoming: int = 0
+    outgoing: int = 0
+    undirected: int = 0
+    total: int = 0
+
+
+class WorkContext(APIModel):
+    work_item: WorkItemRead
+    initial_checkpoint: CheckpointRead
+    current_context: CheckpointRead
+    recent_checkpoints: list[CheckpointRead]
+    checkpoint_total: int
+    omitted_checkpoint_count: int
+    readiness: Readiness
+    incoming_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
+    outgoing_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
+    undirected_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
+    relationship_counts: RelationshipCounts = Field(default_factory=RelationshipCounts)
+
+
+class WorkCompletionRead(APIModel):
+    work_item: WorkItemRead
+    checkpoint: CheckpointRead
+
+
+class WorkDeletionRead(APIModel):
+    deleted: bool = True
+    project_id: UUID
+    work_item_id: UUID
+    version: int
+
+
+class Page[T](APIModel):
+    items: list[T]
+    total: int
+    limit: int
+    offset: int
+
+
+class ProjectListQuery(APIModel):
+    limit: int = Field(default=100, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class WorkItemListQuery(APIModel):
+    q: Annotated[str, StringConstraints(max_length=500), AfterValidator(no_nul)] | None = None
+    semantic: bool = False
+    status: Literal["open", "done", "wont-do", "promoted", "all"] = "open"
+    tag: Tag | None = None
+    source_client: ClientName | None = None
+    source_session_id: SessionID | None = None
+    view: Literal["all"] = "all"
+    limit: int = Field(default=30, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+    @field_validator("tag")
+    @classmethod
+    def normalize_tag(cls, value: str | None) -> str | None:
+        return value.lower() if value else value
+
+
+class CheckpointListQuery(APIModel):
+    order: Literal["oldest", "newest"] = "oldest"
+    limit: int = Field(default=100, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class WorkContextQuery(APIModel):
+    recent_limit: int = Field(default=5, ge=0, le=20)
+
+
+# Legacy hand-off request/response models. They are compatibility projections
+# backed entirely by canonical WorkItem and Checkpoint rows.
 class HandoffCreate(APIModel):
     title: Title
     summary: Summary
@@ -223,29 +454,16 @@ class HandoffPatch(APIModel):
     expected_version: Annotated[StrictInt, Field(ge=1)]
     title: Title | None = None
     summary: Summary | None = None
-    prompt: Prompt | None = None
-    repository_branch: BranchName | None = None
-    verified_against: CommitID | None = None
-    tags: Tags | None = None
-    source_metadata: Metadata | None = None
-    status: Status | None = None
-
-    @field_validator("tags")
-    @classmethod
-    def normalize_tags(cls, value: list[str] | None) -> list[str] | None:
-        return None if value is None else list(dict.fromkeys(tag.lower() for tag in value))
+    status: MutableStatus | None = None
 
     @model_validator(mode="after")
     def editable_fields(self) -> Self:
         fields = self.model_fields_set - {"expected_version"}
         if not fields:
             raise ValueError("Provide at least one editable field besides expected_version")
-        nullable_fields = {"repository_branch", "verified_against"}
-        for field in fields - nullable_fields:
+        for field in fields:
             if getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")
-        if "status" in fields and self.status == "done":
-            raise ValueError("Use the completion endpoint so done work has a durable summary")
         return self
 
 
@@ -303,18 +521,6 @@ class HandoffCommentRead(APIModel):
 class HandoffCompletionRead(APIModel):
     handoff: HandoffRead
     comment: HandoffCommentRead
-
-
-class Page[T](APIModel):
-    items: list[T]
-    total: int
-    limit: int
-    offset: int
-
-
-class ProjectListQuery(APIModel):
-    limit: int = Field(default=100, ge=1, le=100)
-    offset: int = Field(default=0, ge=0)
 
 
 class HandoffCommentListQuery(APIModel):

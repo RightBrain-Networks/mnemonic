@@ -31,8 +31,9 @@ change `.env`, recreate API/MCP/web, and update connected clients.
 Semantic search is opt-in; ordinary dashboard and MCP searches continue using the
 existing PostgreSQL lexical path. A nonblank semantic query runs
 `BAAI/bge-small-en-v1.5` inside the API container and can fill stale rows in the
-derived `handoff_embeddings` table in batches of 16, so its first request after
-new or changed hand-offs can take longer than later requests.
+derived `work_item_embeddings` table in batches of 16, so its first request
+after new or changed work items or checkpoints can take longer than later
+requests.
 
 The image build downloads model artifacts into `/app/.embedding-cache`; image
 builds therefore need network access. The running image sets Hugging Face offline
@@ -40,9 +41,37 @@ mode and will not download a missing model or send prompt/query text to a hosted
 model API.
 
 Each derived row carries the embedding configuration and a content digest. A
-mismatch is rebuilt lazily. The rows live in PostgreSQL and can be present in a
-backup, but canonical hand-offs are sufficient to regenerate them. If semantic
-retrieval returns 503, turn it off to keep using the independent lexical path.
+mismatch is rebuilt lazily. The bounded embedding source combines work title and
+summary, initial context, and recent checkpoint text. The rows can be present in
+a backup, but canonical work/checkpoint rows are sufficient to regenerate them.
+If semantic retrieval returns 503, turn it off to keep using the independent
+lexical path.
+
+## Phase 1 cutover
+
+The Phase 1 migration is a maintenance-window cutover, not a rolling migration.
+The API runs Alembic before serving, and `0005_work_graph_backfill` copies
+legacy rows while writers are quiesced. Before deploying that image:
+
+1. stop API, MCP, and dashboard writers;
+2. create a fresh custom-format backup and verify it with `pg_restore --list`;
+3. record hand-off/comment counts by project and lifecycle;
+4. rehearse `0003_handoff_comments -> 0005_work_graph_backfill` against an
+   isolated restored database;
+5. deploy API, MCP, and dashboard images as one compatible stack.
+
+The Phase 1 runtime head retains the legacy tables read-only for an observation
+window. Canonical and deprecated compatibility endpoints both use
+`work_items`/`checkpoints`; there is no dual-write path. Do not drop the
+legacy tables until migrated counts and representative exact values have been
+audited, a post-upgrade backup has passed an isolated restore drill, and the
+operator explicitly accepts the rollback boundary.
+
+Before any new canonical write, an old image may be usable only if that exact
+rollback has been rehearsed. After new work or checkpoint writes, old code
+cannot see them; safe rollback requires restoring the pre-cutover backup. An
+Alembic downgrade cannot losslessly collapse multiple checkpoints into one
+mutable legacy row.
 
 ## Backups
 
@@ -59,14 +88,15 @@ docker compose logs --tail=20 backup
 ```
 
 Files appear under `MNEMONIC_BACKUP_DIR` (`./backups` by default). They include
-the full prompts and metadata; treat them as private. The backup service never
+full checkpoint text, provenance, and metadata; treat them as private. The backup service never
 deletes earlier dumps. Set a retention policy appropriate for available disk
 space, and copy successful dumps to another device or a backed-up location.
 The local PostgreSQL volume and a backup on the same disk can both be lost.
 
 An archive listing check is not a restore drill. Periodically restore a dump
-into an isolated PostgreSQL instance and verify representative projects and
-prompts. Keep the PostgreSQL major version compatible with the dump tools.
+into an isolated PostgreSQL instance and verify representative projects, work
+items, checkpoint history, and compatibility reads. Keep the PostgreSQL major
+version compatible with the dump tools.
 
 ## Restore
 
@@ -90,9 +120,11 @@ change should be rehearsed on an isolated instance first; restore is not a
 substitute for a planned schema downgrade.
 
 Deletion from the dashboard is a soft delete. No ordinary API or MCP read can
-retrieve a deleted hand-off. An operator can recover it from a backup or, after
-confirming the exact project and hand-off UUIDs, clear its `deleted_at` in the
-database and increment `version`. There is no trash-management UI in this MVP.
+retrieve a deleted work item or any of its checkpoints. An operator can recover
+it from a backup or, after confirming the exact project and work-item UUIDs,
+clear `work_items.deleted_at` and increment its `version`. Checkpoint rows
+must not be edited during recovery; the database immutability trigger rejects
+ordinary update/delete statements. There is no trash-management UI.
 
 ## Trust boundary and remote clients
 
@@ -103,9 +135,9 @@ server proxy validates request hosts and browser origins, but any trusted local
 process can access that dashboard. Do not share a machine account with people
 who should not see its prompts.
 
-The API and HTTP MCP endpoints require bearer authentication. Prompt content is
-rendered as text, not executable HTML. The MCP adapter does not follow URLs
-from stored prompts and never connects to the database directly.
+The API and HTTP MCP endpoints require bearer authentication. Checkpoint content
+is rendered as text, not executable HTML. The MCP adapter does not follow URLs
+from stored context and never connects to the database directly.
 
 Do not expose these ports directly to the internet. A remote deployment needs
 HTTPS, a real authentication boundary for the dashboard, explicit allowed

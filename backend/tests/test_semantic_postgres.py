@@ -28,24 +28,32 @@ class FailingEmbedder:
 
 
 def save(api, project, payload, **changes):
-    response = api.post(
-        f"/api/v1/projects/{project['id']}/handoffs", json={**payload, **changes}
-    )
+    initial_changes = {
+        field: changes.pop(field)
+        for field in ["prompt", "source_session_id"]
+        if field in changes
+    }
+    body = {
+        **payload,
+        **changes,
+        "initial_checkpoint": {**payload["initial_checkpoint"], **initial_changes},
+    }
+    response = api.post(f"/api/v1/projects/{project['id']}/work-items", json=body)
     assert response.status_code == 201, response.text
-    return response.json()
+    return response.json()["work_item"]
 
 
 def path(project):
-    return f"/api/v1/projects/{project['id']}/handoffs"
+    return f"/api/v1/projects/{project['id']}/work-items"
 
 
 def test_semantic_search_finds_dense_only_matches_and_reuses_digest_cache(
-    api, project, handoff_payload
+    api, project, work_payload
 ):
     target = save(
         api,
         project,
-        handoff_payload,
+        work_payload,
         title="Relational durability",
         summary="Keep records available across process lifetimes.",
         prompt="[dense-target] Commit records transactionally.",
@@ -53,7 +61,7 @@ def test_semantic_search_finds_dense_only_matches_and_reuses_digest_cache(
     save(
         api,
         project,
-        handoff_payload,
+        work_payload,
         title="Rendering cleanup",
         summary="Tidy the dashboard spacing.",
         prompt="Adjust card layout and colors.",
@@ -67,32 +75,35 @@ def test_semantic_search_finds_dense_only_matches_and_reuses_digest_cache(
     assert result.status_code == 200, result.text
     body = result.json()
     assert body["total"] == 2
-    assert body["items"][0]["id"] == target["id"]
-    assert "prompt" not in body["items"][0]
+    assert body["items"][0]["work_item"]["id"] == target["id"]
+    assert "prompt" not in body["items"][0]["current_context"]
     assert [len(batch) for batch in embedder.document_batches] == [2]
 
     api.get(path(project), params={"q": query, "semantic": "true"})
     assert [len(batch) for batch in embedder.document_batches] == [2]
 
-    updated = api.patch(
-        f"{path(project)}/{target['id']}",
+    updated = api.post(
+        f"{path(project)}/{target['id']}/checkpoints",
         json={
-            "expected_version": target["version"],
+            "kind": "context",
             "prompt": "[dense-target] Changed canonical text.",
+            "source_client": "claude-code",
+            "source_session_id": "semantic-context-session",
         },
     )
-    assert updated.status_code == 200
+    assert updated.status_code == 201
     api.get(path(project), params={"q": query, "semantic": "true"})
     assert [len(batch) for batch in embedder.document_batches] == [2, 1]
-    comment = api.post(
-        f"{path(project)}/{target['id']}/comments",
+    checkpoint = api.post(
+        f"{path(project)}/{target['id']}/checkpoints",
         json={
-            "body": "[dense-target] Verified the durable progress path.",
+            "kind": "progress",
+            "prompt": "[dense-target] Verified the durable progress path.",
             "source_client": "claude-code",
             "source_session_id": "semantic-comment-session",
         },
     )
-    assert comment.status_code == 201
+    assert checkpoint.status_code == 201
     api.get(path(project), params={"q": query, "semantic": "true"})
     assert [len(batch) for batch in embedder.document_batches] == [2, 1, 1]
     assert (
@@ -101,11 +112,11 @@ def test_semantic_search_finds_dense_only_matches_and_reuses_digest_cache(
     )
 
 
-def test_semantic_search_preserves_strong_lexical_results(api, project, handoff_payload):
+def test_semantic_search_preserves_strong_lexical_results(api, project, work_payload):
     save(
         api,
         project,
-        handoff_payload,
+        work_payload,
         title="Dense neighbor",
         summary="Conceptually close but no exact term.",
         prompt="[dense-target] Similar meaning.",
@@ -113,7 +124,7 @@ def test_semantic_search_preserves_strong_lexical_results(api, project, handoff_
     lexical = save(
         api,
         project,
-        handoff_payload,
+        work_payload,
         title="Needle appears here",
         summary="Exact vocabulary remains important.",
         prompt="Ordinary lexical record.",
@@ -121,17 +132,18 @@ def test_semantic_search_preserves_strong_lexical_results(api, project, handoff_
     api.app.state.semantic_embedder = DeterministicEmbedder()
     result = api.get(path(project), params={"q": "needle", "semantic": "true"})
     assert result.status_code == 200
-    assert result.json()["items"][0]["id"] == lexical["id"]
+    assert result.json()["items"][0]["work_item"]["id"] == lexical["id"]
 
 
 def test_semantic_failure_is_explicit_and_lexical_search_still_works(
-    api, project, handoff_payload
+    api, project, work_payload
 ):
-    saved = save(api, project, handoff_payload, title="Lexical fallback")
+    saved = save(api, project, work_payload, title="Lexical fallback")
     api.app.state.semantic_embedder = FailingEmbedder()
     failed = api.get(path(project), params={"q": "fallback", "semantic": "true"})
     assert failed.status_code == 503
-    assert "Turn it off" in failed.json()["detail"]
+    assert failed.json()["detail"]["code"] == "semantic_unavailable"
+    assert "Turn it off" in failed.json()["detail"]["message"]
     ordinary = api.get(path(project), params={"q": "fallback"})
     assert ordinary.status_code == 200
-    assert ordinary.json()["items"][0]["id"] == saved["id"]
+    assert ordinary.json()["items"][0]["work_item"]["id"] == saved["id"]

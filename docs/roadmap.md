@@ -74,7 +74,7 @@ Project
         +-- WorkEvent
         |
         +-- Relationships
-        |     +-- blocks
+        |     +-- blocks (directed acyclic dependency graph)
         |     +-- parent-child
         |     +-- discovered-from
         |     +-- duplicate-of
@@ -232,6 +232,12 @@ It should atomically:
 
 This eliminates races where two agents independently discover the same ready work and both begin executing it.
 
+Phase 2 does not require dependency relationships to exist. Until Phase 3 lands,
+"unblocked" is vacuously true for every open work item. Once `blocks`
+relationships are writable, every claim operation must re-evaluate unresolved
+blockers inside the same transaction that acquires the lease. A prior search or
+ready-work response is never sufficient authority to claim work.
+
 ## Lease Behavior
 
 - Claims have a TTL.
@@ -311,13 +317,48 @@ Descriptive only.
 
 ## Cycle Protection
 
-Reject dependency cycles for the `blocks` graph at write time.
+The relationship model as a whole is a typed graph, not a DAG. Only the
+project-local `blocks` subgraph is the execution-dependency DAG.
+
+For a canonical edge `A -> B`, read the direction as "A blocks B." Adding an
+edge must atomically reject:
+
+- self-links;
+- duplicate links;
+- cross-project links;
+- any edge for which `B` can already reach `A` through `blocks` edges.
+
+Cycle protection must ship in the same increment that first makes `blocks`
+relationships writable. Do not accept cyclic data temporarily and defer
+validation to ready-work scheduling or a later milestone.
+
+PostgreSQL recursive queries are sufficient for cycle detection and traversal;
+this phase does not require a graph database or a general-purpose workflow
+engine. Add indexes supporting both incoming and outgoing traversal, and expose
+direct and transitive blocker queries where recall or diagnostics need them.
+
+`parent-child` should also reject cycles. If each child has at most one parent,
+the result is a project-local forest rather than a general DAG. The remaining
+relationship types do not participate in execution ordering:
+
+- `discovered-from` records provenance;
+- `duplicate-of` identifies canonical work;
+- `related` is symmetric and descriptive.
+
+Blocker resolution must be explicit. Initially, only `done` automatically
+resolves an outgoing blocker. `wont-do`, `promoted`, and soft deletion must not
+silently make dependent work ready; an operator or authorized agent must remove
+the `blocks` relationship, or a later first-class waiver mechanism must record
+why the dependency no longer applies.
 
 ## Deliverables
 
 - Relationship storage.
 - Relationship CRUD operations.
-- Cycle detection for blockers.
+- Transactional cycle detection for blockers from the first writable release.
+- Acyclic parent hierarchy enforcement.
+- Incoming/outgoing traversal indexes and blocker queries.
+- Documented blocker-resolution semantics.
 - Relationship-aware recall.
 - Hierarchical display support.
 
@@ -325,6 +366,8 @@ Reject dependency cycles for the `blocks` graph at write time.
 
 - Blocked work never appears in the ready queue.
 - Dependency cycles cannot be created.
+- Parent/child cycles cannot be created.
+- `wont-do`, `promoted`, or deleted blockers do not silently unblock dependents.
 - Discovered work retains a durable link to the context in which it was found.
 - Parent/child work can be collapsed in the human UI.
 
@@ -352,6 +395,12 @@ AND no unresolved blockers
 AND no active lease
 AND no unresolved gate
 ```
+
+The blocker predicate is evaluated from the Phase 3 `blocks` DAG. An open work
+item is dependency-ready when it has no incoming `blocks` edge from unresolved
+work. Implementations may use recursive PostgreSQL queries for explanations and
+transitive diagnostics, but ordinary readiness should remain a bounded,
+indexed query rather than loading the full graph into application memory.
 
 Optional filtering may include:
 
@@ -1040,9 +1089,12 @@ The MCP interface should favor coarse-grained atomic operations over forcing age
 
 1. Introduce `WorkItem`.
 2. Convert existing hand-offs into immutable checkpoints.
-3. Add work relationships.
-4. Add hierarchy support.
-5. Migrate existing data.
+3. Add typed work relationships and traversal indexes.
+4. Enforce a project-local DAG for `blocks` and an acyclic parent hierarchy
+   from their first writable release.
+5. Define and enforce blocker-resolution semantics.
+6. Add hierarchy support.
+7. Migrate existing data.
 
 This establishes the long-term data model.
 
@@ -1051,7 +1103,7 @@ This establishes the long-term data model.
 1. Add TTL work leases.
 2. Add atomic `claim_and_recall`.
 3. Add blocker-aware `list_ready_work`.
-4. Reject dependency cycles.
+4. Make every claim operation recheck blockers atomically before leasing work.
 5. Add idempotent mutation keys.
 
 At this point multiple agents can safely share a project.

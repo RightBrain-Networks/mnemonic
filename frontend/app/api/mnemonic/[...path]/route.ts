@@ -1,4 +1,10 @@
-import { allowedQueryKeys, configuredOrigins, trustedRequest, upstreamTimeoutMs } from "@/lib/proxy-policy";
+import {
+  allowedQueryKeys,
+  configuredOrigins,
+  forbiddenMutationField,
+  trustedRequest,
+  upstreamTimeoutMs
+} from "@/lib/proxy-policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +49,8 @@ async function readBody(request: Request): Promise<string | Response> {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     const parsed: unknown = JSON.parse(text);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return fail(400, "The request body must be a JSON object.");
+    const forbidden = forbiddenMutationField(parsed);
+    if (forbidden) return fail(400, `The request body contains an unsupported field: ${forbidden}.`);
     return text;
   } catch {
     return fail(400, "The request body is not valid JSON.");

@@ -1,101 +1,161 @@
-# Mnemonic MVP architecture
+# Mnemonic Phase 1 architecture
 
-This decision implements the owner's revised standalone-application scope. The
-original [`ADR.md`](../ADR.md) remains the historical proposal; its memory-store,
-hook, and host integration decisions do not apply here. The optional local
-semantic retrieval described below is part of the standalone application.
+This architecture implements Phase 1 of the product roadmap. The original
+[`ADR.md`](../ADR.md) remains historical context; its memory-store and hook
+proposal is not the implementation described here. The longer-term direction and
+the boundaries of later phases are in [`roadmap.md`](roadmap.md).
 
-## Product contract
+## Product model
 
-Mnemonic is a durable home for complete, agent-authored hand-off prompts. A
-prompt is enough context for a fresh session to investigate and continue work;
-it is not a ticket or an implicit instruction from the owner. Capture includes
-context, the intended outcome, durable references, known hazards, and concrete
-verification steps. Agent skills enforce this writing discipline. The service
-stores prompt and comment text without silently rewriting it or pretending to
-verify its content. Each hand-off has an append-only, session-attributed progress
-timeline. Completion atomically adds the completing session's work summary and
-moves the hand-off to `done`, so lifecycle state retains its supporting context.
+Mnemonic is a coordination system for temporary agents. The durable object is a
+`WorkItem`: one objective that survives across sessions. A `Checkpoint` is an
+immutable, session-attributed context packet appended by one of those sessions.
+Ten sessions continuing one objective therefore produce one human-visible work
+item and a checkpoint history, not ten top-level hand-offs.
 
-Projects partition the store. Originating client and session ID are required;
-model, branch, verified commit, tags, and extensible JSON metadata travel with
-the prompt. Session IDs are opaque strings, not integers: clients often use
-UUIDs or other identifiers. An agent must not invent an originating session ID.
+```mermaid
+flowchart LR
+    Project --> WorkItem
+    WorkItem --> Initial[Initial context checkpoint]
+    WorkItem --> Context[Later context checkpoint]
+    WorkItem --> Progress[Progress checkpoint]
+    WorkItem --> Completion[Completion checkpoint]
+```
+
+A work item owns only mutable identity and lifecycle: title, summary, status,
+priority, version, and timestamps. Checkpoints own exact prompt text, source
+client/session/model, optional session URL and repository provenance, tags,
+metadata, kind, and creation time.
+
+The persisted lifecycle values remain `open`, `done`, `wont-do`, and
+`promoted`. `ready` is a derived Phase 1 display fact for open work; it is
+not another stored status. Completion is the only operation that can set
+`done`, and it atomically appends a completion checkpoint. Reopening leaves
+that historical completion checkpoint intact.
+
+## Invariants
+
+- New work and its initial `context` checkpoint commit in one transaction.
+- Checkpoint text and provenance never change. The database rejects direct
+  checkpoint `UPDATE` and `DELETE` statements as well as the API exposing no
+  such routes. Corrections are new `context` checkpoints.
+- Appending a checkpoint updates work activity but does not increment the work
+  version. Independent appenders do not contend through optimistic versioning.
+- Work edits, completion, and soft deletion require the version last read.
+- Soft-deleted work and all of its checkpoints disappear from ordinary reads,
+  searches, and compatibility projections.
+- Every lookup is project-scoped. A work or checkpoint UUID under the wrong
+  project returns 404.
+- Stored prompt text and metadata are untrusted historical context. Reading or
+  recalling them is not authority to execute them.
+- PostgreSQL and the FastAPI service are the sole persistence and transaction
+  authority. The MCP adapter never connects to the database.
 
 ## Services and trust boundaries
 
 ```mermaid
 flowchart LR
-    Agent[Claude Code / other MCP client] --> MCP[MCP adapter :8001]
+    Agent[MCP client] --> MCP[MCP REST adapter :8001]
     MCP --> API[FastAPI :8000]
     User[Browser] --> Web[Next.js :3000]
     Web --> API
     API --> DB[(PostgreSQL)]
 ```
 
-- PostgreSQL is the only durable application store, on a named Docker volume.
-- FastAPI owns validation, project isolation, lifecycle, search, and persistence.
-- The MCP service calls the REST API over HTTP; it has no database credentials,
-  SQL, or duplicate storage logic. It supports Streamable HTTP and stdio.
-- Next.js provides a project selector, search and status filters, full prompt
-  viewing, editing, deleting, copy, progress comments, and completion summaries.
-  Its same-origin server proxy holds the API key; the browser never receives that key.
-- All published ports bind to loopback by default. API and HTTP MCP requests
-  require a shared bearer key. The dashboard is for a trusted local user, not
-  a multi-user deployment. Its proxy rejects untrusted hosts and cross-origin
-  requests. Remote use requires HTTPS and an authentication boundary in front
-  of the dashboard. ChatGPT connectivity/OAuth is a later integration, not
-  something the local MVP claims to supply.
+FastAPI owns validation, lifecycle transitions, project isolation, search,
+context assembly, compatibility projections, and commits. Service functions
+receive one SQLAlchemy session; reusable helpers do not commit. Routes translate
+typed application errors into a stable sanitized `detail.code` envelope.
 
-## Retrieval and lifecycle
+The MCP service is a typed HTTP adapter. Canonical tools use work/checkpoint
+terminology; deprecated hand-off tools continue to project the same canonical
+rows. The dashboard calls only an exact same-origin proxy allowlist. Its API key
+is server-only, and browser request bodies containing a future `lease_token`
+are rejected rather than forwarded.
 
-PostgreSQL full-text search ranks title and summary ahead of prompt and comment
-content; literal matching also finds identifiers, paths, and hand-off or comment
-session IDs. That lexical
-path remains the default. For a nonblank query, a caller can opt into semantic
-search; the API fuses the lexical ranking with similarity from a local embedding
-model. Both the dashboard toggle and MCP argument default to disabled, preserving
-the existing search behavior unless the user requests hybrid retrieval.
+All published ports bind to loopback by default. The shared bearer key protects
+REST and MCP, while the dashboard remains a trusted-local single-user surface.
+Remote exposure still requires HTTPS and a separate authentication boundary.
 
-The dense channel embeds each hand-off's title, summary, first 1,500 prompt
-characters, and most recent 1,500 comment characters with
-`BAAI/bge-small-en-v1.5`; queries use the model's retrieval prefix. Weighted reciprocal-rank fusion (`k=60`) favors the lexical channel 3:1,
-retaining exact vocabulary as the stronger signal while adding conceptual matches.
+## Persistence and migration
 
-The Docker build downloads the model into `/app/.embedding-cache`. The running
-API sets Hugging Face offline mode, so it requires no hosted LLM, embedding
-service, or model API key and does not send search text off the host.
+Phase 1 adds:
 
-The PostgreSQL `handoff_embeddings` table stores one `REAL[]` vector, model/config
-tag, and SHA-256 content digest per hand-off. Semantic queries fill stale rows
-lazily in batches of 16; a text or model/config change rebuilds that row. These
-rows are disposable derived state even though they live in PostgreSQL and may appear
-in a dump: canonical hand-off rows alone are sufficient for recovery. Search
-still returns compact records without the full prompt. Recall explicitly fetches
-one complete record. Agents search before saving to detect possible duplicates;
-the database does not automatically merge similar work.
+- `work_items`, including an explicit `initial_checkpoint_id`;
+- `checkpoints`, with generated full-text search and migration provenance;
+- `work_item_embeddings`, disposable derived semantic-search state.
 
-Statuses are `open`, `done`, `wont-do`, and `promoted`. Default searches only
-return `open` records. Other statuses remain available through explicit filters.
-Ordinary comments append without contending on the mutable hand-off version. A
-`done` transition requires an atomic completion operation with that version and
-a nonblank work summary; a stale completion cannot append a duplicate summary.
-Promotion records an owner's decision; it does not create external issues.
-Deletion removes a prompt and its timeline from normal reads and searches, using
-a soft-delete timestamp for recovery. Edits, completion, and deletes require the
-version that was read to prevent one browser or agent silently overwriting
-another's changes.
+The initial checkpoint relationship is a deferred composite foreign key, so a
+work item and its required checkpoint can be inserted atomically without a
+nullable intermediate state. Generated vectors and GIN indexes keep lexical
+search in PostgreSQL. Derived embedding rows can always be discarded and
+rebuilt from canonical work/checkpoint content.
 
-## Durability and deliberate limits
+Migration `0004_work_graph_expand` creates the canonical schema without
+touching legacy rows. Quiesced cutover migration
+`0005_work_graph_backfill` copies every hand-off, soft-deleted rows included,
+and maps its current prompt to an initial checkpoint. Legacy comments become
+`progress` checkpoints and work summaries become `completion` checkpoints.
+Exact text, timestamps, lifecycle, versions, JSONB structure, and recorded
+provenance are preserved. Hand-off UUIDs remain work-item UUIDs; collision-free
+comment UUIDs are preserved, while deterministic collision remaps retain the
+original UUID in `legacy_record_id`.
 
-Schema changes use Alembic migrations. Compose starts the API only after the
-database is healthy, and the API runs migrations before serving. Database
-backup and explicit restore procedures ship with the application. A small
-additional backup container saves a checked PostgreSQL dump on startup and
-daily into a private host directory; it does not delete historical dumps.
-A persistent volume is not a backup: operators must monitor backup health and
-copy dumps off the machine, and manage retention to avoid filling the disk.
+The Phase 1 migration head intentionally retains the old tables as read-only
+during an observation window. Canonical and compatibility APIs use only the new
+tables. Dropping legacy tables is a later explicit contract deployment after
+parity checks, a backup/restore drill, and operator approval; it is not silently
+performed by this cutover image.
 
-There are no assignees, dependencies, due dates, issue synchronization, automatic
-execution, memory hooks, or claims of verified freshness.
-Skills carry the provenance warning and recheck cited state before execution.
+## Recall and retrieval
+
+`recall_work` is deliberately bounded. It returns the work identity, initial
+checkpoint, newest `context` checkpoint, and at most five additional recent
+checkpoints by default. Materialized checkpoint IDs are de-duplicated, and the
+response reports both total and omitted counts. Full history is available only
+through deterministic checkpoint pagination.
+
+Search returns one compact `WorkSummary` per work item, even when several
+checkpoints match. It never includes prompt bodies or source metadata. Title and
+summary carry the strongest lexical weight; checkpoint text and literal
+identifiers/provenance/tags participate without multiplying result rows.
+Canonical source and tag filters match any checkpoint.
+
+Lexical PostgreSQL search remains the default. Opt-in semantic search embeds a
+bounded composition of work identity, initial context, and recent checkpoint
+text using the offline local model. The cache is keyed by work item and its
+digest changes after either a work identity edit or checkpoint append. Hybrid
+search preserves the established candidate-total semantics and never becomes a
+work scheduler.
+
+## Compatibility window
+
+Legacy hand-off REST routes, MCP tools, resource URIs, and the
+`resume_handoff` prompt remain available and are marked deprecated:
+
+- saving a hand-off creates work plus its initial checkpoint;
+- recalling a hand-off flattens work identity with the preserved initial
+  checkpoint;
+- later checkpoints project through the legacy comments timeline;
+- adding a comment creates a progress checkpoint;
+- completing a hand-off creates a completion checkpoint and completes work;
+- legacy edits may change work fields but cannot rewrite checkpoint content or
+  provenance.
+
+The migrated initial snapshot carries an explicit warning because the former
+schema could retain the original source session while allowing later prompt
+edits. Mnemonic preserves the recorded values but does not fabricate authorship
+history that never existed.
+
+## Deliberate Phase 1 limits
+
+Phase 1 does not add leases, claims, ready-work scheduling, typed relationships,
+hierarchies, human gates, merge behavior, repository verification, or automatic
+execution. Response readiness fields are safe derivations from lifecycle only,
+and relationship collections are empty extension points. Those later concepts
+must not be inferred from checkpoint prose or implemented as hidden Phase 1
+workflow state.
+
+Backups include canonical work and checkpoint history. Operators must still copy
+backups off-machine and rehearse restores; a persistent Docker volume is not a
+backup.

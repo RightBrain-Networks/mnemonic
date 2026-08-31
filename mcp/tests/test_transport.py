@@ -1,19 +1,18 @@
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import httpx
+import pytest
+from conftest import API_KEY, PROJECT_ID, WORK_ID
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-import pytest
 from starlette.testclient import TestClient
 
 from mnemonic_mcp.api import MnemonicAPI
 from mnemonic_mcp.config import Settings
 from mnemonic_mcp.security import MAX_REQUEST_BYTES
 from mnemonic_mcp.server import create_app
-
-from conftest import API_KEY, HANDOFF_ID, PROJECT_ID
 
 JSON_HEADERS = {
     "Accept": "application/json, text/event-stream",
@@ -28,13 +27,14 @@ INITIALIZE = {
 }
 
 
-def test_http_protocol_initialize_list_and_call(settings, handoff):
+def test_http_protocol_initialize_list_and_call(settings, work_context):
     seen = []
 
     def handler(request):
         seen.append(request)
-        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}"
-        return httpx.Response(200, json=handoff)
+        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/context"
+        assert dict(request.url.params) == {"recent_limit": "5"}
+        return httpx.Response(200, json=work_context)
 
     app = create_app(settings, MnemonicAPI(settings, httpx.MockTransport(handler)))
     with TestClient(app, base_url="http://localhost:8001") as client:
@@ -43,16 +43,23 @@ def test_http_protocol_initialize_list_and_call(settings, handoff):
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
-        assert len(listed.json()["result"]["tools"]) == 10
+        assert len(listed.json()["result"]["tools"]) == 19
         called = client.post("/mcp", json={
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
-            "params": {"name": "recall_handoff", "arguments": {"project_id": PROJECT_ID, "handoff_id": HANDOFF_ID}},
+            "params": {
+                "name": "recall_work",
+                "arguments": {"project_id": PROJECT_ID, "work_item_id": WORK_ID},
+            },
         }, headers=JSON_HEADERS)
         assert called.status_code == 200
         result = called.json()["result"]
         assert result["isError"] is False
-        assert result["structuredContent"]["prompt"] == handoff["prompt"]
-        assert result["structuredContent"]["source_session_id"] == handoff["source_session_id"]
+        assert result["structuredContent"]["current_context"]["prompt"] == (
+            work_context["current_context"]["prompt"]
+        )
+        assert result["structuredContent"]["current_context"]["source_session_id"] == (
+            work_context["current_context"]["source_session_id"]
+        )
     assert len(seen) == 1
 
 
@@ -121,10 +128,9 @@ async def test_stdio_transport_handshake_and_catalog():
             "MNEMONIC_API_URL": "http://127.0.0.1:9",
         },
     )
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            initialized = await session.initialize()
-            assert initialized.serverInfo.name == "Mnemonic"
-            result = await session.list_tools()
-            assert len(result.tools) == 10
-            assert all(tool.outputSchema is not None for tool in result.tools)
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        initialized = await session.initialize()
+        assert initialized.serverInfo.name == "Mnemonic"
+        result = await session.list_tools()
+        assert len(result.tools) == 19
+        assert all(tool.outputSchema is not None for tool in result.tools)

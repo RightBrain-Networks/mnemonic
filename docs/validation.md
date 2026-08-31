@@ -1,5 +1,43 @@
 # MVP validation record
 
+## Phase 1 work/checkpoint validation — 2026-08-31
+
+The canonical Phase 1 work-item/checkpoint cutover was validated in the local
+Linux workspace with the repository's locked environments:
+
+- **101 backend tests passed against disposable PostgreSQL 17**. Backend Ruff
+  and Python compile checks also passed.
+- **50 MCP tests passed**. MCP Ruff checks and the bundled skill validations
+  also passed.
+- **21 frontend unit tests passed**; TypeScript checking and a Next.js
+  production build succeeded.
+- **2 Playwright acceptance scenarios passed** against a disposable stack: one
+  in desktop Chromium and one at the narrow Chromium viewport. They exercised
+  work-item grouping, immutable checkpoint history, canonical recall pointers,
+  work-only edits, completion, and deletion.
+- **The production-image full-stack check passed** against a separately scoped
+  disposable Compose project. It exercised the exact 19-tool MCP catalog and a
+  canonical create/search/recall/checkpoint/update/complete/delete lifecycle
+  through MCP, REST, PostgreSQL, and the dashboard proxy, then verified the
+  deprecated aliases, resource, and prompt resolve the same canonical records.
+- **A real custom-format backup/restore drill passed on the Phase 1 schema**.
+  The production backup and restore scripts both validated the archive with
+  `pg_restore --list`; an isolated restored database had the same deterministic
+  canonical-data checksum as its source
+  (`842b39ac85894777721e2b7f28f70588`). Canonical and deprecated API reads
+  preserved the representative work item, both exact checkpoint bodies,
+  Unicode, provenance, JSON metadata, IDs, timestamps, lifecycle, and version.
+  The restored checkpoint immutability trigger rejected a direct update.
+- The migration and running API both reported Alembic head
+  `0005_work_graph_backfill`.
+
+The Playwright wrapper used a uniquely scoped Compose project with disposable
+PostgreSQL storage. Its success-path cleanup removed the containers and network;
+no E2E containers remained after the run. The production-stack and restore
+checks used a different narrowly named Compose project and isolated restore
+database; their containers, volume, network, and temporary archive were removed
+after validation.
+
 ## Hand-off progress validation — 2026-08-31
 
 The comment and completion-summary change was validated in the local Linux

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mnemonic-api"
 version = "0.1.0"
-description = "Mnemonic's durable project-scoped hand-off prompt REST API"
+description = "Mnemonic's project-scoped work-item and immutable-checkpoint REST API"
 requires-python = ">=3.13,<3.14"
 dependencies = [
   "alembic>=1.16,<2",

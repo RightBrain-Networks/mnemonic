@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allowedQueryKeys, configuredOrigins, trustedRequest, upstreamTimeoutMs } from "../lib/proxy-policy.ts";
+import { allowedQueryKeys, configuredOrigins, forbiddenMutationField, trustedRequest, upstreamTimeoutMs } from "../lib/proxy-policy.ts";
 
 const origins = configuredOrigins();
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
 const handoff = "f1cf3691-7d28-4716-94a9-4867b341a685";
+const work = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const headers = (overrides = {}) => new Headers({ host: "localhost:3000", ...overrides });
 
 test("ordinary same-origin browser reads work without an Origin header", () => {
@@ -47,10 +48,19 @@ test("origins must be canonical HTTP origins, not credentials, paths, or wildcar
   assert.equal(trustedRequest(headers({ origin: "http://localhost:3000/" }), "POST", origins), false);
 });
 
-test("the route allowlist exposes only project and hand-off operations", () => {
+test("the route allowlist exposes canonical Phase 1 work/checkpoint operations and compatibility aliases", () => {
   assert.deepEqual(allowedQueryKeys("projects", "GET"), ["limit", "offset"]);
   assert.deepEqual(allowedQueryKeys("projects", "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}`, "PATCH"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "GET"), ["q", "semantic", "status", "tag", "source_client", "source_session_id", "view", "limit", "offset"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "POST"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "GET"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "PATCH"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/context`, "GET"), ["recent_limit"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "GET"), ["order", "limit", "offset"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "POST"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/complete`, "POST"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/delete`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs`, "GET"), ["q", "semantic", "status", "tag", "source_client", "source_session_id", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "GET"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "PATCH"), []);
@@ -62,9 +72,18 @@ test("the route allowlist exposes only project and hand-off operations", () => {
     assert.equal(allowedQueryKeys(path, "GET"), null);
   }
   assert.equal(allowedQueryKeys(`projects/${project}`, "DELETE"), null);
+  assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}`, "DELETE"), null);
+  assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "PATCH"), null);
+  assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/context`, "POST"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "PUT"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/comments`, "DELETE"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/complete`, "GET"), null);
+});
+
+test("mutation bodies reject capability tokens at any nesting level", () => {
+  assert.equal(forbiddenMutationField({ title: "Keep me", initial_checkpoint: { prompt: "Context" } }), null);
+  assert.equal(forbiddenMutationField({ lease_token: "secret" }), "lease_token");
+  assert.equal(forbiddenMutationField({ checkpoint: { source_metadata: [{ lease_token: "secret" }] } }), "lease_token");
 });
 
 test("only nonblank semantic searches receive the warmup timeout", () => {

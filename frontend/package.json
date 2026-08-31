@@ -3,13 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24 <25" },
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
     "typecheck": "tsc --noEmit --incremental false",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:stack": "../scripts/test-e2e.sh"
   },
   "dependencies": {
     "next": "16.3.3",
@@ -17,6 +21,7 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@types/node": "24.10.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",

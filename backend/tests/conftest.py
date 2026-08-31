@@ -9,13 +9,12 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, delete
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from mnemonic_api.config import Settings
 from mnemonic_api.main import create_app
-from mnemonic_api.models import Handoff, Project
 
 TEST_API_KEY = "mnemonic-integration-test-key-32-characters"
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -56,8 +55,15 @@ def postgres_engine() -> Iterator[Engine]:
 @pytest.fixture
 def api(postgres_engine: Engine) -> Iterator[TestClient]:
     with postgres_engine.begin() as connection:
-        connection.execute(delete(Handoff))
-        connection.execute(delete(Project))
+        # Row-level immutability/read-only triggers intentionally reject DELETE.
+        # This exact test schema reset is scoped to the disposable random schema.
+        connection.execute(
+            text(
+                "TRUNCATE work_item_embeddings, checkpoints, work_items, "
+                "handoff_embeddings, handoff_comments, handoffs, projects "
+                "RESTART IDENTITY CASCADE"
+            )
+        )
     settings = Settings(
         database_url=postgres_engine.url.render_as_string(hide_password=False), api_key=TEST_API_KEY
     )
@@ -94,4 +100,29 @@ def handoff_payload() -> dict:
         "verified_against": "abc1234",
         "tags": ["cache", "correctness"],
         "source_metadata": {"reference": "src/cache.py:42", "author_notes": ["recheck", 2, True]},
+    }
+
+
+@pytest.fixture
+def work_payload(handoff_payload: dict) -> dict:
+    return {
+        "title": handoff_payload["title"],
+        "summary": handoff_payload["summary"],
+        "priority": 30,
+        "initial_checkpoint": {
+            key: value
+            for key, value in handoff_payload.items()
+            if key
+            in {
+                "prompt",
+                "source_client",
+                "source_session_id",
+                "source_model",
+                "source_session_url",
+                "repository_branch",
+                "verified_against",
+                "tags",
+                "source_metadata",
+            }
+        },
     }

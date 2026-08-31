@@ -1,0 +1,57 @@
+# Disposable browser-acceptance stack. Always invoke through scripts/test-e2e.sh.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: mnemonic_e2e
+      POSTGRES_USER: mnemonic_e2e
+      POSTGRES_PASSWORD: mnemonic_e2e_only
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U mnemonic_e2e -d mnemonic_e2e']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: "no"
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://mnemonic_e2e:mnemonic_e2e_only@postgres:5432/mnemonic_e2e
+      MNEMONIC_API_KEY: ${MNEMONIC_E2E_API_KEY:?Run through scripts/test-e2e.sh}
+    ports:
+      - '127.0.0.1:${MNEMONIC_E2E_API_PORT:?Run through scripts/test-e2e.sh}:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/readyz", timeout=3)']
+      interval: 5s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
+    init: true
+    restart: "no"
+    security_opt: [no-new-privileges:true]
+
+  web:
+    build: ./frontend
+    environment:
+      MNEMONIC_API_URL: http://api:8000
+      MNEMONIC_API_KEY: ${MNEMONIC_E2E_API_KEY:?Run through scripts/test-e2e.sh}
+      MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_DASHBOARD_ORIGINS:?Run through scripts/test-e2e.sh}
+    ports:
+      - '127.0.0.1:${MNEMONIC_E2E_WEB_PORT:?Run through scripts/test-e2e.sh}:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, 'fetch("http://127.0.0.1:3000/healthz").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))']
+      interval: 5s
+      timeout: 5s
+      retries: 18
+      start_period: 15s
+    init: true
+    restart: "no"
+    security_opt: [no-new-privileges:true]

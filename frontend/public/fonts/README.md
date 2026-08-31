@@ -3,6 +3,14 @@
 These WOFF2 files are self-hosted from `public/fonts`; the application does not
 make runtime font requests to Google Fonts.
 
+## IBM Plex Sans
+
+- Upstream: <https://github.com/IBM/plex>
+- Distribution: Google Fonts `ibmplexsans` v23 variable WOFF2 assets
+- Weight range: 100–700, normal style
+- Included subsets: Latin Extended and Latin
+- License: [SIL Open Font License 1.1](./OFL-IBM-Plex.txt)
+
 ## Alan Sans
 
 - Upstream: <https://github.com/alan-eu/Alan-Sans>

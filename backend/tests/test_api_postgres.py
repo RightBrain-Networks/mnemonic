@@ -8,7 +8,7 @@ from alembic.config import Config
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
-from mnemonic_api.models import Handoff
+from mnemonic_api.models import Checkpoint, WorkItem
 
 from .conftest import BACKEND_DIR
 
@@ -89,14 +89,18 @@ def test_versions_provenance_lifecycle_and_soft_deletion(
     assert api.delete(endpoint).status_code == 422
     immutable = {"expected_version": 1, "source_session_id": "replacement"}
     assert api.patch(endpoint, json=immutable).status_code == 422
-    updated = api.patch(
-        endpoint,
-        json={"expected_version": 1, "status": "wont-do", "prompt": " New exact prompt.\n"},
+    assert (
+        api.patch(
+            endpoint,
+            json={"expected_version": 1, "prompt": " New exact prompt.\n"},
+        ).status_code
+        == 422
     )
+    updated = api.patch(endpoint, json={"expected_version": 1, "status": "wont-do"})
     assert updated.status_code == 200
     assert updated.json()["version"] == 2
     assert updated.json()["source_session_id"] == handoff["source_session_id"]
-    assert updated.json()["prompt"] == " New exact prompt.\n"
+    assert updated.json()["prompt"] == handoff_payload["prompt"]
     assert api.get(path(project)).json()["total"] == 0
     assert api.get(path(project), params={"status": "wont-do"}).json()["total"] == 1
     assert api.get(path(project), params={"status": "all"}).json()["total"] == 1
@@ -109,10 +113,11 @@ def test_versions_provenance_lifecycle_and_soft_deletion(
     assert api.delete(endpoint, params={"expected_version": 3}).status_code == 404
     assert api.get(path(project), params={"status": "all"}).json()["total"] == 0
     with Session(postgres_engine) as database:
-        row = database.get(Handoff, UUID(handoff["id"]))
+        row = database.get(WorkItem, UUID(handoff["id"]))
         assert row is not None and row.deleted_at is not None
-        assert row.prompt == " New exact prompt.\n"
         assert row.version == 3
+        checkpoint = database.get(Checkpoint, row.initial_checkpoint_id)
+        assert checkpoint is not None and checkpoint.prompt == handoff_payload["prompt"]
 
 
 def test_comments_are_append_only_project_scoped_and_searchable(api, project, handoff_payload):
