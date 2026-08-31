@@ -133,10 +133,23 @@ button { touch-action: manipulation; }
 
 .main-content {
   min-width: 0;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   background-color: var(--paper);
+}
+.main-content::before {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  z-index: -1;
+  pointer-events: none;
   background-image: url("/hexagon-pattern.svg");
   background-repeat: repeat;
-  background-size: 160px 160px;
+  background-size: 144px 84px;
+  filter: drop-shadow(2px 3px 2.5px rgb(37 17 48 / .18));
+  transform: rotate(45deg);
+  transform-origin: center;
 }
 .topbar { display: flex; align-items: center; justify-content: space-between; height: 75px; padding: 0 48px; border-bottom: 1px solid var(--line); }
 .breadcrumb { display: flex; align-items: center; gap: 12px; font-size: 12px; min-width: 0; }
