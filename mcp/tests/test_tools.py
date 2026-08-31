@@ -2,10 +2,20 @@ import json
 
 import httpx
 import pytest
-from conftest import API_KEY, CHECKPOINT_ID, HANDOFF_ID, PROJECT_ID, WORK_ID
+from conftest import (
+    API_KEY,
+    CHECKPOINT_ID,
+    CLAIM_REQUEST_ID,
+    EXPIRES_AT,
+    HANDOFF_ID,
+    LEASE_TOKEN,
+    PROJECT_ID,
+    WORK_ID,
+)
 from mcp.server.fastmcp.exceptions import ToolError
 
 from mnemonic_mcp.api import MnemonicAPI
+from mnemonic_mcp.models import ClaimAndRecall, ClaimReceipt
 from mnemonic_mcp.server import build_server
 
 
@@ -20,35 +30,153 @@ def structured(result):
     return result
 
 
+def test_claim_receipt_repr_redacts_token_but_serialization_retains_it(
+    claim_receipt, active_work_context
+):
+    receipt = ClaimReceipt.model_validate(claim_receipt)
+    combined = ClaimAndRecall.model_validate(
+        {"lease": claim_receipt, "context": active_work_context}
+    )
+    assert LEASE_TOKEN not in repr(receipt)
+    assert LEASE_TOKEN not in str(receipt)
+    assert LEASE_TOKEN not in repr(combined)
+    assert receipt.model_dump(mode="json")["lease_token"] == LEASE_TOKEN
+    assert combined.model_dump(mode="json")["lease"]["lease_token"] == LEASE_TOKEN
+
+
 async def test_tool_catalog_schemas_and_annotations(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {
-        "list_projects", "create_project",
-        "create_work", "search_work", "get_work", "add_checkpoint", "list_checkpoints",
-        "recall_work", "update_work", "complete_work", "delete_work",
-        "save_handoff", "search_handoffs", "recall_handoff", "list_handoff_comments",
-        "add_handoff_comment", "complete_handoff", "update_handoff", "delete_handoff",
+        "list_projects",
+        "create_project",
+        "create_work",
+        "search_work",
+        "get_work",
+        "add_checkpoint",
+        "list_checkpoints",
+        "recall_work",
+        "claim_work",
+        "claim_and_recall",
+        "renew_claim",
+        "release_claim",
+        "update_work",
+        "complete_work",
+        "delete_work",
+        "save_handoff",
+        "search_handoffs",
+        "recall_handoff",
+        "list_handoff_comments",
+        "add_handoff_comment",
+        "complete_handoff",
+        "update_handoff",
+        "delete_handoff",
     }
     assert all(tool.outputSchema for tool in tools.values())
     for name in (
-        "list_projects", "search_work", "get_work", "list_checkpoints", "recall_work",
-        "search_handoffs", "recall_handoff", "list_handoff_comments",
+        "list_projects",
+        "search_work",
+        "get_work",
+        "list_checkpoints",
+        "recall_work",
+        "search_handoffs",
+        "recall_handoff",
+        "list_handoff_comments",
     ):
         assert tools[name].annotations.readOnlyHint is True
     for name in (
-        "create_project", "create_work", "add_checkpoint", "save_handoff",
+        "create_project",
+        "create_work",
+        "add_checkpoint",
+        "claim_work",
+        "claim_and_recall",
+        "renew_claim",
+        "release_claim",
+        "save_handoff",
         "add_handoff_comment",
     ):
         assert tools[name].annotations.readOnlyHint is False
         assert tools[name].annotations.destructiveHint is False
     for name in (
-        "update_work", "complete_work", "delete_work", "update_handoff",
-        "complete_handoff", "delete_handoff",
+        "update_work",
+        "complete_work",
+        "delete_work",
+        "update_handoff",
+        "complete_handoff",
+        "delete_handoff",
     ):
         assert tools[name].annotations.destructiveHint is True
+    for name in ("claim_work", "claim_and_recall", "renew_claim"):
+        assert tools[name].annotations.idempotentHint is False
+    assert tools["release_claim"].annotations.idempotentHint is True
     for name in tools.keys() - {"list_projects", "create_project"}:
         assert "project_id" in tools[name].inputSchema["required"]
+
+    claim_fields = {
+        "project_id",
+        "work_item_id",
+        "holder_client",
+        "holder_session_id",
+        "claim_request_id",
+    }
+    for name in ("claim_work", "claim_and_recall"):
+        assert set(tools[name].inputSchema["required"]) == claim_fields
+        properties = tools[name].inputSchema["properties"]
+        assert properties["holder_client"]["maxLength"] == 80
+        assert properties["holder_session_id"]["maxLength"] == 200
+        assert properties["claim_request_id"]["maxLength"] == 200
+        assert "lease_token" not in properties
+
+    receipt_fields = {
+        "work_item_id",
+        "holder_client",
+        "holder_session_id",
+        "claim_request_id",
+        "acquired_at",
+        "renewed_at",
+        "expires_at",
+        "lease_token",
+    }
+    for name in ("claim_work", "renew_claim"):
+        assert set(tools[name].outputSchema["properties"]) == receipt_fields
+        assert tools[name].outputSchema["additionalProperties"] is False
+    assert set(tools["claim_and_recall"].outputSchema["properties"]) == {
+        "lease",
+        "context",
+    }
+    assert tools["claim_and_recall"].outputSchema["additionalProperties"] is False
+    assert set(tools["release_claim"].outputSchema["properties"]) == {
+        "work_item_id",
+        "released",
+    }
+    assert tools["release_claim"].outputSchema["additionalProperties"] is False
+
+    for name in ("renew_claim", "release_claim"):
+        assert set(tools[name].inputSchema["required"]) == {
+            "project_id",
+            "work_item_id",
+            "lease_token",
+        }
+        token_schema = tools[name].inputSchema["properties"]["lease_token"]
+        assert token_schema["minLength"] == 1
+        assert token_schema["maxLength"] == 200
+        assert token_schema["format"] == "password"
+        assert token_schema["writeOnly"] is True
+
+    lease_capable_mutations = {
+        "add_checkpoint",
+        "update_work",
+        "complete_work",
+        "delete_work",
+        "add_handoff_comment",
+        "update_handoff",
+        "complete_handoff",
+        "delete_handoff",
+    }
+    for name in lease_capable_mutations:
+        assert "lease_token" in tools[name].inputSchema["properties"]
+        assert "lease_token" not in tools[name].inputSchema["required"]
+
     create_required = tools["create_work"].inputSchema["required"]
     assert {"project_id", "title", "summary", "initial_checkpoint"} <= set(create_required)
     checkpoint_schema = tools["create_work"].inputSchema["$defs"]["CheckpointInput"]
@@ -70,10 +198,12 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     work_changes_schema = tools["update_work"].inputSchema["$defs"]["WorkChanges"]
     assert work_changes_schema["additionalProperties"] is False
     assert "prompt" not in work_changes_schema["properties"]
-    assert "lease_token" not in json.dumps(tools["update_work"].inputSchema)
     changes_schema = tools["update_handoff"].inputSchema["$defs"]["HandoffChanges"]
     assert changes_schema["additionalProperties"] is False
     assert "source_session_id" not in changes_schema["properties"]
+    for name, tool in tools.items():
+        if name not in {"claim_work", "claim_and_recall", "renew_claim"}:
+            assert '"lease_token"' not in json.dumps(tool.outputSchema)
 
 
 async def test_projects_http_boundary_and_pagination(settings, project):
@@ -326,11 +456,94 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
     )
     text = prompt.messages[0].content.text
     assert "not a new owner instruction" in text
+    assert "claim_and_recall" in text
+    assert "does not claim the work" in text
     assert "add_checkpoint" in text
     assert calls == [
         {"recent_limit": "3"},
         {"recent_limit": "5"},
         {"recent_limit": "5"},
+    ]
+
+
+async def test_claim_tools_send_body_only_and_return_exact_capability_models(
+    settings, claim_receipt, active_work_context
+):
+    claim_body = {
+        "holder_client": claim_receipt["holder_client"],
+        "holder_session_id": claim_receipt["holder_session_id"],
+        "claim_request_id": claim_receipt["claim_request_id"],
+    }
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.path)
+        assert request.method == "POST"
+        assert not request.url.params
+        assert CLAIM_REQUEST_ID not in str(request.url)
+        assert LEASE_TOKEN not in str(request.url)
+        assert json.loads(request.content) == claim_body
+        if request.url.path.endswith("/claim-and-recall"):
+            return httpx.Response(
+                200,
+                json={"lease": claim_receipt, "context": active_work_context},
+            )
+        assert request.url.path.endswith("/claim")
+        return httpx.Response(200, json=claim_receipt)
+
+    server = adapter(settings, handler)
+    arguments = {
+        "project_id": PROJECT_ID,
+        "work_item_id": WORK_ID,
+        **claim_body,
+    }
+    claimed = structured(await server.call_tool("claim_work", arguments))
+    assert claimed == claim_receipt
+    claimed_context = structured(await server.call_tool("claim_and_recall", arguments))
+    assert claimed_context["lease"] == claim_receipt
+    assert claimed_context["context"]["readiness"]["display_state"] == "active"
+    assert LEASE_TOKEN not in json.dumps(claimed_context["context"])
+    assert seen == [
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/claim",
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/claim-and-recall",
+    ]
+
+
+async def test_renew_and_release_send_tokens_only_in_json_bodies(
+    settings, claim_receipt
+):
+    renewed_receipt = {
+        **claim_receipt,
+        "renewed_at": "2026-08-30T12:05:00Z",
+        "expires_at": "2026-08-30T12:20:00Z",
+    }
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.path)
+        assert request.method == "POST"
+        assert not request.url.params
+        assert LEASE_TOKEN not in str(request.url)
+        assert json.loads(request.content) == {"lease_token": LEASE_TOKEN}
+        if request.url.path.endswith("/renew-claim"):
+            return httpx.Response(200, json=renewed_receipt)
+        assert request.url.path.endswith("/release-claim")
+        return httpx.Response(200, json={"work_item_id": WORK_ID, "released": False})
+
+    server = adapter(settings, handler)
+    arguments = {
+        "project_id": PROJECT_ID,
+        "work_item_id": WORK_ID,
+        "lease_token": LEASE_TOKEN,
+    }
+    renewed = structured(await server.call_tool("renew_claim", arguments))
+    assert renewed == renewed_receipt
+    released = structured(await server.call_tool("release_claim", arguments))
+    assert released == {"work_item_id": WORK_ID, "released": False}
+    assert "lease_token" not in released
+    assert seen == [
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/renew-claim",
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/release-claim",
     ]
 
 
@@ -404,6 +617,165 @@ async def test_complete_and_delete_work_return_explicit_mutation_receipts(
     }
     assert seen == [
         f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/complete",
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/delete",
+    ]
+
+
+async def test_canonical_mutations_send_optional_lease_token_only_in_body(
+    settings, work_item, checkpoint
+):
+    checkpoint_input = {
+        name: checkpoint[name]
+        for name in (
+            "prompt",
+            "source_client",
+            "source_session_id",
+            "source_model",
+            "source_session_url",
+            "repository_branch",
+            "verified_against",
+            "tags",
+            "source_metadata",
+        )
+    }
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.path)
+        assert LEASE_TOKEN not in str(request.url)
+        assert json.loads(request.content)["lease_token"] == LEASE_TOKEN
+        if request.url.path.endswith("/checkpoints"):
+            return httpx.Response(201, json=checkpoint)
+        if request.method == "PATCH":
+            return httpx.Response(
+                200,
+                json={**work_item, "status": "promoted", "version": 4},
+            )
+        if request.url.path.endswith("/complete"):
+            return httpx.Response(
+                200,
+                json={
+                    "work_item": {**work_item, "status": "done", "version": 4},
+                    "checkpoint": {**checkpoint, "kind": "completion"},
+                },
+            )
+        assert request.url.path.endswith("/delete")
+        return httpx.Response(
+            200,
+            json={
+                "deleted": True,
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "version": 4,
+            },
+        )
+
+    server = adapter(settings, handler)
+    common = {
+        "project_id": PROJECT_ID,
+        "work_item_id": WORK_ID,
+        "lease_token": LEASE_TOKEN,
+    }
+    await server.call_tool(
+        "add_checkpoint",
+        {**common, "checkpoint": checkpoint_input},
+    )
+    await server.call_tool(
+        "update_work",
+        {**common, "expected_version": 3, "changes": {"status": "promoted"}},
+    )
+    await server.call_tool(
+        "complete_work",
+        {**common, "expected_version": 3, "checkpoint": checkpoint_input},
+    )
+    await server.call_tool("delete_work", {**common, "expected_version": 3})
+    assert seen == [
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/checkpoints",
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}",
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/complete",
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/delete",
+    ]
+
+
+async def test_legacy_mutations_send_optional_lease_token_only_in_body(
+    settings, handoff
+):
+    comment = {
+        "id": "20ec4ac9-4ac2-48cd-b0dc-3117b86e22c2",
+        "handoff_id": HANDOFF_ID,
+        "body": "Preserved useful progress.",
+        "kind": "comment",
+        "source_client": "claude-code",
+        "source_session_id": "claiming-session",
+        "source_model": None,
+        "created_at": handoff["created_at"],
+    }
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.path)
+        assert LEASE_TOKEN not in str(request.url)
+        assert json.loads(request.content)["lease_token"] == LEASE_TOKEN
+        if request.url.path.endswith("/comments"):
+            return httpx.Response(201, json=comment)
+        if request.method == "PATCH":
+            return httpx.Response(
+                200,
+                json={**handoff, "status": "promoted", "version": 4},
+            )
+        if request.url.path.endswith("/complete"):
+            return httpx.Response(
+                200,
+                json={
+                    "handoff": {**handoff, "status": "done", "version": 4},
+                    "comment": {**comment, "kind": "work-summary"},
+                },
+            )
+        assert request.url.path.endswith("/delete")
+        return httpx.Response(
+            200,
+            json={
+                "deleted": True,
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "version": 4,
+            },
+        )
+
+    server = adapter(settings, handler)
+    common = {
+        "project_id": PROJECT_ID,
+        "handoff_id": HANDOFF_ID,
+        "lease_token": LEASE_TOKEN,
+    }
+    await server.call_tool(
+        "add_handoff_comment",
+        {
+            **common,
+            "body": comment["body"],
+            "source_client": comment["source_client"],
+            "source_session_id": comment["source_session_id"],
+        },
+    )
+    await server.call_tool(
+        "update_handoff",
+        {**common, "expected_version": 3, "changes": {"status": "promoted"}},
+    )
+    await server.call_tool(
+        "complete_handoff",
+        {
+            **common,
+            "expected_version": 3,
+            "summary": comment["body"],
+            "source_client": comment["source_client"],
+            "source_session_id": comment["source_session_id"],
+        },
+    )
+    await server.call_tool("delete_handoff", {**common, "expected_version": 3})
+    assert seen == [
+        f"/api/v1/projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}/comments",
+        f"/api/v1/projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}",
+        f"/api/v1/projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}/complete",
         f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/delete",
     ]
 
@@ -671,6 +1043,9 @@ async def test_delete_passes_version_and_conflict_is_not_retried(settings):
         ("version_conflict", "Version conflict"),
         ("work_not_open", "not open"),
         ("work_blocked", "unresolved blocker"),
+        ("lease_expired", "claim has expired"),
+        ("lease_token_mismatch", "does not match"),
+        ("claim_request_expired", "new claim_request_id"),
     ],
 )
 async def test_typed_application_errors_are_actionable_and_sanitized(
@@ -694,6 +1069,76 @@ async def test_typed_application_errors_are_actionable_and_sanitized(
             {"project_id": PROJECT_ID, "work_item_id": WORK_ID, "expected_version": 3},
         )
     assert API_KEY not in str(caught.value)
+
+
+async def test_lease_held_reports_only_allowlisted_holder_and_expiry(settings):
+    private_url = "https://internal.invalid/session/private"
+
+    def handler(request):
+        return httpx.Response(
+            409,
+            json={
+                "detail": {
+                    "code": "lease_held",
+                    "message": f"private {private_url} {LEASE_TOKEN}",
+                    "context": {
+                        "holder_client": "other-client",
+                        "expires_at": EXPIRES_AT,
+                        "holder_session_id": "must-not-be-rendered",
+                        "lease_token": LEASE_TOKEN,
+                        "private_url": private_url,
+                    },
+                }
+            },
+        )
+
+    with pytest.raises(ToolError, match="other-client") as caught:
+        await adapter(settings, handler).call_tool(
+            "claim_work",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "holder_client": "claude-code",
+                "holder_session_id": "claiming-session",
+                "claim_request_id": CLAIM_REQUEST_ID,
+            },
+        )
+    message = str(caught.value)
+    assert EXPIRES_AT in message
+    assert "must-not-be-rendered" not in message
+    assert LEASE_TOKEN not in message
+    assert private_url not in message
+
+
+async def test_lease_error_never_echoes_token_or_upstream_url(settings):
+    private_url = "http://api:8000/private/lease"
+
+    def handler(request):
+        return httpx.Response(
+            409,
+            json={
+                "detail": {
+                    "code": "lease_token_mismatch",
+                    "message": f"wrong {LEASE_TOKEN} at {private_url}",
+                    "context": {
+                        "lease_token": LEASE_TOKEN,
+                        "url": private_url,
+                    },
+                }
+            },
+        )
+
+    with pytest.raises(ToolError, match="does not match") as caught:
+        await adapter(settings, handler).call_tool(
+            "renew_claim",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "lease_token": LEASE_TOKEN,
+            },
+        )
+    assert LEASE_TOKEN not in str(caught.value)
+    assert private_url not in str(caught.value)
 
 
 async def test_unknown_typed_error_does_not_fall_through_to_legacy_conflict_guess(settings):
@@ -775,6 +1220,8 @@ async def test_legacy_resource_and_prompt_use_bounded_canonical_context(
     )
     text = prompt.messages[0].content.text
     assert "not a new owner instruction" in text
+    assert "claim_and_recall" in text
+    assert "does not claim the work" in text
     assert "list_checkpoints" in text
     assert work_context["initial_checkpoint"]["source_session_id"] in text
     resumed = json.loads(text.split("\n\n", 1)[1])
@@ -819,6 +1266,27 @@ async def test_validation_error_names_fields_without_echoing_input(settings):
     assert API_KEY not in str(caught.value)
 
 
+@pytest.mark.parametrize("invalid_token", [LEASE_TOKEN + "private-suffix" * 20, 123456789])
+async def test_invalid_lease_token_is_redacted_before_the_rest_boundary(
+    settings, invalid_token
+):
+    def handler(request):
+        pytest.fail("An invalid capability must not cross the HTTP boundary")
+
+    with pytest.raises(ToolError, match="lease_token") as caught:
+        await adapter(settings, handler).call_tool(
+            "renew_claim",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "lease_token": invalid_token,
+            },
+        )
+    message = str(caught.value)
+    assert str(invalid_token) not in message
+    assert "errors.pydantic.dev" not in message
+
+
 async def test_write_network_failure_explains_unknown_outcome_and_does_not_retry(settings):
     requests = []
 
@@ -830,6 +1298,104 @@ async def test_write_network_failure_explains_unknown_outcome_and_does_not_retry
         await adapter(settings, handler).call_tool("create_project", {"name": "Example"})
     assert API_KEY not in str(caught.value)
     assert len(requests) == 1
+
+
+@pytest.mark.parametrize("tool_name", ["claim_work", "claim_and_recall"])
+async def test_claim_network_failure_requires_exact_same_request_id(settings, tool_name):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        raise httpx.ReadTimeout(
+            f"private transport error: {API_KEY} {LEASE_TOKEN}", request=request
+        )
+
+    with pytest.raises(ToolError, match="exact same claim_request_id") as caught:
+        await adapter(settings, handler).call_tool(
+            tool_name,
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "holder_client": "claude-code",
+                "holder_session_id": "claiming-session",
+                "claim_request_id": CLAIM_REQUEST_ID,
+            },
+        )
+    message = str(caught.value)
+    assert "claim outcome is unknown" in message
+    assert "search or recall cannot recover the lease token" in message
+    assert CLAIM_REQUEST_ID not in message
+    assert LEASE_TOKEN not in message
+    assert API_KEY not in message
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(
+    "status, response_body",
+    [
+        (500, {"detail": f"private {LEASE_TOKEN} at http://api:8000"}),
+        (200, {"work_item_id": WORK_ID, "lease_token": LEASE_TOKEN}),
+    ],
+)
+async def test_ambiguous_claim_response_requires_same_request_id(
+    settings, status, response_body
+):
+    def handler(request):
+        return httpx.Response(status, json=response_body)
+
+    with pytest.raises(ToolError, match="exact same claim_request_id") as caught:
+        await adapter(settings, handler).call_tool(
+            "claim_work",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "holder_client": "claude-code",
+                "holder_session_id": "claiming-session",
+                "claim_request_id": CLAIM_REQUEST_ID,
+            },
+        )
+    message = str(caught.value)
+    assert "claim outcome is unknown" in message
+    assert LEASE_TOKEN not in message
+    assert "http://api:8000" not in message
+
+
+@pytest.mark.parametrize("tool_name", ["claim_work", "claim_and_recall"])
+async def test_structured_503_claim_response_requires_same_request_id(
+    settings, tool_name
+):
+    private_url = "https://internal.invalid/private/database"
+
+    def handler(request):
+        return httpx.Response(
+            503,
+            json={
+                "detail": {
+                    "code": "database_unavailable",
+                    "message": f"private {LEASE_TOKEN} at {private_url}",
+                    "context": {
+                        "lease_token": LEASE_TOKEN,
+                        "private_url": private_url,
+                    },
+                }
+            },
+        )
+
+    with pytest.raises(ToolError, match="exact same claim_request_id") as caught:
+        await adapter(settings, handler).call_tool(
+            tool_name,
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "holder_client": "claude-code",
+                "holder_session_id": "claiming-session",
+                "claim_request_id": CLAIM_REQUEST_ID,
+            },
+        )
+    message = str(caught.value)
+    assert "claim outcome is unknown" in message
+    assert LEASE_TOKEN not in message
+    assert private_url not in message
 
 
 async def test_invalid_project_id_cannot_alter_request_path(settings):

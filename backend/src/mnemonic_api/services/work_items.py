@@ -14,6 +14,10 @@ from mnemonic_api.schemas import (
     WorkItemCreate,
     WorkItemPatch,
 )
+from mnemonic_api.services.leases import (
+    consume_lease_for_terminal_mutation,
+    validate_optional_lease_token,
+)
 
 
 def require_project(database: Session, project_id: UUID) -> Project:
@@ -53,7 +57,7 @@ def _checkpoint(
     *,
     kind: str,
 ) -> Checkpoint:
-    values = payload.model_dump(exclude={"kind"})
+    values = payload.model_dump(exclude={"kind", "lease_token"})
     return Checkpoint(work_item_id=work_item_id, kind=kind, **values)
 
 
@@ -92,6 +96,14 @@ def create_work_records(
 def append_checkpoint_record(
     database: Session, work_item: WorkItem, payload: CheckpointCreate
 ) -> Checkpoint:
+    # Token-bearing routes lock the work row before entering this helper. Lock
+    # the retained lease here to preserve work -> lease order through commit.
+    validate_optional_lease_token(
+        database,
+        work_item.id,
+        payload.lease_token,
+        lock=payload.lease_token is not None,
+    )
     checkpoint = _checkpoint(work_item.id, payload, kind=payload.kind)
     database.add(checkpoint)
     activity_update = database.execute(
@@ -106,9 +118,11 @@ def append_checkpoint_record(
     return checkpoint
 
 
-def update_work_record(work_item: WorkItem, payload: WorkItemPatch) -> None:
+def update_work_record(database: Session, work_item: WorkItem, payload: WorkItemPatch) -> None:
     require_version(work_item, payload.expected_version)
-    changes = payload.model_dump(exclude_unset=True, exclude={"expected_version"})
+    changes = payload.model_dump(
+        exclude_unset=True, exclude={"expected_version", "lease_token"}
+    )
     requested_status = changes.get("status")
     if requested_status is not None and requested_status != work_item.status:
         allowed = {
@@ -122,6 +136,16 @@ def update_work_record(work_item: WorkItem, payload: WorkItemPatch) -> None:
                 "invalid_status_transition",
                 "That lifecycle transition is not allowed.",
             )
+    terminal_transition = (
+        requested_status in {"wont-do", "promoted"}
+        and requested_status != work_item.status
+    )
+    if terminal_transition:
+        consume_lease_for_terminal_mutation(database, work_item.id, payload.lease_token)
+    else:
+        validate_optional_lease_token(
+            database, work_item.id, payload.lease_token, lock=True
+        )
     for field, value in changes.items():
         setattr(work_item, field, value)
     work_item.version += 1
@@ -133,10 +157,12 @@ def complete_work_record(
     work_item: WorkItem,
     expected_version: int,
     payload: CompletionCheckpointCreate,
+    lease_token: str | None = None,
 ) -> Checkpoint:
     if work_item.status != "open":
         raise conflict("work_not_open", "Only open work can be completed.")
     require_version(work_item, expected_version)
+    consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
     checkpoint = _checkpoint(work_item.id, payload, kind="completion")
     database.add(checkpoint)
     work_item.status = "done"
@@ -146,8 +172,14 @@ def complete_work_record(
     return checkpoint
 
 
-def delete_work_record(work_item: WorkItem, expected_version: int) -> None:
+def delete_work_record(
+    database: Session,
+    work_item: WorkItem,
+    expected_version: int,
+    lease_token: str | None = None,
+) -> None:
     require_version(work_item, expected_version)
+    consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
     now = datetime.now(UTC)
     work_item.deleted_at = now
     work_item.updated_at = now

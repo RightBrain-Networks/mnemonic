@@ -6,7 +6,8 @@ import WorkItemDetail from "@/components/work-item-detail";
 import WorkItemList, { WORK_PAGE_SIZE } from "@/components/work-item-list";
 import { StatusBadge, formatDate } from "@/components/work-item-card";
 import { draftFromWork, type WorkEditDraft } from "@/components/work-item-editor";
-import { api, ApiError, errorMessage, workItemPath } from "@/lib/api";
+import { api, errorMessage, isVersionConflict, workItemPath } from "@/lib/api";
+import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
 import { connectLiveSync, type LiveSyncStatus } from "@/lib/live-sync";
 import type {
   Checkpoint,
@@ -169,6 +170,10 @@ export default function Dashboard() {
   const activeIdRef = useRef(activeId);
   const openedRef = useRef(opened);
   const lastContextRefresh = useRef(0);
+  const nextLeaseExpiry = earliestLeaseExpiry([
+    ...(results?.items.map((item) => item.readiness.active_lease?.expires_at) ?? []),
+    context?.readiness.active_lease?.expires_at
+  ]);
 
   useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
   useEffect(() => { openedRef.current = opened; }, [opened]);
@@ -321,6 +326,14 @@ export default function Dashboard() {
   }, [copied]);
 
   useEffect(() => {
+    if (!nextLeaseExpiry) return;
+    return scheduleLeaseExpiryRefresh(nextLeaseExpiry, () => {
+      setRefresh((value) => value + 1);
+      if (opened) void loadContext(opened);
+    });
+  }, [nextLeaseExpiry, opened?.work_item.id]);
+
+  useEffect(() => {
     function focusSearch(event: KeyboardEvent) {
       const target = event.target as HTMLElement;
       if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) && !target.isContentEditable && !document.querySelector("dialog[open]")) {
@@ -458,7 +471,7 @@ export default function Dashboard() {
 
   async function saveWorkEdits(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!context || !editDraft) return;
+    if (!context || !editDraft || !opened) return;
     const base = context.work_item;
     const patch: WorkPatch = { expected_version: base.version };
     if (editDraft.title !== base.title) patch.title = editDraft.title;
@@ -470,15 +483,13 @@ export default function Dashboard() {
     setEditError("");
     try {
       const saved = await api<WorkItem>(workItemPath(base.project_id, base.id), { method: "PATCH", body: JSON.stringify(patch) });
-      setContext((value) => value ? { ...value, work_item: saved, readiness: { ...value.readiness, lifecycle_status: saved.status, is_terminal: saved.status !== "open", is_ready: saved.status === "open", display_state: saved.status === "open" ? "ready" : saved.status } } : value);
-      setOpened((value) => value ? { ...value, work_item: saved } : value);
-      setEditDraft(draftFromWork(saved));
+      await loadContext({ ...opened, work_item: saved });
       setConflict(null);
       setMode("view");
       setRefresh((value) => value + 1);
       setNotice({ message: "Work item saved. Checkpoint history was not changed." });
     } catch (error) {
-      if (error instanceof ApiError && (error.status === 409 || error.code === "version_conflict")) {
+      if (isVersionConflict(error)) {
         setEditError("This work item changed after you opened it. Your edits are still here.");
       } else {
         setEditError(errorMessage(error));
@@ -520,7 +531,21 @@ export default function Dashboard() {
           body: JSON.stringify({ expected_version: context.work_item.version, checkpoint })
         });
         setNotice({ message: "Completion checkpoint recorded and work marked done." });
-        setContext((value) => value ? { ...value, work_item: result.work_item, current_context: value.current_context, checkpoint_total: value.checkpoint_total + 1, readiness: { ...value.readiness, lifecycle_status: "done", is_terminal: true, is_ready: false, display_state: "done" } } : value);
+        setContext((value) => value ? {
+          ...value,
+          work_item: result.work_item,
+          current_context: value.current_context,
+          checkpoint_total: value.checkpoint_total + 1,
+          readiness: {
+            ...value.readiness,
+            lifecycle_status: "done",
+            is_terminal: true,
+            has_active_lease: false,
+            active_lease: null,
+            is_ready: false,
+            display_state: "done"
+          }
+        } : value);
       } else {
         await api<Checkpoint>(`${base}/checkpoints`, {
           method: "POST",
@@ -537,7 +562,7 @@ export default function Dashboard() {
       setRefresh((value) => value + 1);
       await reloadOpenContext();
     } catch (error) {
-      if (complete && error instanceof ApiError && (error.status === 409 || error.code === "version_conflict")) {
+      if (complete && isVersionConflict(error)) {
         setCheckpointActionError("This work item changed before completion. Your summary is still here; the current version has been reloaded for review.");
         await reloadOpenContext();
       } else {
@@ -565,7 +590,7 @@ export default function Dashboard() {
       setRefresh((value) => value + 1);
       setNotice({ message: "Work item removed from ordinary project views. Its history remains recoverable." });
     } catch (error) {
-      if (error instanceof ApiError && (error.status === 409 || error.code === "version_conflict")) {
+      if (isVersionConflict(error)) {
         try {
           const latest = await api<WorkItem>(workItemPath(deleteTarget.project_id, deleteTarget.id));
           setDeleteTarget(latest);

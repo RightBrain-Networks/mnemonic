@@ -1,6 +1,6 @@
 import type { FormEvent } from "react";
 import CheckpointTimeline from "@/components/checkpoint-timeline";
-import { StatusBadge, formatDate } from "@/components/work-item-card";
+import { ActiveLeaseSummary, OperationalBadge, StatusBadge, formatDate } from "@/components/work-item-card";
 import WorkItemEditor, { type WorkEditDraft } from "@/components/work-item-editor";
 import type { Checkpoint, CheckpointKind, Page, WorkContext, WorkSummary } from "@/lib/types";
 import { migrationWarning } from "@/lib/work-item-view";
@@ -57,7 +57,11 @@ type Props = {
 export default function WorkItemDetail(props: Props) {
   const { context } = props;
   if (props.mode === "edit" && props.editDraft) {
-    return <WorkItemEditor work={context.work_item} draft={props.editDraft} setDraft={props.setEditDraft} saving={props.editSaving} error={props.editError} conflict={props.conflict} onSubmit={props.onSaveEdits} onCancel={props.onCancelEdit} onLoadCurrent={props.onLoadCurrent} onUseCurrentVersion={props.onUseCurrentVersion} />;
+    return <>
+      <div className="detail-topline"><StatusBadge status={context.work_item.status} /><OperationalBadge readiness={context.readiness} /><span>Version {context.work_item.version}</span><span>Priority {context.work_item.priority}</span></div>
+      {context.readiness.active_lease && <ActiveLeaseSummary lease={context.readiness.active_lease} detailed />}
+      <WorkItemEditor work={context.work_item} draft={props.editDraft} setDraft={props.setEditDraft} saving={props.editSaving} error={props.editError} conflict={props.conflict} onSubmit={props.onSaveEdits} onCancel={props.onCancelEdit} onLoadCurrent={props.onLoadCurrent} onUseCurrentVersion={props.onUseCurrentVersion} />
+    </>;
   }
   const warning = migrationWarning(context.current_context.migration_origin);
   const pointerSummary: WorkSummary = {
@@ -68,7 +72,7 @@ export default function WorkItemDetail(props: Props) {
     readiness: context.readiness
   };
   return <>
-    <div className="detail-topline"><StatusBadge status={context.work_item.status} />{context.readiness.is_ready && <span className="operational-badge ready">Ready</span>}<span>Version {context.work_item.version}</span><span>Priority {context.work_item.priority}</span></div>
+    <div className="detail-topline"><StatusBadge status={context.work_item.status} /><OperationalBadge readiness={context.readiness} /><span>Version {context.work_item.version}</span><span>Priority {context.work_item.priority}</span></div>
     <h3 className="detail-title">{context.work_item.title}</h3>
     <p className="detail-summary">{context.work_item.summary}</p>
     <div className="detail-actions">
@@ -77,6 +81,7 @@ export default function WorkItemDetail(props: Props) {
       <button type="button" className="button button-secondary" onClick={props.onEdit}>Edit work item</button>
       <button type="button" className="icon-button danger-hover" aria-label="Delete work item" onClick={props.onDelete}>⌫</button>
     </div>
+    {context.readiness.active_lease && <ActiveLeaseSummary lease={context.readiness.active_lease} detailed />}
     {warning && <div className="migration-warning current-migration-warning" role="note">{warning}</div>}
     <div className="prompt-label"><span className="section-label">CURRENT CONTEXT CHECKPOINT</span><span>Immutable · copied exactly as saved</span></div>
     <pre className="prompt-body" tabIndex={0}>{context.current_context.prompt}</pre>

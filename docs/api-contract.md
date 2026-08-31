@@ -1,4 +1,4 @@
-# Phase 1 API contract
+# Phase 2 API contract
 
 All application routes use `/api/v1` and
 `Authorization: Bearer <MNEMONIC_API_KEY>`. `GET /healthz` and
@@ -21,6 +21,11 @@ FastAPI's structured list remains the validation-error format. Invalid input is
 422, missing or cross-project resources are 404, lifecycle/version conflicts are
 409, and bad or missing authorization is 401. Error context never contains
 checkpoint text, metadata, credentials, or request bodies.
+
+Lease conflicts use stable codes: `work_not_open`, `lease_held`,
+`lease_expired`, `lease_token_mismatch`, and `claim_request_expired`.
+`lease_held` may expose only safe holder and expiry context. No error contains a
+lease token or claim request ID.
 
 ## Projects
 
@@ -53,6 +58,11 @@ Base path: `/projects/{project_id}/work-items`.
 - `GET /{work_item_id}/context` returns bounded `WorkContext`.
 - `POST /{work_item_id}/complete` atomically adds a completion checkpoint and
   marks open work done.
+- `POST /{work_item_id}/claim` atomically acquires or replays an expiring lease.
+- `POST /{work_item_id}/claim-and-recall` acquires/replays the lease and returns
+  bounded context inside the same transaction.
+- `POST /{work_item_id}/renew-claim` renews an unexpired matching capability.
+- `POST /{work_item_id}/release-claim` releases a matching retained capability.
 
 There are no checkpoint update/delete routes. PostgreSQL also rejects direct
 `UPDATE` and `DELETE` against checkpoint rows.
@@ -87,10 +97,14 @@ There are no checkpoint update/delete routes. PostgreSQL also rejects direct
 `WorkItemPatch` contains `expected_version` and at least one of `title`,
 `summary`, `priority`, or `status`. It may move open work to
 `wont-do`/`promoted`, return either to `open`, or reopen `done` work to
-`open`. It cannot set `done`.
+`open`. It cannot set `done`. It may contain `lease_token`; a transition from
+open to `wont-do` or `promoted` requires the matching token while an unexpired
+lease exists and removes that lease atomically. Identity-only edits remain
+version-controlled and do not require a token.
 
-`WorkDeletionCreate` is `{"expected_version": N}`. Successful deletion is
-body-bearing JSON:
+`WorkDeletionCreate` is `{"expected_version": N, "lease_token": "..."}`;
+the token is optional for unleased work and required when a lease is active.
+Successful deletion removes a matching lease and returns body-bearing JSON:
 
 ```json
 {
@@ -113,7 +127,9 @@ larger than 16 KiB.
 The append route adds `kind: "context" | "progress"`, defaulting to
 `context`. Callers cannot append `completion` through this generic route.
 Appending changes work activity time but not its version and remains allowed on
-terminal work.
+terminal work. An optional `lease_token` is validated when supplied but is not
+required; checkpoint append records an observation and never acquires, steals,
+or renews ownership.
 
 Completion accepts:
 
@@ -126,12 +142,61 @@ Completion accepts:
     "source_session_id": "opaque-completing-session",
     "tags": [],
     "source_metadata": {}
-  }
+  },
+  "lease_token": "opaque-capability-when-active"
 }
 ```
 
 Only current `open` work can complete. Repeated completion returns
-`work_not_open`; stale completion returns `version_conflict`.
+`work_not_open`; stale completion returns `version_conflict`. An active lease
+requires the matching token, and successful completion removes the lease in the
+same transaction. An expired lease is not ownership; presenting its stale token
+returns `lease_expired`.
+
+### Lease requests and receipts
+
+Both claim routes accept this strict JSON body:
+
+```json
+{
+  "holder_client": "claude-code",
+  "holder_session_id": "opaque-current-session",
+  "claim_request_id": "client-generated-unique-attempt-id"
+}
+```
+
+The server chooses expiry from `MNEMONIC_LEASE_TTL_SECONDS`; callers supply no
+absolute time or duration. A successful claim returns `ClaimReceipt`:
+
+```text
+work_item_id, holder_client, holder_session_id, claim_request_id,
+acquired_at, renewed_at, expires_at, lease_token
+```
+
+The token is a server-generated 256-bit URL-safe capability. It is returned
+only by claim/replay and renewal, and accepted only in JSON bodies. It never
+appears in URLs, ordinary work/search/context models, resources, errors, logs,
+or browser data. `claim-and-recall` returns a `ClaimAndRecall` object containing
+the `ClaimReceipt` under `lease` and bounded `WorkContext` under `context`.
+
+While retained and active, an identical holder/session/request replay returns
+the same token and timestamps without extending expiry. Any different tuple
+returns `lease_held`. Once that retained request has expired, the identical
+request returns `claim_request_expired`; a new request ID can replace the row
+and acquire a fresh lease. This is bounded lost-response recovery, not general
+idempotency.
+
+`renew-claim` and `release-claim` accept `{"lease_token": "..."}`. Renewal
+requires a matching unexpired row and returns the same token/request ID with
+database-timed renewal and expiry values. Release deletes a matching retained
+row even after expiry. An absent row returns `{work_item_id, released: false}`.
+A different active replacement returns `lease_token_mismatch`; a different
+expired row remains untouched and also returns `released: false`.
+
+Lease acquisition, replay, renewal, and release do not change work version or
+`updated_at`. Deleted or terminal work cannot be claimed. Before Phase 3 there
+are no relationship blockers, so an open visible item is base-claimable; an
+unexpired lease then determines whether it is already active.
 
 ### Search and pagination
 
@@ -145,7 +210,7 @@ Work list/search accepts:
 | `tag` | matches any checkpoint |
 | `source_client` | matches any checkpoint |
 | `source_session_id` | matches any checkpoint |
-| `view` | Phase 1 supports `all` only |
+| `view` | Phase 2 supports `all` only |
 | `limit` | 30 by default, maximum 100 |
 | `offset` | 0 by default |
 
@@ -180,11 +245,17 @@ migration_origin, legacy_record_id, created_at
 retains compact source/session/model, repository, tag, migration, kind, ID, and
 time fields.
 
-`WorkSummary` contains `work_item`, `checkpoint_count`, an empty Phase 1
+`WorkSummary` contains `work_item`, `checkpoint_count`, an empty Phase 2
 `ancestor_path`, `ancestor_path_truncated=false`, `current_context` as a
-pointer, and `readiness`. Phase 1 readiness is derived only from lifecycle:
-open is ready; terminal work reports its lifecycle value. It has no active
-lease or blockers.
+pointer, and `readiness`. Phase 2 readiness is derived from lifecycle and
+database-time lease expiry: visible open unleased work is `ready`, visible open
+work with an unexpired lease is `active`, and terminal work reports its
+lifecycle value. Blocker fields remain zero/false until Phase 3.
+
+`LeasePublic` contains only holder client/session and acquired, renewed, and
+expiry timestamps. `Readiness.active_lease` uses that safe projection and never
+contains request ID or token. Its independent `has_active_lease`, `is_ready`,
+and lifecycle fields remain authoritative.
 
 `WorkCreation` contains `work_item`, `initial_checkpoint`, and an empty
 `initial_relationships` list.
@@ -208,7 +279,7 @@ relationship_counts
 `current_context` is the newest context-kind checkpoint, not the newest
 progress or completion record. Recent checkpoints are chronological and exclude
 the initial/current IDs. The three relationship lists and counts are empty in
-Phase 1.
+Phase 2.
 
 Pages retain `items`, `total`, `limit`, and `offset`.
 `CompletionResult` contains `work_item` and `checkpoint`.
@@ -225,9 +296,11 @@ cutover window, but all reads and writes use canonical tables:
   `work-summary`, other kinds become `comment`);
 - comment append creates a progress checkpoint;
 - completion uses canonical atomic completion;
-- update permits title, summary, and non-completion lifecycle changes only;
+- update permits title, summary, and non-completion lifecycle changes only and
+  accepts a token for an actively leased terminal transition;
 - `DELETE /{handoff_id}?expected_version=N` remains query-versioned and
-  returns 204.
+  returns 204 only while unleased. The MCP `delete_handoff` alias uses the
+  canonical JSON action and accepts an optional token.
 
 Legacy source/tag filters apply to the initial checkpoint to preserve their old
 meaning. Prompt, checkpoint provenance, repository fields, tags, and metadata
@@ -240,7 +313,8 @@ Canonical tools are:
 ```text
 list_projects, create_project,
 create_work, search_work, get_work, add_checkpoint, list_checkpoints,
-recall_work, update_work, complete_work, delete_work
+recall_work, update_work, complete_work, delete_work,
+claim_work, claim_and_recall, renew_claim, release_claim
 ```
 
 The resource
@@ -254,15 +328,17 @@ also accepts legacy string errors during the compatibility window.
 
 ## Browser proxy
 
-The same-origin proxy allows exact project and Phase 1 work/checkpoint
+The same-origin proxy allows exact project and Phase 2 work/checkpoint
 read/write routes and their documented query keys. It rejects arbitrary paths,
 unknown query keys, untrusted hosts/origins, bodies over 1 MiB, and every
-`lease_token` field. Future claim/renew/release paths are denied. The API URL
-and bearer key remain server-only.
+`lease_token` field at any nesting depth. All four claim/renew/release routes
+are denied rather than stripped. The API URL and bearer key remain server-only;
+the dashboard can display `LeasePublic` but never receive or forward a token.
 
 ## Runtime configuration
 
-API: `DATABASE_URL`, `MNEMONIC_API_KEY` (required, at least 32 characters).
+API: `DATABASE_URL`, `MNEMONIC_API_KEY` (required, at least 32 characters), and
+`MNEMONIC_LEASE_TTL_SECONDS` (default 900, allowed 60 through 3600).
 
 MCP: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, `MNEMONIC_MCP_HOST`, and
 `MNEMONIC_MCP_PORT`.

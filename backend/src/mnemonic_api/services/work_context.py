@@ -8,13 +8,14 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import not_found
-from mnemonic_api.models import Checkpoint, WorkItem
+from mnemonic_api.models import Checkpoint, WorkItem, WorkLease
 from mnemonic_api.schemas import (
     CheckpointPointer,
     CheckpointRead,
     HandoffCommentRead,
     HandoffRead,
     HandoffSummary,
+    LeasePublic,
     Readiness,
     WorkContext,
     WorkItemRead,
@@ -30,13 +31,27 @@ def checkpoint_pointer(checkpoint: Checkpoint) -> CheckpointPointer:
     return CheckpointPointer.model_validate(checkpoint)
 
 
-def readiness(work_item: WorkItem | WorkItemRead) -> Readiness:
+def readiness(
+    work_item: WorkItem | WorkItemRead, active_lease: WorkLease | LeasePublic | None = None
+) -> Readiness:
     terminal = work_item.status != "open"
+    lease_public = (
+        LeasePublic.model_validate(active_lease) if active_lease is not None else None
+    )
+    has_active_lease = lease_public is not None
+    if terminal:
+        display_state = work_item.status
+    elif has_active_lease:
+        display_state = "active"
+    else:
+        display_state = "ready"
     return Readiness(
         lifecycle_status=work_item.status,
         is_terminal=terminal,
-        is_ready=not terminal,
-        display_state=work_item.status if terminal else "ready",
+        has_active_lease=has_active_lease,
+        active_lease=lease_public,
+        is_ready=not terminal and not has_active_lease,
+        display_state=display_state,
     )
 
 
@@ -63,6 +78,15 @@ def work_summaries(database: Session, work_items: Sequence[WorkItem]) -> list[Wo
             .group_by(Checkpoint.work_item_id)
         ).all()
     )
+    active_leases = {
+        lease.work_item_id: lease
+        for lease in database.scalars(
+            select(WorkLease).where(
+                WorkLease.work_item_id.in_(ids),
+                WorkLease.expires_at > func.clock_timestamp(),
+            )
+        )
+    }
     current_contexts = {
         checkpoint.work_item_id: checkpoint
         for checkpoint in database.scalars(
@@ -81,7 +105,7 @@ def work_summaries(database: Session, work_items: Sequence[WorkItem]) -> list[Wo
             work_item=WorkItemRead.model_validate(work_item),
             checkpoint_count=counts[work_item.id],
             current_context=checkpoint_pointer(current_contexts[work_item.id]),
-            readiness=readiness(work_item),
+            readiness=readiness(work_item, active_leases.get(work_item.id)),
         )
         for work_item in work_items
     ]
@@ -100,6 +124,9 @@ def assemble_work_context(
                 WHERE id = :work_item_id
                   AND project_id = :project_id
                   AND deleted_at IS NULL
+            ),
+            database_time AS (
+                SELECT clock_timestamp() AS now
             ),
             chosen AS (
                 SELECT
@@ -144,6 +171,16 @@ def assemble_work_context(
                     FROM checkpoints AS checkpoint_count
                     WHERE checkpoint_count.work_item_id = w.id
                 ) AS checkpoint_total
+                ,CASE
+                    WHEN active_lease.work_item_id IS NULL THEN NULL
+                    ELSE jsonb_build_object(
+                        'holder_client', active_lease.holder_client,
+                        'holder_session_id', active_lease.holder_session_id,
+                        'acquired_at', active_lease.acquired_at,
+                        'renewed_at', active_lease.renewed_at,
+                        'expires_at', active_lease.expires_at
+                    )
+                END AS active_lease
             FROM chosen AS w
             JOIN checkpoints AS initial_checkpoint
               ON initial_checkpoint.work_item_id = w.id
@@ -151,6 +188,10 @@ def assemble_work_context(
             JOIN checkpoints AS current_checkpoint
               ON current_checkpoint.work_item_id = w.id
              AND current_checkpoint.id = w.current_checkpoint_id
+            CROSS JOIN database_time
+            LEFT JOIN work_leases AS active_lease
+              ON active_lease.work_item_id = w.id
+             AND active_lease.expires_at > database_time.now
             """
         ),
         {
@@ -166,6 +207,11 @@ def assemble_work_context(
     initial = CheckpointRead.model_validate(row["initial_checkpoint"])
     current = CheckpointRead.model_validate(row["current_checkpoint"])
     recent = [CheckpointRead.model_validate(item) for item in row["recent_checkpoints"]]
+    active_lease = (
+        LeasePublic.model_validate(row["active_lease"])
+        if row["active_lease"] is not None
+        else None
+    )
     materialized_ids = {initial.id, current.id, *(item.id for item in recent)}
     total = int(row["checkpoint_total"])
     return WorkContext(
@@ -175,7 +221,7 @@ def assemble_work_context(
         recent_checkpoints=recent,
         checkpoint_total=total,
         omitted_checkpoint_count=total - len(materialized_ids),
-        readiness=readiness(work_item),
+        readiness=readiness(work_item, active_lease),
     )
 
 

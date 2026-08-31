@@ -178,111 +178,43 @@ class WorkItemEmbedding(Base):
     )
 
 
-class Handoff(Base):
-    __tablename__ = "handoffs"
+class WorkLease(Base):
+    """A retained active-or-expired capability lease for one work item."""
+
+    __tablename__ = "work_leases"
     __table_args__ = (
-        CheckConstraint("length(btrim(title)) > 0", name="title_nonblank"),
-        CheckConstraint("length(btrim(summary)) > 0", name="summary_nonblank"),
-        CheckConstraint("length(btrim(prompt)) BETWEEN 1 AND 100000", name="prompt_length"),
-        CheckConstraint("length(prompt) <= 100000", name="prompt_max_length"),
-        CheckConstraint("length(btrim(source_client)) > 0", name="source_client_nonblank"),
-        CheckConstraint("length(btrim(source_session_id)) > 0", name="session_id_nonblank"),
-        CheckConstraint("status IN ('open', 'done', 'wont-do', 'promoted')", name="status_valid"),
-        CheckConstraint("version >= 1", name="version_positive"),
-        CheckConstraint("cardinality(tags) <= 20", name="tags_count"),
-        CheckConstraint("jsonb_typeof(source_metadata) = 'object'", name="metadata_object"),
+        CheckConstraint("length(btrim(holder_client)) > 0", name="holder_client_nonblank"),
         CheckConstraint(
-            "verified_against IS NULL OR verified_against ~ '^[0-9a-f]{7,64}$'",
-            name="commit_format",
+            "length(btrim(holder_session_id)) > 0", name="holder_session_id_nonblank"
         ),
-        Index(
-            "ix_handoffs_project_status_updated",
-            "project_id",
-            "status",
-            "updated_at",
-            "id",
-            postgresql_where=text("deleted_at IS NULL"),
+        CheckConstraint(
+            "length(btrim(claim_request_id)) > 0", name="claim_request_id_nonblank"
         ),
-        Index("ix_handoffs_search_vector", "search_vector", postgresql_using="gin"),
-        Index("ix_handoffs_tags", "tags", postgresql_using="gin"),
-    )
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id", ondelete="RESTRICT"))
-    title: Mapped[str] = mapped_column(String(200))
-    summary: Mapped[str] = mapped_column(String(1000))
-    prompt: Mapped[str] = mapped_column(Text)
-    source_client: Mapped[str] = mapped_column(String(80))
-    source_session_id: Mapped[str] = mapped_column(String(200))
-    source_model: Mapped[str | None] = mapped_column(String(120))
-    source_session_url: Mapped[str | None] = mapped_column(String(2000))
-    repository_branch: Mapped[str | None] = mapped_column(String(200))
-    verified_against: Mapped[str | None] = mapped_column(String(64))
-    tags: Mapped[list[str]] = mapped_column(
-        ARRAY(String(50)), default=list, server_default=text("'{}'::varchar[]")
-    )
-    source_metadata: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, default=dict, server_default=text("'{}'::jsonb")
-    )
-    status: Mapped[str] = mapped_column(String(20), default="open", server_default="open")
-    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    search_vector: Mapped[str] = mapped_column(
-        TSVECTOR,
-        Computed(
-            "setweight(to_tsvector('english'::regconfig, coalesce(title, '')), 'A') || "
-            "setweight(to_tsvector('english'::regconfig, coalesce(summary, '')), 'B') || "
-            "setweight(to_tsvector('english'::regconfig, coalesce(prompt, '')), 'C')",
-            persisted=True,
+        CheckConstraint("length(btrim(lease_token)) > 0", name="lease_token_nonblank"),
+        CheckConstraint(
+            "acquired_at <= renewed_at AND renewed_at < expires_at",
+            name="timestamp_order",
         ),
+        Index("ix_work_leases_expires_at", "expires_at"),
     )
 
-
-class HandoffComment(Base):
-    """Append-only progress recorded against a hand-off."""
-
-    __tablename__ = "handoff_comments"
-    __table_args__ = (
-        CheckConstraint("length(btrim(body)) BETWEEN 1 AND 50000", name="body_length"),
-        CheckConstraint("length(body) <= 50000", name="body_max_length"),
-        CheckConstraint("kind IN ('comment', 'work-summary')", name="kind_valid"),
-        CheckConstraint("length(btrim(source_client)) > 0", name="source_client_nonblank"),
-        CheckConstraint("length(btrim(source_session_id)) > 0", name="session_id_nonblank"),
-        Index("ix_handoff_comments_handoff_created", "handoff_id", "created_at", "id"),
-        Index("ix_handoff_comments_search_vector", "search_vector", postgresql_using="gin"),
+    work_item_id: Mapped[UUID] = mapped_column(
+        ForeignKey("work_items.id", ondelete="RESTRICT"), primary_key=True
     )
+    holder_client: Mapped[str] = mapped_column(String(80))
+    holder_session_id: Mapped[str] = mapped_column(String(200))
+    claim_request_id: Mapped[str] = mapped_column(String(200))
+    lease_token: Mapped[str] = mapped_column(String(200))
+    acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    renewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    handoff_id: Mapped[UUID] = mapped_column(ForeignKey("handoffs.id", ondelete="CASCADE"))
-    body: Mapped[str] = mapped_column(Text)
-    kind: Mapped[str] = mapped_column(String(20), default="comment", server_default="comment")
-    source_client: Mapped[str] = mapped_column(String(80))
-    source_session_id: Mapped[str] = mapped_column(String(200))
-    source_model: Mapped[str | None] = mapped_column(String(120))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    search_vector: Mapped[str] = mapped_column(
-        TSVECTOR,
-        Computed(
-            "setweight(to_tsvector('english'::regconfig, coalesce(body, '')), 'B')",
-            persisted=True,
-        ),
-    )
-
-
-class HandoffEmbedding(Base):
-    """Disposable local-model output; hand-off text remains the canonical source."""
-
-    __tablename__ = "handoff_embeddings"
-    __table_args__ = (CheckConstraint("cardinality(vector) > 0", name="vector_nonempty"),)
-
-    handoff_id: Mapped[UUID] = mapped_column(
-        ForeignKey("handoffs.id", ondelete="CASCADE"), primary_key=True
-    )
-    model: Mapped[str] = mapped_column(String(300))
-    digest: Mapped[str] = mapped_column(String(64))
-    vector: Mapped[list[float]] = mapped_column(ARRAY(REAL))
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
+    def __repr__(self) -> str:
+        return (
+            "WorkLease("
+            f"work_item_id={self.work_item_id!r}, "
+            f"holder_client={self.holder_client!r}, "
+            f"holder_session_id={self.holder_session_id!r}, "
+            f"claim_request_id={self.claim_request_id!r}, "
+            f"expires_at={self.expires_at!r})"
+        )

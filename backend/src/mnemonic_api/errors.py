@@ -4,6 +4,14 @@ from typing import Any
 
 from fastapi import HTTPException
 
+SAFE_ERROR_CONTEXT_KEYS = frozenset({"holder_client", "expires_at"})
+
+
+def _safe_context(context: dict[str, Any] | None) -> dict[str, Any]:
+    if not context:
+        return {}
+    return {key: value for key, value in context.items() if key in SAFE_ERROR_CONTEXT_KEYS}
+
 
 class ApplicationError(HTTPException):
     """An HTTP error whose machine-readable code is safe to expose to clients."""
@@ -21,7 +29,7 @@ class ApplicationError(HTTPException):
             detail={
                 "code": code,
                 "message": message,
-                "context": context or {},
+                "context": _safe_context(context),
             },
         )
 
@@ -30,5 +38,10 @@ def not_found(code: str, message: str) -> ApplicationError:
     return ApplicationError(404, code, message)
 
 
-def conflict(code: str, message: str) -> ApplicationError:
-    return ApplicationError(409, code, message)
+def conflict(
+    code: str,
+    message: str,
+    *,
+    context: dict[str, Any] | None = None,
+) -> ApplicationError:
+    return ApplicationError(409, code, message, context=context)

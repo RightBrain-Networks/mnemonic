@@ -377,7 +377,7 @@ def test_migration_matches_models_and_has_stored_gin_search(postgres_engine):
         columns = connection.execute(
             text(
                 "SELECT attgenerated FROM pg_attribute "
-                "WHERE attrelid = 'handoffs'::regclass AND attname = 'search_vector'"
+                "WHERE attrelid = 'work_items'::regclass AND attname = 'search_vector'"
             )
         ).scalar_one()
         assert columns == "s"

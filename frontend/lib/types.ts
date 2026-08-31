@@ -55,11 +55,19 @@ export interface Checkpoint extends CheckpointPointer {
   source_metadata: Record<string, unknown>;
 }
 
+export interface LeasePublic {
+  holder_client: string;
+  holder_session_id: string;
+  acquired_at: string;
+  renewed_at: string;
+  expires_at: string;
+}
+
 export interface Readiness {
   lifecycle_status: WorkStatus;
   is_terminal: boolean;
   has_active_lease: boolean;
-  active_lease: null;
+  active_lease: LeasePublic | null;
   unresolved_blocker_count: number;
   is_blocked: boolean;
   is_ready: boolean;

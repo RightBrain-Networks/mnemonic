@@ -1,10 +1,12 @@
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from mnemonic_api.config import Settings
+from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.main import create_app
 from mnemonic_api.schemas import (
     CheckpointCreate,
@@ -13,9 +15,14 @@ from mnemonic_api.schemas import (
     HandoffCompletionCreate,
     HandoffCreate,
     HandoffPatch,
+    LeaseTokenCreate,
     ProjectCreate,
     ProjectPatch,
+    WorkClaimCreate,
+    WorkCompletionCreate,
+    WorkDeletionCreate,
     WorkItemCreate,
+    WorkItemPatch,
 )
 
 
@@ -209,6 +216,134 @@ def test_settings_require_long_key_and_postgres():
     assert settings.database_url.get_secret_value().startswith("postgresql+psycopg://")
     assert "secret" not in repr(settings)
     assert "x" * 32 not in repr(settings)
+    assert settings.lease_ttl_seconds == 900
+    assert Settings(
+        database_url="postgresql://localhost/mnemonic",
+        api_key="x" * 32,
+        lease_ttl_seconds=60,
+    ).lease_ttl_seconds == 60
+    for invalid_ttl in [59, 3601]:
+        with pytest.raises(ValidationError):
+            Settings(
+                database_url="postgresql://localhost/mnemonic",
+                api_key="x" * 32,
+                lease_ttl_seconds=invalid_ttl,
+            )
+
+
+def test_lease_request_models_are_strict_and_bounded():
+    claim = WorkClaimCreate(
+        holder_client="claude-code",
+        holder_session_id="opaque-session",
+        claim_request_id="request-1",
+    )
+    assert claim.claim_request_id == "request-1"
+    for payload in [
+        {},
+        {"holder_client": "client", "holder_session_id": "session"},
+        {
+            "holder_client": "client",
+            "holder_session_id": "session",
+            "claim_request_id": " ",
+        },
+        {
+            "holder_client": "client",
+            "holder_session_id": "session",
+            "claim_request_id": "x" * 201,
+        },
+        {
+            "holder_client": "client",
+            "holder_session_id": "session",
+            "claim_request_id": "request",
+            "lease_token": "not-a-claim-field",
+        },
+    ]:
+        with pytest.raises(ValidationError):
+            WorkClaimCreate.model_validate(payload)
+    with pytest.raises(ValidationError):
+        LeaseTokenCreate.model_validate({"lease_token": " "})
+    with pytest.raises(ValidationError):
+        LeaseTokenCreate.model_validate({"lease_token": "x", "holder_client": "extra"})
+
+
+def test_every_token_bearing_request_hides_capability_from_repr_but_serializes_it():
+    lease_token = "raw-capability-token-that-must-not-appear-in-repr"
+    checkpoint = {
+        "prompt": "Exact checkpoint content.",
+        "source_client": "claude-code",
+        "source_session_id": "token-repr-session",
+    }
+    models = [
+        CheckpointCreate(**checkpoint, lease_token=lease_token),
+        WorkItemPatch(expected_version=1, title="Updated title", lease_token=lease_token),
+        WorkCompletionCreate(
+            expected_version=1,
+            checkpoint=checkpoint,
+            lease_token=lease_token,
+        ),
+        WorkDeletionCreate(expected_version=1, lease_token=lease_token),
+        LeaseTokenCreate(lease_token=lease_token),
+        HandoffPatch(expected_version=1, title="Updated title", lease_token=lease_token),
+        HandoffCommentCreate(
+            body="Exact legacy progress.",
+            source_client="claude-code",
+            source_session_id="token-repr-session",
+            lease_token=lease_token,
+        ),
+        HandoffCompletionCreate(
+            expected_version=1,
+            summary="Exact legacy completion.",
+            source_client="claude-code",
+            source_session_id="token-repr-session",
+            lease_token=lease_token,
+        ),
+    ]
+    for model in models:
+        assert lease_token not in repr(model), type(model).__name__
+        assert model.model_dump()["lease_token"] == lease_token
+
+    canonical_completion = models[2]
+    assert lease_token not in repr(canonical_completion.checkpoint)
+    assert canonical_completion.model_dump()["checkpoint"] == {
+        **checkpoint,
+        "source_model": None,
+        "source_session_url": None,
+        "repository_branch": None,
+        "verified_against": None,
+        "tags": [],
+        "source_metadata": {},
+    }
+
+
+def test_production_uvicorn_disables_access_logging():
+    dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
+    assert "uvicorn mnemonic_api.main:create_app" in dockerfile
+    assert "--no-access-log" in dockerfile
+
+
+def test_application_error_context_uses_a_strict_safe_allowlist():
+    error = ApplicationError(
+        409,
+        "lease_held",
+        "This work item has an active lease.",
+        context={
+            "holder_client": "safe-client",
+            "expires_at": "2026-08-31T18:15:00Z",
+            "holder_session_id": "not-error-context",
+            "lease_token": "never-expose-this",
+            "prompt": "also-never-expose-this",
+            "source_metadata": {"secret": True},
+        },
+    )
+    assert error.detail["context"] == {
+        "holder_client": "safe-client",
+        "expires_at": "2026-08-31T18:15:00Z",
+    }
+    assert conflict(
+        "lease_held",
+        "Held.",
+        context={"holder_client": "client", "lease_token": "hidden"},
+    ).detail["context"] == {"holder_client": "client"}
 
 
 def test_authentication_happens_without_database_and_health_is_public():
@@ -220,6 +355,40 @@ def test_authentication_happens_without_database_and_health_is_public():
             assert response.status_code == 401
             assert response.headers["www-authenticate"] == "Bearer"
             assert "x" * 32 not in response.text
+
+
+def test_authentication_precedes_lease_query_validation():
+    api_key = "x" * 32
+    settings = Settings(database_url="postgresql://localhost:1/unavailable", api_key=api_key)
+    project_id = "00000000-0000-0000-0000-000000000001"
+    work_item_id = "00000000-0000-0000-0000-000000000002"
+    lease_path = f"/api/v1/projects/{project_id}/work-items/{work_item_id}/claim"
+    query_token = "unauthenticated-url-token-must-not-appear"
+
+    with TestClient(create_app(settings)) as client:
+        responses = [
+            client.post(
+                lease_path,
+                params={"lease_token": query_token},
+                json={"not": "a valid claim"},
+            ),
+            client.post(
+                lease_path,
+                params={"holder_client": "query-only"},
+                json={"not": "a valid claim"},
+            ),
+            client.patch(
+                f"/api/v1/projects/{project_id}/work-items/{work_item_id}",
+                params={"lease_token": query_token},
+                json={"not": "a valid patch"},
+            ),
+        ]
+
+    for response in responses:
+        assert response.status_code == 401
+        assert response.headers["www-authenticate"] == "Bearer"
+        assert response.json() == {"detail": "Valid bearer authentication is required"}
+        assert query_token not in response.text
 
 
 @pytest.mark.parametrize(

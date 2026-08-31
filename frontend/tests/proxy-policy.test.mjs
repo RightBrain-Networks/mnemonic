@@ -48,7 +48,7 @@ test("origins must be canonical HTTP origins, not credentials, paths, or wildcar
   assert.equal(trustedRequest(headers({ origin: "http://localhost:3000/" }), "POST", origins), false);
 });
 
-test("the route allowlist exposes canonical Phase 1 work/checkpoint operations and compatibility aliases", () => {
+test("the route allowlist exposes canonical Phase 2 work/checkpoint operations and compatibility aliases", () => {
   assert.deepEqual(allowedQueryKeys("projects", "GET"), ["limit", "offset"]);
   assert.deepEqual(allowedQueryKeys("projects", "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}`, "PATCH"), []);
@@ -80,10 +80,36 @@ test("the route allowlist exposes canonical Phase 1 work/checkpoint operations a
   assert.equal(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/complete`, "GET"), null);
 });
 
+test("all lease-capability routes are denied to the browser proxy", () => {
+  for (const operation of ["claim", "claim-and-recall", "renew-claim", "release-claim"]) {
+    const path = `projects/${project}/work-items/${work}/${operation}`;
+    for (const method of ["GET", "POST", "PATCH", "DELETE"]) {
+      assert.equal(allowedQueryKeys(path, method), null, `${method} ${operation}`);
+    }
+  }
+});
+
 test("mutation bodies reject capability tokens at any nesting level", () => {
   assert.equal(forbiddenMutationField({ title: "Keep me", initial_checkpoint: { prompt: "Context" } }), null);
   assert.equal(forbiddenMutationField({ lease_token: "secret" }), "lease_token");
   assert.equal(forbiddenMutationField({ checkpoint: { source_metadata: [{ lease_token: "secret" }] } }), "lease_token");
+});
+
+test("canonical and compatibility mutation bodies cannot carry lease tokens", () => {
+  const browserMutations = [
+    [`projects/${project}/work-items/${work}`, "PATCH"],
+    [`projects/${project}/work-items/${work}/complete`, "POST"],
+    [`projects/${project}/work-items/${work}/delete`, "POST"],
+    [`projects/${project}/work-items/${work}/checkpoints`, "POST"],
+    [`projects/${project}/handoffs/${handoff}`, "PATCH"],
+    [`projects/${project}/handoffs/${handoff}/complete`, "POST"],
+    [`projects/${project}/handoffs/${handoff}/comments`, "POST"],
+    [`projects/${project}/handoffs/${handoff}`, "DELETE"]
+  ];
+  for (const [path, method] of browserMutations) {
+    assert.notEqual(allowedQueryKeys(path, method), null, `${method} ${path} should otherwise be allowed`);
+    assert.equal(forbiddenMutationField({ expected_version: 1, lease_token: "browser-secret" }), "lease_token");
+  }
 });
 
 test("only nonblank semantic searches receive the warmup timeout", () => {

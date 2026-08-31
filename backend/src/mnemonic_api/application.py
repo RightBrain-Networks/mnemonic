@@ -35,6 +35,8 @@ from mnemonic_api.schemas import (
     CheckpointCreate,
     CheckpointListQuery,
     CheckpointRead,
+    ClaimAndRecall,
+    ClaimReceipt,
     CompletionCheckpointCreate,
     HandoffCommentCreate,
     HandoffCommentListQuery,
@@ -47,11 +49,14 @@ from mnemonic_api.schemas import (
     HandoffRead,
     HandoffSummary,
     InitialCheckpointCreate,
+    LeaseTokenCreate,
     Page,
     ProjectCreate,
     ProjectListQuery,
     ProjectPatch,
     ProjectRead,
+    ReleaseResult,
+    WorkClaimCreate,
     WorkCompletionCreate,
     WorkCompletionRead,
     WorkContext,
@@ -66,6 +71,11 @@ from mnemonic_api.schemas import (
     WorkSummary,
 )
 from mnemonic_api.semantic import Embedder, FastembedEmbedder, hybrid_rank
+from mnemonic_api.services.leases import (
+    claim_lease_record,
+    release_lease_record,
+    renew_lease_record,
+)
 from mnemonic_api.services.work_context import (
     assemble_work_context,
     checkpoint_read,
@@ -104,7 +114,41 @@ def authenticate(
         )
 
 
-router = APIRouter(prefix="/api/v1", dependencies=[Depends(authenticate)])
+def _raise_query_rejection(message: str, *, field: str | None = None) -> None:
+    location = ["query", field] if field is not None else ["query"]
+    raise HTTPException(
+        status_code=422,
+        detail=[
+            {
+                "type": "extra_forbidden",
+                "loc": location,
+                "msg": message,
+            }
+        ],
+    )
+
+
+def reject_lease_token_query(request: Request) -> None:
+    # Never inspect, echo, or log a query value. Production access logging is
+    # disabled as a second boundary because URLs are not secret-safe.
+    if "lease_token" in request.query_params:
+        _raise_query_rejection(
+            "Lease tokens are accepted only in JSON request bodies.",
+            field="lease_token",
+        )
+
+
+def reject_lease_operation_query(request: Request) -> None:
+    if request.query_params:
+        _raise_query_rejection("Query parameters are not accepted for lease operations.")
+
+
+# Dependency order is part of the HTTP contract: authentication must run before
+# capability/query validation so unauthenticated API requests remain 401.
+router = APIRouter(
+    prefix="/api/v1",
+    dependencies=[Depends(authenticate), Depends(reject_lease_token_query)],
+)
 sync_router = APIRouter(prefix="/api/v1")
 
 
@@ -378,7 +422,12 @@ def add_checkpoint(
     payload: CheckpointCreate,
     database: Database,
 ) -> Checkpoint:
-    work_item = require_work_item(database, project_id, work_item_id)
+    work_item = require_work_item(
+        database,
+        project_id,
+        work_item_id,
+        lock=payload.lease_token is not None,
+    )
     checkpoint = append_checkpoint_record(database, work_item, payload)
     database.commit()
     database.refresh(checkpoint)
@@ -409,7 +458,11 @@ def complete_work(
 ) -> WorkCompletionRead:
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
     checkpoint = complete_work_record(
-        database, work_item, payload.expected_version, payload.checkpoint
+        database,
+        work_item,
+        payload.expected_version,
+        payload.checkpoint,
+        payload.lease_token,
     )
     database.commit()
     database.refresh(work_item)
@@ -431,7 +484,7 @@ def delete_work(
     database: Database,
 ) -> WorkDeletionRead:
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
-    delete_work_record(work_item, payload.expected_version)
+    delete_work_record(database, work_item, payload.expected_version, payload.lease_token)
     database.commit()
     return WorkDeletionRead(
         project_id=project_id,
@@ -453,7 +506,7 @@ def update_work(
     database: Database,
 ) -> WorkItem:
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
-    update_work_record(work_item, payload)
+    update_work_record(database, work_item, payload)
     database.commit()
     database.refresh(work_item)
     return work_item
@@ -476,6 +529,93 @@ async def sync_dashboard(websocket: WebSocket) -> None:
                 break
     finally:
         hub.disconnect(websocket)
+
+
+@router.post(
+    "/projects/{project_id}/work-items/{work_item_id}/claim",
+    response_model=ClaimReceipt,
+    dependencies=[Depends(reject_lease_operation_query)],
+)
+def claim_work(
+    project_id: UUID,
+    work_item_id: UUID,
+    payload: WorkClaimCreate,
+    request: Request,
+    database: Database,
+) -> ClaimReceipt:
+    work_item = require_work_item(database, project_id, work_item_id, lock=True)
+    receipt = claim_lease_record(
+        database,
+        work_item,
+        payload,
+        request.app.state.settings.lease_ttl_seconds,
+    )
+    database.commit()
+    return receipt
+
+
+@router.post(
+    "/projects/{project_id}/work-items/{work_item_id}/claim-and-recall",
+    response_model=ClaimAndRecall,
+    dependencies=[Depends(reject_lease_operation_query)],
+)
+def claim_and_recall(
+    project_id: UUID,
+    work_item_id: UUID,
+    payload: WorkClaimCreate,
+    request: Request,
+    database: Database,
+) -> ClaimAndRecall:
+    work_item = require_work_item(database, project_id, work_item_id, lock=True)
+    receipt = claim_lease_record(
+        database,
+        work_item,
+        payload,
+        request.app.state.settings.lease_ttl_seconds,
+    )
+    context = assemble_work_context(database, project_id, work_item_id, recent_limit=5)
+    database.commit()
+    return ClaimAndRecall(lease=receipt, context=context)
+
+
+@router.post(
+    "/projects/{project_id}/work-items/{work_item_id}/renew-claim",
+    response_model=ClaimReceipt,
+    dependencies=[Depends(reject_lease_operation_query)],
+)
+def renew_claim(
+    project_id: UUID,
+    work_item_id: UUID,
+    payload: LeaseTokenCreate,
+    request: Request,
+    database: Database,
+) -> ClaimReceipt:
+    work_item = require_work_item(database, project_id, work_item_id, lock=True)
+    receipt = renew_lease_record(
+        database,
+        work_item,
+        payload.lease_token,
+        request.app.state.settings.lease_ttl_seconds,
+    )
+    database.commit()
+    return receipt
+
+
+@router.post(
+    "/projects/{project_id}/work-items/{work_item_id}/release-claim",
+    response_model=ReleaseResult,
+    dependencies=[Depends(reject_lease_operation_query)],
+)
+def release_claim(
+    project_id: UUID,
+    work_item_id: UUID,
+    payload: LeaseTokenCreate,
+    database: Database,
+) -> ReleaseResult:
+    work_item = require_work_item(database, project_id, work_item_id, lock=True)
+    result = release_lease_record(database, work_item, payload.lease_token)
+    database.commit()
+    return result
 
 
 # Deprecated compatibility routes. All reads and writes project canonical rows.
@@ -577,13 +717,19 @@ def add_handoff_comment(
     payload: HandoffCommentCreate,
     database: Database,
 ) -> HandoffCommentRead:
-    work_item = require_work_item(database, project_id, handoff_id)
+    work_item = require_work_item(
+        database,
+        project_id,
+        handoff_id,
+        lock=payload.lease_token is not None,
+    )
     canonical = CheckpointCreate(
         kind="progress",
         prompt=payload.body,
         source_client=payload.source_client,
         source_session_id=payload.source_session_id,
         source_model=payload.source_model,
+        lease_token=payload.lease_token,
     )
     checkpoint = append_checkpoint_record(database, work_item, canonical)
     database.commit()
@@ -610,7 +756,11 @@ def complete_handoff(
         source_model=payload.source_model,
     )
     checkpoint = complete_work_record(
-        database, work_item, payload.expected_version, canonical
+        database,
+        work_item,
+        payload.expected_version,
+        canonical,
+        payload.lease_token,
     )
     initial = initial_checkpoint(database, work_item)
     database.commit()
@@ -645,7 +795,7 @@ def update_handoff(
 ) -> HandoffRead:
     work_item = require_work_item(database, project_id, handoff_id, lock=True)
     canonical = WorkItemPatch(**payload.model_dump(exclude_unset=True))
-    update_work_record(work_item, canonical)
+    update_work_record(database, work_item, canonical)
     initial = initial_checkpoint(database, work_item)
     database.commit()
     database.refresh(work_item)
@@ -662,7 +812,7 @@ def delete_handoff(
     database: Database,
 ) -> Response:
     work_item = require_work_item(database, project_id, handoff_id, lock=True)
-    delete_work_record(work_item, expected_version)
+    delete_work_record(database, work_item, expected_version)
     database.commit()
     return Response(status_code=204)
 

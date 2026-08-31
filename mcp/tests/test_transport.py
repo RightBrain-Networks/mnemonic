@@ -41,9 +41,18 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         initialized = client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS)
         assert initialized.status_code == 200
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
+        assert "claim_and_recall" in initialized.json()["result"]["instructions"]
+        assert "exact same claim_request_id" in initialized.json()["result"]["instructions"]
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
-        assert len(listed.json()["result"]["tools"]) == 19
+        listed_tools = listed.json()["result"]["tools"]
+        assert len(listed_tools) == 23
+        assert {
+            "claim_work",
+            "claim_and_recall",
+            "renew_claim",
+            "release_claim",
+        } <= {tool["name"] for tool in listed_tools}
         called = client.post("/mcp", json={
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
             "params": {
@@ -132,5 +141,11 @@ async def test_stdio_transport_handshake_and_catalog():
         initialized = await session.initialize()
         assert initialized.serverInfo.name == "Mnemonic"
         result = await session.list_tools()
-        assert len(result.tools) == 19
+        assert len(result.tools) == 23
         assert all(tool.outputSchema is not None for tool in result.tools)
+        assert {
+            "claim_work",
+            "claim_and_recall",
+            "renew_claim",
+            "release_claim",
+        } <= {tool.name for tool in result.tools}

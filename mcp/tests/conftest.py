@@ -8,6 +8,9 @@ HANDOFF_ID = "9b0e1e53-2a04-443d-a37c-d0a19cf760a8"
 WORK_ID = HANDOFF_ID
 CHECKPOINT_ID = "74ce5a36-7295-45e7-bc24-5aa13ed4f293"
 NOW = "2026-08-30T12:00:00Z"
+EXPIRES_AT = "2026-08-30T12:15:00Z"
+CLAIM_REQUEST_ID = "claim-request-phase-2-001"
+LEASE_TOKEN = "lease-" + "t" * 43
 
 
 @pytest.fixture
@@ -119,4 +122,42 @@ def work_context(work_item, checkpoint, readiness):
         "outgoing_relationships": [],
         "undirected_relationships": [],
         "relationship_counts": {"incoming": 0, "outgoing": 0, "undirected": 0, "total": 0},
+    }
+
+
+@pytest.fixture
+def claim_receipt():
+    return {
+        "work_item_id": WORK_ID,
+        "holder_client": "claude-code",
+        "holder_session_id": "claiming-session",
+        "claim_request_id": CLAIM_REQUEST_ID,
+        "acquired_at": NOW,
+        "renewed_at": NOW,
+        "expires_at": EXPIRES_AT,
+        "lease_token": LEASE_TOKEN,
+    }
+
+
+@pytest.fixture
+def active_work_context(work_context, claim_receipt):
+    public_lease = {
+        name: claim_receipt[name]
+        for name in (
+            "holder_client",
+            "holder_session_id",
+            "acquired_at",
+            "renewed_at",
+            "expires_at",
+        )
+    }
+    return {
+        **work_context,
+        "readiness": {
+            **work_context["readiness"],
+            "has_active_lease": True,
+            "active_lease": public_lease,
+            "is_ready": False,
+            "display_state": "active",
+        },
     }

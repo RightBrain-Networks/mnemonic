@@ -597,8 +597,23 @@ button { touch-action: manipulation; }
 .sync-status-retrying .sync-status-dot { background: #bd8900; box-shadow: 0 0 0 3px #f4e7af; }
 .operational-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 8px; font: 700 9px/1.5 var(--mono); text-transform: uppercase; letter-spacing: .5px; }
 .operational-badge.ready { color: #477800; background: #efffd7; border: 1px solid #cfeaa5; }
+.operational-badge.active { color: #6d35d7; background: var(--violet-soft); border: 1px solid #d8c5ff; }
 .work-card-facts { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin: -8px 0 16px; color: var(--muted); font-size: 10px; }
 .work-card-facts .mono { max-width: min(420px, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+.active-lease-summary { display: grid; gap: 9px; margin: -3px 0 16px; padding: 11px 13px; border: 1px solid #d8c5ff; border-radius: 7px; color: #4d3669; background: #f7f2ff; }
+.active-lease-holder { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 9px; min-width: 0; font-size: 10px; }
+.active-lease-holder .lease-label { color: #6d35d7; font: 700 9px/1.5 var(--mono); text-transform: uppercase; letter-spacing: .35px; }
+.active-lease-holder strong { font-weight: 650; }
+.active-lease-holder .mono { min-width: 0; max-width: min(430px, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+.active-lease-times { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; }
+.active-lease-times > div { display: flex; gap: 5px; font-size: 9px; }
+.active-lease-times dt { color: var(--muted); }
+.active-lease-times dd { margin: 0; font-weight: 600; }
+.active-lease-detail { gap: 12px; margin: -11px 0 24px; padding: 14px 16px; }
+.active-lease-detail .active-lease-times { gap: 11px 25px; }
+.active-lease-detail .active-lease-times > div { display: grid; gap: 2px; font-size: 10px; }
+.active-lease-note { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.7; }
+.detail-topline + .active-lease-detail { margin-top: 15px; }
 .migration-chip, .current-chip { display: inline-flex; align-items: center; border: 1px solid #e2c771; border-radius: 4px; padding: 2px 7px; color: #725a00; background: #fff8d8; font-size: 9px; font-weight: 700; }
 .migration-warning { margin: 10px 0 14px; padding: 10px 12px; border: 1px solid #e2c771; border-radius: 6px; color: #725a00; background: #fff8d8; font-size: 10px; line-height: 1.7; }
 .current-migration-warning { margin-top: -15px; }
@@ -628,4 +643,5 @@ button { touch-action: manipulation; }
   .checkpoint-provenance { grid-template-columns: minmax(0, 1fr); }
   .checkpoint-provenance .span-two { grid-column: auto; }
   .checkpoint-header { align-items: flex-start; }
+  .active-lease-times { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }

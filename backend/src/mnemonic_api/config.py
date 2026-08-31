@@ -16,6 +16,12 @@ class Settings(BaseSettings):
         default="http://localhost:3000,http://127.0.0.1:3000",
         validation_alias=AliasChoices("MNEMONIC_DASHBOARD_ORIGINS", "dashboard_origins"),
     )
+    lease_ttl_seconds: int = Field(
+        default=900,
+        ge=60,
+        le=3600,
+        validation_alias=AliasChoices("MNEMONIC_LEASE_TTL_SECONDS", "lease_ttl_seconds"),
+    )
 
     @field_validator("api_key")
     @classmethod

@@ -73,6 +73,11 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong. Please try again.";
 }
 
+export function isVersionConflict(error: unknown): error is ApiError {
+  return error instanceof ApiError
+    && (error.code === "version_conflict" || (error.status === 409 && error.code === undefined));
+}
+
 export function workItemPath(projectId: string, workItemId?: string): string {
   const base = `/projects/${encodeURIComponent(projectId)}/work-items`;
   return workItemId ? `${base}/${encodeURIComponent(workItemId)}` : base;

@@ -179,6 +179,29 @@ class WorkContext(CanonicalResponse):
     relationship_counts: RelationshipCounts = Field(default_factory=RelationshipCounts)
 
 
+class ClaimReceipt(CanonicalResponse):
+    """Capability-bearing lease receipt returned only by claim and renew operations."""
+
+    work_item_id: UUID
+    holder_client: str
+    holder_session_id: str
+    claim_request_id: str
+    acquired_at: datetime
+    renewed_at: datetime
+    expires_at: datetime
+    lease_token: str = Field(repr=False)
+
+
+class ClaimAndRecall(CanonicalResponse):
+    lease: ClaimReceipt
+    context: WorkContext
+
+
+class ReleaseResult(CanonicalResponse):
+    work_item_id: UUID
+    released: bool
+
+
 class WorkCreation(CanonicalResponse):
     work_item: WorkItemRead
     initial_checkpoint: CheckpointRead

@@ -182,7 +182,7 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
 
         with engine.begin() as connection:
             config.attributes["connection"] = connection
-            command.upgrade(config, "head")
+            command.upgrade(config, "0005_work_graph_backfill")
 
         with engine.connect() as connection:
             current_revision = connection.execute(
@@ -259,6 +259,36 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
                 text("SELECT count(*) FROM work_item_embeddings")
             ).scalar_one() == 0
 
+        with pytest.raises(DBAPIError, match="legacy Mnemonic tables are read-only"):
+            with engine.begin() as connection:
+                connection.execute(
+                    text("UPDATE handoffs SET title = 'rewritten' WHERE id = :id"),
+                    {"id": handoff_id},
+                )
+        with pytest.raises(DBAPIError, match="checkpoints are immutable"):
+            with engine.begin() as connection:
+                connection.execute(
+                    text("DELETE FROM checkpoints WHERE id = :id"), {"id": ordinary_comment_id}
+                )
+
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "head")
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one() == "0007_work_leases"
+            assert connection.execute(text("SELECT to_regclass('handoffs')")).scalar_one() is None
+            assert connection.execute(
+                text("SELECT to_regclass('handoff_comments')")
+            ).scalar_one() is None
+            assert connection.execute(
+                text("SELECT to_regclass('handoff_embeddings')")
+            ).scalar_one() is None
+            assert connection.execute(
+                text("SELECT to_regclass('work_leases')")
+            ).scalar_one() == "work_leases"
+
         with TestClient(create_app(settings, engine=engine)) as client:
             client.headers["Authorization"] = f"Bearer {api_key}"
             canonical_base = f"/api/v1/projects/{project_id}/work-items"
@@ -279,17 +309,6 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
             legacy_open = client.get(f"{legacy_base}/{open_id}").json()
             assert legacy_open["prompt"] == "Exact open checkpoint."
 
-        with pytest.raises(DBAPIError, match="legacy Mnemonic tables are read-only"):
-            with engine.begin() as connection:
-                connection.execute(
-                    text("UPDATE handoffs SET title = 'rewritten' WHERE id = :id"),
-                    {"id": handoff_id},
-                )
-        with pytest.raises(DBAPIError, match="checkpoints are immutable"):
-            with engine.begin() as connection:
-                connection.execute(
-                    text("DELETE FROM checkpoints WHERE id = :id"), {"id": ordinary_comment_id}
-                )
         # The deterministic collision mapping is stable for this source row.
         with engine.connect() as connection:
             remapped = connection.execute(

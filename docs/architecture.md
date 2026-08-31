@@ -1,6 +1,6 @@
-# Mnemonic Phase 1 architecture
+# Mnemonic Phase 2 architecture
 
-This architecture implements Phase 1 of the product roadmap. The original
+This architecture implements Phases 1 and 2 of the product roadmap. The original
 [`ADR.md`](../ADR.md) remains historical context; its memory-store and hook
 proposal is not the implementation described here. The longer-term direction and
 the boundaries of later phases are in [`roadmap.md`](roadmap.md).
@@ -20,6 +20,7 @@ flowchart LR
     WorkItem --> Context[Later context checkpoint]
     WorkItem --> Progress[Progress checkpoint]
     WorkItem --> Completion[Completion checkpoint]
+    WorkItem -. optional and expiring .-> Lease[Work lease]
 ```
 
 A work item owns only mutable identity and lifecycle: title, summary, status,
@@ -28,10 +29,11 @@ client/session/model, optional session URL and repository provenance, tags,
 metadata, kind, and creation time.
 
 The persisted lifecycle values remain `open`, `done`, `wont-do`, and
-`promoted`. `ready` is a derived Phase 1 display fact for open work; it is
-not another stored status. Completion is the only operation that can set
-`done`, and it atomically appends a completion checkpoint. Reopening leaves
-that historical completion checkpoint intact.
+`promoted`. `ready` and `active` are derived facts, never stored statuses. In
+Phase 2, visible open work with no unexpired lease is ready; an unexpired lease
+makes it active. Completion is the only operation that can set `done`, and it
+atomically appends a completion checkpoint. Reopening leaves that historical
+completion checkpoint intact.
 
 ## Invariants
 
@@ -42,6 +44,18 @@ that historical completion checkpoint intact.
 - Appending a checkpoint updates work activity but does not increment the work
   version. Independent appenders do not contend through optimistic versioning.
 - Work edits, completion, and soft deletion require the version last read.
+- At most one retained lease row exists per work item. PostgreSQL row locks and
+  database time arbitrate acquisition, replay, renewal, expiry, and replacement.
+- The server chooses lease duration. A client-generated `claim_request_id`
+  recovers the same active claim receipt after an unknown outcome without
+  extending it; it is not general mutation idempotency.
+- A lease token is a capability for renewal, release, and terminal lifecycle
+  mutation while the lease is active. It appears only in lease receipts and
+  JSON request bodies, never ordinary reads, errors, URLs, or browser data.
+- Lease operations never change work version or activity time. Checkpoint
+  append remains open because it records an observation rather than ownership.
+- Completion, retirement, promotion, and deletion require the matching token
+  when an active lease exists and remove that lease in the same transaction.
 - Soft-deleted work and all of its checkpoints disappear from ordinary reads,
   searches, and compatibility projections.
 - Every lookup is project-scoped. A work or checkpoint UUID under the wrong
@@ -70,8 +84,9 @@ typed application errors into a stable sanitized `detail.code` envelope.
 The MCP service is a typed HTTP adapter. Canonical tools use work/checkpoint
 terminology; deprecated hand-off tools continue to project the same canonical
 rows. The dashboard calls only an exact same-origin proxy allowlist. Its API key
-is server-only, and browser request bodies containing a future `lease_token`
-are rejected rather than forwarded.
+is server-only. Every lease-capability route is denied to the browser, and any
+browser mutation body containing `lease_token` is rejected rather than
+forwarded.
 
 All published ports bind to loopback by default. The shared bearer key protects
 REST and MCP, while the dashboard remains a trusted-local single-user surface.
@@ -103,9 +118,15 @@ original UUID in `legacy_record_id`.
 
 The Phase 1 migration head intentionally retains the old tables as read-only
 during an observation window. Canonical and compatibility APIs use only the new
-tables. Dropping legacy tables is a later explicit contract deployment after
-parity checks, a backup/restore drill, and operator approval; it is not silently
-performed by this cutover image.
+tables. After the required parity checks, backup/restore drill, observation
+window, and explicit operator approval, `0006_work_graph_contract` removes the
+legacy tables and their unused ORM metadata. Compatibility routes and tools
+remain projections over canonical rows.
+
+Phase 2 migration `0007_work_leases` adds one optional `work_leases` row per
+work item, bounded holder/request fields, acquisition/renewal/expiry ordering
+constraints, and an expiry index for diagnostics. Expired rows may remain;
+correctness never depends on a cleanup worker.
 
 ## Recall and retrieval
 
@@ -114,6 +135,12 @@ checkpoint, newest `context` checkpoint, and at most five additional recent
 checkpoints by default. Materialized checkpoint IDs are de-duplicated, and the
 response reports both total and omitted counts. Full history is available only
 through deterministic checkpoint pagination.
+
+Ordinary recall and search return only the safe active-lease projection: holder
+client/session and acquisition, renewal, and expiry timestamps. The request ID
+and token are excluded. `claim_and_recall` acquires or replays a claim and
+assembles the same bounded context before one commit. Context assembly is one
+SQL statement so a `READ COMMITTED` request does not mix multiple snapshots.
 
 Search returns one compact `WorkSummary` per work item, even when several
 checkpoints match. It never includes prompt bodies or source metadata. Title and
@@ -140,21 +167,23 @@ Legacy hand-off REST routes, MCP tools, resource URIs, and the
 - adding a comment creates a progress checkpoint;
 - completing a hand-off creates a completion checkpoint and completes work;
 - legacy edits may change work fields but cannot rewrite checkpoint content or
-  provenance.
+  provenance;
+- legacy completion and terminal edits accept a lease token when a claim is
+  active; direct legacy REST deletion remains available only while unleased.
 
 The migrated initial snapshot carries an explicit warning because the former
 schema could retain the original source session while allowing later prompt
 edits. Mnemonic preserves the recorded values but does not fabricate authorship
 history that never existed.
 
-## Deliberate Phase 1 limits
+## Deliberate Phase 2 limits
 
-Phase 1 does not add leases, claims, ready-work scheduling, typed relationships,
-hierarchies, human gates, merge behavior, repository verification, or automatic
-execution. Response readiness fields are safe derivations from lifecycle only,
-and relationship collections are empty extension points. Those later concepts
-must not be inferred from checkpoint prose or implemented as hidden Phase 1
-workflow state.
+Phase 2 does not add ready-work scheduling, typed relationships, blocker graph
+semantics, hierarchies, human gates, merge behavior, repository verification,
+presence, or automatic execution. Before Phase 3 the unresolved blocker count
+is always zero and relationship collections remain empty extension points.
+Those later concepts must not be inferred from checkpoint prose or implemented
+as hidden workflow state.
 
 Backups include canonical work and checkpoint history. Operators must still copy
 backups off-machine and rehearse restores; a persistent Docker volume is not a

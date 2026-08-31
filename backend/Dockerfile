@@ -23,5 +23,4 @@ RUN uv sync --frozen --no-dev && \
 ENV HF_HUB_OFFLINE=1
 USER mnemonic
 EXPOSE 8000
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn mnemonic_api.main:create_app --factory --host 0.0.0.0 --port 8000"]
-
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn mnemonic_api.main:create_app --factory --host 0.0.0.0 --port 8000 --no-access-log"]

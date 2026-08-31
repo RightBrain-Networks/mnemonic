@@ -88,6 +88,10 @@ async function proxy(request: Request, context: Context): Promise<Response> {
     const result = await readBody(request);
     if (result instanceof Response) return result;
     body = result;
+  } else if (request.method === "DELETE" && request.body) {
+    const result = await readBody(request);
+    if (result instanceof Response) return result;
+    return fail(400, "DELETE request bodies are not supported by the dashboard proxy.");
   }
   const target = new URL(`/api/v1/${route}`, base);
   target.search = query.toString();

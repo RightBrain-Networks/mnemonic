@@ -99,8 +99,9 @@ Copy the three folders under [`skills/`](skills/) into the target project's
 - **`mnemonic-search`** finds compact work-item leads within the chosen project,
   normally restricted to open work.
 - **`mnemonic-recall`** loads bounded current context, pages older checkpoints
-  when needed, appends useful progress, and records an atomic completion
-  checkpoint when authorized work is complete.
+  when needed, atomically claims already-authorized execution, renews or
+  releases that expiring lease, appends useful progress, and records an atomic
+  completion checkpoint when the work is complete.
 
 Invoke `/mnemonic-save`, `/mnemonic-search`, or `/mnemonic-recall`, or ask Claude
 in natural language. The skills require the connected `mnemonic` MCP server.
@@ -110,7 +111,7 @@ refer to the originating LLM conversation, not the MCP transport session.
 
 See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 
-## What Phase 1 does
+## What Phase 2 does
 
 - Separates durable work by project, with a project selector and project
   creation. One work-item card can represent checkpoints from many sessions.
@@ -133,16 +134,27 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 - Keeps `done`, `wont-do`, and `promoted` work out of the default open view
   while retaining it under explicit filters. Deleted work and its checkpoints
   are hidden from ordinary reads but retained for recovery.
+- Lets one cooperative agent session claim an open work item through an atomic,
+  server-timed lease. A client request ID recovers an active claim receipt after
+  an unknown response, renewal extends responsibility, release hands unfinished
+  work back, and expiry restores claimability without operator repair.
+- Derives `Ready` and `Active` separately from durable lifecycle. Search,
+  recall, and the dashboard expose only safe holder/session/timing details; the
+  capability token appears only in MCP/API claim receipts and JSON mutation
+  bodies, never browser data, URLs, errors, or ordinary responses.
+- Requires the matching lease token for completion, retirement, promotion, or
+  deletion while work has an active lease. Checkpoint append remains open and
+  lease operations do not alter work version or activity time.
 - Preserves deprecated hand-off REST/MCP calls as projections over the canonical
   work/checkpoint tables during the migration window.
 - Saves a PostgreSQL backup at startup and daily, retaining earlier dumps.
 
-It does **not** automatically execute checkpoints, create GitHub issues, inject
-memory hooks, infer missing session IDs, lease/claim work, or model
-relationships. Mnemonic is deliberately LLM-centric: checkpoints record an
-agent's claims rather than server-verified proof. Context quality and freshness
-remain agent workflow obligations; storing a commit ID is not proof the service
-verified anything.
+It does **not** automatically execute checkpoints, grant authority by claiming,
+create GitHub issues, inject memory hooks, infer missing session IDs, schedule
+the next ready item, or model relationships. Mnemonic is deliberately
+LLM-centric: checkpoints record an agent's claims rather than server-verified
+proof. Context quality and freshness remain agent workflow obligations; storing
+a commit ID is not proof the service verified anything.
 
 ## Operate and develop
 

@@ -1,4 +1,4 @@
-import type { WorkSummary, WorkStatus } from "@/lib/types";
+import type { LeasePublic, Readiness, WorkSummary, WorkStatus } from "@/lib/types";
 
 const statusLabels: Record<WorkStatus, string> = {
   open: "Open",
@@ -13,6 +13,15 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(date);
 }
 
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
+}
+
 function clientLabel(client: string) {
   return ({
     "claude-code": "Claude Code",
@@ -25,6 +34,32 @@ function clientLabel(client: string) {
 
 function StatusBadge({ status }: { status: WorkStatus }) {
   return <span className={`status-badge status-${status}`}><span />{statusLabels[status]}</span>;
+}
+
+function OperationalBadge({ readiness }: { readiness: Readiness }) {
+  if (readiness.has_active_lease) {
+    return <span className="operational-badge active">Active</span>;
+  }
+  if (readiness.is_ready) {
+    return <span className="operational-badge ready">Ready</span>;
+  }
+  return null;
+}
+
+function ActiveLeaseSummary({ lease, detailed = false }: { lease: LeasePublic; detailed?: boolean }) {
+  return <section className={`active-lease-summary ${detailed ? "active-lease-detail" : ""}`} aria-label="Active work lease">
+    <div className="active-lease-holder">
+      <span className="lease-label">Active session</span>
+      <strong>{clientLabel(lease.holder_client)}</strong>
+      <span className="mono" title={lease.holder_session_id}>{lease.holder_session_id}</span>
+    </div>
+    <dl className="active-lease-times">
+      <div><dt>Lease acquired</dt><dd><time dateTime={lease.acquired_at}>{formatDateTime(lease.acquired_at)}</time></dd></div>
+      <div><dt>Renewed</dt><dd><time dateTime={lease.renewed_at}>{formatDateTime(lease.renewed_at)}</time></dd></div>
+      <div><dt>Expires</dt><dd><time dateTime={lease.expires_at}>{formatDateTime(lease.expires_at)}</time></dd></div>
+    </dl>
+    {detailed && <p className="active-lease-note">This lease records a temporary active session. Its capability never enters the dashboard.</p>}
+  </section>;
 }
 
 type Props = {
@@ -49,7 +84,7 @@ export default function WorkItemCard({
   return <article className="handoff-card work-item-card">
     <div className="card-topline">
       <StatusBadge status={work.status} />
-      {summary.readiness.is_ready && <span className="operational-badge ready">Ready</span>}
+      <OperationalBadge readiness={summary.readiness} />
       <span className="card-source">
         Current context · {clientLabel(context.source_client)}
         <span>·</span>
@@ -69,6 +104,7 @@ export default function WorkItemCard({
       <span>Priority {work.priority}</span>
       <span className="mono" title={context.source_session_id}>session {context.source_session_id}</span>
     </div>
+    {summary.readiness.active_lease && <ActiveLeaseSummary lease={summary.readiness.active_lease} />}
     <div className="card-footer">
       <div className="card-context">
         {context.tags.slice(0, 3).map((tag) => <span className="tag" key={tag}>{tag}</span>)}
@@ -88,4 +124,4 @@ export default function WorkItemCard({
   </article>;
 }
 
-export { StatusBadge, clientLabel, formatDate, statusLabels };
+export { ActiveLeaseSummary, OperationalBadge, StatusBadge, clientLabel, formatDate, formatDateTime, statusLabels };

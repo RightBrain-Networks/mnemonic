@@ -1,4 +1,52 @@
-# MVP validation record
+# Mnemonic validation record
+
+## Phase 2 atomic work-lease validation — 2026-08-31
+
+The Phase 2 work-lease cutover was validated in the local Linux workspace with
+the repository's locked environments:
+
+- **118 backend tests passed against disposable PostgreSQL 17**. They covered
+  migration/model parity, exact claim replay, expiry takeover, renewal and
+  release, holder/session/request isolation, terminal-transition lease
+  consumption, lock ordering, concurrent claims, optional checkpoint lease
+  validation, query-capability rejection, and redaction. Backend and
+  repository-wide Python Ruff checks passed; the suite emitted only its existing
+  upstream Starlette TestClient deprecation warning.
+- **68 MCP tests passed**. They covered the four typed lease tools, the exact
+  23-tool HTTP and stdio catalogs, secret input schemas and representations,
+  safe error mapping, and recovery of an unknown claim response without an
+  unsafe retry.
+- **34 frontend unit tests passed under Node 24**; TypeScript checking and a
+  Next.js production build succeeded. The tests cover lifecycle/lease display,
+  recursive proxy denial of capability-bearing inputs, typed conflict handling,
+  and refresh at the lease-expiry boundary.
+- **8 Playwright scenarios passed** across desktop and narrow Chromium. In
+  addition to the Phase 1 work/checkpoint and live-update flows, they exercised
+  active-lease visibility, expiry refresh, and an external claim arriving during
+  a dashboard edit. The UI did not expose claim, renew, release, or token
+  controls.
+- **The production-image full-stack check passed** against a separately scoped
+  disposable Compose project. The API, MCP server, dashboard, backup service,
+  and PostgreSQL 17 became healthy; Alembic reported `0007_work_leases`, the
+  removed hand-off tables were absent, and the real MCP HTTP catalog contained
+  exactly 23 tools. The check exercised canonical work/checkpoint behavior plus
+  exact claim replay, renew, cross-project token isolation, leased completion,
+  and open-work filtering.
+- **A real post-upgrade custom-format backup/restore drill passed**. The archive
+  was validated by `pg_restore --list` and had SHA-256
+  `f0ef414228a6e64de01583e25b3eaa2c025443bb66e2902bc270a6235c9fa437`.
+  Source and restored databases matched at migration head, table counts, lease
+  count, capability-token shape, removed-table absence, and deterministic
+  canonical-data checksum (`798a8de29db3b8e5eff4c40d54f0b8b4`). A restored
+  API rejected replay of an expired request with `claim_request_expired`, then
+  allowed takeover and kept ordinary context responses capability-free.
+- The updated `mnemonic-recall` skill passed the skill-creator validator. A
+  separate final scope audit found no Phase 3 persistence, tools, or UI.
+
+The Playwright, production-stack, restore-API, and test-database resources were
+uniquely scoped. Their disposable containers, networks, volumes, restored
+database, backup archive, and temporary configuration were removed after the
+checks. The user's existing Mnemonic stack was not modified by validation.
 
 ## Phase 1 work/checkpoint validation — 2026-08-31
 

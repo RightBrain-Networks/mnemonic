@@ -308,7 +308,7 @@ def test_lifecycle_versions_typed_errors_and_soft_delete(api, project, work_payl
     assert api.get(collection(project), params={"status": "all"}).json()["total"] == 0
 
 
-def test_checkpoint_contract_is_append_only_and_rejects_lease_fields(
+def test_checkpoint_contract_is_append_only_and_validates_lease_fields(
     api, project, work_payload, postgres_engine
 ):
     created = create_work(api, project, work_payload)
@@ -319,12 +319,16 @@ def test_checkpoint_contract_is_append_only_and_rejects_lease_fields(
         json=checkpoint_payload("Not a completion route.", "invalid-kind", kind="completion"),
     )
     assert invalid_kind.status_code == 422
-    assert api.patch(
+    patch = api.patch(
         endpoint, json={"expected_version": 1, "title": "No token", "lease_token": "secret"}
-    ).status_code == 422
-    assert api.post(
+    )
+    assert patch.status_code == 409
+    assert patch.json()["detail"]["code"] == "lease_token_mismatch"
+    deletion = api.post(
         f"{endpoint}/delete", json={"expected_version": 1, "lease_token": "secret"}
-    ).status_code == 422
+    )
+    assert deletion.status_code == 409
+    assert deletion.json()["detail"]["code"] == "lease_token_mismatch"
 
     checkpoint_id = created["initial_checkpoint"]["id"]
     with pytest.raises(DBAPIError, match="checkpoints are immutable"):

@@ -106,6 +106,16 @@ SessionID = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
     AfterValidator(nonblank),
 ]
+ClaimRequestID = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+    AfterValidator(nonblank),
+]
+LeaseToken = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=200),
+    AfterValidator(nonblank),
+]
 ModelName = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
@@ -223,6 +233,7 @@ class InitialCheckpointCreate(CheckpointPayload):
 
 class CheckpointCreate(CheckpointPayload):
     kind: AppendCheckpointKind = "context"
+    lease_token: LeaseToken | None = Field(default=None, repr=False)
 
 
 class CompletionCheckpointCreate(CheckpointPayload):
@@ -243,10 +254,11 @@ class WorkItemPatch(APIModel):
     summary: Summary | None = None
     priority: Annotated[StrictInt, Field(ge=0, le=100)] | None = None
     status: MutableStatus | None = None
+    lease_token: LeaseToken | None = Field(default=None, repr=False)
 
     @model_validator(mode="after")
     def editable_fields(self) -> Self:
-        fields = self.model_fields_set - {"expected_version"}
+        fields = self.model_fields_set - {"expected_version", "lease_token"}
         if not fields:
             raise ValueError("Provide at least one editable field besides expected_version")
         for field in fields:
@@ -258,10 +270,22 @@ class WorkItemPatch(APIModel):
 class WorkCompletionCreate(APIModel):
     expected_version: Annotated[StrictInt, Field(ge=1)]
     checkpoint: CompletionCheckpointCreate
+    lease_token: LeaseToken | None = Field(default=None, repr=False)
 
 
 class WorkDeletionCreate(APIModel):
     expected_version: Annotated[StrictInt, Field(ge=1)]
+    lease_token: LeaseToken | None = Field(default=None, repr=False)
+
+
+class WorkClaimCreate(APIModel):
+    holder_client: ClientName
+    holder_session_id: SessionID
+    claim_request_id: ClaimRequestID
+
+
+class LeaseTokenCreate(APIModel):
+    lease_token: LeaseToken = Field(repr=False)
 
 
 class WorkItemRead(Timestamps):
@@ -323,6 +347,16 @@ class LeasePublic(APIModel):
     renewed_at: datetime
     expires_at: datetime
 
+    @field_serializer("acquired_at", "renewed_at", "expires_at")
+    def utc_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class ClaimReceipt(LeasePublic):
+    work_item_id: UUID
+    claim_request_id: str
+    lease_token: str = Field(repr=False)
+
 
 class Readiness(APIModel):
     lifecycle_status: Status
@@ -375,6 +409,16 @@ class WorkContext(APIModel):
     outgoing_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
     undirected_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
     relationship_counts: RelationshipCounts = Field(default_factory=RelationshipCounts)
+
+
+class ClaimAndRecall(APIModel):
+    lease: ClaimReceipt
+    context: WorkContext
+
+
+class ReleaseResult(APIModel):
+    work_item_id: UUID
+    released: bool
 
 
 class WorkCompletionRead(APIModel):
@@ -455,10 +499,11 @@ class HandoffPatch(APIModel):
     title: Title | None = None
     summary: Summary | None = None
     status: MutableStatus | None = None
+    lease_token: LeaseToken | None = Field(default=None, repr=False)
 
     @model_validator(mode="after")
     def editable_fields(self) -> Self:
-        fields = self.model_fields_set - {"expected_version"}
+        fields = self.model_fields_set - {"expected_version", "lease_token"}
         if not fields:
             raise ValueError("Provide at least one editable field besides expected_version")
         for field in fields:
@@ -493,6 +538,7 @@ class HandoffCommentCreate(APIModel):
     source_client: ClientName
     source_session_id: SessionID
     source_model: ModelName | None = None
+    lease_token: LeaseToken | None = Field(default=None, repr=False)
 
 
 class HandoffCompletionCreate(APIModel):
@@ -501,6 +547,7 @@ class HandoffCompletionCreate(APIModel):
     source_client: ClientName
     source_session_id: SessionID
     source_model: ModelName | None = None
+    lease_token: LeaseToken | None = Field(default=None, repr=False)
 
 
 class HandoffCommentRead(APIModel):

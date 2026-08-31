@@ -2,7 +2,7 @@
 
 Run with the MCP project's Python environment. Checks are read-only unless a
 project is explicitly authorized with --project-id. The write check creates one
-uniquely marked work item, exercises the Phase 1 lifecycle, and soft-deletes it.
+uniquely marked work item, exercises the Phase 2 lifecycle, and soft-deletes it.
 Never authorize writes against a project without permission.
 """
 
@@ -34,6 +34,10 @@ CANONICAL_AND_COMPATIBILITY_TOOLS = {
     "update_work",
     "complete_work",
     "delete_work",
+    "claim_work",
+    "claim_and_recall",
+    "renew_claim",
+    "release_claim",
     "save_handoff",
     "search_handoffs",
     "recall_handoff",
@@ -114,6 +118,8 @@ async def cleanup_synthetic_work(
     marker: str,
     run_id: str,
     known_work_item_id: str | None,
+    claim_request_id: str | None,
+    lease_token: str | None,
 ) -> None:
     """Soft-delete the exact synthetic item, including after an uncertain create."""
     work_item_ids = (
@@ -135,6 +141,39 @@ async def cleanup_synthetic_work(
             marker in record.get("title", "") or marker in record.get("summary", ""),
             "Refusing to clean up work that lacks this run's unique marker.",
         )
+        cleanup_token = lease_token
+        if cleanup_token is None and claim_request_id is not None and record["status"] == "open":
+            recovered = await api.post(
+                path + "/claim",
+                json={
+                    "holder_client": SYNTHETIC_CLIENT,
+                    "holder_session_id": run_id,
+                    "claim_request_id": claim_request_id,
+                },
+            )
+            if recovered.status_code == 200:
+                cleanup_token = recovered.json()["lease_token"]
+            else:
+                require(
+                    recovered.status_code == 409
+                    and recovered.json().get("detail", {}).get("code")
+                    == "claim_request_expired",
+                    "Could not recover the synthetic lease for cleanup.",
+                )
+        if cleanup_token is not None:
+            released = await api.post(
+                path + "/release-claim",
+                json={"lease_token": cleanup_token},
+            )
+            require(
+                released.status_code == 200,
+                "Could not release the synthetic lease for cleanup.",
+            )
+            remaining = await api.get(path)
+            if remaining.status_code == 404:
+                continue
+            require(remaining.status_code == 200, "Could not refresh work for cleanup.")
+            record = remaining.json()
         cleanup = await api.post(
             path + "/delete",
             json={"expected_version": record["version"]},
@@ -268,6 +307,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     "source_metadata": {"synthetic_check": True},
                 }
                 work_item_id: str | None = None
+                claim_request_id: str | None = None
+                lease_token: str | None = None
                 try:
                     created = await tool(
                         session,
@@ -404,6 +445,75 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "The stale edit did not return the typed version_conflict code.",
                     )
 
+                    claim_request_id = str(uuid4())
+                    claim_arguments = {
+                        **identity,
+                        "holder_client": SYNTHETIC_CLIENT,
+                        "holder_session_id": run_id,
+                        "claim_request_id": claim_request_id,
+                    }
+                    claimed = await tool(session, "claim_and_recall", claim_arguments)
+                    receipt = claimed["lease"]
+                    lease_token = receipt["lease_token"]
+                    require(
+                        claimed["context"]["work_item"]["id"] == work_item_id
+                        and claimed["context"]["readiness"]["display_state"] == "active"
+                        and receipt["claim_request_id"] == claim_request_id,
+                        "Atomic claim-and-recall did not return active bounded context.",
+                    )
+                    replay = await tool(session, "claim_and_recall", claim_arguments)
+                    require(
+                        replay["lease"] == receipt,
+                        "An identical active claim did not replay the original receipt.",
+                    )
+                    ordinary_context = await tool(session, "recall_work", identity)
+                    ordinary_json = json.dumps(ordinary_context, sort_keys=True)
+                    require(
+                        lease_token not in ordinary_json
+                        and claim_request_id not in ordinary_json
+                        and ordinary_context["readiness"]["active_lease"] is not None,
+                        "Ordinary recall leaked a lease capability or omitted safe lease state.",
+                    )
+                    renewed = await tool(
+                        session,
+                        "renew_claim",
+                        {**identity, "lease_token": lease_token},
+                    )
+                    require(
+                        renewed["lease_token"] == lease_token
+                        and renewed["claim_request_id"] == claim_request_id
+                        and renewed["expires_at"] >= receipt["expires_at"],
+                        "Lease renewal did not retain the capability and extend its timestamps.",
+                    )
+                    after_lease = await tool(session, "get_work", identity)
+                    require(
+                        after_lease["version"] == current["version"]
+                        and after_lease["updated_at"] == current["updated_at"],
+                        "Lease operations unexpectedly changed work version or activity.",
+                    )
+                    denied_claim = await public.post(
+                        proxy + path + "/claim",
+                        headers={"Origin": args.web_url.rstrip("/")},
+                        json={
+                            "holder_client": SYNTHETIC_CLIENT,
+                            "holder_session_id": run_id,
+                            "claim_request_id": str(uuid4()),
+                        },
+                    )
+                    denied_token = await public.post(
+                        proxy + path + "/complete",
+                        headers={"Origin": args.web_url.rstrip("/")},
+                        json={
+                            "expected_version": current["version"],
+                            "checkpoint": checkpoint_input,
+                            "lease_token": lease_token,
+                        },
+                    )
+                    require(
+                        denied_claim.status_code == 404 and denied_token.status_code == 400,
+                        "Dashboard proxy accepted a lease route or token-bearing body.",
+                    )
+
                     completion_input = {
                         "prompt": (
                             "Synthetic validation completed: exact creation, pointer search, bounded "
@@ -426,6 +536,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             **identity,
                             "expected_version": current["version"],
                             "checkpoint": completion_input,
+                            "lease_token": lease_token,
                         },
                     )
                     require(
@@ -527,8 +638,9 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     print(
                         "PASS: canonical create/search/recall/checkpoints, resource/prompt, "
-                        "dashboard edit, typed stale conflict, atomic completion, default-open "
-                        "filtering, compatibility aliases and soft deletion"
+                        "dashboard edit, typed stale conflict, claim/replay/renew, token isolation, "
+                        "atomic leased completion, default-open filtering, compatibility aliases "
+                        "and soft deletion"
                     )
                 finally:
                     await cleanup_synthetic_work(
@@ -537,6 +649,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         marker,
                         run_id,
                         work_item_id,
+                        claim_request_id,
+                        lease_token,
                     )
 
 

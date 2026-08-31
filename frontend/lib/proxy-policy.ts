@@ -6,12 +6,15 @@ const CHECKPOINTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/checkpoints
 const WORK_CONTEXT = new RegExp(`^projects/${UUID}/work-items/${UUID}/context$`);
 const WORK_COMPLETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/complete$`);
 const WORK_DELETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/delete$`);
+const LEASE_CAPABILITY = new RegExp(`^projects/${UUID}/work-items/${UUID}/(?:claim|claim-and-recall|renew-claim|release-claim)$`);
 const HANDOFFS = new RegExp(`^projects/${UUID}/handoffs$`);
 const HANDOFF = new RegExp(`^projects/${UUID}/handoffs/${UUID}$`);
 const COMMENTS = new RegExp(`^projects/${UUID}/handoffs/${UUID}/comments$`);
 const COMPLETE = new RegExp(`^projects/${UUID}/handoffs/${UUID}/complete$`);
 
 export function allowedQueryKeys(path: string, method: string): string[] | null {
+  // Lease receipts and arguments carry browser-forbidden capabilities.
+  if (LEASE_CAPABILITY.test(path)) return null;
   if (path === "projects") {
     if (method === "GET") return ["limit", "offset"];
     if (method === "POST") return [];

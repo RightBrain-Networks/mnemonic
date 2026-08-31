@@ -20,6 +20,12 @@ HTTP proxy and the API’s data-free WebSocket endpoint consume this allowlist;
 recreate both services after changing it. Browser live sync reconnects
 automatically after a temporary interruption.
 
+`MNEMONIC_LEASE_TTL_SECONDS` controls every server-issued work lease. It
+defaults to 900 seconds and startup rejects values outside 60 through 3600.
+Clients cannot choose an expiry or request an unlimited claim. Changing the
+setting affects later acquisitions and renewals; it does not rewrite retained
+lease rows.
+
 Never set browser-public environment variables containing credentials. The
 dashboard's API key is a server-only setting. The database password must be
 URL-safe because it is interpolated into the API connection URL.
@@ -75,6 +81,34 @@ rollback has been rehearsed. After new work or checkpoint writes, old code
 cannot see them; safe rollback requires restoring the pre-cutover backup. An
 Alembic downgrade cannot losslessly collapse multiple checkpoints into one
 mutable legacy row.
+
+## Phase 2 contract and lease deployment
+
+Phase 2 follows the Phase 1 observation window. Before deploying it, confirm
+the canonical stack passed its parity audit and restore drill, take and verify a
+fresh custom-format backup, and obtain the explicit operator go/no-go to cross
+the contract boundary. `0006_work_graph_contract` drops the frozen legacy
+tables and unused ORM metadata; compatibility API/MCP operations continue over
+canonical work/checkpoint rows. This contract step is forward-only
+operationally: rollback after it is database restore, not Alembic downgrade.
+
+`0007_work_leases` then adds the optional lease table and expiry index. Deploy
+API, MCP, and dashboard images together so token-aware terminal mutations,
+claim tools, safe readiness projection, and browser denial agree. Validate one
+claim/replay/renew/completion flow after migration. A normal backup includes any
+retained lease rows, but an expired restored lease is not ownership and cannot
+strand work.
+
+Lease tokens are capabilities inside the existing single-user bearer-key trust
+boundary. They may appear only in claim/renew receipts and JSON request bodies.
+Keep MCP client tool traces private; never copy tokens into checkpoint text,
+URLs, tickets, chat, metrics, or logs. The dashboard intentionally cannot claim,
+renew, release, receive, or forward a token.
+
+Expired lease rows may remain indefinitely and are replaced atomically by a
+new request. There is no cleanup worker or force-release UI. For diagnostics,
+inspect only work ID, holder fields, and lease timestamps; avoid selecting or
+logging `lease_token`. TTL expiry is the abandoned-session recovery path.
 
 ## Backups
 
