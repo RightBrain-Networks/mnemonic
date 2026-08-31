@@ -1,0 +1,127 @@
+name: mnemonic
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: mnemonic
+      POSTGRES_USER: mnemonic
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/setup.py or configure .env first}
+    volumes:
+      - mnemonic_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U mnemonic -d mnemonic']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://mnemonic:${POSTGRES_PASSWORD}@postgres:5432/mnemonic
+      MNEMONIC_API_KEY: ${MNEMONIC_API_KEY:?Run scripts/setup.py or configure .env first}
+    ports:
+      - '127.0.0.1:${MNEMONIC_API_PORT:-8000}:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/readyz", timeout=3)']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    init: true
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+
+  mcp:
+    build: ./mcp
+    environment:
+      MNEMONIC_API_URL: http://api:8000
+      MNEMONIC_API_KEY: ${MNEMONIC_API_KEY}
+      MNEMONIC_MCP_HOST: 0.0.0.0
+      MNEMONIC_MCP_PORT: 8001
+      MNEMONIC_MCP_ALLOWED_HOSTS: 'localhost:${MNEMONIC_MCP_PORT:-8001},127.0.0.1:${MNEMONIC_MCP_PORT:-8001},[::1]:${MNEMONIC_MCP_PORT:-8001},127.0.0.1:8001,mcp:8001'
+      MNEMONIC_MCP_ALLOWED_ORIGINS: 'http://localhost:${MNEMONIC_MCP_PORT:-8001},http://127.0.0.1:${MNEMONIC_MCP_PORT:-8001}'
+    ports:
+      - '127.0.0.1:${MNEMONIC_MCP_PORT:-8001}:8001'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8001/healthz", timeout=3)']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    init: true
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+
+  web:
+    build: ./frontend
+    environment:
+      MNEMONIC_API_URL: http://api:8000
+      MNEMONIC_API_KEY: ${MNEMONIC_API_KEY}
+      MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_DASHBOARD_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+    ports:
+      - '127.0.0.1:${MNEMONIC_WEB_PORT:-3000}:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, 'fetch("http://127.0.0.1:3000/").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    init: true
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+
+  backup:
+    image: postgres:17-alpine
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: mnemonic
+      PGUSER: mnemonic
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      MNEMONIC_BACKUP_INTERVAL_SECONDS: ${MNEMONIC_BACKUP_INTERVAL_SECONDS:-86400}
+    volumes:
+      - ${MNEMONIC_BACKUP_DIR:-./backups}:/backups
+      - ./scripts/database:/opt/mnemonic:ro
+    entrypoint: [sh, /opt/mnemonic/backup.sh]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, sh, /opt/mnemonic/backup.sh, health]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    init: true
+    restart: unless-stopped
+
+  restore:
+    profiles: [maintenance]
+    image: postgres:17-alpine
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: mnemonic
+      PGUSER: mnemonic
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      MNEMONIC_RESTORE_FILE: ${MNEMONIC_RESTORE_FILE:-}
+      MNEMONIC_CONFIRM_RESTORE: ${MNEMONIC_CONFIRM_RESTORE:-}
+    volumes:
+      - ${MNEMONIC_BACKUP_DIR:-./backups}:/backups:ro
+      - ./scripts/database:/opt/mnemonic:ro
+    entrypoint: [sh, /opt/mnemonic/restore.sh]
+
+volumes:
+  mnemonic_data:

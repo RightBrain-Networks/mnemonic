@@ -1,0 +1,14 @@
+# Optional companion to deploy/nginx/mnemonic.conf. From the repository root:
+# docker compose -f compose.yaml -f compose.tls.yaml up -d --wait
+# Keep using both files for subsequent Compose operations on this deployment.
+# These exact public hosts/origins supplement the loopback configuration.
+# nginx uses a literal hostname: changing MNEMONIC_TLS_HOST also requires
+# editing its server_name, hostname guards, redirect, and certificate paths.
+services:
+  mcp:
+    environment:
+      MNEMONIC_MCP_ALLOWED_HOSTS: 'localhost:${MNEMONIC_MCP_PORT:-8001},127.0.0.1:${MNEMONIC_MCP_PORT:-8001},[::1]:${MNEMONIC_MCP_PORT:-8001},127.0.0.1:8001,mcp:8001,${MNEMONIC_TLS_HOST:-mnemonic.example.com}'
+      MNEMONIC_MCP_ALLOWED_ORIGINS: 'http://localhost:${MNEMONIC_MCP_PORT:-8001},http://127.0.0.1:${MNEMONIC_MCP_PORT:-8001},https://${MNEMONIC_TLS_HOST:-mnemonic.example.com}'
+  web:
+    environment:
+      MNEMONIC_DASHBOARD_ORIGINS: '${MNEMONIC_DASHBOARD_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000},https://${MNEMONIC_TLS_HOST:-mnemonic.example.com}'

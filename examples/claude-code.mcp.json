@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "mnemonic": {
+      "type": "http",
+      "url": "http://localhost:8001/mcp",
+      "headers": {
+        "Authorization": "Bearer ${MNEMONIC_API_KEY}"
+      }
+    }
+  }
+}

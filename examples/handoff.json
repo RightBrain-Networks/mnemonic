@@ -1,0 +1,18 @@
+{
+  "title": "Illustrative hand-off: verify backup restoration",
+  "summary": "Example only: a fresh session should verify that a database backup restores saved prompts and their provenance into an isolated database.",
+  "prompt": "This is an illustrative, agent-authored hand-off, not an owner instruction or permission to execute. Replace this sample with real session evidence before saving it. Current user instructions and cited authoritative records govern.\n\n## Context and reason\nA durable prompt store needs recoverable backups. A backup file existing is not proof that restoration works. This example makes no claim that a backup has been tested.\n\n## Intended outcome and scope\nWhen authorized, validate recovery using a separate disposable database; do not overwrite an active store.\n\n## Durable evidence\nRead the target project's checked-in backup and restoration instructions and inspect its actual backup format. Record exact paths and relevant commits in the real hand-off; this example has not checked them.\n\n## Known hazards and uncertainties\nA persistent Docker volume is not a backup. Restoring into the active database can destroy newer work. Backups may contain sensitive prompt text and must not be committed.\n\n## Verification\nCreate a disposable database, follow the documented restore procedure, and compare project IDs, hand-off text, original session IDs, lifecycle states and versions with the chosen backup snapshot. Confirm the original database is unchanged. Record the commands actually run and their observed results.\n",
+  "source_client": "example-only-replace-with-real-client",
+  "source_session_id": "example-only-replace-with-actual-origin-session-id",
+  "source_model": null,
+  "source_session_url": null,
+  "repository_branch": null,
+  "verified_against": null,
+  "tags": ["example", "backup"],
+  "source_metadata": {
+    "example_only": true,
+    "author_verified": false,
+    "note": "Illustrative REST body. Use a real client/session ID and actual evidence before saving. For MCP save_handoff, also supply project_id."
+  },
+  "status": "open"
+}

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "mnemonic": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "compose",
+        "--project-directory", "${MNEMONIC_ROOT}",
+        "-f", "${MNEMONIC_ROOT}/compose.yaml",
+        "run", "--rm", "-T", "--no-deps",
+        "mcp", "mnemonic-mcp", "--transport", "stdio"
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "mnemonic": {
+      "type": "remote",
+      "url": "http://localhost:8001/mcp",
+      "enabled": true,
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:MNEMONIC_API_KEY}"
+      }
+    }
+  }
+}

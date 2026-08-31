@@ -1,0 +1,30 @@
+from collections.abc import Iterator
+
+from fastapi import Request
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from mnemonic_api.config import Settings
+
+
+def build_engine(settings: Settings) -> Engine:
+    return create_engine(
+        settings.database_url.get_secret_value(),
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        pool_timeout=15,
+        connect_args={"connect_timeout": 5},
+        hide_parameters=True,
+    )
+
+
+def build_session_factory(engine: Engine) -> sessionmaker[Session]:
+    return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+def get_session(request: Request) -> Iterator[Session]:
+    # A failed request closes and rolls back its uncommitted transaction.
+    with request.app.state.session_factory() as session:
+        yield session

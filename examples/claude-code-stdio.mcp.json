@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "mnemonic": {
+      "type": "stdio",
+      "command": "${MNEMONIC_PYTHON}",
+      "args": ["-m", "mnemonic_mcp", "--transport", "stdio"],
+      "env": {
+        "MNEMONIC_API_URL": "http://127.0.0.1:8000",
+        "MNEMONIC_API_KEY": "${MNEMONIC_API_KEY}"
+      }
+    }
+  }
+}
