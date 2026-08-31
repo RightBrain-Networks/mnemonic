@@ -78,12 +78,11 @@ async def check(args: argparse.Namespace, key: str) -> None:
             "Dashboard render/key isolation failed.",
         )
         for font_path in (
-            "/fonts/space-grotesk-500.woff2",
-            "/fonts/space-grotesk-700.woff2",
-            "/fonts/ibm-plex-sans-400.woff2",
-            "/fonts/ibm-plex-sans-600.woff2",
-            "/fonts/ibm-plex-mono-400.woff2",
-            "/fonts/ibm-plex-mono-500.woff2",
+            "/fonts/alan-sans-arabic-variable.woff2",
+            "/fonts/alan-sans-latin-ext-variable.woff2",
+            "/fonts/alan-sans-latin-variable.woff2",
+            "/fonts/atkinson-hyperlegible-mono-latin-ext-variable.woff2",
+            "/fonts/atkinson-hyperlegible-mono-latin-variable.woff2",
         ):
             font = await public.get(args.web_url.rstrip("/") + font_path)
             require(
