@@ -47,7 +47,7 @@ def mutation_event(method: str, path: str) -> MutationEvent | None:
         return MutationEvent("projects", project_id=project_id) if method == "PATCH" else None
     if remaining[1] == "relationships":
         return MutationEvent("work-items", project_id=project_id)
-    if remaining[1] not in {"work-items", "handoffs"}:
+    if remaining[1] != "work-items":
         return None
     work_item_id = None
     if len(remaining) >= 3 and UUID_PATTERN.fullmatch(remaining[2]):

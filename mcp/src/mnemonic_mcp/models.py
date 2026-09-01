@@ -14,7 +14,6 @@ AppendCheckpointKind = Literal["context", "progress"]
 CheckpointOrder = Literal["oldest", "newest"]
 MigrationOrigin = Literal["legacy-handoff-snapshot", "legacy-comment"]
 DisplayState = Literal["ready", "active", "blocked", "done", "wont-do", "promoted"]
-CommentKind = Literal["comment", "work-summary"]
 RelationshipType = Literal[
     "blocks",
     "parent-child",
@@ -307,84 +306,3 @@ class WorkDeletionResult(CanonicalResponse):
     project_id: UUID
     work_item_id: UUID
     version: int
-
-
-# Deprecated hand-off projections remain during the compatibility window.
-class HandoffSummary(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    id: UUID
-    project_id: UUID
-    title: str
-    summary: str
-    source_client: str
-    source_session_id: str
-    source_model: str | None
-    source_session_url: str | None
-    repository_branch: str | None
-    verified_against: str | None
-    tags: list[str]
-    status: Status
-    created_at: datetime
-    updated_at: datetime
-    version: int
-
-
-class Handoff(HandoffSummary):
-    prompt: str
-    source_metadata: dict[str, JsonValue]
-
-
-class HandoffPage(BaseModel):
-    items: list[HandoffSummary]
-    total: int
-    limit: int
-    offset: int
-
-
-class HandoffComment(BaseModel):
-    id: UUID
-    handoff_id: UUID
-    body: str
-    kind: CommentKind
-    source_client: str
-    source_session_id: str
-    source_model: str | None
-    created_at: datetime
-
-
-class HandoffCommentPage(BaseModel):
-    items: list[HandoffComment]
-    total: int
-    limit: int
-    offset: int
-
-
-class HandoffCompletion(BaseModel):
-    handoff: Handoff
-    comment: HandoffComment
-
-
-class HandoffChanges(BaseModel):
-    """Deprecated flat updates may change work fields, never checkpoint fields."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    title: str | None = Field(default=None, min_length=1, max_length=200)
-    summary: str | None = Field(default=None, min_length=1, max_length=1000)
-    status: UpdateStatus | None = None
-
-    @model_validator(mode="after")
-    def require_changes(self) -> "HandoffChanges":
-        if not self.model_fields_set:
-            raise ValueError("Supply at least one editable field in changes.")
-        for name in self.model_fields_set:
-            if getattr(self, name) is None:
-                raise ValueError(f"{name} cannot be null.")
-        return self
-
-
-class HandoffDeletionResult(BaseModel):
-    deleted: bool = True
-    project_id: UUID
-    handoff_id: UUID

@@ -7,7 +7,6 @@ from conftest import (
     CHECKPOINT_ID,
     CLAIM_REQUEST_ID,
     EXPIRES_AT,
-    HANDOFF_ID,
     LEASE_TOKEN,
     LOCAL_VALIDATION_CASES,
     OTHER_CHECKPOINT_ID,
@@ -73,14 +72,6 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "update_work",
         "complete_work",
         "delete_work",
-        "save_handoff",
-        "search_handoffs",
-        "recall_handoff",
-        "list_handoff_comments",
-        "add_handoff_comment",
-        "complete_handoff",
-        "update_handoff",
-        "delete_handoff",
     }
     assert all(tool.outputSchema for tool in tools.values())
     assert all(
@@ -94,9 +85,6 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "recall_work",
         "get_relationship",
         "list_relationships",
-        "search_handoffs",
-        "recall_handoff",
-        "list_handoff_comments",
     ):
         assert tools[name].annotations.readOnlyHint is True
     for name in (
@@ -108,8 +96,6 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "renew_claim",
         "release_claim",
         "add_relationship",
-        "save_handoff",
-        "add_handoff_comment",
     ):
         assert tools[name].annotations.readOnlyHint is False
         assert tools[name].annotations.destructiveHint is False
@@ -118,9 +104,6 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "complete_work",
         "delete_work",
         "remove_relationship",
-        "update_handoff",
-        "complete_handoff",
-        "delete_handoff",
     ):
         assert tools[name].annotations.destructiveHint is True
     for name in ("claim_work", "claim_and_recall", "renew_claim"):
@@ -191,10 +174,6 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "update_work",
         "complete_work",
         "delete_work",
-        "add_handoff_comment",
-        "update_handoff",
-        "complete_handoff",
-        "delete_handoff",
     }
     for name in lease_capable_mutations:
         assert "lease_token" in tools[name].inputSchema["properties"]
@@ -279,23 +258,15 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "relationship_id",
         "removed",
     }
-    save_required = tools["save_handoff"].inputSchema["required"]
-    assert {"source_client", "source_session_id", "prompt", "summary"} <= set(save_required)
     search_work_schema = json.dumps(tools["search_work"].outputSchema)
     assert '"prompt"' not in search_work_schema
     assert '"source_metadata"' not in search_work_schema
     assert '"source_session_url"' not in search_work_schema
     assert tools["search_work"].inputSchema["properties"]["semantic"]["default"] is False
-    search_schema = json.dumps(tools["search_handoffs"].outputSchema)
-    assert '"prompt"' not in search_schema
-    assert '"source_metadata"' not in search_schema
-    assert tools["search_handoffs"].inputSchema["properties"]["semantic"]["default"] is False
     work_changes_schema = tools["update_work"].inputSchema["$defs"]["WorkChanges"]
     assert work_changes_schema["additionalProperties"] is False
     assert "prompt" not in work_changes_schema["properties"]
-    changes_schema = tools["update_handoff"].inputSchema["$defs"]["HandoffChanges"]
-    assert changes_schema["additionalProperties"] is False
-    assert "source_session_id" not in changes_schema["properties"]
+    assert "source_session_id" not in work_changes_schema["properties"]
     for name, tool in tools.items():
         if name not in {"claim_work", "claim_and_recall", "renew_claim"}:
             assert '"lease_token"' not in json.dumps(tool.outputSchema)
@@ -376,6 +347,7 @@ async def test_create_work_preserves_nested_checkpoint_and_returns_both_records(
     def handler(request):
         assert request.method == "POST"
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
+        assert request.extensions["timeout"]["read"] == 20.0
         assert json.loads(request.content) == {
             "title": work_item["title"],
             "summary": work_item["summary"],
@@ -651,6 +623,9 @@ async def test_search_work_is_open_only_and_pointer_only(settings, work_summary)
             "limit": "30",
             "offset": "0",
         }
+        assert request.extensions["timeout"]["read"] == 20.0
+        # The adapter must still enforce a compact output if an API regression
+        # accidentally adds full content to this response.
         return httpx.Response(
             200,
             json={"items": [upstream_summary], "total": 1, "limit": 30, "offset": 0},
@@ -799,7 +774,14 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
         f"mnemonic://projects/{PROJECT_ID}/work-items/{WORK_ID}"
     )
     resource_document = json.loads(next(iter(resources)).content)
+    assert resource_document["work_item"]["id"] == WORK_ID
     assert resource_document["checkpoint_total"] == 1
+    assert resource_document["omitted_checkpoint_count"] == 12
+    assert (
+        resource_document["initial_checkpoint"]["prompt"]
+        == work_context["initial_checkpoint"]["prompt"]
+    )
+    assert "comments" not in resource_document
     prompt = await server.get_prompt(
         "resume_work", {"project_id": PROJECT_ID, "work_item_id": WORK_ID}
     )
@@ -808,6 +790,10 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
     assert "claim_and_recall" in text
     assert "does not claim the work" in text
     assert "add_checkpoint" in text
+    assert work_context["initial_checkpoint"]["source_session_id"] in text
+    resumed = json.loads(text.split("\n\n", 1)[1])
+    assert resumed["work_item"]["id"] == WORK_ID
+    assert resumed["omitted_checkpoint_count"] == 12
     assert calls == [
         {"recent_limit": "3"},
         {"recent_limit": "5"},
@@ -1046,133 +1032,9 @@ async def test_canonical_mutations_send_optional_lease_token_only_in_body(
     ]
 
 
-async def test_legacy_mutations_send_optional_lease_token_only_in_body(
-    settings, handoff
-):
-    comment = {
-        "id": "20ec4ac9-4ac2-48cd-b0dc-3117b86e22c2",
-        "handoff_id": HANDOFF_ID,
-        "body": "Preserved useful progress.",
-        "kind": "comment",
-        "source_client": "claude-code",
-        "source_session_id": "claiming-session",
-        "source_model": None,
-        "created_at": handoff["created_at"],
-    }
-    seen = []
-
-    def handler(request):
-        seen.append(request.url.path)
-        assert LEASE_TOKEN not in str(request.url)
-        assert json.loads(request.content)["lease_token"] == LEASE_TOKEN
-        if request.url.path.endswith("/comments"):
-            return httpx.Response(201, json=comment)
-        if request.method == "PATCH":
-            return httpx.Response(
-                200,
-                json={**handoff, "status": "promoted", "version": 4},
-            )
-        if request.url.path.endswith("/complete"):
-            return httpx.Response(
-                200,
-                json={
-                    "handoff": {**handoff, "status": "done", "version": 4},
-                    "comment": {**comment, "kind": "work-summary"},
-                },
-            )
-        assert request.url.path.endswith("/delete")
-        return httpx.Response(
-            200,
-            json={
-                "deleted": True,
-                "project_id": PROJECT_ID,
-                "work_item_id": WORK_ID,
-                "version": 4,
-            },
-        )
-
-    server = adapter(settings, handler)
-    common = {
-        "project_id": PROJECT_ID,
-        "handoff_id": HANDOFF_ID,
-        "lease_token": LEASE_TOKEN,
-    }
-    await server.call_tool(
-        "add_handoff_comment",
-        {
-            **common,
-            "body": comment["body"],
-            "source_client": comment["source_client"],
-            "source_session_id": comment["source_session_id"],
-        },
-    )
-    await server.call_tool(
-        "update_handoff",
-        {**common, "expected_version": 3, "changes": {"status": "promoted"}},
-    )
-    await server.call_tool(
-        "complete_handoff",
-        {
-            **common,
-            "expected_version": 3,
-            "summary": comment["body"],
-            "source_client": comment["source_client"],
-            "source_session_id": comment["source_session_id"],
-        },
-    )
-    await server.call_tool("delete_handoff", {**common, "expected_version": 3})
-    assert seen == [
-        f"/api/v1/projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}/comments",
-        f"/api/v1/projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}",
-        f"/api/v1/projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}/complete",
-        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/delete",
-    ]
-
-
-async def test_save_preserves_prompt_session_and_metadata(settings, handoff):
-    prompt = "  Agent-authored proposal.\r\n\nCode: `x = 1`\nUnicode: β / 🔍\n  "
-    metadata = {"evidence": [{"path": "src/search.py", "verified": False}], "count": 2}
-
-    def handler(request):
-        assert request.method == "POST"
-        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/handoffs"
-        data = json.loads(request.content)
-        assert request.extensions["timeout"]["read"] == 20.0
-        assert data["prompt"] == prompt
-        assert data["source_session_id"] == handoff["source_session_id"]
-        assert data["source_metadata"] == metadata
-        assert data["status"] == "open"
-        return httpx.Response(201, json={**handoff, **data})
-
-    result = structured(await adapter(settings, handler).call_tool("save_handoff", {
-        "project_id": PROJECT_ID, "title": handoff["title"], "summary": handoff["summary"],
-        "prompt": prompt, "source_client": "claude-code",
-        "source_session_id": handoff["source_session_id"], "source_metadata": metadata,
-    }))
-    assert result["prompt"] == prompt
-    assert result["source_metadata"] == metadata
-
-
-async def test_search_is_open_only_and_pointer_only(settings, handoff):
-    def handler(request):
-        assert request.method == "GET"
-        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/handoffs"
-        assert dict(request.url.params) == {"q": "src/search.py", "status": "open", "limit": "30", "offset": "0"}
-        assert request.extensions["timeout"]["read"] == 20.0
-        # The adapter must still enforce a compact output if an API regression
-        # accidentally adds full content to this response.
-        return httpx.Response(200, json={"items": [handoff], "total": 1, "limit": 30, "offset": 0})
-
-    result = structured(await adapter(settings, handler).call_tool("search_handoffs", {
-        "project_id": PROJECT_ID, "q": "src/search.py",
-    }))
-    assert result["items"][0]["id"] == HANDOFF_ID
-    assert "prompt" not in result["items"][0]
-    assert "source_metadata" not in result["items"][0]
-
-
 async def test_search_passes_explicit_filters_and_pagination(settings):
     def handler(request):
+        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
         assert dict(request.url.params) == {
             "status": "all", "tag": "search", "source_client": "opencode",
             "source_session_id": "ses_123/opaque", "limit": "5", "offset": "10",
@@ -1182,7 +1044,7 @@ async def test_search_passes_explicit_filters_and_pagination(settings):
         assert request.extensions["timeout"]["connect"] == 5.0
         return httpx.Response(200, json={"items": [], "total": 10, "limit": 5, "offset": 10})
 
-    await adapter(settings, handler).call_tool("search_handoffs", {
+    await adapter(settings, handler).call_tool("search_work", {
         "project_id": PROJECT_ID, "status": "all", "tag": "search", "source_client": "opencode",
         "source_session_id": "ses_123/opaque", "semantic": True, "limit": 5, "offset": 10,
     })
@@ -1203,142 +1065,10 @@ async def test_semantic_search_unavailable_suggests_lexical_fallback(settings):
         )
 
     with pytest.raises(ToolError, match="semantic search is unavailable") as caught:
-        await adapter(settings, handler).call_tool("search_handoffs", {
+        await adapter(settings, handler).call_tool("search_work", {
             "project_id": PROJECT_ID, "q": "conceptual query", "semantic": True,
         })
     assert API_KEY not in str(caught.value)
-
-
-async def test_legacy_recall_and_mutable_updates_remain_project_scoped(settings, handoff):
-    seen = []
-
-    def handler(request):
-        seen.append(request.method)
-        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}"
-        if request.method == "PATCH":
-            assert json.loads(request.content) == {
-                "expected_version": 3,
-                "summary": "Updated durable identity.",
-                "status": "promoted",
-            }
-            return httpx.Response(
-                200,
-                json={
-                    **handoff,
-                    "summary": "Updated durable identity.",
-                    "status": "promoted",
-                    "version": 4,
-                },
-            )
-        return httpx.Response(200, json=handoff)
-
-    server = adapter(settings, handler)
-    recalled = structured(await server.call_tool("recall_handoff", {"project_id": PROJECT_ID, "handoff_id": HANDOFF_ID}))
-    assert recalled["prompt"] == handoff["prompt"]
-    updated = structured(await server.call_tool("update_handoff", {
-        "project_id": PROJECT_ID, "handoff_id": HANDOFF_ID, "expected_version": 3,
-        "changes": {"summary": "Updated durable identity.", "status": "promoted"},
-    }))
-    assert updated["version"] == 4
-    assert seen == ["GET", "PATCH"]
-
-
-
-async def test_comment_tools_preserve_progress_and_provenance(settings, handoff):
-    comment = {
-        "id": "20ec4ac9-4ac2-48cd-b0dc-3117b86e22c2",
-        "handoff_id": HANDOFF_ID,
-        "body": "Investigated the race; the focused test now passes.",
-        "kind": "comment",
-        "source_client": "claude-code",
-        "source_session_id": "progress-session",
-        "source_model": "test-model",
-        "created_at": handoff["created_at"],
-    }
-    seen = []
-
-    def handler(request):
-        seen.append(request.method)
-        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}/comments"
-        if request.method == "GET":
-            assert dict(request.url.params) == {"limit": "20", "offset": "5"}
-            return httpx.Response(
-                200, json={"items": [comment], "total": 6, "limit": 20, "offset": 5}
-            )
-        assert json.loads(request.content) == {
-            "body": comment["body"],
-            "source_client": "claude-code",
-            "source_session_id": "progress-session",
-            "source_model": "test-model",
-        }
-        return httpx.Response(201, json=comment)
-
-    server = adapter(settings, handler)
-    listed = structured(await server.call_tool("list_handoff_comments", {
-        "project_id": PROJECT_ID, "handoff_id": HANDOFF_ID, "limit": 20, "offset": 5,
-    }))
-    assert listed["items"][0]["body"] == comment["body"]
-    added = structured(await server.call_tool("add_handoff_comment", {
-        "project_id": PROJECT_ID,
-        "handoff_id": HANDOFF_ID,
-        "body": comment["body"],
-        "source_client": "claude-code",
-        "source_session_id": "progress-session",
-        "source_model": "test-model",
-    }))
-    assert added["kind"] == "comment"
-    assert seen == ["GET", "POST"]
-
-
-async def test_complete_handoff_sends_summary_and_returns_both_records(settings, handoff):
-    summary = "Implemented the fix and observed the focused and full suites pass."
-    comment = {
-        "id": "20ec4ac9-4ac2-48cd-b0dc-3117b86e22c2",
-        "handoff_id": HANDOFF_ID,
-        "body": summary,
-        "kind": "work-summary",
-        "source_client": "claude-code",
-        "source_session_id": "completing-session",
-        "source_model": None,
-        "created_at": handoff["created_at"],
-    }
-
-    def handler(request):
-        assert request.method == "POST"
-        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}/complete"
-        assert json.loads(request.content) == {
-            "expected_version": 3,
-            "summary": summary,
-            "source_client": "claude-code",
-            "source_session_id": "completing-session",
-            "source_model": None,
-        }
-        return httpx.Response(
-            200, json={"handoff": {**handoff, "status": "done", "version": 4}, "comment": comment}
-        )
-
-    completed = structured(await adapter(settings, handler).call_tool("complete_handoff", {
-        "project_id": PROJECT_ID,
-        "handoff_id": HANDOFF_ID,
-        "expected_version": 3,
-        "summary": summary,
-        "source_client": "claude-code",
-        "source_session_id": "completing-session",
-    }))
-    assert completed["handoff"]["status"] == "done"
-    assert completed["comment"]["body"] == summary
-
-
-@pytest.mark.parametrize("changes", [{}, {"source_session_id": "forged-session"}, {"prompt": None}, {"status": "done"}])
-async def test_invalid_update_never_reaches_api(settings, changes):
-    def handler(request):
-        pytest.fail("Invalid or immutable changes must not cross the HTTP boundary")
-
-    with pytest.raises(ToolError):
-        await adapter(settings, handler).call_tool("update_handoff", {
-            "project_id": PROJECT_ID, "handoff_id": HANDOFF_ID,
-            "expected_version": 3, "changes": changes,
-        })
 
 
 @pytest.mark.parametrize(
@@ -1356,9 +1086,27 @@ async def test_invalid_update_never_reaches_api(settings, changes):
             "expected_version": 3,
             "changes": {"prompt": "rewrite history"},
         },
+        {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "expected_version": 3,
+            "changes": {"source_session_id": "forged-session"},
+        },
+        {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "expected_version": 3,
+            "changes": {"summary": None},
+        },
+        {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "expected_version": 3,
+            "changes": {"status": "done"},
+        },
     ],
 )
-async def test_phase_one_update_rejects_empty_and_immutable_fields(settings, arguments):
+async def test_update_rejects_empty_and_immutable_fields(settings, arguments):
     def handler(request):
         pytest.fail("Invalid or immutable fields must not cross the HTTP boundary")
 
@@ -1373,14 +1121,14 @@ async def test_delete_passes_version_and_conflict_is_not_retried(settings):
         requests.append(request)
         assert request.method == "POST"
         assert request.url.path == (
-            f"/api/v1/projects/{PROJECT_ID}/work-items/{HANDOFF_ID}/delete"
+            f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/delete"
         )
         assert json.loads(request.content) == {"expected_version": 3}
         return httpx.Response(409, json={"detail": "internal database version details"})
 
     with pytest.raises(ToolError, match="Version conflict") as caught:
-        await adapter(settings, handler).call_tool("delete_handoff", {
-            "project_id": PROJECT_ID, "handoff_id": HANDOFF_ID, "expected_version": 3,
+        await adapter(settings, handler).call_tool("delete_work", {
+            "project_id": PROJECT_ID, "work_item_id": WORK_ID, "expected_version": 3,
         })
     assert "internal database" not in str(caught.value)
     assert len(requests) == 1
@@ -1518,83 +1266,6 @@ async def test_unknown_typed_error_does_not_fall_through_to_legacy_conflict_gues
     assert API_KEY not in str(caught.value)
 
 
-async def test_delete_returns_structured_receipt(settings):
-    def handler(request):
-        return httpx.Response(
-            200,
-            json={
-                "deleted": True,
-                "project_id": PROJECT_ID,
-                "work_item_id": HANDOFF_ID,
-                "version": 4,
-            },
-        )
-
-    server = adapter(settings, handler)
-    receipt = structured(await server.call_tool("delete_handoff", {
-        "project_id": PROJECT_ID, "handoff_id": HANDOFF_ID, "expected_version": 3,
-    }))
-    assert receipt == {"deleted": True, "project_id": PROJECT_ID, "handoff_id": HANDOFF_ID}
-
-
-async def test_legacy_resource_and_prompt_use_bounded_canonical_context(
-    settings, work_context
-):
-    bounded_context = {
-        **work_context,
-        "checkpoint_total": 15,
-        "omitted_checkpoint_count": 14,
-    }
-    calls = []
-
-    def handler(request):
-        calls.append((request.url.path, dict(request.url.params)))
-        assert request.url.path == (
-            f"/api/v1/projects/{PROJECT_ID}/work-items/{HANDOFF_ID}/context"
-        )
-        return httpx.Response(200, json=bounded_context)
-
-    server = adapter(settings, handler)
-    resources = await server.read_resource(
-        f"mnemonic://projects/{PROJECT_ID}/handoffs/{HANDOFF_ID}"
-    )
-    resource = next(iter(resources))
-    document = json.loads(resource.content)
-    assert document["work_item"]["id"] == HANDOFF_ID
-    assert (
-        document["initial_checkpoint"]["prompt"]
-        == work_context["initial_checkpoint"]["prompt"]
-    )
-    assert document["omitted_checkpoint_count"] == 14
-    assert "comments" not in document
-    assert "recall_work" in document["deprecated"]
-    assert "list_checkpoints" in document["history_guidance"]
-    assert "omitted_checkpoint_count" in document["history_guidance"]
-    prompt = await server.get_prompt(
-        "resume_handoff", {"project_id": PROJECT_ID, "handoff_id": HANDOFF_ID}
-    )
-    text = prompt.messages[0].content.text
-    assert "not a new owner instruction" in text
-    assert "claim_and_recall" in text
-    assert "does not claim the work" in text
-    assert "list_checkpoints" in text
-    assert work_context["initial_checkpoint"]["source_session_id"] in text
-    resumed = json.loads(text.split("\n\n", 1)[1])
-    assert resumed["work_item"]["id"] == HANDOFF_ID
-    assert resumed["omitted_checkpoint_count"] == 14
-    assert "resume_work" in resumed["deprecated"]
-    assert calls == [
-        (
-            f"/api/v1/projects/{PROJECT_ID}/work-items/{HANDOFF_ID}/context",
-            {"recent_limit": "5"},
-        ),
-        (
-            f"/api/v1/projects/{PROJECT_ID}/work-items/{HANDOFF_ID}/context",
-            {"recent_limit": "5"},
-        ),
-    ]
-
-
 @pytest.mark.parametrize("status, expected", [
     (401, "authentication failed"), (403, "authentication failed"),
     (404, "not found in this project"), (500, "could not complete"),
@@ -1605,7 +1276,9 @@ async def test_upstream_errors_are_actionable_and_do_not_leak_details(settings, 
         return httpx.Response(status, json={"detail": f"private URL http://api:8000 and {API_KEY}"})
 
     with pytest.raises(ToolError, match=expected) as caught:
-        await adapter(settings, handler).call_tool("recall_handoff", {"project_id": PROJECT_ID, "handoff_id": HANDOFF_ID})
+        await adapter(settings, handler).call_tool(
+            "recall_work", {"project_id": PROJECT_ID, "work_item_id": WORK_ID}
+        )
     assert API_KEY not in str(caught.value)
     assert "http://api:8000" not in str(caught.value)
 
@@ -1817,6 +1490,6 @@ async def test_invalid_project_id_cannot_alter_request_path(settings):
         pytest.fail("Path-like project ID must not reach the REST service")
 
     with pytest.raises(ToolError):
-        await adapter(settings, handler).call_tool("recall_handoff", {
-            "project_id": "../other-project", "handoff_id": HANDOFF_ID,
+        await adapter(settings, handler).call_tool("recall_work", {
+            "project_id": "../other-project", "work_item_id": WORK_ID,
         })

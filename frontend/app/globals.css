@@ -199,9 +199,9 @@ button { touch-action: manipulation; }
 .filter-dot { height: 5px; width: 5px; border-radius: 50%; background: #448a6b; }
 .result-count { color: #839087; font-size: 11px; white-space: nowrap; }
 
-.handoff-list { display: grid; gap: 14px; }
-.handoff-card { min-width: 0; padding: 22px 24px 17px; border: 1px solid #e0e5de; border-radius: 11px; background: var(--surface); box-shadow: 0 2px 2px #24382a02; transition: border-color .15s, box-shadow .15s; }
-.handoff-card:hover { border-color: #bccaBA; box-shadow: 0 4px 14px #24382a05; }
+.work-list { display: grid; gap: 14px; }
+.work-item-card { min-width: 0; padding: 22px 24px 17px; border: 1px solid #e0e5de; border-radius: 11px; background: var(--surface); box-shadow: 0 2px 2px #24382a02; transition: border-color .15s, box-shadow .15s; }
+.work-item-card:hover { border-color: #bccaBA; box-shadow: 0 4px 14px #24382a05; }
 .card-topline { display: flex; align-items: center; gap: 13px; margin-bottom: 13px; min-width: 0; }
 .status-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border-radius: 4px; font-size: 10px; line-height: 1.5; font-weight: 600; white-space: nowrap; }
 .status-badge > span { height: 4px; width: 4px; background: currentColor; border-radius: 50%; }
@@ -367,8 +367,8 @@ button { touch-action: manipulation; }
 
 @media (min-width: 1500px) {
   .page-content { padding-top: 58px; }
-  .handoff-card { padding: 25px 28px 19px; }
-  .handoff-list { gap: 17px; }
+  .work-item-card { padding: 25px 28px 19px; }
+  .work-list { gap: 17px; }
   .card-title h2 { font-size: 18px; }
 }
 @media (max-width: 1100px) {
@@ -424,7 +424,7 @@ button { touch-action: manipulation; }
   .status-filters { width: 100%; justify-content: space-between; gap: 2px; }
   .filter-button { font-size: 11px; padding: 7px 9px; }
   .result-count { font-size: 10px; margin-left: 2px; }
-  .handoff-card { padding: 18px 17px 13px; }
+  .work-item-card { padding: 18px 17px 13px; }
   .card-topline { gap: 9px; }
   .card-source { font-size: 9px; gap: 5px; }
   .card-version { display: none; }
@@ -549,8 +549,8 @@ button { touch-action: manipulation; }
 .semantic-toggle.selected .semantic-switch { border-color: var(--accent); background: #ffc5aa; }
 .semantic-toggle.selected .semantic-switch > span { background: var(--accent); }
 
-.handoff-card { border-color: #e4d8c4; box-shadow: 0 2px 2px #25113005; }
-.handoff-card:hover { border-color: var(--accent); box-shadow: 0 6px 18px #2511300d; }
+.work-item-card { border-color: #e4d8c4; box-shadow: 0 2px 2px #25113005; }
+.work-item-card:hover { border-color: var(--accent); box-shadow: 0 6px 18px #2511300d; }
 .status-open { color: #477800; background: #efffd7; }
 .status-done { color: #6d35d7; background: var(--violet-soft); }
 .status-wont-do { color: #6b5b45; background: #f5eddc; }
@@ -682,9 +682,9 @@ button { touch-action: manipulation; }
   padding-left: 0;
   border-left-style: dotted;
 }
-.hierarchy-scaffold > .hierarchy-node-row > .hierarchy-card > .handoff-card { border-style: dashed; background: #faf5e9; box-shadow: none; }
-.hierarchy-scaffold > .hierarchy-node-row > .hierarchy-card > .handoff-card .card-summary,
-.hierarchy-scaffold > .hierarchy-node-row > .hierarchy-card > .handoff-card .card-source { color: #786f62; }
+.hierarchy-scaffold > .hierarchy-node-row > .hierarchy-card > .work-item-card { border-style: dashed; background: #faf5e9; box-shadow: none; }
+.hierarchy-scaffold > .hierarchy-node-row > .hierarchy-card > .work-item-card .card-summary,
+.hierarchy-scaffold > .hierarchy-node-row > .hierarchy-card > .work-item-card .card-source { color: #786f62; }
 .scaffold-label { display: inline-flex; margin: 0 0 6px 4px; color: #756944; font: 700 8px/1.5 var(--mono); text-transform: uppercase; letter-spacing: .45px; }
 .hierarchy-loading, .hierarchy-error, .hierarchy-guard { padding: 12px 14px; border: 1px dashed #d8c8ae; border-radius: 7px; color: var(--muted); background: #faf5e9; font-size: 10px; }
 .hierarchy-error, .hierarchy-guard { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 12px; }

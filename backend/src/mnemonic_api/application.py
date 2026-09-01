@@ -14,7 +14,6 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
-    Response,
     WebSocket,
     status,
 )
@@ -39,19 +38,7 @@ from mnemonic_api.schemas import (
     ChildrenListQuery,
     ClaimAndRecall,
     ClaimReceipt,
-    CompletionCheckpointCreate,
-    HandoffCommentCreate,
-    HandoffCommentListQuery,
-    HandoffCommentRead,
-    HandoffCompletionCreate,
-    HandoffCompletionRead,
-    HandoffCreate,
-    HandoffListQuery,
-    HandoffPatch,
-    HandoffRead,
-    HandoffSummary,
     HierarchySummary,
-    InitialCheckpointCreate,
     LeaseTokenCreate,
     Page,
     ProjectCreate,
@@ -96,10 +83,6 @@ from mnemonic_api.services.relationships import (
 from mnemonic_api.services.work_context import (
     assemble_work_context,
     checkpoint_read,
-    initial_checkpoint,
-    legacy_comment_read,
-    legacy_handoff_read,
-    legacy_handoff_summary,
     work_summaries,
 )
 from mnemonic_api.services.work_items import (
@@ -179,11 +162,9 @@ def _matching_checkpoint_exists(work_item_id, *conditions):
 
 def _search_work_rows(
     project_id: UUID,
-    filters: WorkItemListQuery | HandoffListQuery,
+    filters: WorkItemListQuery,
     request: Request,
     database: Session,
-    *,
-    legacy_filters: bool,
 ) -> tuple[list[WorkItem], int]:
     require_project(database, project_id)
     conditions = [WorkItem.project_id == project_id, WorkItem.deleted_at.is_(None)]
@@ -208,16 +189,7 @@ def _search_work_rows(
     if filters.source_session_id is not None:
         checkpoint_filters.append(Checkpoint.source_session_id == filters.source_session_id)
     if checkpoint_filters:
-        if legacy_filters:
-            checkpoint_filters.extend(
-                [
-                    Checkpoint.id == WorkItem.initial_checkpoint_id,
-                    Checkpoint.work_item_id == WorkItem.id,
-                ]
-            )
-            conditions.append(select(Checkpoint.id).where(*checkpoint_filters).exists())
-        else:
-            conditions.append(_matching_checkpoint_exists(WorkItem.id, *checkpoint_filters))
+        conditions.append(_matching_checkpoint_exists(WorkItem.id, *checkpoint_filters))
 
     query = (filters.q or "").strip()
     semantic_search = filters.semantic and bool(query)
@@ -310,18 +282,6 @@ def _search_work_rows(
         )
     )
     return work_items, total
-
-
-def _initial_checkpoints_by_work(
-    database: Session, work_items: list[WorkItem]
-) -> dict[UUID, Checkpoint]:
-    initial_ids = [work_item.initial_checkpoint_id for work_item in work_items]
-    if not initial_ids:
-        return {}
-    checkpoints = database.scalars(select(Checkpoint).where(Checkpoint.id.in_(initial_ids)))
-    return {checkpoint.work_item_id: checkpoint for checkpoint in checkpoints}
-
-
 @router.get("/projects", response_model=Page[ProjectRead])
 def list_projects(
     filters: Annotated[ProjectListQuery, Query()], database: Database
@@ -409,9 +369,7 @@ def search_work(
             limit=filters.limit,
             offset=filters.offset,
         )
-    work_items, total = _search_work_rows(
-        project_id, filters, request, database, legacy_filters=False
-    )
+    work_items, total = _search_work_rows(project_id, filters, request, database)
     summaries = work_summaries(database, work_items)
     if (filters.q or "").strip():
         paths, truncated = ancestor_paths(
@@ -753,205 +711,6 @@ def release_claim(
     result = release_lease_record(database, work_item, payload.lease_token)
     database.commit()
     return result
-
-
-# Deprecated compatibility routes. All reads and writes project canonical rows.
-@router.post(
-    "/projects/{project_id}/handoffs",
-    response_model=HandoffRead,
-    status_code=201,
-    deprecated=True,
-)
-def save_handoff(project_id: UUID, payload: HandoffCreate, database: Database) -> HandoffRead:
-    initial = InitialCheckpointCreate(
-        prompt=payload.prompt,
-        source_client=payload.source_client,
-        source_session_id=payload.source_session_id,
-        source_model=payload.source_model,
-        source_session_url=payload.source_session_url,
-        repository_branch=payload.repository_branch,
-        verified_against=payload.verified_against,
-        tags=payload.tags,
-        source_metadata=payload.source_metadata,
-    )
-    canonical = WorkItemCreate(
-        title=payload.title,
-        summary=payload.summary,
-        status=payload.status,
-        initial_checkpoint=initial,
-    )
-    work_item, checkpoint, _relationships = create_work_records(database, project_id, canonical)
-    database.commit()
-    database.refresh(work_item)
-    database.refresh(checkpoint)
-    return legacy_handoff_read(work_item, checkpoint)
-
-
-@router.get(
-    "/projects/{project_id}/handoffs",
-    response_model=Page[HandoffSummary],
-    deprecated=True,
-)
-def search_handoffs(
-    project_id: UUID,
-    filters: Annotated[HandoffListQuery, Query()],
-    request: Request,
-    database: Database,
-) -> Page[HandoffSummary]:
-    work_items, total = _search_work_rows(
-        project_id, filters, request, database, legacy_filters=True
-    )
-    initials = _initial_checkpoints_by_work(database, work_items)
-    return Page(
-        items=[legacy_handoff_summary(item, initials[item.id]) for item in work_items],
-        total=total,
-        limit=filters.limit,
-        offset=filters.offset,
-    )
-
-
-@router.get(
-    "/projects/{project_id}/handoffs/{handoff_id}/comments",
-    response_model=Page[HandoffCommentRead],
-    deprecated=True,
-)
-def list_handoff_comments(
-    project_id: UUID,
-    handoff_id: UUID,
-    filters: Annotated[HandoffCommentListQuery, Query()],
-    database: Database,
-) -> Page[HandoffCommentRead]:
-    work_item = require_work_item(database, project_id, handoff_id)
-    condition = (
-        (Checkpoint.work_item_id == work_item.id)
-        & (Checkpoint.id != work_item.initial_checkpoint_id)
-    )
-    total = database.scalar(select(func.count()).select_from(Checkpoint).where(condition)) or 0
-    checkpoints = database.scalars(
-        select(Checkpoint)
-        .where(condition)
-        .order_by(Checkpoint.created_at, Checkpoint.id)
-        .limit(filters.limit)
-        .offset(filters.offset)
-    )
-    return Page(
-        items=[legacy_comment_read(checkpoint) for checkpoint in checkpoints],
-        total=total,
-        limit=filters.limit,
-        offset=filters.offset,
-    )
-
-
-@router.post(
-    "/projects/{project_id}/handoffs/{handoff_id}/comments",
-    response_model=HandoffCommentRead,
-    status_code=201,
-    deprecated=True,
-)
-def add_handoff_comment(
-    project_id: UUID,
-    handoff_id: UUID,
-    payload: HandoffCommentCreate,
-    database: Database,
-) -> HandoffCommentRead:
-    work_item = require_work_item(
-        database,
-        project_id,
-        handoff_id,
-        lock=payload.lease_token is not None,
-    )
-    canonical = CheckpointCreate(
-        kind="progress",
-        prompt=payload.body,
-        source_client=payload.source_client,
-        source_session_id=payload.source_session_id,
-        source_model=payload.source_model,
-        lease_token=payload.lease_token,
-    )
-    checkpoint = append_checkpoint_record(database, work_item, canonical)
-    database.commit()
-    database.refresh(checkpoint)
-    return legacy_comment_read(checkpoint)
-
-
-@router.post(
-    "/projects/{project_id}/handoffs/{handoff_id}/complete",
-    response_model=HandoffCompletionRead,
-    deprecated=True,
-)
-def complete_handoff(
-    project_id: UUID,
-    handoff_id: UUID,
-    payload: HandoffCompletionCreate,
-    database: Database,
-) -> HandoffCompletionRead:
-    work_item = require_work_item(database, project_id, handoff_id, lock=True)
-    canonical = CompletionCheckpointCreate(
-        prompt=payload.summary,
-        source_client=payload.source_client,
-        source_session_id=payload.source_session_id,
-        source_model=payload.source_model,
-    )
-    checkpoint = complete_work_record(
-        database,
-        work_item,
-        payload.expected_version,
-        canonical,
-        payload.lease_token,
-    )
-    initial = initial_checkpoint(database, work_item)
-    database.commit()
-    database.refresh(work_item)
-    database.refresh(checkpoint)
-    return HandoffCompletionRead(
-        handoff=legacy_handoff_read(work_item, initial),
-        comment=legacy_comment_read(checkpoint),
-    )
-
-
-@router.get(
-    "/projects/{project_id}/handoffs/{handoff_id}",
-    response_model=HandoffRead,
-    deprecated=True,
-)
-def recall_handoff(project_id: UUID, handoff_id: UUID, database: Database) -> HandoffRead:
-    work_item = require_work_item(database, project_id, handoff_id)
-    return legacy_handoff_read(work_item, initial_checkpoint(database, work_item))
-
-
-@router.patch(
-    "/projects/{project_id}/handoffs/{handoff_id}",
-    response_model=HandoffRead,
-    deprecated=True,
-)
-def update_handoff(
-    project_id: UUID,
-    handoff_id: UUID,
-    payload: HandoffPatch,
-    database: Database,
-) -> HandoffRead:
-    work_item = require_work_item(database, project_id, handoff_id, lock=True)
-    canonical = WorkItemPatch(**payload.model_dump(exclude_unset=True))
-    update_work_record(database, work_item, canonical)
-    initial = initial_checkpoint(database, work_item)
-    database.commit()
-    database.refresh(work_item)
-    return legacy_handoff_read(work_item, initial)
-
-
-@router.delete(
-    "/projects/{project_id}/handoffs/{handoff_id}", status_code=204, deprecated=True
-)
-def delete_handoff(
-    project_id: UUID,
-    handoff_id: UUID,
-    expected_version: Annotated[int, Query(ge=1)],
-    database: Database,
-) -> Response:
-    work_item = require_work_item(database, project_id, handoff_id, lock=True)
-    delete_work_record(database, work_item, expected_version)
-    database.commit()
-    return Response(status_code=204)
 
 
 def create_app(

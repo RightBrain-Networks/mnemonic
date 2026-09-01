@@ -18,7 +18,7 @@ continue the same objective without multiplying its human-visible identity.
 
 - You build with Claude Code (*support for additional platforms coming soon*).
 
-- Important hand-offs and follow-up tasks are often overlooked because they 
+- Important context and follow-up tasks are often overlooked because they 
 get buried under overly verbose LLM output.
 
 - Dozens or hundreds of transient Markdown documents are cluttering 
@@ -92,9 +92,8 @@ In PowerShell, the URL and header expressions are
 so set the port variable explicitly there. Do not paste the real key into
 tracked project configuration. Configuration examples, including a Docker stdio
 alternative and OpenCode, live in [`examples/`](examples/); they show the
-default ports and need the same substitution if yours differ. The canonical
-[`work.json`](examples/work.json) supersedes the explicitly deprecated
-[`handoff.json`](examples/handoff.json) compatibility example.
+default ports and need the same substitution if yours differ.
+[`work.json`](examples/work.json) is the canonical example.
 
 Copy the three folders under [`skills/`](skills/) into the target project's
 `.claude/skills/` directory, or into `~/.claude/skills/` for personal use:
@@ -166,8 +165,6 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 - Requires the matching lease token for completion, retirement, promotion, or
   deletion while work has an active lease. Checkpoint append remains open and
   lease operations do not alter work version or activity time.
-- Preserves deprecated hand-off REST/MCP calls as projections over the canonical
-  work/checkpoint tables during the compatibility window.
 - Saves a PostgreSQL backup at startup and daily, retaining earlier dumps.
 
 It does **not** automatically execute checkpoints, grant authority by claiming,

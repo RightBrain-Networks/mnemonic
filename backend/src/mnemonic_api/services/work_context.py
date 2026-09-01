@@ -1,4 +1,4 @@
-"""Canonical projections for bounded context, summaries, and legacy aliases."""
+"""Canonical projections for bounded context and work summaries."""
 
 from collections.abc import Sequence
 from typing import Any
@@ -12,9 +12,6 @@ from mnemonic_api.models import Checkpoint, WorkItem, WorkLease
 from mnemonic_api.schemas import (
     CheckpointPointer,
     CheckpointRead,
-    HandoffCommentRead,
-    HandoffRead,
-    HandoffSummary,
     LeasePublic,
     Readiness,
     WorkContext,
@@ -60,18 +57,6 @@ def readiness(
         is_ready=not terminal and not has_active_lease and not is_blocked,
         display_state=display_state,
     )
-
-
-def initial_checkpoint(database: Session, work_item: WorkItem) -> Checkpoint:
-    checkpoint = database.scalar(
-        select(Checkpoint).where(
-            Checkpoint.work_item_id == work_item.id,
-            Checkpoint.id == work_item.initial_checkpoint_id,
-        )
-    )
-    if checkpoint is None:  # Protected by a deferred database foreign key.
-        raise RuntimeError("Work item is missing its initial checkpoint")
-    return checkpoint
 
 
 def work_summaries(database: Session, work_items: Sequence[WorkItem]) -> list[WorkSummary]:
@@ -427,43 +412,4 @@ def assemble_work_context(
         outgoing_relationships=row["outgoing_relationships"],
         undirected_relationships=row["undirected_relationships"],
         relationship_counts=row["relationship_counts"],
-    )
-
-
-def legacy_handoff_read(work_item: WorkItem, checkpoint: Checkpoint) -> HandoffRead:
-    return HandoffRead(
-        id=work_item.id,
-        project_id=work_item.project_id,
-        title=work_item.title,
-        summary=work_item.summary,
-        prompt=checkpoint.prompt,
-        source_client=checkpoint.source_client,
-        source_session_id=checkpoint.source_session_id,
-        source_model=checkpoint.source_model,
-        source_session_url=checkpoint.source_session_url,
-        repository_branch=checkpoint.repository_branch,
-        verified_against=checkpoint.verified_against,
-        tags=checkpoint.tags,
-        source_metadata=checkpoint.source_metadata,
-        status=work_item.status,
-        version=work_item.version,
-        created_at=work_item.created_at,
-        updated_at=work_item.updated_at,
-    )
-
-
-def legacy_handoff_summary(work_item: WorkItem, checkpoint: Checkpoint) -> HandoffSummary:
-    return HandoffSummary.model_validate(legacy_handoff_read(work_item, checkpoint))
-
-
-def legacy_comment_read(checkpoint: Checkpoint) -> HandoffCommentRead:
-    return HandoffCommentRead(
-        id=checkpoint.id,
-        handoff_id=checkpoint.work_item_id,
-        body=checkpoint.prompt,
-        kind="work-summary" if checkpoint.kind == "completion" else "comment",
-        source_client=checkpoint.source_client,
-        source_session_id=checkpoint.source_session_id,
-        source_model=checkpoint.source_model,
-        created_at=checkpoint.created_at,
     )

@@ -334,29 +334,6 @@ ancestor retained only to navigate to a matching descendant.
 Pages retain `items`, `total`, `limit`, and `offset`.
 `CompletionResult` contains `work_item` and `checkpoint`.
 
-## Deprecated hand-off compatibility
-
-The old `/projects/{project_id}/handoffs` routes remain available during the
-cutover window, but all reads and writes use canonical tables:
-
-- save creates work plus its initial checkpoint;
-- search returns a unique compact work projection;
-- recall flattens work fields with the preserved initial checkpoint;
-- comment listing projects every later checkpoint (`completion` becomes
-  `work-summary`, other kinds become `comment`);
-- comment append creates a progress checkpoint;
-- completion uses canonical atomic completion;
-- update permits title, summary, and non-completion lifecycle changes only and
-  accepts a token for an actively leased terminal transition;
-- `DELETE /{handoff_id}?expected_version=N` remains query-versioned and
-  returns 204 only while unleased and without any remaining relationship. The
-  MCP `delete_handoff` alias uses the canonical JSON action, accepts an optional
-  token, and enforces the same relationship guard.
-
-Legacy source/tag filters apply to the initial checkpoint to preserve their old
-meaning. Prompt, checkpoint provenance, repository fields, tags, and metadata
-cannot be rewritten through legacy update. Old IDs remain resolvable.
-
 ## MCP contract
 
 Canonical tools are:
@@ -374,9 +351,8 @@ The resource
 `resume_work` return bounded context. Neither executes stored work or grants
 authority.
 
-The eight hand-off tools, old resource URI, and `resume_handoff` remain as
-deprecated projections. MCP error handling maps stable application codes and
-also accepts legacy string errors during the compatibility window.
+MCP error handling maps stable application codes and also tolerates plain
+string error bodies.
 
 Every top-level tool input schema rejects unknown fields and publishes
 `additionalProperties: false`. Direct, HTTP, and stdio validation failures

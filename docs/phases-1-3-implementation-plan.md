@@ -7,6 +7,8 @@
 **Source of product intent:** `docs/roadmap.md`
 **Planning constraint:** This document defines the work; it does not implement it.
 
+**Later change (2026-08-31):** the deprecated hand-off compatibility surface this plan preserved — the eight MCP tools, the `/projects/{project_id}/handoffs` REST routes, the `handoffs` resource URI, and the `resume_handoff` prompt — has since been removed. The text below is kept as the original plan.
+
 ## 1. Outcome
 
 After these three phases, Mnemonic will no longer treat a hand-off prompt as the durable unit of work. A project will contain stable `WorkItem` records, and any number of agent sessions will be able to append immutable `Checkpoint` records to the same item. Agents will be able to claim open, unblocked work through an expiring server-arbitrated lease, and work items will participate in a typed, project-local graph.

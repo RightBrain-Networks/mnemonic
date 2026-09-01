@@ -103,7 +103,6 @@ test("one work item groups immutable checkpoints through its full dashboard life
   const pointer = await page.evaluate(() => navigator.clipboard.readText());
   expect(pointer).toContain("work_item_id");
   expect(pointer).toContain("recall_work");
-  expect(pointer).not.toContain("handoff_id");
 
   await card.getByRole("button", { name: title, exact: true }).click();
   detail = page.getByRole("dialog", { name: "Work context" });

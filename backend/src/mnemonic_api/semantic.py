@@ -137,12 +137,12 @@ def _cached_embeddings(
         )
         for work_item in work_items
     }
-    digests = {handoff_id: _digest(text) for handoff_id, text in texts.items()}
+    digests = {work_item_id: _digest(text) for work_item_id, text in texts.items()}
     vectors = {
-        handoff_id: list(row.vector)
-        for handoff_id, row in cached.items()
+        work_item_id: list(row.vector)
+        for work_item_id, row in cached.items()
         if row.model == EMBED_CONFIG
-        and row.digest == digests[handoff_id]
+        and row.digest == digests[work_item_id]
         and _valid_vector(row.vector)
     }
     stale = [work_item for work_item in work_items if work_item.id not in vectors]

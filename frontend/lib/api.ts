@@ -82,8 +82,3 @@ export function workItemPath(projectId: string, workItemId?: string): string {
   const base = `/projects/${encodeURIComponent(projectId)}/work-items`;
   return workItemId ? `${base}/${encodeURIComponent(workItemId)}` : base;
 }
-
-// Retained for compatibility-only callers during the canonical cutover.
-export function handoffPath(projectId: string, handoffId: string): string {
-  return `/projects/${encodeURIComponent(projectId)}/handoffs/${encodeURIComponent(handoffId)}`;
-}

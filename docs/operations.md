@@ -70,7 +70,7 @@ legacy rows while writers are quiesced. Before deploying that image:
 5. deploy API, MCP, and dashboard images as one compatible stack.
 
 The Phase 1 runtime head retains the legacy tables read-only for an observation
-window. Canonical and deprecated compatibility endpoints both use
+window. Canonical endpoints use
 `work_items`/`checkpoints`; there is no dual-write path. Do not drop the
 legacy tables until migrated counts and representative exact values have been
 audited, a post-upgrade backup has passed an isolated restore drill, and the
@@ -88,8 +88,7 @@ Phase 2 follows the Phase 1 observation window. Before deploying it, confirm
 the canonical stack passed its parity audit and restore drill, take and verify a
 fresh custom-format backup, and obtain the explicit operator go/no-go to cross
 the contract boundary. `0006_work_graph_contract` drops the frozen legacy
-tables and unused ORM metadata; compatibility API/MCP operations continue over
-canonical work/checkpoint rows. This contract step is forward-only
+tables and unused ORM metadata. This contract step is forward-only
 operationally: rollback after it is database restore, not Alembic downgrade.
 
 `0007_work_leases` then adds the optional lease table and expiry index. Deploy
@@ -159,7 +158,7 @@ The local PostgreSQL volume and a backup on the same disk can both be lost.
 An archive listing check is not a restore drill. Periodically restore a dump
 into an isolated PostgreSQL instance and verify representative projects, work
 items, checkpoint history, exact relationship source/target/context/provenance,
-derived readiness, hierarchy navigation, compatibility reads, and the expected
+derived readiness, hierarchy navigation, and the expected
 `alembic_version`. Keep the PostgreSQL major version compatible with the dump
 tools.
 

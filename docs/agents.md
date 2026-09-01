@@ -4,7 +4,7 @@ Mnemonic Phase 3 separates durable work identity from session context, uses
 expiring server-arbitrated leases for temporary execution responsibility, and
 adds an explicit typed work graph with derived readiness and hierarchical
 browse. Use canonical work/checkpoint/claim/relationship tools for new
-automation. Hand-off tools remain deprecated compatibility aliases.
+automation.
 
 ## Create or continue work
 
@@ -123,7 +123,7 @@ other work rather than working around it.
 
 Use `add_checkpoint` for a cold-session-useful observation:
 
-- `context` is a complete hand-off or a correction for a later session;
+- `context` is a complete resume brief or a correction for a later session;
 - `progress` records a finding, decision, blocker, next step, or verification;
 - `completion` cannot be appended directly.
 
@@ -182,26 +182,6 @@ timeout may have occurred after the database committed. Claims use only the
 same-request replay rule above. Never report success if the adapter reported an
 error. Keep credentials, lease tokens, private transcripts, and unrelated
 personal information out of checkpoints and metadata.
-
-## Compatibility tools
-
-Existing integrations may temporarily use `save_handoff`,
-`search_handoffs`, `recall_handoff`, `list_handoff_comments`,
-`add_handoff_comment`, `complete_handoff`, `update_handoff`, and
-`delete_handoff`. They resolve to canonical work/checkpoint rows:
-
-- a saved hand-off is work plus its initial checkpoint;
-- the flat recalled prompt always comes from that preserved initial checkpoint;
-- later checkpoints appear through the legacy comments timeline;
-- legacy updates may change work title, summary, and lifecycle, but cannot
-  rewrite checkpoint prompt/provenance/tags;
-- legacy completion/terminal mutations accept the matching lease token, while
-  direct legacy REST deletion requires the expected version, no active lease,
-  and no remaining relationship.
-
-Copied pointers should migrate to `work_item_id` and `recall_work`. Old
-resource URIs and `resume_handoff` continue resolving during the compatibility
-window, but new workflows should not depend on them.
 
 ## Client portability
 

@@ -384,11 +384,9 @@ def test_search_aggregates_checkpoint_hits_and_filter_contract(api, project, wor
     assert api.get(
         collection(project), params={"source_session_id": "shared-hit-b"}
     ).json()["total"] == 1
-    legacy = f"/api/v1/projects/{project['id']}/handoffs"
-    assert api.get(legacy, params={"tag": "later-tag"}).json()["total"] == 0
-    assert api.get(legacy, params={"tag": "initial-only"}).json()["items"][0]["id"] == second[
-        "work_item"
-    ]["id"]
+    initial_only = api.get(collection(project), params={"tag": "initial-only"}).json()
+    assert initial_only["total"] == 1
+    assert initial_only["items"][0]["work_item"]["id"] == second["work_item"]["id"]
 
 
 def test_cross_project_isolation_and_two_appenders_plus_editor_succeed(

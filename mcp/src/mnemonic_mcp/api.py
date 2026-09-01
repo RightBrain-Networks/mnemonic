@@ -142,7 +142,7 @@ class MnemonicAPI:
             )
         if response.status_code == 404:
             raise ToolError(
-                "The requested project, work item, checkpoint, relationship, or hand-off was not found "
+                "The requested project, work item, checkpoint, or relationship was not found "
                 "in this project."
             )
 

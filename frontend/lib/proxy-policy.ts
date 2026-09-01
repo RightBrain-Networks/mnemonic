@@ -11,10 +11,6 @@ const RELATIONSHIP = new RegExp(`^projects/${UUID}/relationships/${UUID}$`);
 const WORK_COMPLETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/complete$`);
 const WORK_DELETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/delete$`);
 const LEASE_CAPABILITY = new RegExp(`^projects/${UUID}/work-items/${UUID}/(?:claim|claim-and-recall|renew-claim|release-claim)$`);
-const HANDOFFS = new RegExp(`^projects/${UUID}/handoffs$`);
-const HANDOFF = new RegExp(`^projects/${UUID}/handoffs/${UUID}$`);
-const COMMENTS = new RegExp(`^projects/${UUID}/handoffs/${UUID}/comments$`);
-const COMPLETE = new RegExp(`^projects/${UUID}/handoffs/${UUID}/complete$`);
 
 export function allowedQueryKeys(path: string, method: string): string[] | null {
   // Lease receipts and arguments carry browser-forbidden capabilities.
@@ -46,19 +42,6 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   if (RELATIONSHIP.test(path) && method === "DELETE") return [];
   if (WORK_COMPLETE.test(path) && method === "POST") return [];
   if (WORK_DELETE.test(path) && method === "POST") return [];
-  if (HANDOFFS.test(path)) {
-    if (method === "GET") return ["q", "semantic", "status", "tag", "source_client", "source_session_id", "limit", "offset"];
-    if (method === "POST") return [];
-  }
-  if (HANDOFF.test(path)) {
-    if (method === "GET" || method === "PATCH") return [];
-    if (method === "DELETE") return ["expected_version"];
-  }
-  if (COMMENTS.test(path)) {
-    if (method === "GET") return ["limit", "offset"];
-    if (method === "POST") return [];
-  }
-  if (COMPLETE.test(path) && method === "POST") return [];
   return null;
 }
 

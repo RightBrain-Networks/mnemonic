@@ -12,10 +12,7 @@ from mnemonic_api.main import create_app
 from mnemonic_api.schemas import (
     CheckpointCreate,
     CompletionCheckpointCreate,
-    HandoffCommentCreate,
-    HandoffCompletionCreate,
-    HandoffCreate,
-    HandoffPatch,
+    InitialCheckpointCreate,
     LeaseTokenCreate,
     ProjectCreate,
     ProjectPatch,
@@ -27,12 +24,12 @@ from mnemonic_api.schemas import (
 )
 
 
-def test_prompt_is_exact_and_metadata_survives(handoff_payload):
-    handoff_payload["prompt"] += "\nUnicode: café 日本語 🧠\t"
-    handoff_payload["tags"] = ["  CACHE ", "cache", "Correctness"]
-    parsed = HandoffCreate.model_validate(handoff_payload)
-    assert parsed.prompt == handoff_payload["prompt"]
-    assert parsed.source_metadata == handoff_payload["source_metadata"]
+def test_prompt_is_exact_and_metadata_survives(checkpoint_fields):
+    checkpoint_fields["prompt"] += "\nUnicode: café 日本語 🧠\t"
+    checkpoint_fields["tags"] = ["  CACHE ", "cache", "Correctness"]
+    parsed = InitialCheckpointCreate.model_validate(checkpoint_fields)
+    assert parsed.prompt == checkpoint_fields["prompt"]
+    assert parsed.source_metadata == checkpoint_fields["source_metadata"]
     assert parsed.tags == ["cache", "correctness"]
     assert parsed.source_session_id == "3d46fe7a-session:opaque_001"
 
@@ -71,35 +68,51 @@ def test_prompt_is_exact_and_metadata_survives(handoff_payload):
     ],
     ids=lambda value: repr(value)[:32],
 )
-def test_rejects_invalid_capture(handoff_payload, field, invalid):
-    handoff_payload[field] = invalid
-    with pytest.raises(ValidationError):
-        HandoffCreate.model_validate(handoff_payload)
+def test_rejects_invalid_capture(work_payload, checkpoint_fields, field, invalid):
+    # Work identity fields belong to WorkItemCreate; every provenance field belongs to
+    # the checkpoint model. Both reach the same shared Annotated types in schemas.py.
+    if field in {"title", "summary", "status"}:
+        with pytest.raises(ValidationError):
+            WorkItemCreate.model_validate({**work_payload, field: invalid})
+    else:
+        with pytest.raises(ValidationError):
+            InitialCheckpointCreate.model_validate({**checkpoint_fields, field: invalid})
 
 
-def test_comment_and_completion_text_are_exact_and_require_provenance():
+def test_progress_and_completion_text_are_exact_and_require_provenance():
     body = "  Changed the parser.\r\n\nFocused tests passed. 🧠\n  "
-    comment = HandoffCommentCreate(
-        body=body,
+    progress = CheckpointCreate(
+        kind="progress",
+        prompt=body,
         source_client="claude-code",
         source_session_id="real-session",
     )
-    assert comment.body == body
-    completion = HandoffCompletionCreate(
-        expected_version=2,
-        summary=body,
+    assert progress.kind == "progress"
+    assert progress.prompt == body
+    completion = CompletionCheckpointCreate(
+        prompt=body,
         source_client="claude-code",
         source_session_id="real-session",
     )
-    assert completion.summary == body
+    assert completion.prompt == body
+    assert WorkCompletionCreate.model_validate(
+        {
+            "expected_version": 2,
+            "checkpoint": {
+                "prompt": body,
+                "source_client": "claude-code",
+                "source_session_id": "real-session",
+            },
+        }
+    ).checkpoint.prompt == body
     for model, payload in [
-        (HandoffCommentCreate, {"body": body, "source_client": "claude-code"}),
+        (CheckpointCreate, {"kind": "progress", "prompt": body, "source_client": "claude-code"}),
+        (CompletionCheckpointCreate, {"prompt": body, "source_client": "claude-code"}),
         (
-            HandoffCompletionCreate,
+            WorkCompletionCreate,
             {
                 "expected_version": 2,
-                "summary": body,
-                "source_client": "claude-code",
+                "checkpoint": {"prompt": body, "source_client": "claude-code"},
             },
         ),
     ]:
@@ -107,20 +120,12 @@ def test_comment_and_completion_text_are_exact_and_require_provenance():
             model.model_validate(payload)
 
 
-@pytest.mark.parametrize("body", [" ", "x" * 50001, "NUL\x00comment", "Invalid\ud800"])
-def test_comment_body_validation(body):
+def test_missing_provenance_is_not_invented(work_payload, checkpoint_fields):
+    del checkpoint_fields["source_session_id"]
     with pytest.raises(ValidationError):
-        HandoffCommentCreate(
-            body=body,
-            source_client="dashboard",
-            source_session_id="browser-session",
-        )
-
-
-def test_missing_provenance_is_not_invented(handoff_payload):
-    del handoff_payload["source_session_id"]
+        InitialCheckpointCreate.model_validate(checkpoint_fields)
     with pytest.raises(ValidationError):
-        HandoffCreate.model_validate(handoff_payload)
+        WorkItemCreate.model_validate({**work_payload, "initial_checkpoint": checkpoint_fields})
 
 
 @pytest.mark.parametrize(
@@ -144,18 +149,17 @@ def test_missing_provenance_is_not_invented(handoff_payload):
 )
 def test_patch_requires_version_and_preserves_immutable_provenance(payload):
     with pytest.raises(ValidationError):
-        HandoffPatch.model_validate(payload)
+        WorkItemPatch.model_validate(payload)
 
 
-def test_done_requires_the_completion_workflow(handoff_payload):
-    handoff_payload["status"] = "done"
+def test_done_requires_the_completion_workflow(work_payload):
     with pytest.raises(ValidationError):
-        HandoffCreate.model_validate(handoff_payload)
+        WorkItemCreate.model_validate({**work_payload, "status": "done"})
     with pytest.raises(ValidationError):
-        HandoffPatch(expected_version=1, status="done")
+        WorkItemPatch(expected_version=1, status="done")
 
 
-def test_legacy_patch_cannot_rewrite_checkpoint_fields():
+def test_patch_cannot_rewrite_checkpoint_fields():
     for field, value in [
         ("prompt", "rewritten"),
         ("source_client", "replacement"),
@@ -164,9 +168,10 @@ def test_legacy_patch_cannot_rewrite_checkpoint_fields():
         ("verified_against", None),
         ("tags", ["replacement"]),
         ("source_metadata", {}),
+        ("kind", "progress"),
     ]:
         with pytest.raises(ValidationError):
-            HandoffPatch.model_validate({"expected_version": 1, field: value})
+            WorkItemPatch.model_validate({"expected_version": 1, field: value})
 
 
 def test_canonical_create_priority_status_and_checkpoint_kind_contract(work_payload):
@@ -243,9 +248,11 @@ def test_project_patch_rejects_invalid_edits(payload):
         ProjectPatch.model_validate(payload)
 
 
-def test_unknown_fields_rejected(handoff_payload):
+def test_unknown_fields_rejected(work_payload, checkpoint_fields):
     with pytest.raises(ValidationError):
-        HandoffCreate.model_validate({**handoff_payload, "assignee": "someone"})
+        WorkItemCreate.model_validate({**work_payload, "assignee": "someone"})
+    with pytest.raises(ValidationError):
+        InitialCheckpointCreate.model_validate({**checkpoint_fields, "assignee": "someone"})
 
 
 def test_settings_require_long_key_and_postgres():
@@ -324,20 +331,6 @@ def test_every_token_bearing_request_hides_capability_from_repr_but_serializes_i
         ),
         WorkDeletionCreate(expected_version=1, lease_token=lease_token),
         LeaseTokenCreate(lease_token=lease_token),
-        HandoffPatch(expected_version=1, title="Updated title", lease_token=lease_token),
-        HandoffCommentCreate(
-            body="Exact legacy progress.",
-            source_client="claude-code",
-            source_session_id="token-repr-session",
-            lease_token=lease_token,
-        ),
-        HandoffCompletionCreate(
-            expected_version=1,
-            summary="Exact legacy completion.",
-            source_client="claude-code",
-            source_session_id="token-repr-session",
-            lease_token=lease_token,
-        ),
     ]
     for model in models:
         assert lease_token not in repr(model), type(model).__name__
@@ -442,12 +435,16 @@ def test_authentication_precedes_lease_query_validation():
         {"prompt": "Invalid\ud800Unicode"},
     ],
 )
-def test_invalid_input_has_serializable_422_errors(changes, handoff_payload):
+def test_invalid_input_has_serializable_422_errors(changes, work_payload):
     settings = Settings(database_url="postgresql://localhost:1/unavailable", api_key="x" * 32)
-    raw_body = json.dumps({**handoff_payload, **changes}, ensure_ascii=True, allow_nan=True)
+    raw_body = json.dumps(
+        {**work_payload, "initial_checkpoint": {**work_payload["initial_checkpoint"], **changes}},
+        ensure_ascii=True,
+        allow_nan=True,
+    )
     with TestClient(create_app(settings), raise_server_exceptions=False) as client:
         response = client.post(
-            "/api/v1/projects/00000000-0000-0000-0000-000000000000/handoffs",
+            "/api/v1/projects/00000000-0000-0000-0000-000000000000/work-items",
             content=raw_body,
             headers={"Authorization": "Bearer " + "x" * 32, "Content-Type": "application/json"},
         )

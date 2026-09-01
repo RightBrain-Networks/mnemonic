@@ -218,7 +218,3 @@ export interface WorkPatch {
   priority?: number;
   status?: MutableWorkStatus;
 }
-
-// Compatibility aliases remain during the Phase 1 cutover.
-export type HandoffStatus = WorkStatus;
-export type HandoffCommentKind = "comment" | "work-summary";

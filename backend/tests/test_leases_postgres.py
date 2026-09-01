@@ -398,8 +398,8 @@ def test_terminal_mutations_require_active_token_and_consume_the_lease(
     assert UUID(deleted_work["id"]) not in retained_ids
 
 
-def test_checkpoint_tokens_expired_terminal_behavior_and_legacy_aliases(
-    api, project, work_payload, handoff_payload, postgres_engine
+def test_checkpoint_tokens_and_expired_terminal_behavior(
+    api, project, work_payload, postgres_engine
 ):
     work_item = create_work(api, project, work_payload)["work_item"]
     endpoint = item_path(project, work_item)
@@ -435,36 +435,6 @@ def test_checkpoint_tokens_expired_terminal_behavior_and_legacy_aliases(
     assert stale.json()["detail"]["code"] == "lease_expired"
     promoted = api.patch(endpoint, json={"expected_version": 1, "status": "promoted"})
     assert promoted.status_code == 200
-
-    legacy = api.post(
-        f"/api/v1/projects/{project['id']}/handoffs", json=handoff_payload
-    ).json()
-    legacy_canonical = f"{collection(project)}/{legacy['id']}"
-    legacy_path = f"/api/v1/projects/{project['id']}/handoffs/{legacy['id']}"
-    legacy_claim = api.post(
-        f"{legacy_canonical}/claim", json=claim_payload("legacy-request")
-    ).json()
-    assert api.delete(legacy_path, params={"expected_version": 1}).status_code == 409
-    legacy_comment = api.post(
-        f"{legacy_path}/comments",
-        json={
-            "body": "Legacy checkpoint with a validated capability.",
-            "source_client": "claude-code",
-            "source_session_id": "legacy-observer",
-            "lease_token": legacy_claim["lease_token"],
-        },
-    )
-    assert legacy_comment.status_code == 201
-    legacy_retired = api.patch(
-        legacy_path,
-        json={
-            "expected_version": 1,
-            "status": "promoted",
-            "lease_token": legacy_claim["lease_token"],
-        },
-    )
-    assert legacy_retired.status_code == 200
-    assert legacy_retired.json()["status"] == "promoted"
 
 
 def test_terminal_deleted_and_cross_project_claims_are_rejected_without_token_leakage(
@@ -530,7 +500,7 @@ def test_terminal_deleted_and_cross_project_claims_are_rejected_without_token_le
 
 
 def test_capabilities_are_body_only_and_lease_routes_reject_every_query_parameter(
-    api, project, work_payload, handoff_payload, postgres_engine, caplog
+    api, project, work_payload, postgres_engine, caplog
 ):
     work_item = create_work(api, project, work_payload)["work_item"]
     endpoint = item_path(project, work_item)
@@ -575,45 +545,37 @@ def test_capabilities_are_body_only_and_lease_routes_reject_every_query_paramete
             "lease_token": receipt["lease_token"],
         },
     )
-    for response in [rejected_renew, rejected_release, rejected_terminal]:
+    rejected_deletion = api.post(
+        f"{endpoint}/delete",
+        params={"lease_token": query_token},
+        json={"expected_version": 1, "lease_token": receipt["lease_token"]},
+    )
+    for response in [rejected_renew, rejected_release, rejected_terminal, rejected_deletion]:
         assert response.status_code == 422
         assert query_token not in response.text
         assert query_value not in response.text
         assert receipt["lease_token"] not in response.text
 
-    # The rejected release and terminal transition had no side effects.
+    # The rejected release, terminal transition, and deletion had no side effects.
     replay = api.post(f"{endpoint}/claim", json=payload)
     assert replay.status_code == 200
     assert replay.json() == receipt
     assert api.get(endpoint).json()["status"] == "open"
 
-    legacy = api.post(
-        f"/api/v1/projects/{project['id']}/handoffs",
-        json={
-            **handoff_payload,
-            "title": "Legacy query policy",
-            "source_session_id": "legacy-query-policy",
-        },
-    ).json()
-    legacy_path = f"/api/v1/projects/{project['id']}/handoffs/{legacy['id']}"
-    legacy_query_token = "legacy-url-capability-" + uuid4().hex
-    rejected_legacy_delete = api.delete(
-        legacy_path,
-        params={"expected_version": 1, "lease_token": legacy_query_token},
-    )
-    assert rejected_legacy_delete.status_code == 422
-    assert legacy_query_token not in rejected_legacy_delete.text
-    assert api.get(legacy_path).status_code == 200
-
-    # Ordinary retrieval queries and the documented legacy delete query remain valid.
+    # Ordinary retrieval queries remain valid, and the same capability is accepted
+    # once it is carried in the request body instead of the URL.
     search = api.get(collection(project), params={"q": "cache", "status": "all"})
     assert search.status_code == 200
     assert search.json()["total"] >= 1
-    assert api.delete(legacy_path, params={"expected_version": 1}).status_code == 204
+    accepted_deletion = api.post(
+        f"{endpoint}/delete",
+        json={"expected_version": 1, "lease_token": receipt["lease_token"]},
+    )
+    assert accepted_deletion.status_code == 200
+    assert api.get(endpoint).status_code == 404
 
     assert query_token not in caplog.text
     assert query_value not in caplog.text
-    assert legacy_query_token not in caplog.text
     assert receipt["lease_token"] not in caplog.text
 
 

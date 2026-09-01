@@ -11,7 +11,7 @@ import {
 
 const origins = configuredOrigins();
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
-const handoff = "f1cf3691-7d28-4716-94a9-4867b341a685";
+const other = "f1cf3691-7d28-4716-94a9-4867b341a685";
 const work = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const headers = (overrides = {}) => new Headers({ host: "localhost:3000", ...overrides });
 
@@ -67,29 +67,19 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/children`, "GET"), ["status", "tag", "source_client", "source_session_id", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/relationships`, "GET"), ["direction", "type", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/relationships`, "POST"), []);
-  assert.equal(allowedQueryKeys(`projects/${project}/relationships/${handoff}`, "GET"), null);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/relationships/${handoff}`, "DELETE"), []);
+  assert.equal(allowedQueryKeys(`projects/${project}/relationships/${other}`, "GET"), null);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/relationships/${other}`, "DELETE"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "GET"), ["order", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/complete`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/delete`, "POST"), []);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs`, "GET"), ["q", "semantic", "status", "tag", "source_client", "source_session_id", "limit", "offset"]);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "GET"), []);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "PATCH"), []);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "DELETE"), ["expected_version"]);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/comments`, "GET"), ["limit", "offset"]);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/comments`, "POST"), []);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/complete`, "POST"), []);
-  for (const path of ["sync", "healthz", "readyz", "docs", "openapi.json", "projects/../docs", "projects/%2e%2e/docs", "projects/not-a-uuid", `projects/${project}/handoffs/invalid`, "https://attacker.example", "//attacker.example"]) {
+  for (const path of ["sync", "healthz", "readyz", "docs", "openapi.json", "projects/../docs", "projects/%2e%2e/docs", "projects/not-a-uuid", `projects/${project}/unknown-collection`, "https://attacker.example", "//attacker.example"]) {
     assert.equal(allowedQueryKeys(path, "GET"), null);
   }
   assert.equal(allowedQueryKeys(`projects/${project}`, "DELETE"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}`, "DELETE"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "PATCH"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/context`, "POST"), null);
-  assert.equal(allowedQueryKeys(`projects/${project}/handoffs/${handoff}`, "PUT"), null);
-  assert.equal(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/comments`, "DELETE"), null);
-  assert.equal(allowedQueryKeys(`projects/${project}/handoffs/${handoff}/complete`, "GET"), null);
 });
 
 test("all lease-capability routes are denied to the browser proxy", () => {
@@ -107,17 +97,13 @@ test("mutation bodies reject capability tokens at any nesting level", () => {
   assert.equal(forbiddenMutationField({ checkpoint: { source_metadata: [{ lease_token: "secret" }] } }), "lease_token");
 });
 
-test("canonical and compatibility mutation bodies cannot carry lease tokens", () => {
+test("canonical mutation bodies cannot carry lease tokens", () => {
   const browserMutations = [
     [`projects/${project}/work-items/${work}`, "PATCH"],
     [`projects/${project}/work-items/${work}/complete`, "POST"],
     [`projects/${project}/work-items/${work}/delete`, "POST"],
     [`projects/${project}/work-items/${work}/checkpoints`, "POST"],
-    [`projects/${project}/relationships`, "POST"],
-    [`projects/${project}/handoffs/${handoff}`, "PATCH"],
-    [`projects/${project}/handoffs/${handoff}/complete`, "POST"],
-    [`projects/${project}/handoffs/${handoff}/comments`, "POST"],
-    [`projects/${project}/handoffs/${handoff}`, "DELETE"]
+    [`projects/${project}/relationships`, "POST"]
   ];
   for (const [path, method] of browserMutations) {
     assert.notEqual(allowedQueryKeys(path, method), null, `${method} ${path} should otherwise be allowed`);

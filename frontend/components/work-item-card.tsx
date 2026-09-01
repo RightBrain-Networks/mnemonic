@@ -79,7 +79,7 @@ export default function WorkItemCard({
 }: Props) {
   const work = summary.work_item;
   const context = summary.current_context;
-  return <article className="handoff-card work-item-card">
+  return <article className="work-item-card">
     <div className="card-topline">
       <StatusBadge status={work.status} />
       <OperationalBadge readiness={summary.readiness} />

@@ -80,10 +80,8 @@ def project(api: TestClient) -> dict:
 
 
 @pytest.fixture
-def handoff_payload() -> dict:
+def checkpoint_fields() -> dict:
     return {
-        "title": "Investigate stale cache entries",
-        "summary": "Cached state survives invalidation after a branch switch.",
         "prompt": (
             "  Agent-authored proposal; recheck the current tree before acting.\r\n\r\n"
             "Context: investigate cache state in src/cache.py.\n"
@@ -104,25 +102,10 @@ def handoff_payload() -> dict:
 
 
 @pytest.fixture
-def work_payload(handoff_payload: dict) -> dict:
+def work_payload(checkpoint_fields: dict) -> dict:
     return {
-        "title": handoff_payload["title"],
-        "summary": handoff_payload["summary"],
+        "title": "Investigate stale cache entries",
+        "summary": "Cached state survives invalidation after a branch switch.",
         "priority": 30,
-        "initial_checkpoint": {
-            key: value
-            for key, value in handoff_payload.items()
-            if key
-            in {
-                "prompt",
-                "source_client",
-                "source_session_id",
-                "source_model",
-                "source_session_url",
-                "repository_branch",
-                "verified_against",
-                "tags",
-                "source_metadata",
-            }
-        },
+        "initial_checkpoint": dict(checkpoint_fields),
     }

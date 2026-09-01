@@ -296,14 +296,10 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
         with TestClient(create_app(settings, engine=engine)) as client:
             client.headers["Authorization"] = f"Bearer {api_key}"
             canonical_base = f"/api/v1/projects/{project_id}/work-items"
-            legacy_base = f"/api/v1/projects/{project_id}/handoffs"
             for visible_id in [open_id, done_id, promoted_id]:
                 assert client.get(f"{canonical_base}/{visible_id}").status_code == 200
-                assert client.get(f"{legacy_base}/{visible_id}").status_code == 200
             assert client.get(f"{canonical_base}/{handoff_id}").status_code == 404
-            assert client.get(f"{legacy_base}/{handoff_id}").status_code == 404
             assert client.get(canonical_base, params={"status": "all"}).json()["total"] == 3
-            assert client.get(legacy_base, params={"status": "all"}).json()["total"] == 3
             legacy_tag_match = client.get(canonical_base, params={"tag": "mixedlegacy"})
             assert legacy_tag_match.status_code == 200
             assert [item["work_item"]["id"] for item in legacy_tag_match.json()["items"]] == [
@@ -315,8 +311,7 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
                 "legacy-handoff-snapshot"
             )
             assert context.json()["initial_checkpoint"]["legacy_record_id"] == str(open_id)
-            legacy_open = client.get(f"{legacy_base}/{open_id}").json()
-            assert legacy_open["prompt"] == "Exact open checkpoint."
+            assert context.json()["initial_checkpoint"]["prompt"] == "Exact open checkpoint."
 
         # The deterministic collision mapping is stable for this source row.
         with engine.connect() as connection:

@@ -23,7 +23,7 @@ from pydantic import AnyUrl
 
 from mcp import ClientSession
 
-CANONICAL_AND_COMPATIBILITY_TOOLS = {
+CANONICAL_TOOLS = {
     "list_projects",
     "create_project",
     "create_work",
@@ -43,14 +43,6 @@ CANONICAL_AND_COMPATIBILITY_TOOLS = {
     "get_relationship",
     "list_relationships",
     "remove_relationship",
-    "save_handoff",
-    "search_handoffs",
-    "recall_handoff",
-    "list_handoff_comments",
-    "add_handoff_comment",
-    "complete_handoff",
-    "update_handoff",
-    "delete_handoff",
 }
 SYNTHETIC_CLIENT = "mnemonic-stack-check"
 
@@ -380,12 +372,12 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 catalog = await session.list_tools()
                 require(
                     {entry.name for entry in catalog.tools}
-                    == CANONICAL_AND_COMPATIBILITY_TOOLS,
+                    == CANONICAL_TOOLS,
                     "Unexpected MCP tool catalog.",
                 )
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: real MCP initialization, canonical/compatibility tool discovery, "
+                    "PASS: real MCP initialization, canonical tool discovery, "
                     "and REST-backed project listing"
                 )
                 if not args.project_id:
@@ -981,56 +973,6 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "Completed work was lost from explicit history.",
                     )
 
-                    legacy_found = await tool(
-                        session,
-                        "search_handoffs",
-                        {"project_id": project_id, "q": primary_marker, "status": "all"},
-                    )
-                    legacy_identity = {
-                        "project_id": project_id,
-                        "handoff_id": work_item_id,
-                    }
-                    legacy_recalled = await tool(
-                        session, "recall_handoff", legacy_identity
-                    )
-                    legacy_timeline = await tool(
-                        session, "list_handoff_comments", legacy_identity
-                    )
-                    require(
-                        legacy_found["total"] == 1
-                        and legacy_found["items"][0]["id"] == work_item_id
-                        and legacy_recalled["id"] == work_item_id
-                        and legacy_recalled["prompt"] == prompt
-                        and legacy_timeline["total"] == 2
-                        and [entry["kind"] for entry in legacy_timeline["items"]]
-                        == ["comment", "work-summary"],
-                        "Deprecated hand-off aliases did not resolve the canonical records.",
-                    )
-                    legacy_resource = await session.read_resource(
-                        AnyUrl(
-                            f"mnemonic://projects/{project_id}/handoffs/{work_item_id}"
-                        )
-                    )
-                    legacy_resource_document = json.loads(
-                        legacy_resource.contents[0].text
-                    )
-                    require(
-                        "deprecated" in legacy_resource_document
-                        and legacy_resource_document["work_item"]["id"] == work_item_id
-                        and "comments" not in legacy_resource_document
-                        and "list_checkpoints"
-                        in legacy_resource_document["history_guidance"],
-                        "Legacy resource did not return bounded canonical context with "
-                        "deprecation and history guidance.",
-                    )
-                    legacy_resumed = await session.get_prompt(
-                        "resume_handoff", legacy_identity
-                    )
-                    require(
-                        bool(legacy_resumed.messages),
-                        "Legacy resume prompt no longer resolves.",
-                    )
-
                     for relationship_id in sorted(active_relationship_ids):
                         removed = await tool(
                             session,
@@ -1077,21 +1019,12 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             == 404,
                             "Soft-deleted synthetic work remains readable.",
                         )
-                    require(
-                        (
-                            await api.get(
-                                f"projects/{project_id}/handoffs/{work_item_id}"
-                            )
-                        ).status_code
-                        == 404,
-                        "Soft-deleted primary remains readable through the legacy route.",
-                    )
                     print(
                         "PASS: canonical create/search/recall/checkpoints, resource/prompt, "
                         "dashboard edit, typed stale conflict, claim/replay/renew, token isolation, "
                         "blocker readiness and restored claimability, atomic child/discovery, "
-                        "hierarchy browse, leased completion, default-open filtering, compatibility "
-                        "aliases, graph removal and soft deletion"
+                        "hierarchy browse, leased completion, default-open filtering, "
+                        "graph removal and soft deletion"
                     )
                 finally:
                     await cleanup_synthetic_work(

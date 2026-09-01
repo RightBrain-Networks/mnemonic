@@ -41,8 +41,7 @@ The Phase 3 backend suite verifies:
   text/provenance parity, preserved IDs, migration markers, and frozen legacy
   tables;
 - the `0006` contract boundary and `0007` lease schema, including model parity,
-  constraints, indexes, and compatibility aliases after physical legacy-table
-  removal;
+  constraints, and indexes after physical legacy-table removal;
 - the `0008` typed-relationship schema, composite project scoping, normalized
   identity, context ownership, one-parent constraint, and lookup indexes;
 - atomic work-plus-initial-checkpoint creation, pointer-only grouped search,
@@ -63,8 +62,8 @@ The Phase 3 backend suite verifies:
   active-plus-blocked recovery, and relationship-protected deletion;
 - pointer-only immediate adjacency and exact directional counts in bounded
   recall, plus root/child hierarchy filtering and flat-search breadcrumbs;
-- cross-project isolation, hostile/unknown input rejection, pagination/filter
-  totals, and deprecated handoff projections backed by canonical rows.
+- cross-project isolation, hostile/unknown input rejection, and
+  pagination/filter totals.
 
 Tests create an isolated random schema, apply the real Alembic chain, and remove
 the schema afterward. Semantic cases use a deterministic local test embedder and
@@ -89,7 +88,7 @@ uv sync --frozen
 uv run pytest -q
 ```
 
-The MCP suite verifies the exact canonical-plus-compatibility catalog, nested
+The MCP suite verifies the exact 19-tool canonical catalog, nested
 checkpoint request bodies, strict response shapes, pointer-only search, bounded
 recall, deterministic checkpoint pagination, versioned update/completion/delete
 receipts, atomic initial-relationship serialization, relationship add/get/list/
@@ -190,7 +189,7 @@ run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 27-tool Phase
+Read-only mode verifies REST/MCP health, authentication, the exact 19-tool Phase
 3 MCP catalog, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, and the shipped WOFF2 font assets. It does
 not create, edit, relate, claim, complete, or delete records.
@@ -216,9 +215,9 @@ The write path performs the canonical Phase 3 lifecycle:
 8. creates a child/discovered item with both relationships in its creation
    transaction and verifies pointer-only adjacency plus hierarchy navigation;
 9. completes the primary work with a completion checkpoint and lease token;
-10. verifies default-open filtering plus deprecated ID/resource/tool aliases;
+10. verifies default-open filtering;
 11. removes every synthetic relationship before soft-deleting all synthetic
-    work, then confirms canonical and compatibility reads return `404`.
+    work, then confirms canonical reads return `404`.
 
 The script registers cleanup as soon as the run marker exists. Its `finally`
 path recovers exact synthetic IDs by marker plus exact synthetic session

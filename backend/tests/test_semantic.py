@@ -19,18 +19,18 @@ def test_cosine_similarity_rejects_invalid_vectors():
 
 
 def test_embedding_text_is_bounded_and_preserves_retrieval_fields():
-    handoff = SimpleNamespace(
+    work_item = SimpleNamespace(
         title="Title",
         summary="Retrieval summary",
     )
-    text = embedding_text(handoff, "p" * (EMBED_BODY_CHARS + 50))
+    text = embedding_text(work_item, "p" * (EMBED_BODY_CHARS + 50))
     assert text == f"Title\nRetrieval summary\n{'p' * EMBED_BODY_CHARS}"
 
 
-def test_embedding_text_includes_bounded_recent_comments():
-    handoff = SimpleNamespace(title="Title", summary="Summary")
+def test_embedding_text_includes_bounded_recent_checkpoints():
+    work_item = SimpleNamespace(title="Title", summary="Summary")
     text = embedding_text(
-        handoff, "Prompt", ["old", "x" * EMBED_COMMENT_CHARS, "new"]
+        work_item, "Prompt", ["old", "x" * EMBED_COMMENT_CHARS, "new"]
     )
     assert text.startswith("Title\nSummary\nPrompt\n")
     assert text.endswith("new")

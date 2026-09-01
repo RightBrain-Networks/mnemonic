@@ -167,7 +167,7 @@ export default function WorkHierarchy({
   status: StatusFilter;
   refreshKey: number;
 }) {
-  return <section className="handoff-list hierarchy-list" aria-label="Durable work item hierarchy">
+  return <section className="work-list hierarchy-list" aria-label="Durable work item hierarchy">
     {items.map((item) => <HierarchyBranch
       {...actions}
       key={item.summary.work_item.id}

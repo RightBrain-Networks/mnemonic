@@ -1,4 +1,4 @@
-"""Stable, sanitized application errors shared by canonical and compatibility routes."""
+"""Stable, sanitized application errors with client-safe machine-readable codes."""
 
 from typing import Any
 

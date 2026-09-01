@@ -1,33 +1,39 @@
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect, text
-from sqlalchemy.orm import Session
-
-from mnemonic_api.models import Checkpoint, WorkItem
 
 from .conftest import BACKEND_DIR
 
 pytestmark = pytest.mark.postgres
 
+# Flat provenance fields live on the checkpoint in the canonical shape; the
+# helpers below fold them back into `initial_checkpoint` so each test reads as
+# one record with the one or two fields it actually varies.
+CHECKPOINT_OVERRIDES = ("prompt", "source_client", "source_session_id", "tags")
+
+
+def path(project, work_item=None):
+    base = f"/api/v1/projects/{project['id']}/work-items"
+    return f"{base}/{work_item['id']}" if work_item else base
+
 
 def save(api, project, payload, **changes):
-    response = api.post(f"/api/v1/projects/{project['id']}/handoffs", json={**payload, **changes})
+    checkpoint_changes = {
+        field: changes.pop(field) for field in CHECKPOINT_OVERRIDES if field in changes
+    }
+    body = {
+        **payload,
+        **changes,
+        "initial_checkpoint": {**payload["initial_checkpoint"], **checkpoint_changes},
+    }
+    response = api.post(path(project), json=body)
     assert response.status_code == 201, response.text
     return response.json()
-
-
-def path(project, handoff=None):
-    base = f"/api/v1/projects/{project['id']}/handoffs"
-    return f"{base}/{handoff['id']}" if handoff else base
-
-
-def comment_path(project, handoff):
-    return f"{path(project, handoff)}/comments"
 
 
 def test_project_crud_counts_and_conflict(api, project):
@@ -52,216 +58,59 @@ def test_project_crud_counts_and_conflict(api, project):
     assert api.get(f"/api/v1/projects/{uuid4()}").status_code == 404
 
 
-def test_round_trip_compact_search_and_project_isolation(api, project, handoff_payload):
-    handoff_payload["prompt"] += "\nContext in multiple languages: 日本語 café 🧠.\n"
-    handoff = save(api, project, handoff_payload)
-    assert handoff["version"] == 1
-    assert handoff["prompt"] == handoff_payload["prompt"]
-    assert handoff["source_metadata"] == handoff_payload["source_metadata"]
-    assert handoff["created_at"].endswith("Z")
-    assert api.get(path(project, handoff)).json() == handoff
-    summaries = api.get(path(project)).json()
-    assert summaries["total"] == 1
-    assert "prompt" not in summaries["items"][0]
-    assert "source_metadata" not in summaries["items"][0]
-
-    other = api.post("/api/v1/projects", json={"name": "Second project"}).json()
-    wrong_path = path(other, handoff)
-    assert api.get(wrong_path).status_code == 404
-    assert api.patch(wrong_path, json={"expected_version": 1, "title": "Wrong"}).status_code == 404
-    assert api.delete(wrong_path, params={"expected_version": 1}).status_code == 404
-    assert api.get(path(other), params={"q": "cache", "status": "all"}).json()["total"] == 0
-    assert api.get(path(project, handoff)).json()["version"] == 1
-
-
-def test_missing_projects_return_404_instead_of_empty_results(api, handoff_payload):
-    missing = {"id": str(uuid4())}
-    assert api.get(path(missing)).status_code == 404
-    assert api.post(path(missing), json=handoff_payload).status_code == 404
-
-
-def test_versions_provenance_lifecycle_and_soft_deletion(
-    api, project, handoff_payload, postgres_engine
-):
-    handoff = save(api, project, handoff_payload)
-    endpoint = path(project, handoff)
-    assert api.patch(endpoint, json={"title": "No version"}).status_code == 422
-    assert api.delete(endpoint).status_code == 422
-    immutable = {"expected_version": 1, "source_session_id": "replacement"}
-    assert api.patch(endpoint, json=immutable).status_code == 422
-    assert (
-        api.patch(
-            endpoint,
-            json={"expected_version": 1, "prompt": " New exact prompt.\n"},
-        ).status_code
-        == 422
-    )
-    updated = api.patch(endpoint, json={"expected_version": 1, "status": "wont-do"})
-    assert updated.status_code == 200
-    assert updated.json()["version"] == 2
-    assert updated.json()["source_session_id"] == handoff["source_session_id"]
-    assert updated.json()["prompt"] == handoff_payload["prompt"]
-    assert api.get(path(project)).json()["total"] == 0
-    assert api.get(path(project), params={"status": "wont-do"}).json()["total"] == 1
-    assert api.get(path(project), params={"status": "all"}).json()["total"] == 1
-    assert api.patch(endpoint, json={"expected_version": 1, "title": "Stale"}).status_code == 409
-    assert api.delete(endpoint, params={"expected_version": 1}).status_code == 409
-    deleted = api.delete(endpoint, params={"expected_version": 2})
-    assert deleted.status_code == 204 and deleted.content == b""
-    assert api.get(endpoint).status_code == 404
-    assert api.patch(endpoint, json={"expected_version": 3, "title": "No"}).status_code == 404
-    assert api.delete(endpoint, params={"expected_version": 3}).status_code == 404
-    assert api.get(path(project), params={"status": "all"}).json()["total"] == 0
-    with Session(postgres_engine) as database:
-        row = database.get(WorkItem, UUID(handoff["id"]))
-        assert row is not None and row.deleted_at is not None
-        assert row.version == 3
-        checkpoint = database.get(Checkpoint, row.initial_checkpoint_id)
-        assert checkpoint is not None and checkpoint.prompt == handoff_payload["prompt"]
-
-
-def test_comments_are_append_only_project_scoped_and_searchable(api, project, handoff_payload):
-    handoff = save(api, project, handoff_payload)
-    body = "  Found the frobnicated lock race.\n\npytest tests/test_cache.py passed.  "
-    created = api.post(
-        comment_path(project, handoff),
-        json={
-            "body": body,
-            "source_client": "claude-code",
-            "source_session_id": "session-progress-123",
-            "source_model": "test-model",
-        },
-    )
-    assert created.status_code == 201, created.text
-    comment = created.json()
-    assert comment["body"] == body
-    assert comment["kind"] == "comment"
-    assert comment["handoff_id"] == handoff["id"]
-    assert comment["source_session_id"] == "session-progress-123"
-    assert comment["created_at"].endswith("Z")
-    assert api.get(path(project, handoff)).json()["version"] == 1
-
-    timeline = api.get(comment_path(project, handoff), params={"limit": 1}).json()
-    assert timeline == {
-        "items": [comment],
-        "total": 1,
-        "limit": 1,
-        "offset": 0,
-    }
-    assert (
-        api.get(path(project), params={"q": "frobnicates"}).json()["items"][0]["id"]
-        == handoff["id"]
-    )
-    assert api.get(path(project), params={"q": "session-progress-123"}).json()["total"] == 1
-
-    other = api.post("/api/v1/projects", json={"name": "Comment isolation"}).json()
-    assert api.get(comment_path(other, handoff)).status_code == 404
-    assert (
-        api.post(
-            comment_path(other, handoff),
-            json={
-                "body": "Wrong project",
-                "source_client": "dashboard",
-                "source_session_id": "dashboard-session",
-            },
-        ).status_code
-        == 404
-    )
-
-
-def test_completion_requires_summary_and_is_atomic(api, project, handoff_payload):
-    handoff = save(api, project, handoff_payload)
-    endpoint = path(project, handoff)
-    assert api.patch(endpoint, json={"expected_version": 1, "status": "done"}).status_code == 422
-
-    completed = api.post(
-        f"{endpoint}/complete",
-        json={
-            "expected_version": 1,
-            "summary": (
-                "Implemented cache invalidation. Added a regression test. "
-                "Observed the focused and full suites pass; no known follow-up remains."
-            ),
-            "source_client": "claude-code",
-            "source_session_id": "completing-session",
-            "source_model": "test-model",
-        },
-    )
-    assert completed.status_code == 200, completed.text
-    result = completed.json()
-    assert result["handoff"]["status"] == "done"
-    assert result["handoff"]["version"] == 2
-    assert result["comment"]["kind"] == "work-summary"
-    assert result["comment"]["source_session_id"] == "completing-session"
-
-    stale = api.post(
-        f"{endpoint}/complete",
-        json={
-            "expected_version": 1,
-            "summary": "Duplicate summary must not be written.",
-            "source_client": "claude-code",
-            "source_session_id": "completing-session",
-        },
-    )
-    assert stale.status_code == 409
-    timeline = api.get(comment_path(project, handoff)).json()
-    assert timeline["total"] == 1
-    assert timeline["items"] == [result["comment"]]
-    assert api.get(path(project)).json()["total"] == 0
-    assert api.get(path(project), params={"status": "done"}).json()["total"] == 1
-
-
-def test_postgres_full_text_stemming_and_weighted_ranking(api, project, handoff_payload):
+def test_postgres_full_text_stemming_and_weighted_ranking(api, project, work_payload):
     body_match = save(
         api,
         project,
-        handoff_payload,
+        work_payload,
         title="Background",
         summary="A secondary lead",
         prompt="Investigate migrating a service.",
-    )
+    )["work_item"]
     summary_match = save(
         api,
         project,
-        handoff_payload,
+        work_payload,
         title="Preparation",
         summary="Investigate migrating state",
         prompt="Check the database.",
-    )
+    )["work_item"]
     title_match = save(
         api,
         project,
-        handoff_payload,
+        work_payload,
         title="Migrating the service",
         summary="Check existing state",
         prompt="Check the database.",
-    )
+    )["work_item"]
     # "migrates" does not occur literally in any record; only PostgreSQL's
-    # English-language stemming can satisfy this query.
+    # English-language stemming can satisfy this query. Title (weight A) must
+    # outrank summary (weight B), which must outrank checkpoint prompt (weight C).
     result = api.get(path(project), params={"q": "migrates"})
     assert result.status_code == 200, result.text
     items = result.json()["items"]
-    assert [item["id"] for item in items] == [
+    assert [item["work_item"]["id"] for item in items] == [
         title_match["id"],
         summary_match["id"],
         body_match["id"],
     ]
 
 
-def test_literal_identifiers_paths_and_wildcards_are_safe(api, project, handoff_payload):
-    target = save(
+def test_literal_identifiers_paths_and_wildcards_are_safe(api, project, work_payload):
+    created = save(
         api,
         project,
-        handoff_payload,
+        work_payload,
         title="Escape 100% of wildcard_patterns",
         prompt="Find C:\\work\\project\\cache.py and src/nested/cache.py exactly.",
         tags=["special-tag", "  CACHE ", "cache"],
         source_session_id="session:opaque_7251",
     )
+    target = created["work_item"]
     save(
         api,
         project,
-        handoff_payload,
+        work_payload,
         title="Unrelated",
         summary="Other work",
         prompt="Nothing relevant.",
@@ -278,24 +127,27 @@ def test_literal_identifiers_paths_and_wildcards_are_safe(api, project, handoff_
     ]:
         result = api.get(path(project), params={"q": query})
         assert result.status_code == 200, result.text
-        assert [item["id"] for item in result.json()["items"]] == [target["id"]], query
-    attack = api.get(path(project), params={"q": "'; DROP TABLE handoffs;--"})
+        assert [item["work_item"]["id"] for item in result.json()["items"]] == [
+            target["id"]
+        ], query
+    attack = api.get(path(project), params={"q": "'; DROP TABLE work_items;--"})
     assert attack.status_code == 200
     assert api.get(path(project)).json()["total"] == 2
-    assert api.get(path(project, target)).json()["tags"] == ["special-tag", "cache"]
+    # Tags are normalized and deduplicated on the checkpoint that carries them.
+    assert created["initial_checkpoint"]["tags"] == ["special-tag", "cache"]
 
 
-def test_pagination_and_combined_filters(api, project, handoff_payload):
-    first = save(api, project, handoff_payload, source_session_id="alpha")
-    second = save(api, project, handoff_payload, source_session_id="beta")
-    save(api, project, handoff_payload, source_client="opencode", source_session_id="alpha")
-    save(api, project, handoff_payload, status="promoted", tags=["cache"])
+def test_pagination_and_combined_filters(api, project, work_payload):
+    first = save(api, project, work_payload, source_session_id="alpha")["work_item"]
+    second = save(api, project, work_payload, source_session_id="beta")["work_item"]
+    save(api, project, work_payload, source_client="opencode", source_session_id="alpha")
+    save(api, project, work_payload, status="promoted", tags=["cache"])
     result = api.get(
         path(project),
         params={"q": "cache", "tag": " CACHE ", "source_client": "claude-code", "limit": 1},
     ).json()
     assert result["total"] == 2
-    assert result["items"][0]["id"] == second["id"]
+    assert result["items"][0]["work_item"]["id"] == second["id"]
     next_page = api.get(
         path(project),
         params={
@@ -307,40 +159,40 @@ def test_pagination_and_combined_filters(api, project, handoff_payload):
         },
     ).json()
     assert next_page["total"] == 2
-    assert next_page["items"][0]["id"] == first["id"]
+    assert next_page["items"][0]["work_item"]["id"] == first["id"]
     scoped = api.get(
         path(project), params={"source_client": "claude-code", "source_session_id": "alpha"}
     ).json()
-    assert scoped["total"] == 1 and scoped["items"][0]["id"] == first["id"]
+    assert scoped["total"] == 1 and scoped["items"][0]["work_item"]["id"] == first["id"]
     assert api.get(path(project), params={"q": " \n "}).json()["total"] == 3
     assert api.get(path(project), params={"status": "all", "offset": 200}).json()["total"] == 4
     assert api.get(path(project), params={"status": "all", "offset": 200}).json()["items"] == []
 
 
-def test_edit_refreshes_search_vector(api, project, handoff_payload):
-    handoff = save(api, project, handoff_payload, title="Orchestrating state")
+def test_edit_refreshes_search_vector(api, project, work_payload):
+    work_item = save(api, project, work_payload, title="Orchestrating state")["work_item"]
     assert api.get(path(project), params={"q": "orchestrates"}).json()["total"] == 1
     update = api.patch(
-        path(project, handoff), json={"expected_version": 1, "title": "Brand new heading"}
+        path(project, work_item), json={"expected_version": 1, "title": "Brand new heading"}
     )
     assert update.status_code == 200
     assert api.get(path(project), params={"q": "orchestrates"}).json()["total"] == 0
     assert api.get(path(project), params={"q": "heading"}).json()["total"] == 1
 
 
-def test_two_simultaneous_writers_cannot_overwrite_each_other(api, project, handoff_payload):
-    handoff = save(api, project, handoff_payload)
+def test_two_simultaneous_writers_cannot_overwrite_each_other(api, project, work_payload):
+    work_item = save(api, project, work_payload)["work_item"]
     barrier = Barrier(2)
 
     def writer(title):
         barrier.wait(timeout=5)
-        return api.patch(path(project, handoff), json={"expected_version": 1, "title": title})
+        return api.patch(path(project, work_item), json={"expected_version": 1, "title": title})
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(writer, ["Writer A", "Writer B"]))
     assert sorted(response.status_code for response in responses) == [200, 409]
     winner = next(response.json() for response in responses if response.status_code == 200)
-    final = api.get(path(project, handoff)).json()
+    final = api.get(path(project, work_item)).json()
     assert final["version"] == 2
     assert final["title"] == winner["title"]
 

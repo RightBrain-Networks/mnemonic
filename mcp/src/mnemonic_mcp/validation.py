@@ -26,7 +26,6 @@ VALIDATION_FIELDS = frozenset(
         "checkpoint_id",
         "context_checkpoint_id",
         "context_checkpoint_work_item_id",
-        "handoff_id",
         "relationship_id",
         "relationship_type",
         "type",

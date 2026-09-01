@@ -65,7 +65,12 @@ def test_mutation_events_are_scoped_without_record_contents():
         "DELETE", f"/api/v1/projects/{project_id}/relationships/{uuid4()}"
     ) == MutationEvent("work-items", project_id=project_id)
     assert mutation_event(
-        "DELETE", f"/api/v1/projects/{project_id}/handoffs/{work_item_id}"
+        "POST", f"/api/v1/projects/{project_id}/work-items/{work_item_id}/delete"
+    ) == MutationEvent(
+        "work-items", project_id=project_id, work_item_id=work_item_id
+    )
+    assert mutation_event(
+        "PATCH", f"/api/v1/projects/{project_id}/work-items/{work_item_id}"
     ) == MutationEvent(
         "work-items", project_id=project_id, work_item_id=work_item_id
     )
@@ -73,6 +78,7 @@ def test_mutation_events_are_scoped_without_record_contents():
     assert mutation_event("GET", "/api/v1/projects") is None
     assert mutation_event("POST", "/healthz") is None
     assert mutation_event("POST", "/api/v1/projects/not-a-uuid/work-items") is None
+    assert mutation_event("POST", f"/api/v1/projects/{project_id}/unknown") is None
 
 
 def test_live_sync_accepts_only_configured_browser_origins():

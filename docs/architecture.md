@@ -11,7 +11,7 @@ Mnemonic is a coordination system for temporary agents. The durable object is a
 `WorkItem`: one objective that survives across sessions. A `Checkpoint` is an
 immutable, session-attributed context packet appended by one of those sessions.
 Ten sessions continuing one objective therefore produce one human-visible work
-item and a checkpoint history, not ten top-level hand-offs.
+item and a checkpoint history, not ten top-level records.
 
 ```mermaid
 flowchart LR
@@ -77,8 +77,8 @@ historical completion checkpoint intact.
   append remains open because it records an observation rather than ownership.
 - Completion, retirement, promotion, and deletion require the matching token
   when an active lease exists and remove that lease in the same transaction.
-- Soft-deleted work and all of its checkpoints disappear from ordinary reads,
-  searches, and compatibility projections.
+- Soft-deleted work and all of its checkpoints disappear from ordinary reads
+  and searches.
 - Every lookup is project-scoped. A work or checkpoint UUID under the wrong
   project returns 404.
 - Stored prompt text and metadata are untrusted historical context. Reading or
@@ -99,13 +99,12 @@ flowchart LR
 
 FastAPI owns validation, lifecycle transitions, project isolation, search,
 relationship invariants, readiness, bounded context, hierarchy queries,
-compatibility projections, and commits. Service functions receive one
+and commits. Service functions receive one
 SQLAlchemy session; reusable helpers do not commit. Routes translate typed
 application errors into a stable sanitized `detail.code` envelope.
 
-The MCP service is a typed HTTP adapter. Canonical tools use work, checkpoint,
-lease, and relationship terminology; deprecated hand-off tools continue to
-project the same canonical rows. The dashboard calls only an exact same-origin
+The MCP service is a typed HTTP adapter. Its tools use work, checkpoint,
+lease, and relationship terminology. The dashboard calls only an exact same-origin
 proxy allowlist. Its API key
 is server-only. Every lease-capability route is denied to the browser, and any
 browser mutation body containing `lease_token` is rejected rather than
@@ -139,12 +138,16 @@ provenance are preserved. Hand-off UUIDs remain work-item UUIDs; collision-free
 comment UUIDs are preserved, while deterministic collision remaps retain the
 original UUID in `legacy_record_id`.
 
-The Phase 1 migration head intentionally retains the old tables as read-only
-during an observation window. Canonical and compatibility APIs use only the new
-tables. After the required parity checks, backup/restore drill, observation
-window, and explicit operator approval, `0006_work_graph_contract` removes the
-legacy tables and their unused ORM metadata. Compatibility routes and tools
-remain projections over canonical rows.
+The Phase 1 migration head retained the old tables as read-only during an
+observation window. After the required parity checks, backup/restore drill,
+observation window, and explicit operator approval,
+`0006_work_graph_contract` removed the legacy tables and their unused ORM
+metadata. Every API and MCP surface reads the canonical tables.
+
+The migrated initial snapshot carries an explicit warning because the former
+schema could retain the original source session while allowing later prompt
+edits. Mnemonic preserves the recorded values but does not fabricate authorship
+history that never existed.
 
 Phase 2 migration `0007_work_leases` adds one optional `work_leases` row per
 work item, bounded holder/request fields, acquisition/renewal/expiry ordering
@@ -202,28 +205,6 @@ root-to-parent breadcrumb plus `ancestor_path_truncated` on the direct
 flags rather than a truncation field. The renderer applies explicit cycle and
 depth fallbacks instead of silently hiding corrupt or unexpectedly deep
 branches.
-
-## Compatibility window
-
-Legacy hand-off REST routes, MCP tools, resource URIs, and the
-`resume_handoff` prompt remain available and are marked deprecated:
-
-- saving a hand-off creates work plus its initial checkpoint;
-- recalling a hand-off flattens work identity with the preserved initial
-  checkpoint;
-- later checkpoints project through the legacy comments timeline;
-- adding a comment creates a progress checkpoint;
-- completing a hand-off creates a completion checkpoint and completes work;
-- legacy edits may change work fields but cannot rewrite checkpoint content or
-  provenance;
-- legacy completion and terminal edits accept a lease token when a claim is
-  active; direct legacy REST deletion requires the expected version, no active
-  lease, and no remaining relationship.
-
-The migrated initial snapshot carries an explicit warning because the former
-schema could retain the original source session while allowing later prompt
-edits. Mnemonic preserves the recorded values but does not fabricate authorship
-history that never existed.
 
 ## Deliberate Phase 3 limits
 
