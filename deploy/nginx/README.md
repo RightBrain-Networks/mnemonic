@@ -92,10 +92,14 @@ docker compose -f compose.yaml -f compose.tls.yaml ps
 docker compose -f compose.yaml -f compose.tls.yaml logs --tail=50 web mcp
 ```
 
-Keep the existing secrets in `.env`; do not replace them. To use another
-hostname, set `MNEMONIC_TLS_HOST` to its bare hostname in `.env` and update the
-literal hostname and certificate paths in `mnemonic.conf` as well. nginx does
-not substitute Compose environment variables. If you changed published web/MCP
+Keep the existing secrets in `.env`; do not replace them. Set
+`MNEMONIC_TLS_HOST` in `.env` to the bare hostname you are serving. Unless that
+hostname is literally `mnemonic.example.com`, leaving it unset is not a working
+default: `compose.tls.yaml` falls back to the placeholder, so the allowlists
+never learn your hostname and the dashboard answers 403 to its own
+`/api/mnemonic/*` requests while the page itself still loads. Update the literal
+hostname and certificate paths in `mnemonic.conf` to match. nginx does not
+substitute Compose environment variables. If you changed published web/MCP
 ports, update both `proxy_pass` addresses. When changing the local web port,
 keep `MNEMONIC_DASHBOARD_ORIGINS` consistent with it as described in
 [`docs/operations.md`](../../docs/operations.md).

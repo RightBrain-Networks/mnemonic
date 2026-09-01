@@ -20,8 +20,16 @@ SVG and moving static SVG delivery to the host nginx.
   the `^~` prefix rather than the SVG regex, a traversal sequence resolved
   outside the root and returned 404, and port 80 still returned 308.
 
-Not checked: behavior after the web image is rebuilt, and any client outside
-the address allowlist. No stored prompts were read or modified.
+These checks also found a pre-existing configuration fault unrelated to the
+change: `.env` had never set `MNEMONIC_TLS_HOST`, so `compose.tls.yaml` supplied
+its `mnemonic.example.com` placeholder to all three allowlists and the dashboard
+answered 403 to its own `/api/mnemonic/*` requests over the public hostname. The
+page itself loaded, which is why routing checks passed. Setting the real
+hostname and recreating the stack returned 200 with the projects listed, and an
+untrusted origin still returned 403.
+
+Not checked: any client outside the address allowlist. No stored prompts were
+read or modified.
 
 ## Phase 4 ready-work and Phase 5 event validation — 2026-09-01
 
