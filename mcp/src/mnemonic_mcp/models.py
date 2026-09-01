@@ -61,20 +61,26 @@ EventType = Literal[
     "work_deleted",
 ]
 
-_SERVER_RESERVED_METADATA_KEYS = frozenset(
+_HISTORICAL_RESERVED_METADATA_KEYS = frozenset(
     {
         "lease_token",
         "claim_request_id",
-        "client_operation_id",
         "api_key",
         "authorization",
         "cookie",
         "secret",
     }
 )
+_REQUEST_RESERVED_METADATA_KEYS = _HISTORICAL_RESERVED_METADATA_KEYS | {
+    "client_operation_id"
+}
 
 
-def _bounded_progress_metadata(value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+def _bounded_progress_metadata(
+    value: dict[str, JsonValue],
+    *,
+    reserved_keys: frozenset[str],
+) -> dict[str, JsonValue]:
     """Validate the intentionally open progress object without rewriting its content."""
 
     def check(item: JsonValue) -> None:
@@ -82,7 +88,7 @@ def _bounded_progress_metadata(value: dict[str, JsonValue]) -> dict[str, JsonVal
             for key, child in item.items():
                 if "\x00" in key:
                     raise ValueError("Progress metadata cannot contain NUL characters.")
-                if key.lower() in _SERVER_RESERVED_METADATA_KEYS:
+                if key.lower() in reserved_keys:
                     raise ValueError("Progress metadata contains a reserved key.")
                 check(child)
         elif isinstance(item, list):
@@ -101,11 +107,30 @@ def _bounded_progress_metadata(value: dict[str, JsonValue]) -> dict[str, JsonVal
     return value
 
 
+def _bounded_stored_metadata(value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    """Reject every request-time secret/control key, including the Phase 6 UUID."""
+    return _bounded_progress_metadata(value, reserved_keys=_REQUEST_RESERVED_METADATA_KEYS)
+
+
+def _bounded_historical_progress_metadata(
+    value: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    """Preserve the Phase 5 read contract for metadata accepted before Phase 6."""
+    return _bounded_progress_metadata(
+        value,
+        reserved_keys=_HISTORICAL_RESERVED_METADATA_KEYS,
+    )
+
+
 StoredMetadataInput = Annotated[
     dict[str, JsonValue],
-    AfterValidator(_bounded_progress_metadata),
+    AfterValidator(_bounded_stored_metadata),
 ]
 ProgressMetadataInput = StoredMetadataInput
+HistoricalProgressMetadata = Annotated[
+    dict[str, JsonValue],
+    AfterValidator(_bounded_historical_progress_metadata),
+]
 
 
 def _validated_utc_datetime(value: datetime) -> datetime:
@@ -261,7 +286,7 @@ class WorkDeletedMetadata(CanonicalResponse):
     final_version: int = Field(ge=1)
 
 
-class ProgressEventMetadata(RootModel[ProgressMetadataInput]):
+class ProgressEventMetadata(RootModel[HistoricalProgressMetadata]):
     pass
 
 

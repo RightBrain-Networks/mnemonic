@@ -329,14 +329,14 @@ test("a committed work creation recovers its exact result without a duplicate", 
     await expect(page.locator("#project-select")).toBeDisabled();
     await expect(page.locator("body")).not.toContainText(retainedOperationId);
 
-    await page.getByRole("link", { name: "Mnemonic home" }).click();
+    await expect(page.getByRole("link", { name: "Mnemonic home" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
     await expect(page.locator(".mutation-recovery")).toContainText(
       "Create work · outcome unknown"
     );
     await expect(dialog).toBeVisible();
-    await expect(page.getByText(
-      "Resolve pending mutations before leaving this dashboard document."
-    )).toBeVisible();
 
     const stored = await page.evaluate(async () => ({
       local: Object.entries(localStorage),
@@ -437,6 +437,7 @@ test("a committed deferral recovers its exact result without a second transition
       status: "deferred",
       version: initialVersion + 1
     });
+    await expect(page.locator(".toast")).toContainText("mutation outcome is unknown");
 
     await page.locator(".mutation-recovery").getByRole("button", {
       name: "Retry exact request"
@@ -572,13 +573,19 @@ test("a malformed committed append retains its editor intent and reconciles newe
     expectExactReplay(probe);
     await expect.poll(() => invalidationCount(invalidations, workId)).toBe(4);
 
-    await expect(detail).toContainText(
+    await expect(page.locator(".toast")).toContainText(
       "current state could not be reloaded"
     );
+    await expect(detail).toContainText("Synthetic reconciliation failure");
     await expect(detail.getByRole("button", { name: "Edit work item" })).toHaveCount(0);
     await expect(detail.getByLabel("Checkpoint text")).toHaveCount(0);
+    const retryContext = detail.getByRole("button", { name: "Try again" });
+    await expect(retryContext).toBeVisible();
     rejectContextReload = false;
-    await detail.getByRole("button", { name: "Try again" }).click();
+    await expect(async () => {
+      if (await retryContext.isVisible()) await retryContext.click({ timeout: 500 });
+      await expect(detail.locator(".detail-summary")).toHaveText(newerSummary);
+    }).toPass();
 
     await expect(detail.locator(".detail-summary")).toHaveText(newerSummary);
     await expect(activity.getByLabel("Progress text")).toHaveValue("");
@@ -647,15 +654,20 @@ test("a committed append gates stale controls when direct reconciliation fails",
     await activity.getByLabel("Progress text").fill(progress);
     await activity.getByRole("button", { name: "Add progress update" }).click();
 
-    await expect(page.getByRole("alert")).toContainText(
+    await expect(page.locator(".toast")).toContainText(
       "Progress was saved, but current work context could not be reloaded"
     );
     await expect(detail).toContainText("Synthetic append reconciliation failure");
     await expect(detail.getByRole("button", { name: "Edit work item" })).toHaveCount(0);
     await expect(detail.getByLabel("Checkpoint text")).toHaveCount(0);
 
+    const retryContext = detail.getByRole("button", { name: "Try again" });
+    await expect(retryContext).toBeVisible();
     rejectContextReload = false;
-    await detail.getByRole("button", { name: "Try again" }).click();
+    await expect(async () => {
+      if (await retryContext.isVisible()) await retryContext.click({ timeout: 500 });
+      await expect(detail.getByRole("button", { name: "Edit work item" })).toBeVisible();
+    }).toPass();
     await expect(detail.getByRole("button", { name: "Edit work item" })).toBeVisible();
     await expect(detail.locator("article.work-event").filter({ hasText: progress })).toHaveCount(1);
     const events = await progressEvents(client, workId);

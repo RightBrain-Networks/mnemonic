@@ -203,6 +203,8 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect(detail.locator(".detail-topline > .status-badge")).toHaveText("Active");
     await expect(detail.locator(".operational-badge.blocked")).toHaveCount(0);
 
+    // Relationship mutations reconcile the entire work context, which remounts the editor closed.
+    await detail.getByText("Add a relationship", { exact: true }).click();
     await detail.getByLabel("Find another work item").fill(titles.secondParent);
     await detail.getByRole("option", { name: new RegExp(titles.secondParent) }).click();
     await detail.getByLabel("Relationship type").selectOption("parent-child");

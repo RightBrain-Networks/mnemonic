@@ -1365,6 +1365,53 @@ async def test_event_tools_use_exact_rest_contract(settings, progress_event):
     assert seen == ["POST", "GET"]
 
 
+async def test_historical_progress_operation_key_remains_readable(
+    settings, progress_event, work_context
+):
+    historical_metadata = {
+        "outer": [{"Client_Operation_ID": "historically-legal"}]
+    }
+    historical_event = {**progress_event, "metadata": historical_metadata}
+
+    def handler(request):
+        if request.url.path.endswith("/events"):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [historical_event],
+                    "total": 1,
+                    "limit": 50,
+                    "offset": 0,
+                    "pre_phase5_history_may_be_incomplete": False,
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                **work_context,
+                "recent_events": [historical_event],
+                "event_total": 1,
+            },
+        )
+
+    server = adapter(settings, handler)
+    listed = structured(
+        await server.call_tool(
+            "list_work_events",
+            {"project_id": PROJECT_ID, "work_item_id": WORK_ID},
+        )
+    )
+    recalled = structured(
+        await server.call_tool(
+            "recall_work",
+            {"project_id": PROJECT_ID, "work_item_id": WORK_ID},
+        )
+    )
+
+    assert listed["items"][0]["metadata"] == historical_metadata
+    assert recalled["recent_events"][0]["metadata"] == historical_metadata
+
+
 async def test_work_updated_event_allows_only_same_value_status_metadata(
     settings, same_status_update_event
 ):

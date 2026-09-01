@@ -851,6 +851,7 @@ button { touch-action: manipulation; }
   box-shadow: 0 10px 34px #25113024;
 }
 .mutation-recovery-global { position: fixed; z-index: 40; right: 24px; bottom: 24px; }
+.mutation-recovery-global + .toast { top: 24px; bottom: auto; }
 .mutation-recovery-modal { position: relative; width: auto; margin: 14px 25px 0; flex: none; box-shadow: none; }
 .mutation-recovery > div { display: grid; gap: 3px; }
 .mutation-recovery > div > strong { font-size: 12px; }
@@ -862,6 +863,7 @@ button { touch-action: manipulation; }
 
 @media (max-width: 620px) {
   .mutation-recovery-global { right: 16px; bottom: 16px; }
+  .mutation-recovery-global + .toast { top: 16px; bottom: auto; }
   .mutation-recovery-modal { margin: 10px 17px 0; }
   .mutation-recovery li { align-items: stretch; flex-direction: column; }
 }

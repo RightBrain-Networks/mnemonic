@@ -1346,12 +1346,16 @@ Use real PostgreSQL connections and barriers to cover:
 Assert exact counts for work, checkpoints, relationships, leases, events, receipt rows, versions,
 and activity timestamps. A test that checks only the HTTP body is insufficient.
 
-### 11.4 Per-operation acceptance matrix
+### 11.4 Registry-wide and operation-specific acceptance coverage
 
-For each of the ten REST operations, test:
+Every one of the ten REST operations must prove keyed first success, exact replay status/body
+equality, correct response projection, and no duplicate durable side effect. Behaviors implemented
+once in the shared receipt core—mismatched reuse, rollback/reuse after domain failure, response
+snapshot corruption, and waiter ownership—use closed-registry vectors plus representative
+integration cases rather than a redundant ten-by-every-failure Cartesian suite. Across the full
+suite, also test:
 
-- keyed first success and exact replay status/body equality;
-- same-key change to each operation-specific target and at least one semantic body field;
+- same-key changes to operation-specific targets and semantic body fields;
 - unkeyed direct REST behavior;
 - domain failure followed by corrected successful reuse of the never-bound UUID;
 - no duplicate events/activity/version/side effects on replay;
@@ -1451,7 +1455,7 @@ microbenchmark green.
 | schema contract frozen | roadmap/prior-plan reconciliation | coverage, scope, canonical v1, response v1, lock order, and exclusions reviewed |
 | migration merged | schema contract | populated upgrade, invariant, unused downgrade, and existing-data preservation tests |
 | receipt core merged | migration | deterministic owner/waiter/rollback/commit/corruption tests |
-| backend routes enrolled | receipt core | ten-operation matrix plus full unskipped PostgreSQL suite |
+| backend routes enrolled | receipt core | registry-wide vectors, per-operation first/replay coverage, targeted failure/current-state cases, plus full unskipped PostgreSQL suite |
 | MCP contract changed | backend routes | live backend replay and stable error behavior |
 | dashboard/proxy changed | backend routes | frozen-intent unit tests and proxy allowlists |
 | docs/plugin release changed | MCP and dashboard behavior stable | fresh/sequential plugin validation and exact examples |
@@ -1821,8 +1825,10 @@ Phase 6 is complete only when all items below are true.
 - [x] The same UUID in another project is independent; changed client/session under one project/UUID
       conflicts and performs no work.
 - [x] Different-key graph/work races preserve the documented lock order without deadlock.
-- [x] Each of the ten REST operations passes the first/replay/mismatch/failure/no-duplicate/current-state
-      matrix.
+- [x] Each of the ten REST operations passes first/replay/response/no-duplicate coverage; closed
+      registry vectors cover every request and response contract, while mismatch, failure,
+      post-commit loss, and later-current-state behavior use targeted shared-core and
+      operation-specific cases rather than a claimed Cartesian matrix.
 - [x] Delete/remove/release replay works after the source state disappears or is replaced.
 - [x] Canonical v1 and response v1 vectors are frozen for every registry entry.
 

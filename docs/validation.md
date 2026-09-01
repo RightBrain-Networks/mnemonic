@@ -30,9 +30,66 @@ untrusted origin still returned 403.
 
 Not checked: any client outside the address allowlist. No stored prompts were
 read or modified.
-## Phase 6 idempotent-mutation validation — 2026-09-01
 
-Validated against the final Phase 6 source in the isolated Linux worktree with
+## Phase 6 final integrated validation — 2026-09-01
+
+Validated against the final integrated source after the semantic rebase. The
+Alembic order is `0011_project_settings` -> `0012_pending_deferred_statuses` ->
+`0013_idempotent_mutations`; the protected surface is ten REST operations, nine
+MCP tools, and nine browser intents.
+
+- **The full backend suite passed 314 tests against PostgreSQL 17, and the full
+  backend Ruff check was clean.** The run produced three known warnings.
+  Focused migration validation passed four tests, and the deterministic
+  receipt-race, deferral, and readiness batches also passed.
+- **The full MCP suite passed 185 tests in its separate environment.** The
+  protected surface remains exactly nine MCP mutation tools within the exact
+  22-tool catalog.
+- **The frontend passed 94 unit tests, TypeScript checking, and the production
+  build.** The complete isolated Playwright stack then passed 34/34 executions
+  in 1.1 minutes across desktop and narrow Chromium. Its disposable stack was
+  cleaned after the run.
+- **Both plugin manifests validated, and real disposable installation drills
+  passed.** A fresh `0.4.0` install and a sequential `0.3.0 -> 0.4.0` upgrade
+  both completed successfully.
+- **A disposable five-service production stack became healthy.** The read-only
+  checker passed health, authentication, dashboard proxy/origin policy, the
+  exact 22-tool catalog, all nine protected MCP schemas and annotations, and
+  REST-backed project listing.
+- **The authorized checker passed its complete canonical lifecycle.** It
+  exercised create, search, recall, checkpoints, events, the resource and
+  prompt, dashboard editing, stale-version rejection, claim replay, renewal and
+  release, pointer/capability isolation, ready-work behavior, event history,
+  graph behavior, and cleanup. A post-check ledger query found 25 completed
+  receipts across all nine MCP-covered operation kinds, with zero pending rows
+  and no completed row missing a response status.
+- **A dedicated custom-archive replacement drill preserved idempotent deferral
+  replay.** After known create and defer operations, writers were stopped and a
+  custom archive was restored through whole-`public`-schema replacement. The
+  restored database retained revision `0013_idempotent_mutations`, removed a
+  post-backup sentinel, retained the completed defer receipt, and returned the
+  same HTTP status and a byte-identical body for an exact same-key deferral
+  replay without a second transition.
+- **Application-service log review found no runtime failure or operation-key/ID
+  leak.** The aggregate PostgreSQL log's only failure was one operator-caused
+  diagnostic query against the nonexistent `mutation_receipts` name; it was not
+  an application runtime query or failure.
+
+The post-implementation cold adversarial code review was still pending when
+this integrated validation evidence was recorded, so this section makes no
+claim about that review's result.
+
+## Phase 6 pre-integration validation checkpoint — 2026-09-01
+
+This checkpoint records genuinely observed results from the Phase 6 branch
+before it was semantically rebased onto `0012_pending_deferred_statuses` and
+before `defer_work` became the tenth REST and ninth browser operation. Its old
+migration name, operation counts, and test counts are retained as historical
+performance, contention, restore, and integration evidence only; they are not
+the final integrated release result above.
+
+Validated against the then-current pre-integration Phase 6 source in the
+isolated Linux worktree with
 Python 3.13.15, PostgreSQL 17, the separate locked backend/MCP environments,
 and Node 24.20.0 for the frontend unit and type gates. This record contains
 only checks and measurements observed during this implementation session.
@@ -52,8 +109,8 @@ only checks and measurements observed during this implementation session.
   one outbound attempt and retain exact-retry guidance, while excluded writes
   retain their separate contracts.
 - **88 frontend unit tests and TypeScript checking passed under Node 24.20.0.**
-  The final production build also passed in the Node 24 image. The tests cover
-  all eight browser mutation intents, exact serialized-body reuse, strict
+  The then-current production build also passed in the Node 24 image. The tests
+  cover all eight browser mutation intents, exact serialized-body reuse, strict
   response decoding, conflict-key blocking, retained safety conflicts, proxy
   route/body/secret policy, and the no-persistence boundary.
 - **The complete isolated Playwright stack passed 28/28 executions in 57.7
@@ -120,7 +177,7 @@ only checks and measurements observed during this implementation session.
   `0.4.0` installation and a sequential `0.3.0 -> 0.4.0` update both
   installed the expected bytes and valid shared links without compatibility
   copies.
-- **The final disposable production-image stack passed.** All five services
+- **The pre-integration disposable production-image stack passed.** All five services
   became healthy with `0012_idempotent_mutations` matching the image, running
   API, and database. The read-only checker passed both sections; the authorized
   checker passed all three sections, the 22/22 catalog and 9/9 protected schema
@@ -131,14 +188,14 @@ only checks and measurements observed during this implementation session.
   were rejected value-free with no durable state. A bodyless dashboard-proxy
   relationship DELETE was rejected while the edge, both endpoint timelines,
   and receipt count remained unchanged.
-- **The final stack log audit inspected 379 aggregate lines with zero
+- **That pre-integration stack log audit inspected 379 aggregate lines with zero
   tracebacks, severe runtime entries, credential-value hits, operation-ID hits,
   or known body-content hits.** The first smoke cycles exposed only stale
   checker expectations: a keyed stale edit needed its required actor, and keyed
   secret echoes now correctly return `client_operation_secret_echo` before the
   Phase 5 event-only guard. Both checker fixtures were corrected and the full
   writable lifecycle reran successfully.
-- **Static release gates passed.** Both manifests and every repository-local
+- **The pre-integration static gates passed.** Both manifests and every repository-local
   Markdown target parse or exist, the checker CLI imports, and
   `git diff --check` is clean. Every disposable benchmark database/schema,
   dump, browser stack, production stack, volume, network, temporary credential
@@ -153,6 +210,7 @@ responses, and durable relationship no-ops rather than applied writes for the
 parallel throughput sample. Index bytes are relation-wide, the dump size
 includes the entire fixture database, and the exercise did not benchmark a
 production-sized migration lock or sustained ten-second contention.
+
 ## Phase 4 ready-work and Phase 5 event validation — 2026-09-01
 
 Validated in the local Linux workspace with the locked environments, isolated
