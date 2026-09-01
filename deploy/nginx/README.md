@@ -12,6 +12,7 @@ loopback. This file is not installed by a container build or Compose startup.
 
 | Public path | Destination |
 | --- | --- |
+| `*.svg` | Read from disk, falling back to Next.js |
 | `/` and `/api/mnemonic/*` | Next.js at `127.0.0.1:3000` |
 | `/api/mnemonic/sync` upgrade | Next.js WebSocket relay to the API |
 | `/mcp` (no trailing slash) | MCP at `127.0.0.1:8001/mcp` |
@@ -20,6 +21,17 @@ loopback. This file is not installed by a container build or Compose startup.
 
 FastAPI and PostgreSQL are not routed publicly. In particular, do not send
 `/api/mnemonic/*` to port 8000: that path belongs to the dashboard's server proxy.
+
+SVG requests are answered from `frontend/public` in the checkout, cached for a
+week, and never reach Next.js, which labels that directory `max-age=0` and so
+makes every page view revalidate artwork that changes only on redeploy. The
+`root` in `mnemonic.conf` must name the checkout that built the web image --
+`frontend/Dockerfile` copies the same directory into the container -- because
+nginx now answers from the tree on disk rather than from the image. An SVG that
+is not there falls through to the dashboard, which is how `/icon.svg` keeps
+working: Next.js generates it from `app/icon.svg`, outside `public/`. The
+location repeats the security headers `next.config.ts` sets, plus HSTS, since
+none of those apply to a response nginx serves itself.
 
 The WebSocket carries data-free invalidation notices; browsers refetch changed
 records through the authenticated dashboard API proxy. nginx forwards the
@@ -169,9 +181,9 @@ bounded retention period (for example, the example host's 30 days).
 
 Access logs exclude query strings and Referer to avoid retaining search text.
 Error logs can still include request URLs, so they also need private storage.
-The proxy does not cache responses; it preserves Next.js's own browser cache
-headers and does not buffer MCP, Next.js streaming responses, or upgraded
-WebSocket traffic.
+The proxy stores no responses of its own. It preserves Next.js's browser cache
+headers, apart from the SVG location above, which sets its own, and does not
+buffer MCP, Next.js streaming responses, or upgraded WebSocket traffic.
 
 Directive behavior was checked against nginx's official
 [proxy documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html),
