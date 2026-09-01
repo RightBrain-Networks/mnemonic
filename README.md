@@ -16,7 +16,17 @@ It does not modify Claude's memory subsystem. While Claude Code is the first cli
 
 - Multiple agents are concurrently working on the same project and occasionally clobber each other.
 
-- You don't want the complexity of a full orchestration platform like Openclaw.
+- You don't want the complexity of a full orchestration platform like Openclaw and/or prefer a strong human-in-the-loop workflow.
+
+## Basic concepts
+
+The included agent skills encourage the LLM to default to using `mnemonic` to save hand-off prompts and self-discovered follow-up tasks. Markdown docs and your bug/issue tracker are reserved for durable human-facing information. Claude's "suggested task chips" are explicitly discouraged here since they live only in the ephemeral client and are easily lost.
+
+Upon discovering something worth remembering, your agent will first search `mnemonic` for related work items, using a hybrid keyword matching and semantic search (embeddings). If it doesn't find any results, it opens a new work item in a "pending" state.
+
+The human (you, presumably) then click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh Claude Code session. Claude will then retrieve the work item and validate the stated premises. If the facts check-out, it requests a "work lease" of 15 minutes and then gets to work. The lease is periodically renewed until the task is complete and the work item is marked as "done".
+
+The "human-required" copy-and-paste step is deliberate. It allows you to balance your weekly Claude quota or API usage between your normal development work and working through the `mnemonic` backlog.
 
 ## Run it
 
