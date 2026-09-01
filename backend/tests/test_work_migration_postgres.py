@@ -281,7 +281,7 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
         with engine.connect() as connection:
             assert connection.execute(
                 text("SELECT version_num FROM alembic_version")
-            ).scalar_one() == "0008_work_relationships"
+            ).scalar_one() == "0010_work_events"
             assert connection.execute(text("SELECT to_regclass('handoffs')")).scalar_one() is None
             assert connection.execute(
                 text("SELECT to_regclass('handoff_comments')")
@@ -292,6 +292,12 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
             assert connection.execute(
                 text("SELECT to_regclass('work_leases')")
             ).scalar_one() == "work_leases"
+            assert connection.execute(
+                text("SELECT to_regclass('work_events')")
+            ).scalar_one() == "work_events"
+            assert connection.execute(
+                text("SELECT count(*) FROM work_events WHERE origin = 'backfill'")
+            ).scalar_one() == 7
 
         with TestClient(create_app(settings, engine=engine)) as client:
             client.headers["Authorization"] = f"Bearer {api_key}"

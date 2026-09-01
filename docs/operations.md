@@ -134,6 +134,66 @@ migrated forward: `0008` creates an empty relationship table because the older
 archive contains no graph facts. Do not infer or reconstruct edges from prompt
 text. A Phase 3 backup is required to restore relationships that existed.
 
+## Phase 4 ready-work deployment
+
+`0009_ready_work_indexes` is an additive index migration for the ready-work
+query. Deploy the Phase 4 API and MCP images together so the exact readiness
+predicate, filters, pointer-only response, and claim-side recheck agree. The
+current gate seam is intentionally vacuous; do not add a hidden gate condition
+until a later schema and contract introduce one explicitly.
+
+After migration, verify that ready work is visible and open, has no unresolved
+incoming `blocks` edge, and has no active lease. Exercise the deterministic
+`priority DESC, created_at ASC, id ASC` order plus tag and direct-parent filters.
+Treat the result as an advisory discovery snapshot: consumers must still call
+`claim_work`, which rechecks eligibility atomically and may reject a stale
+candidate. There is no automatic scheduler or claim-next operation.
+
+## Phase 5 immutable-event cutover and rollback
+
+`0010_work_events` is a quiesced cutover, not a rolling migration. It creates the
+append-only event store and backfills historical canonical facts. Any Phase 4
+write accepted after that backfill but before Phase 5 writers take over would
+have no matching authoritative event. For the cutover:
+
+1. stop API, MCP, dashboard, and any direct REST writers;
+2. take a fresh custom-format backup, verify its archive, and rehearse restore;
+3. migrate through `0009` and `0010` on an isolated restored database first;
+4. verify migration/model parity, exact backfill counts by event type,
+   representative provenance and partial-history flags, event sequence state,
+   and the database update/delete rejection triggers;
+5. migrate production and deploy API, MCP, and dashboard images as one
+   compatible stack; resume traffic only after the same checks pass.
+
+Do not restart a Phase 4 writer against a database whose `0010` backfill has
+finished. If the deployment fails before any Phase 5 write, keep writers stopped
+and either fix forward or downgrade/restore to the rehearsed pre-cutover state.
+After a Phase 5 write, `0010` downgrade drops the event history, including
+progress events that have no checkpoint equivalent. Prefer a forward fix. If an
+operator accepts a rollback that discards post-cutover writes, first preserve a
+forensic backup, quiesce all writers, then restore the pre-cutover archive as the
+single rollback boundary.
+
+Authoritative lifecycle, lease, relationship, checkpoint, and identity events
+are inserted in the same transaction as their canonical mutation. Exact
+idempotent replays and other no-op outcomes add no event. `append_event` accepts
+only a progress event; a checkpoint remains durable resume evidence and gets its
+own automatic `checkpoint_added` event. Event rows are immutable and ordered per
+work by `created_at`, with the server-assigned ID as the tie-breaker. Their
+actor provenance is client-asserted audit context, not an authentication or
+authorization boundary.
+
+Keep API bearer keys and lease tokens out of event content, metadata, URLs, logs,
+and screenshots. Known request credentials echoed into event input are rejected,
+but arbitrary accepted prose can still contain unknown sensitive material. The
+database trigger rejects event update/delete statements with SQLSTATE `55000`;
+do not bypass the API or disable that protection for routine maintenance.
+
+Event retention follows retained work; there is no physical event purge API.
+If event operations are instrumented, use only bounded event-type labels. Never
+put project names, tag values, actors, event bodies, or unbounded IDs in metric
+labels.
+
 ## Backups
 
 The backup container starts after the API has migrated the database and become
@@ -150,15 +210,17 @@ docker compose logs --tail=20 backup
 
 Files appear under `MNEMONIC_BACKUP_DIR` (`./backups` by default). They include
 canonical work, immutable checkpoint text and provenance, retained leases, typed
-relationships, and migration state; treat them as private. The backup service
-never deletes earlier dumps. Set a retention policy appropriate for available
-disk space, and copy successful dumps to another device or a backed-up location.
-The local PostgreSQL volume and a backup on the same disk can both be lost.
+relationships, immutable work events and their sequence, and migration state;
+treat them as private. The backup service never deletes earlier dumps. Set a
+retention policy appropriate for available disk space, and copy successful dumps
+to another device or a backed-up location. The local PostgreSQL volume and a
+backup on the same disk can both be lost.
 
 An archive listing check is not a restore drill. Periodically restore a dump
 into an isolated PostgreSQL instance and verify representative projects, work
 items, checkpoint history, exact relationship source/target/context/provenance,
-derived readiness, hierarchy navigation, and the expected
+derived readiness, event count/max ID/content checksum and sequence ownership,
+all event indexes plus the immutability function and triggers, and the expected
 `alembic_version`. Keep the PostgreSQL major version compatible with the dump
 tools.
 
@@ -179,22 +241,24 @@ docker compose up -d --wait
 PostgreSQL must remain running during this sequence. The restore script refuses
 to run without the explicit confirmation value, rejects filenames containing
 directory paths, and uses a single transaction so errors roll back. The API
-applies any newer migrations, including `0008`, before becoming ready. Do not
-expose API, MCP, or dashboard traffic until readiness succeeds and the restored
-schema/data checks pass. A restore from before a schema change should be
-rehearsed on an isolated instance first; restore is not a substitute for a
-planned schema downgrade, and a pre-Phase-3 archive cannot recover graph facts
-created after that snapshot.
+applies any newer migrations, including `0009` and `0010`, before becoming
+ready. Do not expose API, MCP, or dashboard traffic until readiness succeeds and
+the restored schema/data checks pass. A restore from before a schema change
+should be rehearsed on an isolated instance first; restore is not a substitute
+for a planned schema downgrade. A pre-Phase-3 archive cannot recover later graph
+facts, and a pre-Phase-5 archive cannot recover later event history.
 
 Deletion from the dashboard is a soft delete. No ordinary API or MCP read can
-retrieve a deleted work item or any of its checkpoints. The application refuses
-deletion while any relationship remains. An operator can recover a deleted item
-from a backup or, after confirming the exact project and work-item UUIDs, clear
-`work_items.deleted_at` and increment its `version`. Before manual recovery,
-inspect project-scoped adjacent edges and the resulting readiness; do not invent
-or update relationships directly. Checkpoint rows must not be edited during
-recovery; the database immutability trigger rejects ordinary update/delete
-statements. There is no trash-management UI.
+retrieve a deleted work item, its checkpoints, or its event history. The
+immutable rows remain retained; there is no physical purge endpoint. The
+application refuses deletion while any relationship remains.
+
+There is no supported in-place undelete or trash-management UI. Do not clear
+`work_items.deleted_at` manually: Phase 5 retains one immutable `work_deleted`
+fact and has no recovery event, so such a change would make the timeline false
+and can make a later canonical deletion violate the unique fact constraint.
+Recovery requires an operator-approved restore at the documented whole-database
+backup boundary. Checkpoint and event rows must never be edited during recovery.
 
 ## Trust boundary and remote clients
 

@@ -11,8 +11,10 @@ and MCP interface do not depend on a particular LLM provider.
 
 A durable home for objectives that outlive any one AI session. Save one work
 item, carry it forward through immutable session-attributed checkpoints, and
-preserve what each session knew, changed, and verified. Many sessions can
-continue the same objective without multiplying its human-visible identity.
+preserve what each session knew, changed, and verified. Agents can discover
+which open work is actionable now, then rely on an atomic claim before acting.
+An immutable event timeline records meaningful changes without rewriting the
+work narrative. Many sessions can continue one human-visible objective.
 
 ## Is `mnemonic` right for you?
 
@@ -122,20 +124,22 @@ reachable remotely.
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest
 version, so editing a skill in place does not change an installed copy.
 `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. To pick up local edits, bump `version` in
-`plugin/.claude-plugin/plugin.json`, or remove that version's directory under
-`~/.claude/plugins/cache/mnemonic/` and install again. The plugin provides:
+not the installed files. After a published plugin version changes, run
+`claude plugin marketplace update mnemonic`, then
+`claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current
+plugin is version `0.3.0`. It provides:
 
 - **`mnemonic-save`** searches for existing work, creates a durable objective
   with its initial checkpoint and explicit atomic links, or appends corrective
-  context to an existing one.
+  resume context to an existing one; concise historical progress uses an event.
 - **`mnemonic-search`** finds compact work-item leads within the chosen project,
-  normally restricted to open work, with lifecycle/readiness pointers.
+  normally restricted to open work, and separately lists priority-ordered ready
+  candidates without treating search as a queue.
 - **`mnemonic-recall`** loads bounded current context, pages older checkpoints
-  when needed, atomically claims already-authorized execution, renews or
-  releases that expiring lease, inspects immediate typed relationships, appends
-  useful progress, and records an atomic completion checkpoint when the work is
-  complete.
+  or events when needed, atomically claims already-authorized execution, renews
+  or releases that expiring lease, inspects immediate typed relationships,
+  records concise progress events, and saves an atomic completion checkpoint
+  when the work is complete.
 
 Invoke `/mnemonic-save`, `/mnemonic-search`, or `/mnemonic-recall`, or ask Claude
 in natural language. The skills require the connected `mnemonic` MCP server.
@@ -145,7 +149,7 @@ refer to the originating LLM conversation, not the MCP transport session.
 
 See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 
-## What Phase 3 does
+## What Phases 1–5 do
 
 - Separates durable work by project, with a project selector and project
   creation. One work-item card can represent checkpoints from many sessions.
@@ -183,6 +187,23 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 - Makes only unresolved incoming `blocks` edges affect readiness and claim
   eligibility. `done` resolves a blocker; `wont-do` and `promoted` do not.
   Active work may become blocked without revoking its existing lease.
+- Exposes dedicated `ready-work` REST and `list_ready_work` MCP reads. Ready
+  items are open, visible, unblocked, and unleased at one database-time
+  snapshot, ordered by priority descending, then creation time and UUID. The
+  compact result is advisory: `claim_and_recall` revalidates before execution.
+- Stores append-only, actor-attributed work events for creation, work changes,
+  claims/releases, checkpoints, relationships, completion/reopen, deletion, and
+  explicit concise progress. Authoritative events commit with the mutation they
+  describe; canonical idempotent replays and natural no-ops do not fabricate
+  duplicates. Progress append itself is non-idempotent before Phase 6.
+- Keeps checkpoints and events separate. A checkpoint is substantial resume
+  context; a progress event is a short historical fact. Recall includes at most
+  20 recent events, while the dashboard pages the complete per-work Activity
+  timeline and labels reconstructed pre-Phase-5 history honestly.
+- Treats event actors as asserted client provenance, not authenticated human
+  identity. Stored event/checkpoint text is untrusted and may contain unknown
+  sensitive material; request-known credential echoes are rejected, but clients
+  must still keep secrets out of history.
 - Creates a new objective, initial checkpoint, and up to ten explicit typed
   relationships atomically. A `discovered-from` link must cite a
   checkpoint on the originating target work item.
@@ -197,8 +218,8 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 
 It does **not** automatically execute checkpoints, grant authority by claiming,
 create GitHub issues, inject memory hooks, infer missing session IDs, schedule
-the next ready item, infer relationships from semantic similarity, merge
-duplicates, or reserve repository resources. Mnemonic is deliberately
+or claim the next ready item, infer relationships from semantic similarity,
+merge duplicates, or reserve repository resources. Mnemonic is deliberately
 LLM-centric: checkpoints and relationship context record an agent's claims
 rather than server-verified proof. Context quality and freshness remain agent
 workflow obligations; storing a commit ID is not proof the service verified

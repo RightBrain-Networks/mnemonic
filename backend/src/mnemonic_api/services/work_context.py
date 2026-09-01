@@ -12,13 +12,14 @@ from mnemonic_api.schemas import (
     CheckpointPointer,
     CheckpointRead,
     LeasePublic,
-    Readiness,
     WorkContext,
+    WorkEventRead,
     WorkItemPointer,
     WorkItemRead,
     WorkSummary,
     WorkSummaryMinimal,
 )
+from mnemonic_api.services.readiness import readiness, unresolved_blocker_counts
 
 
 def checkpoint_read(checkpoint: Checkpoint | dict[str, Any]) -> CheckpointRead:
@@ -29,43 +30,10 @@ def checkpoint_pointer(checkpoint: Checkpoint) -> CheckpointPointer:
     return CheckpointPointer.model_validate(checkpoint)
 
 
-def readiness(
-    work_item: WorkItem | WorkItemRead,
-    active_lease: WorkLease | LeasePublic | None = None,
-    unresolved_blocker_count: int = 0,
-) -> Readiness:
-    terminal = work_item.status != "open"
-    lease_public = (
-        LeasePublic.model_validate(active_lease) if active_lease is not None else None
-    )
-    has_active_lease = lease_public is not None
-    is_blocked = unresolved_blocker_count > 0
-    if terminal:
-        display_state = work_item.status
-    elif is_blocked:
-        display_state = "blocked"
-    elif has_active_lease:
-        display_state = "active"
-    else:
-        display_state = "ready"
-    return Readiness(
-        lifecycle_status=work_item.status,
-        is_terminal=terminal,
-        has_active_lease=has_active_lease,
-        active_lease=lease_public,
-        unresolved_blocker_count=unresolved_blocker_count,
-        is_blocked=is_blocked,
-        is_ready=not terminal and not has_active_lease and not is_blocked,
-        display_state=display_state,
-    )
-
-
 def _summary_inputs(
     database: Session, ids: list[UUID]
 ) -> tuple[dict[UUID, int], dict[UUID, int], dict[UUID, WorkLease]]:
     """Checkpoint counts, unresolved blockers, and active leases for one page."""
-    from mnemonic_api.services.relationships import unresolved_blocker_counts
-
     blocker_counts = unresolved_blocker_counts(database, ids)
     counts = dict(
         database.execute(
@@ -142,12 +110,17 @@ def work_summaries(database: Session, work_items: Sequence[WorkItem]) -> list[Wo
 
 
 def assemble_work_context(
-    database: Session, project_id: UUID, work_item_id: UUID, recent_limit: int
+    database: Session,
+    project_id: UUID,
+    work_item_id: UUID,
+    recent_limit: int,
+    recent_event_limit: int = 10,
 ) -> WorkContext:
     """Read all bounded context components from one READ COMMITTED statement."""
-    row = database.execute(
-        text(
-            """
+    row = (
+        database.execute(
+            text(
+                """
             WITH selected_work AS (
                 SELECT *
                 FROM work_items
@@ -180,6 +153,33 @@ def assemble_work_context(
                   AND checkpoint.id <> w.current_checkpoint_id
                 ORDER BY checkpoint.created_at DESC, checkpoint.id DESC
                 LIMIT :recent_limit
+            ),
+            recent_events AS MATERIALIZED (
+                SELECT recent_event.*
+                FROM chosen AS w
+                CROSS JOIN LATERAL (
+                    SELECT
+                        event.*,
+                        CASE
+                            WHEN event.relationship_id IS NULL THEN NULL
+                            WHEN event.metadata->>'relationship_type' = 'related'
+                                THEN 'undirected'
+                            WHEN event.relationship_target_work_item_id = event.work_item_id
+                                THEN 'incoming'
+                            ELSE 'outgoing'
+                        END AS relationship_direction,
+                        CASE
+                            WHEN event.relationship_id IS NULL THEN NULL
+                            WHEN event.relationship_source_work_item_id = event.work_item_id
+                                THEN event.relationship_target_work_item_id
+                            ELSE event.relationship_source_work_item_id
+                        END AS counterpart_work_item_id
+                    FROM work_events AS event
+                    WHERE event.project_id = w.project_id
+                      AND event.work_item_id = w.id
+                    ORDER BY event.created_at DESC, event.id DESC
+                    LIMIT :recent_event_limit
+                ) AS recent_event
             ),
             adjacent_base AS (
                 SELECT
@@ -396,7 +396,33 @@ def assemble_work_context(
                         'total', count(*)
                     )
                     FROM adjacent_base
-                ) AS relationship_counts
+                ) AS relationship_counts,
+                COALESCE(
+                    (
+                        SELECT jsonb_agg(
+                            to_jsonb(recent_event)
+                            ORDER BY recent_event.created_at, recent_event.id
+                        )
+                        FROM recent_events AS recent_event
+                    ),
+                    '[]'::jsonb
+                ) AS recent_events,
+                (
+                    SELECT count(*)
+                    FROM work_events AS event_count
+                    WHERE event_count.project_id = w.project_id
+                      AND event_count.work_item_id = w.id
+                ) AS event_total,
+                COALESCE(
+                    (
+                        SELECT creation.origin = 'backfill'
+                        FROM work_events AS creation
+                        WHERE creation.project_id = w.project_id
+                          AND creation.work_item_id = w.id
+                          AND creation.event_type = 'work_created'
+                    ),
+                    false
+                ) AS pre_phase5_history_may_be_incomplete
             FROM chosen AS w
             JOIN checkpoints AS initial_checkpoint
               ON initial_checkpoint.work_item_id = w.id
@@ -409,13 +435,17 @@ def assemble_work_context(
               ON active_lease.work_item_id = w.id
              AND active_lease.expires_at > database_time.now
             """
-        ),
-        {
-            "project_id": project_id,
-            "work_item_id": work_item_id,
-            "recent_limit": recent_limit,
-        },
-    ).mappings().one_or_none()
+            ),
+            {
+                "project_id": project_id,
+                "work_item_id": work_item_id,
+                "recent_limit": recent_limit,
+                "recent_event_limit": recent_event_limit,
+            },
+        )
+        .mappings()
+        .one_or_none()
+    )
     if row is None:
         from mnemonic_api.services.work_items import missing_work_item
 
@@ -425,10 +455,11 @@ def assemble_work_context(
     initial = CheckpointRead.model_validate(row["initial_checkpoint"])
     current = CheckpointRead.model_validate(row["current_checkpoint"])
     recent = [CheckpointRead.model_validate(item) for item in row["recent_checkpoints"]]
+    recent_events = [WorkEventRead.model_validate(item) for item in row["recent_events"]]
+    event_total = int(row["event_total"])
+    history_incomplete = bool(row["pre_phase5_history_may_be_incomplete"])
     active_lease = (
-        LeasePublic.model_validate(row["active_lease"])
-        if row["active_lease"] is not None
-        else None
+        LeasePublic.model_validate(row["active_lease"]) if row["active_lease"] is not None else None
     )
     blocker_count = int(row["unresolved_blocker_count"])
     materialized_ids = {initial.id, current.id, *(item.id for item in recent)}
@@ -449,4 +480,8 @@ def assemble_work_context(
         outgoing_relationships=row["outgoing_relationships"],
         undirected_relationships=row["undirected_relationships"],
         relationship_counts=row["relationship_counts"],
+        recent_events=recent_events,
+        event_total=event_total,
+        omitted_event_count=event_total - len(recent_events),
+        pre_phase5_history_may_be_incomplete=history_incomplete,
     )

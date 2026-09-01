@@ -1,8 +1,8 @@
 import {
   allowedQueryKeys,
-  classifyRequestBody,
   configuredOrigins,
   forbiddenMutationField,
+  invalidMutationBody,
   trustedRequest,
   upstreamTimeoutMs
 } from "@/lib/proxy-policy";
@@ -21,13 +21,14 @@ function fail(status: number, detail: string): Response {
   return Response.json({ detail }, { status, headers: responseHeaders });
 }
 
-async function readBody(request: Request): Promise<string | Response> {
-  if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
-    return fail(415, "Send a JSON request body.");
-  }
+async function readBody(
+  request: Request,
+  route: string,
+  required = true
+): Promise<string | undefined | Response> {
   if (Number(request.headers.get("content-length")) > MAX_BODY_BYTES) return fail(413, "Request body is too large.");
   const reader = request.body?.getReader();
-  if (!reader) return fail(400, "A request body is required.");
+  if (!reader) return required ? fail(400, "A request body is required.") : undefined;
   const chunks: Uint8Array[] = [];
   let size = 0;
   while (true) {
@@ -39,6 +40,10 @@ async function readBody(request: Request): Promise<string | Response> {
       return fail(413, "Request body is too large.");
     }
     chunks.push(value);
+  }
+  if (size === 0) return required ? fail(400, "A request body is required.") : undefined;
+  if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
+    return fail(415, "Send a JSON request body.");
   }
   const bytes = new Uint8Array(size);
   let offset = 0;
@@ -52,6 +57,8 @@ async function readBody(request: Request): Promise<string | Response> {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return fail(400, "The request body must be a JSON object.");
     const forbidden = forbiddenMutationField(parsed);
     if (forbidden) return fail(400, `The request body contains an unsupported field: ${forbidden}.`);
+    const invalid = invalidMutationBody(route, request.method, parsed);
+    if (invalid) return fail(400, invalid);
     return text;
   } catch {
     return fail(400, "The request body is not valid JSON.");
@@ -86,15 +93,13 @@ async function proxy(request: Request, context: Context): Promise<Response> {
 
   let body: string | undefined;
   if (request.method === "POST" || request.method === "PATCH") {
-    const result = await readBody(request);
+    const result = await readBody(request, route);
     if (result instanceof Response) return result;
     body = result;
   } else if (request.method === "DELETE") {
-    const bodyKind = await classifyRequestBody(request, MAX_BODY_BYTES);
-    if (bodyKind === "too-large") return fail(413, "Request body is too large.");
-    if (bodyKind === "present") {
-      return fail(400, "DELETE request bodies are not supported by the dashboard proxy.");
-    }
+    const result = await readBody(request, route, false);
+    if (result instanceof Response) return result;
+    body = result;
   }
   const target = new URL(`/api/v1/${route}`, base);
   target.search = query.toString();

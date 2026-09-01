@@ -2,6 +2,7 @@
 
 import logging
 import secrets
+from collections.abc import Iterable, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated
@@ -39,16 +40,21 @@ from mnemonic_api.schemas import (
     ClaimAndRecall,
     ClaimReceipt,
     HierarchySummary,
+    LeaseReleaseCreate,
     LeaseTokenCreate,
     Page,
+    ProgressEventCreate,
     ProjectCreate,
     ProjectListQuery,
     ProjectPatch,
     ProjectRead,
+    ReadyWorkListQuery,
+    ReadyWorkPage,
     RelationshipCreate,
     RelationshipCreationResult,
     RelationshipEdgeRead,
     RelationshipListQuery,
+    RelationshipRemovalCreate,
     RelationshipRemovalResult,
     ReleaseResult,
     WorkClaimCreate,
@@ -59,6 +65,9 @@ from mnemonic_api.schemas import (
     WorkCreation,
     WorkDeletionCreate,
     WorkDeletionRead,
+    WorkEventListQuery,
+    WorkEventPage,
+    WorkEventRead,
     WorkItemCreate,
     WorkItemListQuery,
     WorkItemPatch,
@@ -72,6 +81,7 @@ from mnemonic_api.services.leases import (
     release_lease_record,
     renew_lease_record,
 )
+from mnemonic_api.services.readiness import ready_work_page
 from mnemonic_api.services.relationships import (
     add_relationship_record,
     ancestor_paths,
@@ -87,6 +97,7 @@ from mnemonic_api.services.work_context import (
     minimal_work_summaries,
     work_summaries,
 )
+from mnemonic_api.services.work_events import append_progress_event, list_work_events
 from mnemonic_api.services.work_items import (
     append_checkpoint_record,
     complete_work_record,
@@ -100,6 +111,92 @@ from mnemonic_api.services.work_items import (
 logger = logging.getLogger(__name__)
 bearer = HTTPBearer(auto_error=False)
 Database = Annotated[Session, Depends(get_session)]
+
+_PUBLIC_VALIDATION_LOCATION_REPLACEMENT = "field"
+_PUBLIC_VALIDATION_LOCATION_SEGMENTS = frozenset(
+    """
+    body query path header cookie project_id work_item_id relationship_id
+    name description slug q semantic status tag source_client source_session_id
+    view limit offset min_priority parent_work_item_id direction type order
+    event_type recent_limit recent_event_limit title summary priority expected_version
+    initial_checkpoint initial_relationships checkpoint kind prompt source_model
+    source_session_url repository_branch verified_against tags source_metadata
+    migration_origin legacy_record_id relationship_type source_work_item_id
+    target_work_item_id other_work_item_id context_checkpoint_id created_by_client
+    created_by_session_id created_by_model holder_client holder_session_id
+    claim_request_id lease_token actor actor_client actor_session_id actor_model metadata
+    """.split()
+)
+
+_PUBLIC_VALIDATION_ERROR_MESSAGES = {
+    "assertion_error": "Value is invalid.",
+    "bool_parsing": "Input should be a valid boolean.",
+    "bool_type": "Input should be a valid boolean.",
+    "datetime_parsing": "Input should be a valid datetime.",
+    "datetime_type": "Input should be a valid datetime.",
+    "dict_type": "Input should be an object.",
+    "extra_forbidden": "Extra inputs are not permitted.",
+    "finite_number": "Input should be a finite number.",
+    "float_parsing": "Input should be a valid number.",
+    "float_type": "Input should be a valid number.",
+    "greater_than_equal": "Input is below the allowed minimum.",
+    "int_parsing": "Input should be a valid integer.",
+    "int_type": "Input should be a valid integer.",
+    "json_invalid": "Request body contains invalid JSON.",
+    "less_than_equal": "Input exceeds the allowed maximum.",
+    "list_type": "Input should be a list.",
+    "literal_error": "Input has an unsupported value.",
+    "missing": "Field required.",
+    "model_attributes_type": "Input should be an object.",
+    "string_pattern_mismatch": "String format is invalid.",
+    "string_too_long": "String is too long.",
+    "string_too_short": "String is too short.",
+    "string_type": "Input should be a valid string.",
+    "too_long": "Collection contains too many items.",
+    "too_short": "Collection contains too few items.",
+    "uuid_parsing": "Input should be a valid UUID.",
+    "uuid_type": "Input should be a valid UUID.",
+    "value_error": "Value is invalid.",
+}
+
+
+def _public_validation_errors(
+    errors: Iterable[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    public_errors: list[dict[str, object]] = []
+    for error in errors:
+        raw_type = error.get("type")
+        error_type = (
+            raw_type
+            if isinstance(raw_type, str) and raw_type in _PUBLIC_VALIDATION_ERROR_MESSAGES
+            else "validation_error"
+        )
+        raw_location = error.get("loc")
+        location_parts = (
+            raw_location
+            if isinstance(raw_location, (list, tuple))
+            else ()
+        )
+        public_location: list[str | int] = []
+        for part in location_parts:
+            if isinstance(part, int) and not isinstance(part, bool):
+                public_location.append(part)
+            elif isinstance(part, str) and part in _PUBLIC_VALIDATION_LOCATION_SEGMENTS:
+                public_location.append(part)
+            else:
+                public_location.append(_PUBLIC_VALIDATION_LOCATION_REPLACEMENT)
+        public_errors.append(
+            {
+                "type": error_type,
+                "loc": public_location,
+                "msg": _PUBLIC_VALIDATION_ERROR_MESSAGES.get(
+                    error_type,
+                    "Request validation failed.",
+                ),
+            }
+        )
+
+    return public_errors
 
 
 def authenticate(
@@ -156,9 +253,7 @@ sync_router = APIRouter(prefix="/api/v1")
 
 def _matching_checkpoint_exists(work_item_id, *conditions):
     return (
-        select(Checkpoint.id)
-        .where(Checkpoint.work_item_id == work_item_id, *conditions)
-        .exists()
+        select(Checkpoint.id).where(Checkpoint.work_item_id == work_item_id, *conditions).exists()
     )
 
 
@@ -181,9 +276,7 @@ def _search_work_rows(
                 # Keep the indexed normalized-data fast path while allowing
                 # exact migrations that preserved historical tag case.
                 Checkpoint.tags.contains([filters.tag]),
-                select(1)
-                .where(func.lower(checkpoint_tag) == filters.tag)
-                .exists(),
+                select(1).where(func.lower(checkpoint_tag) == filters.tag).exists(),
             )
         )
     if filters.source_client is not None:
@@ -284,6 +377,8 @@ def _search_work_rows(
         )
     )
     return work_items, total
+
+
 @router.get("/projects", response_model=Page[ProjectRead])
 def list_projects(
     filters: Annotated[ProjectListQuery, Query()], database: Database
@@ -334,12 +429,8 @@ def update_project(project_id: UUID, payload: ProjectPatch, database: Database) 
     return project
 
 
-@router.post(
-    "/projects/{project_id}/work-items", response_model=WorkCreation, status_code=201
-)
-def create_work(
-    project_id: UUID, payload: WorkItemCreate, database: Database
-) -> WorkCreation:
+@router.post("/projects/{project_id}/work-items", response_model=WorkCreation, status_code=201)
+def create_work(project_id: UUID, payload: WorkItemCreate, database: Database) -> WorkCreation:
     work_item, checkpoint, relationships = create_work_records(database, project_id, payload)
     database.commit()
     database.refresh(work_item)
@@ -396,6 +487,16 @@ def search_work(
     )
 
 
+@router.get("/projects/{project_id}/ready-work", response_model=ReadyWorkPage)
+def list_ready_work(
+    project_id: UUID,
+    filters: Annotated[ReadyWorkListQuery, Query()],
+    database: Database,
+) -> ReadyWorkPage:
+    """List advisory ready pointers; claim-time validation remains authoritative."""
+    return ready_work_page(database, project_id, filters)
+
+
 @router.post(
     "/projects/{project_id}/relationships",
     response_model=RelationshipCreationResult,
@@ -430,8 +531,14 @@ def remove_relationship(
     project_id: UUID,
     relationship_id: UUID,
     database: Database,
+    payload: RelationshipRemovalCreate | None = None,
 ) -> RelationshipRemovalResult:
-    result = remove_relationship_record(database, project_id, relationship_id)
+    result = remove_relationship_record(
+        database,
+        project_id,
+        relationship_id,
+        payload.actor if payload is not None else None,
+    )
     database.commit()
     return result
 
@@ -516,6 +623,42 @@ def list_checkpoints(
     )
 
 
+@router.get(
+    "/projects/{project_id}/work-items/{work_item_id}/events",
+    response_model=WorkEventPage,
+)
+def get_work_events(
+    project_id: UUID,
+    work_item_id: UUID,
+    filters: Annotated[WorkEventListQuery, Query()],
+    database: Database,
+) -> WorkEventPage:
+    return list_work_events(database, project_id, work_item_id, filters)
+
+
+@router.post(
+    "/projects/{project_id}/work-items/{work_item_id}/events",
+    response_model=WorkEventRead,
+    status_code=201,
+)
+def append_event(
+    project_id: UUID,
+    work_item_id: UUID,
+    payload: ProgressEventCreate,
+    request: Request,
+    database: Database,
+) -> WorkEventRead:
+    event = append_progress_event(
+        database,
+        project_id,
+        work_item_id,
+        payload,
+        bearer_key=request.app.state.settings.api_key.get_secret_value(),
+    )
+    database.commit()
+    return event
+
+
 @router.post(
     "/projects/{project_id}/work-items/{work_item_id}/checkpoints",
     response_model=CheckpointRead,
@@ -539,16 +682,20 @@ def add_checkpoint(
     return checkpoint
 
 
-@router.get(
-    "/projects/{project_id}/work-items/{work_item_id}/context", response_model=WorkContext
-)
+@router.get("/projects/{project_id}/work-items/{work_item_id}/context", response_model=WorkContext)
 def recall_work(
     project_id: UUID,
     work_item_id: UUID,
     filters: Annotated[WorkContextQuery, Query()],
     database: Database,
 ) -> WorkContext:
-    return assemble_work_context(database, project_id, work_item_id, filters.recent_limit)
+    return assemble_work_context(
+        database,
+        project_id,
+        work_item_id,
+        filters.recent_limit,
+        filters.recent_event_limit,
+    )
 
 
 @router.post(
@@ -589,7 +736,13 @@ def delete_work(
     database: Database,
 ) -> WorkDeletionRead:
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
-    delete_work_record(database, work_item, payload.expected_version, payload.lease_token)
+    delete_work_record(
+        database,
+        work_item,
+        payload.expected_version,
+        payload.lease_token,
+        payload.actor,
+    )
     database.commit()
     return WorkDeletionRead(
         project_id=project_id,
@@ -714,11 +867,11 @@ def renew_claim(
 def release_claim(
     project_id: UUID,
     work_item_id: UUID,
-    payload: LeaseTokenCreate,
+    payload: LeaseReleaseCreate,
     database: Database,
 ) -> ReleaseResult:
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
-    result = release_lease_record(database, work_item, payload.lease_token)
+    result = release_lease_record(database, work_item, payload.lease_token, payload.actor)
     database.commit()
     return result
 
@@ -786,19 +939,7 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_: Request, exc: RequestValidationError) -> JSONResponse:
-        def safe_text(value: str) -> str:
-            return value.encode("utf-8", errors="replace").decode("utf-8")
-
-        errors = [
-            {
-                "type": safe_text(error["type"]),
-                "loc": [
-                    safe_text(part) if isinstance(part, str) else part for part in error["loc"]
-                ],
-                "msg": safe_text(error["msg"]),
-            }
-            for error in exc.errors()
-        ]
+        errors = _public_validation_errors(exc.errors())
         return JSONResponse(status_code=422, content={"detail": errors})
 
     return app

@@ -8,10 +8,10 @@ dashboard uses `package-lock.json` and `npm ci`.
 Use Python 3.13, uv, and Node 24 for native development. Docker-only users do
 not need these tools to run Mnemonic.
 
-## Phase 3 backend verification
+## Phase 5 backend verification
 
-The database suite needs a real PostgreSQL instance because Phases 1 through 3
-depend on PostgreSQL search, row locking, database time, triggers, and Alembic
+The database suite needs a real PostgreSQL instance because the system depends
+on PostgreSQL search, row locking, database time, triggers, and Alembic
 behavior. Start the isolated
 test database from the repository root:
 
@@ -35,7 +35,7 @@ In PowerShell, replace the export with:
 $env:TEST_DATABASE_URL = 'postgresql+psycopg://mnemonic_test:mnemonic_test_only@127.0.0.1:55432/mnemonic_test'
 ```
 
-The Phase 3 backend suite verifies:
+The Phase 5 backend suite verifies:
 
 - the `0004` expansion and populated `0005` backfill, including exact legacy
   text/provenance parity, preserved IDs, migration markers, and frozen legacy
@@ -44,6 +44,11 @@ The Phase 3 backend suite verifies:
   constraints, and indexes after physical legacy-table removal;
 - the `0008` typed-relationship schema, composite project scoping, normalized
   identity, context ownership, one-parent constraint, and lookup indexes;
+- `0009` ready-order/normalized-tag indexes and one-statement ready pages,
+  including blocker/lease/filter/order/pagination parity with fresh claims;
+- populated `0009 -> 0010` upgrade/backfill/downgrade, ORM model parity, lease
+  generations/release markers, exact conservative counts/order, actor fallback,
+  typed references, metadata checks, source/deferred guards, and immutability;
 - atomic work-plus-initial-checkpoint creation, pointer-only grouped search,
   literal and full-text retrieval, optional hybrid search, and cache invalidation;
 - identity-only work reads, bounded context assembly, deterministic checkpoint
@@ -62,6 +67,14 @@ The Phase 3 backend suite verifies:
   active-plus-blocked recovery, and relationship-protected deletion;
 - pointer-only immediate adjacency and exact directional counts in bounded
   recall, plus root/child hierarchy filtering and flat-search breadcrumbs;
+- atomic event emission for every canonical mutation, replay/no-op suppression,
+  rollback fault injection, deterministic endpoint events, and actor provenance;
+- progress-only public append, work-before-lease locking, monotonic activity,
+  exact text/bounds, request-known secret rejection, and capability-free errors;
+- one-statement event pages in both orders with exact filtered totals and the
+  unfiltered partial-history flag, plus chronological bounded events in recall;
+- event update/delete rejection at PostgreSQL, soft-delete read isolation, and
+  direct REST omission recorded honestly as unattributed history;
 - cross-project isolation, hostile/unknown input rejection, and
   pagination/filter totals.
 
@@ -79,7 +92,7 @@ Stop the disposable database afterward from the repository root:
 docker compose -f compose.test.yaml down
 ```
 
-## Phase 3 MCP verification
+## Phase 5 MCP verification
 
 Run from `mcp`:
 
@@ -88,7 +101,7 @@ uv sync --frozen
 uv run pytest -q
 ```
 
-The MCP suite verifies the exact 19-tool canonical catalog, nested
+The MCP suite verifies the exact 22-tool canonical catalog, nested
 checkpoint request bodies, strict response shapes, pointer-only search, bounded
 recall, deterministic checkpoint pagination, versioned update/completion/delete
 receipts, atomic initial-relationship serialization, relationship add/get/list/
@@ -100,7 +113,15 @@ validation across direct, Streamable HTTP, and real stdio transports. REST
 boundary, generic unknown write outcomes, project scoping, host/origin/key
 checks, and body limits are covered with an HTTP mock and need no live database.
 
+Phase 4/5 cases cover strict pointer-only `list_ready_work`, exact ready/event
+filters and REST serialization, discriminated event metadata, bounded recall/
+resource/prompt events, required canonical actor envelopes, progress-only
+append and its non-idempotent unknown-outcome guidance, value-free validation,
+and capability suppression. HTTP and stdio both assert the same 22 names;
+`get_activity` and removed hand-off surfaces remain absent.
+
 The MCP package currently does not declare Ruff in its own development group.
+
 After syncing `backend`, run the repository's available Ruff binary from the
 repository root over the MCP and live-check code:
 
@@ -108,7 +129,7 @@ repository root over the MCP and live-check code:
 uv run --project backend ruff check mcp/src/mnemonic_mcp mcp/tests scripts/check-stack.py
 ```
 
-## Phase 3 dashboard verification
+## Phase 5 dashboard verification
 
 Run from `frontend`:
 
@@ -123,14 +144,19 @@ The Node tests cover canonical work/root/child query construction, compact
 recall pointers, checkpoint normalization, Ready/Active/Blocked formatting,
 expiry refresh scheduling, relationship labels/direction previews, graph
 conflict/depth helpers, sanitized typed errors, same-origin/host enforcement,
-and the exact Phase 3 proxy allowlist. Mutation-policy tests prove lease paths
-and token-bearing browser mutations are rejected rather than stripped or
-forwarded while relationship and hierarchy routes remain narrowly admitted.
-Backend and Playwright suites cover subtree retention, breadcrumbs, lazy
-expansion, and relationship-editor behavior.
+and the exact Phase 5 proxy allowlist. Event tests cover strict runtime decoding,
+deterministic labels and relationship direction, attributed/unattributed/
+backfilled states, safe text rendering, newest-page reset after live
+invalidation, actor request construction, progress composer errors, pagination/
+filtering, and the partial-history notice at desktop and narrow viewports. The
+ready endpoint remains intentionally proxy-denied.
 
-`typecheck` verifies component and API model alignment; the production build
-catches server/client boundary and asset issues.
+Mutation-policy tests prove lease paths and token-bearing browser mutations are
+rejected rather than stripped or forwarded while relationship, event, and
+hierarchy routes remain narrowly admitted. `typecheck` verifies component and
+API model alignment; the production build catches server/client boundary and
+asset issues. Backend and Playwright suites cover subtree retention,
+breadcrumbs, lazy expansion, relationship-editor behavior, and the event UI.
 
 ### Automated browser acceptance
 
@@ -183,41 +209,42 @@ After starting current images with:
 docker compose up --build -d --wait
 ```
 
-run the read-only live check from the repository root with the MCP environment:
+Run the read-only live check from the repository root with the MCP environment:
 
 ```sh
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 19-tool Phase
-3 MCP catalog, REST-backed project listing, the dashboard proxy's host/origin
+Read-only mode verifies REST/MCP health, authentication, the exact 22-tool Phase
+5 MCP catalog, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, and the shipped WOFF2 font assets. It does
-not create, edit, relate, claim, complete, or delete records.
+not create, edit, relate, claim, append events, complete, or delete records.
 
 Writes require the explicit `--project-id` opt-in. Use a dedicated validation
-project whose contents may safely include three synthetic, soft-deleted records:
+project whose contents may safely include five synthetic, soft-deleted records:
 
 ```sh
 uv run --project mcp python scripts/check-stack.py --project-id YOUR_TEST_PROJECT_UUID
 ```
 
-The write path performs the canonical Phase 3 lifecycle:
+The write path performs the canonical Phase 5 lifecycle:
 
-1. creates uniquely marked work and its initial checkpoint atomically;
-2. finds one compact pointer-only result through search;
-3. recalls bounded context and checks the resource and `resume_work` prompt;
-4. appends and pages a second immutable checkpoint without changing version;
-5. edits through the proxy and proves a stale edit returns `version_conflict`;
-6. claims and recalls atomically, then replays the exact request without
-   extending expiry or exposing request ID/token through ordinary reads;
-7. adds an incoming blocker, proves readiness and claim eligibility change,
-   releases the retained active claim, removes the blocker, and claims again;
-8. creates a child/discovered item with both relationships in its creation
-   transaction and verifies pointer-only adjacency plus hierarchy navigation;
-9. completes the primary work with a completion checkpoint and lease token;
-10. verifies default-open filtering;
-11. removes every synthetic relationship before soft-deleting all synthetic
-    work, then confirms canonical reads return `404`.
+1. creates uniquely marked work and verifies initial `work_created` events;
+2. proves pointer-only search, initial-context de-duplication, bounded recall,
+   and the `resume_work` prompt;
+3. rejects bearer- and lease-token echoes without persisting or returning their
+   values, then appends a progress event and a distinct immutable checkpoint;
+4. edits through the proxy, claims through MCP, and proves exact claim replay
+   does not extend expiry or duplicate the authoritative event;
+5. exercises blocker and lease exclusions through `list_ready_work`, including
+   blocked claim rejection and readiness recovery after release/removal;
+6. reopens terminal work and verifies the exact ready-work ordering contract;
+7. creates a child/discovered item with both relationships atomically and
+   verifies direct-parent ready filtering;
+8. completes and reopens work, removes both relationships, and verifies the
+   exact immutable event timeline and bounded recent-event recall metadata;
+9. removes every remaining synthetic relationship before soft-deleting all five
+   synthetic records, then confirms canonical reads return `404`.
 
 The script registers cleanup as soon as the run marker exists. Its `finally`
 path recovers exact synthetic IDs by marker plus exact synthetic session
@@ -230,15 +257,16 @@ Add `--other-project-id` to prove the new ID cannot be read through a second
 project. Do not pass either project option without authorization to write in the
 named project. Prefer a disposable full stack for automated write-path checks.
 
-## Manual Phase 3 browser pass
+## Manual Phase 5 browser pass
 
 Exercise project empty state and switching, root browsing, lazy child expansion,
 subtree-aware filters, flat-search breadcrumbs, open/all lifecycle filters,
 lexical search and explicit Semantic opt-in, work selection, bounded context,
-grouped pointer-only relationships, checkpoint timeline, prompt copy, identity
-editing, checkpoint creation, completion, deletion, and stale-version recovery.
-At a narrow viewport, confirm lists, hierarchy, detail panes, editors, dialogs,
-long IDs, and defensive depth/cycle fallbacks remain usable.
+grouped pointer-only relationships, checkpoint timeline, immutable activity
+timeline paging, progress-event creation, prompt copy, identity editing,
+checkpoint creation, completion, deletion, and stale-version recovery. At a
+narrow viewport, confirm lists, hierarchy, detail panes, editors, dialogs, long
+IDs, and defensive depth/cycle fallbacks remain usable.
 
 Add and remove every relationship type through the editor with exact stored
 direction and truthful provenance. Confirm duplicate adds are harmless and the

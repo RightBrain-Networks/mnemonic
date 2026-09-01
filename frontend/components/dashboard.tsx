@@ -28,6 +28,7 @@ import type {
   WorkSummary
 } from "@/lib/types";
 import { editableLifecycleStatuses, normalizedTags } from "@/lib/work-item-view";
+import { dashboardMutationActor } from "@/lib/work-events";
 import { workSearchParams } from "@/lib/work-item-search";
 
 const iconPaths = {
@@ -145,6 +146,7 @@ export default function Dashboard() {
   const [checkpointLoadError, setCheckpointLoadError] = useState("");
   const [checkpointActionError, setCheckpointActionError] = useState("");
   const [checkpointRefresh, setCheckpointRefresh] = useState(0);
+  const [eventRefresh, setEventRefresh] = useState(0);
   const [checkpointKind, setCheckpointKind] = useState<Exclude<CheckpointKind, "completion">>("progress");
   const [checkpointBody, setCheckpointBody] = useState("");
   const [checkpointBranch, setCheckpointBranch] = useState("");
@@ -255,6 +257,7 @@ export default function Dashboard() {
       if (pending.list) setRefresh((value) => value + 1);
       if (pending.open) {
         setCheckpointRefresh((value) => value + 1);
+        setEventRefresh((value) => value + 1);
         setContextRefresh((value) => value + 1);
       }
       pending.projects = false;
@@ -414,7 +417,7 @@ export default function Dashboard() {
     setContextLoading(true);
     setContextError("");
     try {
-      const full = await api<WorkContext>(`${workItemPath(summary.work_item.project_id, summary.work_item.id)}/context?recent_limit=5`);
+      const full = await api<WorkContext>(`${workItemPath(summary.work_item.project_id, summary.work_item.id)}/context?recent_limit=5&recent_event_limit=10`);
       if (recordRequest.current !== requestId) return "superseded";
       setContext(full);
       setOpened((current) => current ? summaryWithContext(current, full) : current);
@@ -445,6 +448,7 @@ export default function Dashboard() {
     setCheckpointTags("");
     setCheckpointKind("progress");
     setCheckpointActionError("");
+    setEventRefresh((value) => value + 1);
     void loadContext(summary, requestId);
   }
 
@@ -479,6 +483,7 @@ export default function Dashboard() {
     }
     if (editDraft.status !== base.status && editDraft.status !== "done") patch.status = editDraft.status;
     if (Object.keys(patch).length === 1) { setMode("view"); return; }
+    patch.actor = dashboardMutationActor(dashboardSessionId());
     setEditSaving(true);
     setEditError("");
     try {
@@ -486,6 +491,7 @@ export default function Dashboard() {
       const savedSummary = { ...opened, work_item: saved };
       setContext((value) => value ? { ...value, work_item: saved } : value);
       setOpened(savedSummary);
+      setEventRefresh((value) => value + 1);
       setRefresh((value) => value + 1);
       const reconciled = await loadContext(savedSummary);
       if (reconciled === "failed") {
@@ -514,7 +520,7 @@ export default function Dashboard() {
     if (!context) return;
     setEditError("");
     try {
-      const latest = await api<WorkContext>(`${workItemPath(context.work_item.project_id, context.work_item.id)}/context?recent_limit=5`);
+      const latest = await api<WorkContext>(`${workItemPath(context.work_item.project_id, context.work_item.id)}/context?recent_limit=5&recent_event_limit=10`);
       setContext(latest);
       setOpened((value) => value ? summaryWithContext(value, latest) : value);
       setConflict(latest.work_item);
@@ -576,6 +582,7 @@ export default function Dashboard() {
       setCheckpointTags("");
       setCheckpointOffset(0);
       setCheckpointRefresh((value) => value + 1);
+      setEventRefresh((value) => value + 1);
       setRefresh((value) => value + 1);
       const reconciled = await reloadOpenContext();
       if (!reconciled) {
@@ -604,7 +611,10 @@ export default function Dashboard() {
     try {
       await api<DeletionResult>(`${workItemPath(deleteTarget.project_id, deleteTarget.id)}/delete`, {
         method: "POST",
-        body: JSON.stringify({ expected_version: deleteTarget.version })
+        body: JSON.stringify({
+          expected_version: deleteTarget.version,
+          actor: dashboardMutationActor(dashboardSessionId())
+        })
       });
       if (opened?.work_item.id === deleteTarget.id) {
         setOpened(null);
@@ -666,7 +676,7 @@ export default function Dashboard() {
     <main id="main-content" className="main-content">
       <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span></div><span className="topbar-note"><span className="small-mark">m.</span>Context worth keeping</span></header>
       <div className="page-content">
-        <section className="page-heading"><div><div className="eyebrow">DURABLE WORK FOR TEMPORARY SESSIONS</div><h1>Work library<span>.</span></h1><p>{project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setRefresh((value) => value + 1); setCheckpointRefresh((value) => value + 1); setContextRefresh((value) => value + 1); }}>Refresh</button>{project && <button className="button button-primary" type="button" onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
+        <section className="page-heading"><div><div className="eyebrow">DURABLE WORK FOR TEMPORARY SESSIONS</div><h1>Work library<span>.</span></h1><p>{project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setRefresh((value) => value + 1); setCheckpointRefresh((value) => value + 1); setEventRefresh((value) => value + 1); setContextRefresh((value) => value + 1); }}>Refresh</button>{project && <button className="button button-primary" type="button" onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
 
         {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
           projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
@@ -746,6 +756,7 @@ export default function Dashboard() {
           checkpointCommit={checkpointCommit}
           checkpointTags={checkpointTags}
           checkpointSaving={checkpointSaving}
+          eventRefreshSignal={eventRefresh}
           setEditDraft={(updater) => setEditDraft((draft) => draft ? updater(draft) : draft)}
           onSaveEdits={(event) => void saveWorkEdits(event)}
           onCancelEdit={() => { setMode("view"); setEditDraft(draftFromWork(context.work_item)); setEditError(""); setConflict(null); }}
@@ -763,11 +774,16 @@ export default function Dashboard() {
           onComplete={() => void saveCheckpoint(true)}
           onRelationshipsChanged={async () => {
             const reconciled = await reloadOpenContext();
+            setEventRefresh((value) => value + 1);
             setRefresh((value) => value + 1);
             return reconciled;
           }}
           onCheckpointOffset={setCheckpointOffset}
           onReloadCheckpoints={() => setCheckpointRefresh((value) => value + 1)}
+          onEventAppended={() => {
+            setContextRefresh((value) => value + 1);
+            setRefresh((value) => value + 1);
+          }}
         /></>}
     </Dialog>}
 

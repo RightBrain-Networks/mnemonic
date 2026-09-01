@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -6,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from mnemonic_api.application import _public_validation_errors
 from mnemonic_api.config import Settings
 from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.main import create_app
@@ -19,6 +21,7 @@ from mnemonic_api.schemas import (
     WorkClaimCreate,
     WorkCompletionCreate,
     WorkDeletionCreate,
+    WorkEventRead,
     WorkItemCreate,
     WorkItemPatch,
 )
@@ -95,16 +98,19 @@ def test_progress_and_completion_text_are_exact_and_require_provenance():
         source_session_id="real-session",
     )
     assert completion.prompt == body
-    assert WorkCompletionCreate.model_validate(
-        {
-            "expected_version": 2,
-            "checkpoint": {
-                "prompt": body,
-                "source_client": "claude-code",
-                "source_session_id": "real-session",
-            },
-        }
-    ).checkpoint.prompt == body
+    assert (
+        WorkCompletionCreate.model_validate(
+            {
+                "expected_version": 2,
+                "checkpoint": {
+                    "prompt": body,
+                    "source_client": "claude-code",
+                    "source_session_id": "real-session",
+                },
+            }
+        ).checkpoint.prompt
+        == body
+    )
     for model, payload in [
         (CheckpointCreate, {"kind": "progress", "prompt": body, "source_client": "claude-code"}),
         (CompletionCheckpointCreate, {"prompt": body, "source_client": "claude-code"}),
@@ -204,15 +210,11 @@ def test_initial_relationships_are_bounded_and_discovery_is_outgoing_with_contex
         "other_work_item_id": str(uuid4()),
         "context_checkpoint_id": str(uuid4()),
     }
-    parsed = WorkItemCreate.model_validate(
-        {**work_payload, "initial_relationships": [discovery]}
-    )
+    parsed = WorkItemCreate.model_validate({**work_payload, "initial_relationships": [discovery]})
     assert parsed.initial_relationships[0].direction == "outgoing"
 
     with pytest.raises(ValidationError):
-        WorkItemCreate.model_validate(
-            {**work_payload, "initial_relationships": [discovery] * 11}
-        )
+        WorkItemCreate.model_validate({**work_payload, "initial_relationships": [discovery] * 11})
     with pytest.raises(ValidationError):
         WorkItemCreate.model_validate(
             {
@@ -265,11 +267,14 @@ def test_settings_require_long_key_and_postgres():
     assert "secret" not in repr(settings)
     assert "x" * 32 not in repr(settings)
     assert settings.lease_ttl_seconds == 900
-    assert Settings(
-        database_url="postgresql://localhost/mnemonic",
-        api_key="x" * 32,
-        lease_ttl_seconds=60,
-    ).lease_ttl_seconds == 60
+    assert (
+        Settings(
+            database_url="postgresql://localhost/mnemonic",
+            api_key="x" * 32,
+            lease_ttl_seconds=60,
+        ).lease_ttl_seconds
+        == 60
+    )
     for invalid_ttl in [59, 3601]:
         with pytest.raises(ValidationError):
             Settings(
@@ -367,6 +372,7 @@ def test_application_error_context_uses_a_strict_safe_allowlist():
             "lease_token": "never-expose-this",
             "prompt": "also-never-expose-this",
             "source_metadata": {"secret": True},
+            "fields": ["body", "caller-provided-secret"],
         },
     )
     assert error.detail["context"] == {
@@ -378,6 +384,12 @@ def test_application_error_context_uses_a_strict_safe_allowlist():
         "Held.",
         context={"holder_client": "client", "lease_token": "hidden"},
     ).detail["context"] == {"holder_client": "client"}
+    assert ApplicationError(
+        422,
+        "event_secret_echo",
+        "Rejected.",
+        context={"fields": ["metadata.value", "body", "body"]},
+    ).detail["context"] == {"fields": ["body", "metadata.value"]}
 
 
 def test_authentication_happens_without_database_and_health_is_public():
@@ -451,3 +463,230 @@ def test_invalid_input_has_serializable_422_errors(changes, work_payload):
         assert response.status_code == 422, response.text
         assert isinstance(response.json()["detail"], list)
         assert all("input" not in error for error in response.json()["detail"])
+
+
+def test_work_event_response_metadata_is_type_and_origin_specific():
+    payload = {
+        "id": 1,
+        "project_id": uuid4(),
+        "work_item_id": uuid4(),
+        "event_type": "work_updated",
+        "actor_kind": "unattributed",
+        "actor_client": None,
+        "actor_session_id": None,
+        "actor_model": None,
+        "body": None,
+        "checkpoint_id": None,
+        "lease_generation_id": None,
+        "lease_release_id": None,
+        "relationship_id": None,
+        "relationship_source_work_item_id": None,
+        "relationship_target_work_item_id": None,
+        "relationship_context_checkpoint_work_item_id": None,
+        "relationship_context_checkpoint_id": None,
+        "relationship_direction": None,
+        "counterpart_work_item_id": None,
+        "metadata_version": 1,
+        "metadata": {
+            "changes": {"status": {"before": "open", "after": "open"}},
+            "work_version": 2,
+        },
+        "origin": "live",
+        "created_at": datetime.now(UTC),
+    }
+
+    parsed = WorkEventRead.model_validate(payload)
+    assert parsed.model_dump(mode="json")["metadata"] == payload["metadata"]
+
+    with pytest.raises(ValidationError):
+        WorkEventRead.model_validate(
+            {
+                **payload,
+                "metadata": {
+                    **payload["metadata"],
+                    "unknown": "must fail closed",
+                },
+            }
+        )
+    with pytest.raises(ValidationError):
+        WorkEventRead.model_validate(
+            {
+                **payload,
+                "metadata": {
+                    "changes": {"status": {"before": "open", "after": "done"}},
+                    "work_version": 2,
+                },
+            }
+        )
+    with pytest.raises(ValidationError):
+        WorkEventRead.model_validate(
+            {
+                **payload,
+                "metadata": {
+                    "changes": {
+                        "title": {
+                            "before": "Bounded title",
+                            "after": "x" * 201,
+                        }
+                    },
+                    "work_version": 2,
+                },
+            }
+        )
+
+    claimed = {
+        **payload,
+        "event_type": "work_claimed",
+        "actor_kind": "client",
+        "actor_client": "pytest",
+        "actor_session_id": "typed-event",
+        "lease_generation_id": uuid4(),
+        "metadata": {"expires_at": "2026-09-01T12:00:00Z"},
+    }
+    WorkEventRead.model_validate(claimed)
+    with pytest.raises(ValidationError):
+        WorkEventRead.model_validate(
+            {
+                **claimed,
+                "metadata": {"expires_at": "2026-09-01T12:00:00"},
+            }
+        )
+
+    deleted = {
+        **payload,
+        "event_type": "work_deleted",
+        "origin": "backfill",
+        "metadata": {"final_status": "wont-do", "final_version": 4},
+    }
+    WorkEventRead.model_validate(deleted)
+    with pytest.raises(ValidationError):
+        WorkEventRead.model_validate(
+            {
+                **deleted,
+                "actor_kind": "client",
+                "actor_client": "legacy-client",
+                "actor_session_id": "legacy-session",
+            }
+        )
+
+    source_id, target_id = sorted((uuid4(), uuid4()))
+    relationship = {
+        **payload,
+        "work_item_id": source_id,
+        "event_type": "relationship_added",
+        "actor_kind": "client",
+        "actor_client": "pytest",
+        "actor_session_id": "relationship-response",
+        "relationship_id": uuid4(),
+        "relationship_source_work_item_id": source_id,
+        "relationship_target_work_item_id": target_id,
+        "relationship_context_checkpoint_work_item_id": target_id,
+        "relationship_context_checkpoint_id": uuid4(),
+        "relationship_direction": "outgoing",
+        "counterpart_work_item_id": target_id,
+        "metadata": {"relationship_type": "discovered-from"},
+    }
+    WorkEventRead.model_validate(relationship)
+
+    incoming_relationship = {
+        **relationship,
+        "work_item_id": target_id,
+        "relationship_direction": "incoming",
+        "counterpart_work_item_id": source_id,
+    }
+    WorkEventRead.model_validate(incoming_relationship)
+
+    invalid_relationships = [
+        {"work_item_id": uuid4()},
+        {"counterpart_work_item_id": source_id},
+        {"relationship_direction": "incoming"},
+        {
+            "relationship_context_checkpoint_work_item_id": uuid4(),
+        },
+        {
+            "relationship_context_checkpoint_work_item_id": None,
+            "relationship_context_checkpoint_id": None,
+        },
+        {"relationship_context_checkpoint_work_item_id": source_id},
+    ]
+    for invalid_projection in invalid_relationships:
+        with pytest.raises(ValidationError):
+            WorkEventRead.model_validate({**relationship, **invalid_projection})
+
+    valid_related = {
+        **relationship,
+        "metadata": {"relationship_type": "related"},
+        "relationship_context_checkpoint_work_item_id": None,
+        "relationship_context_checkpoint_id": None,
+        "relationship_direction": "undirected",
+    }
+    WorkEventRead.model_validate(valid_related)
+
+    reversed_related = {
+        **valid_related,
+        "work_item_id": target_id,
+        "relationship_source_work_item_id": target_id,
+        "relationship_target_work_item_id": source_id,
+        "counterpart_work_item_id": source_id,
+    }
+    with pytest.raises(ValidationError):
+        WorkEventRead.model_validate(reversed_related)
+
+def test_validation_error_sanitizer_allowlists_locations_and_drops_raw_content():
+    root_key = "SENSITIVE_CALLER_KEY_123"
+    root_value = "root-private-content-123"
+    nested_key = "NESTED_PRIVATE_KEY_456"
+    nested_value = "nested-private-content-456"
+    errors = _public_validation_errors(
+        [
+            {
+                "type": "extra_forbidden",
+                "loc": ("body", root_key),
+                "msg": root_value,
+                "input": root_value,
+                "ctx": {"error": nested_value},
+            },
+            {
+                "type": "extra_forbidden",
+                "loc": ("body", "actor", nested_key),
+                "msg": nested_value,
+                "input": {nested_key: nested_value},
+            },
+            {
+                "type": "missing",
+                "loc": ("body", "actor", "actor_client"),
+                "msg": root_value,
+            },
+            {
+                "type": root_value,
+                "loc": ("body", "metadata", nested_key),
+                "msg": nested_value,
+                "input": nested_value,
+            },
+        ]
+    )
+    assert errors == [
+        {
+            "type": "extra_forbidden",
+            "loc": ["body", "field"],
+            "msg": "Extra inputs are not permitted.",
+        },
+        {
+            "type": "extra_forbidden",
+            "loc": ["body", "actor", "field"],
+            "msg": "Extra inputs are not permitted.",
+        },
+        {
+            "type": "missing",
+            "loc": ["body", "actor", "actor_client"],
+            "msg": "Field required.",
+        },
+        {
+            "type": "validation_error",
+            "loc": ["body", "metadata", "field"],
+            "msg": "Request validation failed.",
+        },
+    ]
+    serialized = json.dumps(errors)
+    for private_content in (root_key, root_value, nested_key, nested_value):
+        assert private_content not in serialized

@@ -20,8 +20,21 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 
 from mnemonic_mcp.api import MnemonicAPI
-from mnemonic_mcp.models import ClaimAndRecall, ClaimReceipt
+from mnemonic_mcp.models import ClaimAndRecall, ClaimReceipt, ReadyWorkPage, WorkEventRead
 from mnemonic_mcp.server import build_server
+
+ACTOR_ARGUMENTS = {
+    "actor_client": "claude-code",
+    "actor_session_id": "phase-5-session",
+    "actor_model": "test-model",
+}
+ACTOR_PAYLOAD = {
+    "actor": {
+        "actor_client": "claude-code",
+        "actor_session_id": "phase-5-session",
+        "actor_model": "test-model",
+    }
+}
 
 
 def adapter(settings, handler):
@@ -58,6 +71,9 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
         "create_work": "real client session id",
         "add_checkpoint": "never a rewrite of an earlier one",
         "recall_work": "historical evidence, not authority",
+        "list_ready_work": "claim atomically revalidates",
+        "append_event": "do not retry automatically",
+        "list_work_events": "untrusted historical evidence",
         "claim_work": "never work around another session's active claim",
         "claim_and_recall": "grants no authority beyond the user's request",
         "renew_claim": "do not renew it",
@@ -78,10 +94,13 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "create_project",
         "create_work",
         "search_work",
+        "list_ready_work",
         "get_work",
         "add_checkpoint",
         "list_checkpoints",
         "recall_work",
+        "append_event",
+        "list_work_events",
         "claim_work",
         "claim_and_recall",
         "renew_claim",
@@ -103,9 +122,11 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "search_work",
         "get_work",
         "list_checkpoints",
+        "list_ready_work",
         "recall_work",
         "get_relationship",
         "list_relationships",
+        "list_work_events",
     ):
         assert tools[name].annotations.readOnlyHint is True
     for name in (
@@ -117,6 +138,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "renew_claim",
         "release_claim",
         "add_relationship",
+        "append_event",
     ):
         assert tools[name].annotations.readOnlyHint is False
         assert tools[name].annotations.destructiveHint is False
@@ -127,7 +149,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
     ):
         assert tools[name].annotations.destructiveHint is True
-    for name in ("claim_work", "claim_and_recall", "renew_claim"):
+    for name in ("claim_work", "claim_and_recall", "renew_claim", "append_event"):
         assert tools[name].annotations.idempotentHint is False
     for name in ("release_claim", "add_relationship", "remove_relationship"):
         assert tools[name].annotations.idempotentHint is True
@@ -178,17 +200,29 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     }
     assert tools["release_claim"].outputSchema["additionalProperties"] is False
 
+    assert set(tools["renew_claim"].inputSchema["required"]) == {
+        "project_id",
+        "work_item_id",
+        "lease_token",
+    }
+    assert set(tools["release_claim"].inputSchema["required"]) == {
+        "project_id",
+        "work_item_id",
+        "lease_token",
+        "actor_client",
+        "actor_session_id",
+    }
     for name in ("renew_claim", "release_claim"):
-        assert set(tools[name].inputSchema["required"]) == {
-            "project_id",
-            "work_item_id",
-            "lease_token",
-        }
         token_schema = tools[name].inputSchema["properties"]["lease_token"]
         assert token_schema["minLength"] == 1
         assert token_schema["maxLength"] == 200
         assert token_schema["format"] == "password"
         assert token_schema["writeOnly"] is True
+
+    for name in ("update_work", "delete_work", "release_claim", "remove_relationship"):
+        required = set(tools[name].inputSchema["required"])
+        assert {"actor_client", "actor_session_id"} <= required
+        assert tools[name].inputSchema["properties"]["actor_model"]["default"] is None
 
     lease_capable_mutations = {
         "add_checkpoint",
@@ -284,6 +318,67 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     assert '"source_metadata"' not in search_work_schema
     assert '"source_session_url"' not in search_work_schema
     assert tools["search_work"].inputSchema["properties"]["semantic"]["default"] is False
+
+    ready_input = tools["list_ready_work"].inputSchema
+    assert set(ready_input["properties"]) == {
+        "project_id",
+        "min_priority",
+        "tag",
+        "parent_work_item_id",
+        "limit",
+        "offset",
+    }
+    assert ready_input["properties"]["min_priority"]["default"] == 0
+    assert ready_input["properties"]["limit"]["default"] == 30
+    ready_output = tools["list_ready_work"].outputSchema
+    assert ready_output["additionalProperties"] is False
+    assert ready_output["$defs"]["WorkSummaryMinimal"]["additionalProperties"] is False
+    ready_schema = json.dumps(ready_output)
+    for forbidden in ("prompt", "source_metadata", "source_session_url", "summary"):
+        assert f'"{forbidden}"' not in ready_schema
+
+    append_input = tools["append_event"].inputSchema
+    assert set(append_input["properties"]) == {
+        "project_id",
+        "work_item_id",
+        "body",
+        "metadata",
+        "actor_client",
+        "actor_session_id",
+        "actor_model",
+    }
+    assert set(append_input["required"]) == {
+        "project_id",
+        "work_item_id",
+        "body",
+        "actor_client",
+        "actor_session_id",
+    }
+    assert append_input["properties"]["metadata"]["default"] == {}
+    assert "event_type" not in append_input["properties"]
+    assert "lease_token" not in append_input["properties"]
+    event_list_input = tools["list_work_events"].inputSchema["properties"]
+    assert event_list_input["order"]["default"] == "oldest"
+    assert event_list_input["limit"]["default"] == 50
+    assert event_list_input["limit"]["maximum"] == 100
+    event_output = tools["list_work_events"].outputSchema
+    assert event_output["additionalProperties"] is False
+    assert set(event_output["properties"]) == {
+        "items",
+        "total",
+        "limit",
+        "offset",
+        "pre_phase5_history_may_be_incomplete",
+    }
+    assert event_output["$defs"]["WorkEventRead"]["additionalProperties"] is False
+    context_output = tools["recall_work"].outputSchema["properties"]
+    assert {
+        "recent_events",
+        "event_total",
+        "omitted_event_count",
+        "pre_phase5_history_may_be_incomplete",
+    } <= set(context_output)
+
     work_changes_schema = tools["update_work"].inputSchema["$defs"]["WorkChanges"]
     assert work_changes_schema["additionalProperties"] is False
     assert "prompt" not in work_changes_schema["properties"]
@@ -522,7 +617,10 @@ async def test_relationship_tools_use_exact_rest_contract_and_pointer_only_count
             )
         if request.url.path.endswith(f"/work-items/{WORK_ID}/context"):
             assert request.method == "GET"
-            assert dict(request.url.params) == {"recent_limit": "5"}
+            assert dict(request.url.params) == {
+                "recent_limit": "5",
+                "recent_event_limit": "10",
+            }
             return httpx.Response(
                 200,
                 json={
@@ -540,6 +638,7 @@ async def test_relationship_tools_use_exact_rest_contract_and_pointer_only_count
         if request.method == "GET":
             return httpx.Response(200, json=relationship)
         assert request.method == "DELETE"
+        assert json.loads(request.content) == ACTOR_PAYLOAD
         return httpx.Response(
             200,
             json={
@@ -604,7 +703,7 @@ async def test_relationship_tools_use_exact_rest_contract_and_pointer_only_count
     removed = structured(
         await server.call_tool(
             "remove_relationship",
-            {"project_id": PROJECT_ID, "relationship_id": RELATIONSHIP_ID},
+            {"project_id": PROJECT_ID, "relationship_id": RELATIONSHIP_ID, **ACTOR_ARGUMENTS},
         )
     )
     assert removed == {
@@ -665,6 +764,650 @@ async def test_search_work_is_open_only_and_pointer_only(settings, work_summary)
     assert "source_session_url" not in pointer
 
 
+
+async def test_ready_work_uses_exact_query_and_strict_pointer_envelope(
+    settings, work_item
+):
+    minimal = {
+        "work_item": {
+            name: work_item[name]
+            for name in ("id", "title", "status", "priority", "version", "updated_at")
+        },
+        "checkpoint_count": 3,
+        "display_state": "ready",
+    }
+
+    def handler(request):
+        assert request.method == "GET"
+        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/ready-work"
+        assert dict(request.url.params) == {
+            "min_priority": "5",
+            "tag": "Search",
+            "parent_work_item_id": OTHER_WORK_ID,
+            "limit": "2",
+            "offset": "3",
+        }
+        return httpx.Response(
+            200,
+            json={"items": [minimal], "total": 8, "limit": 2, "offset": 3},
+        )
+
+    ready = structured(
+        await adapter(settings, handler).call_tool(
+            "list_ready_work",
+            {
+                "project_id": PROJECT_ID,
+                "min_priority": 5,
+                "tag": "Search",
+                "parent_work_item_id": OTHER_WORK_ID,
+                "limit": 2,
+                "offset": 3,
+            },
+        )
+    )
+    assert ready == {"items": [minimal], "total": 8, "limit": 2, "offset": 3}
+    assert set(ready["items"][0]) == {"work_item", "checkpoint_count", "display_state"}
+    assert "summary" not in ready["items"][0]["work_item"]
+
+
+async def test_ready_work_rejects_an_accidental_full_upstream_projection(
+    settings, work_item
+):
+    minimal = {
+        "work_item": {
+            name: work_item[name]
+            for name in ("id", "title", "status", "priority", "version", "updated_at")
+        },
+        "checkpoint_count": 1,
+        "display_state": "ready",
+        "current_context": {"prompt": "must not cross the ready pointer boundary"},
+    }
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={"items": [minimal], "total": 1, "limit": 30, "offset": 0},
+        )
+
+    with pytest.raises(ToolError, match="unexpected response") as caught:
+        await adapter(settings, handler).call_tool(
+            "list_ready_work", {"project_id": PROJECT_ID}
+        )
+    assert "must not cross" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("status", "display_state"),
+    [("done", "done"), ("open", "blocked")],
+)
+async def test_ready_work_rejects_non_ready_upstream_items(
+    settings, work_item, status, display_state
+):
+    minimal = {
+        "work_item": {
+            **{
+                name: work_item[name]
+                for name in ("id", "title", "priority", "version", "updated_at")
+            },
+            "status": status,
+        },
+        "checkpoint_count": 1,
+        "display_state": display_state,
+    }
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={"items": [minimal], "total": 1, "limit": 30, "offset": 0},
+        )
+
+    with pytest.raises(ToolError, match="unexpected response"):
+        await adapter(settings, handler).call_tool(
+            "list_ready_work", {"project_id": PROJECT_ID}
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_page",
+    [
+        {"items": [], "total": -1, "limit": 30, "offset": 0},
+        {"items": [], "total": 0, "limit": 0, "offset": 0},
+        {"items": [], "total": 0, "limit": 101, "offset": 0},
+        {"items": [], "total": 0, "limit": 30, "offset": -1},
+        {"items": [None, None], "total": 2, "limit": 1, "offset": 0},
+        {"items": [None], "total": 1, "limit": 30, "offset": 1},
+        {"items": [None], "total": 1, "limit": 30, "offset": 2},
+        {"items": [None, None], "total": 2, "limit": 2, "offset": 1},
+    ],
+)
+def test_ready_work_page_rejects_invalid_envelopes(work_item, invalid_page):
+    minimal = {
+        "work_item": {
+            name: work_item[name]
+            for name in ("id", "title", "status", "priority", "version", "updated_at")
+        },
+        "checkpoint_count": 1,
+        "display_state": "ready",
+    }
+    payload = {
+        **invalid_page,
+        "items": [minimal if item is None else item for item in invalid_page["items"]],
+    }
+
+    with pytest.raises(ValueError):
+        ReadyWorkPage.model_validate(payload)
+
+
+def test_ready_work_page_allows_empty_page_beyond_total():
+    page = ReadyWorkPage.model_validate(
+        {"items": [], "total": 1, "limit": 30, "offset": 500}
+    )
+
+    assert page.total == 1
+    assert page.offset == 500
+
+
+async def test_event_tools_use_exact_rest_contract(settings, progress_event):
+    seen: list[str] = []
+
+    def handler(request):
+        seen.append(request.method)
+        assert request.url.path == (
+            f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/events"
+        )
+        if request.method == "POST":
+            assert not request.url.params
+            assert json.loads(request.content) == {
+                "event_type": "progress",
+                "body": progress_event["body"],
+                "metadata": progress_event["metadata"],
+                **ACTOR_PAYLOAD,
+            }
+            return httpx.Response(201, json=progress_event)
+        assert dict(request.url.params) == {
+            "order": "newest",
+            "event_type": "progress",
+            "limit": "7",
+            "offset": "2",
+        }
+        return httpx.Response(
+            200,
+            json={
+                "items": [progress_event],
+                "total": 11,
+                "limit": 7,
+                "offset": 2,
+                "pre_phase5_history_may_be_incomplete": True,
+            },
+        )
+
+    server = adapter(settings, handler)
+    appended = structured(
+        await server.call_tool(
+            "append_event",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "body": progress_event["body"],
+                "metadata": progress_event["metadata"],
+                **ACTOR_ARGUMENTS,
+            },
+        )
+    )
+    assert appended == progress_event
+    listed = structured(
+        await server.call_tool(
+            "list_work_events",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "order": "newest",
+                "event_type": "progress",
+                "limit": 7,
+                "offset": 2,
+            },
+        )
+    )
+    assert listed["items"] == [progress_event]
+    assert listed["pre_phase5_history_may_be_incomplete"] is True
+    assert seen == ["POST", "GET"]
+
+
+async def test_work_updated_event_allows_only_same_value_status_metadata(
+    settings, same_status_update_event
+):
+    def valid_handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "items": [same_status_update_event],
+                "total": 1,
+                "limit": 50,
+                "offset": 0,
+                "pre_phase5_history_may_be_incomplete": False,
+            },
+        )
+
+    listed = structured(
+        await adapter(settings, valid_handler).call_tool(
+            "list_work_events",
+            {"project_id": PROJECT_ID, "work_item_id": WORK_ID},
+        )
+    )
+    assert listed["items"] == [same_status_update_event]
+
+    changed_status = {
+        **same_status_update_event,
+        "id": 44,
+        "metadata": {
+            "changes": {"status": {"before": "open", "after": "done"}},
+            "work_version": 4,
+        },
+    }
+
+    def invalid_handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "items": [changed_status],
+                "total": 1,
+                "limit": 50,
+                "offset": 0,
+                "pre_phase5_history_may_be_incomplete": False,
+            },
+        )
+
+    with pytest.raises(ToolError, match="unexpected response"):
+        await adapter(settings, invalid_handler).call_tool(
+            "list_work_events",
+            {"project_id": PROJECT_ID, "work_item_id": WORK_ID},
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "before", "after"),
+    (
+        ("title", "   ", "After"),
+        ("title", "Before", "T" * 201),
+        ("summary", "   ", "After"),
+        ("summary", "Before", "S" * 1001),
+    ),
+)
+def test_work_updated_text_changes_enforce_field_specific_bounds(
+    progress_event,
+    field,
+    before,
+    after,
+):
+    valid_event = {
+        **progress_event,
+        "event_type": "work_updated",
+        "body": None,
+        "metadata": {
+            "changes": {
+                "title": {"before": "Before", "after": "T" * 200},
+                "summary": {"before": "Before", "after": "S" * 1000},
+            },
+            "work_version": 4,
+        },
+    }
+    WorkEventRead.model_validate(valid_event)
+
+    invalid_event = {
+        **valid_event,
+        "metadata": {
+            "changes": {field: {"before": before, "after": after}},
+            "work_version": 4,
+        },
+    }
+    with pytest.raises(ValueError):
+        WorkEventRead.model_validate(invalid_event)
+
+
+@pytest.mark.parametrize(
+    ("origin", "metadata_key", "metadata"),
+    (
+        ("live", "expires_at", {"expires_at": EXPIRES_AT}),
+        (
+            "backfill",
+            "observed_expires_at",
+            {
+                "observed_expires_at": EXPIRES_AT,
+                "expiry_basis": "retained_lease_at_cutover",
+            },
+        ),
+    ),
+)
+def test_claimed_event_expiry_metadata_requires_utc(
+    progress_event,
+    origin,
+    metadata_key,
+    metadata,
+):
+    event = {
+        **progress_event,
+        "event_type": "work_claimed",
+        "body": None,
+        "lease_generation_id": RELATIONSHIP_ID,
+        "metadata": metadata,
+        "origin": origin,
+    }
+    validated = WorkEventRead.model_validate(event)
+    assert validated.metadata.model_dump(mode="json")[metadata_key] == EXPIRES_AT
+
+    for invalid_expiry in ("2026-08-30T12:15:00", "2026-08-30T13:15:00+01:00"):
+        invalid_event = {
+            **event,
+            "metadata": {**metadata, metadata_key: invalid_expiry},
+        }
+        with pytest.raises(ValueError):
+            WorkEventRead.model_validate(invalid_event)
+
+
+@pytest.mark.parametrize(
+    "created_at",
+    ("2026-08-30T12:00:00", "2026-08-30T13:00:00+01:00"),
+)
+def test_event_created_at_requires_utc(progress_event, created_at):
+    with pytest.raises(ValueError):
+        WorkEventRead.model_validate({**progress_event, "created_at": created_at})
+
+
+def test_event_lifecycle_and_relationship_projections_are_strict(progress_event):
+    same_status_transition = {
+        **progress_event,
+        "event_type": "work_status_changed",
+        "body": None,
+        "metadata": {
+            "from_status": "wont-do",
+            "to_status": "wont-do",
+            "changes": {
+                "status": {"before": "wont-do", "after": "wont-do"},
+            },
+            "work_version": 4,
+        },
+    }
+    with pytest.raises(ValueError):
+        WorkEventRead.model_validate(same_status_transition)
+
+    relationship_event = {
+        **progress_event,
+        "event_type": "dependency_added",
+        "body": None,
+        "relationship_id": RELATIONSHIP_ID,
+        "relationship_source_work_item_id": WORK_ID,
+        "relationship_target_work_item_id": OTHER_WORK_ID,
+        "relationship_direction": "outgoing",
+        "counterpart_work_item_id": OTHER_WORK_ID,
+        "metadata": {"relationship_type": "blocks"},
+    }
+    WorkEventRead.model_validate(relationship_event)
+
+    for invalid_projection in (
+        {"relationship_direction": "incoming"},
+        {"counterpart_work_item_id": WORK_ID},
+        {"work_item_id": OTHER_CHECKPOINT_ID},
+        {
+            "relationship_context_checkpoint_work_item_id": OTHER_CHECKPOINT_ID,
+            "relationship_context_checkpoint_id": CHECKPOINT_ID,
+        },
+    ):
+        with pytest.raises(ValueError):
+            WorkEventRead.model_validate(
+                {
+                    **relationship_event,
+                    **invalid_projection,
+                }
+            )
+
+
+@pytest.mark.parametrize(
+    ("from_status", "to_status"),
+    (
+        ("done", "wont-do"),
+        ("done", "promoted"),
+        ("wont-do", "wont-do"),
+        ("wont-do", "promoted"),
+        ("promoted", "wont-do"),
+        ("promoted", "promoted"),
+    ),
+)
+def test_work_status_changed_rejects_every_terminal_origin(
+    progress_event, from_status, to_status
+):
+    event = {
+        **progress_event,
+        "event_type": "work_status_changed",
+        "body": None,
+        "metadata": {
+            "from_status": from_status,
+            "to_status": to_status,
+            "changes": {
+                "status": {"before": from_status, "after": to_status},
+            },
+            "work_version": 4,
+        },
+    }
+    with pytest.raises(ValueError):
+        WorkEventRead.model_validate(event)
+
+
+def test_relationship_events_enforce_discovery_context_and_related_normalization(
+    progress_event,
+):
+    discovered_event = {
+        **progress_event,
+        "event_type": "relationship_added",
+        "body": None,
+        "relationship_id": RELATIONSHIP_ID,
+        "relationship_source_work_item_id": OTHER_WORK_ID,
+        "relationship_target_work_item_id": WORK_ID,
+        "relationship_context_checkpoint_work_item_id": WORK_ID,
+        "relationship_context_checkpoint_id": CHECKPOINT_ID,
+        "relationship_direction": "incoming",
+        "counterpart_work_item_id": OTHER_WORK_ID,
+        "metadata": {"relationship_type": "discovered-from"},
+    }
+    WorkEventRead.model_validate(discovered_event)
+
+    for invalid_context in (
+        {
+            "relationship_context_checkpoint_work_item_id": None,
+            "relationship_context_checkpoint_id": None,
+        },
+        {
+            "relationship_context_checkpoint_work_item_id": OTHER_WORK_ID,
+            "relationship_context_checkpoint_id": OTHER_CHECKPOINT_ID,
+        },
+    ):
+        with pytest.raises(ValueError):
+            WorkEventRead.model_validate({**discovered_event, **invalid_context})
+
+    related_event = {
+        **discovered_event,
+        "relationship_context_checkpoint_work_item_id": None,
+        "relationship_context_checkpoint_id": None,
+        "relationship_direction": "undirected",
+        "metadata": {"relationship_type": "related"},
+    }
+    WorkEventRead.model_validate(related_event)
+    for invalid_endpoints in (
+        {
+            "relationship_source_work_item_id": WORK_ID,
+            "relationship_target_work_item_id": OTHER_WORK_ID,
+        },
+        {
+            "relationship_source_work_item_id": WORK_ID,
+            "relationship_target_work_item_id": WORK_ID,
+            "counterpart_work_item_id": WORK_ID,
+        },
+    ):
+        with pytest.raises(ValueError):
+            WorkEventRead.model_validate({**related_event, **invalid_endpoints})
+
+
+def test_release_event_holder_values_are_validated_without_stripping(progress_event):
+    metadata = {
+        "lease_holder_kind": "client",
+        "lease_holder_client": "  retained-client  ",
+        "lease_holder_session_id": "\tretained-session\t",
+    }
+    event = {
+        **progress_event,
+        "event_type": "work_released",
+        "body": None,
+        "lease_generation_id": RELATIONSHIP_ID,
+        "lease_release_id": OTHER_CHECKPOINT_ID,
+        "metadata": metadata,
+    }
+    validated = WorkEventRead.model_validate(event).model_dump(mode="json")
+    assert validated["metadata"] == metadata
+
+    for field, value in (
+        ("lease_holder_client", "   "),
+        ("lease_holder_client", "c" * 81),
+        ("lease_holder_session_id", "\t\n"),
+        ("lease_holder_session_id", "s" * 201),
+    ):
+        with pytest.raises(ValueError):
+            WorkEventRead.model_validate(
+                {**event, "metadata": {**metadata, field: value}}
+            )
+
+
+async def test_event_response_rejects_unknown_fields_without_echoing_them(
+    settings, progress_event
+):
+    marker = "private-upstream-event-marker"
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "items": [{**progress_event, "lease_token": marker}],
+                "total": 1,
+                "limit": 50,
+                "offset": 0,
+                "pre_phase5_history_may_be_incomplete": False,
+            },
+        )
+
+    with pytest.raises(ToolError, match="unexpected response") as caught:
+        await adapter(settings, handler).call_tool(
+            "list_work_events",
+            {"project_id": PROJECT_ID, "work_item_id": WORK_ID},
+        )
+    assert marker not in str(caught.value)
+
+
+async def test_event_tools_reject_responses_outside_requested_scope(
+    settings, progress_event
+):
+    append_arguments = {
+        "project_id": PROJECT_ID,
+        "work_item_id": WORK_ID,
+        "body": progress_event["body"],
+        **ACTOR_ARGUMENTS,
+    }
+    for override in (
+        {"project_id": OTHER_CHECKPOINT_ID},
+        {"work_item_id": OTHER_WORK_ID},
+    ):
+        def append_handler(request, override=override):
+            return httpx.Response(201, json={**progress_event, **override})
+
+        with pytest.raises(ToolError, match="Do not retry automatically"):
+            await adapter(settings, append_handler).call_tool(
+                "append_event", append_arguments
+            )
+
+    for override in (
+        {"project_id": OTHER_CHECKPOINT_ID},
+        {"work_item_id": OTHER_WORK_ID},
+    ):
+        def list_handler(request, override=override):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [{**progress_event, **override}],
+                    "total": 1,
+                    "limit": 50,
+                    "offset": 0,
+                    "pre_phase5_history_may_be_incomplete": False,
+                },
+            )
+
+        with pytest.raises(ToolError, match="outside the requested scope"):
+            await adapter(settings, list_handler).call_tool(
+                "list_work_events",
+                {"project_id": PROJECT_ID, "work_item_id": WORK_ID},
+            )
+
+
+async def test_append_event_validation_and_unknown_outcome_are_value_free(settings):
+    marker = "private-event-content-marker"
+
+    def no_request(request):
+        pytest.fail("Invalid progress input must not cross the HTTP boundary")
+
+    server = adapter(settings, no_request)
+    for arguments, field in (
+        ({"body": "   ", **ACTOR_ARGUMENTS}, "body"),
+        (
+            {
+                "body": "Progress",
+                "metadata": {"authorization": marker},
+                **ACTOR_ARGUMENTS,
+            },
+            "metadata",
+        ),
+        (
+            {
+                "body": "Progress",
+                "metadata": {"nested": [f"{marker}\x00"]},
+                **ACTOR_ARGUMENTS,
+            },
+            "metadata",
+        ),
+        (
+            {
+                "body": "Progress",
+                "event_type": "work_completed",
+                **ACTOR_ARGUMENTS,
+            },
+            "event_type",
+        ),
+    ):
+        with pytest.raises(ToolError) as caught:
+            await server.call_tool(
+                "append_event",
+                {"project_id": PROJECT_ID, "work_item_id": WORK_ID, **arguments},
+            )
+        assert field in str(caught.value)
+        assert marker not in str(caught.value)
+        assert "work_completed" not in str(caught.value)
+
+    requests = []
+
+    def unavailable(request):
+        requests.append(request)
+        raise httpx.ReadTimeout(f"private {marker}", request=request)
+
+    with pytest.raises(ToolError, match="Do not retry automatically") as caught:
+        await adapter(settings, unavailable).call_tool(
+            "append_event",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "body": "Progress",
+                **ACTOR_ARGUMENTS,
+            },
+        )
+    assert "list_work_events" in str(caught.value)
+    assert "client_operation_id" in str(caught.value)
+    assert marker not in str(caught.value)
+    assert len(requests) == 1
+
 async def test_get_and_update_work_use_identity_endpoint(settings, work_item):
     seen = []
 
@@ -677,6 +1420,7 @@ async def test_get_and_update_work_use_identity_endpoint(settings, work_item):
                 "summary": "Narrowed to UUID punctuation.",
                 "priority": 9,
                 "status": "promoted",
+                **ACTOR_PAYLOAD,
             }
             return httpx.Response(
                 200,
@@ -707,6 +1451,7 @@ async def test_get_and_update_work_use_identity_endpoint(settings, work_item):
                     "priority": 9,
                     "status": "promoted",
                 },
+                **ACTOR_ARGUMENTS,
             },
         )
     )
@@ -817,10 +1562,60 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
     assert resumed["work_item"]["id"] == WORK_ID
     assert resumed["omitted_checkpoint_count"] == 12
     assert calls == [
-        {"recent_limit": "3"},
-        {"recent_limit": "5"},
-        {"recent_limit": "5"},
+        {"recent_limit": "3", "recent_event_limit": "10"},
+        {"recent_limit": "5", "recent_event_limit": "10"},
+        {"recent_limit": "5", "recent_event_limit": "10"},
     ]
+
+
+
+async def test_recall_returns_bounded_chronological_events_without_checkpoint_duplication(
+    settings, work_context, progress_event
+):
+    def handler(request):
+        assert dict(request.url.params) == {
+            "recent_limit": "2",
+            "recent_event_limit": "1",
+        }
+        return httpx.Response(
+            200,
+            json={
+                **work_context,
+                "recent_events": [progress_event],
+                "event_total": 4,
+                "omitted_event_count": 3,
+                "pre_phase5_history_may_be_incomplete": True,
+            },
+        )
+
+    recalled = structured(
+        await adapter(settings, handler).call_tool(
+            "recall_work",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "recent_limit": 2,
+                "recent_event_limit": 1,
+            },
+        )
+    )
+    assert recalled["current_context"] is None
+    assert recalled["current_context_is_initial"] is True
+    assert recalled["recent_checkpoints"] == []
+    assert recalled["recent_events"] == [progress_event]
+    assert recalled["event_total"] == 4
+    assert recalled["omitted_event_count"] == 3
+    assert recalled["pre_phase5_history_may_be_incomplete"] is True
+    recalled_checkpoints = [
+        recalled["initial_checkpoint"],
+        recalled["current_context"],
+        *recalled["recent_checkpoints"],
+    ]
+    assert sum(
+        checkpoint is not None
+        and checkpoint["id"] == work_context["initial_checkpoint"]["id"]
+        for checkpoint in recalled_checkpoints
+    ) == 1
 
 
 async def test_claim_tools_send_body_only_and_return_exact_capability_models(
@@ -866,7 +1661,7 @@ async def test_claim_tools_send_body_only_and_return_exact_capability_models(
     ]
 
 
-async def test_renew_and_release_send_tokens_only_in_json_bodies(
+async def test_renew_and_release_send_exact_json_bodies(
     settings, claim_receipt
 ):
     renewed_receipt = {
@@ -881,10 +1676,13 @@ async def test_renew_and_release_send_tokens_only_in_json_bodies(
         assert request.method == "POST"
         assert not request.url.params
         assert LEASE_TOKEN not in str(request.url)
-        assert json.loads(request.content) == {"lease_token": LEASE_TOKEN}
+        body = json.loads(request.content)
+        expected = {"lease_token": LEASE_TOKEN}
         if request.url.path.endswith("/renew-claim"):
+            assert body == expected
             return httpx.Response(200, json=renewed_receipt)
         assert request.url.path.endswith("/release-claim")
+        assert body == {**expected, **ACTOR_PAYLOAD}
         return httpx.Response(200, json={"work_item_id": WORK_ID, "released": False})
 
     server = adapter(settings, handler)
@@ -895,7 +1693,9 @@ async def test_renew_and_release_send_tokens_only_in_json_bodies(
     }
     renewed = structured(await server.call_tool("renew_claim", arguments))
     assert renewed == renewed_receipt
-    released = structured(await server.call_tool("release_claim", arguments))
+    released = structured(
+        await server.call_tool("release_claim", {**arguments, **ACTOR_ARGUMENTS})
+    )
     assert released == {"work_item_id": WORK_ID, "released": False}
     assert "lease_token" not in released
     assert seen == [
@@ -935,7 +1735,7 @@ async def test_complete_and_delete_work_return_explicit_mutation_receipts(
                 json={"work_item": completed_work, "checkpoint": completion_checkpoint},
             )
         assert request.url.path.endswith("/delete")
-        assert json.loads(request.content) == {"expected_version": 4}
+        assert json.loads(request.content) == {"expected_version": 4, **ACTOR_PAYLOAD}
         return httpx.Response(
             200,
             json={
@@ -963,7 +1763,12 @@ async def test_complete_and_delete_work_return_explicit_mutation_receipts(
     deleted = structured(
         await server.call_tool(
             "delete_work",
-            {"project_id": PROJECT_ID, "work_item_id": WORK_ID, "expected_version": 4},
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "expected_version": 4,
+                **ACTOR_ARGUMENTS,
+            },
         )
     )
     assert deleted == {
@@ -1004,6 +1809,7 @@ async def test_canonical_mutations_send_optional_lease_token_only_in_body(
         if request.url.path.endswith("/checkpoints"):
             return httpx.Response(201, json=checkpoint)
         if request.method == "PATCH":
+            assert json.loads(request.content)["actor"] == ACTOR_PAYLOAD["actor"]
             return httpx.Response(
                 200,
                 json={**work_item, "status": "promoted", "version": 4},
@@ -1017,6 +1823,7 @@ async def test_canonical_mutations_send_optional_lease_token_only_in_body(
                 },
             )
         assert request.url.path.endswith("/delete")
+        assert json.loads(request.content)["actor"] == ACTOR_PAYLOAD["actor"]
         return httpx.Response(
             200,
             json={
@@ -1039,13 +1846,15 @@ async def test_canonical_mutations_send_optional_lease_token_only_in_body(
     )
     await server.call_tool(
         "update_work",
-        {**common, "expected_version": 3, "changes": {"status": "promoted"}},
+        {**common, "expected_version": 3, "changes": {"status": "promoted"}, **ACTOR_ARGUMENTS},
     )
     await server.call_tool(
         "complete_work",
         {**common, "expected_version": 3, "checkpoint": checkpoint_input},
     )
-    await server.call_tool("delete_work", {**common, "expected_version": 3})
+    await server.call_tool(
+        "delete_work", {**common, "expected_version": 3, **ACTOR_ARGUMENTS}
+    )
     assert seen == [
         f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/checkpoints",
         f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}",
@@ -1187,12 +1996,12 @@ async def test_delete_passes_version_and_conflict_is_not_retried(settings):
         assert request.url.path == (
             f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/delete"
         )
-        assert json.loads(request.content) == {"expected_version": 3}
+        assert json.loads(request.content) == {"expected_version": 3, **ACTOR_PAYLOAD}
         return httpx.Response(409, json={"detail": "internal database version details"})
 
     with pytest.raises(ToolError, match="Version conflict") as caught:
         await adapter(settings, handler).call_tool("delete_work", {
-            "project_id": PROJECT_ID, "work_item_id": WORK_ID, "expected_version": 3,
+            "project_id": PROJECT_ID, "work_item_id": WORK_ID, "expected_version": 3, **ACTOR_ARGUMENTS,
         })
     assert "internal database" not in str(caught.value)
     assert len(requests) == 1
@@ -1233,7 +2042,7 @@ async def test_typed_application_errors_are_actionable_and_sanitized(
     with pytest.raises(ToolError, match=expected) as caught:
         await adapter(settings, handler).call_tool(
             "delete_work",
-            {"project_id": PROJECT_ID, "work_item_id": WORK_ID, "expected_version": 3},
+            {"project_id": PROJECT_ID, "work_item_id": WORK_ID, "expected_version": 3, **ACTOR_ARGUMENTS},
         )
     assert API_KEY not in str(caught.value)
 
@@ -1324,7 +2133,7 @@ async def test_unknown_typed_error_does_not_fall_through_to_legacy_conflict_gues
     with pytest.raises(ToolError, match="could not complete this operation") as caught:
         await adapter(settings, handler).call_tool(
             "delete_work",
-            {"project_id": PROJECT_ID, "work_item_id": WORK_ID, "expected_version": 3},
+            {"project_id": PROJECT_ID, "work_item_id": WORK_ID, "expected_version": 3, **ACTOR_ARGUMENTS},
         )
     assert "Version conflict" not in str(caught.value)
     assert API_KEY not in str(caught.value)

@@ -1,5 +1,100 @@
 # Mnemonic validation record
 
+## Phase 4 ready-work and Phase 5 event validation — 2026-09-01
+
+Validated in the local Linux workspace with the locked environments, isolated
+PostgreSQL 17 data, and Node 24. This record includes only checks and
+measurements observed during this implementation session.
+
+- **140 backend tests passed against disposable PostgreSQL 17, and the full
+  Ruff check passed.** The populated migration exercise through
+  `0009_ready_work_indexes` and `0010_work_events` passed upgrade, exact
+  backfill, ORM model parity, and downgrade checks.
+- **122 MCP tests passed.** The package-local environment does not include Ruff;
+  MCP and checker lint were covered by the full repository Ruff run above.
+- **51 frontend unit tests, TypeScript checking, and the production build
+  passed.** The isolated Node 24 Playwright stack passed all 16 desktop and
+  narrow-viewport executions.
+- **A cold adversarial review found no remaining P0/P1/P2 flaws after fixes.**
+  It drove regression fixes for deferred release-marker bypasses, exact retained
+  holder values, Unicode tag normalization, strict event references and
+  endpoint binding, ready-page lifecycle semantics, dashboard refresh/paging
+  recovery, and attacker-controlled validation-location reflection. Every
+  affected backend, MCP, frontend, Playwright, restore, and full-stack gate was
+  rerun against the final source.
+- **Plugin validation and installation drills passed.** The marketplace and
+  plugin manifests validated; real disposable installs succeeded for sequential
+  `0.1.0 -> 0.2.0 -> 0.3.0` upgrades and fresh `0.2.0` and `0.3.0` installs.
+- **The populated `0009 -> 0010` migration completed in 7.35 seconds.** It
+  backfilled exactly 52,000 immutable events over 10,000 work items: 10,000
+  `work_created`, 20,000 `checkpoint_added`, 4,000 `dependency_added`, 16,000
+  `relationship_added`, and 2,000 `work_claimed`. Initial event storage was
+  26 MB. Inserting a further 100,000 progress events took 7.16 seconds, leaving
+  152,000 table rows and a busiest per-work history of 100,305 events in that
+  multi-work migration fixture.
+- **Every required ready-work plan passed on the final canonical query.** The
+  exact corpus held 10 projects, 10,000 open work items, 30,000 checkpoints,
+  10,000 relationships including 2,000 blockers and 1,000 direct-parent edges,
+  and 2,000 leases split evenly between active and expired. The default query
+  returned the requested project's total 750 plus 30 rows in 3.182 ms with
+  4,691 shared-buffer hits. A selective mixed-case tag exercised PostgreSQL
+  normalization on both operands and returned total/page 7 in 2.820 ms with
+  556 hits using `ix_checkpoints_normalized_tags_gin`. The direct-parent filter
+  returned total 100 plus 30 rows in 3.023 ms with 2,691 hits using
+  `uq_work_relationships_one_parent`. Offset 500 returned total 750 plus 30 rows
+  in 5.921 ms with 4,691 hits. Each query was warmed once; all four reported
+  zero shared reads/writes/dirtied blocks and zero temporary I/O. They used
+  `ix_work_items_ready_order`, bounded blocker endpoint/source indexes, lease
+  primary-key probes, and page-only checkpoint-count probes, with no sequential
+  scan, full lease/graph scan, external sort, or spill.
+- **Event paging remained bounded in a separate intentionally one-hot fixture.**
+  All 152,000 table rows belonged to the queried work item. The list route
+  returned the exact per-work total plus a 30-row page in 23.084 ms; bounded
+  context returned the same total plus 10 timeline rows in 15.760 ms. Both
+  bounded page selections used `ix_work_events_timeline` with no temporary
+  spill; their separate exact totals necessarily traversed all matching rows.
+- **Both event orders and deep offsets were measured through the exact list
+  service statement.** A separate 100,001-event history contained one
+  `work_created`, 90,000 `progress`, and 10,000 `work_updated` rows.
+  Oldest-first pages at offsets 0, 50,000, and 99,901 ran in 16.664, 21.139, and
+  26.451 ms with 2,132, 4,611, and 7,186 shared-buffer hits. Newest-first pages
+  at those offsets ran in 16.394, 21.602, and 26.490 ms with 2,131, 3,976, and
+  5,716 hits. Every 100-row page used `ix_work_events_timeline`; increasing
+  index rows and buffers show the documented offset degradation. All page
+  sorts remained in memory at 39–46 kB.
+- **Selective event filters used the dedicated indexes.** A 10,000-row
+  `work_updated` filter returned 100 rows plus its exact total in 3.426 ms and
+  200 shared-buffer hits, using `ix_work_events_timeline_type` for both the
+  page and an index-only count. The one-row `work_created` filter used
+  `uq_work_events_work_created`, ran in 0.188 ms, and hit 7 buffers. The common
+  90,000-row `progress` filter ran in 21.509 ms with 2,572 hits; its page used
+  the general timeline index and PostgreSQL rationally chose a sequential
+  exact-count aggregate for that majority. The history flag used
+  `uq_work_events_work_created` in every plan. No variant spilled to temporary
+  storage. The disposable database was dropped afterward.
+- **A real custom-format backup and isolated restore drill passed.** Dump took
+  0.62 seconds and restore took 7.78 seconds. Source and restored databases
+  matched at 152,000 events, maximum event ID 152,000, deterministic checksum
+  `e89ae2688fd6393045e7e46f115e3d6b`, and sequence state. The restore retained
+  all 11 indexes, the event checks, the immutability function, and all three
+  work-event triggers. A post-review repeat against the hardened final schema
+  dumped in 0.18 seconds and restored in 0.13 seconds. Its source and restore
+  matched at 13 events, maximum ID 13, checksum
+  `2844251f5ce317c3128c02beef907911`, sequence state, all 11 indexes, all four
+  event/release guards, and the final release-marker function fingerprint.
+  Restored event update and delete each failed with SQLSTATE `55000`. Both
+  drills removed their disposable databases and archives.
+
+- **The production-image full-stack check passed** against a uniquely named,
+  disposable Compose project. All services became healthy, and
+  `scripts/check-stack.py` verified authentication, dashboard origin and host
+  protection, the exact 22-tool MCP catalog, and the complete authorized Phase
+  4/5 ready-work and immutable-event lifecycle through MCP, REST, PostgreSQL,
+  and the dashboard proxy. Cleanup succeeded. A 23,486-character scan of API,
+  MCP, and web logs contained no bearer value/header, synthetic request body,
+  accepted progress-event body, traceback, or unhandled exception. The
+  disposable containers, network, and volume were removed afterward.
+
 ## Deprecated hand-off surface removal — 2026-08-31
 
 Validated in the local Linux workspace with the locked environments and an

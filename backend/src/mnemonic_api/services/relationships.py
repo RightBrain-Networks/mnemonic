@@ -3,7 +3,7 @@
 from collections.abc import Iterable, Sequence
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import conflict, not_found
@@ -18,6 +18,7 @@ from mnemonic_api.schemas import (
     AdjacentRelationshipRead,
     ChildrenListQuery,
     HierarchySummary,
+    MutationActor,
     RelationshipCreate,
     RelationshipCreationResult,
     RelationshipEdgeRead,
@@ -27,15 +28,18 @@ from mnemonic_api.schemas import (
     WorkItemListQuery,
     WorkPointer,
 )
+from mnemonic_api.services.readiness import (
+    readiness,
+    unresolved_blocker_counts,
+)
+from mnemonic_api.services.work_events import database_now, source_actor, stage_relationship_events
 
 CYCLE_TYPES = frozenset({"blocks", "parent-child"})
 
 
 def lock_project_graph(database: Session, project_id: UUID) -> Project:
     """Serialize every graph write in a project before endpoint locks are taken."""
-    project = database.scalar(
-        select(Project).where(Project.id == project_id).with_for_update()
-    )
+    project = database.scalar(select(Project).where(Project.id == project_id).with_for_update())
     if project is None:
         raise not_found("project_not_found", "Project not found.")
     return project
@@ -83,55 +87,7 @@ def relationship_edge(relationship: WorkRelationship) -> RelationshipEdgeRead:
     return RelationshipEdgeRead.model_validate(relationship)
 
 
-def unresolved_blocker_counts(
-    database: Session, work_item_ids: Sequence[UUID]
-) -> dict[UUID, int]:
-    if not work_item_ids:
-        return {}
-    source = WorkItem.__table__.alias("blocker_source")
-    target = WorkItem.__table__.alias("blocked_target")
-    rows = database.execute(
-        select(WorkRelationship.target_work_item_id, func.count())
-        .join(
-            source,
-            and_(
-                source.c.id == WorkRelationship.source_work_item_id,
-                source.c.project_id == WorkRelationship.project_id,
-            ),
-        )
-        .join(
-            target,
-            and_(
-                target.c.id == WorkRelationship.target_work_item_id,
-                target.c.project_id == WorkRelationship.project_id,
-            ),
-        )
-        .where(
-            WorkRelationship.relationship_type == "blocks",
-            target.c.id.in_(work_item_ids),
-            source.c.status != "done",
-        )
-        .group_by(WorkRelationship.target_work_item_id)
-    )
-    return {work_item_id: int(count) for work_item_id, count in rows}
-
-
-def unresolved_blocker_count(database: Session, work_item_id: UUID) -> int:
-    return unresolved_blocker_counts(database, [work_item_id]).get(work_item_id, 0)
-
-
-def require_unblocked(database: Session, work_item_id: UUID) -> None:
-    count = unresolved_blocker_count(database, work_item_id)
-    if count:
-        raise conflict(
-            "work_blocked",
-            "This work item has an unresolved blocker.",
-        )
-
-
-def require_no_relationships(
-    database: Session, project_id: UUID, work_item_id: UUID
-) -> None:
+def require_no_relationships(database: Session, project_id: UUID, work_item_id: UUID) -> None:
     exists = database.scalar(
         select(WorkRelationship.id)
         .where(
@@ -139,7 +95,7 @@ def require_no_relationships(
             or_(
                 WorkRelationship.source_work_item_id == work_item_id,
                 WorkRelationship.target_work_item_id == work_item_id,
-            )
+            ),
         )
         .limit(1)
     )
@@ -331,6 +287,20 @@ def add_relationship_record(
         context_checkpoint_id=payload.context_checkpoint_id,
         locked_work_items=locked,
     )
+    if created:
+        actor = source_actor(
+            relationship.created_by_client,
+            relationship.created_by_session_id,
+            relationship.created_by_model,
+        )
+        stage_relationship_events(
+            database,
+            relationship,
+            action="added",
+            actor=actor,
+            created_at=relationship.created_at,
+        )
+        database.flush()
     return RelationshipCreationResult(
         relationship=relationship_edge(relationship),
         created=created,
@@ -352,7 +322,10 @@ def require_relationship(
 
 
 def remove_relationship_record(
-    database: Session, project_id: UUID, relationship_id: UUID
+    database: Session,
+    project_id: UUID,
+    relationship_id: UUID,
+    actor: MutationActor | None = None,
 ) -> RelationshipRemovalResult:
     lock_project_graph(database, project_id)
     relationship = database.scalar(
@@ -372,6 +345,29 @@ def remove_relationship_record(
         project_id,
         [relationship.source_work_item_id, relationship.target_work_item_id],
     )
+    relationship = database.scalar(
+        select(WorkRelationship)
+        .where(
+            WorkRelationship.id == relationship_id,
+            WorkRelationship.project_id == project_id,
+        )
+        .with_for_update()
+    )
+    if relationship is None:
+        return RelationshipRemovalResult(
+            project_id=project_id,
+            relationship_id=relationship_id,
+            removed=False,
+        )
+    mutation_time = database_now(database)
+    stage_relationship_events(
+        database,
+        relationship,
+        action="removed",
+        actor=actor,
+        created_at=mutation_time,
+    )
+    database.flush()
     database.delete(relationship)
     database.flush()
     return RelationshipRemovalResult(
@@ -381,9 +377,7 @@ def remove_relationship_record(
     )
 
 
-def _work_pointers(
-    database: Session, work_item_ids: Sequence[UUID]
-) -> dict[UUID, WorkPointer]:
+def _work_pointers(database: Session, work_item_ids: Sequence[UUID]) -> dict[UUID, WorkPointer]:
     if not work_item_ids:
         return {}
     work_items = list(
@@ -404,8 +398,6 @@ def _work_pointers(
         )
     }
     blocker_counts = unresolved_blocker_counts(database, work_item_ids)
-    from mnemonic_api.services.work_context import readiness
-
     return {
         work_item.id: WorkPointer(
             id=work_item.id,
@@ -477,9 +469,9 @@ def list_adjacent_relationships(
     conditions = [WorkRelationship.project_id == project_id, *adjacency]
     if filters.type is not None:
         conditions.append(WorkRelationship.relationship_type == filters.type)
-    total = database.scalar(
-        select(func.count()).select_from(WorkRelationship).where(*conditions)
-    ) or 0
+    total = (
+        database.scalar(select(func.count()).select_from(WorkRelationship).where(*conditions)) or 0
+    )
     relationships = list(
         database.scalars(
             select(WorkRelationship)
@@ -587,9 +579,10 @@ def hierarchy_page(
         """
 
     match_sql, match_parameters = _hierarchy_match_sql(filters)
-    row = database.execute(
-        text(
-            f"""
+    row = (
+        database.execute(
+            text(
+                f"""
             WITH RECURSIVE candidate_roots AS (
                 {candidate_sql}
             ),
@@ -651,15 +644,18 @@ def hierarchy_page(
                 (SELECT count(*) FROM qualifying) AS total
             FROM paged
             """
-        ),
-        {
-            "project_id": project_id,
-            "parent_work_item_id": parent_work_item_id,
-            "limit": filters.limit,
-            "offset": filters.offset,
-            **match_parameters,
-        },
-    ).mappings().one()
+            ),
+            {
+                "project_id": project_id,
+                "parent_work_item_id": parent_work_item_id,
+                "limit": filters.limit,
+                "offset": filters.offset,
+                **match_parameters,
+            },
+        )
+        .mappings()
+        .one()
+    )
     item_rows = list(row["items"])
     ids = [UUID(str(item["work_item_id"])) for item in item_rows]
     work_by_id = {

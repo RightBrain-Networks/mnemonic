@@ -37,12 +37,25 @@ _APPLICATION_ERRORS = {
     "relationship_exists": "That relationship already exists.",
     "parent_already_set": "That work item already has a parent.",
     "active_relationships": "Remove this work item's relationships before deleting it.",
+    "event_type_reserved": "Only progress events may be appended by clients.",
+    "event_metadata_invalid": (
+        "Progress metadata is invalid. Check its bounded JSON shape and reserved keys."
+    ),
+    "event_secret_echo": (
+        "Mnemonic rejected progress because a request-known secret matched a persisted field."
+    ),
 }
 _UNKNOWN_CLAIM_OUTCOME = (
     "Mnemonic API could not confirm the response; the claim outcome is unknown. Retry promptly "
     "with the exact same claim_request_id from this call. A new request ID can conflict, and search "
     "or recall cannot recover the lease token."
 )
+_UNKNOWN_APPEND_OUTCOME = (
+    "Mnemonic API could not confirm whether the progress event was appended. Do not retry "
+    "automatically: inspect list_work_events first. General client_operation_id replay safety is "
+    "not available until Phase 6."
+)
+UNKNOWN_APPEND_OUTCOME = _UNKNOWN_APPEND_OUTCOME
 
 
 _NOT_FOUND_MESSAGES = {
@@ -75,6 +88,10 @@ def _not_found_message(response: httpx.Response) -> str:
 
 def _is_claim_operation(method: str, path: str) -> bool:
     return method == "POST" and path.endswith(("/claim", "/claim-and-recall"))
+
+
+def _is_append_event_operation(method: str, path: str) -> bool:
+    return method == "POST" and path.endswith("/events")
 
 
 def _application_error(response: httpx.Response) -> tuple[str, dict[str, object]] | None:
@@ -156,6 +173,8 @@ class MnemonicAPI:
             if method in {"POST", "PATCH", "DELETE"}:
                 if _is_claim_operation(method, path):
                     raise ToolError(_UNKNOWN_CLAIM_OUTCOME) from None
+                if _is_append_event_operation(method, path):
+                    raise ToolError(_UNKNOWN_APPEND_OUTCOME) from None
                 raise ToolError(
                     "Mnemonic API is unavailable; the write outcome is unknown. "
                     "Search or recall before retrying to avoid duplicate or conflicting changes."
@@ -173,6 +192,8 @@ class MnemonicAPI:
 
         if response.status_code >= 500 and _is_claim_operation(method, path):
             raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
+        if response.status_code >= 500 and _is_append_event_operation(method, path):
+            raise ToolError(_UNKNOWN_APPEND_OUTCOME)
 
         application_error = _application_error(response)
         if application_error is not None and not 200 <= response.status_code < 300:
@@ -180,6 +201,8 @@ class MnemonicAPI:
             message = _application_error_message(error_code, error_context)
             if message is not None:
                 raise ToolError(message)
+            if _is_append_event_operation(method, path):
+                raise ToolError(_UNKNOWN_APPEND_OUTCOME)
             raise ToolError(
                 "Mnemonic could not complete this operation. Recall the current work state "
                 "before retrying."
@@ -188,6 +211,8 @@ class MnemonicAPI:
         # Legacy deployments return string details, so keep the old conflict
         # interpretation during the compatibility window without exposing them.
         if response.status_code == 409:
+            if _is_append_event_operation(method, path):
+                raise ToolError(_UNKNOWN_APPEND_OUTCOME)
             if method in {"PATCH", "DELETE"} or path.endswith(("/complete", "/delete")):
                 raise ToolError(
                     "Version conflict. Recall the latest work item and review the changes "
@@ -214,6 +239,8 @@ class MnemonicAPI:
         if not 200 <= response.status_code < 300:
             if _is_claim_operation(method, path):
                 raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
+            if _is_append_event_operation(method, path):
+                raise ToolError(_UNKNOWN_APPEND_OUTCOME)
             raise ToolError(
                 "Mnemonic API could not complete this request. Check service health before retrying."
             )
@@ -228,6 +255,8 @@ class MnemonicAPI:
         except (ValueError, ValidationError):
             if _is_claim_operation(method, path):
                 raise ToolError(_UNKNOWN_CLAIM_OUTCOME) from None
+            if _is_append_event_operation(method, path):
+                raise ToolError(_UNKNOWN_APPEND_OUTCOME) from None
             raise ToolError(
                 "Mnemonic API returned an unexpected response. Check the service versions."
             ) from None

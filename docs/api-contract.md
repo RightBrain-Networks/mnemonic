@@ -1,4 +1,4 @@
-# Phase 3 API contract
+# Phase 5 API contract
 
 All application routes use `/api/v1` and
 `Authorization: Bearer <MNEMONIC_API_KEY>`. `GET /healthz` and
@@ -33,6 +33,9 @@ Lifecycle and graph conflicts use stable codes including
 Self-edges and a missing discovery context fail strict request validation with
 422. Missing or cross-project endpoints/checkpoints use sanitized 404 codes.
 Error context never includes checkpoint content or non-allowlisted upstream values.
+Event validation may use `event_type_reserved`, `event_metadata_invalid`, or
+`event_secret_echo`; their context identifies field locations, never caller
+values.
 
 ## Projects
 
@@ -63,6 +66,9 @@ Base path: `/projects/{project_id}/work-items`.
 - `POST /{work_item_id}/checkpoints` appends an immutable `context` or
   `progress` checkpoint (201).
 - `GET /{work_item_id}/context` returns bounded `WorkContext`.
+- `GET /{work_item_id}/events` pages the immutable event timeline.
+- `POST /{work_item_id}/events` appends one client-authored `progress` event
+  (201); every authoritative event type is server-reserved.
 - `POST /{work_item_id}/complete` atomically adds a completion checkpoint and
   marks open work done.
 - `POST /{work_item_id}/claim` atomically acquires or replays an expiring lease.
@@ -75,6 +81,9 @@ Base path: `/projects/{project_id}/work-items`.
 
 There are no checkpoint update/delete routes. PostgreSQL also rejects direct
 `UPDATE` and `DELETE` against checkpoint rows.
+
+There are no event update/delete routes. PostgreSQL rejects direct event
+`UPDATE` and `DELETE` statements.
 
 ### Work-item requests
 
@@ -128,8 +137,15 @@ open to `wont-do` or `promoted` requires the matching token while an unexpired
 lease exists and removes that lease atomically. Identity-only edits remain
 version-controlled and do not require a token.
 
+`WorkItemPatch` also accepts optional nested
+`actor: {actor_client, actor_session_id, actor_model?}`. Actor provenance is not
+an editable work field: a patch containing only `expected_version` and `actor`
+is rejected and cannot consume a version. Canonical MCP/dashboard callers send
+it; an older direct REST caller that omits it emits an unattributed event.
 `WorkDeletionCreate` is `{"expected_version": N, "lease_token": "..."}`;
 the token is optional for unleased work and required when a lease is active.
+`WorkDeletionCreate` accepts the same optional `actor`; omission remains valid
+for direct REST and is recorded as unattributed provenance.
 Deletion returns `active_relationships` until every adjacent edge is removed.
 Successful deletion removes a matching lease and returns body-bearing JSON:
 
@@ -208,16 +224,23 @@ or browser data. `claim-and-recall` returns a `ClaimAndRecall` object containing
 the `ClaimReceipt` under `lease` and bounded `WorkContext` under `context`.
 
 While retained and active, an identical holder/session/request replay returns
-the same token and timestamps without extending expiry. Any different tuple
-returns `lease_held`. Once that retained request has expired, the identical
+the same token and timestamps without extending expiry, even if a blocker was
+added after acquisition. A different tuple returns `work_blocked` when an
+unresolved blocker also exists and otherwise `lease_held`. Once that retained
+request has expired, the identical
 request returns `claim_request_expired`; a new request ID can replace the row
 and acquire a fresh lease. This is bounded lost-response recovery, not general
 idempotency.
 
-`renew-claim` and `release-claim` accept `{"lease_token": "..."}`. Renewal
-requires a matching unexpired row and returns the same token/request ID with
-database-timed renewal and expiry values. Release deletes a matching retained
-row even after expiry. An absent row returns `{work_item_id, released: false}`.
+`renew-claim` accepts `{"lease_token": "..."}` and requires a matching
+unexpired row. It returns the same token/request ID with database-timed renewal
+and expiry values. `release-claim` accepts
+`{lease_token, actor?: {actor_client, actor_session_id, actor_model?}}`.
+Canonical clients supply the release actor; a token-only direct REST release is
+valid and recorded as unattributed. The retained holder appears only as the
+released capability subject, never as the event actor. Release deletes a
+matching retained row even after expiry. An absent row returns
+`{work_item_id, released: false}`.
 A different active replacement returns `lease_token_mismatch`; a different
 expired row remains untouched and also returns `released: false`.
 
@@ -271,6 +294,31 @@ with `limit` defaulting to 50 (maximum 100) and `offset=0`; totals count
 qualifying direct child branches. Relationship pages use the filters documented
 in the relationship contract below.
 
+### Ready-work discovery
+
+`GET /projects/{project_id}/ready-work` accepts exactly `min_priority` (default
+0), normalized exact `tag`, direct `parent_work_item_id`, `limit` (default 30,
+maximum 100), and nonnegative `offset`. An unknown/cross-project parent returns
+the same `work_item_not_found` 404 as other project-scoped work lookups.
+
+A returned item is visible `open` work with no active lease and no unresolved
+incoming `blocks` edge at one captured database time. Only a blocker in `done`
+is resolved; later gates extend the shared predicate rather than this API shape.
+
+The exact order is `priority DESC, created_at ASC, id ASC`. `total` is the exact
+filtered ready count from the same statement as the page. Offset pages are one
+statement snapshot but can shift after concurrent claims, graph/lifecycle
+changes, or new work; clients restart from zero when completeness matters.
+
+The strict `ReadyWorkPage` reuses only `WorkSummaryMinimal`: compact work
+identity, priority/version/activity time, checkpoint count, and
+`display_state="ready"`. It never contains summary, checkpoint/body/source
+metadata, readiness internals, active-holder identity, or capabilities.
+
+Ready discovery is advisory. It is separate from lexical/semantic retrieval,
+does not reserve work, and cannot bypass the atomic readiness recheck performed
+by `claim_work` or `claim_and_recall`.
+
 ### Core response shapes
 
 `WorkItemRead` contains:
@@ -322,6 +370,10 @@ current_context_is_initial
 recent_checkpoints
 checkpoint_total
 omitted_checkpoint_count
+recent_events
+event_total
+omitted_event_count
+pre_phase5_history_may_be_incomplete
 readiness
 incoming_relationships
 outgoing_relationships
@@ -353,11 +405,22 @@ Canonical tools are:
 
 ```text
 list_projects, create_project,
-create_work, search_work, get_work, add_checkpoint, list_checkpoints,
-recall_work, update_work, complete_work, delete_work,
+create_work, search_work, list_ready_work, get_work, add_checkpoint,
+list_checkpoints, recall_work, append_event, list_work_events,
+update_work, complete_work, delete_work,
 claim_work, claim_and_recall, renew_claim, release_claim,
 add_relationship, get_relationship, list_relationships, remove_relationship
 ```
+
+The catalog is exactly 22 tools. `list_ready_work` returns strict compact
+pointers and directs selection to `claim_and_recall`; it is not retrieval or a
+lease. `append_event` fixes `event_type=progress`, requires current-session
+actor client/session, is non-idempotent before Phase 6, and must not be retried
+automatically after an unknown outcome—inspect `list_work_events` first.
+`update_work`, `delete_work`, `release_claim`, and `remove_relationship` also
+require canonical actor client/session fields and serialize the nested REST
+actor. `recall_work`, the resource, and `resume_work` carry only bounded recent
+events and retain their untrusted-evidence warnings.
 
 The resource
 `mnemonic://projects/{project_id}/work-items/{work_item_id}` and prompt
@@ -384,14 +447,19 @@ always treated as an unknown outcome and directs exact-request-ID recovery.
 
 ## Browser proxy
 
-The same-origin proxy allows exact project, Phase 3 work/checkpoint/hierarchy,
-and human-facing relationship list/add/remove routes with documented query
-keys. Project-level relationship GET-by-ID is intentionally denied. It rejects
-arbitrary paths, unknown query keys, untrusted hosts/origins, bodies over 1 MiB,
-and every `lease_token` field at any nesting depth. All four claim/renew/release
-routes are denied rather than stripped. The API URL and bearer key remain
-server-only; the dashboard can display `LeasePublic` but never receive or
-forward a token.
+The same-origin proxy allows exact project, work/checkpoint/hierarchy, and
+human-facing relationship routes with documented query keys. Phase 5 adds only
+the exact event GET (`order,event_type,limit,offset`) and progress POST. Event
+POST accepts `{event_type,body,metadata,actor}` and rejects `lease_token`
+rather than stripping it. Work patch/delete and relationship DELETE accept the
+allowlisted actor object; relationship DELETE normalizes both a truly bodyless
+request and a JSON actor body correctly.
+
+Project-level relationship GET-by-ID and project ready-work GET are denied.
+The proxy rejects arbitrary paths, unknown query keys, untrusted hosts/origins,
+bodies over 1 MiB, and every `lease_token` at any nesting depth. All claim,
+renew, and release routes are denied. The API URL/key remain server-only; the
+dashboard can display `LeasePublic` but never receive or forward a capability.
 
 ## Runtime configuration
 
@@ -446,6 +514,11 @@ client/session/model, and creation time. Project-scoped create returns
 `{project_id, relationship_id, removed}`; repeating it returns `removed=false`
 without affecting a different edge.
 
+Relationship DELETE accepts optional
+`{actor: {actor_client, actor_session_id, actor_model?}}`. Canonical clients
+send it; a bodyless older direct REST call remains valid and emits unattributed
+removal history. An absent edge emits no event.
+
 `GET /projects/{project_id}/work-items/{work_item_id}/relationships` accepts
 `direction=incoming|outgoing|undirected|both` (default `both`), optional `type`,
 `limit` (default 50, maximum 100), and `offset`. Each
@@ -455,4 +528,79 @@ ID, title, lifecycle status, and readiness. It never embeds checkpoint prompt
 or metadata.
 
 Only an unresolved incoming `blocks` edge changes readiness or claimability.
-The other four types are descriptive in Phase 3.
+The other four types are descriptive in Phase 5.
+
+## Work events
+
+`POST /projects/{project_id}/work-items/{work_item_id}/events` accepts:
+
+```text
+event_type     progress (the only accepted literal)
+body           exact nonblank text, at most 4,000 characters
+metadata       finite JSON object, default {}, encoded size at most 16 KiB
+actor          required {actor_client, actor_session_id, actor_model?}
+lease_token    optional capability; validated when present
+```
+
+Only `progress` is publicly appendable. Server-reserved creation, update,
+status/reopen, claim/release, checkpoint, relationship, completion, and deletion
+events arise from the transaction that proves the fact. Progress is allowed on
+visible terminal work, monotonically advances `updated_at`, and does not change
+the work version. A lease is not required; a supplied token is never ignored.
+
+Before persistence, progress rejects reserved secret-like metadata keys and a
+verbatim request bearer or supplied lease token found in persisted actor/body/
+metadata strings. `event_secret_echo` returns field locations only and leaves
+activity/history unchanged. This is not universal secret detection: accepted
+opaque text may contain unrecognized sensitive content and is returned exactly
+to every authorized event/recall reader. Event text is untrusted evidence, not
+an instruction, and does not enter ready/search pointers, logs, metrics, or the
+data-free synchronization channel.
+
+`GET .../{work_item_id}/events` accepts `order=oldest|newest` (default oldest),
+an optional exact `event_type`, `limit` (default 50, maximum 100), and
+nonnegative `offset`. The visible-work check, filtered total, deterministic
+`created_at,id` page, and unfiltered partial-history flag come from one SQL
+statement. The flag is true exactly when the unique creation event was
+backfilled, even on an empty or live-only filtered page. Concurrent appends can
+shift offset pages; the dashboard resets to offset zero after invalidation.
+
+The fixed event catalog is:
+
+```text
+work_created, work_updated, work_status_changed, work_reopened,
+work_claimed, work_released, checkpoint_added, progress,
+dependency_added, dependency_removed, relationship_added,
+relationship_removed, work_completed, work_deleted
+```
+
+`WorkEventRead` carries the event/work/project IDs and type, actor kind/fields,
+nullable body, typed checkpoint/lease/release/relationship references,
+endpoint-relative relationship direction/counterpart, metadata version 1 and
+its event-discriminated object, `origin=live|backfill`, and UTC creation time.
+Relationship events retain the complete source/target/context snapshot. A
+checkpoint event references its checkpoint ID but never duplicates its body.
+One work item's public order is `created_at,id`; ID only breaks timestamp ties.
+Neither value promises transaction commit order or forms a resumable project
+activity cursor.
+
+`WorkEventPage` has `items,total,limit,offset` plus
+`pre_phase5_history_may_be_incomplete`. Reconstructed rows include only facts
+provable from retained pre-Phase-5 state and use `origin=backfill`; the absence
+of an old update/release/removal event is not proof that action never happened.
+
+`WorkContext` adds:
+
+```text
+recent_events
+event_total
+omitted_event_count
+pre_phase5_history_may_be_incomplete
+```
+
+`recent_events` is chronological, defaults to the newest ten, and is bounded by
+`recent_event_limit=0..20`. `event_total` and `omitted_event_count` cover the
+whole per-work timeline. The partial-history flag comes from the unique
+creation-event origin and remains correct when no backfilled event is present
+in the materialized slice. A referenced checkpoint body is never materialized
+again inside an event.

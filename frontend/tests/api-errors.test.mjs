@@ -13,6 +13,26 @@ test("typed API errors retain the stable code and do not render arbitrary contex
 
 test("validation issues remain useful without exposing raw payloads", () => {
   assert.deepEqual(detailMessage([{ loc: ["body", "title"], msg: "Field required", input: "secret" }]), { message: "title: Field required" });
+  assert.deepEqual(detailMessage([
+    { loc: ["body", "actor", "actor_session_id"], msg: "Field required" },
+    { loc: ["query", "limit"], msg: "Input should be less than or equal to 100" },
+    { loc: ["body", "body"], msg: "String should have at least 1 character" },
+    { loc: ["body", "tags", 2], msg: "Input should be a valid string" }
+  ]), {
+    message: "actor.actor_session_id: Field required. limit: Input should be less than or equal to 100. body: String should have at least 1 character. tags.2: Input should be a valid string"
+  });
+});
+
+test("validation locations never render attacker-controlled extra field names", () => {
+  const sensitive = "SENSITIVE_CALLER_KEY_123";
+  const detail = detailMessage([
+    { loc: ["body", sensitive], msg: "Extra inputs are not permitted" },
+    { loc: ["body", "metadata", sensitive], msg: "Extra inputs are not permitted" },
+    { loc: { attacker: sensitive }, msg: "Invalid value" }
+  ]);
+
+  assert.equal(detail.message, "Extra inputs are not permitted. metadata: Extra inputs are not permitted. Invalid value");
+  assert.equal(detail.message.includes(sensitive), false);
 });
 
 test("only typed or legacy code-less version conflicts use stale-version recovery", () => {

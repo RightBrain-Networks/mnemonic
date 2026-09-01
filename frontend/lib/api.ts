@@ -12,14 +12,88 @@ export class ApiError extends Error {
 
 const SAFE_ERROR_CONTEXT = new Set(["holder_client", "expires_at"]);
 
+const SAFE_VALIDATION_LOCATION_ROOTS = new Set(["body", "query", "path", "header", "cookie"]);
+const SAFE_VALIDATION_LOCATION_PARTS = new Set([
+  "actor",
+  "actor_client",
+  "actor_model",
+  "actor_session_id",
+  "body",
+  "checkpoint",
+  "context_checkpoint_id",
+  "created_by_client",
+  "created_by_model",
+  "created_by_session_id",
+  "description",
+  "direction",
+  "event_type",
+  "expected_version",
+  "id",
+  "initial_checkpoint",
+  "kind",
+  "limit",
+  "metadata",
+  "name",
+  "offset",
+  "order",
+  "priority",
+  "project_id",
+  "prompt",
+  "q",
+  "recent_event_limit",
+  "recent_limit",
+  "relationship_id",
+  "relationship_type",
+  "repository_branch",
+  "repository_url",
+  "semantic",
+  "slug",
+  "source_client",
+  "source_metadata",
+  "source_model",
+  "source_session_id",
+  "source_session_url",
+  "source_work_item_id",
+  "status",
+  "summary",
+  "tag",
+  "tags",
+  "target_work_item_id",
+  "title",
+  "type",
+  "verified_against",
+  "view",
+  "work_item_id"
+]);
+
+function safeValidationLocation(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  const parts: string[] = [];
+  for (const [index, part] of value.entries()) {
+    if (index === 0 && typeof part === "string" && SAFE_VALIDATION_LOCATION_ROOTS.has(part)) {
+      continue;
+    }
+    if (typeof part === "string" && SAFE_VALIDATION_LOCATION_PARTS.has(part)) {
+      parts.push(part);
+      continue;
+    }
+    if (typeof part === "number" && Number.isSafeInteger(part) && part >= 0 && parts.length) {
+      parts.push(String(part));
+      continue;
+    }
+    break;
+  }
+  return parts.join(".");
+}
+
 export function detailMessage(detail: unknown): { message: string; code?: string } {
   if (typeof detail === "string") return { message: detail };
   if (Array.isArray(detail)) {
     return {
       message: detail.map((item) => {
         if (!item || typeof item !== "object") return "Invalid value";
-        const issue = item as { loc?: unknown[]; msg?: string };
-        const field = issue.loc?.filter((part) => part !== "body" && part !== "query").join(".");
+        const issue = item as { loc?: unknown; msg?: string };
+        const field = safeValidationLocation(issue.loc);
         return `${field ? `${field}: ` : ""}${issue.msg || "Invalid value"}`;
       }).join(". ")
     };

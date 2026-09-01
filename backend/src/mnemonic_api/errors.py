@@ -5,12 +5,26 @@ from typing import Any
 from fastapi import HTTPException
 
 SAFE_ERROR_CONTEXT_KEYS = frozenset({"holder_client", "expires_at"})
+SAFE_ERROR_FIELD_LOCATIONS = frozenset(
+    {
+        "actor.actor_client",
+        "actor.actor_model",
+        "actor.actor_session_id",
+        "body",
+        "metadata.key",
+        "metadata.value",
+    }
+)
 
 
 def _safe_context(context: dict[str, Any] | None) -> dict[str, Any]:
     if not context:
         return {}
-    return {key: value for key, value in context.items() if key in SAFE_ERROR_CONTEXT_KEYS}
+    safe = {key: value for key, value in context.items() if key in SAFE_ERROR_CONTEXT_KEYS}
+    fields = context.get("fields")
+    if isinstance(fields, list) and all(field in SAFE_ERROR_FIELD_LOCATIONS for field in fields):
+        safe["fields"] = sorted(set(fields))
+    return safe
 
 
 class ApplicationError(HTTPException):

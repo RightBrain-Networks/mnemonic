@@ -1,6 +1,6 @@
 ---
 name: mnemonic-save
-description: Save durable Mnemonic work with an initial context checkpoint and, when explicit, atomic initial graph links; or append corrected context to matching work. Use when a user wants to preserve a follow-up for another session; saving does not authorize executing it.
+description: Save durable Mnemonic work with cold-session checkpoints, concise progress events, and explicit graph facts. Use when a user wants to preserve a follow-up or historical update; saving does not authorize executing it.
 ---
 
 # Save Mnemonic work
@@ -94,6 +94,27 @@ Concrete next steps and observable completion checks. Name checks not yet run;
 never claim a test passed unless this session observed it.
 ```
 
+
+## Choose a checkpoint or event
+
+Use a checkpoint when a future session needs substantial context to resume
+safely. Use `kind="context"` for newly governing or corrected resume context and
+`kind="progress"` for a substantial resume packet that is useful but does not
+replace current context. Checkpoints retain prompt, tags, and source provenance.
+
+Use `append_event` for one concise progress fact that belongs in history but
+does not need to become resume context. Supply the real `actor_client`,
+`actor_session_id`, and optional known `actor_model`; these fields are asserted
+provenance, not authenticated identity. Do not store the same prose as both a
+checkpoint and progress event merely to duplicate it in two views.
+
+Progress append is not idempotent before Phase 6. If its result is unknown, do
+not retry automatically: call `list_work_events(order="newest")` and inspect the
+recent bounded page first. Never put credentials, lease tokens, private
+chain-of-thought, or transcript dumps in event body or metadata. Reserved keys
+and request-known secret echoes are rejected, but arbitrary unrecognized
+sensitive text cannot be detected universally and would be returned exactly to
+authorized history readers.
 ## Persist and report
 
 For distinct work, call `create_work` with `project_id`, `title`, `summary`, and
@@ -103,8 +124,9 @@ Use a few useful tags; new proposals normally remain `open`.
 
 For the same objective, call `add_checkpoint(project_id, work_item_id,
 kind="context", checkpoint={...})`. If only mutable work identity must change,
-call `update_work` with the version just read and only the intended fields. On a
-version conflict, recall and compare before retrying. After an uncertain write
+call `update_work` with the version just read, truthful flattened actor fields,
+and only the intended changes. On a version conflict, recall and compare before
+retrying. After an uncertain write
 failure, search or recall before retrying so a lost response does not duplicate
 work or context.
 

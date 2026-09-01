@@ -3,7 +3,7 @@
 import json
 import re
 import unicodedata
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -14,10 +14,12 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue,
+    RootModel,
     StrictInt,
     StringConstraints,
     field_serializer,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -66,6 +68,7 @@ def metadata_is_bounded(value: dict[str, JsonValue]) -> dict[str, JsonValue]:
     if len(encoded) > 16384:
         raise ValueError("Metadata must be at most 16 KB of UTF-8 JSON")
     if b"\\u0000" in encoded:
+
         def contains_nul(item: JsonValue) -> bool:
             if isinstance(item, str):
                 return "\x00" in item
@@ -103,6 +106,16 @@ SessionID = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
     AfterValidator(nonblank),
 ]
+ReleasedLeaseHolderClient = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=80),
+    AfterValidator(nonblank),
+]
+ReleasedLeaseHolderSessionID = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=200),
+    AfterValidator(nonblank),
+]
 ClaimRequestID = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
@@ -136,16 +149,58 @@ Tag = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1, max_length=50),
     AfterValidator(normalized_tag),
 ]
+ReadyTagFilter = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=50),
+    AfterValidator(nonblank),
+]
 Tags = Annotated[list[Tag], Field(max_length=20)]
 Metadata = Annotated[dict[str, JsonValue], AfterValidator(metadata_is_bounded)]
+EVENT_SECRET_KEYS = frozenset(
+    {"lease_token", "claim_request_id", "api_key", "authorization", "cookie", "secret"}
+)
+
+
+def event_metadata_is_safe(value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    metadata_is_bounded(value)
+
+    def validate(item: JsonValue) -> None:
+        if isinstance(item, list):
+            for child in item:
+                validate(child)
+        elif isinstance(item, dict):
+            for key, child in item.items():
+                if key.casefold() in EVENT_SECRET_KEYS:
+                    raise ValueError("Event metadata contains a reserved secret-like key")
+                validate(child)
+
+    validate(value)
+    return value
+
+
+EventMetadata = Annotated[dict[str, JsonValue], AfterValidator(event_metadata_is_safe)]
 Status = Literal["open", "done", "wont-do", "promoted"]
 MutableStatus = Literal["open", "wont-do", "promoted"]
 CreateStatus = Literal["open", "wont-do", "promoted"]
 CheckpointKind = Literal["context", "progress", "completion"]
 AppendCheckpointKind = Literal["context", "progress"]
 MigrationOrigin = Literal["legacy-handoff-snapshot", "legacy-comment"]
-RelationshipType = Literal[
-    "blocks", "parent-child", "discovered-from", "duplicate-of", "related"
+RelationshipType = Literal["blocks", "parent-child", "discovered-from", "duplicate-of", "related"]
+EventType = Literal[
+    "work_created",
+    "work_updated",
+    "work_status_changed",
+    "work_reopened",
+    "work_claimed",
+    "work_released",
+    "checkpoint_added",
+    "progress",
+    "dependency_added",
+    "dependency_removed",
+    "relationship_added",
+    "relationship_removed",
+    "work_completed",
+    "work_deleted",
 ]
 ProjectName = Annotated[
     str,
@@ -160,6 +215,14 @@ Slug = Annotated[
 
 class APIModel(BaseModel):
     model_config = ConfigDict(extra="forbid", from_attributes=True, allow_inf_nan=False)
+
+
+class MutationActor(APIModel):
+    """Client-asserted mutation provenance; never an authenticated identity."""
+
+    actor_client: ClientName
+    actor_session_id: SessionID
+    actor_model: ModelName | None = None
 
 
 class Timestamps(APIModel):
@@ -264,9 +327,9 @@ class WorkItemCreate(APIModel):
     priority: Annotated[StrictInt, Field(ge=0, le=100)] = 0
     status: CreateStatus = "open"
     initial_checkpoint: InitialCheckpointCreate
-    initial_relationships: Annotated[
-        list[InitialRelationshipCreate], Field(max_length=10)
-    ] = Field(default_factory=list)
+    initial_relationships: Annotated[list[InitialRelationshipCreate], Field(max_length=10)] = Field(
+        default_factory=list
+    )
 
 
 class RelationshipCreate(APIModel):
@@ -287,7 +350,6 @@ class RelationshipCreate(APIModel):
         return self
 
 
-
 class WorkItemPatch(APIModel):
     expected_version: Annotated[StrictInt, Field(ge=1)]
     title: Title | None = None
@@ -295,10 +357,11 @@ class WorkItemPatch(APIModel):
     priority: Annotated[StrictInt, Field(ge=0, le=100)] | None = None
     status: MutableStatus | None = None
     lease_token: LeaseToken | None = Field(default=None, repr=False)
+    actor: MutationActor | None = None
 
     @model_validator(mode="after")
     def editable_fields(self) -> Self:
-        fields = self.model_fields_set - {"expected_version", "lease_token"}
+        fields = self.model_fields_set - {"expected_version", "lease_token", "actor"}
         if not fields:
             raise ValueError("Provide at least one editable field besides expected_version")
         for field in fields:
@@ -316,6 +379,7 @@ class WorkCompletionCreate(APIModel):
 class WorkDeletionCreate(APIModel):
     expected_version: Annotated[StrictInt, Field(ge=1)]
     lease_token: LeaseToken | None = Field(default=None, repr=False)
+    actor: MutationActor | None = None
 
 
 class WorkClaimCreate(APIModel):
@@ -326,6 +390,15 @@ class WorkClaimCreate(APIModel):
 
 class LeaseTokenCreate(APIModel):
     lease_token: LeaseToken = Field(repr=False)
+
+
+class LeaseReleaseCreate(APIModel):
+    lease_token: LeaseToken = Field(repr=False)
+    actor: MutationActor | None = None
+
+
+class RelationshipRemovalCreate(APIModel):
+    actor: MutationActor | None = None
 
 
 class WorkItemRead(Timestamps):
@@ -481,6 +554,13 @@ class WorkSummaryMinimal(APIModel):
     )
 
 
+class ReadyWorkPage(APIModel):
+    items: list[WorkSummaryMinimal]
+    total: int
+    limit: int
+    offset: int
+
+
 class WorkSummary(APIModel):
     work_item: WorkItemRead
     checkpoint_count: int
@@ -507,6 +587,404 @@ class RelationshipCounts(APIModel):
     outgoing: int = 0
     undirected: int = 0
     total: int = 0
+
+
+EventBody = Annotated[
+    str, StringConstraints(min_length=1, max_length=4000), AfterValidator(nonblank)
+]
+
+
+class ProgressEventCreate(APIModel):
+    event_type: Literal["progress"] = "progress"
+    body: EventBody
+    metadata: EventMetadata = Field(default_factory=dict)
+    actor: MutationActor
+    lease_token: LeaseToken | None = Field(default=None, repr=False)
+
+
+class EmptyEventMetadata(APIModel):
+    pass
+
+
+class WorkSnapshot(APIModel):
+    title: Title
+    summary: Summary
+    status: CreateStatus
+    priority: Annotated[StrictInt, Field(ge=0, le=100)]
+    version: Literal[1]
+
+
+class WorkCreatedLiveMetadata(APIModel):
+    initial: WorkSnapshot
+
+
+class TitleChange(APIModel):
+    before: Title
+    after: Title
+
+
+class SummaryChange(APIModel):
+    before: Summary
+    after: Summary
+
+
+class PriorityChange(APIModel):
+    before: Annotated[StrictInt, Field(ge=0, le=100)]
+    after: Annotated[StrictInt, Field(ge=0, le=100)]
+
+
+class StatusChange(APIModel):
+    before: Status
+    after: Status
+
+
+class WorkChangeSet(APIModel):
+    title: TitleChange | None = None
+    summary: SummaryChange | None = None
+    priority: PriorityChange | None = None
+    status: StatusChange | None = None
+
+    @model_validator(mode="after")
+    def require_nonempty(self) -> Self:
+        if not self.model_fields_set:
+            raise ValueError("Event changes must not be empty")
+        if any(getattr(self, field) is None for field in self.model_fields_set):
+            raise ValueError("Event changes cannot contain null values")
+        return self
+
+    @model_serializer(mode="wrap")
+    def serialize_set_fields(self, handler):
+        serialized = handler(self)
+        return {field: serialized[field] for field in self.model_fields_set}
+
+
+class WorkUpdatedMetadata(APIModel):
+    changes: WorkChangeSet
+    work_version: Annotated[StrictInt, Field(ge=1)]
+
+
+class WorkStatusMetadata(APIModel):
+    from_status: Status
+    to_status: Status
+    changes: WorkChangeSet
+    work_version: Annotated[StrictInt, Field(ge=1)]
+
+
+def event_datetime_is_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() != timedelta(0):
+        raise ValueError("Event metadata timestamps must be UTC")
+    return value
+
+
+UTCEventDateTime = Annotated[datetime, AfterValidator(event_datetime_is_utc)]
+
+
+class WorkClaimedLiveMetadata(APIModel):
+    expires_at: UTCEventDateTime
+
+
+class WorkClaimedBackfillMetadata(APIModel):
+    observed_expires_at: UTCEventDateTime
+    expiry_basis: Literal["retained_lease_at_cutover"]
+
+
+class WorkReleasedClientMetadata(APIModel):
+    lease_holder_kind: Literal["client"]
+    lease_holder_client: ReleasedLeaseHolderClient
+    lease_holder_session_id: ReleasedLeaseHolderSessionID
+
+
+class WorkReleasedUnattributedMetadata(APIModel):
+    lease_holder_kind: Literal["unattributed"]
+
+
+class CheckpointAddedMetadata(APIModel):
+    checkpoint_kind: AppendCheckpointKind
+
+
+class RelationshipEventMetadata(APIModel):
+    relationship_type: RelationshipType
+
+
+class WorkCompletedLiveMetadata(APIModel):
+    from_status: Literal["open"]
+    to_status: Literal["done"]
+    work_version: Annotated[StrictInt, Field(ge=1)]
+
+
+class WorkDeletedMetadata(APIModel):
+    final_status: Status
+    final_version: Annotated[StrictInt, Field(ge=1)]
+
+
+class ProgressEventMetadata(RootModel[EventMetadata]):
+    pass
+
+
+WorkEventMetadata = (
+    EmptyEventMetadata
+    | WorkCreatedLiveMetadata
+    | WorkUpdatedMetadata
+    | WorkStatusMetadata
+    | WorkClaimedLiveMetadata
+    | WorkClaimedBackfillMetadata
+    | WorkReleasedClientMetadata
+    | WorkReleasedUnattributedMetadata
+    | CheckpointAddedMetadata
+    | RelationshipEventMetadata
+    | WorkCompletedLiveMetadata
+    | WorkDeletedMetadata
+    | ProgressEventMetadata
+)
+
+
+def _event_metadata_payload(metadata: WorkEventMetadata) -> dict[str, JsonValue]:
+    if isinstance(metadata, ProgressEventMetadata):
+        return metadata.root
+    return metadata.model_dump(mode="json")
+
+
+class WorkEventRead(APIModel):
+    id: int
+    project_id: UUID
+    work_item_id: UUID
+    event_type: EventType
+    actor_kind: Literal["client", "unattributed"]
+    actor_client: str | None
+    actor_session_id: str | None
+    actor_model: str | None
+    body: str | None
+    checkpoint_id: UUID | None
+    lease_generation_id: UUID | None
+    lease_release_id: UUID | None
+    relationship_id: UUID | None
+    relationship_source_work_item_id: UUID | None
+    relationship_target_work_item_id: UUID | None
+    relationship_context_checkpoint_work_item_id: UUID | None
+    relationship_context_checkpoint_id: UUID | None
+    relationship_direction: Literal["incoming", "outgoing", "undirected"] | None
+    counterpart_work_item_id: UUID | None
+    metadata_version: Literal[1]
+    metadata: WorkEventMetadata
+    origin: Literal["live", "backfill"]
+    created_at: datetime
+
+    @model_validator(mode="after")
+    def enforce_event_contract(self) -> Self:
+        if self.created_at.tzinfo is None:
+            raise ValueError("Event timestamps must include a UTC offset")
+
+        actor_values = (self.actor_client, self.actor_session_id, self.actor_model)
+        if self.actor_kind == "client":
+            if self.actor_client is None or self.actor_session_id is None:
+                raise ValueError("Client events require client and session provenance")
+            if not self.actor_client.strip() or not self.actor_session_id.strip():
+                raise ValueError("Client event provenance must be nonblank")
+            if self.actor_model is not None and not self.actor_model.strip():
+                raise ValueError("Client event model provenance must be nonblank")
+        elif any(value is not None for value in actor_values):
+            raise ValueError("Unattributed events cannot contain actor provenance")
+
+        live_client_events = {
+            "work_created",
+            "work_claimed",
+            "checkpoint_added",
+            "progress",
+            "dependency_added",
+            "relationship_added",
+            "work_completed",
+        }
+        if (
+            self.origin == "live"
+            and self.event_type in live_client_events
+            and self.actor_kind != "client"
+        ):
+            raise ValueError("This live event requires client provenance")
+
+        backfill_allowed = {
+            "work_created",
+            "work_claimed",
+            "checkpoint_added",
+            "dependency_added",
+            "relationship_added",
+            "work_completed",
+            "work_deleted",
+        }
+        if self.origin == "backfill" and self.event_type not in backfill_allowed:
+            raise ValueError("This event type cannot be backfilled")
+        if (
+            self.origin == "backfill"
+            and self.event_type == "work_deleted"
+            and self.actor_kind != "unattributed"
+        ):
+            raise ValueError("Backfilled deletion events must be unattributed")
+
+        if self.event_type == "progress":
+            if self.origin != "live" or self.body is None:
+                raise ValueError("Progress events require a live body")
+            if not 1 <= len(self.body) <= 4000 or not self.body.strip() or "\x00" in self.body:
+                raise ValueError("Progress event bodies must be bounded nonblank text")
+        elif self.body is not None:
+            raise ValueError("Server-reserved event types cannot contain a body")
+
+        checkpoint_events = {"work_created", "checkpoint_added", "work_completed"}
+        if (self.checkpoint_id is not None) != (self.event_type in checkpoint_events):
+            raise ValueError("Checkpoint event references do not match the event type")
+
+        lease_events = {"work_claimed", "work_released"}
+        if (self.lease_generation_id is not None) != (self.event_type in lease_events):
+            raise ValueError("Lease generation references do not match the event type")
+        if (self.lease_release_id is not None) != (self.event_type == "work_released"):
+            raise ValueError("Lease release references do not match the event type")
+
+        relationship_events = {
+            "dependency_added",
+            "dependency_removed",
+            "relationship_added",
+            "relationship_removed",
+        }
+        relationship_values = (
+            self.relationship_id,
+            self.relationship_source_work_item_id,
+            self.relationship_target_work_item_id,
+            self.relationship_direction,
+            self.counterpart_work_item_id,
+        )
+        if self.event_type in relationship_events:
+            if any(value is None for value in relationship_values):
+                raise ValueError("Relationship events require the complete endpoint projection")
+            source_work_item_id = self.relationship_source_work_item_id
+            target_work_item_id = self.relationship_target_work_item_id
+            counterpart_work_item_id = self.counterpart_work_item_id
+            assert source_work_item_id is not None
+            assert target_work_item_id is not None
+            assert counterpart_work_item_id is not None
+            if source_work_item_id == target_work_item_id:
+                raise ValueError("Relationship endpoints must be distinct")
+            if self.work_item_id not in {source_work_item_id, target_work_item_id}:
+                raise ValueError("Relationship event work item must be an endpoint")
+            expected_counterpart = (
+                target_work_item_id
+                if self.work_item_id == source_work_item_id
+                else source_work_item_id
+            )
+            if counterpart_work_item_id != expected_counterpart:
+                raise ValueError("Relationship event counterpart is inconsistent")
+            context_pair = (
+                self.relationship_context_checkpoint_work_item_id,
+                self.relationship_context_checkpoint_id,
+            )
+            if (context_pair[0] is None) != (context_pair[1] is None):
+                raise ValueError("Relationship context references must be paired")
+            if context_pair[0] is not None and context_pair[0] not in {
+                source_work_item_id,
+                target_work_item_id,
+            }:
+                raise ValueError("Relationship context owner must be an endpoint")
+        elif any(
+            value is not None
+            for value in (
+                *relationship_values,
+                self.relationship_context_checkpoint_work_item_id,
+                self.relationship_context_checkpoint_id,
+            )
+        ):
+            raise ValueError("Non-relationship events cannot contain relationship references")
+
+        payload = _event_metadata_payload(self.metadata)
+        parsed: WorkEventMetadata
+        if self.event_type == "work_created":
+            metadata_type = WorkCreatedLiveMetadata if self.origin == "live" else EmptyEventMetadata
+            parsed = metadata_type.model_validate(payload)
+        elif self.event_type == "work_updated":
+            parsed = WorkUpdatedMetadata.model_validate(payload)
+            status_change = parsed.changes.status
+            if status_change is not None and status_change.before != status_change.after:
+                raise ValueError("Ordinary work updates cannot change status")
+        elif self.event_type in {"work_status_changed", "work_reopened"}:
+            parsed = WorkStatusMetadata.model_validate(payload)
+            status_change = parsed.changes.status
+            if status_change is None:
+                raise ValueError("Lifecycle events require a typed status change")
+            if (status_change.before, status_change.after) != (
+                parsed.from_status,
+                parsed.to_status,
+            ):
+                raise ValueError("Lifecycle event status metadata is inconsistent")
+            if self.event_type == "work_status_changed" and (
+                parsed.from_status != "open" or parsed.to_status not in {"wont-do", "promoted"}
+            ):
+                raise ValueError("Status-change events must leave open work")
+            if self.event_type == "work_reopened" and (
+                parsed.to_status != "open" or parsed.from_status == "open"
+            ):
+                raise ValueError("Reopen events must return terminal work to open")
+        elif self.event_type == "work_claimed":
+            metadata_type = (
+                WorkClaimedLiveMetadata if self.origin == "live" else WorkClaimedBackfillMetadata
+            )
+            parsed = metadata_type.model_validate(payload)
+        elif self.event_type == "work_released":
+            holder_kind = payload.get("lease_holder_kind")
+            metadata_type = (
+                WorkReleasedClientMetadata
+                if holder_kind == "client"
+                else WorkReleasedUnattributedMetadata
+            )
+            parsed = metadata_type.model_validate(payload)
+        elif self.event_type == "checkpoint_added":
+            parsed = CheckpointAddedMetadata.model_validate(payload)
+        elif self.event_type == "progress":
+            parsed = ProgressEventMetadata.model_validate(payload)
+        elif self.event_type in relationship_events:
+            parsed = RelationshipEventMetadata.model_validate(payload)
+            is_dependency = self.event_type.startswith("dependency_")
+            if is_dependency != (parsed.relationship_type == "blocks"):
+                raise ValueError("Relationship event family does not match its type")
+            source_work_item_id = self.relationship_source_work_item_id
+            target_work_item_id = self.relationship_target_work_item_id
+            assert source_work_item_id is not None
+            assert target_work_item_id is not None
+            if parsed.relationship_type == "related":
+                if self.relationship_direction != "undirected":
+                    raise ValueError("Related events must be projected as undirected")
+                if source_work_item_id >= target_work_item_id:
+                    raise ValueError("Related event endpoints must be normalized")
+            else:
+                expected_direction = (
+                    "incoming" if self.work_item_id == target_work_item_id else "outgoing"
+                )
+                if self.relationship_direction != expected_direction:
+                    raise ValueError("Directed relationship event direction is inconsistent")
+            if parsed.relationship_type == "discovered-from" and (
+                self.relationship_context_checkpoint_id is None
+                or self.relationship_context_checkpoint_work_item_id != target_work_item_id
+            ):
+                raise ValueError("Discovered-from events require target-owned context")
+        elif self.event_type == "work_completed":
+            metadata_type = (
+                WorkCompletedLiveMetadata if self.origin == "live" else EmptyEventMetadata
+            )
+            parsed = metadata_type.model_validate(payload)
+        elif self.event_type == "work_deleted":
+            parsed = WorkDeletedMetadata.model_validate(payload)
+        else:  # pragma: no cover - EventType keeps this exhaustive
+            raise ValueError("Unknown event type")
+
+        self.metadata = parsed
+        return self
+
+    @field_serializer("created_at")
+    def utc_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class WorkEventPage(APIModel):
+    items: list[WorkEventRead]
+    total: int
+    limit: int
+    offset: int
+    pre_phase5_history_may_be_incomplete: bool
 
 
 class WorkContext(APIModel):
@@ -542,6 +1020,10 @@ class WorkContext(APIModel):
     outgoing_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
     undirected_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
     relationship_counts: RelationshipCounts = Field(default_factory=RelationshipCounts)
+    recent_events: list[WorkEventRead]
+    event_total: int
+    omitted_event_count: int
+    pre_phase5_history_may_be_incomplete: bool
 
 
 class ClaimAndRecall(APIModel):
@@ -604,6 +1086,14 @@ class WorkItemListQuery(APIModel):
         return self
 
 
+class ReadyWorkListQuery(APIModel):
+    min_priority: int = Field(default=0, ge=0, le=100)
+    tag: ReadyTagFilter | None = None
+    parent_work_item_id: UUID | None = None
+    limit: int = Field(default=30, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
 class RelationshipListQuery(APIModel):
     direction: Literal["incoming", "outgoing", "undirected", "both"] = "both"
     type: RelationshipType | None = None
@@ -625,12 +1115,19 @@ class ChildrenListQuery(APIModel):
         return value.lower() if value else value
 
 
-
 class CheckpointListQuery(APIModel):
     order: Literal["oldest", "newest"] = "oldest"
     limit: int = Field(default=100, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
 
 
+class WorkEventListQuery(APIModel):
+    order: Literal["oldest", "newest"] = "oldest"
+    event_type: EventType | None = None
+    limit: int = Field(default=50, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
 class WorkContextQuery(APIModel):
     recent_limit: int = Field(default=5, ge=0, le=20)
+    recent_event_limit: int = Field(default=10, ge=0, le=20)

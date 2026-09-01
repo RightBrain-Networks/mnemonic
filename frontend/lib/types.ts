@@ -104,6 +104,107 @@ export type RelationshipType =
 
 export type RelationshipDirection = "incoming" | "outgoing" | "undirected";
 
+export interface MutationActor {
+  actor_client: string;
+  actor_session_id: string;
+  actor_model?: string | null;
+}
+
+export type WorkEventType =
+  | "work_created"
+  | "work_updated"
+  | "work_status_changed"
+  | "work_reopened"
+  | "work_claimed"
+  | "work_released"
+  | "checkpoint_added"
+  | "progress"
+  | "dependency_added"
+  | "dependency_removed"
+  | "relationship_added"
+  | "relationship_removed"
+  | "work_completed"
+  | "work_deleted";
+
+export type WorkEventOrigin = "live" | "backfill";
+export type WorkEventActorKind = "client" | "unattributed";
+
+export interface WorkSnapshot {
+  title: string;
+  summary: string;
+  status: MutableWorkStatus;
+  priority: number;
+  version: 1;
+}
+
+export type WorkEventChangeSet = Partial<{
+  title: { before: string; after: string };
+  summary: { before: string; after: string };
+  priority: { before: number; after: number };
+  status: { before: WorkStatus; after: WorkStatus };
+}>;
+
+export type WorkEventMetadata =
+  | Record<string, never>
+  | { initial: WorkSnapshot }
+  | { changes: WorkEventChangeSet; work_version: number }
+  | {
+      from_status: WorkStatus;
+      to_status: WorkStatus;
+      changes: WorkEventChangeSet;
+      work_version: number;
+    }
+  | { expires_at: string }
+  | { observed_expires_at: string; expiry_basis: "retained_lease_at_cutover" }
+  | {
+      lease_holder_kind: "client";
+      lease_holder_client: string;
+      lease_holder_session_id: string;
+    }
+  | { lease_holder_kind: "unattributed" }
+  | { checkpoint_kind: "context" | "progress" }
+  | { relationship_type: RelationshipType }
+  | { from_status: "open"; to_status: "done"; work_version: number }
+  | { final_status: WorkStatus; final_version: number }
+  | Record<string, unknown>;
+
+export interface WorkEventRead {
+  id: number;
+  project_id: string;
+  work_item_id: string;
+  event_type: WorkEventType;
+  actor_kind: WorkEventActorKind;
+  actor_client: string | null;
+  actor_session_id: string | null;
+  actor_model: string | null;
+  body: string | null;
+  checkpoint_id: string | null;
+  lease_generation_id: string | null;
+  lease_release_id: string | null;
+  relationship_id: string | null;
+  relationship_source_work_item_id: string | null;
+  relationship_target_work_item_id: string | null;
+  relationship_context_checkpoint_work_item_id: string | null;
+  relationship_context_checkpoint_id: string | null;
+  relationship_direction: RelationshipDirection | null;
+  counterpart_work_item_id: string | null;
+  metadata_version: 1;
+  metadata: WorkEventMetadata;
+  origin: WorkEventOrigin;
+  created_at: string;
+}
+
+export interface WorkEventPage extends Page<WorkEventRead> {
+  pre_phase5_history_may_be_incomplete: boolean;
+}
+
+export interface ProgressEventInput {
+  event_type: "progress";
+  body: string;
+  metadata: Record<string, unknown>;
+  actor: MutationActor;
+}
+
 export interface RelationshipEdgeRead {
   id: string;
   project_id: string;
@@ -182,6 +283,10 @@ export interface WorkContext {
   outgoing_relationships: AdjacentRelationshipRead[];
   undirected_relationships: AdjacentRelationshipRead[];
   relationship_counts: RelationshipCounts;
+  recent_events: WorkEventRead[];
+  event_total: number;
+  omitted_event_count: number;
+  pre_phase5_history_may_be_incomplete: boolean;
 }
 
 export interface WorkCreation {
@@ -220,4 +325,5 @@ export interface WorkPatch {
   summary?: string;
   priority?: number;
   status?: MutableWorkStatus;
+  actor?: MutationActor;
 }

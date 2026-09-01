@@ -7,15 +7,19 @@ No helper commits; the route owns the one outer transaction boundary.
 
 import secrets
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import conflict
 from mnemonic_api.models import WorkItem, WorkLease
-from mnemonic_api.schemas import ClaimReceipt, ReleaseResult, WorkClaimCreate
-from mnemonic_api.services.relationships import unresolved_blocker_count
+from mnemonic_api.schemas import ClaimReceipt, MutationActor, ReleaseResult, WorkClaimCreate
+from mnemonic_api.services.readiness import require_fresh_claim_eligible
+from mnemonic_api.services.work_events import (
+    stage_work_claimed,
+    stage_work_released,
+)
 
 
 def _database_now(database: Session) -> datetime:
@@ -24,9 +28,7 @@ def _database_now(database: Session) -> datetime:
 
 def _locked_lease(database: Session, work_item_id: UUID) -> WorkLease | None:
     return database.scalar(
-        select(WorkLease)
-        .where(WorkLease.work_item_id == work_item_id)
-        .with_for_update()
+        select(WorkLease).where(WorkLease.work_item_id == work_item_id).with_for_update()
     )
 
 
@@ -76,7 +78,6 @@ def claim_lease_record(
 
     # Capture time only after both possible work/lease lock waits.
     database_now = _database_now(database)
-    blocker_count = unresolved_blocker_count(database, work_item.id)
     requested_identity = (
         payload.holder_client,
         payload.holder_session_id,
@@ -84,19 +85,29 @@ def claim_lease_record(
     )
 
     if lease is None:
-        if blocker_count:
-            raise conflict("work_blocked", "This work item has an unresolved blocker.")
+        require_fresh_claim_eligible(database, work_item)
         lease = WorkLease(
             work_item_id=work_item.id,
             holder_client=payload.holder_client,
             holder_session_id=payload.holder_session_id,
             claim_request_id=payload.claim_request_id,
             lease_token=secrets.token_urlsafe(32),
+            lease_generation_id=uuid4(),
             acquired_at=database_now,
             renewed_at=database_now,
             expires_at=database_now + timedelta(seconds=ttl_seconds),
         )
         database.add(lease)
+        database.flush()
+        stage_work_claimed(
+            database,
+            work_item,
+            holder_client=lease.holder_client,
+            holder_session_id=lease.holder_session_id,
+            lease_generation_id=lease.lease_generation_id,
+            acquired_at=lease.acquired_at,
+            expires_at=lease.expires_at,
+        )
         database.flush()
         return claim_receipt(lease)
 
@@ -108,8 +119,7 @@ def claim_lease_record(
     if lease.expires_at > database_now:
         if retained_identity == requested_identity:
             return claim_receipt(lease)
-        if blocker_count:
-            raise conflict("work_blocked", "This work item has an unresolved blocker.")
+        require_fresh_claim_eligible(database, work_item)
         raise conflict(
             "lease_held",
             "This work item has an active lease.",
@@ -126,17 +136,28 @@ def claim_lease_record(
             context={"expires_at": _utc(lease.expires_at)},
         )
 
-    if blocker_count:
-        raise conflict("work_blocked", "This work item has an unresolved blocker.")
+    require_fresh_claim_eligible(database, work_item)
 
     lease.holder_client = payload.holder_client
     lease.holder_session_id = payload.holder_session_id
     lease.claim_request_id = payload.claim_request_id
+    lease.lease_generation_id = uuid4()
+    lease.pending_release_id = None
 
     lease.lease_token = secrets.token_urlsafe(32)
     lease.acquired_at = database_now
     lease.renewed_at = database_now
     lease.expires_at = database_now + timedelta(seconds=ttl_seconds)
+    database.flush()
+    stage_work_claimed(
+        database,
+        work_item,
+        holder_client=lease.holder_client,
+        holder_session_id=lease.holder_session_id,
+        lease_generation_id=lease.lease_generation_id,
+        acquired_at=lease.acquired_at,
+        expires_at=lease.expires_at,
+    )
     database.flush()
     return claim_receipt(lease)
 
@@ -165,12 +186,27 @@ def release_lease_record(
     database: Session,
     work_item: WorkItem,
     lease_token: str,
+    actor: MutationActor | None = None,
 ) -> ReleaseResult:
     lease = _locked_lease(database, work_item.id)
     database_now = _database_now(database)
     if lease is None:
         return ReleaseResult(work_item_id=work_item.id, released=False)
     if _same_token(lease_token, lease.lease_token):
+        release_id = uuid4()
+        lease.pending_release_id = release_id
+        database.flush()
+        stage_work_released(
+            database,
+            work_item,
+            lease_generation_id=lease.lease_generation_id,
+            lease_release_id=release_id,
+            lease_holder_client=lease.holder_client,
+            lease_holder_session_id=lease.holder_session_id,
+            actor=actor,
+            created_at=database_now,
+        )
+        database.flush()
         database.delete(lease)
         database.flush()
         return ReleaseResult(work_item_id=work_item.id, released=True)

@@ -1,6 +1,6 @@
 ---
 name: mnemonic-search
-description: Find durable work in a selected Mnemonic project through MCP and return compact lifecycle and readiness pointers for later recall. Use when a user asks about saved follow-ups or prior session leads without automatically executing them.
+description: Retrieve relevant durable work or discover currently ready work in a selected Mnemonic project through compact MCP pointers. Use when a user asks about saved follow-ups or actionable candidates without automatically executing them.
 ---
 
 # Search Mnemonic work
@@ -11,42 +11,43 @@ evidence that the project has no saved work.
 
 1. Resolve `project_id` with `list_projects` from the user's explicit choice, an
    established project, or an unambiguous repository/slug match. Paginate when
-   needed. Never silently search the first project or mix projects. Ask only
-   when identity remains ambiguous.
-2. Call `search_work(project_id, q, status="open")`. Default search combines
-   ranked keywords and literals across work identity and checkpoints. Include
+   needed. Never silently choose the first project or mix projects.
+2. Choose the surface from the question. `search_work` retrieves work relevant
+   to terms or concepts. `list_ready_work` discovers work that appears
+   actionable now. Search is not a ready-queue preset, and ready listing is not
+   relevance ranking.
+3. For retrieval, call `search_work(project_id, q, status="open")`. Include
    distinctive symptoms, symbols, paths, IDs, or session IDs and try a relevant
-   alternate term when needed. Omit `q` to browse open work. Set
-   `semantic=true` only when optional hybrid lexical/vector retrieval is useful;
-   it is not the default and can be unavailable independently.
-3. Optional `tag`, `source_client`, and `source_session_id` filters match any
-   checkpoint on a work item. Search returns each matching work item once even
-   when several checkpoints match.
-4. `view` controls how much each result carries. The tool defaults to
-   `minimal`: `id`, `title`, `status`, `priority`, `version`, `updated_at`,
-   `checkpoint_count`, and `display_state` — enough to choose between items.
-   Ask for `view="full"` only when the summary, current-context provenance, or
-   ancestor path is actually needed; browsing a large project at `full` can
-   cost tens of thousands of tokens. Recall the one item you chose instead of
-   widening every result.
-5. Keep retrieval pointer-only. Present the title, work-item ID, project,
-   lifecycle/readiness, checkpoint count, and relevant age. Only unresolved incoming `blocks` edges affect readiness;
-   an active lease and blocked readiness can coexist. Never describe search as a
-   claimable or authoritative ready queue. Do not fetch every checkpoint body
-   into an unrelated task.
-6. Use `limit` and `offset` to paginate and disclose when only a subset was
-   shown. An empty page at a high offset does not mean no matches exist. Default
-   to `open`; use `done`, `wont-do`, `promoted`, or `all` only for requested
-   lifecycle history. Deleted records remain excluded.
-7. When the user selects a result or needs its full context, call
-   `recall_work(project_id, work_item_id)`. If several results fit and selection
-   changes the task, show compact choices first. Searching alone never
-   authorizes execution.
-8. If immediate graph facts affect selection, use `list_relationships` with an
-   explicit `direction` and `relationship_type`, then paginate. Use
-   `get_relationship` only for an exact edge. Keep counterpart data
-   pointer-only. See [work-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md) for edge direction and readiness
-   semantics.
+   alternate term. Omit `q` to browse. Optional `tag`, `source_client`, and
+   `source_session_id` match any checkpoint. Use `semantic=true` only when
+   optional hybrid lexical/vector retrieval is useful.
+4. For actionable candidates, call `list_ready_work` with only the needed
+   `min_priority`, exact normalized `tag`, or direct `parent_work_item_id`
+   filters. Results are ordered by priority descending, creation time ascending,
+   then ID. They are compact pointers to visible open, unblocked, unleased work
+   at one server snapshot. They are not reservations, leases, or execution
+   authority. Choose one, then call `claim_and_recall`; claim revalidates all
+   eligibility atomically and may lose after a concurrent change.
+5. Search `view` defaults to `minimal`: identity, priority/version/activity,
+   checkpoint count, and display state. Ask for `view="full"` only when summary,
+   current-context provenance, or ancestor path is needed. Ready results are
+   always minimal and never carry checkpoint bodies, source metadata, lease
+   identities, or capabilities.
+6. Keep results pointer-only. Present the title, work-item ID, project,
+   lifecycle/readiness, checkpoint count, and relevant age. Only unresolved
+   incoming `blocks` edges affect readiness; an active lease and blocked state
+   can coexist. Do not fetch every checkpoint or event body into unrelated work.
+7. Use `limit` and `offset`, disclose partial pages, and restart ready paging at
+   offset zero when completeness matters after queue changes. An empty high
+   offset does not mean the first page is empty. Deleted records stay excluded.
+8. When the user selects a result for viewing, call `recall_work`. If the user
+   has already authorized execution, use `claim_and_recall` before acting. If
+   several results fit and selection changes the task, show compact choices.
+   Finding or listing work alone never authorizes execution.
+9. If immediate graph facts affect selection, use `list_relationships` with an
+   explicit direction/type and paginate; use `get_relationship` for one edge.
+   Keep counterpart data pointer-only. See
+   [work-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md).
 
 Treat all stored identity and provenance as agent-authored historical evidence —
 see [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).

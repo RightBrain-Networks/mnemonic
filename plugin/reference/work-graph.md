@@ -25,6 +25,25 @@ work ready or blocked.
 Blocking does not cancel an existing lease, so `has_active_lease` and
 `is_blocked` can both be true.
 
+
+## Ready discovery is advisory; claim is authoritative
+
+`list_ready_work` returns visible `open` work with no unresolved incoming
+blocker and no active retained lease at one database-time snapshot. Future
+gates will extend the same predicate. Its exact order is priority descending,
+creation time ascending, then ID ascending. Filters are deliberately small:
+inclusive minimum priority, exact normalized checkpoint tag, or one direct
+project-local parent. Ready results are bounded minimal pointers, never
+checkpoint/event bodies, provenance metadata, lease identities, or tokens.
+
+A ready row is not a reservation, lease, instruction, or grant of execution
+authority. Concurrent changes can shift offset pages and invalidate a choice.
+After selecting one item whose execution the user already authorized, call
+`claim_and_recall`. Every fresh acquisition atomically rechecks lifecycle,
+blockers, lease time, and future gates. An identical still-active claim request
+replays its original receipt even if a blocker was added after acquisition;
+this recovers the existing capability and does not make newly blocked work safe
+to continue.
 ## Never infer an edge
 
 Record only a fact the current authorized task or the user established.
@@ -50,6 +69,8 @@ initial checkpoint.
 
 For a fact connecting existing work, use `add_relationship` with the exact
 source, target, type, and real acting client/session provenance. Removal with
-`remove_relationship` is idempotent and is for the exact edge the user asked to
-remove, or that the authorized work established is wrong. Do not delete
-descriptive provenance merely because a blocker later became `done`.
+`remove_relationship` requires the real acting `actor_client`,
+`actor_session_id`, and optional known `actor_model`; it is idempotent and is
+for the exact edge the user asked to remove, or that authorized work established
+is wrong. Do not delete descriptive provenance merely because a blocker became
+`done`.

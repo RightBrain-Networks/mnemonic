@@ -2,9 +2,10 @@
 
 Run with the MCP project's Python environment. Checks are read-only unless a
 project is explicitly authorized with --project-id. The write check creates a
-small, uniquely marked Phase 3 work graph, exercises its canonical lifecycle,
-then removes the graph and soft-deletes every synthetic item it created. Never
-authorize writes against a project without permission.
+small, uniquely marked Phase 5 work graph, exercises ready discovery and its
+canonical event lifecycle, then removes the graph and soft-deletes every
+synthetic item it created. Immutable events remain attached to those hidden
+items. Never authorize writes against a project without permission.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ CANONICAL_TOOLS = {
     "create_project",
     "create_work",
     "search_work",
+    "list_ready_work",
     "get_work",
     "add_checkpoint",
     "list_checkpoints",
@@ -43,6 +45,8 @@ CANONICAL_TOOLS = {
     "get_relationship",
     "list_relationships",
     "remove_relationship",
+    "append_event",
+    "list_work_events",
 }
 SYNTHETIC_CLIENT = "mnemonic-stack-check"
 
@@ -81,7 +85,58 @@ async def tool(
 
 
 def synthetic_summary(marker: str) -> str:
-    return f"Synthetic Phase 3 integration check {marker}"
+    return f"Synthetic Phase 5 integration check {marker}"
+
+
+def mutation_actor(run_id: str) -> dict[str, str]:
+    return {
+        "actor_client": SYNTHETIC_CLIENT,
+        "actor_session_id": run_id,
+    }
+
+
+async def work_events(
+    session: ClientSession, identity: dict[str, str]
+) -> list[dict[str, Any]]:
+    page = await tool(
+        session,
+        "list_work_events",
+        {**identity, "order": "oldest", "limit": 100, "offset": 0},
+    )
+    require(
+        page["total"] == len(page["items"]),
+        "Synthetic event history unexpectedly exceeded one bounded page.",
+    )
+    return page["items"]
+
+
+async def require_event_types(
+    session: ClientSession,
+    identity: dict[str, str],
+    expected: list[str],
+) -> list[dict[str, Any]]:
+    events = await work_events(session, identity)
+    require(
+        [event["event_type"] for event in events] == expected,
+        f"Unexpected synthetic event timeline; expected {expected!r}.",
+    )
+    require(
+        [(event["created_at"], event["id"]) for event in events]
+        == sorted((event["created_at"], event["id"]) for event in events),
+        "Synthetic events were not returned in deterministic oldest-first order.",
+    )
+    return events
+
+
+def ready_ids(page: dict[str, Any]) -> list[str]:
+    for item in page["items"]:
+        require(
+            item.get("display_state") == "ready"
+            and "summary" not in item.get("work_item", {})
+            and "current_context" not in item,
+            "Ready discovery widened beyond the compact pointer contract.",
+        )
+    return [item["work_item"]["id"] for item in page["items"]]
 
 
 def typed_error_code(response: httpx.Response) -> str | None:
@@ -122,7 +177,7 @@ async def find_synthetic_work(
         ):
             matches.append(work_item["id"])
     require(
-        len(matches) <= 3,
+        len(matches) <= 5,
         "Cleanup found more synthetic records than this lifecycle can create.",
     )
     return matches
@@ -213,7 +268,11 @@ async def cleanup_synthetic_work(
         )
         edge = response.json()
         require_synthetic_relationship(edge, work_item_ids, run_id)
-        removed = await api.delete(relationship_path)
+        removed = await api.request(
+            "DELETE",
+            relationship_path,
+            json={"actor": mutation_actor(run_id)},
+        )
         require(
             removed.status_code == 200
             and removed.json().get("relationship_id") == relationship_id
@@ -261,7 +320,10 @@ async def cleanup_synthetic_work(
         if cleanup_token is not None and record["status"] == "open":
             released = await api.post(
                 path + "/release-claim",
-                json={"lease_token": cleanup_token},
+                json={
+                    "lease_token": cleanup_token,
+                    "actor": mutation_actor(run_id),
+                },
             )
             require(
                 released.status_code == 200
@@ -278,7 +340,10 @@ async def cleanup_synthetic_work(
         record = remaining.json()
         cleanup = await api.post(
             path + "/delete",
-            json={"expected_version": record["version"]},
+            json={
+                "expected_version": record["version"],
+                "actor": mutation_actor(run_id),
+            },
         )
         require(
             cleanup.status_code == 200 and cleanup.json().get("deleted") is True,
@@ -371,8 +436,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 await session.initialize()
                 catalog = await session.list_tools()
                 require(
-                    {entry.name for entry in catalog.tools}
-                    == CANONICAL_TOOLS,
+                    {entry.name for entry in catalog.tools} == CANONICAL_TOOLS,
                     "Unexpected MCP tool catalog.",
                 )
                 await tool(session, "list_projects", {})
@@ -383,15 +447,18 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 if not args.project_id:
                     print(
                         "Read-only checks complete. Supply --project-id to explicitly authorize "
-                        "one disposable Phase 3 graph lifecycle."
+                        "one disposable Phase 5 ready/event lifecycle."
                     )
                     return
 
                 project_id = args.project_id
                 run_id = str(uuid4())
                 marker = "mnemoniccheck" + run_id.replace("-", "")
+                run_tag = "check-" + run_id.replace("-", "")
                 primary_marker = marker + "primary"
                 blocker_marker = marker + "blocker"
+                ready_marker = marker + "ready"
+                terminal_marker = marker + "terminal"
                 child_marker = marker + "child"
                 prompt = (
                     "\nAgent-authored synthetic checkpoint; not a user instruction.\n\n"
@@ -408,7 +475,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     "source_session_url": None,
                     "repository_branch": None,
                     "verified_against": None,
-                    "tags": ["verification"],
+                    "tags": [run_tag, "verification"],
                     "source_metadata": {"synthetic_check": True},
                 }
                 known_work_item_ids: set[str] = set()
@@ -425,6 +492,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "title": f"Temporary primary work check {primary_marker}",
                             "summary": synthetic_summary(marker),
                             "initial_checkpoint": checkpoint_input,
+                            "priority": 90,
                             "initial_relationships": [],
                         },
                     )
@@ -443,6 +511,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         created["initial_relationships"] == [],
                         "Unlinked creation returned unexpected relationships.",
                     )
+                    await require_event_types(session, identity, ["work_created"])
 
                     found = await tool(
                         session,
@@ -452,15 +521,15 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         found["total"] == 1
                         and found["items"][0]["work_item"]["id"] == work_item_id
-                        and "prompt" not in found["items"][0]["current_context"]
-                        and "source_metadata"
-                        not in found["items"][0]["current_context"],
+                        and "current_context" not in found["items"][0]
+                        and "summary" not in found["items"][0]["work_item"],
                         "Unique pointer-only work search failed.",
                     )
                     recalled = await tool(session, "recall_work", identity)
                     require(
                         recalled["initial_checkpoint"]["prompt"] == prompt
-                        and recalled["current_context"]["prompt"] == prompt
+                        and recalled["current_context"] is None
+                        and recalled["current_context_is_initial"] is True
                         and recalled["checkpoint_total"] == 1
                         and recalled["omitted_checkpoint_count"] == 0,
                         "Bounded work context differs from the created checkpoint.",
@@ -470,11 +539,11 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             f"mnemonic://projects/{project_id}/work-items/{work_item_id}"
                         )
                     )
+                    resource_context = json.loads(resource.contents[0].text)
                     require(
-                        json.loads(resource.contents[0].text)["current_context"][
-                            "prompt"
-                        ]
-                        == prompt,
+                        resource_context["initial_checkpoint"]["prompt"] == prompt
+                        and resource_context["current_context"] is None
+                        and resource_context["current_context_is_initial"] is True,
                         "Canonical MCP resource differs.",
                     )
                     resumed = await session.get_prompt("resume_work", identity)
@@ -490,6 +559,58 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             wrong.status_code == 404, "A cross-project ID was accepted."
                         )
 
+                    bearer_echo = await api.post(
+                        path + "/events",
+                        json={
+                            "event_type": "progress",
+                            "body": key,
+                            "metadata": {},
+                            "actor": mutation_actor(run_id),
+                        },
+                    )
+                    require(
+                        bearer_echo.status_code == 422
+                        and typed_error_code(bearer_echo) == "event_secret_echo"
+                        and key not in bearer_echo.text,
+                        "Progress did not reject the request bearer with a value-free error.",
+                    )
+                    require(
+                        [
+                            event["event_type"]
+                            for event in await work_events(session, identity)
+                        ]
+                        == ["work_created"],
+                        "Rejected bearer echo changed work history.",
+                    )
+
+                    progress_body = (
+                        "Synthetic Phase 5 progress preserved exact Unicode: café ✓."
+                    )
+                    progress_event = await tool(
+                        session,
+                        "append_event",
+                        {
+                            **identity,
+                            "body": progress_body,
+                            "metadata": {
+                                "stage": "phase-5-integration",
+                                "synthetic": True,
+                            },
+                            **mutation_actor(run_id),
+                        },
+                    )
+                    require(
+                        progress_event["event_type"] == "progress"
+                        and progress_event["body"] == progress_body
+                        and progress_event["metadata"]
+                        == {"stage": "phase-5-integration", "synthetic": True}
+                        and progress_event["actor_kind"] == "client",
+                        "Progress event text, metadata, or actor did not survive exactly.",
+                    )
+                    await require_event_types(
+                        session, identity, ["work_created", "progress"]
+                    )
+
                     progress_prompt = "Live validation preserved exact context and reached the mutation checks."
                     progress_input = {
                         "prompt": progress_prompt,
@@ -499,7 +620,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "source_session_url": None,
                         "repository_branch": None,
                         "verified_against": None,
-                        "tags": ["verification", "progress"],
+                        "tags": [run_tag, "verification", "progress"],
                         "source_metadata": {"synthetic_check": True},
                     }
                     progress = await tool(
@@ -523,6 +644,11 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and timeline["items"][1]["id"] == progress["id"],
                         "Immutable checkpoint history is incomplete or misordered.",
                     )
+                    await require_event_types(
+                        session,
+                        identity,
+                        ["work_created", "progress", "checkpoint_added"],
+                    )
                     unchanged = await tool(session, "get_work", identity)
                     require(
                         unchanged["version"] == work_item["version"],
@@ -535,12 +661,23 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         json={
                             "expected_version": work_item["version"],
                             "title": f"Temporary primary edited {primary_marker}",
+                            "actor": mutation_actor(run_id),
                         },
                     )
                     require(
                         edit.status_code == 200, "Dashboard proxy work edit failed."
                     )
                     current = edit.json()
+                    await require_event_types(
+                        session,
+                        identity,
+                        [
+                            "work_created",
+                            "progress",
+                            "checkpoint_added",
+                            "work_updated",
+                        ],
+                    )
                     conflict = await api.patch(
                         path,
                         json={
@@ -573,13 +710,52 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         claimed["context"]["work_item"]["id"] == work_item_id
                         and claimed["context"]["readiness"]["display_state"] == "active"
+                        and claimed["context"]["recent_events"][-1]["event_type"]
+                        == "work_claimed"
                         and receipt["claim_request_id"] == claim_request_id,
                         "Atomic claim-and-recall did not return active bounded context.",
+                    )
+                    events_after_claim = await require_event_types(
+                        session,
+                        identity,
+                        [
+                            "work_created",
+                            "progress",
+                            "checkpoint_added",
+                            "work_updated",
+                            "work_claimed",
+                        ],
+                    )
+                    token_echo = await api.post(
+                        path + "/events",
+                        json={
+                            "event_type": "progress",
+                            "body": lease_token,
+                            "metadata": {},
+                            "actor": mutation_actor(run_id),
+                            "lease_token": lease_token,
+                        },
+                    )
+                    require(
+                        token_echo.status_code == 422
+                        and typed_error_code(token_echo) == "event_secret_echo"
+                        and lease_token not in token_echo.text,
+                        "Progress did not reject a supplied lease-token echo value-free.",
+                    )
+                    require(
+                        [event["id"] for event in await work_events(session, identity)]
+                        == [event["id"] for event in events_after_claim],
+                        "Rejected lease-token echo changed work history.",
                     )
                     replay = await tool(session, "claim_and_recall", claim_arguments)
                     require(
                         replay["lease"] == receipt,
                         "An identical active claim did not replay the original receipt.",
+                    )
+                    require(
+                        [event["id"] for event in await work_events(session, identity)]
+                        == [event["id"] for event in events_after_claim],
+                        "An identical claim replay emitted a duplicate event.",
                     )
                     ordinary_context = await tool(session, "recall_work", identity)
                     ordinary_json = json.dumps(ordinary_context, sort_keys=True)
@@ -599,6 +775,11 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and renewed["claim_request_id"] == claim_request_id
                         and renewed["expires_at"] >= receipt["expires_at"],
                         "Lease renewal did not retain the capability and extend its timestamps.",
+                    )
+                    require(
+                        [event["id"] for event in await work_events(session, identity)]
+                        == [event["id"] for event in events_after_claim],
+                        "Lease renewal emitted a Phase 5 event.",
                     )
                     after_lease = await tool(session, "get_work", identity)
                     require(
@@ -625,7 +806,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         },
                     )
                     require(
-                        denied_claim.status_code == 404 and denied_token.status_code == 400,
+                        denied_claim.status_code == 404
+                        and denied_token.status_code == 400,
                         "Dashboard proxy accepted a lease route or token-bearing body.",
                     )
                     blocker_checkpoint = {
@@ -634,7 +816,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "Synthetic prerequisite used to verify blocker readiness "
                             f"for run {run_id}."
                         ),
-                        "tags": ["verification", "blocker"],
+                        "tags": [run_tag, "verification", "blocker"],
                     }
                     blocker_created = await tool(
                         session,
@@ -644,6 +826,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "title": f"Temporary blocker work check {blocker_marker}",
                             "summary": synthetic_summary(marker),
                             "initial_checkpoint": blocker_checkpoint,
+                            "priority": 70,
                             "initial_relationships": [],
                         },
                     )
@@ -653,6 +836,86 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         blocker_created["initial_relationships"] == [],
                         "Unlinked blocker creation returned unexpected relationships.",
+                    )
+
+                    ready_created = await tool(
+                        session,
+                        "create_work",
+                        {
+                            "project_id": project_id,
+                            "title": f"Temporary ready work check {ready_marker}",
+                            "summary": synthetic_summary(marker),
+                            "priority": 50,
+                            "initial_checkpoint": {
+                                **checkpoint_input,
+                                "prompt": f"Synthetic ready candidate for run {run_id}.",
+                                "tags": [run_tag, "verification", "ready"],
+                            },
+                            "initial_relationships": [],
+                        },
+                    )
+                    ready_id = ready_created["work_item"]["id"]
+                    known_work_item_ids.add(ready_id)
+                    ready_identity = {
+                        "project_id": project_id,
+                        "work_item_id": ready_id,
+                    }
+                    await require_event_types(session, ready_identity, ["work_created"])
+
+                    terminal_created = await tool(
+                        session,
+                        "create_work",
+                        {
+                            "project_id": project_id,
+                            "title": f"Temporary terminal work check {terminal_marker}",
+                            "summary": synthetic_summary(marker),
+                            "priority": 30,
+                            "status": "wont-do",
+                            "initial_checkpoint": {
+                                **checkpoint_input,
+                                "prompt": f"Synthetic terminal candidate for run {run_id}.",
+                                "tags": [run_tag, "verification", "terminal"],
+                            },
+                            "initial_relationships": [],
+                        },
+                    )
+                    terminal = terminal_created["work_item"]
+                    terminal_id = terminal["id"]
+                    known_work_item_ids.add(terminal_id)
+                    terminal_identity = {
+                        "project_id": project_id,
+                        "work_item_id": terminal_id,
+                    }
+                    await require_event_types(
+                        session, terminal_identity, ["work_created"]
+                    )
+
+                    blocker_identity = {
+                        "project_id": project_id,
+                        "work_item_id": blocker_id,
+                    }
+                    blocker_request_id = str(uuid4())
+                    claim_request_ids[blocker_id] = blocker_request_id
+                    blocker_receipt = await tool(
+                        session,
+                        "claim_work",
+                        {
+                            **blocker_identity,
+                            "holder_client": SYNTHETIC_CLIENT,
+                            "holder_session_id": run_id,
+                            "claim_request_id": blocker_request_id,
+                        },
+                    )
+                    blocker_token = blocker_receipt["lease_token"]
+                    lease_tokens[blocker_id] = blocker_token
+                    require(
+                        blocker_receipt["claim_request_id"] == blocker_request_id,
+                        "Synthetic blocker did not acquire its retained lease.",
+                    )
+                    await require_event_types(
+                        session,
+                        blocker_identity,
+                        ["work_created", "work_claimed"],
                     )
 
                     block_result = await tool(
@@ -677,6 +940,40 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and block_edge["source_work_item_id"] == blocker_id
                         and block_edge["target_work_item_id"] == work_item_id,
                         "The explicit blocker edge was not created in source-to-target order.",
+                    )
+                    events_after_block = await require_event_types(
+                        session,
+                        identity,
+                        [
+                            "work_created",
+                            "progress",
+                            "checkpoint_added",
+                            "work_updated",
+                            "work_claimed",
+                            "dependency_added",
+                        ],
+                    )
+                    block_replay = await tool(
+                        session,
+                        "add_relationship",
+                        {
+                            "project_id": project_id,
+                            "source_work_item_id": blocker_id,
+                            "target_work_item_id": work_item_id,
+                            "relationship_type": "blocks",
+                            "created_by_client": SYNTHETIC_CLIENT,
+                            "created_by_session_id": run_id,
+                        },
+                    )
+                    require(
+                        block_replay["created"] is False
+                        and block_replay["relationship"]["id"] == block_relationship_id
+                        and [
+                            event["id"]
+                            for event in await work_events(session, identity)
+                        ]
+                        == [event["id"] for event in events_after_block],
+                        "Relationship replay emitted a duplicate event.",
                     )
                     fetched_block = await tool(
                         session,
@@ -716,10 +1013,24 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and blocked_readiness["display_state"] == "blocked",
                         "Adding a blocker did not expose the active-plus-blocked overlap.",
                     )
+                    ready_page = await tool(
+                        session,
+                        "list_ready_work",
+                        {"project_id": project_id, "tag": run_tag, "limit": 100},
+                    )
+                    require(
+                        ready_page["total"] == 1
+                        and ready_ids(ready_page) == [ready_id],
+                        "Ready discovery did not exclude blocked, leased, and terminal work.",
+                    )
                     released = await tool(
                         session,
                         "release_claim",
-                        {**identity, "lease_token": lease_token},
+                        {
+                            **identity,
+                            "lease_token": lease_token,
+                            **mutation_actor(run_id),
+                        },
                     )
                     require(
                         released["released"] is True,
@@ -727,6 +1038,46 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     lease_tokens.pop(work_item_id, None)
                     claim_request_ids.pop(work_item_id, None)
+                    events_after_release = await require_event_types(
+                        session,
+                        identity,
+                        [
+                            "work_created",
+                            "progress",
+                            "checkpoint_added",
+                            "work_updated",
+                            "work_claimed",
+                            "dependency_added",
+                            "work_released",
+                        ],
+                    )
+                    release_replay = await tool(
+                        session,
+                        "release_claim",
+                        {
+                            **identity,
+                            "lease_token": lease_token,
+                            **mutation_actor(run_id),
+                        },
+                    )
+                    require(
+                        release_replay["released"] is False
+                        and [
+                            event["id"]
+                            for event in await work_events(session, identity)
+                        ]
+                        == [event["id"] for event in events_after_release],
+                        "An absent release emitted a duplicate event.",
+                    )
+                    ready_page = await tool(
+                        session,
+                        "list_ready_work",
+                        {"project_id": project_id, "tag": run_tag, "limit": 100},
+                    )
+                    require(
+                        ready_ids(ready_page) == [ready_id],
+                        "Releasing blocked work incorrectly made it ready.",
+                    )
 
                     blocked_claim_request_id = str(uuid4())
                     blocked_claim = await api.post(
@@ -749,6 +1100,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         {
                             "project_id": project_id,
                             "relationship_id": block_relationship_id,
+                            **mutation_actor(run_id),
                         },
                     )
                     require(
@@ -757,12 +1109,118 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "The blocker edge was not removed.",
                     )
                     active_relationship_ids.remove(block_relationship_id)
+                    events_after_unblock = await require_event_types(
+                        session,
+                        identity,
+                        [
+                            "work_created",
+                            "progress",
+                            "checkpoint_added",
+                            "work_updated",
+                            "work_claimed",
+                            "dependency_added",
+                            "work_released",
+                            "dependency_removed",
+                        ],
+                    )
+                    absent_remove = await tool(
+                        session,
+                        "remove_relationship",
+                        {
+                            "project_id": project_id,
+                            "relationship_id": block_relationship_id,
+                            **mutation_actor(run_id),
+                        },
+                    )
+                    require(
+                        absent_remove["removed"] is False
+                        and [
+                            event["id"]
+                            for event in await work_events(session, identity)
+                        ]
+                        == [event["id"] for event in events_after_unblock],
+                        "An absent relationship removal emitted a duplicate event.",
+                    )
                     unblocked_context = await tool(session, "recall_work", identity)
                     require(
                         unblocked_context["readiness"]["is_ready"] is True
                         and unblocked_context["readiness"]["is_blocked"] is False
-                        and unblocked_context["readiness"]["unresolved_blocker_count"] == 0,
+                        and unblocked_context["readiness"]["unresolved_blocker_count"]
+                        == 0,
                         "Removing the blocker did not restore readiness.",
+                    )
+                    ready_page = await tool(
+                        session,
+                        "list_ready_work",
+                        {"project_id": project_id, "tag": run_tag, "limit": 100},
+                    )
+                    require(
+                        ready_ids(ready_page) == [work_item_id, ready_id],
+                        "Removing the blocker did not deterministically restore ready work.",
+                    )
+
+                    blocker_release = await tool(
+                        session,
+                        "release_claim",
+                        {
+                            **blocker_identity,
+                            "lease_token": blocker_token,
+                            **mutation_actor(run_id),
+                        },
+                    )
+                    require(
+                        blocker_release["released"] is True,
+                        "The leased blocker could not be released.",
+                    )
+                    lease_tokens.pop(blocker_id, None)
+                    claim_request_ids.pop(blocker_id, None)
+                    await require_event_types(
+                        session,
+                        blocker_identity,
+                        [
+                            "work_created",
+                            "work_claimed",
+                            "dependency_added",
+                            "dependency_removed",
+                            "work_released",
+                        ],
+                    )
+                    ready_page = await tool(
+                        session,
+                        "list_ready_work",
+                        {"project_id": project_id, "tag": run_tag, "limit": 100},
+                    )
+                    require(
+                        ready_ids(ready_page) == [work_item_id, blocker_id, ready_id],
+                        "Releasing the leased candidate did not restore priority order.",
+                    )
+
+                    terminal = await tool(
+                        session,
+                        "update_work",
+                        {
+                            **terminal_identity,
+                            "expected_version": terminal["version"],
+                            "changes": {"status": "open"},
+                            **mutation_actor(run_id),
+                        },
+                    )
+                    require(
+                        terminal["status"] == "open",
+                        "The terminal fixture did not reopen.",
+                    )
+                    await require_event_types(
+                        session, terminal_identity, ["work_created", "work_reopened"]
+                    )
+                    ready_page = await tool(
+                        session,
+                        "list_ready_work",
+                        {"project_id": project_id, "tag": run_tag, "limit": 100},
+                    )
+                    require(
+                        ready_ids(ready_page)
+                        == [work_item_id, blocker_id, ready_id, terminal_id],
+                        "Reopened work did not reappear in deterministic priority order.",
                     )
 
                     claim_request_id = str(uuid4())
@@ -783,6 +1241,21 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         final_receipt["claim_request_id"] == claim_request_id,
                         "Claimability was not restored after blocker removal.",
                     )
+                    await require_event_types(
+                        session,
+                        identity,
+                        [
+                            "work_created",
+                            "progress",
+                            "checkpoint_added",
+                            "work_updated",
+                            "work_claimed",
+                            "dependency_added",
+                            "work_released",
+                            "dependency_removed",
+                            "work_claimed",
+                        ],
+                    )
 
                     child_checkpoint = {
                         **checkpoint_input,
@@ -790,7 +1263,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "Synthetic child discovered from the primary progress checkpoint "
                             f"for run {run_id}."
                         ),
-                        "tags": ["verification", "child"],
+                        "tags": [run_tag, "verification", "child"],
                     }
                     child_created = await tool(
                         session,
@@ -800,6 +1273,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "title": f"Temporary child work check {child_marker}",
                             "summary": synthetic_summary(marker),
                             "initial_checkpoint": child_checkpoint,
+                            "priority": 10,
                             "initial_relationships": [
                                 {
                                     "type": "parent-child",
@@ -850,10 +1324,48 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         known_relationship_ids.add(edge["id"])
                         active_relationship_ids.add(edge["id"])
 
+                    await require_event_types(
+                        session,
+                        identity,
+                        [
+                            "work_created",
+                            "progress",
+                            "checkpoint_added",
+                            "work_updated",
+                            "work_claimed",
+                            "dependency_added",
+                            "work_released",
+                            "dependency_removed",
+                            "work_claimed",
+                            "relationship_added",
+                            "relationship_added",
+                        ],
+                    )
+                    child_ready_page = await tool(
+                        session,
+                        "list_ready_work",
+                        {
+                            "project_id": project_id,
+                            "tag": run_tag,
+                            "parent_work_item_id": work_item_id,
+                            "limit": 100,
+                        },
+                    )
+                    require(
+                        child_ready_page["total"] == 1
+                        and ready_ids(child_ready_page) == [child_id],
+                        "Direct-parent ready filtering did not return only the ready child.",
+                    )
+
                     child_identity = {
                         "project_id": project_id,
                         "work_item_id": child_id,
                     }
+                    await require_event_types(
+                        session,
+                        child_identity,
+                        ["work_created", "relationship_added", "relationship_added"],
+                    )
                     child_relationships = await tool(
                         session,
                         "list_relationships",
@@ -866,9 +1378,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     require(
                         child_relationships["total"] == 2
-                        and {
-                            item["direction"] for item in child_relationships["items"]
-                        }
+                        and {item["direction"] for item in child_relationships["items"]}
                         == {"incoming", "outgoing"}
                         and all(
                             "prompt" not in item["counterpart"]
@@ -932,7 +1442,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "source_session_url": None,
                         "repository_branch": None,
                         "verified_against": None,
-                        "tags": ["verification", "complete"],
+                        "tags": [run_tag, "verification", "complete"],
                         "source_metadata": {"synthetic_check": True},
                     }
                     completion = await tool(
@@ -952,6 +1462,24 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         == completion_input["prompt"],
                         "Completion did not atomically save its checkpoint and done status.",
                     )
+                    await require_event_types(
+                        session,
+                        identity,
+                        [
+                            "work_created",
+                            "progress",
+                            "checkpoint_added",
+                            "work_updated",
+                            "work_claimed",
+                            "dependency_added",
+                            "work_released",
+                            "dependency_removed",
+                            "work_claimed",
+                            "relationship_added",
+                            "relationship_added",
+                            "work_completed",
+                        ],
+                    )
                     lease_tokens.pop(work_item_id, None)
                     claim_request_ids.pop(work_item_id, None)
                     found = await tool(
@@ -966,7 +1494,11 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     found = await tool(
                         session,
                         "search_work",
-                        {"project_id": project_id, "q": primary_marker, "status": "all"},
+                        {
+                            "project_id": project_id,
+                            "q": primary_marker,
+                            "status": "all",
+                        },
                     )
                     require(
                         found["total"] == 1,
@@ -980,6 +1512,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             {
                                 "project_id": project_id,
                                 "relationship_id": relationship_id,
+                                **mutation_actor(run_id),
                             },
                         )
                         require(
@@ -989,7 +1522,110 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         )
                         active_relationship_ids.remove(relationship_id)
 
-                    for item_id in (child_id, blocker_id, work_item_id):
+                    await require_event_types(
+                        session,
+                        child_identity,
+                        [
+                            "work_created",
+                            "relationship_added",
+                            "relationship_added",
+                            "relationship_removed",
+                            "relationship_removed",
+                        ],
+                    )
+
+                    timeline_before_reopen = [
+                        "work_created",
+                        "progress",
+                        "checkpoint_added",
+                        "work_updated",
+                        "work_claimed",
+                        "dependency_added",
+                        "work_released",
+                        "dependency_removed",
+                        "work_claimed",
+                        "relationship_added",
+                        "relationship_added",
+                        "work_completed",
+                        "relationship_removed",
+                        "relationship_removed",
+                    ]
+                    await require_event_types(session, identity, timeline_before_reopen)
+                    reopened = await tool(
+                        session,
+                        "update_work",
+                        {
+                            **identity,
+                            "expected_version": completion["work_item"]["version"],
+                            "changes": {"status": "open"},
+                            **mutation_actor(run_id),
+                        },
+                    )
+                    require(
+                        reopened["status"] == "open",
+                        "Completed work did not reopen through the canonical update.",
+                    )
+                    final_events = await require_event_types(
+                        session, identity, [*timeline_before_reopen, "work_reopened"]
+                    )
+                    recalled = await tool(
+                        session,
+                        "recall_work",
+                        {**identity, "recent_event_limit": 20},
+                    )
+                    recalled_json = json.dumps(recalled, sort_keys=True)
+                    require(
+                        recalled["event_total"] == len(final_events),
+                        "Bounded recall returned an event total inconsistent with the timeline.",
+                    )
+                    require(
+                        recalled["omitted_event_count"] == 0,
+                        "Bounded recall unexpectedly omitted a synthetic event.",
+                    )
+                    require(
+                        recalled["pre_phase5_history_may_be_incomplete"] is False,
+                        "Newly created work was incorrectly marked as partial history.",
+                    )
+                    require(
+                        [event["id"] for event in recalled["recent_events"]]
+                        == [event["id"] for event in final_events],
+                        "Bounded recall event IDs did not preserve chronological timeline order.",
+                    )
+                    require(
+                        any(
+                            event["event_type"] == "progress"
+                            and event["body"] == progress_body
+                            for event in recalled["recent_events"]
+                        ),
+                        "Bounded recall did not preserve the accepted progress body.",
+                    )
+                    require(
+                        lease_token not in recalled_json,
+                        "Bounded recall exposed a lease capability.",
+                    )
+                    require(
+                        claim_request_id not in recalled_json,
+                        "Bounded recall exposed a claim request ID.",
+                    )
+                    final_ready_page = await tool(
+                        session,
+                        "list_ready_work",
+                        {"project_id": project_id, "tag": run_tag, "limit": 100},
+                    )
+                    require(
+                        ready_ids(final_ready_page)
+                        == [work_item_id, blocker_id, ready_id, terminal_id, child_id],
+                        "Final ready results did not follow priority-first order.",
+                    )
+
+                    synthetic_ids = (
+                        child_id,
+                        terminal_id,
+                        ready_id,
+                        blocker_id,
+                        work_item_id,
+                    )
+                    for item_id in synthetic_ids:
                         item_identity = {
                             "project_id": project_id,
                             "work_item_id": item_id,
@@ -1001,6 +1637,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             {
                                 **item_identity,
                                 "expected_version": latest["version"],
+                                **mutation_actor(run_id),
                             },
                         )
                         require(
@@ -1009,7 +1646,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "Canonical delete did not return its explicit receipt.",
                         )
 
-                    for item_id in (child_id, blocker_id, work_item_id):
+                    for item_id in synthetic_ids:
                         require(
                             (
                                 await api.get(
@@ -1020,11 +1657,11 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "Soft-deleted synthetic work remains readable.",
                         )
                     print(
-                        "PASS: canonical create/search/recall/checkpoints, resource/prompt, "
-                        "dashboard edit, typed stale conflict, claim/replay/renew, token isolation, "
-                        "blocker readiness and restored claimability, atomic child/discovery, "
-                        "hierarchy browse, leased completion, default-open filtering, "
-                        "graph removal and soft deletion"
+                        "PASS: canonical create/search/recall/checkpoints/events, resource/prompt, "
+                        "dashboard edit, typed stale conflict, claim/replay/renew/release, "
+                        "pointer and capability isolation, exact ready discovery and reappearance, "
+                        "event replay/no-op behavior, atomic child/discovery, hierarchy browse, "
+                        "leased completion/reopen, graph removal and soft deletion"
                     )
                 finally:
                     await cleanup_synthetic_work(
@@ -1058,7 +1695,7 @@ def main() -> None:
         "--project-id",
         type=project_uuid,
         help=(
-            "Explicitly authorizes one synthetic Phase 3 graph lifecycle and cleanup "
+            "Explicitly authorizes one synthetic Phase 5 ready/event lifecycle and cleanup "
             "inside this project"
         ),
     )

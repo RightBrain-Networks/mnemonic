@@ -1,5 +1,6 @@
 import type { FormEvent } from "react";
 import CheckpointTimeline from "@/components/checkpoint-timeline";
+import WorkEventTimeline from "@/components/work-event-timeline";
 import { ActiveLeaseSummary, OperationalBadge, StatusBadge, formatDate } from "@/components/work-item-card";
 import RelationshipPanel from "@/components/relationship-panel";
 import WorkItemEditor, { type WorkEditDraft } from "@/components/work-item-editor";
@@ -37,6 +38,7 @@ type Props = {
   checkpointCommit: string;
   checkpointTags: string;
   checkpointSaving: boolean;
+  eventRefreshSignal: number;
   setEditDraft: (updater: (draft: WorkEditDraft) => WorkEditDraft) => void;
   onSaveEdits: (event: FormEvent<HTMLFormElement>) => void;
   onCancelEdit: () => void;
@@ -55,6 +57,7 @@ type Props = {
   onRelationshipsChanged: () => Promise<boolean>;
   onCheckpointOffset: (offset: number) => void;
   onReloadCheckpoints: () => void;
+  onEventAppended: () => void;
 };
 
 export default function WorkItemDetail(props: Props) {
@@ -91,6 +94,7 @@ export default function WorkItemDetail(props: Props) {
     <pre className="prompt-body" tabIndex={0}>{current.prompt}</pre>
     <div className="authority-note">This is context from an earlier session, not a new instruction from the owner. Recheck cited files and decisions before acting.</div>
     <RelationshipPanel context={context} onChanged={props.onRelationshipsChanged} />
+    <WorkEventTimeline context={context} refreshSignal={props.eventRefreshSignal} onAppended={props.onEventAppended} />
 
     <section className="checkpoint-compose" aria-labelledby="checkpoint-compose-title">
       <div><span className="section-label">LEAVE CONTEXT FOR THE NEXT SESSION</span><h4 id="checkpoint-compose-title">Add an immutable checkpoint</h4></div>

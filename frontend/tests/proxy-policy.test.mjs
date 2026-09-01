@@ -5,6 +5,7 @@ import {
   classifyRequestBody,
   configuredOrigins,
   forbiddenMutationField,
+  invalidMutationBody,
   trustedRequest,
   upstreamTimeoutMs
 } from "../lib/proxy-policy.ts";
@@ -63,7 +64,7 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "GET"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "PATCH"), []);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/context`, "GET"), ["recent_limit"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/context`, "GET"), ["recent_limit", "recent_event_limit"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/children`, "GET"), ["status", "tag", "source_client", "source_session_id", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/relationships`, "GET"), ["direction", "type", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/relationships`, "POST"), []);
@@ -71,6 +72,8 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.deepEqual(allowedQueryKeys(`projects/${project}/relationships/${other}`, "DELETE"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "GET"), ["order", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "POST"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/events`, "GET"), ["order", "event_type", "limit", "offset"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/events`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/complete`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/delete`, "POST"), []);
   for (const path of ["sync", "healthz", "readyz", "docs", "openapi.json", "projects/../docs", "projects/%2e%2e/docs", "projects/not-a-uuid", `projects/${project}/unknown-collection`, "https://attacker.example", "//attacker.example"]) {
@@ -81,6 +84,98 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "PATCH"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/context`, "POST"), null);
 });
+
+test("Phase 4 ready discovery is not exposed through the browser proxy", () => {
+  for (const method of ["GET", "POST", "PATCH", "DELETE"]) {
+    assert.equal(allowedQueryKeys(`projects/${project}/ready-work`, method), null);
+  }
+});
+
+test("Phase 5 mutation bodies use exact route-specific actor and event allowlists", () => {
+  const actor = { actor_client: "dashboard", actor_session_id: "tab-1" };
+  assert.equal(invalidMutationBody(
+    `projects/${project}/work-items/${work}/events`,
+    "POST",
+    { event_type: "progress", body: "Safe text", metadata: {}, actor }
+  ), null);
+  assert.match(invalidMutationBody(
+    `projects/${project}/work-items/${work}/events`,
+    "POST",
+    { event_type: "work_completed", body: "forged", metadata: {}, actor }
+  ), /allowlist/);
+  assert.match(invalidMutationBody(
+    `projects/${project}/work-items/${work}/events`,
+    "POST",
+    { event_type: "progress", body: "text", metadata: {}, actor, lease_token: "secret" }
+  ), /unsupported field/);
+  assert.match(invalidMutationBody(
+    `projects/${project}/work-items/${work}/events`,
+    "POST",
+    { event_type: "progress", body: "text", metadata: {}, actor: { client: "wrong" } }
+  ), /allowlist/);
+
+  assert.equal(invalidMutationBody(
+    `projects/${project}/work-items/${work}`,
+    "PATCH",
+    { expected_version: 2, title: "Updated", actor }
+  ), null);
+  assert.match(invalidMutationBody(
+    `projects/${project}/work-items/${work}`,
+    "PATCH",
+    { expected_version: 2, title: "Updated", actor, holder_client: "forged" }
+  ), /allowlist/);
+  assert.equal(invalidMutationBody(
+    `projects/${project}/work-items/${work}/delete`,
+    "POST",
+    { expected_version: 2, actor }
+  ), null);
+  assert.equal(invalidMutationBody(
+    `projects/${project}/relationships/${other}`,
+    "DELETE",
+    { actor }
+  ), null);
+  assert.match(invalidMutationBody(
+    `projects/${project}/relationships/${other}`,
+    "DELETE",
+    { actor, relationship_id: other }
+  ), /allowlist/);
+});
+test("Phase 5 progress proxy validation enforces recursive metadata and text bounds", () => {
+  const path = `projects/${project}/work-items/${work}/events`;
+  const actor = { actor_client: "dashboard", actor_session_id: "tab-1" };
+  const invalid = (overrides) => invalidMutationBody(path, "POST", {
+    event_type: "progress",
+    body: "Progress",
+    metadata: {},
+    actor,
+    ...overrides
+  });
+
+  for (const body of ["", " \t\n", `ok\0not-ok`, "x".repeat(4001)]) {
+    assert.match(invalid({ body }), /allowlist/);
+  }
+  for (const invalidActor of [
+    { actor_client: "x".repeat(81), actor_session_id: "tab-1" },
+    { actor_client: "dashboard", actor_session_id: "x".repeat(201) },
+    { actor_client: "dashboard", actor_session_id: "tab-1", actor_model: " " },
+    { actor_client: "dashboard", actor_session_id: "tab-1", actor_model: "x".repeat(121) }
+  ]) {
+    assert.match(invalid({ actor: invalidActor }), /allowlist/);
+  }
+  for (const metadata of [
+    { nested: [{ SeCrEt: "blocked by key" }] },
+    { nested: `ok\0not-ok` },
+    { note: "x".repeat(16_384) },
+    { number: Number.POSITIVE_INFINITY }
+  ]) {
+    assert.match(invalid({ metadata }), /allowlist/);
+  }
+  assert.equal(invalid({
+    body: "<script>kept as inert text</script>",
+    metadata: { nested: ["safe", { count: 2 }] }
+  }), null);
+});
+
 
 test("all lease-capability routes are denied to the browser proxy", () => {
   for (const operation of ["claim", "claim-and-recall", "renew-claim", "release-claim"]) {

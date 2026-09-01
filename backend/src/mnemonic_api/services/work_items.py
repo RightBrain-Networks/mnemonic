@@ -1,6 +1,5 @@
 """Canonical work/checkpoint mutations without transaction-boundary commits."""
 
-from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, update
@@ -11,6 +10,7 @@ from mnemonic_api.models import Checkpoint, Project, WorkItem, WorkRelationship
 from mnemonic_api.schemas import (
     CheckpointCreate,
     CompletionCheckpointCreate,
+    MutationActor,
     WorkItemCreate,
     WorkItemPatch,
 )
@@ -18,12 +18,22 @@ from mnemonic_api.services.leases import (
     consume_lease_for_terminal_mutation,
     validate_optional_lease_token,
 )
+from mnemonic_api.services.readiness import require_unblocked
 from mnemonic_api.services.relationships import (
     lock_endpoint_work_items,
     lock_project_graph,
     require_no_relationships,
-    require_unblocked,
     stage_relationship_locked,
+)
+from mnemonic_api.services.work_events import (
+    database_now,
+    source_actor,
+    stage_checkpoint_added,
+    stage_relationship_events,
+    stage_work_changed,
+    stage_work_completed,
+    stage_work_created,
+    stage_work_deleted,
 )
 
 
@@ -150,6 +160,21 @@ def create_work_records(
             if relationship.id not in seen_relationship_ids:
                 relationships.append(relationship)
                 seen_relationship_ids.add(relationship.id)
+    stage_work_created(database, work_item, checkpoint)
+    relationship_actor = source_actor(
+        checkpoint.source_client,
+        checkpoint.source_session_id,
+        checkpoint.source_model,
+    )
+    for relationship in relationships:
+        stage_relationship_events(
+            database,
+            relationship,
+            action="added",
+            actor=relationship_actor,
+            created_at=relationship.created_at,
+        )
+    database.flush()
     return work_item, checkpoint, relationships
 
 
@@ -175,14 +200,20 @@ def append_checkpoint_record(
     if activity_update.rowcount != 1:
         raise not_found("work_item_not_found", "Work item not found.")
     database.flush()
+    stage_checkpoint_added(database, work_item, checkpoint)
+    database.flush()
     return checkpoint
 
 
 def update_work_record(database: Session, work_item: WorkItem, payload: WorkItemPatch) -> None:
     require_version(work_item, payload.expected_version)
     changes = payload.model_dump(
-        exclude_unset=True, exclude={"expected_version", "lease_token"}
+        exclude_unset=True,
+        exclude={"expected_version", "lease_token", "actor"},
     )
+    before = {
+        field: getattr(work_item, field) for field in ("title", "summary", "priority", "status")
+    }
     requested_status = changes.get("status")
     if requested_status is not None and requested_status != work_item.status:
         allowed = {
@@ -197,19 +228,27 @@ def update_work_record(database: Session, work_item: WorkItem, payload: WorkItem
                 "That lifecycle transition is not allowed.",
             )
     terminal_transition = (
-        requested_status in {"wont-do", "promoted"}
-        and requested_status != work_item.status
+        requested_status in {"wont-do", "promoted"} and requested_status != work_item.status
     )
     if terminal_transition:
         consume_lease_for_terminal_mutation(database, work_item.id, payload.lease_token)
     else:
-        validate_optional_lease_token(
-            database, work_item.id, payload.lease_token, lock=True
-        )
+        validate_optional_lease_token(database, work_item.id, payload.lease_token, lock=True)
+    mutation_time = database_now(database)
     for field, value in changes.items():
         setattr(work_item, field, value)
     work_item.version += 1
-    work_item.updated_at = datetime.now(UTC)
+    work_item.updated_at = mutation_time
+    database.flush()
+    stage_work_changed(
+        database,
+        work_item,
+        before=before,
+        requested_fields=changes,
+        actor=payload.actor,
+        created_at=mutation_time,
+    )
+    database.flush()
 
 
 def complete_work_record(
@@ -224,11 +263,19 @@ def complete_work_record(
     require_version(work_item, expected_version)
     require_unblocked(database, work_item.id)
     consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
+    mutation_time = database_now(database)
     checkpoint = _checkpoint(work_item.id, payload, kind="completion")
     database.add(checkpoint)
     work_item.status = "done"
     work_item.version += 1
-    work_item.updated_at = datetime.now(UTC)
+    work_item.updated_at = mutation_time
+    database.flush()
+    stage_work_completed(
+        database,
+        work_item,
+        checkpoint,
+        from_status="open",
+    )
     database.flush()
     return checkpoint
 
@@ -238,11 +285,15 @@ def delete_work_record(
     work_item: WorkItem,
     expected_version: int,
     lease_token: str | None = None,
+    actor: MutationActor | None = None,
 ) -> None:
     require_version(work_item, expected_version)
     require_no_relationships(database, work_item.project_id, work_item.id)
     consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
-    now = datetime.now(UTC)
-    work_item.deleted_at = now
-    work_item.updated_at = now
+    mutation_time = database_now(database)
+    work_item.deleted_at = mutation_time
+    work_item.updated_at = mutation_time
     work_item.version += 1
+    database.flush()
+    stage_work_deleted(database, work_item, actor=actor)
+    database.flush()

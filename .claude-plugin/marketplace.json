@@ -1,5 +1,6 @@
 {
   "name": "mnemonic",
+  "description": "Install the Mnemonic durable work and coordination plugin.",
   "owner": {
     "name": "Jamie Begin"
   },
@@ -7,7 +8,7 @@
     {
       "name": "mnemonic",
       "source": "./plugin",
-      "description": "Save, search, and recall durable work items with immutable, session-attributed checkpoints."
+      "description": "Save and retrieve durable work, discover ready work, and preserve bounded checkpoint and event history with truthful provenance."
     }
   ]
 }

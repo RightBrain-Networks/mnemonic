@@ -23,6 +23,7 @@ import type {
   WorkSummary
 } from "@/lib/types";
 import { workSearchParams } from "@/lib/work-item-search";
+import { dashboardMutationActor } from "@/lib/work-events";
 
 const groupOrder = [
   "Blocked by",
@@ -209,7 +210,10 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
     try {
       const result = await api<RelationshipRemovalResult>(
         `/projects/${encodeURIComponent(work.project_id)}/relationships/${encodeURIComponent(id)}`,
-        { method: "DELETE" }
+        {
+          method: "DELETE",
+          body: JSON.stringify({ actor: dashboardMutationActor(dashboardSessionId()) })
+        }
       );
       const reconciled = await onChanged();
       if (!reconciled) {

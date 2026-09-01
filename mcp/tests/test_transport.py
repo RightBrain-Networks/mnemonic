@@ -39,7 +39,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
     def handler(request):
         seen.append(request)
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/context"
-        assert dict(request.url.params) == {"recent_limit": "5"}
+        assert dict(request.url.params) == {"recent_limit": "5", "recent_event_limit": "10"}
         return httpx.Response(200, json=work_context)
 
     app = create_app(settings, MnemonicAPI(settings, httpx.MockTransport(handler)))
@@ -56,6 +56,8 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         assert "list_projects" in instructions
         assert "search_work" in instructions
         assert "recall_work" in instructions
+        assert "list_ready_work" in instructions
+        assert "append_event" in instructions
         # The claim trigger fires in a later turn than the recall_work description
         # that states it, so the always-present block must name it too.
         assert "claim_and_recall" in instructions
@@ -65,7 +67,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
         listed_tools = listed.json()["result"]["tools"]
-        assert len(listed_tools) == 19
+        assert len(listed_tools) == 22
         assert all(
             tool["inputSchema"].get("additionalProperties") is False
             for tool in listed_tools
@@ -79,6 +81,9 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
             "get_relationship",
             "list_relationships",
             "remove_relationship",
+            "list_ready_work",
+            "append_event",
+            "list_work_events",
         } <= {tool["name"] for tool in listed_tools}
         called = client.post("/mcp", json={
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -241,7 +246,7 @@ async def test_stdio_transport_handshake_and_catalog():
         initialized = await session.initialize()
         assert initialized.serverInfo.name == "Mnemonic"
         result = await session.list_tools()
-        assert len(result.tools) == 19
+        assert len(result.tools) == 22
         assert all(tool.outputSchema is not None for tool in result.tools)
         assert all(
             tool.inputSchema.get("additionalProperties") is False for tool in result.tools
@@ -255,6 +260,9 @@ async def test_stdio_transport_handshake_and_catalog():
             "get_relationship",
             "list_relationships",
             "remove_relationship",
+            "list_ready_work",
+            "append_event",
+            "list_work_events",
         } <= {tool.name for tool in result.tools}
 
         for tool_name, arguments, fields, secrets, kinds in LOCAL_VALIDATION_CASES:

@@ -4,11 +4,13 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     REAL,
+    BigInteger,
     CheckConstraint,
     Computed,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Identity,
     Index,
     Integer,
     MetaData,
@@ -78,6 +80,14 @@ class WorkItem(Base):
             text("id DESC"),
             postgresql_where=text("deleted_at IS NULL"),
         ),
+        Index(
+            "ix_work_items_ready_order",
+            "project_id",
+            text("priority DESC"),
+            text("created_at ASC"),
+            text("id ASC"),
+            postgresql_where=text("deleted_at IS NULL AND status = 'open'"),
+        ),
         Index("ix_work_items_search_vector", "search_vector", postgresql_using="gin"),
     )
 
@@ -131,6 +141,11 @@ class Checkpoint(Base):
         Index("ix_checkpoints_work_item_created", "work_item_id", "created_at", "id"),
         Index("ix_checkpoints_search_vector", "search_vector", postgresql_using="gin"),
         Index("ix_checkpoints_tags", "tags", postgresql_using="gin"),
+        Index(
+            "ix_checkpoints_normalized_tags_gin",
+            text("mnemonic_normalized_tags(tags)"),
+            postgresql_using="gin",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -184,16 +199,19 @@ class WorkLease(Base):
     __tablename__ = "work_leases"
     __table_args__ = (
         CheckConstraint("length(btrim(holder_client)) > 0", name="holder_client_nonblank"),
-        CheckConstraint(
-            "length(btrim(holder_session_id)) > 0", name="holder_session_id_nonblank"
-        ),
-        CheckConstraint(
-            "length(btrim(claim_request_id)) > 0", name="claim_request_id_nonblank"
-        ),
+        CheckConstraint("length(btrim(holder_session_id)) > 0", name="holder_session_id_nonblank"),
+        CheckConstraint("length(btrim(claim_request_id)) > 0", name="claim_request_id_nonblank"),
         CheckConstraint("length(btrim(lease_token)) > 0", name="lease_token_nonblank"),
         CheckConstraint(
             "acquired_at <= renewed_at AND renewed_at < expires_at",
             name="timestamp_order",
+        ),
+        UniqueConstraint("lease_generation_id", name="uq_work_leases_lease_generation_id"),
+        Index(
+            "uq_work_leases_pending_release_id",
+            "pending_release_id",
+            unique=True,
+            postgresql_where=text("pending_release_id IS NOT NULL"),
         ),
         Index("ix_work_leases_expires_at", "expires_at"),
     )
@@ -205,6 +223,11 @@ class WorkLease(Base):
     holder_session_id: Mapped[str] = mapped_column(String(200))
     claim_request_id: Mapped[str] = mapped_column(String(200))
     lease_token: Mapped[str] = mapped_column(String(200))
+    lease_generation_id: Mapped[UUID] = mapped_column(
+        default=uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    pending_release_id: Mapped[UUID | None] = mapped_column()
     acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     renewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -251,9 +274,7 @@ class WorkRelationship(Base):
             "relationship_type <> 'related' OR source_work_item_id < target_work_item_id",
             name="related_normalized",
         ),
-        CheckConstraint(
-            "length(btrim(created_by_client)) > 0", name="created_by_client_nonblank"
-        ),
+        CheckConstraint("length(btrim(created_by_client)) > 0", name="created_by_client_nonblank"),
         CheckConstraint(
             "length(btrim(created_by_session_id)) > 0",
             name="created_by_session_id_nonblank",
@@ -314,3 +335,242 @@ class WorkRelationship(Base):
     created_by_session_id: Mapped[str] = mapped_column(String(200))
     created_by_model: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WorkEvent(Base):
+    """An immutable, actor-attributed fact in one work item's history."""
+
+    __tablename__ = "work_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('work_created', 'work_updated', 'work_status_changed', "
+            "'work_reopened', 'work_claimed', 'work_released', 'checkpoint_added', "
+            "'progress', 'dependency_added', 'dependency_removed', "
+            "'relationship_added', 'relationship_removed', 'work_completed', "
+            "'work_deleted')",
+            name="event_type_valid",
+        ),
+        CheckConstraint(
+            "actor_kind IN ('client', 'unattributed')",
+            name="actor_kind_valid",
+        ),
+        CheckConstraint(
+            "(actor_kind = 'client' AND actor_client IS NOT NULL "
+            "AND mnemonic_has_non_whitespace(actor_client) "
+            "AND actor_session_id IS NOT NULL "
+            "AND mnemonic_has_non_whitespace(actor_session_id) "
+            "AND (actor_model IS NULL OR mnemonic_has_non_whitespace(actor_model))) OR "
+            "(actor_kind = 'unattributed' AND actor_client IS NULL "
+            "AND actor_session_id IS NULL AND actor_model IS NULL)",
+            name="actor_fields_valid",
+        ),
+        CheckConstraint(
+            "(origin = 'live' AND ("
+            "event_type NOT IN ('work_created', 'checkpoint_added', 'work_completed', "
+            "'work_claimed', 'dependency_added', 'relationship_added', 'progress') "
+            "OR actor_kind = 'client')) OR "
+            "(origin = 'backfill' AND (event_type <> 'work_deleted' "
+            "OR actor_kind = 'unattributed'))",
+            name="actor_matrix_valid",
+        ),
+        CheckConstraint(
+            "(event_type = 'progress' AND body IS NOT NULL "
+            "AND length(body) <= 4000 AND mnemonic_has_non_whitespace(body)) OR "
+            "(event_type <> 'progress' AND body IS NULL)",
+            name="body_valid",
+        ),
+        CheckConstraint(
+            "(event_type IN ('work_created', 'checkpoint_added', 'work_completed') "
+            "AND checkpoint_id IS NOT NULL) OR "
+            "(event_type NOT IN ('work_created', 'checkpoint_added', 'work_completed') "
+            "AND checkpoint_id IS NULL)",
+            name="checkpoint_reference_valid",
+        ),
+        CheckConstraint(
+            "(event_type IN ('work_claimed', 'work_released') "
+            "AND lease_generation_id IS NOT NULL) OR "
+            "(event_type NOT IN ('work_claimed', 'work_released') "
+            "AND lease_generation_id IS NULL)",
+            name="lease_generation_reference_valid",
+        ),
+        CheckConstraint(
+            "(event_type = 'work_released' AND lease_release_id IS NOT NULL) OR "
+            "(event_type <> 'work_released' AND lease_release_id IS NULL)",
+            name="lease_release_reference_valid",
+        ),
+        CheckConstraint(
+            "(event_type IN ('dependency_added', 'dependency_removed', "
+            "'relationship_added', 'relationship_removed') "
+            "AND relationship_id IS NOT NULL "
+            "AND relationship_source_work_item_id IS NOT NULL "
+            "AND relationship_target_work_item_id IS NOT NULL "
+            "AND ((relationship_context_checkpoint_work_item_id IS NULL "
+            "AND relationship_context_checkpoint_id IS NULL) OR "
+            "(relationship_context_checkpoint_work_item_id IS NOT NULL "
+            "AND relationship_context_checkpoint_id IS NOT NULL)) "
+            "AND (relationship_context_checkpoint_work_item_id IS NULL OR "
+            "relationship_context_checkpoint_work_item_id IN "
+            "(relationship_source_work_item_id, relationship_target_work_item_id)) "
+            "AND work_item_id IN "
+            "(relationship_source_work_item_id, relationship_target_work_item_id)) OR "
+            "(event_type NOT IN ('dependency_added', 'dependency_removed', "
+            "'relationship_added', 'relationship_removed') "
+            "AND relationship_id IS NULL "
+            "AND relationship_source_work_item_id IS NULL "
+            "AND relationship_target_work_item_id IS NULL "
+            "AND relationship_context_checkpoint_work_item_id IS NULL "
+            "AND relationship_context_checkpoint_id IS NULL)",
+            name="relationship_references_valid",
+        ),
+        CheckConstraint("metadata_version = 1", name="metadata_version_valid"),
+        CheckConstraint(
+            "jsonb_typeof(metadata) = 'object' AND octet_length(metadata::text) <= 16384",
+            name="metadata_envelope_valid",
+        ),
+        CheckConstraint(
+            "mnemonic_work_event_metadata_v1_is_valid("
+            "event_type, origin, work_item_id, checkpoint_id, lease_generation_id, "
+            "lease_release_id, relationship_id, relationship_source_work_item_id, "
+            "relationship_target_work_item_id, "
+            "relationship_context_checkpoint_work_item_id, "
+            "relationship_context_checkpoint_id, metadata_version, metadata)",
+            name="metadata_v1_valid",
+        ),
+        CheckConstraint(
+            "origin IN ('live', 'backfill')",
+            name="origin_valid",
+        ),
+        CheckConstraint(
+            "origin = 'live' OR event_type IN ('work_created', 'checkpoint_added', "
+            "'work_completed', 'work_claimed', 'dependency_added', "
+            "'relationship_added', 'work_deleted')",
+            name="backfill_event_type_valid",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "work_item_id"],
+            ["work_items.project_id", "work_items.id"],
+            name="fk_work_events_work_item",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["work_item_id", "checkpoint_id"],
+            ["checkpoints.work_item_id", "checkpoints.id"],
+            name="fk_work_events_checkpoint",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "relationship_source_work_item_id"],
+            ["work_items.project_id", "work_items.id"],
+            name="fk_work_events_relationship_source_work_item",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "relationship_target_work_item_id"],
+            ["work_items.project_id", "work_items.id"],
+            name="fk_work_events_relationship_target_work_item",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "relationship_context_checkpoint_work_item_id",
+                "relationship_context_checkpoint_id",
+            ],
+            ["checkpoints.work_item_id", "checkpoints.id"],
+            name="fk_work_events_relationship_context_checkpoint",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "uq_work_events_checkpoint_fact",
+            "work_item_id",
+            "checkpoint_id",
+            unique=True,
+            postgresql_where=text("checkpoint_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_work_events_work_created",
+            "work_item_id",
+            unique=True,
+            postgresql_where=text("event_type = 'work_created'"),
+        ),
+        Index(
+            "uq_work_events_work_deleted",
+            "work_item_id",
+            unique=True,
+            postgresql_where=text("event_type = 'work_deleted'"),
+        ),
+        Index(
+            "uq_work_events_work_claimed_fact",
+            "work_item_id",
+            "lease_generation_id",
+            unique=True,
+            postgresql_where=text("event_type = 'work_claimed'"),
+        ),
+        Index(
+            "uq_work_events_work_released_fact",
+            "work_item_id",
+            "lease_generation_id",
+            unique=True,
+            postgresql_where=text("event_type = 'work_released'"),
+        ),
+        Index(
+            "uq_work_events_lease_release_id",
+            "lease_release_id",
+            unique=True,
+            postgresql_where=text("event_type = 'work_released'"),
+        ),
+        Index(
+            "uq_work_events_relationship_added_fact",
+            "work_item_id",
+            "relationship_id",
+            unique=True,
+            postgresql_where=text("event_type IN ('dependency_added', 'relationship_added')"),
+        ),
+        Index(
+            "uq_work_events_relationship_removed_fact",
+            "work_item_id",
+            "relationship_id",
+            unique=True,
+            postgresql_where=text("event_type IN ('dependency_removed', 'relationship_removed')"),
+        ),
+        Index(
+            "ix_work_events_timeline",
+            "project_id",
+            "work_item_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
+        Index(
+            "ix_work_events_timeline_type",
+            "project_id",
+            "work_item_id",
+            "event_type",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    project_id: Mapped[UUID] = mapped_column()
+    work_item_id: Mapped[UUID] = mapped_column()
+    event_type: Mapped[str] = mapped_column(String(32))
+    actor_kind: Mapped[str] = mapped_column(String(20))
+    actor_client: Mapped[str | None] = mapped_column(String(80))
+    actor_session_id: Mapped[str | None] = mapped_column(String(200))
+    actor_model: Mapped[str | None] = mapped_column(String(120))
+    body: Mapped[str | None] = mapped_column(Text)
+    checkpoint_id: Mapped[UUID | None] = mapped_column()
+    lease_generation_id: Mapped[UUID | None] = mapped_column()
+    lease_release_id: Mapped[UUID | None] = mapped_column()
+    relationship_id: Mapped[UUID | None] = mapped_column()
+    relationship_source_work_item_id: Mapped[UUID | None] = mapped_column()
+    relationship_target_work_item_id: Mapped[UUID | None] = mapped_column()
+    relationship_context_checkpoint_work_item_id: Mapped[UUID | None] = mapped_column()
+    relationship_context_checkpoint_id: Mapped[UUID | None] = mapped_column()
+    metadata_version: Mapped[int] = mapped_column(SmallInteger, default=1, server_default="1")
+    event_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, default=dict, server_default=text("'{}'::jsonb")
+    )
+    origin: Mapped[str] = mapped_column(String(16), default="live", server_default="live")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )

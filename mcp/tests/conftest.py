@@ -219,11 +219,58 @@ def work_context(work_item, checkpoint, readiness):
         "recent_checkpoints": [],
         "checkpoint_total": 1,
         "omitted_checkpoint_count": 0,
+        "recent_events": [],
+        "event_total": 0,
+        "omitted_event_count": 0,
+        "pre_phase5_history_may_be_incomplete": False,
         "readiness": readiness,
         "incoming_relationships": [],
         "outgoing_relationships": [],
         "undirected_relationships": [],
         "relationship_counts": {"incoming": 0, "outgoing": 0, "undirected": 0, "total": 0},
+    }
+
+
+@pytest.fixture
+def progress_event():
+    return {
+        "id": 42,
+        "project_id": PROJECT_ID,
+        "work_item_id": WORK_ID,
+        "event_type": "progress",
+        "actor_kind": "client",
+        "actor_client": "claude-code",
+        "actor_session_id": "phase-5-session",
+        "actor_model": "test-model",
+        "body": "Investigated the race; the focused test now passes.",
+        "checkpoint_id": None,
+        "lease_generation_id": None,
+        "lease_release_id": None,
+        "relationship_id": None,
+        "relationship_source_work_item_id": None,
+        "relationship_target_work_item_id": None,
+        "relationship_context_checkpoint_work_item_id": None,
+        "relationship_context_checkpoint_id": None,
+        "relationship_direction": None,
+        "counterpart_work_item_id": None,
+        "metadata_version": 1,
+        "metadata": {"tests": ["focused"], "percent": 50},
+        "origin": "live",
+        "created_at": NOW,
+    }
+
+
+@pytest.fixture
+def same_status_update_event(progress_event):
+    return {
+        **progress_event,
+        "id": 43,
+        "event_type": "work_updated",
+        "body": None,
+        "metadata": {
+            "changes": {"status": {"before": "open", "after": "open"}},
+            "work_version": 4,
+        },
     }
 
 
