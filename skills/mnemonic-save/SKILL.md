@@ -35,50 +35,21 @@ claim durability from a draft or bypass the MCP connection.
 Claude Code's supplied session value: `${CLAUDE_SESSION_ID}`.
 
 Use that value only if the client replaced it with the real current session ID.
-A literal placeholder, blank string, generated UUID, process ID, git SHA, or
-Mnemonic work/checkpoint ID is not a source session ID. Other clients must use
-their actual exposed session identifier or one supplied by the user. If it is
-unavailable, finish the draft and ask for it before writing; checkpoints require
-truthful session provenance.
-
-Set `source_client` to the actual client. Set `source_model` and
-`source_session_url` only from reliable session metadata; omit them when unknown.
-Record `repository_branch` when known. Set `verified_against` only to a commit
-whose cited state this session actually checked. Reading HEAD alone is not
-verification. When evidence depends on uncommitted work, say so in the prompt
-and `source_metadata`. Preserve useful JSON metadata such as evidence locations,
-capture reason, and verification limits. Never store credentials, unnecessary
-transcript dumps, or private personal information.
+Other clients must use their actual exposed session identifier or one supplied
+by the user. Full rules for session, client, model, branch, and
+`verified_against` provenance, and for what must never be stored, are in
+[authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
 
 ## Record explicit relationships
 
-Relationships are project-local facts, not semantic guesses. Keep their
-source-to-target meaning explicit:
-
-- `A blocks B` means B has an incoming blocker from A.
-- `A parent-child B` means A is B's parent.
-- `A discovered-from B` means A was discovered from B; cite a context
-  checkpoint belonging to B.
-- `A duplicate-of B` identifies B as the canonical counterpart.
-- `related` is symmetric and is returned as undirected adjacency.
-
-Only an unresolved incoming `blocks` edge changes readiness, and only a blocker
-whose lifecycle is `done` resolves it. The other relationship types are
-descriptive and do not make work ready or blocked.
+Relationships are project-local facts, not semantic guesses. Read
+[work-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md) before creating any edge: it defines source-to-target
+direction for all five types, why only an unresolved incoming `blocks` edge
+changes readiness, and why similarity is never evidence of an edge.
 
 When a new work item and its explicit decomposition or discovery links must
-succeed together, pass up to ten `initial_relationships` to `create_work`.
-Each entry's `direction` is relative to the new item and names the
-`other_work_item_id`. An initial `discovered-from` edge must be `outgoing` and
-must cite a checkpoint on its originating target. These atomic edges inherit
-creator provenance from the initial checkpoint.
-
-For a fact connecting existing work, use `add_relationship` with the exact
-source, target, type, and real acting client/session provenance. Use
-`list_relationships` and, when needed, `get_relationship` to inspect immediate
-pointer-only edges before changing them. Never recursively traverse the graph,
-inject counterpart checkpoint text, or add an edge merely because two items
-sound related.
+succeed together, pass up to ten `initial_relationships` to `create_work`. For a
+fact connecting existing work, use `add_relationship`.
 
 ## Write cold-session context
 
