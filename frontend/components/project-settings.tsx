@@ -60,7 +60,7 @@ export default function ProjectSettingsPanel({
   const selectedProject = project;
   const settingsAvailable = settings?.project_id === selectedProject.id;
 
-  const unavailable = !settingsAvailable || loading || Boolean(loadError);
+  const unavailable = !settingsAvailable || loading;
   const dirty = draft !== effectiveTemplate;
   const canClear = storedTemplate !== null || draft !== DEFAULT_RECALL_POINTER_TEMPLATE;
 

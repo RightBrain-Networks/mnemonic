@@ -36,6 +36,103 @@ async function removeSeededWork(
   expect(response.ok(), await response.text()).toBe(true);
 }
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+test("a background settings refresh cannot disable or overwrite a save", async ({ page }) => {
+  const oldTemplate = "Old recall pointer for $WORK_ITEM_ID";
+  const newTemplate = "New recall pointer for $WORK_ITEM_TITLE";
+  const settingsURL = `**/api/mnemonic/projects/${state.projectId}/settings`;
+  const backgroundStarted = deferred();
+  const releaseBackground = deferred();
+  const backgroundSettled = deferred();
+  const authoritativeRefresh = deferred();
+  let storedTemplate: string | null = oldTemplate;
+  let holdNextGet = false;
+  let patchCount = 0;
+
+  await page.routeWebSocket(/\/api\/mnemonic\/sync$/, () => {});
+  await page.route(settingsURL, async (route) => {
+    const method = route.request().method();
+    if (method === "GET") {
+      const responseTemplate = storedTemplate;
+      if (holdNextGet) {
+        holdNextGet = false;
+        backgroundStarted.resolve();
+        await releaseBackground.promise;
+        try {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+              project_id: state.projectId,
+              recall_pointer_template: responseTemplate
+            })
+          });
+        } catch {
+          // The save path aborts this stale request before starting its authoritative refresh.
+        } finally {
+          backgroundSettled.resolve();
+        }
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          project_id: state.projectId,
+          recall_pointer_template: responseTemplate
+        })
+      });
+      if (patchCount > 0) authoritativeRefresh.resolve();
+      return;
+    }
+    if (method === "PATCH") {
+      patchCount += 1;
+      const body = route.request().postDataJSON() as { recall_pointer_template: string | null };
+      storedTemplate = body.recall_pointer_template;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          project_id: state.projectId,
+          recall_pointer_template: storedTemplate
+        })
+      });
+      return;
+    }
+    await route.abort();
+  });
+
+  await page.goto("/settings");
+  await page.locator("#project-select").selectOption(state.projectId);
+  const content = page.getByLabel("Recall pointer content");
+  const save = page.getByRole("button", { name: "Save", exact: true });
+  const clear = page.getByRole("button", { name: "Clear", exact: true });
+  await expect(content).toHaveValue(oldTemplate);
+  await content.fill(newTemplate);
+
+  holdNextGet = true;
+  await page.locator(".page-heading").getByRole("button", { name: "Refresh" }).click();
+  await backgroundStarted.promise;
+  await expect(content).toBeEnabled();
+  await expect(save).toBeEnabled();
+  await expect(clear).toBeEnabled();
+
+  await save.click();
+  await authoritativeRefresh.promise;
+  expect(patchCount).toBe(1);
+  releaseBackground.resolve();
+  await backgroundSettled.promise;
+  await expect(content).toHaveValue(newTemplate);
+  await expect.poll(() => patchCount).toBe(1);
+});
+
 test("project recall pointer settings drive card and detail clipboard content", async ({ page }, testInfo) => {
   const apiURL = process.env.MNEMONIC_E2E_API_URL;
   const apiKey = process.env.MNEMONIC_E2E_API_KEY;

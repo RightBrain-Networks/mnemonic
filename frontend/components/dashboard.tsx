@@ -12,6 +12,10 @@ import { currentContext } from "@/lib/current-context";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
 import { connectLiveSync, invalidatesOpenWork, type LiveSyncStatus } from "@/lib/live-sync";
+import {
+  isBlockingProjectSettingsLoad,
+  isCurrentProjectSettingsLoad
+} from "@/lib/project-settings";
 import type {
   Checkpoint,
   CheckpointInput,
@@ -171,6 +175,8 @@ export default function Dashboard({ view = "library" }: { view?: "library" | "se
   const project = projects.find((item) => item.id === activeId);
   const activeIdRef = useRef(activeId);
   const openedRef = useRef(opened);
+  const settingsLoadController = useRef<AbortController | null>(null);
+  const settingsLoadGeneration = useRef(0);
   const lastContextRefresh = useRef(0);
   const nextLeaseExpiry = earliestLeaseExpiry([
     ...(results?.items.map((item) => ("summary" in item ? item.summary : item).readiness.active_lease?.expires_at) ?? []),
@@ -211,6 +217,9 @@ export default function Dashboard({ view = "library" }: { view?: "library" | "se
   }, [activeId]);
 
   useEffect(() => {
+    const generation = ++settingsLoadGeneration.current;
+    settingsLoadController.current?.abort();
+    settingsLoadController.current = null;
     if (!activeId) {
       setProjectSettings(null);
       setSettingsLoading(false);
@@ -218,26 +227,49 @@ export default function Dashboard({ view = "library" }: { view?: "library" | "se
       return;
     }
     const controller = new AbortController();
+    settingsLoadController.current = controller;
+    const blockingLoad = isBlockingProjectSettingsLoad(activeId, projectSettings);
     setProjectSettings((current) => current?.project_id === activeId ? current : null);
-    setSettingsLoading(true);
+    setSettingsLoading(blockingLoad);
     setSettingsLoadError("");
     api<ProjectSettings>(`/projects/${encodeURIComponent(activeId)}/settings`, {
       signal: controller.signal
     })
       .then((loaded) => {
-        if (controller.signal.aborted) return;
+        if (!isCurrentProjectSettingsLoad(
+          generation,
+          settingsLoadGeneration.current,
+          controller.signal.aborted
+        )) return;
         if (loaded.project_id !== activeId) {
           throw new Error("Mnemonic returned settings for a different project.");
         }
         setProjectSettings(loaded);
       })
       .catch((error) => {
-        if (!controller.signal.aborted) setSettingsLoadError(errorMessage(error));
+        if (isCurrentProjectSettingsLoad(
+          generation,
+          settingsLoadGeneration.current,
+          controller.signal.aborted
+        )) setSettingsLoadError(errorMessage(error));
       })
       .finally(() => {
-        if (!controller.signal.aborted) setSettingsLoading(false);
+        if (!isCurrentProjectSettingsLoad(
+          generation,
+          settingsLoadGeneration.current,
+          controller.signal.aborted
+        )) return;
+        if (settingsLoadController.current === controller) {
+          settingsLoadController.current = null;
+        }
+        setSettingsLoading(false);
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (settingsLoadController.current === controller) {
+        settingsLoadController.current = null;
+      }
+    };
   }, [activeId, settingsRefresh]);
 
   useEffect(() => {
@@ -453,6 +485,17 @@ export default function Dashboard({ view = "library" }: { view?: "library" | "se
     } finally {
       setWorkSaving(false);
     }
+  }
+
+  function handleProjectSettingsSaved(saved: ProjectSettings) {
+    if (saved.project_id !== activeIdRef.current) return;
+    settingsLoadGeneration.current += 1;
+    settingsLoadController.current?.abort();
+    settingsLoadController.current = null;
+    setProjectSettings(saved);
+    setSettingsLoading(false);
+    setSettingsLoadError("");
+    setSettingsRefresh((value) => value + 1);
   }
 
   async function loadContext(
@@ -706,18 +749,13 @@ export default function Dashboard({ view = "library" }: { view?: "library" | "se
       });
       return;
     }
-    if (settingsLoadError) {
-      setNotice({
-        message: `Project settings could not be loaded. ${settingsLoadError} Use Refresh and try again.`,
-        error: true
-      });
-      return;
-    }
     if (!projectSettings || projectSettings.project_id !== projectId) {
       setNotice({
-        message: settingsLoading
-          ? "Project settings are still loading. Wait a moment and try again."
-          : "Project settings are unavailable. Use Refresh and try again.",
+        message: settingsLoadError
+          ? `Project settings could not be loaded. ${settingsLoadError} Use Refresh and try again.`
+          : settingsLoading
+            ? "Project settings are still loading. Wait a moment and try again."
+            : "Project settings are unavailable. Use Refresh and try again.",
         error: true
       });
       return;
@@ -771,12 +809,7 @@ export default function Dashboard({ view = "library" }: { view?: "library" | "se
               loading={settingsLoading}
               loadError={settingsLoadError}
               onRetry={() => setSettingsRefresh((value) => value + 1)}
-              onSaved={(saved) => {
-                if (saved.project_id === activeIdRef.current) {
-                  setProjectSettings(saved);
-                  setSettingsLoadError("");
-                }
-              }}
+              onSaved={handleProjectSettingsSaved}
               onNotice={(message, error) => setNotice({ message, error })}
             />}
         </> : <>
