@@ -11,11 +11,17 @@ from mnemonic_api.config import Settings
 def build_engine(settings: Settings) -> Engine:
     engine = create_engine(
         settings.database_url.get_secret_value(),
+        isolation_level="READ COMMITTED",
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=10,
-        pool_timeout=15,
-        connect_args={"connect_timeout": 5},
+        # A protected mutation has one end-to-end receipt-reservation budget.
+        # Checkout cannot consume a longer, independent wait before PostgreSQL's
+        # lock/statement timeout begins.
+        pool_timeout=settings.client_operation_wait_seconds,
+        connect_args={
+            "connect_timeout": min(5, settings.client_operation_wait_seconds)
+        },
         hide_parameters=True,
     )
 

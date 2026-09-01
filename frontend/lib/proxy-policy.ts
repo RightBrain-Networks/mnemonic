@@ -17,10 +17,19 @@ const LEASE_CAPABILITY = new RegExp(`^projects/${UUID}/work-items/${UUID}/(?:cla
 const EVENT_SECRET_KEYS = new Set([
   "lease_token",
   "claim_request_id",
+  "client_operation_id",
   "api_key",
   "authorization",
   "cookie",
   "secret"
+]);
+const CLIENT_OPERATION_FIELD = "client_operation_id";
+const CLIENT_OPERATION_HEADERS = new Set([
+  "client_operation_id",
+  "client-operation-id",
+  "idempotency-key",
+  "x-idempotency-key",
+  "x-client-operation-id"
 ]);
 
 
@@ -169,42 +178,202 @@ function validActor(value: unknown): boolean {
       || boundedText(actor.actor_model, 120));
 }
 
+
+function finiteInteger(value: unknown, minimum: number, maximum = Number.MAX_SAFE_INTEGER): boolean {
+  return Number.isSafeInteger(value) && Number(value) >= minimum && Number(value) <= maximum;
+}
+
+function nullableBoundedText(value: unknown, maximum: number): boolean {
+  return value === null || boundedText(value, maximum);
+}
+
+function validUuid(value: unknown): value is string {
+  return typeof value === "string"
+    && /^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/.test(value);
+}
+
+function validStringArray(value: unknown, maximumItems: number, maximumLength: number): boolean {
+  return Array.isArray(value)
+    && value.length <= maximumItems
+    && value.every((entry) => boundedText(entry, maximumLength));
+}
+
+function validCheckpointPayload(value: unknown, includeKind: boolean): boolean {
+  const checkpoint = jsonObject(value);
+  if (!checkpoint) return false;
+  const keys = [
+    ...(includeKind ? ["kind"] : []),
+    "prompt",
+    "source_client",
+    "source_session_id",
+    "source_model",
+    "source_session_url",
+    "repository_branch",
+    "verified_against",
+    "tags",
+    "source_metadata",
+    CLIENT_OPERATION_FIELD
+  ];
+  if (!allowedKeys(checkpoint, keys)) return false;
+  if (includeKind && checkpoint.kind !== "context" && checkpoint.kind !== "progress") return false;
+  return boundedText(checkpoint.prompt, 100_000)
+    && boundedText(checkpoint.source_client, 80)
+    && boundedText(checkpoint.source_session_id, 200)
+    && (checkpoint.source_model === undefined || nullableBoundedText(checkpoint.source_model, 120))
+    && (checkpoint.source_session_url === undefined
+      || nullableBoundedText(checkpoint.source_session_url, 2_000))
+    && (checkpoint.repository_branch === undefined
+      || nullableBoundedText(checkpoint.repository_branch, 200))
+    && (checkpoint.verified_against === undefined
+      || checkpoint.verified_against === null
+      || typeof checkpoint.verified_against === "string"
+        && /^[a-fA-F0-9]{7,64}$/.test(checkpoint.verified_against))
+    && (checkpoint.tags === undefined || validStringArray(checkpoint.tags, 50, 50))
+    && (checkpoint.source_metadata === undefined || validProgressMetadata(checkpoint.source_metadata));
+}
+
+function nestedClientOperationField(value: unknown, root = true): boolean {
+  if (Array.isArray(value)) return value.some((entry) => nestedClientOperationField(entry, false));
+  const object = jsonObject(value);
+  if (!object) return false;
+  return Object.entries(object).some(([key, entry]) => (
+    (!root && key.toLowerCase() === CLIENT_OPERATION_FIELD)
+    || nestedClientOperationField(entry, false)
+  ));
+}
+
+function coveredMutation(path: string, method: string): boolean {
+  return method === "POST" && WORK_ITEMS.test(path)
+    || method === "POST" && CHECKPOINTS.test(path)
+    || method === "POST" && WORK_EVENTS.test(path)
+    || method === "POST" && RELATIONSHIPS.test(path)
+    || method === "PATCH" && WORK_ITEM.test(path)
+    || method === "POST" && WORK_COMPLETE.test(path)
+    || method === "POST" && WORK_DEFER.test(path)
+    || method === "POST" && WORK_DELETE.test(path)
+    || method === "DELETE" && RELATIONSHIP.test(path);
+}
+
+function validClientOperation(body: Record<string, unknown>): boolean {
+  return validUuid(body.client_operation_id);
+}
+
+function validInitialRelationships(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value) || value.length > 10) return false;
+  return value.every((entry) => {
+    const relationship = jsonObject(entry);
+    return Boolean(
+      relationship
+      && allowedKeys(relationship, ["type", "direction", "other_work_item_id", "context_checkpoint_id"])
+      && typeof relationship.type === "string"
+      && ["blocks", "parent-child", "discovered-from", "duplicate-of", "related"].includes(relationship.type)
+      && (relationship.direction === "incoming" || relationship.direction === "outgoing")
+      && validUuid(relationship.other_work_item_id)
+      && (relationship.context_checkpoint_id === undefined
+        || relationship.context_checkpoint_id === null
+        || validUuid(relationship.context_checkpoint_id))
+      && (relationship.type !== "discovered-from"
+        || relationship.direction === "outgoing" && validUuid(relationship.context_checkpoint_id))
+    );
+  });
+}
+
+export function forbiddenOperationTransport(headers: Headers): string | null {
+  for (const [key] of headers) {
+    if (CLIENT_OPERATION_HEADERS.has(key.toLowerCase())) return "header";
+  }
+  const cookie = headers.get("cookie");
+  if (cookie?.split(";").some((entry) => (
+    CLIENT_OPERATION_HEADERS.has(entry.split("=", 1)[0]?.trim().toLowerCase() ?? "")
+  ))) return "cookie";
+  return null;
+}
+
+export function clientOperationMatchesSecret(bodyText: string | undefined, secret: string): boolean {
+  if (!bodyText) return false;
+  try {
+    const body = jsonObject(JSON.parse(bodyText));
+    return body?.client_operation_id === secret;
+  } catch {
+    return false;
+  }
+}
+
 export function invalidMutationBody(path: string, method: string, value: unknown): string | null {
   const body = jsonObject(value);
   if (!body) return "The request body must be a JSON object.";
   const forbidden = forbiddenMutationField(body);
   if (forbidden) return `The request body contains an unsupported field: ${forbidden}.`;
+  if (nestedClientOperationField(body)) {
+    return "The client operation ID is accepted only at the top level.";
+  }
+  const protectedMutation = coveredMutation(path, method);
+  if (!protectedMutation && Object.keys(body).some((key) => (
+    key.toLowerCase() === CLIENT_OPERATION_FIELD
+  ))) {
+    return "The client operation ID is not supported for this route.";
+  }
+  if (protectedMutation && !validClientOperation(body)) {
+    return "The client operation ID must be a UUID.";
+  }
 
+  if (WORK_ITEMS.test(path) && method === "POST") {
+    if (
+      !allowedKeys(body, [
+        "title", "summary", "priority", "status", "initial_checkpoint",
+        "initial_relationships", CLIENT_OPERATION_FIELD
+      ])
+      || !boundedText(body.title, 200)
+      || !boundedText(body.summary, 1_000)
+      || !finiteInteger(body.priority, 0, 100)
+      || !["pending", "wont-do", "promoted"].includes(String(body.status))
+      || !validCheckpointPayload(body.initial_checkpoint, false)
+      || !validInitialRelationships(body.initial_relationships)
+    ) return "The work-creation body does not match the dashboard allowlist.";
+  }
+  if (CHECKPOINTS.test(path) && method === "POST") {
+    if (
+      !allowedKeys(body, [
+        "kind", "prompt", "source_client", "source_session_id", "source_model",
+        "source_session_url", "repository_branch", "verified_against", "tags",
+        "source_metadata", CLIENT_OPERATION_FIELD
+      ])
+      || !validCheckpointPayload(body, true)
+    ) return "The checkpoint body does not match the dashboard allowlist.";
+  }
   if (WORK_EVENTS.test(path) && method === "POST") {
     if (
-      !allowedKeys(body, ["event_type", "body", "metadata", "actor"])
-      || Object.keys(body).length !== 4
+      !allowedKeys(body, ["event_type", "body", "metadata", "actor", CLIENT_OPERATION_FIELD])
+      || Object.keys(body).length !== 5
       || body.event_type !== "progress"
       || !boundedText(body.body, 4000)
       || !validProgressMetadata(body.metadata)
       || !validActor(body.actor)
-    ) {
-      return "The progress-event body does not match the dashboard allowlist.";
-    }
+    ) return "The progress-event body does not match the dashboard allowlist.";
   }
   if (WORK_ITEM.test(path) && method === "PATCH") {
     if (
-      !allowedKeys(body, ["expected_version", "title", "summary", "priority", "status", "actor"])
-      || !("expected_version" in body)
-      || body.status === "deferred"
-      || ("actor" in body && !validActor(body.actor))
-    ) {
-      return "The work-item patch does not match the dashboard allowlist.";
-    }
+      !allowedKeys(body, [
+        "expected_version", "title", "summary", "priority", "status", "actor",
+        CLIENT_OPERATION_FIELD
+      ])
+      || !finiteInteger(body.expected_version, 1)
+      || !validActor(body.actor)
+      || !["title", "summary", "priority", "status"].some((key) => key in body)
+      || (body.title !== undefined && !boundedText(body.title, 200))
+      || (body.summary !== undefined && !boundedText(body.summary, 1_000))
+      || (body.priority !== undefined && !finiteInteger(body.priority, 0, 100))
+      || (body.status !== undefined
+        && !["pending", "wont-do", "promoted"].includes(String(body.status)))
+    ) return "The work-item patch does not match the dashboard allowlist.";
   }
   if (WORK_DEFER.test(path) && method === "POST") {
     if (
-      !allowedKeys(body, ["expected_version", "actor"])
-      || !("expected_version" in body)
-      || ("actor" in body && !validActor(body.actor))
-    ) {
-      return "The work-item deferral does not match the dashboard allowlist.";
-    }
+      !allowedKeys(body, ["expected_version", "actor", CLIENT_OPERATION_FIELD])
+      || !finiteInteger(body.expected_version, 1)
+      || !validActor(body.actor)
+    ) return "The work-item deferral does not match the dashboard allowlist.";
   }
   if (PROJECT_SETTINGS.test(path) && method === "PATCH") {
     if (
@@ -212,51 +381,53 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || Object.keys(body).length !== 1
       || (body.recall_pointer_template !== null
         && !boundedText(body.recall_pointer_template, 100000))
-    ) {
-      return "The project-settings patch does not match the dashboard allowlist.";
-    }
+    ) return "The project-settings patch does not match the dashboard allowlist.";
   }
   if (WORK_DELETE.test(path) && method === "POST") {
     if (
-      !allowedKeys(body, ["expected_version", "actor"])
-      || !("expected_version" in body)
-      || ("actor" in body && !validActor(body.actor))
-    ) {
-      return "The work-item deletion does not match the dashboard allowlist.";
-    }
+      !allowedKeys(body, ["expected_version", "actor", CLIENT_OPERATION_FIELD])
+      || !finiteInteger(body.expected_version, 1)
+      || !validActor(body.actor)
+    ) return "The work-item deletion does not match the dashboard allowlist.";
   }
   if (RELATIONSHIP.test(path) && method === "DELETE") {
-    if (!allowedKeys(body, ["actor"]) || Object.keys(body).length !== 1 || !validActor(body.actor)) {
-      return "The relationship-removal body does not match the dashboard allowlist.";
-    }
+    if (
+      !allowedKeys(body, ["actor", CLIENT_OPERATION_FIELD])
+      || Object.keys(body).length !== 2
+      || !validActor(body.actor)
+    ) return "The relationship-removal body does not match the dashboard allowlist.";
+  }
+  if (RELATIONSHIPS.test(path) && method === "POST") {
+    if (
+      !allowedKeys(body, [
+        "relationship_type", "source_work_item_id", "target_work_item_id",
+        "created_by_client", "created_by_session_id", "created_by_model",
+        "context_checkpoint_id", CLIENT_OPERATION_FIELD
+      ])
+      || !["blocks", "parent-child", "discovered-from", "duplicate-of", "related"].includes(
+        String(body.relationship_type)
+      )
+      || !validUuid(body.source_work_item_id)
+      || !validUuid(body.target_work_item_id)
+      || body.source_work_item_id.toLowerCase() === body.target_work_item_id.toLowerCase()
+      || !boundedText(body.created_by_client, 80)
+      || !boundedText(body.created_by_session_id, 200)
+      || !(body.created_by_model === undefined || nullableBoundedText(body.created_by_model, 120))
+      || !(body.context_checkpoint_id === undefined
+        || body.context_checkpoint_id === null
+        || validUuid(body.context_checkpoint_id))
+      || (body.relationship_type === "discovered-from" && !validUuid(body.context_checkpoint_id))
+    ) return "The relationship-creation body does not match the dashboard allowlist.";
+  }
+  if (WORK_COMPLETE.test(path) && method === "POST") {
+    if (
+      !allowedKeys(body, ["expected_version", "checkpoint", CLIENT_OPERATION_FIELD])
+      || !finiteInteger(body.expected_version, 1)
+      || !validCheckpointPayload(body.checkpoint, false)
+    ) return "The work-completion body does not match the dashboard allowlist.";
   }
   return null;
 }
-
-export async function classifyRequestBody(
-  request: Request,
-  maxBytes: number
-): Promise<"empty" | "present" | "too-large"> {
-  const declaredLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) return "too-large";
-  const reader = request.body?.getReader();
-  if (!reader) return "empty";
-  let size = 0;
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) return size === 0 ? "empty" : "present";
-    size += value.byteLength;
-    if (size > maxBytes) {
-      await reader.cancel();
-      return "too-large";
-    }
-    if (size > 0) {
-      await reader.cancel();
-      return "present";
-    }
-  }
-}
-
 export function upstreamTimeoutMs(query: URLSearchParams): number {
   return query.get("semantic") === "true" && Boolean(query.get("q")?.trim()) ? 60_000 : 15_000;
 }

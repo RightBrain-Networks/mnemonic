@@ -1,11 +1,13 @@
 # Agent workflow
 
-Mnemonic Phase 5 separates durable work identity from session context, uses
+Mnemonic Phase 6 separates durable work identity from session context, uses
 expiring server-arbitrated leases for temporary execution responsibility, and
 adds a purpose-built ready view plus an immutable per-work event timeline to
-the explicit typed graph and hierarchical browse. Use canonical
-work/checkpoint/event/claim/relationship tools for new
-automation.
+the explicit typed graph and hierarchical browse. Durable mutation receipts now
+make exact retries safe for the covered write surface. Use canonical
+work/checkpoint/event/claim/relationship tools for new automation, and prepare
+the immutable client operation intent described below before every protected
+MCP mutation.
 
 ## Create or continue work
 
@@ -16,9 +18,10 @@ automation.
    non-Pending history when the likely duplicate may be Deferred or complete.
 3. If one durable objective already exists, recall it and append a checkpoint;
    do not create another item merely because this is a new session.
-4. For genuinely new work, call `create_work` with its title, retrieval
-   summary, optional priority/status, a complete nested initial checkpoint, and
-   any relationships that must exist atomically with the new record.
+4. For genuinely new work, prepare a protected mutation intent, then call
+   `create_work` with its title, retrieval summary, optional priority/status, a
+   complete nested initial checkpoint, and any relationships that must exist
+   atomically with the new record.
 5. Supply the actual `source_client` and `source_session_id` for the session
    writing that checkpoint. Add model, session URL, branch, checked commit,
    useful tags, and JSON metadata only when known.
@@ -36,6 +39,64 @@ workflows. Claude Code expands `${CLAUDE_SESSION_ID}` in skill text. Other
 clients may not; an unexpanded token is not a valid session ID. If the current
 host cannot reveal its real conversation ID, obtain a truthful identifier
 before writing.
+
+## Protect mutation intents and recover unknown outcomes
+
+The nine protected MCP mutations require a caller-generated UUID in the
+top-level `client_operation_id` argument:
+
+- `create_work`;
+- `add_checkpoint`;
+- `append_event`;
+- `add_relationship`;
+- `update_work`;
+- `complete_work`;
+- `delete_work`;
+- `remove_relationship`;
+- `release_claim`.
+
+Before the first attempt, generate one fresh random UUID and retain it together
+with the complete, exact tool name and argument object in private client-local
+pending-call state. Include target IDs, provenance/actor fields, expected
+version, metadata, explicit optional values, and any release token. Submit that
+frozen call once. The MCP adapter itself makes one outbound attempt and never
+generates, substitutes, caches, or automatically retries an operation UUID.
+
+A timeout, disconnect, reset, EOF, malformed success response, backend/proxy
+`5xx`, or `client_operation_unavailable` means the result may have committed.
+Retry only by resending the retained UUID with the exact same tool and semantic
+arguments. Do not reconstruct the call from a later read, change an actor or
+default, or generate another UUID and describe it as a retry. If either the UUID
+or complete arguments are lost, stop, inspect current state where that is safe,
+and request direction; Mnemonic deliberately exposes no receipt lookup or
+argument-recovery tool.
+
+A successful exact retry returns the original status and parsed response
+snapshot without running the mutation again. That result is historical proof
+of the earlier outcome, not a current-state read: a relationship may since have
+been removed, completed work reopened, deleted work hidden, or a released lease
+replaced. Follow the replay with the relevant read when current state matters.
+A successful no-op also binds and replays its original result.
+
+One UUID is bound indefinitely within a project to one successful semantic
+request across all protected operation kinds and targets. Use a new UUID for a
+genuinely new intent or any changed argument. `client_operation_conflict` on an
+asserted exact retry is a safety incident: retain the pending call, do not keep
+retrying or switch keys, and investigate the caller's frozen state. A definite
+validation or domain `4xx` did not bind a receipt; correct it as a new intent
+with a new UUID as the normal discipline.
+
+The operation UUID is private control data, not provenance. Never copy it or
+the retained argument object into checkpoint/event prose, metadata, logs, URLs,
+headers, or chat output. Do not place it inside nested actor/source fields. The
+server accepts it only as the top-level field of a covered request and never
+returns it in domain responses.
+
+`create_project`, `claim_work`, `claim_and_recall`, and `renew_claim` are not
+covered. Claims retain their separate, active-lease-bounded
+`claim_request_id` recovery rule, and renewal remains time-relative. The
+REST-only `update_project` route is also outside the receipt ledger. Never
+generalize a protected tool's idempotency annotation to those operations.
 
 ## Search, recall, and history
 
@@ -160,12 +221,12 @@ see in history but does not need as current resume context. Do not duplicate the
 same prose in both surfaces merely for visibility. Supply the truthful current
 actor client/session; actor provenance is a client assertion, not a verified
 human identity. Never store credentials, lease tokens, private chain-of-thought,
-or transcript dumps in either surface. The server rejects request-known secret
-echoes and reserved metadata keys, but cannot recognize every sensitive value;
-accepted progress is durable and returned exactly to authorized readers.
-
-`append_event` is not idempotent before Phase 6. After an unknown outcome, do
-not retry automatically—inspect recent events with `list_work_events` first.
+operation UUIDs, frozen mutation arguments, or transcript dumps in either
+surface. The server rejects request-known secret echoes and reserved metadata
+keys, but cannot recognize every sensitive value; accepted progress is durable
+and returned exactly to authorized readers. `append_event` is one of the nine
+protected mutations: retain its exact pending call and use only the same-key,
+same-arguments retry rule after an unknown outcome.
 
 Always attribute the new checkpoint to the session writing it. Do not dump
 chain-of-thought or a raw transcript. Checkpoints cannot be edited or deleted;
@@ -195,7 +256,9 @@ When pausing or handing off unfinished claimed work, append a useful checkpoint
 and call `release_claim` with the token plus truthful current actor fields. The
 release actor is the caller, not automatically the retained holder. A matching
 row can be released even after expiry; repeating release is safe and cannot
-delete a different replacement lease or emit a duplicate event.
+delete a different replacement lease or emit a duplicate event. `release_claim`
+is Phase 6-protected, so retain its operation UUID and complete arguments
+separately from the lease's `claim_request_id` recovery state.
 
 ## Concurrent changes and errors
 
@@ -219,11 +282,14 @@ correcting the requested graph fact rather than blind retry. Validation and
 application errors never include stored prompt content, arbitrary metadata,
 claim request IDs, lease tokens, or raw UUID values.
 
-After any timed-out non-claim write, search or recall before retrying: the
-timeout may have occurred after the database committed. Claims use only the
-same-request replay rule above. Never report success if the adapter reported an
-error. Keep credentials, lease tokens, private transcripts, and unrelated
-personal information out of checkpoints and metadata.
+After an unknown outcome from one of the nine protected writes, use only its
+retained exact operation retry; search or recall cannot substitute for the
+receipt protocol. Claims use only their distinct same-request replay rule while
+the lease remains active. For excluded writes, reconcile their current state
+before deciding whether another action is a new intent. Never report success if
+the adapter reported an error. Keep credentials, lease tokens, operation UUIDs,
+frozen mutation arguments, private transcripts, and unrelated personal
+information out of checkpoints and metadata.
 
 ## Client portability
 
@@ -235,6 +301,23 @@ must never be substituted for the originating LLM conversation ID.
 Copy the generic skill directories into the discovery location supported by the
 target client. Tool-name prefixes may differ, but the underlying canonical names
 stay the same. Setup does not modify other projects or user-global configuration.
+
+The dashboard protects nine browser-accessible mutations: create work, add a
+checkpoint, append progress, add a relationship, edit work, complete work,
+defer work, delete work, and remove a relationship. Deferral remains a
+human-only action and has no MCP tool. The dashboard creates one UUID and
+freezes one serialized request in a dashboard-owned, same-document registry.
+An ambiguous result remains recoverable across modal closure or component
+unmount, blocks conflicting work actions, and is cleared only by a strictly
+decoded coherent success or a definite rejection. A key conflict remains a
+blocked safety state.
+
+The browser does not persist the UUID or frozen body across tabs, reloads, or
+process loss. If the document is lost while an intent is unresolved, do not
+invent a replacement key or claim the mutation is safe to repeat; inspect state
+and request direction. The dashboard intentionally exposes no claim, renewal,
+release, or lease-token route, so `release_claim` is protected through MCP/REST
+but is not one of the nine browser actions.
 
 ChatGPT cloud access, OAuth, public hosting, automatic ready selection/claim,
 relationship inference, and cross-project coordination are later work. Keep

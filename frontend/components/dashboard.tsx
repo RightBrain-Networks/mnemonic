@@ -8,9 +8,18 @@ import WorkItemList, { WORK_PAGE_SIZE } from "@/components/work-item-list";
 import { StatusBadge, formatDate } from "@/components/work-item-card";
 import { setDisplayTimeZone } from "@/lib/display-time";
 import { draftFromWork, type WorkEditDraft } from "@/components/work-item-editor";
-import { api, errorMessage, isVersionConflict, workItemPath } from "@/lib/api";
+import { api, ApiError, errorMessage, isVersionConflict, workItemPath } from "@/lib/api";
 import { currentContext } from "@/lib/current-context";
 import { dashboardSessionId } from "@/lib/dashboard-session";
+import {
+  MutationIntentProvider,
+  MutationIntentRegistry,
+  mutationCreateKey,
+  mutationWorkKey,
+  useMutationIntents,
+  useMutationUnloadWarning,
+  type MutationIntentSummary
+} from "@/lib/mutation-intent";
 import {
   dashboardSortPreference,
   dashboardStatusPreference,
@@ -34,7 +43,9 @@ import type {
   ProjectSettings,
   StatusFilter,
   WorkContext,
+  WorkCreateInput,
   WorkCreation,
+  WorkDeletionInput,
   WorkItem,
   WorkPatch,
   WorkSort,
@@ -44,6 +55,18 @@ import { editableLifecycleStatuses, normalizedTags } from "@/lib/work-item-view"
 import { dashboardMutationActor } from "@/lib/work-events";
 import { workSearchParams } from "@/lib/work-item-search";
 import { workRecallPointer } from "@/lib/work-recall-pointer";
+
+const mutationLabels: Record<MutationIntentSummary["kind"], string> = {
+  create_work: "Create work",
+  add_checkpoint: "Add checkpoint",
+  append_event: "Append progress",
+  add_relationship: "Add relationship",
+  update_work: "Update work",
+  defer_work: "Defer work",
+  complete_work: "Complete work",
+  delete_work: "Delete work",
+  remove_relationship: "Remove relationship"
+};
 
 const iconPaths = {
   search: "m21 21-4.4-4.4M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0Z",
@@ -66,7 +89,60 @@ function Logo() {
   return <svg className="logo-mark" width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true"><rect width="34" height="34" rx="10" fill="currentColor" /><path d="M9 27v-4.2A10.6 10.6 0 0 1 6.5 15C6.5 9.5 10.9 5 16.4 5c4.7 0 8.7 3.4 9.5 8l1.9 3.1c.6 1-.05 2.25-1.2 2.33l-1.4.1-.4 3.3a3.4 3.4 0 0 1-3.4 3h-2.2V27H9Z" fill="#f9f8f3" /><rect x="14.3" y="9.2" width="4.1" height="9" rx="2.05" fill="currentColor" /><circle cx="16.35" cy="21.5" r="2.1" fill="currentColor" /></svg>;
 }
 
-function Dialog({ title, children, onClose, wide = false, busy = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; busy?: boolean }) {
+function MutationRecoveryPanel({
+  intents,
+  retryingMutation,
+  onRetry,
+  modal = false
+}: {
+  intents: readonly MutationIntentSummary[];
+  retryingMutation: string;
+  onRetry: (intent: MutationIntentSummary) => void;
+  modal?: boolean;
+}) {
+  if (!intents.length) return null;
+  return <section
+    className={`mutation-recovery ${modal ? "mutation-recovery-modal" : "mutation-recovery-global"}`}
+    role="alert"
+    aria-live="polite"
+  >
+    <div>
+      <strong>Pending mutations need this tab.</strong>
+      <span>Do not reload or close it; the exact retry request exists only in memory.</span>
+    </div>
+    <ul>{intents.map((intent) => <li key={intent.slot}>
+      <span>{mutationLabels[intent.kind]} · {intent.state === "in_flight"
+        ? "waiting for a response"
+        : intent.state === "safety_conflict"
+          ? "safety conflict"
+          : "outcome unknown"}</span>
+      {intent.state === "safety_conflict"
+        && <small>Stop and inspect the client and server state before continuing.</small>}
+      {intent.state === "unresolved" && <button
+        type="button"
+        className="button button-secondary"
+        disabled={Boolean(retryingMutation)}
+        onClick={() => onRetry(intent)}
+      >{retryingMutation === intent.slot ? "Retrying…" : "Retry exact request"}</button>}
+    </li>)}</ul>
+  </section>;
+}
+
+function Dialog({
+  title,
+  children,
+  onClose,
+  recovery,
+  wide = false,
+  busy = false
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+  recovery?: ReactNode;
+  wide?: boolean;
+  busy?: boolean;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   useEffect(() => {
@@ -76,6 +152,7 @@ function Dialog({ title, children, onClose, wide = false, busy = false }: { titl
   }, []);
   return <dialog ref={ref} className={`dialog ${wide ? "dialog-wide" : ""}`} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
     <div className="dialog-header"><h2 id={titleId}>{title}</h2><button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose} disabled={busy}><Icon name="close" /></button></div>
+    {recovery}
     <div className="dialog-content">{children}</div>
   </dialog>;
 }
@@ -90,7 +167,7 @@ function checkpointPayload(
   commit = "",
   tagText = ""
 ): CheckpointInput {
-  const verified = commit.trim();
+  const verified = commit.trim().toLowerCase();
   if (verified && !/^[a-fA-F0-9]{7,64}$/.test(verified)) {
     throw new Error("Verified commit must be a Git commit ID with 7–64 hexadecimal characters.");
   }
@@ -120,6 +197,11 @@ type ContextLoadResult = "loaded" | "superseded" | "failed";
 
 export default function Dashboard({ view = "library", timeZone }: { view?: "library" | "settings"; timeZone?: string | null; }) {
   setDisplayTimeZone(timeZone);
+  const [mutationRegistry] = useState(() => new MutationIntentRegistry());
+  const mutationIntents = useMutationIntents(mutationRegistry);
+  useMutationUnloadWarning(mutationRegistry);
+  const [retryingMutation, setRetryingMutation] = useState("");
+  const dispatchedMutationIntents = mutationIntents.filter((intent) => intent.state !== "prepared");
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState("");
@@ -158,6 +240,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [context, setContext] = useState<WorkContext | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
   const [contextError, setContextError] = useState("");
+  const [contextReconciliationRequired, setContextReconciliationRequired] = useState(false);
   const [contextRefresh, setContextRefresh] = useState(0);
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [editDraft, setEditDraft] = useState<WorkEditDraft | null>(null);
@@ -165,6 +248,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [editError, setEditError] = useState("");
   const [conflict, setConflict] = useState<WorkItem | null>(null);
   const recordRequest = useRef(0);
+  const lastLoadedContextRequest = useRef(0);
 
   const [checkpointPage, setCheckpointPage] = useState<Page<Checkpoint> | null>(null);
   const [checkpointOffset, setCheckpointOffset] = useState(0);
@@ -465,6 +549,17 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   }, [view]);
 
   function chooseProject(id: string) {
+    if (
+      id !== activeId
+      && activeId
+      && mutationRegistry.hasDispatchedForProject(activeId)
+    ) {
+      setNotice({
+        message: "Resolve pending mutations before switching projects. Reloading would lose the exact retry request.",
+        error: true
+      });
+      return;
+    }
     setActiveId(id);
     setOffset(0);
     setQuery("");
@@ -514,15 +609,21 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         String(form.get("verified_against") ?? ""),
         String(form.get("tags") ?? "")
       );
-      const created = await api<WorkCreation>(workItemPath(project.id), {
+      const payload: WorkCreateInput = {
+        title: String(form.get("title") ?? ""),
+        summary: String(form.get("summary") ?? ""),
+        priority: Number(form.get("priority") ?? 0),
+        status: "pending",
+        initial_checkpoint: initialCheckpoint
+      };
+      const created = await mutationRegistry.execute({
+        kind: "create_work",
+        slot: `create-work:${project.id}`,
+        projectId: project.id,
+        conflictKeys: [mutationCreateKey(project.id)],
         method: "POST",
-        body: JSON.stringify({
-          title: form.get("title"),
-          summary: form.get("summary"),
-          priority: Number(form.get("priority") ?? 0),
-          status: "pending",
-          initial_checkpoint: initialCheckpoint
-        })
+        path: workItemPath(project.id),
+        payload
       });
       setWorkDialog(false);
       setStatus("pending");
@@ -549,7 +650,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
 
   async function loadContext(
     summary: WorkSummary,
-    requestId = ++recordRequest.current
+    requestId = ++recordRequest.current,
+    preserveEditDraft = false
   ): Promise<ContextLoadResult> {
     setContextLoading(true);
     setContextError("");
@@ -557,8 +659,10 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       const full = await api<WorkContext>(`${workItemPath(summary.work_item.project_id, summary.work_item.id)}/context?recent_limit=5&recent_event_limit=10`);
       if (recordRequest.current !== requestId) return "superseded";
       setContext(full);
+      lastLoadedContextRequest.current = requestId;
+      setContextReconciliationRequired(false);
       setOpened((current) => current ? summaryWithContext(current, full) : current);
-      setEditDraft(draftFromWork(full.work_item));
+      if (!preserveEditDraft) setEditDraft(draftFromWork(full.work_item));
       return "loaded";
     } catch (error) {
       if (recordRequest.current === requestId) setContextError(errorMessage(error));
@@ -569,9 +673,22 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   }
 
   function openWork(summary: WorkSummary, editing = false) {
+    if (
+      editing
+      && mutationRegistry.blocks([
+        mutationWorkKey(summary.work_item.project_id, summary.work_item.id)
+      ])
+    ) {
+      setNotice({
+        message: "Resolve the pending mutation for this work item before editing it.",
+        error: true
+      });
+      return;
+    }
     const requestId = ++recordRequest.current;
     setOpened(summary);
     setContext(null);
+    setContextReconciliationRequired(false);
     setContextError("");
     setMode(editing ? "edit" : "view");
     setEditDraft(draftFromWork(summary.work_item));
@@ -591,19 +708,46 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
 
   function closeWork() {
     if (editSaving || checkpointSaving) return;
+    if (
+      opened
+      && mutationRegistry.blocks([
+        mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
+      ])
+    ) {
+      setNotice({
+        message: "Resolve the pending mutation before closing this work view.",
+        error: true
+      });
+      return;
+    }
     if (checkpointBody.trim() && !window.confirm("Discard your unsaved checkpoint?")) return;
     if (mode === "edit" && context && editDraft && JSON.stringify(editDraft) !== JSON.stringify(draftFromWork(context.work_item)) && !window.confirm("Discard your unsaved work-item edits?")) return;
     ++recordRequest.current;
     setOpened(null);
     setContext(null);
+    setContextReconciliationRequired(false);
     setCheckpointPage(null);
     setCheckpointBody("");
   }
 
-  async function reloadOpenContext(): Promise<boolean> {
-    if (!opened) return false;
-    const result = await loadContext(opened);
-    return result !== "failed";
+  async function reconcileContext(
+    summary: WorkSummary,
+    preserveEditDraft = false
+  ): Promise<boolean> {
+    const requestId = ++recordRequest.current;
+    setContextReconciliationRequired(true);
+    const result = await loadContext(summary, requestId, preserveEditDraft);
+    if (
+      result === "loaded"
+      || result === "superseded" && lastLoadedContextRequest.current > requestId
+    ) return true;
+    if (result === "failed") setContext(null);
+    return false;
+  }
+
+  async function reloadOpenContext(preserveEditDraft = false): Promise<boolean> {
+    const current = openedRef.current;
+    return current ? reconcileContext(current, preserveEditDraft) : false;
   }
 
   async function saveWorkEdits(event: FormEvent<HTMLFormElement>) {
@@ -629,14 +773,22 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setEditSaving(true);
     setEditError("");
     try {
-      const saved = await api<WorkItem>(workItemPath(base.project_id, base.id), { method: "PATCH", body: JSON.stringify(patch) });
+      const saved = await mutationRegistry.execute({
+        kind: "update_work",
+        slot: `update-work:${base.project_id}:${base.id}`,
+        projectId: base.project_id,
+        conflictKeys: [mutationWorkKey(base.project_id, base.id)],
+        method: "PATCH",
+        path: workItemPath(base.project_id, base.id),
+        payload: patch
+      });
       const savedSummary = { ...opened, work_item: saved };
       setContext((value) => value ? { ...value, work_item: saved } : value);
       setOpened(savedSummary);
       setEventRefresh((value) => value + 1);
       setRefresh((value) => value + 1);
-      const reconciled = await loadContext(savedSummary);
-      if (reconciled === "failed") {
+      const reconciled = await reconcileContext(savedSummary);
+      if (!reconciled) {
         const message = "The work item was saved, but its current context could not be reloaded. Retry or use Refresh before continuing.";
         setContext(null);
         setMode("view");
@@ -691,9 +843,16 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       const checkpoint = checkpointPayload(checkpointBody, checkpointBranch, checkpointCommit, checkpointTags);
       const base = workItemPath(context.work_item.project_id, context.work_item.id);
       if (complete) {
-        const result = await api<CompletionResult>(`${base}/complete`, {
+        const result = await mutationRegistry.execute({
+          kind: "complete_work",
+          slot: `complete-work:${context.work_item.project_id}:${context.work_item.id}`,
+          projectId: context.work_item.project_id,
+          conflictKeys: [
+            mutationWorkKey(context.work_item.project_id, context.work_item.id)
+          ],
           method: "POST",
-          body: JSON.stringify({ expected_version: context.work_item.version, checkpoint })
+          path: `${base}/complete`,
+          payload: { expected_version: context.work_item.version, checkpoint }
         });
         setNotice({ message: "Completion checkpoint recorded and work marked done." });
         setContext((value) => value ? {
@@ -713,9 +872,16 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           }
         } : value);
       } else {
-        await api<Checkpoint>(`${base}/checkpoints`, {
+        await mutationRegistry.execute({
+          kind: "add_checkpoint",
+          slot: `add-checkpoint:${context.work_item.project_id}:${context.work_item.id}`,
+          projectId: context.work_item.project_id,
+          conflictKeys: [
+            mutationWorkKey(context.work_item.project_id, context.work_item.id)
+          ],
           method: "POST",
-          body: JSON.stringify({ kind: checkpointKind, ...checkpoint })
+          path: `${base}/checkpoints`,
+          payload: { kind: checkpointKind, ...checkpoint }
         });
         setNotice({ message: checkpointKind === "context" ? "New current context recorded." : "Progress checkpoint recorded." });
       }
@@ -752,12 +918,18 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setDeleting(true);
     setDeleteError("");
     try {
-      await api<DeletionResult>(`${workItemPath(deleteTarget.project_id, deleteTarget.id)}/delete`, {
+      const payload: WorkDeletionInput = {
+        expected_version: deleteTarget.version,
+        actor: dashboardMutationActor(dashboardSessionId())
+      };
+      await mutationRegistry.execute({
+        kind: "delete_work",
+        slot: `delete-work:${deleteTarget.project_id}:${deleteTarget.id}`,
+        projectId: deleteTarget.project_id,
+        conflictKeys: [mutationWorkKey(deleteTarget.project_id, deleteTarget.id)],
         method: "POST",
-        body: JSON.stringify({
-          expected_version: deleteTarget.version,
-          actor: dashboardMutationActor(dashboardSessionId())
-        })
+        path: `${workItemPath(deleteTarget.project_id, deleteTarget.id)}/delete`,
+        payload
       });
       if (opened?.work_item.id === deleteTarget.id) {
         setOpened(null);
@@ -786,26 +958,44 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   async function toggleDeferral(summary: WorkSummary) {
     const work = summary.work_item;
     if (deferringId || (work.status !== "pending" && work.status !== "deferred")) return;
+    const conflictKeys = [mutationWorkKey(work.project_id, work.id)];
+    if (mutationRegistry.blocks(conflictKeys)) {
+      setNotice({
+        message: "Resolve the pending mutation for this work item before changing its queue state.",
+        error: true
+      });
+      return;
+    }
     setDeferringId(work.id);
     try {
       const actor = dashboardMutationActor(dashboardSessionId());
       if (work.status === "deferred") {
-        await api<WorkItem>(workItemPath(work.project_id, work.id), {
+        await mutationRegistry.execute({
+          kind: "update_work",
+          slot: `update-work:${work.project_id}:${work.id}`,
+          projectId: work.project_id,
+          conflictKeys,
           method: "PATCH",
-          body: JSON.stringify({
+          path: workItemPath(work.project_id, work.id),
+          payload: {
             expected_version: work.version,
             status: "pending",
             actor
-          })
+          }
         });
         setNotice({ message: `“${work.title}” is Pending and available in the work queue.` });
       } else {
-        await api<WorkItem>(`${workItemPath(work.project_id, work.id)}/defer`, {
+        await mutationRegistry.execute({
+          kind: "defer_work",
+          slot: `defer-work:${work.project_id}:${work.id}`,
+          projectId: work.project_id,
+          conflictKeys,
           method: "POST",
-          body: JSON.stringify({
+          path: `${workItemPath(work.project_id, work.id)}/defer`,
+          payload: {
             expected_version: work.version,
             actor
-          })
+          }
         });
         setNotice({ message: `“${work.title}” is Deferred and held out of the work queue.` });
       }
@@ -815,6 +1005,89 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       setNotice({ message: errorMessage(error), error: true });
     } finally {
       setDeferringId(null);
+    }
+  }
+
+  function openDeletion(item: WorkItem) {
+    if (mutationRegistry.blocks([mutationWorkKey(item.project_id, item.id)])) {
+      setNotice({
+        message: "Resolve the pending mutation for this work item before deleting it.",
+        error: true
+      });
+      return;
+    }
+    setDeleteTarget(item);
+    setDeleteError("");
+  }
+
+  async function retryMutation(intent: MutationIntentSummary) {
+    if (retryingMutation || intent.state !== "unresolved") return;
+    setRetryingMutation(intent.slot);
+    let contextReconciled = true;
+    try {
+      await mutationRegistry.retry(intent.slot);
+      setRefresh((value) => value + 1);
+      setCheckpointRefresh((value) => value + 1);
+      setEventRefresh((value) => value + 1);
+      setContextRefresh((value) => value + 1);
+      if (intent.kind === "create_work") setWorkDialog(false);
+      if (intent.kind === "delete_work") {
+        setDeleteTarget(null);
+        if (opened && intent.conflictKeys.includes(
+          mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
+        )) {
+          setOpened(null);
+          setContext(null);
+        }
+      } else if (
+        opened
+        && intent.conflictKeys.includes(
+          mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
+        )
+      ) {
+        contextReconciled = await reloadOpenContext();
+      }
+      if (intent.kind === "add_checkpoint" || intent.kind === "complete_work") {
+        setCheckpointBody("");
+        setCheckpointBranch("");
+        setCheckpointCommit("");
+        setCheckpointTags("");
+      }
+      if (intent.kind === "update_work") setMode("view");
+      if (!contextReconciled) {
+        setContext(null);
+        setNotice({
+          message: `${mutationLabels[intent.kind]} resolved from its original request, but current state could not be reloaded. Use Refresh before continuing.`,
+          error: true
+        });
+      } else {
+        setNotice({
+          message: `${mutationLabels[intent.kind]} resolved from its original request. Current views are reconciling.`
+        });
+      }
+    } catch (error) {
+      const message = errorMessage(error);
+      setRefresh((value) => value + 1);
+      if (
+        error instanceof ApiError
+        && openedRef.current
+        && intent.conflictKeys.includes(mutationWorkKey(
+          openedRef.current.work_item.project_id,
+          openedRef.current.work_item.id
+        ))
+      ) {
+        const reconciled = await reloadOpenContext(true);
+        setNotice({
+          message: reconciled
+            ? `${message} Current state was reloaded; your draft is still retained.`
+            : `${message} Current state could not be reloaded. Use Refresh before continuing.`,
+          error: true
+        });
+      } else {
+        setNotice({ message, error: true });
+      }
+    } finally {
+      setRetryingMutation("");
     }
   }
 
@@ -864,22 +1137,89 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     if (project) await copyText(project.id, "project", `Project ID copied: ${project.id}`);
   }
 
-  return <div className="app-shell">
+  const activeProjectMutationBlocked = Boolean(
+    activeId && mutationRegistry.hasDispatchedForProject(activeId)
+  );
+  const openedWorkMutationBlocked = Boolean(
+    opened && mutationRegistry.blocks([
+      mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
+    ])
+  );
+  const createWorkMutationBlocked = Boolean(
+    project && mutationRegistry.blocks([mutationCreateKey(project.id)])
+  );
+  const createDialogMutationIntents = workDialog && project
+    ? dispatchedMutationIntents.filter((intent) => (
+      intent.kind === "create_work"
+      && intent.conflictKeys.includes(mutationCreateKey(project.id))
+    ))
+    : [];
+  const deleteDialogMutationIntents = deleteTarget
+    ? dispatchedMutationIntents.filter((intent) => (
+      intent.kind === "delete_work"
+      && intent.conflictKeys.includes(
+        mutationWorkKey(deleteTarget.project_id, deleteTarget.id)
+      )
+    ))
+    : [];
+  const deleteDialogMutationSlots = new Set(
+    deleteDialogMutationIntents.map((intent) => intent.slot)
+  );
+  const openedDialogMutationIntents = opened
+    ? dispatchedMutationIntents.filter((intent) => (
+      !deleteDialogMutationSlots.has(intent.slot)
+      && intent.conflictKeys.includes(
+        mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
+      )
+    ))
+    : [];
+  const modalMutationSlots = new Set([
+    ...createDialogMutationIntents,
+    ...openedDialogMutationIntents,
+    ...deleteDialogMutationIntents
+  ].map((intent) => intent.slot));
+  const globalMutationIntents = dispatchedMutationIntents.filter(
+    (intent) => !modalMutationSlots.has(intent.slot)
+  );
+  const modalRecovery = (intents: readonly MutationIntentSummary[]) => (
+    intents.length
+      ? <MutationRecoveryPanel
+        intents={intents}
+        retryingMutation={retryingMutation}
+        onRetry={(intent) => void retryMutation(intent)}
+        modal
+      />
+      : undefined
+  );
+
+  return <MutationIntentProvider registry={mutationRegistry}><div className="app-shell">
     <a className="skip-link" href="#main-content">{view === "settings" ? "Skip to project settings" : "Skip to work items"}</a>
     <aside className="sidebar">
-      <a href="/" className="brand" aria-label="Mnemonic home"><Logo /><span>mnemonic<span className="brand-period">.</span></span></a>
+      <a href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={(event) => {
+        if (!activeProjectMutationBlocked) return;
+        event.preventDefault();
+        setNotice({ message: "Resolve pending mutations before leaving this dashboard document.", error: true });
+      }}><Logo /><span>mnemonic<span className="brand-period">.</span></span></a>
       <div className="workspace-picker">
         <label className="section-label" htmlFor="project-select">YOUR WORKSPACE</label>
-        <div className="select-wrap"><select id="project-select" value={activeId} disabled={projectsLoading || !projects.length} onChange={(event) => chooseProject(event.target.value)}>
+        <div className="select-wrap"><select id="project-select" value={activeId} disabled={projectsLoading || !projects.length || activeProjectMutationBlocked} onChange={(event) => chooseProject(event.target.value)}>
           {!projects.length && <option value="">{projectsLoading ? "Loading projects…" : "Select a project"}</option>}
           {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select><span className="select-chevron" aria-hidden="true">⌄</span></div>
-        <button className="new-project-button" type="button" disabled={projectsLoading} onClick={() => { setNewProjectError(""); setProjectDialog(true); }}><Icon name="plus" size={15} />New project</button>
+        <button className="new-project-button" type="button" disabled={projectsLoading || activeProjectMutationBlocked} onClick={() => { setNewProjectError(""); setProjectDialog(true); }}><Icon name="plus" size={15} />New project</button>
         {project && <button className="copy-project-button" type="button" title={`Project ID: ${project.id}`} onClick={() => void copyProjectId()}><Icon name="copy" size={13} />Copy project ID for your agent</button>}
       </div>
       <nav aria-label="Workspace navigation">
-        <a className={`nav-item ${view === "library" ? "active" : ""}`} href="/" aria-current={view === "library" ? "page" : undefined}><Icon name="library" /><span>Work library</span><Icon name="arrow" size={15} /></a>
-        <a className={`nav-item ${view === "settings" ? "active" : ""}`} href="/settings" aria-current={view === "settings" ? "page" : undefined}><Icon name="settings" /><span>Project settings</span><Icon name="arrow" size={15} /></a>
+        <a className={`nav-item ${view === "library" ? "active" : ""}`} href="/" aria-current={view === "library" ? "page" : undefined} onClick={(event) => {
+          if (!activeProjectMutationBlocked) return;
+          event.preventDefault();
+          setNotice({ message: "Resolve pending mutations before leaving this dashboard document.", error: true });
+        }}><Icon name="library" /><span>Work library</span><Icon name="arrow" size={15} /></a>
+        <a className={`nav-item ${view === "settings" ? "active" : ""}`} href="/settings" aria-current={view === "settings" ? "page" : undefined} onClick={(event) => {
+          if (!activeProjectMutationBlocked) return;
+          event.preventDefault();
+          setNotice({ message: "Resolve pending mutations before leaving this dashboard document.", error: true });
+        }}><Icon name="settings" /><span>Project settings</span><Icon name="arrow" size={15} /></a>
       </nav>
       <div className="sidebar-note"><img className="note-art" src="/img/robot.svg" alt="" width={115} height={115} aria-hidden="true" /><h2>Keep your agents on the same page.</h2><p>Work units are reserved and nothing is forgotten.</p></div>
       <div className="sidebar-footer"><span className="local-dot" /><span>Local workspace</span><span className="mvp-label">WORK GRAPH</span></div>
@@ -903,7 +1243,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
               onNotice={(message, error) => setNotice({ message, error })}
             />}
         </> : <>
-          <section className="page-heading"><div><div className="eyebrow">DURABLE WORK FOR TEMPORARY SESSIONS</div><h1>Work library<span>.</span></h1><p>{project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setRefresh((value) => value + 1); setCheckpointRefresh((value) => value + 1); setEventRefresh((value) => value + 1); setContextRefresh((value) => value + 1); }}>Refresh</button>{project && <button className="button button-primary" type="button" onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
+          <section className="page-heading"><div><div className="eyebrow">DURABLE WORK FOR TEMPORARY SESSIONS</div><h1>Work library<span>.</span></h1><p>{project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setRefresh((value) => value + 1); setCheckpointRefresh((value) => value + 1); setEventRefresh((value) => value + 1); setContextRefresh((value) => value + 1); }}>Refresh</button>{project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
 
           {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
             projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
@@ -932,7 +1272,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 onCreate={() => setWorkDialog(true)}
                 onOpen={(item) => openWork(item)}
                 onEdit={(item) => openWork(item, true)}
-                onDelete={(item) => { setDeleteTarget(item.work_item); setDeleteError(""); }}
+                onDelete={(item) => openDeletion(item.work_item)}
                 onDefer={(item) => void toggleDeferral(item)}
                 onCopyPointer={(item) => void copyRecallPointer(item)}
                 onOffset={setOffset}
@@ -941,6 +1281,12 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         </>}
       </div>
     </main>
+
+    <MutationRecoveryPanel
+      intents={globalMutationIntents}
+      retryingMutation={retryingMutation}
+      onRetry={(intent) => void retryMutation(intent)}
+    />
 
     {notice && <div className={`toast ${notice.error ? "toast-error" : ""}`} role={notice.error ? "alert" : "status"}><Icon name={notice.error ? "close" : "check"} size={18} /><span>{notice.message}</span><button className="icon-button" aria-label="Dismiss notification" onClick={() => setNotice(null)}><Icon name="close" size={16} /></button></div>}
 
@@ -953,19 +1299,21 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={projectSaving} onClick={() => setProjectDialog(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={projectSaving}>{projectSaving ? "Creating…" : "Create project"}</button></div>
     </form></Dialog>}
 
-    {workDialog && project && <Dialog title="Create durable work" onClose={() => { if (!workSaving) setWorkDialog(false); }} wide busy={workSaving}><form className="form-stack" onSubmit={(event) => void createWork(event)}>
+    {workDialog && project && <Dialog title="Create durable work" onClose={() => { if (!workSaving && !createWorkMutationBlocked) setWorkDialog(false); }} recovery={modalRecovery(createDialogMutationIntents)} wide busy={workSaving || createWorkMutationBlocked}><form className="form-stack" onSubmit={(event) => void createWork(event)}>
       <p className="dialog-intro">The objective remains editable. Its initial checkpoint is immutable and attributed to this dashboard session.</p>
-      <label className="field">Title<input name="title" required maxLength={200} autoFocus placeholder="What durable objective should survive this session?" /></label>
-      <label className="field">Summary<textarea name="summary" required rows={3} maxLength={1000} placeholder="When is this work relevant?" /></label>
-      <label className="field field-half">Priority<input name="priority" type="number" min={0} max={100} defaultValue={0} /></label>
-      <label className="field">Initial context checkpoint<textarea className="prompt-editor" name="prompt" required rows={14} maxLength={100000} spellCheck={false} placeholder="Context, intended outcome, references, hazards, and verification…" /><span className="field-hint">Saved exactly as entered. Corrections become new checkpoints.</span></label>
-      <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input name="repository_branch" maxLength={200} /></label><label className="field">Verified commit<input name="verified_against" className="mono" maxLength={64} /></label><label className="field">Tags <span className="optional">Comma separated</span><input name="tags" /></label></div></details>
+      <label className="field">Title<input name="title" required disabled={createWorkMutationBlocked} maxLength={200} autoFocus placeholder="What durable objective should survive this session?" /></label>
+      <label className="field">Summary<textarea name="summary" required disabled={createWorkMutationBlocked} rows={3} maxLength={1000} placeholder="When is this work relevant?" /></label>
+      <label className="field field-half">Priority<input name="priority" type="number" disabled={createWorkMutationBlocked} min={0} max={100} defaultValue={0} /></label>
+      <label className="field">Initial context checkpoint<textarea className="prompt-editor" name="prompt" required disabled={createWorkMutationBlocked} rows={14} maxLength={100000} spellCheck={false} placeholder="Context, intended outcome, references, hazards, and verification…" /><span className="field-hint">Saved exactly as entered. Corrections become new checkpoints.</span></label>
+      <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input name="repository_branch" disabled={createWorkMutationBlocked} maxLength={200} /></label><label className="field">Verified commit<input name="verified_against" disabled={createWorkMutationBlocked} className="mono" maxLength={64} /></label><label className="field">Tags <span className="optional">Comma separated</span><input name="tags" disabled={createWorkMutationBlocked} /></label></div></details>
       {newWorkError && <ErrorNotice message={newWorkError} />}
-      <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={workSaving} onClick={() => setWorkDialog(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={workSaving}>{workSaving ? "Creating…" : "Create work and checkpoint"}</button></div>
+      <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={workSaving || createWorkMutationBlocked} onClick={() => setWorkDialog(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={workSaving || createWorkMutationBlocked}>{workSaving ? "Creating…" : "Create work and checkpoint"}</button></div>
     </form></Dialog>}
 
-    {opened && <Dialog title={mode === "edit" ? "Edit work item" : "Work context"} onClose={closeWork} wide busy={editSaving || checkpointSaving}>
-      {contextLoading && !context ? <div className="loading-state" role="status"><span className="spinner" />Recalling work context…</div> :
+    {opened && <Dialog title={mode === "edit" ? "Edit work item" : "Work context"} onClose={closeWork} recovery={modalRecovery(openedDialogMutationIntents)} wide busy={editSaving || checkpointSaving || openedWorkMutationBlocked}>
+      {contextReconciliationRequired && contextLoading ? <div className="loading-state" role="status"><span className="spinner" />Reconciling saved work context…</div> :
+        contextReconciliationRequired ? <ErrorNotice message={contextError || "The saved mutation could not be reconciled with current work context."}><button className="button button-secondary" onClick={() => void loadContext(opened)}>Try again</button></ErrorNotice> :
+        contextLoading && !context ? <div className="loading-state" role="status"><span className="spinner" />Recalling work context…</div> :
         contextError && !context ? <ErrorNotice message={contextError}><button className="button button-secondary" onClick={() => void loadContext(opened)}>Try again</button></ErrorNotice> :
         context && <>
           {contextError && <ErrorNotice message={contextError}><button className="button button-secondary" onClick={() => void loadContext(opened)}>Try again</button></ErrorNotice>}
@@ -975,6 +1323,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           mode={mode}
           editDraft={editDraft}
           editSaving={editSaving}
+          mutationBlocked={openedWorkMutationBlocked}
           editError={editError}
           conflict={conflict}
           copiedKey={copied}
@@ -992,11 +1341,17 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           eventRefreshSignal={eventRefresh}
           setEditDraft={(updater) => setEditDraft((draft) => draft ? updater(draft) : draft)}
           onSaveEdits={(event) => void saveWorkEdits(event)}
-          onCancelEdit={() => { setMode("view"); setEditDraft(draftFromWork(context.work_item)); setEditError(""); setConflict(null); }}
+          onCancelEdit={() => {
+            if (openedWorkMutationBlocked) return;
+            setMode("view");
+            setEditDraft(draftFromWork(context.work_item));
+            setEditError("");
+            setConflict(null);
+          }}
           onLoadCurrent={() => void loadLatestWork()}
           onUseCurrentVersion={useCurrentVersion}
           onEdit={() => { setEditDraft(draftFromWork(context.work_item)); setEditError(""); setConflict(null); setMode("edit"); }}
-          onDelete={() => { setDeleteTarget(context.work_item); setDeleteError(""); }}
+          onDelete={() => openDeletion(context.work_item)}
           onCopy={(value, key, success) => void copyText(value, key, success)}
           onCopyPointer={(item) => void copyRecallPointer(item)}
           onCheckpointKind={setCheckpointKind}
@@ -1014,18 +1369,25 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           }}
           onCheckpointOffset={setCheckpointOffset}
           onReloadCheckpoints={() => setCheckpointRefresh((value) => value + 1)}
-          onEventAppended={() => {
-            setContextRefresh((value) => value + 1);
+          onEventAppended={async () => {
             setRefresh((value) => value + 1);
+            const reconciled = await reloadOpenContext();
+            if (!reconciled) {
+              setNotice({
+                message: "Progress was saved, but current work context could not be reloaded. Use Refresh before continuing.",
+                error: true
+              });
+            }
+            return reconciled;
           }}
         /></>}
     </Dialog>}
 
-    {deleteTarget && <Dialog title="Delete this work item?" onClose={() => { if (!deleting) setDeleteTarget(null); }} busy={deleting}>
+    {deleteTarget && <Dialog title="Delete this work item?" onClose={() => { if (!deleting && !mutationRegistry.blocks([mutationWorkKey(deleteTarget.project_id, deleteTarget.id)])) setDeleteTarget(null); }} recovery={modalRecovery(deleteDialogMutationIntents)} busy={deleting || mutationRegistry.blocks([mutationWorkKey(deleteTarget.project_id, deleteTarget.id)])}>
       <p className="dialog-intro">This hides the objective and all checkpoints from ordinary reads. Immutable history remains recoverable in the database.</p>
       <div className="delete-preview"><StatusBadge status={deleteTarget.status} /><h3>{deleteTarget.title}</h3><p>{deleteTarget.summary}</p><span>Version {deleteTarget.version} · {formatDate(deleteTarget.updated_at)}</span></div>
       {deleteError && <ErrorNotice message={deleteError} />}
-      <div className="dialog-actions"><button className="button button-secondary" disabled={deleting} onClick={() => setDeleteTarget(null)}>Keep work item</button><button className="button button-danger" disabled={deleting} onClick={() => void deleteWork()}>{deleting ? "Working…" : "Delete work item"}</button></div>
+      <div className="dialog-actions"><button className="button button-secondary" disabled={deleting || mutationRegistry.blocks([mutationWorkKey(deleteTarget.project_id, deleteTarget.id)])} onClick={() => setDeleteTarget(null)}>Keep work item</button><button className="button button-danger" disabled={deleting || mutationRegistry.blocks([mutationWorkKey(deleteTarget.project_id, deleteTarget.id)])} onClick={() => void deleteWork()}>{deleting ? "Working…" : "Delete work item"}</button></div>
     </Dialog>}
-  </div>;
+  </div></MutationIntentProvider>;
 }

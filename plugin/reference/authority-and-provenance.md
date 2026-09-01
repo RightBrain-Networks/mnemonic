@@ -36,6 +36,44 @@ prompt and `source_metadata`.
 Never store credentials, lease tokens, unnecessary transcript dumps, private
 chain-of-thought, or personal information in checkpoints or metadata.
 
+## Retain protected mutation intents privately
+
+These nine canonical mutations require a caller-generated
+`client_operation_id`: `create_work`, `add_checkpoint`, `append_event`,
+`add_relationship`, `update_work`, `complete_work`, `delete_work`,
+`remove_relationship`, and `release_claim`.
+
+Before the first attempt, generate one fresh UUID and retain it together with
+the complete tool name and complete immutable argument object in secure,
+client-local orchestration state. The retained arguments include every target,
+provenance field, explicit or defaulted value, metadata object, expected
+version, and any lease token. Make one tool call per attempt. A retry after a
+timeout, disconnect, malformed success, backend `5xx`, or
+`client_operation_unavailable` must reuse that UUID and the exact same tool
+arguments. Never rebuild the arguments from mutable drafts under an old UUID.
+
+Changing any argument or beginning a genuinely new intent requires a new UUID.
+A `client_operation_conflict` on an asserted exact retry is a caller-safety
+incident: retain the blocked intent, do not substitute another UUID, stop, and
+request direction. If either the UUID or any part of the exact argument object
+is lost across an agent, host, session, adapter, or process restart, exact MCP
+recovery is unavailable. Inspect current state only where safe and request
+direction; neither search nor a new UUID can prove that a retry is safe.
+
+The UUID is private retry-control data, not provenance or durable work content.
+Never copy it or the pending argument object into Mnemonic work text,
+checkpoint prompts/source metadata, event body/metadata, relationship context,
+tool output, chat, logs, traces, URLs, or shell history. Secure orchestration
+state may hold sensitive arguments such as checkpoint text and release tokens
+only for the recovery lifetime. After any successful original or replayed
+result, read the affected work or relationship again when current state matters:
+the returned result is the historical snapshot from the first success.
+
+This durable mutation workflow is separate from lease acquisition.
+`claim_work` and `claim_and_recall` use `claim_request_id` only while the same
+retained lease remains active; `renew_claim` is time-relative and not
+idempotent. Never rename, exchange, or infer one identifier from the other.
+
 
 Mutation `actor_client`, `actor_session_id`, and optional `actor_model` fields
 follow the same truthful-source rule. They are client-asserted provenance, not

@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     REAL,
     BigInteger,
+    Boolean,
     CheckConstraint,
     Computed,
     DateTime,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     Identity,
     Index,
     Integer,
+    LargeBinary,
     MetaData,
     SmallInteger,
     String,
@@ -72,6 +74,76 @@ class ProjectSettings(Base):
         ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
     )
     recall_pointer_template: Mapped[str] = mapped_column(Text)
+
+
+class ClientOperation(Base):
+    """Private durable receipt for one project-scoped client mutation."""
+
+    __tablename__ = "client_operations"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "client_operation_id",
+            name="uq_client_operations_scope",
+        ),
+        CheckConstraint(
+            "operation_kind IN ('create_work', 'add_checkpoint', 'append_event', "
+            "'add_relationship', 'update_work', 'defer_work', 'complete_work', "
+            "'delete_work', 'remove_relationship', 'release_claim')",
+            name="operation_kind_valid",
+        ),
+        CheckConstraint(
+            "request_fingerprint_version = 1",
+            name="request_fingerprint_version_valid",
+        ),
+        CheckConstraint(
+            "octet_length(request_fingerprint_salt) = 32",
+            name="request_fingerprint_salt_length",
+        ),
+        CheckConstraint(
+            "octet_length(request_fingerprint) = 32",
+            name="request_fingerprint_length",
+        ),
+        CheckConstraint(
+            "response_contract_version = 1",
+            name="response_contract_version_valid",
+        ),
+        CheckConstraint("state IN ('pending', 'completed')", name="state_valid"),
+        CheckConstraint(
+            "(state = 'pending' AND response_status IS NULL AND response_body IS NULL "
+            "AND mutation_applied IS NULL AND completed_at IS NULL) OR "
+            "(state = 'completed' AND response_status BETWEEN 200 AND 299 "
+            "AND response_body IS NOT NULL AND jsonb_typeof(response_body) = 'object' "
+            "AND octet_length(response_body::text) <= 1048576 "
+            "AND mutation_applied IS NOT NULL AND completed_at IS NOT NULL)",
+            name="state_fields_valid",
+        ),
+        CheckConstraint(
+            "completed_at IS NULL OR completed_at >= created_at",
+            name="timestamp_order",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    project_id: Mapped[UUID] = mapped_column()
+    client_operation_id: Mapped[UUID] = mapped_column()
+    operation_kind: Mapped[str] = mapped_column(String(40))
+    request_fingerprint_version: Mapped[int] = mapped_column(
+        SmallInteger, default=1, server_default="1"
+    )
+    request_fingerprint_salt: Mapped[bytes] = mapped_column(LargeBinary)
+    request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary)
+    response_contract_version: Mapped[int] = mapped_column(
+        SmallInteger, default=1, server_default="1"
+    )
+    state: Mapped[str] = mapped_column(String(16), default="pending", server_default="pending")
+    response_status: Mapped[int | None] = mapped_column(SmallInteger)
+    response_body: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    mutation_applied: Mapped[bool | None] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class WorkItem(Base):
@@ -459,6 +531,11 @@ class WorkEvent(Base):
             "relationship_context_checkpoint_work_item_id, "
             "relationship_context_checkpoint_id, metadata_version, metadata)",
             name="metadata_v1_valid",
+        ),
+        CheckConstraint(
+            "event_type <> 'progress' OR "
+            "mnemonic_phase6_progress_metadata_is_valid(metadata)",
+            name="client_operation_id_reserved",
         ),
         CheckConstraint(
             "origin IN ('live', 'backfill')",

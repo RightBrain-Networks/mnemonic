@@ -15,7 +15,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from .api import UNKNOWN_APPEND_OUTCOME, MnemonicAPI
+from .api import UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME, MnemonicAPI
 from .config import Settings
 from .models import (
     AppendCheckpointKind,
@@ -128,20 +128,17 @@ ProgressBodyInput = Annotated[
 READ = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
-CREATE = ToolAnnotations(
+MUTATE = ToolAnnotations(
     readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
 )
-EDIT = ToolAnnotations(
+IDEMPOTENT_MUTATE = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+)
+DESTRUCTIVE_MUTATE = ToolAnnotations(
     readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False
 )
-DELETE = ToolAnnotations(
+IDEMPOTENT_DESTRUCTIVE_MUTATE = ToolAnnotations(
     readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=False
-)
-RELEASE = ToolAnnotations(
-    readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
-)
-LINK = ToolAnnotations(
-    readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
 
 INSTRUCTIONS = (
@@ -158,8 +155,255 @@ INSTRUCTIONS = (
 
 _EMPTY_PROGRESS_METADATA: ProgressMetadataInput = {}
 
+
+def _normalized_optional_text(value: str | None) -> str | None:
+    return value.strip() if value is not None else None
+
+
+def _checkpoint_matches_request(
+    response: CheckpointRead,
+    checkpoint: CheckpointInput,
+    work_item_id: UUID,
+    kind: str,
+) -> bool:
+    expected = checkpoint.model_dump(mode="json")
+    expected.update(
+        {
+            "source_client": checkpoint.source_client.strip(),
+            "source_session_id": checkpoint.source_session_id.strip(),
+            "source_model": _normalized_optional_text(checkpoint.source_model),
+            "source_session_url": _normalized_optional_text(
+                checkpoint.source_session_url
+            ),
+            "repository_branch": _normalized_optional_text(
+                checkpoint.repository_branch
+            ),
+            "verified_against": (
+                checkpoint.verified_against.strip().lower()
+                if checkpoint.verified_against is not None
+                else None
+            ),
+            "tags": list(
+                dict.fromkeys(tag.strip().lower() for tag in checkpoint.tags)
+            ),
+        }
+    )
+    actual = response.model_dump(mode="json")
+    return (
+        response.work_item_id == work_item_id
+        and response.kind == kind
+        and response.migration_origin is None
+        and response.legacy_record_id is None
+        and all(actual[field] == value for field, value in expected.items())
+    )
+
+
+def _normalized_relationship_endpoints(
+    relationship_type: RelationshipType,
+    source_work_item_id: UUID,
+    target_work_item_id: UUID,
+) -> tuple[UUID, UUID]:
+    if relationship_type == "related" and target_work_item_id < source_work_item_id:
+        return target_work_item_id, source_work_item_id
+    return source_work_item_id, target_work_item_id
+
+
+def _relationship_matches_request(
+    result: RelationshipCreationResult,
+    *,
+    project_id: UUID,
+    source_work_item_id: UUID,
+    target_work_item_id: UUID,
+    relationship_type: RelationshipType,
+    created_by_client: str,
+    created_by_session_id: str,
+    created_by_model: str | None,
+    context_checkpoint_id: UUID | None,
+) -> bool:
+    response = result.relationship
+    source_work_item_id, target_work_item_id = _normalized_relationship_endpoints(
+        relationship_type, source_work_item_id, target_work_item_id
+    )
+    return (
+        response.project_id == project_id
+        and response.source_work_item_id == source_work_item_id
+        and response.target_work_item_id == target_work_item_id
+        and response.relationship_type == relationship_type
+        and (
+            not result.created
+            or (
+                response.created_by_client == created_by_client.strip()
+                and response.created_by_session_id == created_by_session_id.strip()
+                and response.created_by_model
+                == _normalized_optional_text(created_by_model)
+                and response.context_checkpoint_id == context_checkpoint_id
+            )
+        )
+    )
+
+
+def _creation_matches_request(
+    response: WorkCreation,
+    *,
+    project_id: UUID,
+    title: str,
+    summary: str,
+    priority: int,
+    status: UpdateStatus,
+    initial_checkpoint: CheckpointInput,
+    initial_relationships: list[InitialRelationshipInput] | None,
+) -> bool:
+    work_item = response.work_item
+    checkpoint = response.initial_checkpoint
+    ordered_relationships = sorted(
+        initial_relationships or [],
+        key=lambda item: (
+            item.type,
+            "outgoing" if item.type == "related" else item.direction,
+            str(item.other_work_item_id),
+            str(item.context_checkpoint_id or ""),
+        ),
+    )
+    requested_relationships: list[
+        tuple[InitialRelationshipInput, UUID, UUID]
+    ] = []
+    seen_relationships: set[tuple[RelationshipType, UUID, UUID]] = set()
+    for requested in ordered_relationships:
+        raw_source_id, raw_target_id = (
+            (work_item.id, requested.other_work_item_id)
+            if requested.direction == "outgoing"
+            else (requested.other_work_item_id, work_item.id)
+        )
+        source_id, target_id = _normalized_relationship_endpoints(
+            requested.type, raw_source_id, raw_target_id
+        )
+        identity = (requested.type, source_id, target_id)
+        if identity not in seen_relationships:
+            requested_relationships.append((requested, source_id, target_id))
+            seen_relationships.add(identity)
+    if (
+        work_item.project_id != project_id
+        or work_item.title != title.strip()
+        or work_item.summary != summary.strip()
+        or work_item.priority != priority
+        or work_item.status != status
+        or work_item.version != 1
+        or work_item.initial_checkpoint_id != checkpoint.id
+        or not _checkpoint_matches_request(
+            checkpoint, initial_checkpoint, work_item.id, "context"
+        )
+        or len(response.initial_relationships) != len(requested_relationships)
+    ):
+        return False
+
+    for actual, (requested, source_id, target_id) in zip(
+        response.initial_relationships, requested_relationships, strict=True
+    ):
+        if (
+            actual.project_id != project_id
+            or actual.source_work_item_id != source_id
+            or actual.target_work_item_id != target_id
+            or actual.relationship_type != requested.type
+            or actual.context_checkpoint_id != requested.context_checkpoint_id
+            or actual.created_by_client != initial_checkpoint.source_client.strip()
+            or actual.created_by_session_id
+            != initial_checkpoint.source_session_id.strip()
+            or actual.created_by_model
+            != _normalized_optional_text(initial_checkpoint.source_model)
+        ):
+            return False
+    return True
+
+
+def _event_matches_append_request(
+    event: WorkEventRead,
+    *,
+    project_id: UUID,
+    work_item_id: UUID,
+    body: str,
+    metadata: ProgressMetadataInput,
+    actor_client: str,
+    actor_session_id: str,
+    actor_model: str | None,
+) -> bool:
+    return (
+        event.project_id == project_id
+        and event.work_item_id == work_item_id
+        and event.event_type == "progress"
+        and event.origin == "live"
+        and event.actor_kind == "client"
+        and event.actor_client == actor_client.strip()
+        and event.actor_session_id == actor_session_id.strip()
+        and event.actor_model == _normalized_optional_text(actor_model)
+        and event.body == body
+        and event.model_dump(mode="json")["metadata"] == metadata
+    )
+
+
+def _updated_work_matches_request(
+    response: WorkItemRead,
+    *,
+    project_id: UUID,
+    work_item_id: UUID,
+    expected_version: int,
+    changes: WorkChanges,
+) -> bool:
+    if (
+        response.project_id != project_id
+        or response.id != work_item_id
+        or response.version != expected_version + 1
+    ):
+        return False
+    expected = changes.model_dump(mode="json", exclude_unset=True)
+    if "title" in expected:
+        expected["title"] = cast(str, expected["title"]).strip()
+    if "summary" in expected:
+        expected["summary"] = cast(str, expected["summary"]).strip()
+    return all(getattr(response, field) == value for field, value in expected.items())
+
+
+def _completion_matches_request(
+    response: WorkCompletion,
+    *,
+    project_id: UUID,
+    work_item_id: UUID,
+    expected_version: int,
+    checkpoint: CheckpointInput,
+) -> bool:
+    return (
+        response.work_item.project_id == project_id
+        and response.work_item.id == work_item_id
+        and response.work_item.version == expected_version + 1
+        and response.work_item.status == "done"
+        and _checkpoint_matches_request(
+            response.checkpoint, checkpoint, work_item_id, "completion"
+        )
+    )
+
+
+def _deletion_matches_request(
+    response: WorkDeletionResult,
+    *,
+    project_id: UUID,
+    work_item_id: UUID,
+    expected_version: int,
+) -> bool:
+    return (
+        response.deleted is True
+        and response.project_id == project_id
+        and response.work_item_id == work_item_id
+        and response.version == expected_version + 1
+    )
+
 def _checkpoint_payload(checkpoint: CheckpointInput) -> dict[str, object]:
     return checkpoint.model_dump(mode="json")
+
+
+def _client_operation_payload(
+    client_operation_id: UUID, payload: dict[str, object]
+) -> dict[str, object]:
+    """Place a caller-retained operation UUID at the top-level REST boundary."""
+    return {"client_operation_id": str(client_operation_id), **payload}
 
 
 def _lease_capable_payload(
@@ -199,7 +443,9 @@ def _ensure_event_scope(
         or event.work_item_id != work_item_id
         or (append and event.event_type != "progress")
     ):
-        raise ToolError(UNKNOWN_APPEND_OUTCOME if append else _UNEXPECTED_EVENT_SCOPE)
+        raise ToolError(
+            UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME if append else _UNEXPECTED_EVENT_SCOPE
+        )
     return event
 
 
@@ -245,7 +491,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
             ),
         )
 
-    @server.tool(annotations=CREATE)
+    @server.tool(annotations=MUTATE)
     async def create_project(
         name: Annotated[str, Field(min_length=1, max_length=120)],
         slug: Annotated[str | None, Field(max_length=100)] = None,
@@ -268,26 +514,30 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
             ),
         )
 
-    @server.tool(annotations=CREATE)
+    @server.tool(annotations=IDEMPOTENT_MUTATE)
     async def create_work(
         project_id: UUID,
         title: Annotated[str, Field(min_length=1, max_length=200)],
         summary: Annotated[str, Field(min_length=1, max_length=1000)],
         initial_checkpoint: CheckpointInput,
+        client_operation_id: UUID,
         priority: Annotated[int, Field(ge=0, le=100)] = 0,
         status: UpdateStatus = "pending",
         initial_relationships: Annotated[
             list[InitialRelationshipInput] | None, Field(max_length=10)
         ] = None,
     ) -> WorkCreation:
-        """Create work, initial context, and up to ten requested relationships atomically. Search first to avoid duplicates. source_session_id must be the real client session ID, never a transport identity, and never invent a verified commit. Use initial_relationships when the new item and its discovery or decomposition links must land together; discovered-from requires a context checkpoint on the originating target."""
-        payload: dict[str, object] = {
-            "title": title,
-            "summary": summary,
-            "priority": priority,
-            "status": status,
-            "initial_checkpoint": _checkpoint_payload(initial_checkpoint),
-        }
+        """Create work, initial context, and up to ten requested relationships atomically. Search first to avoid duplicates. source_session_id must be the real client session ID, never a transport identity, and never invent a verified commit. Use initial_relationships when the new item and its discovery or decomposition links must land together; discovered-from requires a context checkpoint on the originating target. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
+        payload = _client_operation_payload(
+            client_operation_id,
+            {
+                "title": title,
+                "summary": summary,
+                "priority": priority,
+                "status": status,
+                "initial_checkpoint": _checkpoint_payload(initial_checkpoint),
+            },
+        )
         if initial_relationships is not None:
             payload["initial_relationships"] = [
                 relationship.model_dump(mode="json")
@@ -301,6 +551,18 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
                 f"projects/{project_id}/work-items",
                 payload=payload,
                 response_model=WorkCreation,
+                idempotent_mutation=True,
+                expected_status_code=201,
+                response_validator=lambda result: _creation_matches_request(
+                    cast(WorkCreation, result),
+                    project_id=project_id,
+                    title=title,
+                    summary=summary,
+                    priority=priority,
+                    status=status,
+                    initial_checkpoint=initial_checkpoint,
+                    initial_relationships=initial_relationships,
+                ),
             ),
         )
 
@@ -402,24 +664,33 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         """Read durable work identity, lifecycle, priority, timestamps, and version without checkpoint bodies."""
         return await fetch_work(project_id, work_item_id)
 
-    @server.tool(annotations=CREATE)
+    @server.tool(annotations=IDEMPOTENT_MUTATE)
     async def add_checkpoint(
         project_id: UUID,
         work_item_id: UUID,
         checkpoint: CheckpointInput,
+        client_operation_id: UUID,
         kind: AppendCheckpointKind = "context",
         lease_token: LeaseTokenInput | None = None,
     ) -> CheckpointRead:
-        """Append immutable context or progress with truthful current-session provenance; source_session_id must be the real client session ID, never a transport identity. A lease is not required; when supplied, its token is validated rather than ignored. Corrections are new context checkpoints, never a rewrite of an earlier one; completion uses complete_work. Never store lease tokens, credentials, or private chain-of-thought."""
+        """Append immutable context or progress with truthful current-session provenance; source_session_id must be the real client session ID, never a transport identity. A lease is not required; when supplied, its token is validated rather than ignored. Corrections are new context checkpoints, never a rewrite of an earlier one; completion uses complete_work. Never store lease tokens, credentials, or private chain-of-thought. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
         return cast(
             CheckpointRead,
             await api.request(
                 "POST",
                 f"projects/{project_id}/work-items/{work_item_id}/checkpoints",
-                payload=_lease_capable_payload(
-                    {"kind": kind, **_checkpoint_payload(checkpoint)}, lease_token
+                payload=_client_operation_payload(
+                    client_operation_id,
+                    _lease_capable_payload(
+                        {"kind": kind, **_checkpoint_payload(checkpoint)}, lease_token
+                    ),
                 ),
                 response_model=CheckpointRead,
+                idempotent_mutation=True,
+                expected_status_code=201,
+                response_validator=lambda result: _checkpoint_matches_request(
+                    cast(CheckpointRead, result), checkpoint, work_item_id, kind
+                ),
             ),
         )
 
@@ -455,31 +726,47 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         )
 
 
-    @server.tool(annotations=CREATE)
+    @server.tool(annotations=IDEMPOTENT_MUTATE)
     async def append_event(
         project_id: UUID,
         work_item_id: UUID,
         body: ProgressBodyInput,
         actor_client: ActorClientInput,
         actor_session_id: ActorSessionInput,
+        client_operation_id: UUID,
         actor_model: ActorModelInput | None = None,
         metadata: ProgressMetadataInput = _EMPTY_PROGRESS_METADATA,
     ) -> WorkEventRead:
-        """Append one concise progress fact with truthful current-session provenance; use add_checkpoint instead when a future session needs resume context. This is not idempotent before Phase 6: after an unknown outcome, do not retry automatically—inspect list_work_events first. Never store credentials, lease tokens, private chain-of-thought, or transcript dumps. Reserved secret-like keys and request-known secret echoes are rejected, but accepted opaque text may still contain unrecognized sensitive content and is returned exactly to authorized history readers."""
+        """Append one concise progress fact with truthful current-session provenance; use add_checkpoint instead when a future session needs resume context. Never store credentials, lease tokens, operation IDs, private chain-of-thought, or transcript dumps. Reserved secret-like keys and request-known secret echoes are rejected, but accepted opaque text may still contain unrecognized sensitive content and is returned exactly to authorized history readers. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
         event = cast(
             WorkEventRead,
             await api.request(
                 "POST",
                 f"projects/{project_id}/work-items/{work_item_id}/events",
-                payload={
-                    "event_type": "progress",
-                    "body": body,
-                    "metadata": metadata,
-                    "actor": _actor_payload(
-                        actor_client, actor_session_id, actor_model
-                    ),
-                },
+                payload=_client_operation_payload(
+                    client_operation_id,
+                    {
+                        "event_type": "progress",
+                        "body": body,
+                        "metadata": metadata,
+                        "actor": _actor_payload(
+                            actor_client, actor_session_id, actor_model
+                        ),
+                    },
+                ),
                 response_model=WorkEventRead,
+                idempotent_mutation=True,
+                expected_status_code=201,
+                response_validator=lambda result: _event_matches_append_request(
+                    cast(WorkEventRead, result),
+                    project_id=project_id,
+                    work_item_id=work_item_id,
+                    body=body,
+                    metadata=metadata,
+                    actor_client=actor_client,
+                    actor_session_id=actor_session_id,
+                    actor_model=actor_model,
+                ),
             ),
         )
         return _ensure_event_scope(event, project_id, work_item_id, append=True)
@@ -511,7 +798,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         )
         return _ensure_event_page_scope(page, project_id, work_item_id)
 
-    @server.tool(annotations=CREATE)
+    @server.tool(annotations=MUTATE)
     async def claim_work(
         project_id: UUID,
         work_item_id: UUID,
@@ -534,7 +821,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
             ),
         )
 
-    @server.tool(annotations=CREATE)
+    @server.tool(annotations=MUTATE)
     async def claim_and_recall(
         project_id: UUID,
         work_item_id: UUID,
@@ -557,7 +844,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
             ),
         )
 
-    @server.tool(annotations=CREATE)
+    @server.tool(annotations=MUTATE)
     async def renew_claim(
         project_id: UUID,
         work_item_id: UUID,
@@ -574,32 +861,41 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
             ),
         )
 
-    @server.tool(annotations=RELEASE)
+    @server.tool(annotations=IDEMPOTENT_MUTATE)
     async def release_claim(
         project_id: UUID,
         work_item_id: UUID,
         lease_token: LeaseTokenInput,
         actor_client: ActorClientInput,
         actor_session_id: ActorSessionInput,
+        client_operation_id: UUID,
         actor_model: ActorModelInput | None = None,
     ) -> ReleaseResult:
-        """Release the matching retained claim when pausing or handing off, with truthful provenance for this release action. Preserve cold-session-useful unfinished context with a checkpoint first; an absent retained claim is an idempotent success. Actor provenance identifies the caller, never the retained lease holder."""
+        """Release the matching retained claim when pausing or handing off, with truthful provenance for this release action. Preserve cold-session-useful unfinished context with a checkpoint first; an absent retained claim is a natural no-op, while client_operation_id durably replays the original result. Actor provenance identifies the caller, never the retained lease holder. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments, including the lease token. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
         return cast(
             ReleaseResult,
             await api.request(
                 "POST",
                 f"projects/{project_id}/work-items/{work_item_id}/release-claim",
-                payload={
-                    "lease_token": lease_token.get_secret_value(),
-                    "actor": _actor_payload(
-                        actor_client, actor_session_id, actor_model
-                    ),
-                },
+                payload=_client_operation_payload(
+                    client_operation_id,
+                    {
+                        "lease_token": lease_token.get_secret_value(),
+                        "actor": _actor_payload(
+                            actor_client, actor_session_id, actor_model
+                        ),
+                    },
+                ),
                 response_model=ReleaseResult,
+                idempotent_mutation=True,
+                expected_status_code=200,
+                response_validator=lambda result: (
+                    cast(ReleaseResult, result).work_item_id == work_item_id
+                ),
             ),
         )
 
-    @server.tool(annotations=LINK)
+    @server.tool(annotations=IDEMPOTENT_MUTATE)
     async def add_relationship(
         project_id: UUID,
         source_work_item_id: UUID,
@@ -607,29 +903,46 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         relationship_type: RelationshipType,
         created_by_client: Annotated[str, Field(min_length=1, max_length=80)],
         created_by_session_id: Annotated[str, Field(min_length=1, max_length=200)],
+        client_operation_id: UUID,
         created_by_model: Annotated[str | None, Field(max_length=120)] = None,
         context_checkpoint_id: UUID | None = None,
     ) -> RelationshipCreationResult:
-        """Add one explicit project-local edge using source --type--> target direction. Add an edge only when the authorized work established that exact fact; never infer one from similar wording or nearby work. Only an unresolved incoming blocks edge changes readiness - parent-child, discovered-from, duplicate-of, and related are descriptive. discovered-from requires a checkpoint on its target. Creator provenance must identify the real acting client session, never a transport identity."""
+        """Add one explicit project-local edge using source --type--> target direction. Add an edge only when the authorized work established that exact fact; never infer one from similar wording or nearby work. Only an unresolved incoming blocks edge changes readiness - parent-child, discovered-from, duplicate-of, and related are descriptive. discovered-from requires a checkpoint on its target. Creator provenance must identify the real acting client session, never a transport identity. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
         return cast(
             RelationshipCreationResult,
             await api.request(
                 "POST",
                 f"projects/{project_id}/relationships",
-                payload={
-                    "source_work_item_id": str(source_work_item_id),
-                    "target_work_item_id": str(target_work_item_id),
-                    "relationship_type": relationship_type,
-                    "created_by_client": created_by_client,
-                    "created_by_session_id": created_by_session_id,
-                    "created_by_model": created_by_model,
-                    "context_checkpoint_id": (
-                        str(context_checkpoint_id)
-                        if context_checkpoint_id is not None
-                        else None
-                    ),
-                },
+                payload=_client_operation_payload(
+                    client_operation_id,
+                    {
+                        "source_work_item_id": str(source_work_item_id),
+                        "target_work_item_id": str(target_work_item_id),
+                        "relationship_type": relationship_type,
+                        "created_by_client": created_by_client,
+                        "created_by_session_id": created_by_session_id,
+                        "created_by_model": created_by_model,
+                        "context_checkpoint_id": (
+                            str(context_checkpoint_id)
+                            if context_checkpoint_id is not None
+                            else None
+                        ),
+                    },
+                ),
                 response_model=RelationshipCreationResult,
+                idempotent_mutation=True,
+                expected_status_code=200,
+                response_validator=lambda result: _relationship_matches_request(
+                    cast(RelationshipCreationResult, result),
+                    project_id=project_id,
+                    source_work_item_id=source_work_item_id,
+                    target_work_item_id=target_work_item_id,
+                    relationship_type=relationship_type,
+                    created_by_client=created_by_client,
+                    created_by_session_id=created_by_session_id,
+                    created_by_model=created_by_model,
+                    context_checkpoint_id=context_checkpoint_id,
+                ),
             ),
         )
 
@@ -674,30 +987,41 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
             ),
         )
 
-    @server.tool(annotations=DELETE)
+    @server.tool(annotations=IDEMPOTENT_DESTRUCTIVE_MUTATE)
     async def remove_relationship(
         project_id: UUID,
         relationship_id: UUID,
         actor_client: ActorClientInput,
         actor_session_id: ActorSessionInput,
+        client_operation_id: UUID,
         actor_model: ActorModelInput | None = None,
     ) -> RelationshipRemovalResult:
-        """Remove one explicit graph fact with truthful current-session provenance; an already-absent edge is an idempotent success and emits no duplicate history."""
+        """Remove one explicit graph fact with truthful current-session provenance; an already-absent edge is a natural no-op, while client_operation_id durably replays the original result. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
         return cast(
             RelationshipRemovalResult,
             await api.request(
                 "DELETE",
                 f"projects/{project_id}/relationships/{relationship_id}",
-                payload={
-                    "actor": _actor_payload(
-                        actor_client, actor_session_id, actor_model
-                    )
-                },
+                payload=_client_operation_payload(
+                    client_operation_id,
+                    {
+                        "actor": _actor_payload(
+                            actor_client, actor_session_id, actor_model
+                        )
+                    },
+                ),
                 response_model=RelationshipRemovalResult,
+                idempotent_mutation=True,
+                expected_status_code=200,
+                response_validator=lambda result: (
+                    cast(RelationshipRemovalResult, result).project_id == project_id
+                    and cast(RelationshipRemovalResult, result).relationship_id
+                    == relationship_id
+                ),
             ),
         )
 
-    @server.tool(annotations=EDIT)
+    @server.tool(annotations=IDEMPOTENT_DESTRUCTIVE_MUTATE)
     async def update_work(
         project_id: UUID,
         work_item_id: UUID,
@@ -705,80 +1029,118 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         changes: WorkChanges,
         actor_client: ActorClientInput,
         actor_session_id: ActorSessionInput,
+        client_operation_id: UUID,
         actor_model: ActorModelInput | None = None,
         lease_token: LeaseTokenInput | None = None,
     ) -> WorkItemRead:
-        """Update only mutable work identity/lifecycle fields using the version just read. This tool cannot assign deferred; that is a human dashboard action. Move deferred work back to pending only when the current human request explicitly directs that work, never to make it autonomously claimable. An active lease requires its token for a terminal lifecycle transition. Checkpoint content and provenance are immutable; correct context with a new checkpoint instead. promoted records the owner's decision only; no tool here creates an external issue."""
+        """Update only mutable work identity/lifecycle fields using the version just read. This tool cannot assign deferred; that is a human dashboard action. Move deferred work back to pending only when the current human request explicitly directs that work, never to make it autonomously claimable. An active lease requires its token for a terminal lifecycle transition. Checkpoint content and provenance are immutable; correct context with a new checkpoint instead. promoted records the owner's decision only; no tool here creates an external issue. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
         return cast(
             WorkItemRead,
             await api.request(
                 "PATCH",
                 f"projects/{project_id}/work-items/{work_item_id}",
-                payload=_lease_capable_payload(
-                    {
-                        "expected_version": expected_version,
-                        **changes.model_dump(mode="json", exclude_unset=True),
-                        "actor": _actor_payload(
-                            actor_client, actor_session_id, actor_model
-                        ),
-                    },
-                    lease_token,
+                payload=_client_operation_payload(
+                    client_operation_id,
+                    _lease_capable_payload(
+                        {
+                            "expected_version": expected_version,
+                            **changes.model_dump(mode="json", exclude_unset=True),
+                            "actor": _actor_payload(
+                                actor_client, actor_session_id, actor_model
+                            ),
+                        },
+                        lease_token,
+                    ),
                 ),
                 response_model=WorkItemRead,
+                idempotent_mutation=True,
+                expected_status_code=200,
+                response_validator=lambda result: _updated_work_matches_request(
+                    cast(WorkItemRead, result),
+                    project_id=project_id,
+                    work_item_id=work_item_id,
+                    expected_version=expected_version,
+                    changes=changes,
+                ),
             ),
         )
 
-    @server.tool(annotations=EDIT)
+    @server.tool(annotations=IDEMPOTENT_DESTRUCTIVE_MUTATE)
     async def complete_work(
         project_id: UUID,
         work_item_id: UUID,
         expected_version: Annotated[int, Field(ge=1)],
         checkpoint: CheckpointInput,
+        client_operation_id: UUID,
         lease_token: LeaseTokenInput | None = None,
     ) -> WorkCompletion:
-        """Atomically append a completion checkpoint and mark the work done, only when the objective is actually achieved and using the version just recalled. Pass the matching token when an active lease exists. Include what changed, checks actually run and their observed outcomes, and remaining considerations."""
+        """Atomically append a completion checkpoint and mark the work done, only when the objective is actually achieved and using the version just recalled. Pass the matching token when an active lease exists. Include what changed, checks actually run and their observed outcomes, and remaining considerations. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
         return cast(
             WorkCompletion,
             await api.request(
                 "POST",
                 f"projects/{project_id}/work-items/{work_item_id}/complete",
-                payload=_lease_capable_payload(
-                    {
-                        "expected_version": expected_version,
-                        "checkpoint": _checkpoint_payload(checkpoint),
-                    },
-                    lease_token,
+                payload=_client_operation_payload(
+                    client_operation_id,
+                    _lease_capable_payload(
+                        {
+                            "expected_version": expected_version,
+                            "checkpoint": _checkpoint_payload(checkpoint),
+                        },
+                        lease_token,
+                    ),
                 ),
                 response_model=WorkCompletion,
+                idempotent_mutation=True,
+                expected_status_code=200,
+                response_validator=lambda result: _completion_matches_request(
+                    cast(WorkCompletion, result),
+                    project_id=project_id,
+                    work_item_id=work_item_id,
+                    expected_version=expected_version,
+                    checkpoint=checkpoint,
+                ),
             ),
         )
 
-    @server.tool(annotations=DELETE)
+    @server.tool(annotations=IDEMPOTENT_DESTRUCTIVE_MUTATE)
     async def delete_work(
         project_id: UUID,
         work_item_id: UUID,
         expected_version: Annotated[int, Field(ge=1)],
         actor_client: ActorClientInput,
         actor_session_id: ActorSessionInput,
+        client_operation_id: UUID,
         actor_model: ActorModelInput | None = None,
         lease_token: LeaseTokenInput | None = None,
     ) -> WorkDeletionResult:
-        """Soft-delete work the user asked to remove with truthful current-session provenance, using its current version and the matching token when actively leased. Checkpoints and immutable history remain stored; no external data is deleted."""
+        """Soft-delete work the user asked to remove with truthful current-session provenance, using its current version and the matching token when actively leased. Checkpoints and immutable history remain stored; no external data is deleted. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
         return cast(
             WorkDeletionResult,
             await api.request(
                 "POST",
                 f"projects/{project_id}/work-items/{work_item_id}/delete",
-                payload=_lease_capable_payload(
-                    {
-                        "expected_version": expected_version,
-                        "actor": _actor_payload(
-                            actor_client, actor_session_id, actor_model
-                        ),
-                    },
-                    lease_token,
+                payload=_client_operation_payload(
+                    client_operation_id,
+                    _lease_capable_payload(
+                        {
+                            "expected_version": expected_version,
+                            "actor": _actor_payload(
+                                actor_client, actor_session_id, actor_model
+                            ),
+                        },
+                        lease_token,
+                    ),
                 ),
                 response_model=WorkDeletionResult,
+                idempotent_mutation=True,
+                expected_status_code=200,
+                response_validator=lambda result: _deletion_matches_request(
+                    cast(WorkDeletionResult, result),
+                    project_id=project_id,
+                    work_item_id=work_item_id,
+                    expected_version=expected_version,
+                ),
             ),
         )
 

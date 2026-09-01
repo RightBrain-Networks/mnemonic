@@ -5,6 +5,11 @@ import WorkEventComposer from "@/components/work-event-composer";
 import { formatDate } from "@/components/work-item-card";
 import { api, errorMessage, workItemPath } from "@/lib/api";
 import { dashboardSessionId } from "@/lib/dashboard-session";
+import {
+  mutationWorkKey,
+  useMutationIntentRegistry,
+  useMutationIntents
+} from "@/lib/mutation-intent";
 import type { WorkContext, WorkEventPage, WorkEventType } from "@/lib/types";
 import {
   decodeWorkEventForWork,
@@ -43,9 +48,16 @@ export default function WorkEventTimeline({
 }: {
   context: WorkContext;
   refreshSignal: number;
-  onAppended: () => void;
+  onAppended: () => Promise<boolean>;
 }) {
   const work = context.work_item;
+  const mutationRegistry = useMutationIntentRegistry();
+  const mutationIntents = useMutationIntents(mutationRegistry);
+  const workConflictKey = mutationWorkKey(work.project_id, work.id);
+  const mutationBlocked = mutationIntents.some((intent) => (
+    intent.state !== "prepared" && intent.conflictKeys.includes(workConflictKey)
+  ));
+  const [recoverySignal, setRecoverySignal] = useState(0);
   const [page, setPage] = useState<WorkEventPage | null>(null);
   const [offset, setOffset] = useState(0);
   const [eventType, setEventType] = useState<WorkEventType | "">("");
@@ -75,6 +87,13 @@ export default function WorkEventTimeline({
     context.outgoing_relationships,
     context.undirected_relationships
   ]);
+
+  useEffect(() => mutationRegistry.subscribeRecovered((intent) => {
+    if (intent.kind !== "append_event" || !intent.conflictKeys.includes(workConflictKey)) return;
+    requestEventOffset(resetNewestEventOffset());
+    setReload((current) => current + 1);
+    setRecoverySignal((current) => current + 1);
+  }), [mutationRegistry, onAppended, workConflictKey]);
 
   useEffect(() => {
     setOffset(resetNewestEventOffset());
@@ -117,14 +136,18 @@ export default function WorkEventTimeline({
   }, [eventType, offset, reload, work.id, work.project_id]);
 
   async function append(body: string) {
-    const value = await api<unknown>(`${workItemPath(work.project_id, work.id)}/events`, {
+    await mutationRegistry.execute({
+      kind: "append_event",
+      slot: `append-event:${work.project_id}:${work.id}`,
+      projectId: work.project_id,
+      conflictKeys: [workConflictKey],
       method: "POST",
-      body: JSON.stringify(progressEventInput(body, dashboardSessionId()))
+      path: `${workItemPath(work.project_id, work.id)}/events`,
+      payload: progressEventInput(body, dashboardSessionId())
     });
-    decodeWorkEventForWork(value, work.project_id, work.id);
     requestEventOffset(resetNewestEventOffset());
     setReload((current) => current + 1);
-    onAppended();
+    await onAppended();
   }
 
   return <section className="event-timeline" aria-labelledby="work-activity-title">
@@ -159,6 +182,6 @@ export default function WorkEventTimeline({
       </article>;
     })}</div> : null}
     {page && page.total > EVENT_PAGE_SIZE && <div className="pagination event-pagination"><span>{page.total ? `${page.offset + 1}–${Math.min(page.offset + page.limit, page.total)} of ${page.total}` : "0 events"}</span><div><button type="button" className="button button-secondary" disabled={loading || offset === 0} onClick={() => requestEventOffset(Math.max(0, offset - EVENT_PAGE_SIZE))}>Newer</button><button type="button" className="button button-secondary" disabled={loading || offset + EVENT_PAGE_SIZE >= page.total} onClick={() => requestEventOffset(offset + EVENT_PAGE_SIZE)}>Older</button></div></div>}
-    <WorkEventComposer onAppend={append} />
+    <WorkEventComposer onAppend={append} blocked={mutationBlocked} resetSignal={recoverySignal} />
   </section>;
 }

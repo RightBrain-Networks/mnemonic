@@ -5,6 +5,11 @@ import { OperationalBadge, StatusBadge, formatDate } from "@/components/work-ite
 import { api, ApiError, errorMessage, workItemPath } from "@/lib/api";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import {
+  mutationWorkKey,
+  useMutationIntentRegistry,
+  useMutationIntents
+} from "@/lib/mutation-intent";
+import {
   relationshipConflictMessage,
   relationshipGroup,
   relationshipPreview,
@@ -48,6 +53,8 @@ type CheckpointChoice = {
 
 export default function RelationshipPanel({ context, onChanged }: Props) {
   const work = context.work_item;
+  const mutationRegistry = useMutationIntentRegistry();
+  const mutationIntents = useMutationIntents(mutationRegistry);
   const [editorOpen, setEditorOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [searchedQuery, setSearchedQuery] = useState("");
@@ -129,6 +136,34 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
   const counterpartId = counterpart?.work_item.id ?? "";
   const sourceId = direction === "outgoing" ? work.id : counterpartId;
   const targetId = direction === "outgoing" ? counterpartId : work.id;
+  const workConflictKey = mutationWorkKey(work.project_id, work.id);
+  const relationshipConflictKeys = [
+    workConflictKey,
+    ...(counterpartId ? [mutationWorkKey(work.project_id, counterpartId)] : [])
+  ];
+  const mutationBlocked = mutationIntents.some((intent) => (
+    intent.state !== "prepared"
+    && intent.conflictKeys.some((key) => relationshipConflictKeys.includes(key))
+  ));
+
+  useEffect(() => mutationRegistry.subscribeRecovered((intent) => {
+    if (
+      (intent.kind !== "add_relationship" && intent.kind !== "remove_relationship")
+      || !intent.conflictKeys.includes(workConflictKey)
+    ) return;
+    if (intent.kind === "add_relationship") {
+      setCounterpart(null);
+      setQuery("");
+      setSearchedQuery("");
+      setCheckpointId("");
+    }
+    setActionError("");
+    setActionNotice(
+      intent.kind === "add_relationship"
+        ? "The pending relationship request was recovered."
+        : "The pending relationship removal was recovered."
+    );
+  }), [mutationRegistry, workConflictKey]);
 
   useEffect(() => {
     setCheckpointId("");
@@ -180,10 +215,18 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
     setActionError("");
     setActionNotice("");
     try {
-      const result = await api<RelationshipCreationResult>(
-        `/projects/${encodeURIComponent(work.project_id)}/relationships`,
-        { method: "POST", body: JSON.stringify(payload) }
-      );
+      const result = await mutationRegistry.execute({
+        kind: "add_relationship",
+        slot: `add-relationship:${work.project_id}:${sourceId}:${targetId}`,
+        projectId: work.project_id,
+        conflictKeys: [
+          mutationWorkKey(work.project_id, sourceId),
+          mutationWorkKey(work.project_id, targetId)
+        ],
+        method: "POST",
+        path: `/projects/${encodeURIComponent(work.project_id)}/relationships`,
+        payload
+      });
       const reconciled = await onChanged();
       if (!reconciled) {
         setActionError("The relationship was saved, but the current work context could not be reloaded. Refresh before making another change.");
@@ -209,13 +252,18 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
     setActionError("");
     setActionNotice("");
     try {
-      const result = await api<RelationshipRemovalResult>(
-        `/projects/${encodeURIComponent(work.project_id)}/relationships/${encodeURIComponent(id)}`,
-        {
-          method: "DELETE",
-          body: JSON.stringify({ actor: dashboardMutationActor(dashboardSessionId()) })
-        }
-      );
+      const result = await mutationRegistry.execute({
+        kind: "remove_relationship",
+        slot: `remove-relationship:${work.project_id}:${id}`,
+        projectId: work.project_id,
+        conflictKeys: [
+          mutationWorkKey(work.project_id, work.id),
+          mutationWorkKey(work.project_id, relationship.counterpart.id)
+        ],
+        method: "DELETE",
+        path: `/projects/${encodeURIComponent(work.project_id)}/relationships/${encodeURIComponent(id)}`,
+        payload: { actor: dashboardMutationActor(dashboardSessionId()) }
+      });
       const reconciled = await onChanged();
       if (!reconciled) {
         setActionError("The relationship was removed, but the current work context could not be reloaded. Refresh to reconcile this view.");
@@ -250,7 +298,7 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
               <span>Added {formatDate(relationship.relationship.created_at)} by {relationship.relationship.created_by_client}</span>
               {relationship.relationship.context_checkpoint_id && <span className="mono" title={relationship.relationship.context_checkpoint_id}>Context checkpoint {relationship.relationship.context_checkpoint_id}</span>}
             </div>
-            <button type="button" className="button button-secondary relationship-remove" aria-label={`Remove ${relationshipGroup(relationship)} relationship with ${relationship.counterpart.title}`} disabled={saving || Boolean(removingId)} onClick={() => void removeRelationship(relationship)}>{removingId === relationship.relationship.id ? "Removing…" : "Remove"}</button>
+            <button type="button" className="button button-secondary relationship-remove" aria-label={`Remove ${relationshipGroup(relationship)} relationship with ${relationship.counterpart.title}`} disabled={saving || Boolean(removingId) || mutationBlocked} onClick={() => void removeRelationship(relationship)}>{removingId === relationship.relationship.id ? "Removing…" : "Remove"}</button>
           </article>)}</div>
         </section>;
       })}</div>}
@@ -258,23 +306,29 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
       Showing {relationships.length} bounded edges; {omittedRelationshipCount} more are available through paged relationship lookup.
     </p>}
 
-    <details className="relationship-editor" open={editorOpen} onToggle={(event) => setEditorOpen(event.currentTarget.open)}>
+    <details className="relationship-editor" open={editorOpen} onToggle={(event) => {
+      if (!event.currentTarget.open && mutationBlocked) {
+        event.currentTarget.open = true;
+        return;
+      }
+      setEditorOpen(event.currentTarget.open);
+    }}>
       <summary>Add a relationship</summary>
       <div className="relationship-editor-body">
         <p className="relationship-semantics">Only an unresolved <strong>blocks</strong> edge changes readiness. Parent/child affects navigation; discovery, duplication, and related edges are descriptive.</p>
-        <label className="field">Find another work item<input type="search" value={query} maxLength={500} placeholder="Search titles, summaries, or checkpoints…" onChange={(event) => { setQuery(event.target.value); setCounterpart(null); }} /></label>
+        <label className="field">Find another work item<input type="search" value={query} disabled={mutationBlocked} maxLength={500} placeholder="Search titles, summaries, or checkpoints…" onChange={(event) => { setQuery(event.target.value); setCounterpart(null); }} /></label>
         {searching && <div className="relationship-search-status" role="status">Searching…</div>}
         {searchError && <div className="error-notice" role="alert"><p>{searchError}</p></div>}
         {!searching && searchedQuery && !searchPage?.items.length && !searchError && <p className="relationship-search-status">No other work items match.</p>}
-        {searchPage?.items.length ? <div className="counterpart-results" role="listbox" aria-label="Matching work items">{searchPage.items.map((result) => <button type="button" role="option" aria-selected={counterpart?.work_item.id === result.work_item.id} className={counterpart?.work_item.id === result.work_item.id ? "selected" : ""} key={result.work_item.id} onClick={() => setCounterpart(result)}><span><strong>{result.work_item.title}</strong><span>{result.work_item.summary}</span></span><StatusBadge status={result.work_item.status} readiness={result.readiness} /></button>)}</div> : null}
+        {searchPage?.items.length ? <div className="counterpart-results" role="listbox" aria-label="Matching work items">{searchPage.items.map((result) => <button type="button" role="option" disabled={mutationBlocked} aria-selected={counterpart?.work_item.id === result.work_item.id} className={counterpart?.work_item.id === result.work_item.id ? "selected" : ""} key={result.work_item.id} onClick={() => setCounterpart(result)}><span><strong>{result.work_item.title}</strong><span>{result.work_item.summary}</span></span><StatusBadge status={result.work_item.status} readiness={result.readiness} /></button>)}</div> : null}
 
         {counterpart && <div className="relationship-fields">
-          <label className="field">Relationship type<select value={type} onChange={(event) => setType(event.target.value as RelationshipType)}>{(Object.keys(relationshipTypeLabels) as RelationshipType[]).map((value) => <option value={value} key={value}>{relationshipTypeLabels[value]}</option>)}</select></label>
-          {type !== "related" && <fieldset className="relationship-direction"><legend>Direction</legend><label><input type="radio" name="relationship-direction" value="outgoing" checked={direction === "outgoing"} onChange={() => setDirection("outgoing")} /> From this work item</label><label><input type="radio" name="relationship-direction" value="incoming" checked={direction === "incoming"} onChange={() => setDirection("incoming")} /> Toward this work item</label></fieldset>}
+          <label className="field">Relationship type<select value={type} disabled={mutationBlocked} onChange={(event) => setType(event.target.value as RelationshipType)}>{(Object.keys(relationshipTypeLabels) as RelationshipType[]).map((value) => <option value={value} key={value}>{relationshipTypeLabels[value]}</option>)}</select></label>
+          {type !== "related" && <fieldset className="relationship-direction"><legend>Direction</legend><label><input type="radio" name="relationship-direction" value="outgoing" checked={direction === "outgoing"} disabled={mutationBlocked} onChange={() => setDirection("outgoing")} /> From this work item</label><label><input type="radio" name="relationship-direction" value="incoming" checked={direction === "incoming"} disabled={mutationBlocked} onChange={() => setDirection("incoming")} /> Toward this work item</label></fieldset>}
           <div className="relationship-preview" role="status"><span>Preview</span><strong>{relationshipPreview(type, direction, work.title, counterpart.work_item.title)}</strong></div>
-          <label className="field">{type === "discovered-from" ? "Originating checkpoint" : "Endpoint context checkpoint (optional)"}<select value={checkpointId} required={type === "discovered-from"} disabled={checkpointsLoading || Boolean(checkpointError)} onChange={(event) => setCheckpointId(event.target.value)}><option value="">{checkpointsLoading ? "Loading checkpoints…" : type === "discovered-from" ? "Choose a checkpoint…" : "No checkpoint context"}</option>{checkpointChoices.map(({ owner, checkpoint }) => <option key={checkpoint.id} value={checkpoint.id}>{owner} · {checkpoint.kind} · {formatDate(checkpoint.created_at)}</option>)}</select><span className="field-hint">{type === "discovered-from" ? "The checkpoint must belong to the originating target work item." : "Optional context must belong to either endpoint. The newest 100 checkpoints per endpoint are shown."}</span></label>
+          <label className="field">{type === "discovered-from" ? "Originating checkpoint" : "Endpoint context checkpoint (optional)"}<select value={checkpointId} required={type === "discovered-from"} disabled={mutationBlocked || checkpointsLoading || Boolean(checkpointError)} onChange={(event) => setCheckpointId(event.target.value)}><option value="">{checkpointsLoading ? "Loading checkpoints…" : type === "discovered-from" ? "Choose a checkpoint…" : "No checkpoint context"}</option>{checkpointChoices.map(({ owner, checkpoint }) => <option key={checkpoint.id} value={checkpoint.id}>{owner} · {checkpoint.kind} · {formatDate(checkpoint.created_at)}</option>)}</select><span className="field-hint">{type === "discovered-from" ? "The checkpoint must belong to the originating target work item." : "Optional context must belong to either endpoint. The newest 100 checkpoints per endpoint are shown."}</span></label>
           {checkpointError && <div className="error-notice" role="alert"><p>{checkpointError}</p><button type="button" className="button button-secondary" onClick={() => setCheckpointRetry((value) => value + 1)}>Try again</button></div>}
-          <button type="button" className="button button-primary add-relationship-button" disabled={saving || Boolean(removingId) || checkpointsLoading || (type === "discovered-from" && !checkpointId)} onClick={() => void addRelationship()}>{saving ? "Adding…" : "Add relationship"}</button>
+          <button type="button" className="button button-primary add-relationship-button" disabled={mutationBlocked || saving || Boolean(removingId) || checkpointsLoading || (type === "discovered-from" && !checkpointId)} onClick={() => void addRelationship()}>{saving ? "Adding…" : "Add relationship"}</button>
         </div>}
       </div>
     </details>

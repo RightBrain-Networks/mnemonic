@@ -1,7 +1,9 @@
 import {
   allowedQueryKeys,
+  clientOperationMatchesSecret,
   configuredOrigins,
   forbiddenMutationField,
+  forbiddenOperationTransport,
   invalidMutationBody,
   trustedRequest,
   upstreamTimeoutMs
@@ -23,12 +25,11 @@ function fail(status: number, detail: string): Response {
 
 async function readBody(
   request: Request,
-  route: string,
-  required = true
-): Promise<string | undefined | Response> {
+  route: string
+): Promise<string | Response> {
   if (Number(request.headers.get("content-length")) > MAX_BODY_BYTES) return fail(413, "Request body is too large.");
   const reader = request.body?.getReader();
-  if (!reader) return required ? fail(400, "A request body is required.") : undefined;
+  if (!reader) return fail(400, "A request body is required.");
   const chunks: Uint8Array[] = [];
   let size = 0;
   while (true) {
@@ -41,7 +42,7 @@ async function readBody(
     }
     chunks.push(value);
   }
-  if (size === 0) return required ? fail(400, "A request body is required.") : undefined;
+  if (size === 0) return fail(400, "A request body is required.");
   if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
     return fail(415, "Send a JSON request body.");
   }
@@ -72,6 +73,9 @@ async function proxy(request: Request, context: Context): Promise<Response> {
   try { origins = configuredOrigins(process.env.MNEMONIC_DASHBOARD_ORIGINS); }
   catch { return fail(503, "Dashboard origins are not configured correctly."); }
   if (!trustedRequest(request.headers, request.method, origins)) return fail(403, "This dashboard request is not from a trusted origin.");
+  if (forbiddenOperationTransport(request.headers)) {
+    return fail(400, "Client operation IDs are accepted only in supported JSON request bodies.");
+  }
 
   const { path } = await context.params;
   if (path.some((part) => !/^[a-zA-Z0-9-]+$/.test(part))) return fail(404, "Route not found.");
@@ -97,9 +101,12 @@ async function proxy(request: Request, context: Context): Promise<Response> {
     if (result instanceof Response) return result;
     body = result;
   } else if (request.method === "DELETE") {
-    const result = await readBody(request, route, false);
+    const result = await readBody(request, route);
     if (result instanceof Response) return result;
     body = result;
+  }
+  if (clientOperationMatchesSecret(body, key)) {
+    return fail(422, "The client operation ID cannot match a request credential.");
   }
   const target = new URL(`/api/v1/${route}`, base);
   target.search = query.toString();
@@ -114,7 +121,16 @@ async function proxy(request: Request, context: Context): Promise<Response> {
     });
     if (upstream.status >= 300 && upstream.status < 400) return fail(502, "Mnemonic's API returned an unexpected redirect.");
     if (upstream.status !== 204 && !upstream.headers.get("content-type")?.includes("application/json")) return fail(502, "Mnemonic's API returned an unexpected response.");
-    return new Response(upstream.status === 204 ? null : upstream.body, {
+    let responseBody: ArrayBuffer | null = null;
+    if (upstream.status !== 204) {
+      try {
+        responseBody = await upstream.arrayBuffer();
+        JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(responseBody));
+      } catch {
+        return fail(502, "Mnemonic's API returned an incomplete response.");
+      }
+    }
+    return new Response(responseBody, {
       status: upstream.status,
       headers: { ...responseHeaders, ...(upstream.status === 204 ? {} : { "Content-Type": "application/json" }) }
     });

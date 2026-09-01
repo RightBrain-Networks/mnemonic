@@ -33,6 +33,7 @@ from mnemonic_api.live_sync import LiveSyncHub, mutation_event
 from mnemonic_api.models import Checkpoint, Project, ProjectSettings, WorkItem, WorkLease
 from mnemonic_api.schemas import (
     AdjacentRelationshipRead,
+    APIModel,
     CheckpointCreate,
     CheckpointListQuery,
     CheckpointRead,
@@ -79,6 +80,15 @@ from mnemonic_api.schemas import (
     WorkSummaryMinimal,
 )
 from mnemonic_api.semantic import Embedder, FastembedEmbedder, hybrid_rank
+from mnemonic_api.services.client_operations import (
+    CompletedOperation,
+    OperationKind,
+    ReplayedOperation,
+    ReservationOutcome,
+    complete_client_operation,
+    prepare_client_operation,
+    reserve_client_operation,
+)
 from mnemonic_api.services.leases import (
     claim_lease_record,
     release_lease_record,
@@ -116,6 +126,22 @@ logger = logging.getLogger(__name__)
 bearer = HTTPBearer(auto_error=False)
 Database = Annotated[Session, Depends(get_session)]
 
+# Covered mutation routes set this only after their transaction has committed.
+# Its absence deliberately preserves the successful-method/path fallback for
+# project administration, claims, renewals, and future unenrolled writes.
+_MUTATION_APPLIED_STATE = "mnemonic_mutation_applied"
+_CLIENT_OPERATION_KIND_STATE = "mnemonic_client_operation_kind"
+_CLIENT_OPERATION_OUTCOME_STATE = "mnemonic_client_operation_outcome"
+_CLIENT_OPERATION_HEADER_NAMES = frozenset(
+    {
+        "client_operation_id",
+        "client-operation-id",
+        "idempotency-key",
+        "x-idempotency-key",
+        "x-client-operation-id",
+    }
+)
+
 _PUBLIC_VALIDATION_LOCATION_REPLACEMENT = "field"
 _PUBLIC_VALIDATION_LOCATION_SEGMENTS = frozenset(
     """
@@ -128,7 +154,8 @@ _PUBLIC_VALIDATION_LOCATION_SEGMENTS = frozenset(
     migration_origin legacy_record_id relationship_type source_work_item_id
     target_work_item_id other_work_item_id context_checkpoint_id created_by_client
     created_by_session_id created_by_model holder_client holder_session_id
-    claim_request_id lease_token actor actor_client actor_session_id actor_model metadata
+    claim_request_id client_operation_id lease_token actor actor_client actor_session_id
+    actor_model metadata
     recall_pointer_template
     """.split()
 )
@@ -218,6 +245,78 @@ def authenticate(
         )
 
 
+def _request_has_valid_bearer(request: Request) -> bool:
+    authorization = request.headers.get("authorization", "")
+    scheme, separator, supplied_text = authorization.partition(" ")
+    supplied = (
+        supplied_text.encode("utf-8")
+        if separator and scheme.casefold() == "bearer" and supplied_text
+        else b""
+    )
+    expected = request.app.state.settings.api_key.get_secret_value().encode("utf-8")
+    return secrets.compare_digest(supplied, expected)
+
+
+def _unauthenticated_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "Valid bearer authentication is required"},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _reserve_registered_operation(
+    kind: OperationKind,
+    project_id: UUID,
+    target_envelope: Mapping[str, UUID],
+    payload: APIModel,
+    request: Request,
+    database: Session,
+) -> ReservationOutcome:
+    reject_registered_mutation_query(request)
+    setattr(request.state, _CLIENT_OPERATION_KIND_STATE, kind)
+    try:
+        prepared = prepare_client_operation(
+            kind,
+            project_id,
+            target_envelope,
+            payload,
+            known_secret_values=(
+                request.app.state.settings.api_key.get_secret_value(),
+            ),
+        )
+        return reserve_client_operation(
+            database,
+            prepared,
+            wait_seconds=request.app.state.settings.client_operation_wait_seconds,
+        )
+    except ApplicationError as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        code = detail.get("code")
+        outcome = {
+            "client_operation_conflict": "conflict",
+            "client_operation_unavailable": "unavailable",
+        }.get(code)
+        if outcome is not None:
+            setattr(request.state, _CLIENT_OPERATION_OUTCOME_STATE, outcome)
+        raise
+
+
+def _record_successful_operation(
+    request: Request,
+    operation: CompletedOperation | ReplayedOperation,
+) -> None:
+    setattr(request.state, _MUTATION_APPLIED_STATE, operation.mutation_applied)
+    if not operation.mutation_applied:
+        outcome = "no_op"
+    elif isinstance(operation, ReplayedOperation):
+        outcome = "replayed"
+    else:
+        outcome = "executed"
+    setattr(request.state, _CLIENT_OPERATION_KIND_STATE, operation.spec.kind)
+    setattr(request.state, _CLIENT_OPERATION_OUTCOME_STATE, outcome)
+
+
 def _raise_query_rejection(message: str, *, field: str | None = None) -> None:
     location = ["query", field] if field is not None else ["query"]
     raise HTTPException(
@@ -242,16 +341,75 @@ def reject_lease_token_query(request: Request) -> None:
         )
 
 
+def reject_client_operation_transport(request: Request) -> None:
+    """Reject operation IDs anywhere except a supported JSON request body."""
+    if any(
+        key.strip().casefold() in _CLIENT_OPERATION_HEADER_NAMES
+        for key in request.query_params
+    ):
+        _raise_query_rejection(
+            "Client operation IDs are accepted only in supported JSON request bodies.",
+            field="client_operation_id",
+        )
+    if any(
+        key.casefold() in _CLIENT_OPERATION_HEADER_NAMES
+        for key in request.headers
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "type": "extra_forbidden",
+                    "loc": ["header", "client_operation_id"],
+                    "msg": (
+                        "Client operation IDs are accepted only in supported JSON "
+                        "request bodies."
+                    ),
+                }
+            ],
+        )
+    if any(
+        name.strip().casefold() in _CLIENT_OPERATION_HEADER_NAMES
+        for name in request.cookies
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "type": "extra_forbidden",
+                    "loc": ["cookie", "client_operation_id"],
+                    "msg": (
+                        "Client operation IDs are accepted only in supported JSON "
+                        "request bodies."
+                    ),
+                }
+            ],
+        )
+
+
+def reject_registered_mutation_query(request: Request) -> None:
+    """Keep the ten receipt-protected REST mutation routes query-free."""
+    if request.query_params:
+        _raise_query_rejection(
+            "Query parameters are not accepted for registered mutations."
+        )
+
+
 def reject_lease_operation_query(request: Request) -> None:
     if request.query_params:
         _raise_query_rejection("Query parameters are not accepted for lease operations.")
 
 
-# Dependency order is part of the HTTP contract: authentication must run before
-# capability/query validation so unauthenticated API requests remain 401.
+# The pre-routing HTTP middleware authenticates before FastAPI reads a body.
+# Retain this dependency as route-local defense in depth and before the
+# capability/query validators that follow it.
 router = APIRouter(
     prefix="/api/v1",
-    dependencies=[Depends(authenticate), Depends(reject_lease_token_query)],
+    dependencies=[
+        Depends(authenticate),
+        Depends(reject_lease_token_query),
+        Depends(reject_client_operation_transport),
+    ],
 )
 sync_router = APIRouter(prefix="/api/v1")
 
@@ -503,18 +661,38 @@ def update_project_settings(
 
 
 @router.post("/projects/{project_id}/work-items", response_model=WorkCreation, status_code=201)
-def create_work(project_id: UUID, payload: WorkItemCreate, database: Database) -> WorkCreation:
-    work_item, checkpoint, relationships = create_work_records(database, project_id, payload)
-    database.commit()
+def create_work(
+    project_id: UUID,
+    payload: WorkItemCreate,
+    request: Request,
+    database: Database,
+) -> JSONResponse:
+    operation = _reserve_registered_operation(
+        "create_work", project_id, {}, payload, request, database
+    )
+    if isinstance(operation, ReplayedOperation):
+        database.commit()
+        _record_successful_operation(request, operation)
+        return operation.response
+    domain_payload = operation.domain_payload
+    work_item, checkpoint, relationships = create_work_records(
+        database, project_id, domain_payload
+    )
     database.refresh(work_item)
     database.refresh(checkpoint)
     for relationship in relationships:
         database.refresh(relationship)
-    return WorkCreation(
+    result = WorkCreation(
         work_item=WorkItemRead.model_validate(work_item),
         initial_checkpoint=checkpoint_read(checkpoint),
         initial_relationships=[relationship_edge(item) for item in relationships],
     )
+    completed = complete_client_operation(
+        database, operation, result, mutation_applied=True
+    )
+    database.commit()
+    _record_successful_operation(request, completed)
+    return completed.response
 
 
 @router.get(
@@ -577,11 +755,23 @@ def list_ready_work(
 def add_relationship(
     project_id: UUID,
     payload: RelationshipCreate,
+    request: Request,
     database: Database,
-) -> RelationshipCreationResult:
-    result = add_relationship_record(database, project_id, payload)
+) -> JSONResponse:
+    operation = _reserve_registered_operation(
+        "add_relationship", project_id, {}, payload, request, database
+    )
+    if isinstance(operation, ReplayedOperation):
+        database.commit()
+        _record_successful_operation(request, operation)
+        return operation.response
+    result = add_relationship_record(database, project_id, operation.domain_payload)
+    completed = complete_client_operation(
+        database, operation, result, mutation_applied=result.created
+    )
     database.commit()
-    return result
+    _record_successful_operation(request, completed)
+    return completed.response
 
 
 @router.get(
@@ -603,17 +793,35 @@ def get_relationship(
 def remove_relationship(
     project_id: UUID,
     relationship_id: UUID,
+    request: Request,
     database: Database,
     payload: RelationshipRemovalCreate | None = None,
-) -> RelationshipRemovalResult:
+) -> JSONResponse:
+    wire_payload = payload or RelationshipRemovalCreate()
+    operation = _reserve_registered_operation(
+        "remove_relationship",
+        project_id,
+        {"relationship_id": relationship_id},
+        wire_payload,
+        request,
+        database,
+    )
+    if isinstance(operation, ReplayedOperation):
+        database.commit()
+        _record_successful_operation(request, operation)
+        return operation.response
     result = remove_relationship_record(
         database,
         project_id,
         relationship_id,
-        payload.actor if payload is not None else None,
+        operation.domain_payload.actor,
+    )
+    completed = complete_client_operation(
+        database, operation, result, mutation_applied=result.removed
     )
     database.commit()
-    return result
+    _record_successful_operation(request, completed)
+    return completed.response
 
 
 @router.get(
@@ -720,16 +928,32 @@ def append_event(
     payload: ProgressEventCreate,
     request: Request,
     database: Database,
-) -> WorkEventRead:
+) -> JSONResponse:
+    operation = _reserve_registered_operation(
+        "append_event",
+        project_id,
+        {"work_item_id": work_item_id},
+        payload,
+        request,
+        database,
+    )
+    if isinstance(operation, ReplayedOperation):
+        database.commit()
+        _record_successful_operation(request, operation)
+        return operation.response
     event = append_progress_event(
         database,
         project_id,
         work_item_id,
-        payload,
+        operation.domain_payload,
         bearer_key=request.app.state.settings.api_key.get_secret_value(),
     )
+    completed = complete_client_operation(
+        database, operation, event, mutation_applied=True
+    )
     database.commit()
-    return event
+    _record_successful_operation(request, completed)
+    return completed.response
 
 
 @router.post(
@@ -741,18 +965,39 @@ def add_checkpoint(
     project_id: UUID,
     work_item_id: UUID,
     payload: CheckpointCreate,
+    request: Request,
     database: Database,
-) -> Checkpoint:
+) -> JSONResponse:
+    operation = _reserve_registered_operation(
+        "add_checkpoint",
+        project_id,
+        {"work_item_id": work_item_id},
+        payload,
+        request,
+        database,
+    )
+    if isinstance(operation, ReplayedOperation):
+        database.commit()
+        _record_successful_operation(request, operation)
+        return operation.response
+    domain_payload = operation.domain_payload
     work_item = require_work_item(
         database,
         project_id,
         work_item_id,
-        lock=payload.lease_token is not None,
+        lock=domain_payload.lease_token is not None,
     )
-    checkpoint = append_checkpoint_record(database, work_item, payload)
-    database.commit()
+    checkpoint = append_checkpoint_record(database, work_item, domain_payload)
     database.refresh(checkpoint)
-    return checkpoint
+    completed = complete_client_operation(
+        database,
+        operation,
+        checkpoint_read(checkpoint),
+        mutation_applied=True,
+    )
+    database.commit()
+    _record_successful_operation(request, completed)
+    return completed.response
 
 
 @router.get("/projects/{project_id}/work-items/{work_item_id}/context", response_model=WorkContext)
@@ -779,23 +1024,42 @@ def complete_work(
     project_id: UUID,
     work_item_id: UUID,
     payload: WorkCompletionCreate,
+    request: Request,
     database: Database,
-) -> WorkCompletionRead:
+) -> JSONResponse:
+    operation = _reserve_registered_operation(
+        "complete_work",
+        project_id,
+        {"work_item_id": work_item_id},
+        payload,
+        request,
+        database,
+    )
+    if isinstance(operation, ReplayedOperation):
+        database.commit()
+        _record_successful_operation(request, operation)
+        return operation.response
+    domain_payload = operation.domain_payload
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
     checkpoint = complete_work_record(
         database,
         work_item,
-        payload.expected_version,
-        payload.checkpoint,
-        payload.lease_token,
+        domain_payload.expected_version,
+        domain_payload.checkpoint,
+        domain_payload.lease_token,
     )
-    database.commit()
     database.refresh(work_item)
     database.refresh(checkpoint)
-    return WorkCompletionRead(
+    result = WorkCompletionRead(
         work_item=WorkItemRead.model_validate(work_item),
         checkpoint=checkpoint_read(checkpoint),
     )
+    completed = complete_client_operation(
+        database, operation, result, mutation_applied=True
+    )
+    database.commit()
+    _record_successful_operation(request, completed)
+    return completed.response
 
 
 @router.post(
@@ -806,22 +1070,41 @@ def delete_work(
     project_id: UUID,
     work_item_id: UUID,
     payload: WorkDeletionCreate,
+    request: Request,
     database: Database,
-) -> WorkDeletionRead:
+) -> JSONResponse:
+    operation = _reserve_registered_operation(
+        "delete_work",
+        project_id,
+        {"work_item_id": work_item_id},
+        payload,
+        request,
+        database,
+    )
+    if isinstance(operation, ReplayedOperation):
+        database.commit()
+        _record_successful_operation(request, operation)
+        return operation.response
+    domain_payload = operation.domain_payload
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
     delete_work_record(
         database,
         work_item,
-        payload.expected_version,
-        payload.lease_token,
-        payload.actor,
+        domain_payload.expected_version,
+        domain_payload.lease_token,
+        domain_payload.actor,
     )
-    database.commit()
-    return WorkDeletionRead(
+    result = WorkDeletionRead(
         project_id=project_id,
         work_item_id=work_item_id,
         version=work_item.version,
     )
+    completed = complete_client_operation(
+        database, operation, result, mutation_applied=True
+    )
+    database.commit()
+    _record_successful_operation(request, completed)
+    return completed.response
 
 
 @router.get("/projects/{project_id}/work-items/{work_item_id}", response_model=WorkItemRead)
@@ -834,13 +1117,33 @@ def update_work(
     project_id: UUID,
     work_item_id: UUID,
     payload: WorkItemPatch,
+    request: Request,
     database: Database,
-) -> WorkItem:
+) -> JSONResponse:
+    operation = _reserve_registered_operation(
+        "update_work",
+        project_id,
+        {"work_item_id": work_item_id},
+        payload,
+        request,
+        database,
+    )
+    if isinstance(operation, ReplayedOperation):
+        database.commit()
+        _record_successful_operation(request, operation)
+        return operation.response
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
-    update_work_record(database, work_item, payload)
-    database.commit()
+    update_work_record(database, work_item, operation.domain_payload)
     database.refresh(work_item)
-    return work_item
+    completed = complete_client_operation(
+        database,
+        operation,
+        WorkItemRead.model_validate(work_item),
+        mutation_applied=True,
+    )
+    database.commit()
+    _record_successful_operation(request, completed)
+    return completed.response
 
 
 @router.post("/projects/{project_id}/work-items/{work_item_id}/defer", response_model=WorkItemRead)
@@ -848,14 +1151,34 @@ def defer_work(
     project_id: UUID,
     work_item_id: UUID,
     payload: WorkDeferralCreate,
+    request: Request,
     database: Database,
-) -> WorkItem:
+) -> JSONResponse:
     """Human dashboard action; intentionally absent from the agent MCP surface."""
+    operation = _reserve_registered_operation(
+        "defer_work",
+        project_id,
+        {"work_item_id": work_item_id},
+        payload,
+        request,
+        database,
+    )
+    if isinstance(operation, ReplayedOperation):
+        database.commit()
+        _record_successful_operation(request, operation)
+        return operation.response
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
-    defer_work_record(database, work_item, payload)
-    database.commit()
+    defer_work_record(database, work_item, operation.domain_payload)
     database.refresh(work_item)
-    return work_item
+    completed = complete_client_operation(
+        database,
+        operation,
+        WorkItemRead.model_validate(work_item),
+        mutation_applied=True,
+    )
+    database.commit()
+    _record_successful_operation(request, completed)
+    return completed.response
 
 
 @sync_router.websocket("/sync")
@@ -956,12 +1279,32 @@ def release_claim(
     project_id: UUID,
     work_item_id: UUID,
     payload: LeaseReleaseCreate,
+    request: Request,
     database: Database,
-) -> ReleaseResult:
+) -> JSONResponse:
+    operation = _reserve_registered_operation(
+        "release_claim",
+        project_id,
+        {"work_item_id": work_item_id},
+        payload,
+        request,
+        database,
+    )
+    if isinstance(operation, ReplayedOperation):
+        database.commit()
+        _record_successful_operation(request, operation)
+        return operation.response
+    domain_payload = operation.domain_payload
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
-    result = release_lease_record(database, work_item, payload.lease_token, payload.actor)
+    result = release_lease_record(
+        database, work_item, domain_payload.lease_token, domain_payload.actor
+    )
+    completed = complete_client_operation(
+        database, operation, result, mutation_applied=result.released
+    )
     database.commit()
-    return result
+    _record_successful_operation(request, completed)
+    return completed.response
 
 
 def create_app(
@@ -992,10 +1335,38 @@ def create_app(
     app.include_router(sync_router)
 
     @app.middleware("http")
+    async def authenticate_rest_before_routing(request: Request, call_next):
+        path = request.url.path
+        if (
+            (path == "/api/v1" or path.startswith("/api/v1/"))
+            and not _request_has_valid_bearer(request)
+        ):
+            return _unauthenticated_response()
+        return await call_next(request)
+
+    @app.middleware("http")
     async def broadcast_successful_mutations(request: Request, call_next):
         response = await call_next(request)
         event = mutation_event(request.method, request.url.path)
-        if event is not None and 200 <= response.status_code < 300:
+        mutation_applied = getattr(request.state, _MUTATION_APPLIED_STATE, None)
+        operation_kind = getattr(request.state, _CLIENT_OPERATION_KIND_STATE, None)
+        operation_outcome = getattr(
+            request.state, _CLIENT_OPERATION_OUTCOME_STATE, None
+        )
+        if operation_kind is not None:
+            if operation_outcome is None and response.status_code >= 500:
+                operation_outcome = "unavailable"
+            if operation_outcome is not None:
+                logger.info(
+                    "Client operation outcome kind=%s outcome=%s",
+                    operation_kind,
+                    operation_outcome,
+                )
+        if (
+            event is not None
+            and 200 <= response.status_code < 300
+            and mutation_applied is not False
+        ):
             await app.state.live_sync_hub.publish(event)
         return response
 

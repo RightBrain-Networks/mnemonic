@@ -1,4 +1,4 @@
-# Phase 5 API contract
+# Phase 6 API contract
 
 All application routes use `/api/v1` and
 `Authorization: Bearer <MNEMONIC_API_KEY>`. `GET /healthz` and
@@ -36,6 +36,69 @@ Error context never includes checkpoint content or non-allowlisted upstream valu
 Event validation may use `event_type_reserved`, `event_metadata_invalid`, or
 `event_secret_echo`; their context identifies field locations, never caller
 values.
+
+## Idempotent mutation receipts
+
+Exactly ten project-scoped REST mutations accept an optional top-level
+`client_operation_id` UUID:
+
+| Operation | Route |
+| --- | --- |
+| create work | `POST /projects/{project_id}/work-items` |
+| append checkpoint | `POST /projects/{project_id}/work-items/{work_item_id}/checkpoints` |
+| append progress event | `POST /projects/{project_id}/work-items/{work_item_id}/events` |
+| add relationship | `POST /projects/{project_id}/relationships` |
+| update work | `PATCH /projects/{project_id}/work-items/{work_item_id}` |
+| defer work | `POST /projects/{project_id}/work-items/{work_item_id}/defer` |
+| complete work | `POST /projects/{project_id}/work-items/{work_item_id}/complete` |
+| delete work | `POST /projects/{project_id}/work-items/{work_item_id}/delete` |
+| remove relationship | `DELETE /projects/{project_id}/relationships/{relationship_id}` |
+| release claim | `POST /projects/{project_id}/work-items/{work_item_id}/release-claim` |
+
+A caller generates one UUID before the first attempt and retains the complete,
+validated semantic request. An exact retry under the same
+`(project_id, client_operation_id)` returns the original successful status and
+JSON body without re-running domain work or adding events. This remains true
+after the work changes, reopens, is deleted, or a released lease is replaced.
+Successful natural no-ops such as duplicate relationship add, absent
+relationship removal, or absent lease release replay their original
+`created=false`, `removed=false`, or `released=false` result.
+
+The identity scope deliberately excludes actor/session provenance. Those
+values, the operation kind, URL target, versions, lease capability, and every
+other semantic request field are instead fingerprinted. Reusing a successful
+key for anything semantically different returns
+`409 client_operation_conflict` and performs no work. A receipt wait timeout,
+unsupported/corrupt receipt, or inability to validate the stored response
+returns `503 client_operation_unavailable`; the caller must retry the same key
+and exact semantic arguments because the outcome may be unknown. A protected
+request that copies its operation UUID, bearer, or supplied lease token into a
+public content/provenance field returns
+`422 client_operation_secret_echo` before reserving a receipt.
+
+The UUID is accepted only as that top-level JSON field. It is rejected in URLs,
+queries, headers, cookies, nested objects, progress metadata at any depth, and
+excluded mutation bodies. It is control data: it never appears in ordinary
+responses, errors, events, resources, prompts, logs, or browser persistence.
+`WorkItemPatch`, `WorkDeferralCreate`, `WorkDeletionCreate`,
+`RelationshipRemovalCreate`, and `LeaseReleaseCreate` require their nested
+`actor` whenever the operation ID is present. Their unkeyed direct-REST form
+remains valid and may remain unattributed.
+
+Direct REST callers may omit `client_operation_id`; that preserves a single
+unprotected attempt and makes no retry-safety promise. The nine canonical MCP
+mutation tools require it; human-only deferral has no MCP tool. The dashboard
+generates it for the nine covered browser operations (all above except
+capability-bearing release), freezes the entire request, and retries only that
+exact in-memory intent. Project create/update, project settings, claim,
+claim-and-recall, and renew-claim remain outside this ledger. Claim recovery
+continues to use its separate `claim_request_id` contract.
+
+Receipts are private durable database state with no public list/get/delete
+route and no Phase 6 TTL or cleanup task. They contain salted request
+fingerprints and stored successful response bodies, so backups must preserve
+and protect them. There is no compatibility header or alternate legacy
+idempotency path.
 
 ## Projects
 
@@ -128,7 +191,8 @@ relative to the new work item: `{type, direction: incoming|outgoing,
 other_work_item_id, context_checkpoint_id?}`. An initial `discovered-from` must
 be outgoing and cite a checkpoint on its existing originating target. An
 incoming `parent-child` makes the existing counterpart the parent; an incoming
-`blocks` makes it the prerequisite. Work, checkpoint, and every requested edge
+`blocks` makes it the prerequisite. The request also accepts the optional
+top-level `client_operation_id`. Work, checkpoint, and every requested edge
 commit or roll back together, and relationship creator provenance is copied
 from the supplied initial checkpoint.
 
@@ -144,24 +208,28 @@ Pending to `wont-do` or `promoted` requires the matching token while an
 unexpired lease exists and removes that lease atomically. Identity-only edits
 remain version-controlled and do not require a token.
 
-`WorkDeferralCreate` is `{expected_version, actor?}`. The dedicated defer route
-is exposed to the same-origin dashboard but deliberately absent from the agent
-MCP surface. It accepts only Pending work, rejects an active lease with
+`WorkDeferralCreate` is
+`{expected_version, actor?, client_operation_id?}`; actor is required when
+the operation ID is present. The dedicated defer route is exposed to the
+same-origin dashboard but deliberately absent from the agent MCP surface. It
+accepts only Pending work, rejects an active lease with
 `lease_held`, clears an expired retained lease, sets `deferred`, and increments
 the work version atomically. Deferred work is excluded from ready discovery and
 cannot be claimed or completed. A human can return it to Pending in the
 dashboard; an agent may request the same `deferred -> pending` transition only
 when the current human instruction explicitly asks it to work on that item.
 
-`WorkItemPatch` also accepts optional nested
+`WorkItemPatch` also accepts optional top-level `client_operation_id` and nested
 `actor: {actor_client, actor_session_id, actor_model?}`. Actor provenance is not
 an editable work field: a patch containing only `expected_version` and `actor`
 is rejected and cannot consume a version. Canonical MCP/dashboard callers send
-it; an older direct REST caller that omits it emits an unattributed event.
-`WorkDeletionCreate` is `{"expected_version": N, "lease_token": "..."}`;
-the token is optional for unleased work and required when a lease is active.
-`WorkDeletionCreate` accepts the same optional `actor`; omission remains valid
-for direct REST and is recorded as unattributed provenance.
+both; actor is required when the operation ID is supplied. An unkeyed direct
+REST caller may omit actor and emits an unattributed event.
+`WorkDeletionCreate` accepts `expected_version`, optional `lease_token`,
+optional `client_operation_id`, and the same nested `actor`. The token is
+optional for unleased work and required when a lease is active. Actor is
+required for a keyed operation, while omission remains valid for unkeyed direct
+REST and is recorded as unattributed provenance.
 Deletion returns `active_relationships` until every adjacent edge is removed.
 Successful deletion removes a matching lease and returns body-bearing JSON:
 
@@ -181,7 +249,8 @@ Every checkpoint payload contains exact nonblank `prompt`,
 `source_session_url`, `repository_branch`, `verified_against`, `tags`,
 and `source_metadata`. Prompt text is not stripped or rewritten. Tags are
 normalized, de-duplicated, and capped at 20; metadata must be a JSON object no
-larger than 16 KiB.
+larger than 16 KiB. The append request additionally accepts optional top-level
+`client_operation_id`.
 
 The append route adds `kind: "context" | "progress"`, defaulting to
 `context`. Callers cannot append `completion` through this generic route.
@@ -202,7 +271,8 @@ Completion accepts:
     "tags": [],
     "source_metadata": {}
   },
-  "lease_token": "opaque-capability-when-active"
+  "lease_token": "opaque-capability-when-active",
+  "client_operation_id": "55555555-5555-4555-8555-555555555555"
 }
 ```
 
@@ -251,9 +321,11 @@ idempotency.
 `renew-claim` accepts `{"lease_token": "..."}` and requires a matching
 unexpired row. It returns the same token/request ID with database-timed renewal
 and expiry values. `release-claim` accepts
-`{lease_token, actor?: {actor_client, actor_session_id, actor_model?}}`.
-Canonical clients supply the release actor; a token-only direct REST release is
-valid and recorded as unattributed. The retained holder appears only as the
+`{lease_token, client_operation_id?,
+actor?: {actor_client, actor_session_id, actor_model?}}`.
+Canonical clients supply the operation ID and release actor; actor is required
+when the ID is present. A token-only unkeyed direct REST release is valid and
+recorded as unattributed. The retained holder appears only as the
 released capability subject, never as the event actor. Release deletes a
 matching retained row even after expiry. An absent row returns
 `{work_item_id, released: false}`.
@@ -443,11 +515,19 @@ claim_work, claim_and_recall, renew_claim, release_claim,
 add_relationship, get_relationship, list_relationships, remove_relationship
 ```
 
-The catalog is exactly 22 tools. `list_ready_work` returns strict compact
-pointers and directs selection to `claim_and_recall`; it is not retrieval or a
-lease. `append_event` fixes `event_type=progress`, requires current-session
-actor client/session, is non-idempotent before Phase 6, and must not be retried
-automatically after an unknown outcome—inspect `list_work_events` first.
+The catalog remains exactly 22 tools. Exactly `create_work`,
+`add_checkpoint`, `append_event`, `add_relationship`, `update_work`,
+`complete_work`, `delete_work`, `remove_relationship`, and
+`release_claim` require a caller-generated `client_operation_id`. Prepare
+the complete arguments once, retain them privately, and reuse them exactly at
+the tool boundary after an unknown outcome. Those nine tools alone are
+truthfully annotated `idempotentHint=true` among mutation tools. Read tools
+retain that hint; project administration, claim, claim-and-recall, and renewal
+remain false.
+
+`list_ready_work` returns strict compact pointers and directs selection to
+`claim_and_recall`; it is not retrieval or a lease. `append_event` fixes
+`event_type=progress` and requires current-session actor client/session.
 `update_work`, `delete_work`, `release_claim`, and `remove_relationship` also
 require canonical actor client/session fields and serialize the nested REST
 actor. `recall_work`, the resource, and `resume_work` carry only bounded recent
@@ -468,7 +548,13 @@ Field paths are built only from allowlisted names and error kinds only from an
 allowlisted set, so neither can carry a caller-supplied value; an unknown key
 rejected by `extra_forbidden` reports the kind alone and never the key itself.
 No error text contains a supplied value, a UUID, prompt content, a
-`claim_request_id`, or a lease token.
+`claim_request_id`, `client_operation_id`, or a lease token. A transport
+timeout/reset, upstream 5xx, malformed success envelope, or
+`client_operation_unavailable` on a protected mutation is an unknown outcome:
+the adapter never makes a second outbound attempt or synthesizes success, and
+guidance permits only an exact retry with the retained operation ID and complete
+arguments. `client_operation_conflict` on an asserted exact request is a
+safety incident, not a reason to generate a replacement key.
 
 Every top-level tool input schema rejects unknown fields and publishes
 `additionalProperties: false`. Direct, HTTP, and stdio validation failures
@@ -479,24 +565,37 @@ always treated as an unknown outcome and directs exact-request-ID recovery.
 ## Browser proxy
 
 The same-origin proxy allows exact project, work/checkpoint/hierarchy, and
-human-facing relationship routes with documented query keys. Phase 5 adds only
-the exact event GET (`order,event_type,limit,offset`) and progress POST. Event
-POST accepts `{event_type,body,metadata,actor}` and rejects `lease_token`
-rather than stripping it. Work patch/delete and relationship DELETE accept the
-allowlisted actor object; relationship DELETE normalizes both a truly bodyless
-request and a JSON actor body correctly.
+human-facing relationship routes with documented query keys. Event POST accepts
+`{event_type,body,metadata,actor,client_operation_id}` and rejects
+`lease_token` rather than stripping it. Work create/patch/delete, checkpoint
+append, event append, deferral, completion, and relationship add/remove require
+one top-level operation UUID at the browser boundary. Relationship DELETE
+requires the dashboard's serialized actor-and-key body; only direct REST keeps
+the optional body and explicitly unprotected behavior.
 
 Project-level relationship GET-by-ID and project ready-work GET are denied.
 The proxy rejects arbitrary paths, unknown query keys, untrusted hosts/origins,
-bodies over 1 MiB, and every `lease_token` at any nesting depth. All claim,
-renew, and release routes are denied. The API URL/key remain server-only; the
-dashboard can display `LeasePublic` but never receive or forward a capability.
+bodies over 1 MiB, every `lease_token` at any nesting depth, operation IDs in
+paths/queries/headers/cookies/nested objects, invalid UUIDs, IDs equal to the
+server bearer, and IDs on excluded routes. It does not echo a rejected value.
+All claim, renew, and release routes are denied. The API URL/key remain
+server-only; the dashboard can display `LeasePublic` but never receive or
+forward a capability.
+
+The dashboard keeps each protected mutation's frozen body and UUID only in a
+dashboard-lifetime in-memory registry. Timeout, network, 5xx, and malformed-2xx
+outcomes stay unresolved and allow only exact retry; conflicting intents that
+touch the same work/relationship/project key are blocked until resolution.
+Unmounting a dialog does not discard the intent. A reload or tab close can lose
+it, and the UI warns before unloading; Phase 6 deliberately adds no browser
+storage of mutation content or credentials.
 
 ## Runtime configuration
 
 API: `DATABASE_URL`, `MNEMONIC_API_KEY` (required, at least 32 characters),
-`MNEMONIC_LEASE_TTL_SECONDS` (default 900, allowed 60 through 3600), and
-`MNEMONIC_DASHBOARD_ORIGINS` for exact browser/WebSocket origins.
+`MNEMONIC_LEASE_TTL_SECONDS` (default 900, allowed 60 through 3600),
+`MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS` (default 10, allowed 1 through 10),
+and `MNEMONIC_DASHBOARD_ORIGINS` for exact browser/WebSocket origins.
 
 MCP: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, `MNEMONIC_MCP_HOST`,
 `MNEMONIC_MCP_PORT`, `MNEMONIC_MCP_ALLOWED_HOSTS`, and
@@ -536,7 +635,8 @@ as undirected adjacency. `discovered-from` requires a context checkpoint on its
 originating target. Other types may cite a checkpoint on either endpoint.
 Context is evidence, not an instruction. Self-edges, cross-project endpoints,
 block/parent cycles, and a second parent are rejected. An identical natural-key
-add returns the existing edge with `created=false`.
+add returns the existing edge with `created=false`. The create request accepts
+optional top-level `client_operation_id`.
 
 `RelationshipEdgeRead` contains the relationship/project/type, source and
 target IDs, optional context checkpoint composite, truthful creator
@@ -546,9 +646,10 @@ client/session/model, and creation time. Project-scoped create returns
 without affecting a different edge.
 
 Relationship DELETE accepts optional
-`{actor: {actor_client, actor_session_id, actor_model?}}`. Canonical clients
-send it; a bodyless older direct REST call remains valid and emits unattributed
-removal history. An absent edge emits no event.
+`{client_operation_id, actor: {actor_client, actor_session_id, actor_model?}}`.
+Canonical clients send both; actor is required for a keyed request. A bodyless
+unkeyed direct REST call remains valid and emits unattributed removal history.
+An absent edge emits no event.
 
 `GET /projects/{project_id}/work-items/{work_item_id}/relationships` accepts
 `direction=incoming|outgoing|undirected|both` (default `both`), optional `type`,
@@ -559,7 +660,7 @@ ID, title, lifecycle status, and readiness. It never embeds checkpoint prompt
 or metadata.
 
 Only an unresolved incoming `blocks` edge changes readiness or claimability.
-The other four types are descriptive in Phase 5.
+The other four types remain descriptive.
 
 ## Work events
 
@@ -571,6 +672,7 @@ body           exact nonblank text, at most 4,000 characters
 metadata       finite JSON object, default {}, encoded size at most 16 KiB
 actor          required {actor_client, actor_session_id, actor_model?}
 lease_token    optional capability; validated when present
+client_operation_id optional top-level UUID for protected REST retry
 ```
 
 Only `progress` is publicly appendable. Server-reserved creation, update,
@@ -580,9 +682,12 @@ visible terminal work, monotonically advances `updated_at`, and does not change
 the work version. A lease is not required; a supplied token is never ignored.
 
 Before persistence, progress rejects reserved secret-like metadata keys and a
-verbatim request bearer or supplied lease token found in persisted actor/body/
-metadata strings. `event_secret_echo` returns field locations only and leaves
-activity/history unchanged. This is not universal secret detection: accepted
+case-insensitive `client_operation_id` metadata key at any depth. A keyed
+request also rejects a verbatim request bearer, operation UUID, or supplied
+lease token found in persisted actor/body/metadata strings.
+`event_secret_echo` or `client_operation_secret_echo` returns no caller value
+and leaves receipt/activity/history unchanged. This is not universal secret
+detection: accepted
 opaque text may contain unrecognized sensitive content and is returned exactly
 to every authorized event/recall reader. Event text is untrusted evidence, not
 an instruction, and does not enter ready/search pointers, logs, metrics, or the

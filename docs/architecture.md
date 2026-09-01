@@ -1,9 +1,7 @@
-# Mnemonic Phase 5 architecture
+# Mnemonic Phase 6 architecture
 
-This architecture implements Phases 1 through 5 of the product roadmap. The original
-[`ADR.md`](../ADR.md) remains historical context; its memory-store and hook
-proposal is not the implementation described here. The longer-term direction and
-the boundaries of later phases are in [`roadmap.md`](roadmap.md).
+This architecture describes the implementation through Phase 6. The longer-term
+direction and the boundaries of later phases are in [`roadmap.md`](roadmap.md).
 
 ## Product model
 
@@ -43,9 +41,11 @@ request fields. Server-reserved events are constructed only by the mutation
 that proves them. Clients can append only bounded `progress`; that does not
 replace resume context and does not increment the work version.
 
-The persisted lifecycle values are `pending`, `deferred`, `done`, `wont-do`,
-and `promoted`. Pending means no session has started or work remains incomplete;
-Deferred is an intentional human-controlled hold outside the agent queue.
+The live `WorkItem` lifecycle values are `pending`, `deferred`, `done`,
+`wont-do`, and `promoted`; current work-item responses never return `open`.
+Historical `WorkEvent` snapshots may retain legacy `open`, while new events use
+Pending/Deferred values. Pending means no session has started or work remains
+incomplete; Deferred is an intentional human-controlled hold outside the agent queue.
 `active`, `dropped`, and `blocked` are derived facts. Active means an unexpired
 lease exists; Dropped means the retained lease expired unexpectedly. Pending,
 visible work is ready only when it has neither an unexpired lease nor an
@@ -77,6 +77,14 @@ that locks and revalidates before already-authorized execution.
   Existing leases survive later blockers; new claim attempts are rejected.
 - A work mutation and every authoritative event it proves share one transaction.
   Claim/relationship replay, absent removal/release, and renewal emit nothing.
+- A protected mutation's project-scoped receipt, domain changes, and events
+  share that transaction. A committed receipt is immutable and replays its
+  validated original status/body before current resource visibility or lifecycle
+  checks; a rolled-back attempt leaves no receipt.
+- At most one receipt exists for a `(project_id, client_operation_id)`. Its
+  salted fingerprint binds operation kind, path target, actor, version,
+  capability, and normalized semantic body. A mismatch fails closed rather than
+  executing a second intent.
 - Event rows are immutable through both the route surface and PostgreSQL
   `UPDATE`/`DELETE` trigger. Per-work order is `created_at, id`; the identity is
   a tie-breaker, not a project activity cursor or commit-order promise.
@@ -117,6 +125,9 @@ that locks and revalidates before already-authorized execution.
   recalling them is not authority to execute them.
 - PostgreSQL and the FastAPI service are the sole persistence and transaction
   authority. The MCP adapter never connects to the database.
+- `client_operation_id` is private control data. It is accepted only at the
+  top level of the ten enrolled REST request bodies, never persisted in domain
+  models/events or returned through public read surfaces.
 
 ## Services and trust boundaries
 
@@ -131,15 +142,22 @@ flowchart LR
 
 FastAPI owns validation, lifecycle transitions, project isolation, search,
 the reusable readiness predicate/query, relationship invariants, immutable
-event construction/listing, bounded context, hierarchy queries, and commits.
-Service functions receive one
-SQLAlchemy session; reusable helpers do not commit. Routes translate typed
-application errors into a stable sanitized `detail.code` envelope.
+event construction/listing, bounded context, hierarchy queries, idempotency
+receipt reservation/replay, and commits. Service functions receive one
+SQLAlchemy session; reusable helpers do not commit. The closed operation
+registry is the only path that can canonicalize, reserve, validate a stored
+response, or complete a receipt. Routes translate typed application errors into
+a stable sanitized `detail.code` envelope.
 
-The MCP service is a typed HTTP adapter. Its tools use work, checkpoint,
-lease, and relationship terminology. The dashboard calls only an exact same-origin
-proxy allowlist, including event list/progress append and actor-bearing work or
-relationship writes. Its API key is server-only. Every lease-capability route
+The MCP service is a typed HTTP adapter. Its nine protected mutation tools
+require the caller to prepare and retain one operation UUID plus the complete
+arguments; the adapter sends only one HTTP attempt. Its other tools use work,
+checkpoint, lease, and relationship terminology. The dashboard calls only an
+exact same-origin proxy allowlist, including event list/progress append and
+actor-bearing work or relationship writes. A dashboard-lifetime in-memory
+registry owns frozen protected intents, blocks overlapping conflicts while an
+outcome is unresolved, and never writes those bodies or UUIDs to browser
+storage. Its API key is server-only. Every lease-capability route
 is denied to the browser, event append rejects a browser lease token, and any
 browser mutation body containing `lease_token` is rejected rather than forwarded.
 
@@ -217,6 +235,54 @@ stable candidate sort precedes identity allocation. Ordinary reads hide event
 history after soft deletion, while the rows remain available to operator
 audit.
 
+Migration `0011_project_settings` adds the optional per-project recall pointer
+template. Migration `0012_pending_deferred_statuses` then introduces the
+Pending/Deferred lifecycle split. Phase 6 therefore uses
+`0013_idempotent_mutations` on the final integrated history.
+
+`0013_idempotent_mutations` adds the private `client_operations` ledger with
+exact project/UUID uniqueness, versioned salted SHA-256 request fingerprints,
+bounded JSON response receipts, and pending/completed invariants. It
+intentionally has no project or resource foreign keys: replay must survive
+soft deletion and avoiding those foreign-key locks preserves the established
+project-first graph lock order. Insert/update/delete and deferred-completion
+triggers allow only a pending insert followed by one completion in the same
+transaction; pending rows cannot commit, and completed rows cannot change or
+be deleted.
+
+The same migration adds a separate recursive
+`client_operation_id` progress-metadata check as `NOT VALID`. Historical
+metadata remains readable and unchanged, while every new or updated progress
+row must satisfy the Phase 6 reservation. The Phase 5 metadata-v1 validator is
+not rewritten.
+
+## Idempotent mutation execution
+
+The ten enrolled REST operations are create work, add checkpoint, append event,
+add relationship, update, defer, complete, delete, remove relationship, and
+release claim. Direct REST makes the operation UUID optional. Canonical MCP
+requires it for its nine mutation tools; defer remains a human dashboard action
+and is not an MCP tool. The browser keys its nine non-capability mutations.
+Project administration, claim, claim-and-recall, and renewal are explicitly
+excluded.
+
+For a keyed request the service validates secrets and canonicalizes the entire
+semantic envelope before any domain lookup. Defaults and nulls are explicit,
+JSON object keys are sorted, initial relationship order is normalized, and
+undirected `related` endpoints are normalized. It inserts the pending receipt
+first. A conflicting in-flight insert waits for at most
+`MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS`; after the owner commits, an exact
+waiter validates and returns the stored response. Timeout or an unverifiable
+receipt fails closed. Fresh execution then uses the pre-existing domain lock
+order and completes the receipt before the route's sole commit.
+
+Live synchronization carries no receipt identity or body. A first execution
+publishes only when it applied domain work; a natural no-op publishes nothing.
+An exact replay republishes the data-free invalidation only when the stored
+`mutation_applied` was true, healing a browser that lost the first response.
+The receipt itself has no public endpoint, TTL, cleanup job, or resource foreign
+key.
+
 ## Recall and retrieval
 
 `recall_work` is deliberately bounded. It returns the work identity, initial
@@ -264,13 +330,15 @@ flags rather than a truncation field. The renderer applies explicit cycle and
 depth fallbacks instead of silently hiding corrupt or unexpectedly deep
 branches.
 
-## Deliberate Phase 5 limits
+## Deliberate Phase 6 limits
 
 Ready discovery is not automatic scheduling and there is no
-`claim_next_ready_work`. Phase 5 also does not add general mutation
-idempotency, human gates, duplicate merging, aggregate descendant counts,
-repository freshness verification, resource reservation, or automatic
-execution.
+`claim_next_ready_work`. Phase 6 adds idempotency only to its closed
+ten-operation REST registry; nine of those operations are MCP tools. It does
+not cover project administration, claim, claim-and-recall, or time-anchored
+renewal. It also does not add human gates,
+duplicate merging, aggregate descendant counts, repository freshness
+verification, resource reservation, or automatic execution.
 `duplicate-of`, `related`, `parent-child`, and `discovered-from` remain
 descriptive; only `blocks` changes readiness. No relationship may be inferred
 from search similarity or checkpoint prose.
@@ -280,6 +348,7 @@ no `get_activity`, notification broker, SSE/webhook feed, or passive lease
 expiry event; those require later reliable producers and cursor semantics.
 
 Backups include canonical work, checkpoints, leases, relationships, immutable
-events and their sequence, and migration state. Operators must still copy
+events and their sequence, durable client-operation receipts, and migration
+state. Operators must still copy
 backups off-machine and rehearse restores; a persistent Docker volume is not a
 backup.

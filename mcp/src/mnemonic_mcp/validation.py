@@ -73,6 +73,7 @@ VALIDATION_FIELDS = frozenset(
         "holder_client",
         "holder_session_id",
         "claim_request_id",
+        "client_operation_id",
         "lease_token",
         "lease_generation_id",
         "lease_release_id",

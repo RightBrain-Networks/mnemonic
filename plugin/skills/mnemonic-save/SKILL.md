@@ -40,6 +40,33 @@ by the user. Full rules for session, client, model, branch, and
 `verified_against` provenance, and for what must never be stored, are in
 [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
 
+## Prepare each protected write once
+
+`create_work`, `add_checkpoint`, `append_event`, `add_relationship`, and
+`update_work` are protected mutations used by this skill. Before the first
+attempt, generate one fresh `client_operation_id`, construct the complete tool
+argument object, and retain the UUID, tool name, and immutable arguments in
+secure client-local orchestration state. Retain every target, explicit/defaulted
+value, provenance field, metadata object, expected version, and optional lease
+token. The adapter makes one outbound attempt for each invocation and never
+generates or retains the UUID for you.
+
+On timeout, disconnect, malformed success, backend `5xx`, or
+`client_operation_unavailable`, leave that pending call unchanged and retry
+only the same tool with the same UUID and exact arguments. A changed argument
+or a new intent requires a new UUID. If the UUID or any exact argument was
+lost, or an asserted exact retry returns `client_operation_conflict`, stop,
+inspect current state where safe, and request direction. Never invent a
+replacement UUID or reconstruct a call under the old one. A successful replay
+returns the original historical result; read current work/graph state before
+using it as a current snapshot.
+
+The retained call is private control state. Never put `client_operation_id` or
+the pending argument object into a title, summary, checkpoint prompt/source
+metadata, event body/metadata, relationship context, tool output, chat, log,
+trace, URL, or shell history. Do not confuse it with source/session provenance
+or with the separate active-lease-bounded `claim_request_id` contract.
+
 ## Record explicit relationships
 
 Relationships are project-local facts, not semantic guesses. Read
@@ -108,30 +135,34 @@ does not need to become resume context. Supply the real `actor_client`,
 provenance, not authenticated identity. Do not store the same prose as both a
 checkpoint and progress event merely to duplicate it in two views.
 
-Progress append is not idempotent before Phase 6. If its result is unknown, do
-not retry automatically: call `list_work_events(order="newest")` and inspect the
-recent bounded page first. Never put credentials, lease tokens, private
-chain-of-thought, or transcript dumps in event body or metadata. Reserved keys
-and request-known secret echoes are rejected, but arbitrary unrecognized
-sensitive text cannot be detected universally and would be returned exactly to
-authorized history readers.
+Prepare the complete `append_event` call and `client_operation_id` once. If its
+result is unknown, retain and retry only that exact pending call; listing recent
+events cannot recover its original result or make a replacement UUID safe.
+Never put credentials, lease tokens, operation IDs, private chain-of-thought,
+or transcript dumps in event body or metadata. Reserved keys and request-known
+secret echoes are rejected, but arbitrary unrecognized sensitive text cannot
+be detected universally and would be returned exactly to authorized history
+readers.
+
 ## Persist and report
 
-For distinct work, call `create_work` with `project_id`, `title`, `summary`, and
-an `initial_checkpoint` containing the complete prompt and provenance, plus
-`initial_relationships` only when the explicit links must be created atomically.
-Use a few useful tags; new proposals normally remain `pending`. Deferred is a
-human-only hold: do not assign it while saving, and do not return existing
-Deferred work to Pending unless the current human instruction explicitly asks
-to work on that item.
+For distinct work, freeze a complete `create_work` intent with its
+`client_operation_id`, `project_id`, `title`, `summary`, and an
+`initial_checkpoint` containing the complete prompt and provenance, plus
+`initial_relationships` only when the explicit links must be created
+atomically. Use a few useful tags; new proposals normally remain `pending`.
+Deferred is a human-only hold: do not assign it while saving, and do not return
+existing Deferred work to Pending unless the current human instruction
+explicitly asks to work on that item.
 
-For the same objective, call `add_checkpoint(project_id, work_item_id,
-kind="context", checkpoint={...})`. If only mutable work identity must change,
-call `update_work` with the version just read, truthful flattened actor fields,
-and only the intended changes. On a version conflict, recall and compare before
-retrying. After an uncertain write
-failure, search or recall before retrying so a lost response does not duplicate
-work or context.
+For the same objective, freeze and call `add_checkpoint(project_id,
+work_item_id, client_operation_id, kind="context", checkpoint={...})`. If only
+mutable work identity must change, freeze a separate `update_work` intent with
+its own UUID, the version just read, truthful flattened actor fields, and only
+the intended changes. On a definite version conflict, recall and compare, then
+use a new UUID for changed arguments. On an uncertain outcome, do not edit or
+discard the retained call; same-key exact replay, not search, is the recovery
+mechanism.
 
 Report the saved title, project, work-item ID, and resulting version/status only
 after a successful tool result. Saving ends capture: it does not execute the

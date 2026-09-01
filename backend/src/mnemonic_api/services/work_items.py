@@ -92,7 +92,7 @@ def _checkpoint(
     *,
     kind: str,
 ) -> Checkpoint:
-    values = payload.model_dump(exclude={"kind", "lease_token"})
+    values = payload.model_dump(exclude={"kind", "lease_token", "client_operation_id"})
     return Checkpoint(work_item_id=work_item_id, kind=kind, **values)
 
 
@@ -140,7 +140,7 @@ def create_work_records(
             payload.initial_relationships,
             key=lambda item: (
                 item.type,
-                item.direction,
+                "outgoing" if item.type == "related" else item.direction,
                 str(item.other_work_item_id),
                 str(item.context_checkpoint_id or ""),
             ),
@@ -215,7 +215,7 @@ def update_work_record(database: Session, work_item: WorkItem, payload: WorkItem
     require_version(work_item, payload.expected_version)
     changes = payload.model_dump(
         exclude_unset=True,
-        exclude={"expected_version", "lease_token", "actor"},
+        exclude={"expected_version", "lease_token", "actor", "client_operation_id"},
     )
     before = {
         field: getattr(work_item, field) for field in ("title", "summary", "priority", "status")

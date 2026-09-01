@@ -59,3 +59,30 @@ def conflict(
     context: dict[str, Any] | None = None,
 ) -> ApplicationError:
     return ApplicationError(409, code, message, context=context)
+
+
+def client_operation_conflict() -> ApplicationError:
+    return ApplicationError(
+        409,
+        "client_operation_conflict",
+        (
+            "This client operation ID is already bound to a different successful request. "
+            "Use a new ID only for a genuinely new intent."
+        ),
+    )
+
+
+def client_operation_unavailable() -> ApplicationError:
+    return ApplicationError(
+        503,
+        "client_operation_unavailable",
+        "Client operation safety is unavailable. Retry the same ID with the exact same request.",
+    )
+
+
+def client_operation_secret_echo() -> ApplicationError:
+    return ApplicationError(
+        422,
+        "client_operation_secret_echo",
+        "Client operation or capability data cannot appear in public content fields.",
+    )

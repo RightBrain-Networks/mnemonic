@@ -179,6 +179,35 @@ def event_metadata_is_safe(value: dict[str, JsonValue]) -> dict[str, JsonValue]:
 
 
 EventMetadata = Annotated[dict[str, JsonValue], AfterValidator(event_metadata_is_safe)]
+CLIENT_OPERATION_ID_DESCRIPTION = (
+    "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with "
+    "the exact same operation and semantic arguments after an unknown outcome."
+)
+
+
+def progress_request_metadata_is_safe(
+    value: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    """Apply the Phase 6 request-only reserved-key rule without changing event history."""
+    event_metadata_is_safe(value)
+
+    def validate(item: JsonValue) -> None:
+        if isinstance(item, list):
+            for child in item:
+                validate(child)
+        elif isinstance(item, dict):
+            for key, child in item.items():
+                if key.casefold() == "client_operation_id":
+                    raise ValueError("Progress metadata contains a reserved client operation key")
+                validate(child)
+
+    validate(value)
+    return value
+
+
+ProgressRequestMetadata = Annotated[
+    dict[str, JsonValue], AfterValidator(progress_request_metadata_is_safe)
+]
 Status = Literal["pending", "deferred", "done", "wont-do", "promoted"]
 EventStatus = Literal["open", "pending", "deferred", "done", "wont-do", "promoted"]
 EventCreateStatus = Literal["open", "pending", "deferred", "wont-do", "promoted"]
@@ -313,6 +342,9 @@ class InitialCheckpointCreate(CheckpointPayload):
 class CheckpointCreate(CheckpointPayload):
     kind: AppendCheckpointKind = "context"
     lease_token: LeaseToken | None = Field(default=None, repr=False)
+    client_operation_id: UUID | None = Field(
+        default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
+    )
 
 
 class CompletionCheckpointCreate(CheckpointPayload):
@@ -346,6 +378,9 @@ class WorkItemCreate(APIModel):
     initial_relationships: Annotated[list[InitialRelationshipCreate], Field(max_length=10)] = Field(
         default_factory=list
     )
+    client_operation_id: UUID | None = Field(
+        default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
+    )
 
 
 class RelationshipCreate(APIModel):
@@ -356,6 +391,9 @@ class RelationshipCreate(APIModel):
     created_by_session_id: SessionID
     created_by_model: ModelName | None = None
     context_checkpoint_id: UUID | None = None
+    client_operation_id: UUID | None = Field(
+        default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
+    )
 
     @model_validator(mode="after")
     def relationship_rules(self) -> Self:
@@ -374,33 +412,64 @@ class WorkItemPatch(APIModel):
     status: MutableStatus | None = None
     lease_token: LeaseToken | None = Field(default=None, repr=False)
     actor: MutationActor | None = None
+    client_operation_id: UUID | None = Field(
+        default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
+    )
 
     @model_validator(mode="after")
     def editable_fields(self) -> Self:
-        fields = self.model_fields_set - {"expected_version", "lease_token", "actor"}
+        fields = self.model_fields_set - {
+            "expected_version",
+            "lease_token",
+            "actor",
+            "client_operation_id",
+        }
         if not fields:
             raise ValueError("Provide at least one editable field besides expected_version")
         for field in fields:
             if getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")
+        if self.client_operation_id is not None and self.actor is None:
+            raise ValueError("actor is required when client_operation_id is present")
         return self
 
 
 class WorkDeferralCreate(APIModel):
     expected_version: Annotated[StrictInt, Field(ge=1)]
     actor: MutationActor | None = None
+    client_operation_id: UUID | None = Field(
+        default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
+    )
+
+    @model_validator(mode="after")
+    def keyed_operation_requires_actor(self) -> Self:
+        if self.client_operation_id is not None and self.actor is None:
+            raise ValueError("actor is required when client_operation_id is present")
+        return self
 
 
 class WorkCompletionCreate(APIModel):
     expected_version: Annotated[StrictInt, Field(ge=1)]
     checkpoint: CompletionCheckpointCreate
     lease_token: LeaseToken | None = Field(default=None, repr=False)
+    client_operation_id: UUID | None = Field(
+        default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
+    )
 
 
 class WorkDeletionCreate(APIModel):
     expected_version: Annotated[StrictInt, Field(ge=1)]
     lease_token: LeaseToken | None = Field(default=None, repr=False)
     actor: MutationActor | None = None
+    client_operation_id: UUID | None = Field(
+        default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
+    )
+
+    @model_validator(mode="after")
+    def keyed_operation_requires_actor(self) -> Self:
+        if self.client_operation_id is not None and self.actor is None:
+            raise ValueError("actor is required when client_operation_id is present")
+        return self
 
 
 class WorkClaimCreate(APIModel):
@@ -416,10 +485,28 @@ class LeaseTokenCreate(APIModel):
 class LeaseReleaseCreate(APIModel):
     lease_token: LeaseToken = Field(repr=False)
     actor: MutationActor | None = None
+    client_operation_id: UUID | None = Field(
+        default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
+    )
+
+    @model_validator(mode="after")
+    def keyed_operation_requires_actor(self) -> Self:
+        if self.client_operation_id is not None and self.actor is None:
+            raise ValueError("actor is required when client_operation_id is present")
+        return self
 
 
 class RelationshipRemovalCreate(APIModel):
     actor: MutationActor | None = None
+    client_operation_id: UUID | None = Field(
+        default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
+    )
+
+    @model_validator(mode="after")
+    def keyed_operation_requires_actor(self) -> Self:
+        if self.client_operation_id is not None and self.actor is None:
+            raise ValueError("actor is required when client_operation_id is present")
+        return self
 
 
 class WorkItemRead(Timestamps):
@@ -623,9 +710,12 @@ EventBody = Annotated[
 class ProgressEventCreate(APIModel):
     event_type: Literal["progress"] = "progress"
     body: EventBody
-    metadata: EventMetadata = Field(default_factory=dict)
+    metadata: ProgressRequestMetadata = Field(default_factory=dict)
     actor: MutationActor
     lease_token: LeaseToken | None = Field(default=None, repr=False)
+    client_operation_id: UUID | None = Field(
+        default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
+    )
 
 
 class EmptyEventMetadata(APIModel):

@@ -72,12 +72,20 @@ it, pass up to ten `initial_relationships` to `create_work`. Each entry's
 `direction` is relative to the new item and names `other_work_item_id`. An
 initial `discovered-from` edge must be `outgoing` and must cite a checkpoint on
 its originating target. These atomic edges inherit creator provenance from the
-initial checkpoint.
+initial checkpoint. They are part of the one immutable `create_work` argument
+object retained with that call's `client_operation_id`; never retry the create
+under the same UUID with a reordered, added, or removed relationship.
 
 For a fact connecting existing work, use `add_relationship` with the exact
 source, target, type, and real acting client/session provenance. Removal with
 `remove_relationship` requires the real acting `actor_client`,
-`actor_session_id`, and optional known `actor_model`; it is idempotent and is
-for the exact edge the user asked to remove, or that authorized work established
-is wrong. Do not delete descriptive provenance merely because a blocker became
-`done`.
+`actor_session_id`, and optional known `actor_model`. Before each separate add
+or remove intent, generate its own `client_operation_id` and privately retain
+it with the complete immutable arguments as described in
+[authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
+An unknown result is retried only with that same UUID and exact argument object;
+an add/remove replay returns the original historical `created`/`removed` result
+even if the edge later changed. Read the graph again for current state. A new
+UUID with the same edge is a new intent and may instead bind a natural no-op.
+Do not delete descriptive provenance merely because a blocker became `done`,
+and never put operation-control data into relationship context or history.

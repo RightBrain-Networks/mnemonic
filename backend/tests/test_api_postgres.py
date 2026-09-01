@@ -327,8 +327,24 @@ def test_active_and_dropped_filters_derive_pending_lease_state(
         promoted["id"],
     }
     dropped_result = api.get(path(project), params={"status": "dropped"}).json()["items"][0]
-    assert dropped_result["readiness"]["has_dropped_lease"] is True
-    assert dropped_result["readiness"]["display_state"] == "dropped"
+    assert dropped_result["readiness"] == {
+        "lifecycle_status": "pending",
+        "is_terminal": False,
+        "has_active_lease": False,
+        "has_dropped_lease": True,
+        "active_lease": None,
+        "unresolved_blocker_count": 0,
+        "is_blocked": False,
+        "is_ready": True,
+        "display_state": "dropped",
+    }
+    dropped_context = api.get(f"{path(project, dropped)}/context").json()
+    assert dropped_context["readiness"] == dropped_result["readiness"]
+    ready_items = {
+        item["work_item"]["id"]: item
+        for item in api.get(f"/api/v1/projects/{project['id']}/ready-work").json()["items"]
+    }
+    assert ready_items[dropped["id"]]["display_state"] == "dropped"
 
 
 def test_edit_refreshes_search_vector(api, project, work_payload):

@@ -89,13 +89,13 @@ Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemon
 reachable remotely.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current plugin is version `0.3.0`. It provides:
+not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current plugin is version `0.4.0`. It provides:
 
 - **`mnemonic-save`** searches for existing work, creates a durable objective
   with its initial checkpoint and explicit atomic links, or appends corrective
   resume context to an existing one; concise historical progress uses an event.
 - **`mnemonic-search`** finds compact work-item leads within the chosen project,
-  normally restricted to open work, and separately lists priority-ordered ready
+  normally restricted to pending work, and separately lists priority-ordered ready
   candidates without treating search as a queue.
 - **`mnemonic-recall`** loads bounded current context, pages older checkpoints
   or events when needed, atomically claims already-authorized execution, renews
@@ -107,6 +107,89 @@ Invoke `/mnemonic-save`, `/mnemonic-search`, or `/mnemonic-recall`, or ask Claud
 `list_projects`. Session IDs are opaque text (often UUIDs), not integers, and refer to the originating LLM conversation, not the MCP transport session. 
 
 See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
+
+## What Mnemonic currently does
+
+- Separates durable work by project, with a project selector and project
+  creation. One work-item card can represent checkpoints from many sessions.
+- Stores immutable checkpoint text, tags, source client/session/model, optional
+  session URL, branch, checked commit, custom metadata, and timestamps.
+- Keeps title, retrieval summary, priority, lifecycle, and optimistic version on
+  the small mutable work item rather than rewriting historical session context.
+- Searches PostgreSQL full-text indexes and literal identifiers by default.
+  An opt-in Semantic dashboard toggle and `search_work` argument add hybrid
+  similarity ranking from a local embedding model; both default to disabled.
+  The model runs offline and needs no hosted embedding service or model API key.
+  Checkpoint text participates in lexical and semantic retrieval. Search returns
+  one compact result per work item; recall returns bounded current context, and
+  older history is explicitly paginated.
+- Lets a user edit work identity, append immutable context/progress checkpoints,
+  complete work with a required completion checkpoint, copy current context, and
+  soft-delete work. Concurrent edits and completions are detected rather than
+  silently overwriting changes; independent checkpoint appenders can both
+  succeed.
+- Keeps `deferred`, `done`, `wont-do`, and `promoted` work out of the default
+  pending view while retaining them under explicit filters. Deferral is an
+  explicit human hold. Deleted work and its checkpoints are hidden from
+  ordinary reads but retained for recovery.
+- Lets one cooperative agent session claim a pending work item through an atomic,
+  server-timed lease. A client request ID recovers an active claim receipt after
+  an unknown response, renewal extends responsibility, release hands unfinished
+  work back, and expiry restores claimability without operator repair.
+- Derives `Pending`, `Active`, `Dropped`, and `Blocked` independently from lifecycle. Search,
+  recall, and the dashboard expose only safe holder/session/timing details; the
+  capability token appears only in MCP/API claim receipts and JSON mutation
+  bodies, never browser data, URLs, errors, or ordinary responses.
+- Stores explicit project-local `blocks`, `parent-child`, `discovered-from`,
+  `duplicate-of`, and `related` relationships. All directed edges use
+  `source --type--> target`; `related` is normalized and presented as
+  undirected.
+- Makes only unresolved incoming `blocks` edges affect readiness and claim
+  eligibility. `done` resolves a blocker; `wont-do` and `promoted` do not.
+  Active work may become blocked without revoking its existing lease.
+- Exposes dedicated `ready-work` REST and `list_ready_work` MCP reads. Ready
+  items are pending, visible, unblocked, and unleased at one database-time
+  snapshot, ordered by priority descending, then creation time and UUID. The
+  compact result is advisory: `claim_and_recall` revalidates before execution.
+- Stores append-only, actor-attributed work events for creation, work changes,
+  claims/releases, checkpoints, relationships, completion/reopen, deletion, and
+  explicit concise progress. Authoritative events commit with the mutation they
+  describe; canonical idempotent replays and natural no-ops do not fabricate
+  duplicates.
+- Makes retries safe for ten project-scoped REST mutations with caller-generated
+  `client_operation_id` values and durable typed success receipts. Canonical
+  MCP tools require the UUID for nine of them; the dashboard retains frozen
+  same-tab requests for its nine non-capability mutations, including deferral;
+  direct REST may omit it and remain unprotected. An exact retry returns the
+  original result without repeating domain or event work.
+- Keeps checkpoints and events separate. A checkpoint is substantial resume
+  context; a progress event is a short historical fact. Recall includes at most
+  20 recent events, while the dashboard pages the complete per-work Activity
+  timeline and labels reconstructed pre-Phase-5 history honestly.
+- Treats event actors as asserted client provenance, not authenticated human
+  identity. Stored event/checkpoint text is untrusted and may contain unknown
+  sensitive material; request-known credential echoes are rejected, but clients
+  must still keep secrets out of history.
+- Creates a new objective, initial checkpoint, and up to ten explicit typed
+  relationships atomically. A `discovered-from` link must cite a
+  checkpoint on the originating target work item.
+- Browses collapsible structural roots and lazily loaded children in the
+  dashboard. Subtree-aware filters keep matching descendants visible beneath
+  muted ancestors, while free-text search returns direct hits with bounded
+  ancestor breadcrumbs.
+- Requires the matching lease token for completion, retirement, promotion, or
+  deletion while work has an active lease. Checkpoint append remains open and
+  lease operations do not alter work version or activity time.
+- Saves a PostgreSQL backup at startup and daily, retaining earlier dumps.
+
+It does **not** automatically execute checkpoints, grant authority by claiming,
+create GitHub issues, inject memory hooks, infer missing session IDs, schedule
+or claim the next ready item, infer relationships from semantic similarity,
+merge duplicates, or reserve repository resources. Mnemonic is deliberately
+LLM-centric: checkpoints and relationship context record an agent's claims
+rather than server-verified proof. Context quality and freshness remain agent
+workflow obligations; storing a commit ID is not proof the service verified
+anything.
 
 ## Operate and develop
 

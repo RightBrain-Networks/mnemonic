@@ -6,6 +6,7 @@ from conftest import (
     API_KEY,
     CHECKPOINT_ID,
     CLAIM_REQUEST_ID,
+    CLIENT_OPERATION_ID,
     EXPIRES_AT,
     LEASE_TOKEN,
     LOCAL_VALIDATION_CASES,
@@ -19,7 +20,7 @@ from conftest import (
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 
-from mnemonic_mcp.api import MnemonicAPI
+from mnemonic_mcp.api import UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME, MnemonicAPI
 from mnemonic_mcp.models import ClaimAndRecall, ClaimReceipt, ReadyWorkPage, WorkEventRead
 from mnemonic_mcp.server import build_server
 
@@ -35,6 +36,195 @@ ACTOR_PAYLOAD = {
         "actor_model": "test-model",
     }
 }
+OPERATION_ARGUMENT = {"client_operation_id": CLIENT_OPERATION_ID}
+OPERATION_PAYLOAD = {"client_operation_id": CLIENT_OPERATION_ID}
+PROTECTED_TOOL_NAMES = (
+    "create_work",
+    "add_checkpoint",
+    "append_event",
+    "add_relationship",
+    "update_work",
+    "complete_work",
+    "delete_work",
+    "remove_relationship",
+    "release_claim",
+)
+
+
+def protected_tool_arguments(operation_id: str = CLIENT_OPERATION_ID):
+    checkpoint = {
+        "prompt": "Retained checkpoint context.",
+        "source_client": "claude-code",
+        "source_session_id": "phase-6-session",
+    }
+    actor = {
+        "actor_client": "claude-code",
+        "actor_session_id": "phase-6-session",
+    }
+    operation = {"client_operation_id": operation_id}
+    return {
+        "create_work": {
+            "project_id": PROJECT_ID,
+            "title": "Retained work intent",
+            "summary": "Exercise the protected MCP contract.",
+            "initial_checkpoint": checkpoint,
+            **operation,
+        },
+        "add_checkpoint": {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "checkpoint": checkpoint,
+            **operation,
+        },
+        "append_event": {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "body": "Recorded progress.",
+            **actor,
+            **operation,
+        },
+        "add_relationship": {
+            "project_id": PROJECT_ID,
+            "source_work_item_id": OTHER_WORK_ID,
+            "target_work_item_id": WORK_ID,
+            "relationship_type": "blocks",
+            "created_by_client": "claude-code",
+            "created_by_session_id": "phase-6-session",
+            **operation,
+        },
+        "update_work": {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "expected_version": 3,
+            "changes": {"summary": "Updated retained work intent."},
+            **actor,
+            **operation,
+        },
+        "complete_work": {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "expected_version": 3,
+            "checkpoint": checkpoint,
+            **operation,
+        },
+        "delete_work": {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "expected_version": 3,
+            **actor,
+            **operation,
+        },
+        "remove_relationship": {
+            "project_id": PROJECT_ID,
+            "relationship_id": RELATIONSHIP_ID,
+            **actor,
+            **operation,
+        },
+        "release_claim": {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "lease_token": LEASE_TOKEN,
+            **actor,
+            **operation,
+        },
+    }
+
+
+def protected_success_responses(work_item, checkpoint, relationship, progress_event):
+    arguments = protected_tool_arguments()
+
+    def checkpoint_response(tool_name: str, kind: str):
+        supplied = arguments[tool_name][
+            "initial_checkpoint" if tool_name == "create_work" else "checkpoint"
+        ]
+        return {
+            **checkpoint,
+            "work_item_id": WORK_ID,
+            "kind": kind,
+            "prompt": supplied["prompt"],
+            "source_client": supplied["source_client"],
+            "source_session_id": supplied["source_session_id"],
+            "source_model": supplied.get("source_model"),
+            "source_session_url": supplied.get("source_session_url"),
+            "repository_branch": supplied.get("repository_branch"),
+            "verified_against": supplied.get("verified_against"),
+            "tags": supplied.get("tags", []),
+            "source_metadata": supplied.get("source_metadata", {}),
+            "migration_origin": None,
+            "legacy_record_id": None,
+        }
+
+    created_checkpoint = checkpoint_response("create_work", "context")
+    completion_checkpoint = checkpoint_response("complete_work", "completion")
+    return {
+        "create_work": {
+            "work_item": {
+                **work_item,
+                "title": arguments["create_work"]["title"],
+                "summary": arguments["create_work"]["summary"],
+                "priority": 0,
+                "status": "pending",
+                "version": 1,
+                "initial_checkpoint_id": created_checkpoint["id"],
+            },
+            "initial_checkpoint": created_checkpoint,
+            "initial_relationships": [],
+        },
+        "add_checkpoint": checkpoint_response("add_checkpoint", "context"),
+        "append_event": {
+            **progress_event,
+            "actor_client": arguments["append_event"]["actor_client"],
+            "actor_session_id": arguments["append_event"]["actor_session_id"],
+            "actor_model": None,
+            "body": arguments["append_event"]["body"],
+            "metadata": {},
+        },
+        "add_relationship": {
+            "relationship": {
+                **relationship,
+                "source_work_item_id": arguments["add_relationship"][
+                    "source_work_item_id"
+                ],
+                "target_work_item_id": arguments["add_relationship"][
+                    "target_work_item_id"
+                ],
+                "relationship_type": arguments["add_relationship"][
+                    "relationship_type"
+                ],
+                "created_by_client": arguments["add_relationship"][
+                    "created_by_client"
+                ],
+                "created_by_session_id": arguments["add_relationship"][
+                    "created_by_session_id"
+                ],
+                "created_by_model": None,
+                "context_checkpoint_work_item_id": None,
+                "context_checkpoint_id": None,
+            },
+            "created": True,
+        },
+        "update_work": {
+            **work_item,
+            "summary": arguments["update_work"]["changes"]["summary"],
+            "version": 4,
+        },
+        "complete_work": {
+            "work_item": {**work_item, "status": "done", "version": 4},
+            "checkpoint": completion_checkpoint,
+        },
+        "delete_work": {
+            "deleted": True,
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "version": 4,
+        },
+        "remove_relationship": {
+            "project_id": PROJECT_ID,
+            "relationship_id": RELATIONSHIP_ID,
+            "removed": True,
+        },
+        "release_claim": {"work_item_id": WORK_ID, "released": True},
+    }
 
 
 def adapter(settings, handler):
@@ -72,7 +262,7 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
         "add_checkpoint": "never a rewrite of an earlier one",
         "recall_work": "historical evidence, not authority",
         "list_ready_work": "claim atomically revalidates",
-        "append_event": "do not retry automatically",
+        "append_event": "retain it with the complete immutable tool arguments",
         "list_work_events": "untrusted historical evidence",
         "claim_work": "never work around another session's active claim",
         "claim_and_recall": "grants no authority beyond the user's request",
@@ -84,6 +274,29 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
         "complete_work": "only when the objective is actually achieved",
     }.items():
         assert required in described[name].lower(), name
+
+    protected = {
+        "create_work",
+        "add_checkpoint",
+        "append_event",
+        "add_relationship",
+        "update_work",
+        "complete_work",
+        "delete_work",
+        "remove_relationship",
+        "release_claim",
+    }
+    for name in protected:
+        description = described[name]
+        for required in (
+            "Generate client_operation_id before the first attempt",
+            "complete immutable tool arguments",
+            "every argument unchanged",
+            "never invent a replacement",
+            "new intent requires a new UUID",
+            "historical original result",
+        ):
+            assert required in description, (name, required)
 
 
 async def test_tool_catalog_schemas_and_annotations(settings):
@@ -149,10 +362,56 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
     ):
         assert tools[name].annotations.destructiveHint is True
-    for name in ("claim_work", "claim_and_recall", "renew_claim", "append_event"):
-        assert tools[name].annotations.idempotentHint is False
-    for name in ("release_claim", "add_relationship", "remove_relationship"):
+    protected = {
+        "create_work",
+        "add_checkpoint",
+        "append_event",
+        "add_relationship",
+        "update_work",
+        "complete_work",
+        "delete_work",
+        "remove_relationship",
+        "release_claim",
+    }
+    mutating = protected | {
+        "create_project",
+        "claim_work",
+        "claim_and_recall",
+        "renew_claim",
+    }
+    destructive = {
+        "update_work",
+        "complete_work",
+        "delete_work",
+        "remove_relationship",
+    }
+    assert len(tools) == 22
+    for name in mutating:
+        assert tools[name].annotations.idempotentHint is (name in protected)
+    for name in tools.keys() - mutating:
         assert tools[name].annotations.idempotentHint is True
+
+    for name, tool in tools.items():
+        annotations = tool.annotations
+        assert (
+            annotations.readOnlyHint,
+            annotations.destructiveHint,
+            annotations.idempotentHint,
+            annotations.openWorldHint,
+        ) == (
+            name not in mutating,
+            name in destructive,
+            name not in mutating or name in protected,
+            False,
+        )
+
+    for name, tool in tools.items():
+        properties = tool.inputSchema["properties"]
+        if name in protected:
+            assert "client_operation_id" in tool.inputSchema["required"]
+            assert properties["client_operation_id"]["format"] == "uuid"
+        else:
+            assert "client_operation_id" not in properties
     assert tools["create_project"].outputSchema["additionalProperties"] is False
     project_page_schema = tools["list_projects"].outputSchema
     assert project_page_schema["additionalProperties"] is False
@@ -211,6 +470,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "lease_token",
         "actor_client",
         "actor_session_id",
+        "client_operation_id",
     }
     for name in ("renew_claim", "release_claim"):
         token_schema = tools[name].inputSchema["properties"]["lease_token"]
@@ -235,7 +495,13 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         assert "lease_token" not in tools[name].inputSchema["required"]
 
     create_required = tools["create_work"].inputSchema["required"]
-    assert {"project_id", "title", "summary", "initial_checkpoint"} <= set(create_required)
+    assert {
+        "project_id",
+        "title",
+        "summary",
+        "initial_checkpoint",
+        "client_operation_id",
+    } <= set(create_required)
     checkpoint_schema = tools["create_work"].inputSchema["$defs"]["CheckpointInput"]
     assert {"prompt", "source_client", "source_session_id"} <= set(
         checkpoint_schema["required"]
@@ -289,6 +555,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "relationship_type",
         "created_by_client",
         "created_by_session_id",
+        "client_operation_id",
     }
     assert set(add_relationship_schema["properties"]["relationship_type"]["enum"]) == (
         relationship_types
@@ -356,6 +623,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "actor_client",
         "actor_session_id",
         "actor_model",
+        "client_operation_id",
     }
     assert set(append_input["required"]) == {
         "project_id",
@@ -363,6 +631,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "body",
         "actor_client",
         "actor_session_id",
+        "client_operation_id",
     }
     assert append_input["properties"]["metadata"]["default"] == {}
     assert "event_type" not in append_input["properties"]
@@ -396,6 +665,106 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     for name, tool in tools.items():
         if name not in {"claim_work", "claim_and_recall", "renew_claim"}:
             assert '"lease_token"' not in json.dumps(tool.outputSchema)
+
+
+async def test_all_protected_mutations_forward_one_canonical_top_level_uuid(settings):
+    calls = []
+
+    class CapturingAPI:
+        async def request(self, method, path, **kwargs):
+            calls.append((method, path, kwargs))
+            raise ToolError("captured protected request")
+
+    server = build_server(settings, CapturingAPI())
+    uppercase_id = CLIENT_OPERATION_ID.upper()
+    arguments_by_tool = protected_tool_arguments(uppercase_id)
+
+    for expected_count, (tool_name, arguments) in enumerate(
+        arguments_by_tool.items(), start=1
+    ):
+        with pytest.raises(ToolError, match="captured protected request"):
+            await server.call_tool(tool_name, arguments)
+
+        assert len(calls) == expected_count
+        method, path, kwargs = calls[-1]
+        assert method in {"POST", "PATCH", "DELETE"}
+        assert path.startswith(f"projects/{PROJECT_ID}/")
+        assert kwargs["idempotent_mutation"] is True
+        payload = kwargs["payload"]
+        assert payload["client_operation_id"] == CLIENT_OPERATION_ID
+        assert json.dumps(payload).count('"client_operation_id"') == 1
+
+
+async def test_all_protected_mutations_reject_missing_or_invalid_uuid_locally(settings):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(500)
+
+    server = adapter(settings, handler)
+    for tool_name, valid_arguments in protected_tool_arguments().items():
+        missing = {
+            name: value
+            for name, value in valid_arguments.items()
+            if name != "client_operation_id"
+        }
+        with pytest.raises(ToolError, match=r"client_operation_id \(missing\)"):
+            await server.call_tool(tool_name, missing)
+
+        invalid_marker = f"private-invalid-operation-id-{tool_name}"
+        with pytest.raises(
+            ToolError, match=r"client_operation_id \(uuid_parsing\)"
+        ) as caught:
+            await server.call_tool(
+                tool_name,
+                {**valid_arguments, "client_operation_id": invalid_marker},
+            )
+        assert invalid_marker not in str(caught.value)
+
+    assert calls == []
+
+
+async def test_excluded_mutations_reject_unexpected_operation_id_locally(settings):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(500)
+
+    excluded = {
+        "create_project": {"name": "Example"},
+        "claim_work": {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "holder_client": "claude-code",
+            "holder_session_id": "phase-6-session",
+            "claim_request_id": CLAIM_REQUEST_ID,
+        },
+        "claim_and_recall": {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "holder_client": "claude-code",
+            "holder_session_id": "phase-6-session",
+            "claim_request_id": CLAIM_REQUEST_ID,
+        },
+        "renew_claim": {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "lease_token": LEASE_TOKEN,
+        },
+    }
+    server = adapter(settings, handler)
+    for tool_name, arguments in excluded.items():
+        with pytest.raises(
+            ToolError, match=r"client_operation_id \(extra_forbidden\)"
+        ):
+            await server.call_tool(
+                tool_name,
+                {**arguments, "client_operation_id": CLIENT_OPERATION_ID},
+            )
+
+    assert calls == []
 
 
 async def test_strict_tool_models_are_isolated_to_mnemonic(settings):
@@ -475,6 +844,7 @@ async def test_create_work_preserves_nested_checkpoint_and_returns_both_records(
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
         assert request.extensions["timeout"]["read"] == 20.0
         assert json.loads(request.content) == {
+            **OPERATION_PAYLOAD,
             "title": work_item["title"],
             "summary": work_item["summary"],
             "priority": 7,
@@ -484,7 +854,7 @@ async def test_create_work_preserves_nested_checkpoint_and_returns_both_records(
         return httpx.Response(
             201,
             json={
-                "work_item": work_item,
+                "work_item": {**work_item, "version": 1},
                 "initial_checkpoint": {**checkpoint, **checkpoint_input},
                 "initial_relationships": [],
             },
@@ -495,6 +865,7 @@ async def test_create_work_preserves_nested_checkpoint_and_returns_both_records(
             "create_work",
             {
                 "project_id": PROJECT_ID,
+                **OPERATION_ARGUMENT,
                 "title": work_item["title"],
                 "summary": work_item["summary"],
                 "priority": 7,
@@ -549,6 +920,7 @@ async def test_create_work_serializes_atomic_initial_relationships(
         assert request.method == "POST"
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
         assert json.loads(request.content) == {
+            **OPERATION_PAYLOAD,
             "title": work_item["title"],
             "summary": work_item["summary"],
             "priority": 0,
@@ -559,7 +931,7 @@ async def test_create_work_serializes_atomic_initial_relationships(
         return httpx.Response(
             201,
             json={
-                "work_item": work_item,
+                "work_item": {**work_item, "priority": 0, "version": 1},
                 "initial_checkpoint": checkpoint,
                 "initial_relationships": [relationship],
             },
@@ -570,6 +942,7 @@ async def test_create_work_serializes_atomic_initial_relationships(
             "create_work",
             {
                 "project_id": PROJECT_ID,
+                **OPERATION_ARGUMENT,
                 "title": work_item["title"],
                 "summary": work_item["summary"],
                 "initial_checkpoint": checkpoint_input,
@@ -602,6 +975,7 @@ async def test_relationship_tools_use_exact_rest_contract_and_pointer_only_count
             assert request.url.path == relationship_path
             assert not request.url.params
             assert json.loads(request.content) == {
+                **OPERATION_PAYLOAD,
                 "source_work_item_id": OTHER_WORK_ID,
                 "target_work_item_id": WORK_ID,
                 "relationship_type": "blocks",
@@ -648,7 +1022,7 @@ async def test_relationship_tools_use_exact_rest_contract_and_pointer_only_count
         if request.method == "GET":
             return httpx.Response(200, json=relationship)
         assert request.method == "DELETE"
-        assert json.loads(request.content) == ACTOR_PAYLOAD
+        assert json.loads(request.content) == {**OPERATION_PAYLOAD, **ACTOR_PAYLOAD}
         return httpx.Response(
             200,
             json={
@@ -664,6 +1038,7 @@ async def test_relationship_tools_use_exact_rest_contract_and_pointer_only_count
             "add_relationship",
             {
                 "project_id": PROJECT_ID,
+                **OPERATION_ARGUMENT,
                 "source_work_item_id": OTHER_WORK_ID,
                 "target_work_item_id": WORK_ID,
                 "relationship_type": "blocks",
@@ -713,7 +1088,12 @@ async def test_relationship_tools_use_exact_rest_contract_and_pointer_only_count
     removed = structured(
         await server.call_tool(
             "remove_relationship",
-            {"project_id": PROJECT_ID, "relationship_id": RELATIONSHIP_ID, **ACTOR_ARGUMENTS},
+            {
+                "project_id": PROJECT_ID,
+                "relationship_id": RELATIONSHIP_ID,
+                **ACTOR_ARGUMENTS,
+                **OPERATION_ARGUMENT,
+            },
         )
     )
     assert removed == {
@@ -928,6 +1308,7 @@ async def test_event_tools_use_exact_rest_contract(settings, progress_event):
         if request.method == "POST":
             assert not request.url.params
             assert json.loads(request.content) == {
+                **OPERATION_PAYLOAD,
                 "event_type": "progress",
                 "body": progress_event["body"],
                 "metadata": progress_event["metadata"],
@@ -961,6 +1342,7 @@ async def test_event_tools_use_exact_rest_contract(settings, progress_event):
                 "body": progress_event["body"],
                 "metadata": progress_event["metadata"],
                 **ACTOR_ARGUMENTS,
+                **OPERATION_ARGUMENT,
             },
         )
     )
@@ -1318,6 +1700,7 @@ async def test_event_tools_reject_responses_outside_requested_scope(
         "work_item_id": WORK_ID,
         "body": progress_event["body"],
         **ACTOR_ARGUMENTS,
+        **OPERATION_ARGUMENT,
     }
     for override in (
         {"project_id": OTHER_CHECKPOINT_ID},
@@ -1326,7 +1709,7 @@ async def test_event_tools_reject_responses_outside_requested_scope(
         def append_handler(request, override=override):
             return httpx.Response(201, json={**progress_event, **override})
 
-        with pytest.raises(ToolError, match="Do not retry automatically"):
+        with pytest.raises(ToolError, match="complete exact tool argument object"):
             await adapter(settings, append_handler).call_tool(
                 "append_event", append_arguments
             )
@@ -1374,6 +1757,14 @@ async def test_append_event_validation_and_unknown_outcome_are_value_free(settin
         (
             {
                 "body": "Progress",
+                "metadata": {"Client_Operation_ID": marker},
+                **ACTOR_ARGUMENTS,
+            },
+            "metadata",
+        ),
+        (
+            {
+                "body": "Progress",
                 "metadata": {"nested": [f"{marker}\x00"]},
                 **ACTOR_ARGUMENTS,
             },
@@ -1391,7 +1782,12 @@ async def test_append_event_validation_and_unknown_outcome_are_value_free(settin
         with pytest.raises(ToolError) as caught:
             await server.call_tool(
                 "append_event",
-                {"project_id": PROJECT_ID, "work_item_id": WORK_ID, **arguments},
+                {
+                    "project_id": PROJECT_ID,
+                    "work_item_id": WORK_ID,
+                    **arguments,
+                    **OPERATION_ARGUMENT,
+                },
             )
         assert field in str(caught.value)
         assert marker not in str(caught.value)
@@ -1403,7 +1799,7 @@ async def test_append_event_validation_and_unknown_outcome_are_value_free(settin
         requests.append(request)
         raise httpx.ReadTimeout(f"private {marker}", request=request)
 
-    with pytest.raises(ToolError, match="Do not retry automatically") as caught:
+    with pytest.raises(ToolError, match="complete exact tool argument object") as caught:
         await adapter(settings, unavailable).call_tool(
             "append_event",
             {
@@ -1411,10 +1807,11 @@ async def test_append_event_validation_and_unknown_outcome_are_value_free(settin
                 "work_item_id": WORK_ID,
                 "body": "Progress",
                 **ACTOR_ARGUMENTS,
+                **OPERATION_ARGUMENT,
             },
         )
-    assert "list_work_events" in str(caught.value)
-    assert "client_operation_id" in str(caught.value)
+    assert "every argument unchanged" in str(caught.value)
+    assert "do not generate or substitute a new UUID" in str(caught.value)
     assert marker not in str(caught.value)
     assert len(requests) == 1
 
@@ -1426,6 +1823,7 @@ async def test_get_and_update_work_use_identity_endpoint(settings, work_item):
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}"
         if request.method == "PATCH":
             assert json.loads(request.content) == {
+                **OPERATION_PAYLOAD,
                 "expected_version": 3,
                 "summary": "Narrowed to UUID punctuation.",
                 "priority": 9,
@@ -1462,6 +1860,7 @@ async def test_get_and_update_work_use_identity_endpoint(settings, work_item):
                     "status": "promoted",
                 },
                 **ACTOR_ARGUMENTS,
+                **OPERATION_ARGUMENT,
             },
         )
     )
@@ -1496,7 +1895,11 @@ async def test_checkpoint_tools_preserve_immutable_context_and_page_history(
             return httpx.Response(
                 200, json={"items": [progress_read], "total": 6, "limit": 20, "offset": 5}
             )
-        assert json.loads(request.content) == {"kind": "progress", **progress}
+        assert json.loads(request.content) == {
+            **OPERATION_PAYLOAD,
+            "kind": "progress",
+            **progress,
+        }
         return httpx.Response(201, json=progress_read)
 
     server = adapter(settings, handler)
@@ -1521,6 +1924,7 @@ async def test_checkpoint_tools_preserve_immutable_context_and_page_history(
                 "work_item_id": WORK_ID,
                 "kind": "progress",
                 "checkpoint": progress,
+                **OPERATION_ARGUMENT,
             },
         )
     )
@@ -1692,7 +2096,7 @@ async def test_renew_and_release_send_exact_json_bodies(
             assert body == expected
             return httpx.Response(200, json=renewed_receipt)
         assert request.url.path.endswith("/release-claim")
-        assert body == {**expected, **ACTOR_PAYLOAD}
+        assert body == {**OPERATION_PAYLOAD, **expected, **ACTOR_PAYLOAD}
         return httpx.Response(200, json={"work_item_id": WORK_ID, "released": False})
 
     server = adapter(settings, handler)
@@ -1704,7 +2108,10 @@ async def test_renew_and_release_send_exact_json_bodies(
     renewed = structured(await server.call_tool("renew_claim", arguments))
     assert renewed == renewed_receipt
     released = structured(
-        await server.call_tool("release_claim", {**arguments, **ACTOR_ARGUMENTS})
+        await server.call_tool(
+            "release_claim",
+            {**arguments, **ACTOR_ARGUMENTS, **OPERATION_ARGUMENT},
+        )
     )
     assert released == {"work_item_id": WORK_ID, "released": False}
     assert "lease_token" not in released
@@ -1737,6 +2144,7 @@ async def test_complete_and_delete_work_return_explicit_mutation_receipts(
         if request.url.path.endswith("/complete"):
             assert request.method == "POST"
             assert json.loads(request.content) == {
+                **OPERATION_PAYLOAD,
                 "expected_version": 3,
                 "checkpoint": completion_input,
             }
@@ -1745,7 +2153,11 @@ async def test_complete_and_delete_work_return_explicit_mutation_receipts(
                 json={"work_item": completed_work, "checkpoint": completion_checkpoint},
             )
         assert request.url.path.endswith("/delete")
-        assert json.loads(request.content) == {"expected_version": 4, **ACTOR_PAYLOAD}
+        assert json.loads(request.content) == {
+            **OPERATION_PAYLOAD,
+            "expected_version": 4,
+            **ACTOR_PAYLOAD,
+        }
         return httpx.Response(
             200,
             json={
@@ -1765,6 +2177,7 @@ async def test_complete_and_delete_work_return_explicit_mutation_receipts(
                 "work_item_id": WORK_ID,
                 "expected_version": 3,
                 "checkpoint": completion_input,
+                **OPERATION_ARGUMENT,
             },
         )
     )
@@ -1778,6 +2191,7 @@ async def test_complete_and_delete_work_return_explicit_mutation_receipts(
                 "work_item_id": WORK_ID,
                 "expected_version": 4,
                 **ACTOR_ARGUMENTS,
+                **OPERATION_ARGUMENT,
             },
         )
     )
@@ -1849,6 +2263,7 @@ async def test_canonical_mutations_send_optional_lease_token_only_in_body(
         "project_id": PROJECT_ID,
         "work_item_id": WORK_ID,
         "lease_token": LEASE_TOKEN,
+        **OPERATION_ARGUMENT,
     }
     await server.call_tool(
         "add_checkpoint",
@@ -2007,12 +2422,29 @@ async def test_delete_passes_version_and_conflict_is_not_retried(settings):
         assert request.url.path == (
             f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/delete"
         )
-        assert json.loads(request.content) == {"expected_version": 3, **ACTOR_PAYLOAD}
-        return httpx.Response(409, json={"detail": "internal database version details"})
+        assert json.loads(request.content) == {
+            **OPERATION_PAYLOAD,
+            "expected_version": 3,
+            **ACTOR_PAYLOAD,
+        }
+        return httpx.Response(
+            409,
+            json={
+                "detail": {
+                    "code": "version_conflict",
+                    "message": "internal database version details",
+                    "context": {},
+                }
+            },
+        )
 
     with pytest.raises(ToolError, match="Version conflict") as caught:
         await adapter(settings, handler).call_tool("delete_work", {
-            "project_id": PROJECT_ID, "work_item_id": WORK_ID, "expected_version": 3, **ACTOR_ARGUMENTS,
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "expected_version": 3,
+            **ACTOR_ARGUMENTS,
+            **OPERATION_ARGUMENT,
         })
     assert "internal database" not in str(caught.value)
     assert len(requests) == 1
@@ -2053,7 +2485,13 @@ async def test_typed_application_errors_are_actionable_and_sanitized(
     with pytest.raises(ToolError, match=expected) as caught:
         await adapter(settings, handler).call_tool(
             "delete_work",
-            {"project_id": PROJECT_ID, "work_item_id": WORK_ID, "expected_version": 3, **ACTOR_ARGUMENTS},
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "expected_version": 3,
+                **ACTOR_ARGUMENTS,
+                **OPERATION_ARGUMENT,
+            },
         )
     assert API_KEY not in str(caught.value)
 
@@ -2144,7 +2582,13 @@ async def test_unknown_typed_error_does_not_fall_through_to_legacy_conflict_gues
     with pytest.raises(ToolError, match="could not complete this operation") as caught:
         await adapter(settings, handler).call_tool(
             "delete_work",
-            {"project_id": PROJECT_ID, "work_item_id": WORK_ID, "expected_version": 3, **ACTOR_ARGUMENTS},
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "expected_version": 3,
+                **ACTOR_ARGUMENTS,
+                **OPERATION_ARGUMENT,
+            },
         )
     assert "Version conflict" not in str(caught.value)
     assert API_KEY not in str(caught.value)
@@ -2331,6 +2775,425 @@ async def test_write_network_failure_explains_unknown_outcome_and_does_not_retry
         await adapter(settings, handler).call_tool("create_project", {"name": "Example"})
     assert API_KEY not in str(caught.value)
     assert len(requests) == 1
+
+
+@pytest.mark.parametrize("outcome", ["network", "unavailable", "malformed_success"])
+async def test_protected_unknown_outcomes_require_retained_key_and_exact_arguments_once(
+    settings, outcome
+):
+    requests = []
+    private_marker = f"private-protected-outcome-{outcome}"
+
+    def handler(request):
+        requests.append(request)
+        if outcome == "network":
+            raise httpx.ReadTimeout(private_marker, request=request)
+        if outcome == "unavailable":
+            return httpx.Response(
+                503,
+                json={
+                    "detail": {
+                        "code": "client_operation_unavailable",
+                        "message": private_marker,
+                        "context": {"private": private_marker},
+                    }
+                },
+            )
+        return httpx.Response(200, json={"private": private_marker})
+
+    with pytest.raises(ToolError, match="complete exact tool argument object") as caught:
+        await adapter(settings, handler).call_tool(
+            "release_claim", protected_tool_arguments()["release_claim"]
+        )
+
+    message = str(caught.value)
+    assert "every argument unchanged" in message
+    assert "If either was lost" in message
+    assert "do not generate or substitute a new UUID" in message
+    assert CLIENT_OPERATION_ID not in message
+    assert LEASE_TOKEN not in message
+    assert private_marker not in message
+    assert len(requests) == 1
+
+
+async def test_deep_json_success_cannot_escape_unknown_outcome_guidance(settings):
+    requests = []
+    deeply_nested_json = "[" * 10_000 + "0" + "]" * 10_000
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            content=deeply_nested_json,
+            headers={"content-type": "application/json"},
+        )
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(
+            "release_claim", protected_tool_arguments()["release_claim"]
+        )
+
+    message = str(caught.value)
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME in message
+    assert "RecursionError" not in message
+    assert CLIENT_OPERATION_ID not in message
+    assert LEASE_TOKEN not in message
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(
+    "tool_name,checkpoint_field",
+    [
+        ("create_work", "initial_checkpoint"),
+        ("add_checkpoint", "checkpoint"),
+        ("complete_work", "checkpoint"),
+    ],
+)
+@pytest.mark.parametrize(
+    "reserved_key",
+    [
+        "LeAsE_ToKeN",
+        "CLAIM_REQUEST_ID",
+        "Client_Operation_Id",
+        "Authorization",
+        "API_KEY",
+        "Cookie",
+        "SeCrEt",
+    ],
+)
+async def test_checkpoint_reserved_metadata_is_rejected_before_http(
+    settings,
+    tool_name,
+    checkpoint_field,
+    reserved_key,
+):
+    arguments = protected_tool_arguments()[tool_name]
+    arguments[checkpoint_field] = {
+        **arguments[checkpoint_field],
+        "source_metadata": {"nested": [{reserved_key: "opaque"}]},
+    }
+
+    def handler(request):
+        pytest.fail("Reserved checkpoint metadata must not cross the HTTP boundary")
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(tool_name, arguments)
+
+    message = str(caught.value)
+    assert "source_metadata" in message
+    assert reserved_key not in message
+    assert CLIENT_OPERATION_ID not in message
+
+
+@pytest.mark.parametrize("tool_name", PROTECTED_TOOL_NAMES)
+async def test_protected_success_responses_are_canonical_and_request_coherent(
+    settings,
+    work_item,
+    checkpoint,
+    relationship,
+    progress_event,
+    tool_name,
+):
+    requests = []
+    responses = protected_success_responses(
+        work_item, checkpoint, relationship, progress_event
+    )
+    status_code = 201 if tool_name in {
+        "create_work",
+        "add_checkpoint",
+        "append_event",
+    } else 200
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(status_code, json=responses[tool_name])
+
+    result = structured(
+        await adapter(settings, handler).call_tool(
+            tool_name, protected_tool_arguments()[tool_name]
+        )
+    )
+    assert result == responses[tool_name]
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("tool_name", PROTECTED_TOOL_NAMES)
+async def test_protected_noncanonical_success_is_an_unknown_outcome_without_retry(
+    settings,
+    work_item,
+    checkpoint,
+    relationship,
+    progress_event,
+    tool_name,
+):
+    requests = []
+    response = json.loads(
+        json.dumps(
+            protected_success_responses(
+                work_item, checkpoint, relationship, progress_event
+            )[tool_name]
+        )
+    )
+    if tool_name == "create_work":
+        response["work_item"]["created_at"] = "2026-08-30T12:00:00+00:00"
+    elif tool_name in {"add_checkpoint", "append_event"}:
+        response["created_at"] = "2026-08-30T12:00:00+00:00"
+    elif tool_name == "add_relationship":
+        response["relationship"]["created_at"] = "2026-08-30T12:00:00+00:00"
+    elif tool_name == "update_work":
+        response["created_at"] = "2026-08-30T12:00:00+00:00"
+    elif tool_name == "complete_work":
+        response["checkpoint"]["created_at"] = "2026-08-30T12:00:00+00:00"
+    elif tool_name == "delete_work":
+        response["version"] = "4"
+    elif tool_name == "remove_relationship":
+        response["removed"] = "true"
+    else:
+        response["released"] = "true"
+    status_code = 201 if tool_name in {
+        "create_work",
+        "add_checkpoint",
+        "append_event",
+    } else 200
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(status_code, json=response)
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(
+            tool_name, protected_tool_arguments()[tool_name]
+        )
+
+    message = str(caught.value)
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME in message
+    assert CLIENT_OPERATION_ID not in message
+    assert LEASE_TOKEN not in message
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("tool_name", PROTECTED_TOOL_NAMES)
+async def test_protected_incoherent_success_is_an_unknown_outcome_without_retry(
+    settings,
+    work_item,
+    checkpoint,
+    relationship,
+    progress_event,
+    tool_name,
+):
+    requests = []
+    response = json.loads(
+        json.dumps(
+            protected_success_responses(
+                work_item, checkpoint, relationship, progress_event
+            )[tool_name]
+        )
+    )
+    if tool_name == "create_work":
+        response["work_item"]["project_id"] = OTHER_WORK_ID
+    elif tool_name in {"add_checkpoint", "append_event"}:
+        response["work_item_id"] = OTHER_WORK_ID
+    elif tool_name == "add_relationship":
+        response["relationship"]["project_id"] = OTHER_WORK_ID
+    elif tool_name == "update_work":
+        response["id"] = OTHER_WORK_ID
+    elif tool_name == "complete_work":
+        response["work_item"]["id"] = OTHER_WORK_ID
+    elif tool_name == "delete_work":
+        response["work_item_id"] = OTHER_WORK_ID
+    elif tool_name == "remove_relationship":
+        response["relationship_id"] = OTHER_WORK_ID
+    else:
+        response["work_item_id"] = OTHER_WORK_ID
+    status_code = 201 if tool_name in {
+        "create_work",
+        "add_checkpoint",
+        "append_event",
+    } else 200
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(status_code, json=response)
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(
+            tool_name, protected_tool_arguments()[tool_name]
+        )
+
+    message = str(caught.value)
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME in message
+    assert CLIENT_OPERATION_ID not in message
+    assert LEASE_TOKEN not in message
+    assert len(requests) == 1
+
+
+async def test_reverse_related_no_op_accepts_original_edge_provenance(
+    settings, relationship
+):
+    arguments = {
+        **protected_tool_arguments()["add_relationship"],
+        "source_work_item_id": WORK_ID,
+        "target_work_item_id": OTHER_WORK_ID,
+        "relationship_type": "related",
+        "created_by_client": "new-caller",
+        "created_by_session_id": "new-session",
+        "context_checkpoint_id": None,
+    }
+    original = {
+        **relationship,
+        "relationship_type": "related",
+        "source_work_item_id": OTHER_WORK_ID,
+        "target_work_item_id": WORK_ID,
+        "created_by_client": "original-caller",
+        "created_by_session_id": "original-session",
+        "created_by_model": "original-model",
+        "context_checkpoint_work_item_id": OTHER_WORK_ID,
+        "context_checkpoint_id": OTHER_CHECKPOINT_ID,
+    }
+
+    def handler(request):
+        return httpx.Response(
+            200, json={"relationship": original, "created": False}
+        )
+
+    result = structured(
+        await adapter(settings, handler).call_tool("add_relationship", arguments)
+    )
+    assert result == {"relationship": original, "created": False}
+
+
+async def test_create_work_accepts_normalized_deduplicated_related_edges(
+    settings, work_item, checkpoint, relationship, progress_event
+):
+    arguments = protected_tool_arguments()["create_work"]
+    arguments["initial_relationships"] = [
+        {
+            "type": "related",
+            "direction": "outgoing",
+            "other_work_item_id": OTHER_WORK_ID,
+        },
+        {
+            "type": "related",
+            "direction": "incoming",
+            "other_work_item_id": OTHER_WORK_ID,
+        },
+    ]
+    response = protected_success_responses(
+        work_item, checkpoint, relationship, progress_event
+    )["create_work"]
+    response["initial_relationships"] = [
+        {
+            **relationship,
+            "relationship_type": "related",
+            "source_work_item_id": OTHER_WORK_ID,
+            "target_work_item_id": WORK_ID,
+            "created_by_client": arguments["initial_checkpoint"]["source_client"],
+            "created_by_session_id": arguments["initial_checkpoint"][
+                "source_session_id"
+            ],
+            "created_by_model": None,
+            "context_checkpoint_work_item_id": None,
+            "context_checkpoint_id": None,
+        }
+    ]
+
+    def handler(request):
+        return httpx.Response(201, json=response)
+
+    result = structured(
+        await adapter(settings, handler).call_tool("create_work", arguments)
+    )
+    assert result["initial_relationships"] == response["initial_relationships"]
+
+
+async def test_client_operation_conflict_is_a_redacted_safety_incident(settings):
+    requests = []
+    private_marker = "private-conflicting-operation-detail"
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            409,
+            json={
+                "detail": {
+                    "code": "client_operation_conflict",
+                    "message": private_marker,
+                    "context": {
+                        "client_operation_id": CLIENT_OPERATION_ID,
+                        "private": private_marker,
+                    },
+                }
+            },
+        )
+
+    with pytest.raises(ToolError, match="caller-safety incident") as caught:
+        await adapter(settings, handler).call_tool(
+            "update_work", protected_tool_arguments()["update_work"]
+        )
+
+    message = str(caught.value)
+    assert "do not retry or generate a replacement UUID" in message
+    assert CLIENT_OPERATION_ID not in message
+    assert private_marker not in message
+    assert len(requests) == 1
+
+
+async def test_client_operation_secret_echo_is_a_redacted_definite_rejection(settings):
+    private_marker = "private-operation-secret-echo-detail"
+
+    def handler(request):
+        return httpx.Response(
+            422,
+            json={
+                "detail": {
+                    "code": "client_operation_secret_echo",
+                    "message": private_marker,
+                    "context": {
+                        "client_operation_id": CLIENT_OPERATION_ID,
+                        "private": private_marker,
+                    },
+                }
+            },
+        )
+
+    with pytest.raises(ToolError, match="operation or capability material") as caught:
+        await adapter(settings, handler).call_tool(
+            "append_event", protected_tool_arguments()["append_event"]
+        )
+
+    message = str(caught.value)
+    assert "changing an argument makes this a new intent" in message
+    assert CLIENT_OPERATION_ID not in message
+    assert private_marker not in message
+
+
+async def test_protected_retry_remains_stateless_across_adapter_restart(settings):
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "deleted": True,
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "version": 4,
+            },
+        )
+
+    arguments = protected_tool_arguments()["delete_work"]
+    first = structured(
+        await adapter(settings, handler).call_tool("delete_work", arguments)
+    )
+    restarted = structured(
+        await adapter(settings, handler).call_tool("delete_work", arguments)
+    )
+
+    assert first == restarted
+    assert len(bodies) == 2
+    assert bodies[0] == bodies[1]
+    assert bodies[0]["client_operation_id"] == CLIENT_OPERATION_ID
 
 
 @pytest.mark.parametrize("tool_name", ["claim_work", "claim_and_recall"])

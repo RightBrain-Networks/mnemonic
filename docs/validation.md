@@ -30,7 +30,129 @@ untrusted origin still returned 403.
 
 Not checked: any client outside the address allowlist. No stored prompts were
 read or modified.
+## Phase 6 idempotent-mutation validation — 2026-09-01
 
+Validated against the final Phase 6 source in the isolated Linux worktree with
+Python 3.13.15, PostgreSQL 17, the separate locked backend/MCP environments,
+and Node 24.20.0 for the frontend unit and type gates. This record contains
+only checks and measurements observed during this implementation session.
+
+- **208 backend tests passed against the disposable PostgreSQL service with no
+  skips, and the full backend Ruff check passed.** The three warnings were the
+  existing upstream Starlette TestClient deprecation and SQLAlchemy reflection
+  warnings for the PostgreSQL `NOT VALID` constraint options. The suite covers
+  all nine operation kinds, frozen canonical vectors, exact replay,
+  cross-project/key conflicts, natural no-ops, rollback, response validation
+  and secret rejection, outcome-aware live invalidation, pool saturation, and
+  migration/model parity.
+- **133 MCP tests passed in its separate environment, and repository Ruff
+  passed for MCP plus `scripts/check-stack.py`.** The exact catalog remains 22
+  tools. Exactly nine mutation tools require a UUID and advertise
+  `idempotentHint=true`; protected transport/malformed-response failures make
+  one outbound attempt and retain exact-retry guidance, while excluded writes
+  retain their separate contracts.
+- **88 frontend unit tests and TypeScript checking passed under Node 24.20.0.**
+  The final production build also passed in the Node 24 image. The tests cover
+  all eight browser mutation intents, exact serialized-body reuse, strict
+  response decoding, conflict-key blocking, retained safety conflicts, proxy
+  route/body/secret policy, and the no-persistence boundary.
+- **The complete isolated Playwright stack passed 28/28 executions in 57.7
+  seconds: 14 desktop and 14 narrow Chromium.** The Phase 6 scenarios commit
+  before a synthetic lost or malformed response, retry the exact method, path,
+  body, and UUID, and prove one durable create/event/relationship/delete
+  effect. They also cover natural true-versus-fresh-key-false results, blocked
+  ambiguous UI, modal-accessible recovery, healing invalidation, newer-state
+  reconciliation, deletion disappearance, and absence of retry material from
+  browser storage and rendered content.
+- **Migration validation passed for populated `0011_project_settings` to
+  `0012_idempotent_mutations`, fresh head creation, empty-ledger downgrade and
+  re-upgrade, and completed-ledger downgrade refusal.** Historical nested and
+  case-varied `client_operation_id` metadata remained byte-semantically
+  unchanged under the separate `NOT VALID` Phase 6 check, and the Phase 5
+  metadata function remained unchanged. Two deterministic, no-sleep
+  two-connection tests observed the actual PostgreSQL locks: a writer-first
+  downgrade waited then refused without losing its completed receipt, while a
+  downgrade-first path held `ACCESS EXCLUSIVE` after the empty check through
+  drop and forced the blocked writer to fail with SQLSTATE `42P01`.
+- **The receipt contention and pool-recovery drill passed four focused
+  PostgreSQL tests in 2.79 seconds.** Same-key owner commit produced one replay,
+  owner rollback transferred ownership to the waiter, a one-second bounded
+  timeout never fallback-executed, and two bounded waiters against a
+  pool-size-three/no-overflow engine released all capacity for an unrelated
+  query and exact retry.
+- **A 1,721-receipt durability/performance fixture completed across four
+  representative response shapes.** It held 420 append-event receipts, 1,200
+  absent relationship-removal no-ops, 100 larger create-work snapshots, and
+  one update-work recovery receipt. Another 400 exact replays of the last
+  append key added no receipt. Full in-process API plus local PostgreSQL fresh
+  append latency was p50 11.947 ms, p95 21.153 ms, and p99 27.159 ms; replay
+  was p50 7.800 ms, p95 11.505 ms, and p99 15.858 ms. Eight workers completed
+  1,200 different-key durable no-ops over 64 project-lock partitions in 9.658
+  seconds, or 124.3 requests/second.
+- **The unique receipt lookup used `uq_client_operations_scope` as a one-row
+  index scan.** The observed plan took 0.054 ms to plan and 0.033 ms to execute
+  with three shared-buffer hits and no reads. After `VACUUM (ANALYZE)`, 1,721
+  rows used 1,515,520 bytes of heap, 1,556,480 bytes of table/TOAST storage,
+  204,800 bytes of indexes, and 1,761,280 bytes total: approximately 1,023.4
+  physical bytes per receipt. Serialized response snapshots averaged 498.5
+  bytes and had p95/max 1,380 bytes.
+- **A real custom-format dump and isolated restore preserved retry knowledge.**
+  The 413,715-byte archive took 0.172 seconds to dump and 0.307 seconds to
+  restore. The restored revision was exactly `0012_idempotent_mutations`;
+  project/work/checkpoint/event/relationship/lease/receipt aggregates and the
+  dedicated target version matched the source. A real post-restore PATCH with
+  the retained UUID and exact body returned the original typed JSON while the
+  entire before/after aggregate tuple remained unchanged.
+- **A PostgreSQL 17 old-archive-over-new-target replacement drill passed.** A
+  real populated `0011_project_settings` custom archive was restored over a
+  migrated `0012_idempotent_mutations` target containing a completed private
+  receipt. Immediately after restore, `alembic_version` was exactly
+  `0011_project_settings`, `to_regclass('public.client_operations')` was null,
+  and the historical nested value
+  `{"outer":[{"Client_Operation_ID":"historically-legal"}]}` remained
+  semantically exact. Migrating that restored database to Phase 6 recreated an
+  empty receipt ledger, preserved the legacy value, and installed the reserved
+  metadata constraint as deliberately `NOT VALID`. This specifically proves an
+  older archive cannot leave future schema objects or receipt data behind.
+- **Plugin manifest, inventory, and installation validation passed.** Both JSON
+  manifests parsed strictly; the inner version is `0.4.0`; the package
+  contains exactly three skills and two shared references. A fresh isolated
+  `0.4.0` installation and a sequential `0.3.0 -> 0.4.0` update both
+  installed the expected bytes and valid shared links without compatibility
+  copies.
+- **The final disposable production-image stack passed.** All five services
+  became healthy with `0012_idempotent_mutations` matching the image, running
+  API, and database. The read-only checker passed both sections; the authorized
+  checker passed all three sections, the 22/22 catalog and 9/9 protected schema
+  gates, and a five-item MCP-to-REST-to-PostgreSQL/dashboard-proxy lifecycle.
+  Its retained state represented all nine operation kinds: 31/31 receipts were
+  completed, zero were pending, all seven work rows were soft-deleted, and no
+  relationship remained. All five recognizable misplaced operation-ID headers
+  were rejected value-free with no durable state. A bodyless dashboard-proxy
+  relationship DELETE was rejected while the edge, both endpoint timelines,
+  and receipt count remained unchanged.
+- **The final stack log audit inspected 379 aggregate lines with zero
+  tracebacks, severe runtime entries, credential-value hits, operation-ID hits,
+  or known body-content hits.** The first smoke cycles exposed only stale
+  checker expectations: a keyed stale edit needed its required actor, and keyed
+  secret echoes now correctly return `client_operation_secret_echo` before the
+  Phase 5 event-only guard. Both checker fixtures were corrected and the full
+  writable lifecycle reran successfully.
+- **Static release gates passed.** Both manifests and every repository-local
+  Markdown target parse or exist, the checker CLI imports, and
+  `git diff --check` is clean. Every disposable benchmark database/schema,
+  dump, browser stack, production stack, volume, network, temporary credential
+  file, Playwright artifact, and checker artifact was removed. The existing
+  `mnemonic` and `mnemonic-test` stacks were not mutated by disposable
+  validation.
+
+The performance figures are one warm local tmpfs run, not an SLO or production
+capacity claim. They use in-process TestClient rather than network/TLS/proxy,
+moderate payloads and four of nine response shapes rather than maximum-size
+responses, and durable relationship no-ops rather than applied writes for the
+parallel throughput sample. Index bytes are relation-wide, the dump size
+includes the entire fixture database, and the exercise did not benchmark a
+production-sized migration lock or sustained ten-second contention.
 ## Phase 4 ready-work and Phase 5 event validation — 2026-09-01
 
 Validated in the local Linux workspace with the locked environments, isolated

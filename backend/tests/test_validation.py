@@ -475,6 +475,38 @@ def test_authentication_precedes_lease_query_validation():
 
 
 @pytest.mark.parametrize(
+    "body",
+    [
+        b"",
+        b"{",
+        b'{"client_operation_id":"not-a-uuid"}',
+        b'{"payload":"' + b"x" * (2 * 1024 * 1024) + b'"}',
+    ],
+    ids=["empty", "malformed", "invalid-schema", "oversized"],
+)
+def test_unauthenticated_rest_bodies_are_rejected_before_parsing(body: bytes):
+    settings = Settings(
+        database_url="postgresql://localhost:1/unavailable",
+        api_key="x" * 32,
+    )
+    path = (
+        "/api/v1/projects/00000000-0000-0000-0000-000000000001/"
+        "work-items"
+    )
+
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            path,
+            content=body,
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+    assert response.json() == {"detail": "Valid bearer authentication is required"}
+
+
+@pytest.mark.parametrize(
     "changes",
     [
         {"source_metadata": {"invalid": float("nan")}},
@@ -668,6 +700,105 @@ def test_work_event_response_metadata_is_type_and_origin_specific():
     }
     with pytest.raises(ValidationError):
         WorkEventRead.model_validate(reversed_related)
+
+
+@pytest.mark.parametrize(
+    ("event_type", "metadata", "requires_client", "has_checkpoint"),
+    [
+        (
+            "work_created",
+            {
+                "initial": {
+                    "title": "Historical open work",
+                    "summary": "A Phase 5 event remains readable after Phase 7.",
+                    "status": "open",
+                    "priority": 10,
+                    "version": 1,
+                }
+            },
+            True,
+            True,
+        ),
+        (
+            "work_updated",
+            {
+                "changes": {"status": {"before": "open", "after": "open"}},
+                "work_version": 2,
+            },
+            False,
+            False,
+        ),
+        (
+            "work_status_changed",
+            {
+                "from_status": "open",
+                "to_status": "wont-do",
+                "changes": {"status": {"before": "open", "after": "wont-do"}},
+                "work_version": 2,
+            },
+            False,
+            False,
+        ),
+        (
+            "work_reopened",
+            {
+                "from_status": "done",
+                "to_status": "open",
+                "changes": {"status": {"before": "done", "after": "open"}},
+                "work_version": 3,
+            },
+            False,
+            False,
+        ),
+        (
+            "work_completed",
+            {"from_status": "open", "to_status": "done", "work_version": 2},
+            True,
+            True,
+        ),
+        (
+            "work_deleted",
+            {"final_status": "open", "final_version": 2},
+            False,
+            False,
+        ),
+    ],
+)
+def test_phase7_preserves_historical_open_event_metadata(
+    event_type, metadata, requires_client, has_checkpoint
+):
+    payload = {
+        "id": 1,
+        "project_id": uuid4(),
+        "work_item_id": uuid4(),
+        "event_type": event_type,
+        "actor_kind": "client" if requires_client else "unattributed",
+        "actor_client": "legacy-client" if requires_client else None,
+        "actor_session_id": "legacy-session" if requires_client else None,
+        "actor_model": None,
+        "body": None,
+        "checkpoint_id": uuid4() if has_checkpoint else None,
+        "lease_generation_id": None,
+        "lease_release_id": None,
+        "relationship_id": None,
+        "relationship_source_work_item_id": None,
+        "relationship_target_work_item_id": None,
+        "relationship_context_checkpoint_work_item_id": None,
+        "relationship_context_checkpoint_id": None,
+        "relationship_direction": None,
+        "counterpart_work_item_id": None,
+        "metadata_version": 1,
+        "metadata": metadata,
+        "origin": "live",
+        "created_at": datetime.now(UTC),
+    }
+
+    parsed = WorkEventRead.model_validate(payload)
+
+    serialized_metadata = parsed.model_dump(mode="json")["metadata"]
+    assert serialized_metadata == metadata
+    assert "open" in json.dumps(serialized_metadata)
+
 
 def test_validation_error_sanitizer_allowlists_locations_and_drops_raw_content():
     root_key = "SENSITIVE_CALLER_KEY_123"

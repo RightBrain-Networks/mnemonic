@@ -2,7 +2,7 @@
 
 Run with the MCP project's Python environment. Checks are read-only unless a
 project is explicitly authorized with --project-id. The write check creates a
-small, uniquely marked Phase 5 work graph, exercises ready discovery and its
+small, uniquely marked Phase 6 work graph, exercises ready discovery and its
 canonical event lifecycle, then removes the graph and soft-deletes every
 synthetic item it created. Immutable events remain attached to those hidden
 items. Never authorize writes against a project without permission.
@@ -19,10 +19,9 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
+from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from pydantic import AnyUrl
-
-from mcp import ClientSession
 
 CANONICAL_TOOLS = {
     "list_projects",
@@ -47,6 +46,30 @@ CANONICAL_TOOLS = {
     "remove_relationship",
     "append_event",
     "list_work_events",
+}
+PROTECTED_MUTATION_TOOLS = {
+    "create_work",
+    "add_checkpoint",
+    "append_event",
+    "add_relationship",
+    "update_work",
+    "complete_work",
+    "delete_work",
+    "remove_relationship",
+    "release_claim",
+}
+EXCLUDED_MUTATION_TOOLS = {
+    "create_project",
+    "claim_work",
+    "claim_and_recall",
+    "renew_claim",
+}
+READ_ONLY_TOOLS = CANONICAL_TOOLS - PROTECTED_MUTATION_TOOLS - EXCLUDED_MUTATION_TOOLS
+DESTRUCTIVE_TOOLS = {
+    "update_work",
+    "complete_work",
+    "delete_work",
+    "remove_relationship",
 }
 SYNTHETIC_CLIENT = "mnemonic-stack-check"
 
@@ -85,7 +108,7 @@ async def tool(
 
 
 def synthetic_summary(marker: str) -> str:
-    return f"Synthetic Phase 5 integration check {marker}"
+    return f"Synthetic Phase 6 integration check {marker}"
 
 
 def mutation_actor(run_id: str) -> dict[str, str]:
@@ -93,6 +116,174 @@ def mutation_actor(run_id: str) -> dict[str, str]:
         "actor_client": SYNTHETIC_CLIENT,
         "actor_session_id": run_id,
     }
+
+
+def retained_mutation(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Prepare one private, exact argument object before dispatching a mutation."""
+    require(
+        "client_operation_id" not in arguments,
+        "A retained mutation cannot replace an existing client operation ID.",
+    )
+    return {**arguments, "client_operation_id": str(uuid4())}
+
+
+def require_retained_mutation(arguments: dict[str, Any]) -> None:
+    """Fail locally if a protected call lost its retained canonical UUID."""
+    value = arguments.get("client_operation_id")
+    require(isinstance(value, str), "A protected mutation has no retained operation ID.")
+    try:
+        require(str(UUID(value)) == value, "A client operation ID is not canonical.")
+    except ValueError:
+        raise RuntimeError("A client operation ID is not a UUID.") from None
+
+
+async def protected_tool(
+    session: ClientSession, name: str, arguments: dict[str, Any]
+) -> dict[str, Any]:
+    """Dispatch one protected tool with the caller-retained arguments unchanged."""
+    require(name in PROTECTED_MUTATION_TOOLS, f"{name} is not a protected mutation.")
+    require_retained_mutation(arguments)
+    encoded_arguments = json.dumps(arguments, sort_keys=True, separators=(",", ":"))
+    result = await tool(session, name, arguments)
+    require(
+        json.dumps(arguments, sort_keys=True, separators=(",", ":"))
+        == encoded_arguments,
+        f"MCP {name} mutated its caller-retained arguments.",
+    )
+    return result
+
+
+def _is_target_tool_call(
+    payload: object,
+    name: str,
+    operation_id: str,
+) -> bool:
+    if isinstance(payload, list):
+        return any(_is_target_tool_call(item, name, operation_id) for item in payload)
+    if not isinstance(payload, dict) or payload.get("method") != "tools/call":
+        return False
+    params = payload.get("params")
+    if not isinstance(params, dict) or params.get("name") != name:
+        return False
+    arguments = params.get("arguments")
+    return (
+        isinstance(arguments, dict)
+        and arguments.get("client_operation_id") == operation_id
+    )
+
+
+class OneShotToolResponseLoss(httpx.AsyncBaseTransport):
+    """Drop one completed matching HTTP response before the MCP client sees it."""
+
+    def __init__(self, name: str, operation_id: str) -> None:
+        self.name = name
+        self.operation_id = operation_id
+        self.dropped = False
+        self._transport = httpx.AsyncHTTPTransport()
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        body = await request.aread()
+        try:
+            payload = json.loads(body)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = None
+        should_drop = (
+            not self.dropped
+            and _is_target_tool_call(payload, self.name, self.operation_id)
+        )
+        response = await self._transport.handle_async_request(request)
+        if should_drop:
+            # Reading the complete response proves the server finished the
+            # call; raising here gives the caller a genuine unknown outcome.
+            await response.aread()
+            await response.aclose()
+            self.dropped = True
+            raise httpx.ReadError(
+                "Synthetic one-shot MCP response loss after server completion.",
+                request=request,
+            )
+        return response
+
+    async def aclose(self) -> None:
+        await self._transport.aclose()
+
+
+def _contains_transport_error(error: BaseException) -> bool:
+    if isinstance(error, httpx.TransportError):
+        return True
+    if isinstance(error, BaseExceptionGroup):
+        return any(_contains_transport_error(item) for item in error.exceptions)
+    return False
+
+
+async def lose_protected_tool_response(
+    mcp_url: str,
+    headers: dict[str, str],
+    name: str,
+    arguments: dict[str, Any],
+) -> None:
+    """Commit one tool call while making its first response unknowable to the caller."""
+    require_retained_mutation(arguments)
+    operation_id = arguments["client_operation_id"]
+    transport = OneShotToolResponseLoss(name, operation_id)
+
+    def client_factory(**options: Any) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            headers=options.get("headers"),
+            timeout=options.get("timeout"),
+            auth=options.get("auth"),
+            transport=transport,
+            follow_redirects=True,
+        )
+
+    caller_observed_failure = False
+    try:
+        async with streamablehttp_client(
+            mcp_url,
+            headers=headers,
+            timeout=15,
+            httpx_client_factory=client_factory,
+        ) as (read, write, _), ClientSession(read, write) as loss_session:
+            await loss_session.initialize()
+            await loss_session.call_tool(name, arguments)
+    except httpx.TransportError:
+        caller_observed_failure = True
+    except BaseExceptionGroup as error:
+        if not _contains_transport_error(error):
+            raise
+        caller_observed_failure = True
+    require(transport.dropped, "The synthetic MCP response-loss boundary did not fire.")
+    require(
+        caller_observed_failure,
+        "The synthetic MCP caller unexpectedly observed the discarded response.",
+    )
+
+
+async def retained_api_mutation(
+    api: httpx.AsyncClient,
+    method: str,
+    path: str,
+    arguments: dict[str, Any],
+) -> httpx.Response:
+    """Keep one cleanup request byte-equivalent through one ambiguous retry."""
+    require_retained_mutation(arguments)
+    frozen = json.dumps(arguments, sort_keys=True, separators=(",", ":"))
+    ambiguous_statuses = {408, 425, 429, 500, 502, 503, 504}
+    for attempt in range(2):
+        try:
+            response = await api.request(method, path, json=arguments)
+        except httpx.TransportError:
+            if attempt == 0:
+                continue
+            raise RuntimeError("Cleanup remained unresolved after an exact retry.") from None
+        require(
+            json.dumps(arguments, sort_keys=True, separators=(",", ":")) == frozen,
+            "A retained cleanup mutation changed before resolution.",
+        )
+        if response.status_code in ambiguous_statuses and attempt == 0:
+            continue
+        return response
+    raise RuntimeError("Cleanup remained unresolved after an exact retry.")
 
 
 async def work_events(
@@ -240,7 +431,7 @@ async def cleanup_synthetic_work(
     claim_request_ids: dict[str, str],
     lease_tokens: dict[str, str],
 ) -> None:
-    """Remove and soft-delete only this run's exact graph, including lost responses."""
+    """Safety-clean this run's graph with exact retained cleanup retries."""
     work_item_ids = set(await find_synthetic_work(api, project_id, marker, run_id))
     for known_work_item_id in known_work_item_ids:
         response = await api.get(
@@ -268,10 +459,14 @@ async def cleanup_synthetic_work(
         )
         edge = response.json()
         require_synthetic_relationship(edge, work_item_ids, run_id)
-        removed = await api.request(
+        remove_arguments = retained_mutation(
+            {"actor": mutation_actor(run_id)}
+        )
+        removed = await retained_api_mutation(
+            api,
             "DELETE",
             relationship_path,
-            json={"actor": mutation_actor(run_id)},
+            remove_arguments,
         )
         require(
             removed.status_code == 200
@@ -318,12 +513,17 @@ async def cleanup_synthetic_work(
                     "Could not recover the synthetic lease for cleanup.",
                 )
         if cleanup_token is not None and record["status"] == "pending":
-            released = await api.post(
-                path + "/release-claim",
-                json={
+            release_arguments = retained_mutation(
+                {
                     "lease_token": cleanup_token,
                     "actor": mutation_actor(run_id),
-                },
+                }
+            )
+            released = await retained_api_mutation(
+                api,
+                "POST",
+                path + "/release-claim",
+                release_arguments,
             )
             require(
                 released.status_code == 200
@@ -338,12 +538,17 @@ async def cleanup_synthetic_work(
             continue
         require(remaining.status_code == 200, "Could not refresh work for cleanup.")
         record = remaining.json()
-        cleanup = await api.post(
-            path + "/delete",
-            json={
+        delete_arguments = retained_mutation(
+            {
                 "expected_version": record["version"],
                 "actor": mutation_actor(run_id),
-            },
+            }
+        )
+        cleanup = await retained_api_mutation(
+            api,
+            "POST",
+            path + "/delete",
+            delete_arguments,
         )
         require(
             cleanup.status_code == 200 and cleanup.json().get("deleted") is True,
@@ -435,24 +640,88 @@ async def check(args: argparse.Namespace, key: str) -> None:
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 catalog = await session.list_tools()
+                tools_by_name = {entry.name: entry for entry in catalog.tools}
                 require(
-                    {entry.name for entry in catalog.tools} == CANONICAL_TOOLS,
+                    len(catalog.tools) == 22
+                    and len(tools_by_name) == 22
+                    and len(PROTECTED_MUTATION_TOOLS) == 9
+                    and set(tools_by_name) == CANONICAL_TOOLS,
                     "Unexpected MCP tool catalog.",
                 )
+                for name, entry in tools_by_name.items():
+                    schema = entry.inputSchema
+                    properties = schema.get("properties", {})
+                    required = set(schema.get("required", []))
+                    annotations = entry.annotations
+                    require(annotations is not None, f"MCP {name} has no annotations.")
+                    expected_annotations = (
+                        name in READ_ONLY_TOOLS,
+                        name in DESTRUCTIVE_TOOLS,
+                        name in READ_ONLY_TOOLS | PROTECTED_MUTATION_TOOLS,
+                        False,
+                    )
+                    actual_annotations = (
+                        annotations.readOnlyHint,
+                        annotations.destructiveHint,
+                        annotations.idempotentHint,
+                        annotations.openWorldHint,
+                    )
+                    require(
+                        actual_annotations == expected_annotations,
+                        f"MCP {name} annotations are not the exact four-hint contract.",
+                    )
+                    if name in PROTECTED_MUTATION_TOOLS:
+                        require(
+                            "client_operation_id" in required
+                            and properties.get("client_operation_id", {}).get("format")
+                            == "uuid",
+                            f"MCP {name} does not require a UUID client operation ID.",
+                        )
+                    else:
+                        require(
+                            "client_operation_id" not in properties
+                            and "client_operation_id" not in required,
+                            f"MCP {name} unexpectedly exposes a client operation ID.",
+                        )
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: real MCP initialization, canonical tool discovery, "
-                    "and REST-backed project listing"
+                    "PASS: real MCP initialization, 22-tool catalog, exact nine protected "
+                    "mutation schemas/annotations, and REST-backed project listing"
                 )
                 if not args.project_id:
                     print(
                         "Read-only checks complete. Supply --project-id to explicitly authorize "
-                        "one disposable Phase 5 ready/event lifecycle."
+                        "one disposable Phase 6 ready/event lifecycle."
                     )
                     return
 
                 project_id = args.project_id
+                if args.cleanup_run_id:
+                    cleanup_run_id = args.cleanup_run_id
+                    cleanup_marker = "mnemoniccheck" + cleanup_run_id.replace("-", "")
+                    await cleanup_synthetic_work(
+                        api,
+                        project_id,
+                        cleanup_marker,
+                        cleanup_run_id,
+                        set(),
+                        set(),
+                        {},
+                        {},
+                    )
+                    require(
+                        not await find_synthetic_work(
+                            api, project_id, cleanup_marker, cleanup_run_id
+                        ),
+                        "Interrupted-run cleanup left readable synthetic work.",
+                    )
+                    print("PASS: interrupted synthetic run cleanup")
+                    return
                 run_id = str(uuid4())
+                print(
+                    "INFO: synthetic run ID "
+                    f"{run_id}; retain it for --cleanup-run-id if this process is interrupted"
+                )
                 marker = "mnemoniccheck" + run_id.replace("-", "")
                 run_tag = "check-" + run_id.replace("-", "")
                 primary_marker = marker + "primary"
@@ -484,9 +753,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 claim_request_ids: dict[str, str] = {}
                 lease_tokens: dict[str, str] = {}
                 try:
-                    created = await tool(
-                        session,
-                        "create_work",
+                    primary_create_arguments = retained_mutation(
                         {
                             "project_id": project_id,
                             "title": f"Temporary primary work check {primary_marker}",
@@ -494,7 +761,21 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "initial_checkpoint": checkpoint_input,
                             "priority": 90,
                             "initial_relationships": [],
-                        },
+                        }
+                    )
+                    # A dedicated MCP transport reads the completed server response and then
+                    # raises before its client can observe it. Recover only through this exact
+                    # retained call; never search current state to invent a replacement key.
+                    await lose_protected_tool_response(
+                        args.mcp_url,
+                        auth,
+                        "create_work",
+                        primary_create_arguments,
+                    )
+                    created = await protected_tool(
+                        session,
+                        "create_work",
+                        primary_create_arguments,
                     )
                     work_item = created["work_item"]
                     initial_checkpoint = created["initial_checkpoint"]
@@ -559,20 +840,24 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             wrong.status_code == 404, "A cross-project ID was accepted."
                         )
 
-                    bearer_echo = await api.post(
-                        path + "/events",
-                        json={
+                    bearer_echo_arguments = retained_mutation(
+                        {
                             "event_type": "progress",
                             "body": key,
                             "metadata": {},
                             "actor": mutation_actor(run_id),
-                        },
+                        }
+                    )
+                    bearer_echo = await api.post(
+                        path + "/events",
+                        json=bearer_echo_arguments,
                     )
                     require(
                         bearer_echo.status_code == 422
-                        and typed_error_code(bearer_echo) == "event_secret_echo"
+                        and typed_error_code(bearer_echo)
+                        == "client_operation_secret_echo"
                         and key not in bearer_echo.text,
-                        "Progress did not reject the request bearer with a value-free error.",
+                        "Protected progress did not reject the request bearer value-free.",
                     )
                     require(
                         [
@@ -584,34 +869,49 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
 
                     progress_body = (
-                        "Synthetic Phase 5 progress preserved exact Unicode: café ✓."
+                        "Synthetic Phase 6 progress preserved exact Unicode: café ✓."
                     )
-                    progress_event = await tool(
-                        session,
-                        "append_event",
+                    progress_event_arguments = retained_mutation(
                         {
                             **identity,
                             "body": progress_body,
                             "metadata": {
-                                "stage": "phase-5-integration",
+                                "stage": "phase-6-integration",
                                 "synthetic": True,
                             },
                             **mutation_actor(run_id),
-                        },
+                        }
+                    )
+                    progress_event = await protected_tool(
+                        session,
+                        "append_event",
+                        progress_event_arguments,
                     )
                     require(
                         progress_event["event_type"] == "progress"
                         and progress_event["body"] == progress_body
                         and progress_event["metadata"]
-                        == {"stage": "phase-5-integration", "synthetic": True}
+                        == {"stage": "phase-6-integration", "synthetic": True}
                         and progress_event["actor_kind"] == "client",
                         "Progress event text, metadata, or actor did not survive exactly.",
+                    )
+                    progress_replay = await protected_tool(
+                        session,
+                        "append_event",
+                        progress_event_arguments,
+                    )
+                    require(
+                        progress_replay == progress_event,
+                        "Progress exact replay did not return the original event snapshot.",
                     )
                     await require_event_types(
                         session, identity, ["work_created", "progress"]
                     )
 
-                    progress_prompt = "Live validation preserved exact context and reached the mutation checks."
+                    progress_prompt = (
+                        "Live validation preserved exact context and reached the mutation "
+                        "checks."
+                    )
                     progress_input = {
                         "prompt": progress_prompt,
                         "source_client": SYNTHETIC_CLIENT,
@@ -623,10 +923,17 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "tags": [run_tag, "verification", "progress"],
                         "source_metadata": {"synthetic_check": True},
                     }
-                    progress = await tool(
+                    progress_checkpoint_arguments = retained_mutation(
+                        {
+                            **identity,
+                            "kind": "progress",
+                            "checkpoint": progress_input,
+                        }
+                    )
+                    progress = await protected_tool(
                         session,
                         "add_checkpoint",
-                        {**identity, "kind": "progress", "checkpoint": progress_input},
+                        progress_checkpoint_arguments,
                     )
                     require(
                         progress["prompt"] == progress_prompt
@@ -655,14 +962,17 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "Appending a checkpoint unexpectedly changed the work version.",
                     )
 
-                    edit = await public.patch(
-                        proxy + path,
-                        headers={"Origin": args.web_url.rstrip("/")},
-                        json={
+                    edit_arguments = retained_mutation(
+                        {
                             "expected_version": work_item["version"],
                             "title": f"Temporary primary edited {primary_marker}",
                             "actor": mutation_actor(run_id),
-                        },
+                        }
+                    )
+                    edit = await public.patch(
+                        proxy + path,
+                        headers={"Origin": args.web_url.rstrip("/")},
+                        json=edit_arguments,
                     )
                     require(
                         edit.status_code == 200, "Dashboard proxy work edit failed."
@@ -678,12 +988,16 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "work_updated",
                         ],
                     )
-                    conflict = await api.patch(
-                        path,
-                        json={
+                    stale_edit_arguments = retained_mutation(
+                        {
                             "expected_version": work_item["version"],
                             "title": "Stale work edit",
-                        },
+                            "actor": mutation_actor(run_id),
+                        }
+                    )
+                    conflict = await api.patch(
+                        path,
+                        json=stale_edit_arguments,
                     )
                     require(
                         conflict.status_code == 409,
@@ -726,21 +1040,25 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "work_claimed",
                         ],
                     )
-                    token_echo = await api.post(
-                        path + "/events",
-                        json={
+                    token_echo_arguments = retained_mutation(
+                        {
                             "event_type": "progress",
                             "body": lease_token,
                             "metadata": {},
                             "actor": mutation_actor(run_id),
                             "lease_token": lease_token,
-                        },
+                        }
+                    )
+                    token_echo = await api.post(
+                        path + "/events",
+                        json=token_echo_arguments,
                     )
                     require(
                         token_echo.status_code == 422
-                        and typed_error_code(token_echo) == "event_secret_echo"
+                        and typed_error_code(token_echo)
+                        == "client_operation_secret_echo"
                         and lease_token not in token_echo.text,
-                        "Progress did not reject a supplied lease-token echo value-free.",
+                        "Protected progress did not reject a lease-token echo value-free.",
                     )
                     require(
                         [event["id"] for event in await work_events(session, identity)]
@@ -779,7 +1097,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         [event["id"] for event in await work_events(session, identity)]
                         == [event["id"] for event in events_after_claim],
-                        "Lease renewal emitted a Phase 5 event.",
+                        "Lease renewal emitted a domain event.",
                     )
                     after_lease = await tool(session, "get_work", identity)
                     require(
@@ -796,14 +1114,17 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "claim_request_id": str(uuid4()),
                         },
                     )
-                    denied_token = await public.post(
-                        proxy + path + "/complete",
-                        headers={"Origin": args.web_url.rstrip("/")},
-                        json={
+                    denied_completion_arguments = retained_mutation(
+                        {
                             "expected_version": current["version"],
                             "checkpoint": checkpoint_input,
                             "lease_token": lease_token,
-                        },
+                        }
+                    )
+                    denied_token = await public.post(
+                        proxy + path + "/complete",
+                        headers={"Origin": args.web_url.rstrip("/")},
+                        json=denied_completion_arguments,
                     )
                     require(
                         denied_claim.status_code == 404
@@ -818,9 +1139,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         ),
                         "tags": [run_tag, "verification", "blocker"],
                     }
-                    blocker_created = await tool(
-                        session,
-                        "create_work",
+                    blocker_create_arguments = retained_mutation(
                         {
                             "project_id": project_id,
                             "title": f"Temporary blocker work check {blocker_marker}",
@@ -828,7 +1147,12 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "initial_checkpoint": blocker_checkpoint,
                             "priority": 70,
                             "initial_relationships": [],
-                        },
+                        }
+                    )
+                    blocker_created = await protected_tool(
+                        session,
+                        "create_work",
+                        blocker_create_arguments,
                     )
                     blocker = blocker_created["work_item"]
                     blocker_id = blocker["id"]
@@ -838,9 +1162,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "Unlinked blocker creation returned unexpected relationships.",
                     )
 
-                    ready_created = await tool(
-                        session,
-                        "create_work",
+                    ready_create_arguments = retained_mutation(
                         {
                             "project_id": project_id,
                             "title": f"Temporary ready work check {ready_marker}",
@@ -852,7 +1174,12 @@ async def check(args: argparse.Namespace, key: str) -> None:
                                 "tags": [run_tag, "verification", "ready"],
                             },
                             "initial_relationships": [],
-                        },
+                        }
+                    )
+                    ready_created = await protected_tool(
+                        session,
+                        "create_work",
+                        ready_create_arguments,
                     )
                     ready_id = ready_created["work_item"]["id"]
                     known_work_item_ids.add(ready_id)
@@ -862,9 +1189,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     }
                     await require_event_types(session, ready_identity, ["work_created"])
 
-                    terminal_created = await tool(
-                        session,
-                        "create_work",
+                    terminal_create_arguments = retained_mutation(
                         {
                             "project_id": project_id,
                             "title": f"Temporary terminal work check {terminal_marker}",
@@ -877,7 +1202,12 @@ async def check(args: argparse.Namespace, key: str) -> None:
                                 "tags": [run_tag, "verification", "terminal"],
                             },
                             "initial_relationships": [],
-                        },
+                        }
+                    )
+                    terminal_created = await protected_tool(
+                        session,
+                        "create_work",
+                        terminal_create_arguments,
                     )
                     terminal = terminal_created["work_item"]
                     terminal_id = terminal["id"]
@@ -918,17 +1248,19 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         ["work_created", "work_claimed"],
                     )
 
-                    block_result = await tool(
+                    block_intent = {
+                        "project_id": project_id,
+                        "source_work_item_id": blocker_id,
+                        "target_work_item_id": work_item_id,
+                        "relationship_type": "blocks",
+                        "created_by_client": SYNTHETIC_CLIENT,
+                        "created_by_session_id": run_id,
+                    }
+                    block_arguments = retained_mutation(block_intent)
+                    block_result = await protected_tool(
                         session,
                         "add_relationship",
-                        {
-                            "project_id": project_id,
-                            "source_work_item_id": blocker_id,
-                            "target_work_item_id": work_item_id,
-                            "relationship_type": "blocks",
-                            "created_by_client": SYNTHETIC_CLIENT,
-                            "created_by_session_id": run_id,
-                        },
+                        block_arguments,
                     )
                     block_edge = block_result["relationship"]
                     block_relationship_id = block_edge["id"]
@@ -953,27 +1285,41 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "dependency_added",
                         ],
                     )
-                    block_replay = await tool(
+                    block_replay = await protected_tool(
                         session,
                         "add_relationship",
-                        {
-                            "project_id": project_id,
-                            "source_work_item_id": blocker_id,
-                            "target_work_item_id": work_item_id,
-                            "relationship_type": "blocks",
-                            "created_by_client": SYNTHETIC_CLIENT,
-                            "created_by_session_id": run_id,
-                        },
+                        block_arguments,
                     )
                     require(
-                        block_replay["created"] is False
-                        and block_replay["relationship"]["id"] == block_relationship_id
+                        block_replay == block_result
                         and [
                             event["id"]
                             for event in await work_events(session, identity)
                         ]
                         == [event["id"] for event in events_after_block],
-                        "Relationship replay emitted a duplicate event.",
+                        "Same-key relationship replay changed its typed result or domain events.",
+                    )
+                    block_noop_arguments = retained_mutation(block_intent)
+                    block_noop = await protected_tool(
+                        session,
+                        "add_relationship",
+                        block_noop_arguments,
+                    )
+                    block_noop_replay = await protected_tool(
+                        session,
+                        "add_relationship",
+                        block_noop_arguments,
+                    )
+                    require(
+                        block_noop["created"] is False
+                        and block_noop["relationship"] == block_edge
+                        and block_noop_replay == block_noop
+                        and [
+                            event["id"]
+                            for event in await work_events(session, identity)
+                        ]
+                        == [event["id"] for event in events_after_block],
+                        "New-key relationship no-op did not bind and replay created=false.",
                     )
                     fetched_block = await tool(
                         session,
@@ -1023,14 +1369,16 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and ready_ids(ready_page) == [ready_id],
                         "Ready discovery did not exclude blocked, leased, and terminal work.",
                     )
-                    released = await tool(
+                    release_intent = {
+                        **identity,
+                        "lease_token": lease_token,
+                        **mutation_actor(run_id),
+                    }
+                    release_arguments = retained_mutation(release_intent)
+                    released = await protected_tool(
                         session,
                         "release_claim",
-                        {
-                            **identity,
-                            "lease_token": lease_token,
-                            **mutation_actor(run_id),
-                        },
+                        release_arguments,
                     )
                     require(
                         released["released"] is True,
@@ -1051,23 +1399,40 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "work_released",
                         ],
                     )
-                    release_replay = await tool(
+                    release_replay = await protected_tool(
                         session,
                         "release_claim",
-                        {
-                            **identity,
-                            "lease_token": lease_token,
-                            **mutation_actor(run_id),
-                        },
+                        release_arguments,
                     )
                     require(
-                        release_replay["released"] is False
+                        release_replay == released
                         and [
                             event["id"]
                             for event in await work_events(session, identity)
                         ]
                         == [event["id"] for event in events_after_release],
-                        "An absent release emitted a duplicate event.",
+                        "Same-key release replay changed its typed result or domain events.",
+                    )
+                    release_noop_arguments = retained_mutation(release_intent)
+                    release_noop = await protected_tool(
+                        session,
+                        "release_claim",
+                        release_noop_arguments,
+                    )
+                    release_noop_replay = await protected_tool(
+                        session,
+                        "release_claim",
+                        release_noop_arguments,
+                    )
+                    require(
+                        release_noop["released"] is False
+                        and release_noop_replay == release_noop
+                        and [
+                            event["id"]
+                            for event in await work_events(session, identity)
+                        ]
+                        == [event["id"] for event in events_after_release],
+                        "New-key absent release did not bind and replay released=false.",
                     )
                     ready_page = await tool(
                         session,
@@ -1094,14 +1459,16 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "A fresh claim was not rejected with typed work_blocked.",
                     )
 
-                    removed_block = await tool(
+                    remove_block_intent = {
+                        "project_id": project_id,
+                        "relationship_id": block_relationship_id,
+                        **mutation_actor(run_id),
+                    }
+                    remove_block_arguments = retained_mutation(remove_block_intent)
+                    removed_block = await protected_tool(
                         session,
                         "remove_relationship",
-                        {
-                            "project_id": project_id,
-                            "relationship_id": block_relationship_id,
-                            **mutation_actor(run_id),
-                        },
+                        remove_block_arguments,
                     )
                     require(
                         removed_block["removed"] is True
@@ -1123,23 +1490,40 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "dependency_removed",
                         ],
                     )
-                    absent_remove = await tool(
+                    remove_block_replay = await protected_tool(
                         session,
                         "remove_relationship",
-                        {
-                            "project_id": project_id,
-                            "relationship_id": block_relationship_id,
-                            **mutation_actor(run_id),
-                        },
+                        remove_block_arguments,
                     )
                     require(
-                        absent_remove["removed"] is False
+                        remove_block_replay == removed_block
                         and [
                             event["id"]
                             for event in await work_events(session, identity)
                         ]
                         == [event["id"] for event in events_after_unblock],
-                        "An absent relationship removal emitted a duplicate event.",
+                        "Same-key relationship removal changed its typed result or events.",
+                    )
+                    absent_remove_arguments = retained_mutation(remove_block_intent)
+                    absent_remove = await protected_tool(
+                        session,
+                        "remove_relationship",
+                        absent_remove_arguments,
+                    )
+                    absent_remove_replay = await protected_tool(
+                        session,
+                        "remove_relationship",
+                        absent_remove_arguments,
+                    )
+                    require(
+                        absent_remove["removed"] is False
+                        and absent_remove_replay == absent_remove
+                        and [
+                            event["id"]
+                            for event in await work_events(session, identity)
+                        ]
+                        == [event["id"] for event in events_after_unblock],
+                        "New-key absent removal did not bind and replay removed=false.",
                     )
                     unblocked_context = await tool(session, "recall_work", identity)
                     require(
@@ -1159,14 +1543,17 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "Removing the blocker did not deterministically restore ready work.",
                     )
 
-                    blocker_release = await tool(
-                        session,
-                        "release_claim",
+                    blocker_release_arguments = retained_mutation(
                         {
                             **blocker_identity,
                             "lease_token": blocker_token,
                             **mutation_actor(run_id),
-                        },
+                        }
+                    )
+                    blocker_release = await protected_tool(
+                        session,
+                        "release_claim",
+                        blocker_release_arguments,
                     )
                     require(
                         blocker_release["released"] is True,
@@ -1195,15 +1582,18 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "Releasing the leased candidate did not restore priority order.",
                     )
 
-                    terminal = await tool(
-                        session,
-                        "update_work",
+                    terminal_update_arguments = retained_mutation(
                         {
                             **terminal_identity,
                             "expected_version": terminal["version"],
                             "changes": {"status": "pending"},
                             **mutation_actor(run_id),
-                        },
+                        }
+                    )
+                    terminal = await protected_tool(
+                        session,
+                        "update_work",
+                        terminal_update_arguments,
                     )
                     require(
                         terminal["status"] == "pending",
@@ -1265,9 +1655,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         ),
                         "tags": [run_tag, "verification", "child"],
                     }
-                    child_created = await tool(
-                        session,
-                        "create_work",
+                    child_create_arguments = retained_mutation(
                         {
                             "project_id": project_id,
                             "title": f"Temporary child work check {child_marker}",
@@ -1287,7 +1675,12 @@ async def check(args: argparse.Namespace, key: str) -> None:
                                     "context_checkpoint_id": progress["id"],
                                 },
                             ],
-                        },
+                        }
+                    )
+                    child_created = await protected_tool(
+                        session,
+                        "create_work",
+                        child_create_arguments,
                     )
                     child = child_created["work_item"]
                     child_id = child["id"]
@@ -1432,9 +1825,9 @@ async def check(args: argparse.Namespace, key: str) -> None:
 
                     completion_input = {
                         "prompt": (
-                            "Synthetic validation completed: exact creation, pointer search, bounded "
-                            "recall, checkpoint history, dashboard edit, and conflict detection were "
-                            "observed working."
+                            "Synthetic validation completed: exact creation, pointer search, "
+                            "bounded recall, checkpoint history, dashboard edit, and conflict "
+                            "detection were observed working."
                         ),
                         "source_client": SYNTHETIC_CLIENT,
                         "source_session_id": run_id,
@@ -1445,15 +1838,18 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "tags": [run_tag, "verification", "complete"],
                         "source_metadata": {"synthetic_check": True},
                     }
-                    completion = await tool(
-                        session,
-                        "complete_work",
+                    completion_arguments = retained_mutation(
                         {
                             **identity,
                             "expected_version": current["version"],
                             "checkpoint": completion_input,
                             "lease_token": lease_token,
-                        },
+                        }
+                    )
+                    completion = await protected_tool(
+                        session,
+                        "complete_work",
+                        completion_arguments,
                     )
                     require(
                         completion["work_item"]["status"] == "done"
@@ -1506,14 +1902,17 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
 
                     for relationship_id in sorted(active_relationship_ids):
-                        removed = await tool(
-                            session,
-                            "remove_relationship",
+                        relationship_cleanup_arguments = retained_mutation(
                             {
                                 "project_id": project_id,
                                 "relationship_id": relationship_id,
                                 **mutation_actor(run_id),
-                            },
+                            }
+                        )
+                        removed = await protected_tool(
+                            session,
+                            "remove_relationship",
+                            relationship_cleanup_arguments,
                         )
                         require(
                             removed["removed"] is True
@@ -1551,15 +1950,18 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "relationship_removed",
                     ]
                     await require_event_types(session, identity, timeline_before_reopen)
-                    reopened = await tool(
-                        session,
-                        "update_work",
+                    reopen_arguments = retained_mutation(
                         {
                             **identity,
                             "expected_version": completion["work_item"]["version"],
                             "changes": {"status": "pending"},
                             **mutation_actor(run_id),
-                        },
+                        }
+                    )
+                    reopened = await protected_tool(
+                        session,
+                        "update_work",
+                        reopen_arguments,
                     )
                     require(
                         reopened["status"] == "pending",
@@ -1631,14 +2033,17 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "work_item_id": item_id,
                         }
                         latest = await tool(session, "get_work", item_identity)
-                        deleted = await tool(
-                            session,
-                            "delete_work",
+                        delete_arguments = retained_mutation(
                             {
                                 **item_identity,
                                 "expected_version": latest["version"],
                                 **mutation_actor(run_id),
-                            },
+                            }
+                        )
+                        deleted = await protected_tool(
+                            session,
+                            "delete_work",
+                            delete_arguments,
                         )
                         require(
                             deleted["deleted"] is True
@@ -1695,7 +2100,7 @@ def main() -> None:
         "--project-id",
         type=project_uuid,
         help=(
-            "Explicitly authorizes one synthetic Phase 5 ready/event lifecycle and cleanup "
+            "Explicitly authorizes one synthetic Phase 6 ready/event lifecycle and cleanup "
             "inside this project"
         ),
     )
@@ -1704,12 +2109,24 @@ def main() -> None:
         type=project_uuid,
         help="Optional second project for an isolation check",
     )
+    parser.add_argument(
+        "--cleanup-run-id",
+        type=project_uuid,
+        help=(
+            "Clean only exact synthetic marker data from an interrupted run; retry after "
+            "lease expiry if its capability token was lost"
+        ),
+    )
     args = parser.parse_args()
     if args.other_project_id:
         if not args.project_id:
             parser.error("--other-project-id requires --project-id.")
         if args.other_project_id == args.project_id:
             parser.error("--other-project-id must identify a different project.")
+    if args.cleanup_run_id and not args.project_id:
+        parser.error("--cleanup-run-id requires --project-id.")
+    if args.cleanup_run_id and args.other_project_id:
+        parser.error("--cleanup-run-id cannot be combined with --other-project-id.")
     key = values.get("MNEMONIC_API_KEY", "")
     if len(key) < 32:
         parser.error("Set MNEMONIC_API_KEY in .env or the environment first.")

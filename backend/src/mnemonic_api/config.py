@@ -22,6 +22,15 @@ class Settings(BaseSettings):
         le=3600,
         validation_alias=AliasChoices("MNEMONIC_LEASE_TTL_SECONDS", "lease_ttl_seconds"),
     )
+    client_operation_wait_seconds: int = Field(
+        default=10,
+        ge=1,
+        le=10,
+        validation_alias=AliasChoices(
+            "MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS",
+            "client_operation_wait_seconds",
+        ),
+    )
 
     @field_validator("api_key")
     @classmethod

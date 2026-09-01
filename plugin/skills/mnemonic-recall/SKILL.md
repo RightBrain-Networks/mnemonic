@@ -42,6 +42,31 @@ ID or use ordinary search/recall to guess whether the claim committed. If the
 server reports that the request expired, generate a new request ID only for a
 new acquisition attempt.
 
+## Recover protected mutations separately
+
+Lease acquisition recovery above is not the general mutation protocol. Before
+calling `add_checkpoint`, `append_event`, `add_relationship`, `update_work`,
+`complete_work`, `delete_work`, `remove_relationship`, or `release_claim`,
+generate one fresh `client_operation_id` and retain it with the complete
+immutable tool name and argument object in secure client-local orchestration
+state. `create_work` follows the same rule when recall transitions into capture.
+Include every explicit/defaulted field, target, provenance value, expected
+version, metadata object, and lease token in the retained call.
+
+Make one attempt at a time. After timeout, disconnect, malformed success,
+backend `5xx`, or `client_operation_unavailable`, retry only the same tool with
+that UUID and the exact unchanged tool argument object. Do not rebuild the call
+from edited state. A changed argument or new intent requires a new UUID.
+If either key or exact arguments was lost, or an asserted exact retry returns
+`client_operation_conflict`, stop, inspect current state where safe, and request
+direction; never synthesize a replacement UUID and call it a retry. Successful
+replay returns the original historical result, so reconcile with a fresh read.
+
+Never copy the operation UUID or retained arguments into Mnemonic work,
+checkpoint/event prose or metadata, tool output, chat, logs, or traces. Follow
+the full private-retention rules in
+[authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
+
 When `omitted_checkpoint_count` is nonzero and older context matters, page
 `list_checkpoints`. When `omitted_event_count` is nonzero or the complete
 timeline matters, page `list_work_events` with an explicit order and optional
@@ -104,15 +129,17 @@ Use `add_checkpoint` when a future session needs a substantial resume packet:
 resume detail that does not replace current context. Use `append_event` for a
 concise historical progress fact that need not become resume context. Never
 duplicate the same prose across both. Supply the actual current actor/source
-client and session provenance. Progress append is not idempotent before Phase
-6; after an unknown result, inspect newest events instead of retrying blindly.
+client and session provenance. Prepare each complete call plus its
+`client_operation_id` once; after an unknown result, retain and replay that
+exact call rather than searching for a substitute or generating another key.
 Never store private chain-of-thought, credentials, lease capabilities, or
-transcript dumps. Request-known secret echoes and reserved keys are rejected,
-but unrecognized sensitive text cannot be detected universally and would be
-returned to authorized history readers.
+operation IDs in durable content or transcript dumps. Request-known secret
+echoes and reserved keys are rejected, but unrecognized sensitive text cannot
+be detected universally and would be returned to authorized history readers.
 
-When the authorized objective is genuinely achieved, call `complete_work` with
-the version just recalled and a truthful `checkpoint` describing:
+When the authorized objective is genuinely achieved, freeze a new completion
+intent and call `complete_work` with its `client_operation_id`, the version just
+recalled, and a truthful `checkpoint` describing:
 
 - what changed or was decided;
 - checks actually run and their observed outcomes;
@@ -126,19 +153,24 @@ the matching token when an active lease exists; no Mnemonic tool creates an
 external issue.
 
 Use `update_work` only for intended mutable identity fields and `delete_work`
-only when the user asked to remove the record. Pass current version, any needed
-lease token, and truthful flattened `actor_client`, `actor_session_id`, and
-optional `actor_model`. Correct context with a checkpoint, never by rewriting
-history. On version conflict, recall and reconcile. Deletion is not completion
-and is rejected while any relationship touches the item. Do not remove edges
-merely to force deletion. When edge/record removal is explicitly authorized,
-list exact edges, pass truthful actor fields to each `remove_relationship`, then
-delete the item.
+only when the user asked to remove the record. Give each complete immutable call
+its own new UUID. Pass current version, any needed lease token, and truthful
+flattened `actor_client`, `actor_session_id`, and optional `actor_model`.
+Correct context with a checkpoint, never by rewriting history. On a definite
+version conflict, recall and reconcile, then use a new UUID for the corrected
+arguments. Deletion is not completion and is rejected while any relationship
+touches the item. Do not remove edges merely to force deletion. When
+edge/record removal is explicitly authorized, list exact edges and give each
+`remove_relationship` plus the later `delete_work` its own retained UUID and
+truthful actor fields.
 
 When pausing or handing off unfinished claimed work, first append a concise,
-cold-session-useful checkpoint and then call `release_claim` with the token and
-truthful flattened actor fields. Release is token-authorized even after expiry
-and safe to repeat; the actor describes the caller, while retained holder text
-is only the released capability subject and never authority. After an unknown
-non-claim write, inspect the corresponding read surface before retrying. The
-same-request recovery rule applies only to claim and claim-and-recall.
+cold-session-useful checkpoint as one protected intent and then call
+`release_claim` as a separate protected intent with its own
+`client_operation_id`, the token, and truthful flattened actor fields. Release
+is token-authorized even after expiry; an exact same-key replay returns the
+original release result without affecting a replacement lease. The actor
+describes the caller, while retained holder text is only the released
+capability subject and never authority. Read again for current state after a
+successful replay. Claim and claim-and-recall continue to use their distinct,
+active-lease-bounded `claim_request_id` rule.

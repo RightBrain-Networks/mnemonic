@@ -113,6 +113,10 @@ export type RelationshipType =
 
 export type RelationshipDirection = "incoming" | "outgoing" | "undirected";
 
+export interface ClientOperationInput {
+  client_operation_id?: string;
+}
+
 export interface MutationActor {
   actor_client: string;
   actor_session_id: string;
@@ -207,7 +211,7 @@ export interface WorkEventPage extends Page<WorkEventRead> {
   pre_phase5_history_may_be_incomplete: boolean;
 }
 
-export interface ProgressEventInput {
+export interface ProgressEventInput extends ClientOperationInput {
   event_type: "progress";
   body: string;
   metadata: Record<string, unknown>;
@@ -253,7 +257,7 @@ export interface RelationshipRemovalResult {
   removed: boolean;
 }
 
-export interface RelationshipCreateInput {
+export interface RelationshipCreateInput extends ClientOperationInput {
   relationship_type: RelationshipType;
   source_work_item_id: string;
   target_work_item_id: string;
@@ -298,6 +302,15 @@ export interface WorkContext {
   pre_phase5_history_may_be_incomplete: boolean;
 }
 
+export interface WorkCreateInput extends ClientOperationInput {
+  title: string;
+  summary: string;
+  priority: number;
+  status: MutableWorkStatus;
+  initial_checkpoint: CheckpointInput;
+  initial_relationships?: InitialRelationshipInput[];
+}
+
 export interface WorkCreation {
   work_item: WorkItem;
   initial_checkpoint: Checkpoint;
@@ -328,7 +341,30 @@ export interface CheckpointInput {
   source_metadata?: Record<string, unknown>;
 }
 
-export interface WorkPatch {
+export interface CheckpointCreateInput extends CheckpointInput, ClientOperationInput {
+  kind: Exclude<CheckpointKind, "completion">;
+}
+
+export interface WorkCompletionInput extends ClientOperationInput {
+  expected_version: number;
+  checkpoint: CheckpointInput;
+}
+
+export interface WorkDeletionInput extends ClientOperationInput {
+  expected_version: number;
+  actor: MutationActor;
+}
+
+export interface WorkDeferralInput extends ClientOperationInput {
+  expected_version: number;
+  actor: MutationActor;
+}
+
+export interface RelationshipRemovalInput extends ClientOperationInput {
+  actor: MutationActor;
+}
+
+export interface WorkPatch extends ClientOperationInput {
   expected_version: number;
   title?: string;
   summary?: string;

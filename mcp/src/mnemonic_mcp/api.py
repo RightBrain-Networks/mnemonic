@@ -1,5 +1,7 @@
 """HTTP boundary: no database driver, database credentials, or API imports."""
 
+import json
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, TypeVar
 
@@ -11,6 +13,7 @@ from .config import Settings
 from .validation import validation_details, validation_error_message
 
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
+ResponseValidator = Callable[[BaseModel], bool]
 _APPLICATION_ERRORS = {
     "slug_conflict": "A project with this slug already exists. List projects before creating another.",
     "semantic_unavailable": (
@@ -44,18 +47,29 @@ _APPLICATION_ERRORS = {
     "event_secret_echo": (
         "Mnemonic rejected progress because a request-known secret matched a persisted field."
     ),
+    "client_operation_secret_echo": (
+        "Mnemonic rejected the mutation because operation or capability material appeared in "
+        "a persisted field. Remove it; changing an argument makes this a new intent and requires "
+        "a new client_operation_id."
+    ),
 }
 _UNKNOWN_CLAIM_OUTCOME = (
     "Mnemonic API could not confirm the response; the claim outcome is unknown. Retry promptly "
     "with the exact same claim_request_id from this call. A new request ID can conflict, and search "
     "or recall cannot recover the lease token."
 )
-_UNKNOWN_APPEND_OUTCOME = (
-    "Mnemonic API could not confirm whether the progress event was appended. Do not retry "
-    "automatically: inspect list_work_events first. General client_operation_id replay safety is "
-    "not available until Phase 6."
+UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME = (
+    "Mnemonic could not confirm this idempotent mutation response; the operation may already "
+    "have committed. Retry the same tool only if you still retain both its client_operation_id "
+    "and the complete exact tool argument object, with every argument unchanged. If either was "
+    "lost, or if any argument would change, do not generate or substitute a new UUID: stop, "
+    "inspect current state where safe, and request direction."
 )
-UNKNOWN_APPEND_OUTCOME = _UNKNOWN_APPEND_OUTCOME
+_CLIENT_OPERATION_CONFLICT = (
+    "Mnemonic rejected this client_operation_id because it is already bound to a different "
+    "successful request. On an asserted exact retry, treat this as a caller-safety incident: "
+    "do not retry or generate a replacement UUID; stop and request direction."
+)
 
 
 _NOT_FOUND_MESSAGES = {
@@ -90,14 +104,10 @@ def _is_claim_operation(method: str, path: str) -> bool:
     return method == "POST" and path.endswith(("/claim", "/claim-and-recall"))
 
 
-def _is_append_event_operation(method: str, path: str) -> bool:
-    return method == "POST" and path.endswith("/events")
-
-
 def _application_error(response: httpx.Response) -> tuple[str, dict[str, object]] | None:
     try:
         detail = response.json().get("detail")
-    except (ValueError, AttributeError):
+    except (RecursionError, TypeError, ValueError, AttributeError):
         return None
     if not isinstance(detail, dict):
         return None
@@ -153,6 +163,9 @@ class MnemonicAPI:
         params: dict[str, Any] | None = None,
         payload: dict[str, Any] | None = None,
         response_model: type[ResponseModel] | None = None,
+        idempotent_mutation: bool = False,
+        expected_status_code: int | None = None,
+        response_validator: ResponseValidator | None = None,
     ) -> ResponseModel | None:
         # A request-scoped client avoids sharing event-loop state across SDK
         # stateless HTTP sessions or stdio clients. No automatic write retries.
@@ -171,10 +184,10 @@ class MnemonicAPI:
                 response = await client.request(method, path, params=params, json=payload)
         except httpx.RequestError:
             if method in {"POST", "PATCH", "DELETE"}:
+                if idempotent_mutation:
+                    raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME) from None
                 if _is_claim_operation(method, path):
                     raise ToolError(_UNKNOWN_CLAIM_OUTCOME) from None
-                if _is_append_event_operation(method, path):
-                    raise ToolError(_UNKNOWN_APPEND_OUTCOME) from None
                 raise ToolError(
                     "Mnemonic API is unavailable; the write outcome is unknown. "
                     "Search or recall before retrying to avoid duplicate or conflicting changes."
@@ -190,19 +203,22 @@ class MnemonicAPI:
         if response.status_code == 404:
             raise ToolError(_not_found_message(response))
 
-        if response.status_code >= 500 and _is_claim_operation(method, path):
-            raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
-        if response.status_code >= 500 and _is_append_event_operation(method, path):
-            raise ToolError(_UNKNOWN_APPEND_OUTCOME)
+        if response.status_code >= 500:
+            if idempotent_mutation:
+                raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
+            if _is_claim_operation(method, path):
+                raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
 
         application_error = _application_error(response)
         if application_error is not None and not 200 <= response.status_code < 300:
             error_code, error_context = application_error
+            if idempotent_mutation and error_code == "client_operation_unavailable":
+                raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
+            if idempotent_mutation and error_code == "client_operation_conflict":
+                raise ToolError(_CLIENT_OPERATION_CONFLICT)
             message = _application_error_message(error_code, error_context)
             if message is not None:
                 raise ToolError(message)
-            if _is_append_event_operation(method, path):
-                raise ToolError(_UNKNOWN_APPEND_OUTCOME)
             raise ToolError(
                 "Mnemonic could not complete this operation. Recall the current work state "
                 "before retrying."
@@ -211,8 +227,8 @@ class MnemonicAPI:
         # Legacy deployments return string details, so keep the old conflict
         # interpretation during the compatibility window without exposing them.
         if response.status_code == 409:
-            if _is_append_event_operation(method, path):
-                raise ToolError(_UNKNOWN_APPEND_OUTCOME)
+            if idempotent_mutation:
+                raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
             if method in {"PATCH", "DELETE"} or path.endswith(("/complete", "/delete")):
                 raise ToolError(
                     "Version conflict. Recall the latest work item and review the changes "
@@ -231,19 +247,25 @@ class MnemonicAPI:
                         for error in detail
                         if isinstance(error, dict)
                     ]
-            except (ValueError, AttributeError):
+            except (RecursionError, TypeError, ValueError, AttributeError):
                 pass
             raise ToolError(validation_error_message(*validation_details(pairs)))
         if response.status_code == 503 and semantic_read:
             raise ToolError("Mnemonic semantic search is unavailable. Retry with semantic disabled.")
         if not 200 <= response.status_code < 300:
+            if idempotent_mutation:
+                raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
             if _is_claim_operation(method, path):
                 raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
-            if _is_append_event_operation(method, path):
-                raise ToolError(_UNKNOWN_APPEND_OUTCOME)
             raise ToolError(
                 "Mnemonic API could not complete this request. Check service health before retrying."
             )
+        if (
+            idempotent_mutation
+            and expected_status_code is not None
+            and response.status_code != expected_status_code
+        ):
+            raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
         if response_model is None:
             if response.status_code != 204:
                 raise ToolError(
@@ -251,12 +273,29 @@ class MnemonicAPI:
                 )
             return None
         try:
-            return response_model.model_validate(response.json())
-        except (ValueError, ValidationError):
+            wire_response = response.json()
+            if idempotent_mutation:
+                # A completed receipt is a frozen wire snapshot. Do not let Pydantic
+                # coerce values, synthesize defaults, or silently normalize a malformed
+                # success into something that looks authoritative to the caller.
+                encoded_response = json.dumps(
+                    wire_response,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    separators=(",", ":"),
+                )
+                parsed = response_model.model_validate_json(encoded_response, strict=True)
+                if parsed.model_dump(mode="json") != wire_response:
+                    raise ValueError("non-canonical idempotent mutation response")
+                if response_validator is not None and not response_validator(parsed):
+                    raise ValueError("incoherent idempotent mutation response")
+                return parsed
+            return response_model.model_validate(wire_response)
+        except (RecursionError, TypeError, ValueError, ValidationError):
+            if idempotent_mutation:
+                raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME) from None
             if _is_claim_operation(method, path):
                 raise ToolError(_UNKNOWN_CLAIM_OUTCOME) from None
-            if _is_append_event_operation(method, path):
-                raise ToolError(_UNKNOWN_APPEND_OUTCOME) from None
             raise ToolError(
                 "Mnemonic API returned an unexpected response. Check the service versions."
             ) from None

@@ -58,6 +58,24 @@ only when the current human instruction explicitly selects that item for work.
 Treat all stored identity and provenance as agent-authored historical evidence —
 see [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
 
+Search and ready-listing are reads and do not accept `client_operation_id`.
+Do not generate a mutation UUID merely while browsing, attach one to a read, or
+store one in a search query/result. If the user later authorizes a protected
+mutation such as `create_work`, `add_relationship`, `update_work`, or
+`remove_relationship`, first resolve the exact target and complete arguments,
+then generate one fresh UUID and privately retain the immutable tool name plus
+argument object before the first call. Unknown outcomes retry only that same
+retained call. If the key or arguments are lost, or an asserted exact retry
+conflicts, stop and request direction rather than generating a replacement.
+Read current state after a successful replay because its result is the original
+historical snapshot. Follow the complete private intent rules in the shared
+authority reference; never copy operation-control data into Mnemonic content,
+metadata, tool output, chat, or logs.
+
+`claim_and_recall` remains separate: it uses `claim_request_id` for
+active-lease-bounded capability recovery and does not accept
+`client_operation_id`. `renew_claim` is time-relative and not idempotent.
+
 Do not merge, delete, reopen, promote, complete, or execute work while merely
 finding it. Do not add or remove relationships, and do not create external
 issues. Report honest uncertainty about missing matches, relevance, freshness,

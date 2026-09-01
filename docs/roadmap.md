@@ -515,44 +515,136 @@ A work item should expose an ordered timeline:
 
 # Phase 6 - Idempotent Mutations
 
+**Status: Shipped.**
+
 ## Objective
 
-Make agent retries safe.
+Make covered agent and dashboard retries safe after an ambiguous network or
+process boundary. A caller that retains one immutable intent can recover the
+original successful result without executing the mutation twice.
 
-Ambiguous network failures are normal. Agents should not need prose instructions telling them how to manually determine whether a timed-out operation actually succeeded.
+## Shipped mechanism
 
-## Proposed Mechanism
-
-Mutating operations should optionally accept:
+Migration `0013_idempotent_mutations`, directly after
+`0012_pending_deferred_statuses`, adds a private durable receipt ledger while
+preserving existing production work, event, and metadata content. A covered
+REST request may carry one caller-generated top-level UUID:
 
 ```text
 client_operation_id
 ```
 
-A useful uniqueness scope might be:
+Direct REST callers may omit it and retain the earlier unprotected behavior.
+Canonical MCP tools require it, and the dashboard generates it before sending
+any of its covered actions. Neither the server nor MCP adapter invents a key for
+the caller.
+
+The shipped uniqueness scope deliberately strengthens the roadmap's earlier
+session-scoped suggestion:
 
 ```text
 project_id
-source_session_id
 client_operation_id
 ```
 
-On retry, the server should return the original successful result rather than execute the mutation again.
+Operation kind, target IDs, complete validated provenance/actor data, expected
+version, metadata, and other semantic arguments are part of a salted canonical
+fingerprint. They do not widen the unique namespace. The ledger stores the
+salted digest and bounded successful response snapshot, not the raw request,
+bearer credential, or lease token.
 
-## Operations to Prioritize
+A fully serialized successful `2xx` result binds the UUID indefinitely,
+including a natural no-op such as `created=false`, `removed=false`, or
+`released=false`. Definite validation/domain failures and pre-commit failures
+roll the pending receipt and domain effects back together. A matching completed
+receipt is validated and replayed before current work, relationship, lifecycle,
+version, or lease guards. Replay returns the original status and parsed JSON
+snapshot without recreating an edge, changing current work, duplicating an
+event, or releasing a replacement lease. It is historical outcome evidence,
+not a current-state read or live capability.
 
-- create work,
-- create checkpoint,
-- append event,
-- add dependency,
-- create gate,
-- submit verification result.
+The server fails closed with sanitized stable errors:
 
-## Acceptance Criteria
+- `client_operation_conflict` (`409`) when a project/key is already bound to a
+  different successful semantic request;
+- `client_operation_unavailable` (`503`) when receipt safety or the transaction
+  outcome cannot be proven; and
+- `client_operation_secret_echo` (`422`) when operation/control/capability
+  material is copied into forbidden public content.
 
-- Replaying a successful request with the same operation ID does not create duplicates.
-- The original result can be safely returned to the retrying client.
-- Idempotency behavior is clearly documented in the MCP skill.
+There is no receipt read, purge, cancellation, or argument-recovery endpoint,
+no replay wrapper or header, and no compatibility alias for the former
+prerelease MCP schemas. Operation UUIDs never enter ordinary domain responses,
+events, checkpoints, search/recall, live invalidations, or logs.
+
+## Shipped coverage
+
+Ten REST mutations use the generic receipt contract:
+
+- `create_work`;
+- `add_checkpoint`;
+- `append_event`;
+- `add_relationship` (all five relationship types);
+- `update_work`;
+- `defer_work` (REST/dashboard only);
+- `complete_work`;
+- `delete_work`;
+- `remove_relationship`;
+- `release_claim`.
+
+The nine operations other than `defer_work` are canonical MCP tools. Those
+tools require the UUID and are the only mutating MCP tools with
+`idempotentHint=true`. The catalog remains unchanged in size; Phase 6 changes
+the protected tool schemas rather than adding duplicate or receipt-management
+tools.
+
+The dashboard covers the nine browser-accessible operations in that list:
+create work, add a checkpoint, append progress, add a relationship, update,
+defer, complete, delete, and remove a relationship. It does not expose release
+or any lease-token path.
+
+`create_project`, REST-only `update_project`, `claim_work`,
+`claim_and_recall`, and `renew_claim` remain outside the generic ledger. Claims
+keep their separate `claim_request_id` replay only while the identical lease is
+active; renewal remains a new time-relative intent. Gate creation and
+verification submission remain future enrollment work because their Phase 7
+and Phase 11 domain contracts do not yet exist.
+
+## Recovery contract
+
+Before the first protected call, the caller generates one UUID and privately
+retains it with the complete exact tool name and arguments. Timeout, disconnect,
+reset/EOF, malformed success JSON, a backend/proxy `5xx`, or
+`client_operation_unavailable` leaves the outcome unknown. The caller retries
+only the frozen call with the same UUID; MCP makes one outbound attempt per tool
+invocation and does not retry automatically.
+
+Any changed tool, target, actor/source value, expected version, metadata, token,
+or other argument is a new intent and needs a new UUID. A conflict on an
+asserted exact retry is a caller-safety incident, not permission to switch keys.
+If either the UUID or exact arguments are lost, the caller must stop, inspect
+current state where safe, and request direction rather than guess a retry.
+
+The dashboard keeps frozen browser intents only for the current document. An
+ambiguous result survives modal closure/component unmount, blocks intersecting
+writes, and can be resent exactly. Strict operation-specific response decoding
+clears it only after a coherent expected success or definite rejection. It is
+never persisted across tabs, reloads, or browser-process loss, and Phase 6 makes
+no safe-retry claim after that private state disappears.
+
+## Shipped acceptance criteria
+
+- Exact same-key retries return the original successful response and create no
+  duplicate domain rows, events, version changes, or lease effects.
+- Concurrent identical requests serialize to one execution and one durable
+  result; same-key semantic mismatches never execute.
+- Historical replay remains available after later edit, reopen, deletion,
+  relationship removal, lease replacement, backend restart, and backup/restore.
+- Existing production content is preserved through `0013`; unsafe downgrade is
+  refused once completed receipts exist.
+- MCP, browser, proxy, plugin, operations, and agent guidance use the same
+  immutable-intent and unknown-outcome contract while keeping claim recovery
+  separate.
 
 ---
 
@@ -1108,7 +1200,7 @@ This establishes the long-term data model.
 2. Add atomic `claim_and_recall`.
 3. Add blocker-aware `list_ready_work`.
 4. Make every claim operation recheck blockers atomically before leasing work.
-5. Add idempotent mutation keys.
+5. Add idempotent mutation keys. **Shipped in Phase 6.**
 
 At this point multiple agents can safely share a project.
 

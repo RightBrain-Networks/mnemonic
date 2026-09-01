@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   allowedQueryKeys,
-  classifyRequestBody,
+  clientOperationMatchesSecret,
   configuredOrigins,
   forbiddenMutationField,
+  forbiddenOperationTransport,
   invalidMutationBody,
   trustedRequest,
   upstreamTimeoutMs
@@ -14,6 +15,7 @@ const origins = configuredOrigins();
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
 const other = "f1cf3691-7d28-4716-94a9-4867b341a685";
 const work = "7a5dc555-0a6d-4f92-9678-1647524827c8";
+const operation = "91b9168a-37d1-4a6a-aa1f-bb538b65cb55";
 const headers = (overrides = {}) => new Headers({ host: "localhost:3000", ...overrides });
 
 test("ordinary same-origin browser reads work without an Origin header", () => {
@@ -123,12 +125,12 @@ test("Phase 5 mutation bodies use exact route-specific actor and event allowlist
   assert.equal(invalidMutationBody(
     `projects/${project}/work-items/${work}/events`,
     "POST",
-    { event_type: "progress", body: "Safe text", metadata: {}, actor }
+    { event_type: "progress", body: "Safe text", metadata: {}, actor, client_operation_id: operation }
   ), null);
   assert.match(invalidMutationBody(
     `projects/${project}/work-items/${work}/events`,
     "POST",
-    { event_type: "work_completed", body: "forged", metadata: {}, actor }
+    { event_type: "work_completed", body: "forged", metadata: {}, actor, client_operation_id: operation }
   ), /allowlist/);
   assert.match(invalidMutationBody(
     `projects/${project}/work-items/${work}/events`,
@@ -138,48 +140,48 @@ test("Phase 5 mutation bodies use exact route-specific actor and event allowlist
   assert.match(invalidMutationBody(
     `projects/${project}/work-items/${work}/events`,
     "POST",
-    { event_type: "progress", body: "text", metadata: {}, actor: { client: "wrong" } }
+    { event_type: "progress", body: "text", metadata: {}, actor: { client: "wrong" }, client_operation_id: operation }
   ), /allowlist/);
 
   assert.equal(invalidMutationBody(
     `projects/${project}/work-items/${work}`,
     "PATCH",
-    { expected_version: 2, title: "Updated", actor }
+    { expected_version: 2, title: "Updated", actor, client_operation_id: operation }
   ), null);
   assert.match(invalidMutationBody(
     `projects/${project}/work-items/${work}`,
     "PATCH",
-    { expected_version: 2, status: "deferred", actor }
+    { expected_version: 2, status: "deferred", actor, client_operation_id: operation }
   ), /allowlist/);
   assert.equal(invalidMutationBody(
     `projects/${project}/work-items/${work}/defer`,
     "POST",
-    { expected_version: 2, actor }
+    { expected_version: 2, actor, client_operation_id: operation }
   ), null);
   assert.match(invalidMutationBody(
     `projects/${project}/work-items/${work}/defer`,
     "POST",
-    { expected_version: 2, status: "deferred", actor }
+    { expected_version: 2, status: "deferred", actor, client_operation_id: operation }
   ), /allowlist/);
   assert.match(invalidMutationBody(
     `projects/${project}/work-items/${work}`,
     "PATCH",
-    { expected_version: 2, title: "Updated", actor, holder_client: "forged" }
+    { expected_version: 2, title: "Updated", actor, holder_client: "forged", client_operation_id: operation }
   ), /allowlist/);
   assert.equal(invalidMutationBody(
     `projects/${project}/work-items/${work}/delete`,
     "POST",
-    { expected_version: 2, actor }
+    { expected_version: 2, actor, client_operation_id: operation }
   ), null);
   assert.equal(invalidMutationBody(
     `projects/${project}/relationships/${other}`,
     "DELETE",
-    { actor }
+    { actor, client_operation_id: operation }
   ), null);
   assert.match(invalidMutationBody(
     `projects/${project}/relationships/${other}`,
     "DELETE",
-    { actor, relationship_id: other }
+    { actor, relationship_id: other, client_operation_id: operation }
   ), /allowlist/);
 });
 test("Phase 5 progress proxy validation enforces recursive metadata and text bounds", () => {
@@ -190,6 +192,7 @@ test("Phase 5 progress proxy validation enforces recursive metadata and text bou
     body: "Progress",
     metadata: {},
     actor,
+    client_operation_id: operation,
     ...overrides
   });
 
@@ -216,6 +219,153 @@ test("Phase 5 progress proxy validation enforces recursive metadata and text bou
     body: "<script>kept as inert text</script>",
     metadata: { nested: ["safe", { count: 2 }] }
   }), null);
+  assert.match(invalid({ metadata: { nested: { ClIeNt_OpErAtIoN_Id: operation } } }), /top level/);
+});
+
+test("Phase 6 proxy accepts the operation UUID on all nine dashboard mutation bodies", () => {
+  const actor = { actor_client: "dashboard", actor_session_id: "tab-1" };
+  const checkpoint = {
+    prompt: "Exact context",
+    source_client: "dashboard",
+    source_session_id: "tab-1",
+    source_model: null,
+    repository_branch: null,
+    verified_against: null,
+    tags: [],
+    source_metadata: {}
+  };
+  const covered = [
+    [`projects/${project}/work-items`, "POST", {
+      title: "Durable work",
+      summary: "Summary",
+      priority: 0,
+      status: "pending",
+      initial_checkpoint: checkpoint,
+      client_operation_id: operation
+    }],
+    [`projects/${project}/work-items/${work}/checkpoints`, "POST", {
+      kind: "context",
+      ...checkpoint,
+      client_operation_id: operation
+    }],
+    [`projects/${project}/work-items/${work}/events`, "POST", {
+      event_type: "progress",
+      body: "Progress",
+      metadata: {},
+      actor,
+      client_operation_id: operation
+    }],
+    [`projects/${project}/relationships`, "POST", {
+      relationship_type: "blocks",
+      source_work_item_id: work,
+      target_work_item_id: other,
+      created_by_client: "dashboard",
+      created_by_session_id: "tab-1",
+      created_by_model: null,
+      client_operation_id: operation
+    }],
+    [`projects/${project}/work-items/${work}`, "PATCH", {
+      expected_version: 1,
+      title: "Updated",
+      actor,
+      client_operation_id: operation
+    }],
+    [`projects/${project}/work-items/${work}/defer`, "POST", {
+      expected_version: 1,
+      actor,
+      client_operation_id: operation
+    }],
+    [`projects/${project}/work-items/${work}/complete`, "POST", {
+      expected_version: 1,
+      checkpoint,
+      client_operation_id: operation
+    }],
+    [`projects/${project}/work-items/${work}/delete`, "POST", {
+      expected_version: 1,
+      actor,
+      client_operation_id: operation
+    }],
+    [`projects/${project}/relationships/${other}`, "DELETE", {
+      actor,
+      client_operation_id: operation
+    }]
+  ];
+  for (const [path, method, body] of covered) {
+    assert.equal(invalidMutationBody(path, method, body), null, `${method} ${path}`);
+    assert.match(
+      invalidMutationBody(path, method, { ...body, client_operation_id: "not-a-uuid" }),
+      /must be a UUID/
+    );
+    const { client_operation_id: ignored, ...withoutOperation } = body;
+    assert.match(invalidMutationBody(path, method, withoutOperation), /must be a UUID/);
+  }
+});
+
+test("Phase 6 proxy rejects operation IDs in nested, excluded, header, cookie, and secret positions", () => {
+  const actor = { actor_client: "dashboard", actor_session_id: "tab-1" };
+  assert.match(invalidMutationBody("projects", "POST", {
+    name: "Project",
+    client_operation_id: operation
+  }), /not supported/);
+  assert.match(invalidMutationBody(`projects/${project}/settings`, "PATCH", {
+    recall_pointer_template: null,
+    CLIENT_OPERATION_ID: operation
+  }), /not supported/);
+  assert.match(invalidMutationBody(`projects/${project}/work-items`, "POST", {
+    title: "Durable work",
+    summary: "Summary",
+    priority: 0,
+    status: "pending",
+    initial_checkpoint: {
+      prompt: "Context",
+      source_client: "dashboard",
+      source_session_id: "tab-1",
+      source_metadata: { client_operation_id: operation }
+    },
+    client_operation_id: operation
+  }), /top level/);
+  assert.match(invalidMutationBody(`projects/${project}/work-items/${work}`, "PATCH", {
+    expected_version: 1,
+    title: "Updated",
+    actor: { ...actor, client_operation_id: operation },
+    client_operation_id: operation
+  }), /top level/);
+
+  const protectedQueryKeys = allowedQueryKeys(
+    `projects/${project}/work-items/${work}/events`,
+    "POST"
+  );
+  assert.ok(protectedQueryKeys);
+  assert.equal(protectedQueryKeys.includes("client_operation_id"), false);
+
+  assert.equal(
+    forbiddenOperationTransport(new Headers({ client_operation_id: operation })),
+    "header"
+  );
+  assert.equal(forbiddenOperationTransport(new Headers({ "Idempotency-Key": operation })), "header");
+  assert.equal(forbiddenOperationTransport(new Headers({ "X-Client-Operation-Id": operation })), "header");
+  for (const name of [
+    "client_operation_id",
+    "client-operation-id",
+    "idempotency-key",
+    "x-idempotency-key",
+    "x-client-operation-id"
+  ]) {
+    assert.equal(
+      forbiddenOperationTransport(new Headers({ cookie: `theme=dark; ${name}=${operation}` })),
+      "cookie",
+      name
+    );
+  }
+  assert.equal(forbiddenOperationTransport(new Headers({ cookie: "theme=dark" })), null);
+  assert.equal(clientOperationMatchesSecret(
+    JSON.stringify({ client_operation_id: operation }),
+    operation
+  ), true);
+  assert.equal(clientOperationMatchesSecret(
+    JSON.stringify({ client_operation_id: operation }),
+    "different-secret"
+  ), false);
 });
 
 
@@ -247,22 +397,6 @@ test("canonical mutation bodies cannot carry lease tokens", () => {
     assert.notEqual(allowedQueryKeys(path, method), null, `${method} ${path} should otherwise be allowed`);
     assert.equal(forbiddenMutationField({ expected_version: 1, lease_token: "browser-secret" }), "lease_token");
   }
-});
-
-test("bodyless DELETE requests survive fetch stream normalization", async () => {
-  const url = "http://localhost:3000/api/mnemonic/relationship";
-  assert.equal(
-    await classifyRequestBody(new Request(url, { method: "DELETE" }), 1024),
-    "empty"
-  );
-  assert.equal(
-    await classifyRequestBody(new Request(url, { method: "DELETE", body: "" }), 1024),
-    "empty"
-  );
-  assert.equal(
-    await classifyRequestBody(new Request(url, { method: "DELETE", body: "{}" }), 1024),
-    "present"
-  );
 });
 
 test("only nonblank semantic searches receive the warmup timeout", () => {

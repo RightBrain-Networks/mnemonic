@@ -59,9 +59,9 @@ def api(postgres_engine: Engine) -> Iterator[TestClient]:
         # This exact test schema reset is scoped to the disposable random schema.
         connection.execute(
             text(
-                "TRUNCATE project_settings, work_events, work_relationships, work_leases, "
-                "work_item_embeddings, checkpoints, work_items, projects "
-                "RESTART IDENTITY CASCADE"
+                "TRUNCATE client_operations, project_settings, work_events, "
+                "work_relationships, work_leases, work_item_embeddings, checkpoints, "
+                "work_items, projects RESTART IDENTITY CASCADE"
             )
         )
     settings = Settings(

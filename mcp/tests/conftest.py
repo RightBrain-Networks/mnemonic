@@ -9,6 +9,7 @@ CHECKPOINT_ID = "74ce5a36-7295-45e7-bc24-5aa13ed4f293"
 NOW = "2026-08-30T12:00:00Z"
 EXPIRES_AT = "2026-08-30T12:15:00Z"
 CLAIM_REQUEST_ID = "claim-request-phase-2-001"
+CLIENT_OPERATION_ID = "27df1301-7fe7-45aa-b2fd-2bdfbe8b1f6a"
 LEASE_TOKEN = "lease-" + "t" * 43
 OTHER_WORK_ID = "17956493-a5bc-49ae-a099-ead952f2dec8"
 OTHER_CHECKPOINT_ID = "0663bc2f-42de-487a-b1d0-d3f8dbffbc0c"
@@ -27,6 +28,7 @@ LOCAL_VALIDATION_CASES = (
         "create_work",
         {
             "project_id": PROJECT_ID,
+            "client_operation_id": CLIENT_OPERATION_ID,
             "title": "Validation boundary",
             "summary": "Reject invalid checkpoint content locally.",
             "initial_checkpoint": {

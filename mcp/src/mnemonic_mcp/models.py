@@ -65,6 +65,7 @@ _SERVER_RESERVED_METADATA_KEYS = frozenset(
     {
         "lease_token",
         "claim_request_id",
+        "client_operation_id",
         "api_key",
         "authorization",
         "cookie",
@@ -100,10 +101,11 @@ def _bounded_progress_metadata(value: dict[str, JsonValue]) -> dict[str, JsonVal
     return value
 
 
-ProgressMetadataInput = Annotated[
+StoredMetadataInput = Annotated[
     dict[str, JsonValue],
     AfterValidator(_bounded_progress_metadata),
 ]
+ProgressMetadataInput = StoredMetadataInput
 
 
 def _validated_utc_datetime(value: datetime) -> datetime:
@@ -316,7 +318,7 @@ class CheckpointInput(BaseModel):
     repository_branch: str | None = Field(default=None, max_length=200)
     verified_against: str | None = Field(default=None, pattern=r"^[0-9a-fA-F]{7,64}$")
     tags: list[str] = Field(default_factory=list, max_length=20)
-    source_metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    source_metadata: StoredMetadataInput = Field(default_factory=dict)
 
 
 class CheckpointRead(CanonicalResponse):

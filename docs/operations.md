@@ -26,6 +26,13 @@ Clients cannot choose an expiry or request an unlimited claim. Changing the
 setting affects later acquisitions and renewals; it does not rewrite retained
 lease rows.
 
+`MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS` bounds how long a protected mutation
+waits for another transaction using the same project/operation UUID. It defaults
+to 10 seconds and startup rejects values outside 1 through 10. A timeout returns
+sanitized `client_operation_unavailable`; it must never fall through to a
+second domain execution. Lower values fail ambiguous concurrent retries sooner,
+while higher values occupy a database connection longer.
+
 Never set browser-public environment variables containing credentials. The
 dashboard's API key is a server-only setting. The database password must be
 URL-safe because it is interpolated into the API connection URL.
@@ -194,6 +201,129 @@ If event operations are instrumented, use only bounded event-type labels. Never
 put project names, tag values, actors, event bodies, or unbounded IDs in metric
 labels.
 
+## Phase 6 idempotent-mutation deployment and rollback
+
+`0013_idempotent_mutations` follows
+`0012_pending_deferred_statuses`, which in turn follows
+`0011_project_settings`. The Phase 6 revision is additive for existing
+production content: it creates an empty private receipt table and adds a
+separate `NOT VALID` recursive check that leaves historical progress metadata
+unchanged while enforcing the reserved operation key on new/updated rows. It
+does not rewrite work, checkpoints, relationships, leases, or events.
+
+Use one quiesced schema/application boundary:
+
+1. stop API, MCP, dashboard, and every direct REST writer;
+2. take a fresh custom-format backup, validate its archive, and rehearse an
+   isolated restore through `0013`;
+3. confirm the database is at the expected
+   `0012_pending_deferred_statuses` baseline
+   and no locally created `client_operations` object collides;
+4. migrate production to `0013_idempotent_mutations`;
+5. deploy API, MCP, dashboard, and plugin guidance together;
+6. verify one fresh keyed mutation, its exact replay, a mismatch conflict, a
+   natural no-op replay, and the exact 22-tool catalog before reopening writers.
+
+Do not run an older writer against the new contract during cutover. In
+particular, pre-Phase-6 progress validation cannot translate the new reserved-
+metadata database failure, and older MCP/dashboard clients do not retain the
+required keys. There is no dual-write or compatibility mode.
+
+The ledger reserves before current domain lookup and may wait on a concurrent
+owner. The configured wait is bounded; `client_operation_unavailable` means
+the outcome may be unknown and permits only an exact retry with the retained
+UUID and complete semantic request. `client_operation_conflict` means that
+project/key is already bound differently; do not generate a new key merely to
+bypass it. Application logs intentionally contain only the bounded operation
+kind and outcome classification. Never query, paste, log, or metric-label the
+operation UUID, fingerprint, salt, response JSON, request body, target, actor,
+project, bearer, or lease token.
+
+Completed receipts have no TTL or cleanup task. Do not delete or edit them:
+historical retries can arrive after the domain object changes or disappears.
+The database rejects completed update/delete and rejects a pending row at
+commit. For capacity planning, inspect only aggregate row count and
+table/index/TOAST sizes. Receipt response size makes growth workload-dependent.
+
+Run routine inspection only from a private operator shell and return aggregates,
+never receipt identities, fingerprints, salts, or response JSON. These queries
+show retained volume, invalid committed state, registered contract versions,
+age, index health, and database-wide deadlocks without selecting sensitive
+columns:
+
+```sql
+SELECT
+    count(*) FILTER (WHERE state = 'completed') AS completed_receipts,
+    count(*) FILTER (WHERE state = 'pending') AS invalid_committed_pending,
+    pg_table_size('client_operations') AS table_and_toast_bytes,
+    pg_indexes_size('client_operations') AS index_bytes,
+    pg_total_relation_size('client_operations') AS total_bytes
+FROM client_operations;
+
+SELECT
+    operation_kind,
+    date_trunc('day', created_at AT TIME ZONE 'UTC') AS utc_day,
+    count(*) AS completed_receipts
+FROM client_operations
+GROUP BY operation_kind, utc_day
+ORDER BY utc_day, operation_kind;
+
+SELECT
+    operation_kind,
+    request_fingerprint_version,
+    response_contract_version,
+    count(*) AS completed_receipts
+FROM client_operations
+GROUP BY operation_kind, request_fingerprint_version, response_contract_version
+ORDER BY operation_kind, request_fingerprint_version, response_contract_version;
+
+SELECT min(created_at) AS oldest_created_at,
+       max(completed_at) AS newest_completed_at
+FROM client_operations;
+
+SELECT indexrelname, idx_scan, pg_relation_size(indexrelid) AS index_bytes
+FROM pg_stat_user_indexes
+WHERE relname = 'client_operations'
+ORDER BY indexrelname;
+
+SELECT deadlocks, conflicts
+FROM pg_stat_database
+WHERE datname = current_database();
+```
+
+The committed pending count must be zero. An unexpected contract version,
+invalid/missing unique index, growing deadlock count, or sustained unavailable
+outcomes is an incident. To aggregate only the intentionally redacted
+operation-kind/outcome log fields for a bounded window:
+
+```sh
+docker compose logs --since=24h api |
+  sed -n 's/.*Client operation outcome kind=\([^ ]*\) outcome=\([^ ]*\).*/\1 \2/p' |
+  sort |
+  uniq -c
+```
+
+`outcome=unavailable` includes receipt waits and invariant failures; inspect
+private PostgreSQL/application logs to distinguish them without copying queries
+or caller values into tickets or telemetry. Use a privately bound exact scope
+only when running `EXPLAIN (ANALYZE, BUFFERS)` for the unique lookup, and
+retain only the plan shape, timing, and buffer totals.
+
+If the Phase 6 application must be rolled back after any receipt exists, keep
+the database at `0013`, keep writers quiesced, and fix forward or restore the
+whole pre-cutover backup. An older application is not idempotency-capable. The
+Alembic downgrade takes an exclusive ledger lock and refuses when any row
+exists; it is supported only for an unused, writer-quiesced migration and drops
+only Phase 6 receipt/metadata objects. Never truncate receipts to force a
+downgrade.
+
+A post-Phase-6 backup is the only backup that preserves replay for keyed
+mutations issued after cutover. Restore the full archive transactionally,
+migrate forward if needed, and keep all writers stopped until exact historical
+replay returns the stored body without changing domain rows, events, or leases.
+A pre-Phase-6 archive can migrate forward safely but cannot recover receipts or
+provide retry safety for operations performed after that archive.
+
 ## Backups
 
 The backup container starts after the API has migrated the database and become
@@ -210,8 +340,11 @@ docker compose logs --tail=20 backup
 
 Files appear under `MNEMONIC_BACKUP_DIR` (`./backups` by default). They include
 canonical work, immutable checkpoint text and provenance, retained leases, typed
-relationships, immutable work events and their sequence, and migration state;
-treat them as private. The backup service never deletes earlier dumps. Set a
+relationships, immutable work events and their sequence, private durable
+client-operation receipts, and migration state; treat them as private. Receipt
+rows include stored successful response bodies and salted fingerprints, so they
+receive the same confidentiality and integrity protection as canonical content.
+The backup service never deletes earlier dumps. Set a
 retention policy appropriate for available disk space, and copy successful dumps
 to another device or a backed-up location. The local PostgreSQL volume and a
 backup on the same disk can both be lost.
@@ -220,16 +353,19 @@ An archive listing check is not a restore drill. Periodically restore a dump
 into an isolated PostgreSQL instance and verify representative projects, work
 items, checkpoint history, exact relationship source/target/context/provenance,
 derived readiness, event count/max ID/content checksum and sequence ownership,
-all event indexes plus the immutability function and triggers, and the expected
-`alembic_version`. Keep the PostgreSQL major version compatible with the dump
+all event indexes plus the immutability function and triggers, receipt
+count/uniqueness/state plus all three receipt guards, exact replay of a
+representative historical success, and the expected `alembic_version`. Keep
+the PostgreSQL major version compatible with the dump
 tools.
 
 ## Restore
 
-Restore replaces objects present in the chosen backup. First take a fresh
-backup, identify the exact dump filename, and stop all writers. The dump path
-must already exist in the configured backup directory. Do not run a restore
-against a database you have not explicitly chosen to replace.
+Restore replaces the complete application-owned `public` schema, including
+objects that are newer than and therefore absent from the chosen backup. First
+take a fresh backup, identify the exact dump filename, and stop all writers.
+The dump path must already exist in the configured backup directory. Do not
+run a restore against a database you have not explicitly chosen to replace.
 
 ```sh
 docker compose exec backup sh /opt/mnemonic/backup.sh once
@@ -240,13 +376,19 @@ docker compose up -d --wait
 
 PostgreSQL must remain running during this sequence. The restore script refuses
 to run without the explicit confirmation value, rejects filenames containing
-directory paths, and uses a single transaction so errors roll back. The API
-applies any newer migrations, including `0009` and `0010`, before becoming
-ready. Do not expose API, MCP, or dashboard traffic until readiness succeeds and
+directory paths, and uses a single transaction for schema replacement and
+archive loading so errors restore the original target. Mnemonic does not use
+non-public application schemas or optional PostgreSQL extensions; the script
+refuses either unexpected layout instead of deleting outside its ownership
+boundary or producing a hybrid restore. The API
+applies any newer migrations, including `0009`, `0010`, `0011`, `0012`,
+and `0013`, before becoming ready. Do not expose API, MCP, or dashboard traffic
+until readiness succeeds and
 the restored schema/data checks pass. A restore from before a schema change
 should be rehearsed on an isolated instance first; restore is not a substitute
 for a planned schema downgrade. A pre-Phase-3 archive cannot recover later graph
-facts, and a pre-Phase-5 archive cannot recover later event history.
+facts, a pre-Phase-5 archive cannot recover later event history, and a
+pre-Phase-6 archive cannot recover later client-operation receipts.
 
 Deletion from the dashboard is a soft delete. No ordinary API or MCP read can
 retrieve a deleted work item, its checkpoints, or its event history. The

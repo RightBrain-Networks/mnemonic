@@ -20,6 +20,7 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "actor_session_id",
   "body",
   "checkpoint",
+  "client_operation_id",
   "context_checkpoint_id",
   "created_by_client",
   "created_by_model",

@@ -1,6 +1,6 @@
 # Mnemonic Phase 6 — Idempotent Mutations Implementation Plan
 
-**Status:** Ready for implementation; cold adversarial review incorporated 2026-09-01
+**Status:** Implemented and fully verified 2026-09-01; post-implementation cold review pending
 
 **Scope:** Roadmap Phase 6, “Idempotent Mutations”
 
@@ -8,10 +8,23 @@
 
 **Planning precedent:** `docs/phases-4-5-implementation-plan.md`
 
-**Implementation baseline:** current main at commit `3a0bf46`, with shipped Phase 5 schema at
-Alembic revision `0010_work_events` (Phase 5 milestone `f959ea5`)
+**Implementation baseline:** implementation rebased onto main at commit `13357b1`, where
+`0012_pending_deferred_statuses` follows `0011_project_settings`; the shipped Phase 5
+milestone is `f959ea5`
 
 **Planning constraint:** this document defines implementation work; it does not implement it.
+
+**Observed implementation evidence:** `docs/validation.md`, “Phase 6 idempotent-mutation
+validation”
+
+**Final integration amendment (2026-09-01):** While Phase 6 was being implemented, main gained
+`0012_pending_deferred_statuses` and the human-only dashboard deferral action. The implementation
+was semantically rebased onto that history: Phase 6 is Alembic revision
+`0013_idempotent_mutations`; live work uses Pending/Deferred while historical event snapshots
+continue to accept legacy `open`; and `defer_work` is enrolled as the tenth protected REST and
+ninth protected browser operation. It is deliberately not an MCP tool, so the MCP protected set
+remains the original nine. References below to the nine original operations describe the shared
+MCP/API set; final REST and browser acceptance includes deferral as specified by this amendment.
 
 ## 1. Outcome
 
@@ -76,7 +89,8 @@ This is the foundation the receipt must join.
 | `POST /projects/{project_id}/work-items/{work_item_id}/events` | Generates another progress event and activity update | Protect |
 | `POST /projects/{project_id}/relationships` | Natural-key replay changes `created=true` into `created=false` | Protect all relationship types and return the original result |
 | `PATCH /projects/{project_id}/work-items/{work_item_id}` | Usually becomes `version_conflict`; a same-value request would otherwise version again | Protect |
-| `POST .../{work_item_id}/complete` | Becomes `work_not_open` after a successful lost response | Protect |
+| `POST .../{work_item_id}/defer` | Leaves work Deferred; a retry with a new key becomes `invalid_status_transition` and cannot recover the original result | Protect for REST/dashboard; keep absent from MCP |
+| `POST .../{work_item_id}/complete` | Becomes `work_not_pending` after a successful lost response | Protect |
 | `POST .../{work_item_id}/delete` | Becomes `404` because the work is now soft-deleted | Protect |
 | `DELETE /projects/{project_id}/relationships/{relationship_id}` | Natural no-op returns `removed=false`, not the original `true` | Protect |
 | `POST .../{work_item_id}/release-claim` | Natural no-op returns `released=false`, not the original `true` | Protect without persisting the lease token or a capability-bearing response |
@@ -122,8 +136,9 @@ late project foreign-key lock that reverses ordinary work-to-project order at co
 
 ### 3.1 Exact Phase 6 coverage
 
-The generic receipt mechanism covers the nine current operations that already have truthful,
-project-local provenance. Provenance is part of the request fingerprint, not the uniqueness scope:
+The generic receipt mechanism covers ten current REST operations with truthful, project-local
+provenance. Nine are also canonical MCP tools; deferral is REST/dashboard-only. Provenance is part
+of the request fingerprint, not the uniqueness scope:
 
 | Operation kind | REST request | Required provenance | Original response |
 | --- | --- | --- | --- |
@@ -132,6 +147,7 @@ project-local provenance. Provenance is part of the request fingerprint, not the
 | `append_event` | `ProgressEventCreate` | nested mutation actor | `201 WorkEventRead` |
 | `add_relationship` | `RelationshipCreate` | `created_by_client` and `created_by_session_id` | `200 RelationshipCreationResult` |
 | `update_work` | `WorkItemPatch` | nested mutation actor | `200 WorkItemRead` |
+| `defer_work` | `WorkDeferralCreate` | nested mutation actor | `200 WorkItemRead` |
 | `complete_work` | `WorkCompletionCreate` | completion checkpoint source client/session | `200 WorkCompletionRead` |
 | `delete_work` | `WorkDeletionCreate` | nested mutation actor | `200 WorkDeletionRead` |
 | `remove_relationship` | `RelationshipRemovalCreate` | nested mutation actor | `200 RelationshipRemovalResult` |
@@ -177,12 +193,13 @@ existing transaction path and has no general recovery promise. Every covered can
 requires it; the MCP adapter must never generate it inside the call because a stateless repeat
 would then receive a different value.
 
-For `update_work`, `delete_work`, `remove_relationship`, and `release_claim`, an optional REST actor
-becomes required whenever `client_operation_id` is present. This gives a protected mutation
-truthful provenance and makes any actor change a fingerprint conflict. The service never infers
-the actor from the bearer key, dashboard proxy, current lease holder, relationship creator, HTTP
-connection, or MCP transport. Actor omission remains permitted only for an unkeyed direct REST
-request and retains the Phase 5 `unattributed` event behavior.
+For `update_work`, `defer_work`, `delete_work`, `remove_relationship`, and
+`release_claim`, an optional REST actor becomes required whenever
+`client_operation_id` is present. This gives a protected mutation truthful provenance and makes
+any actor change a fingerprint conflict. The service never infers the actor from the bearer key,
+dashboard proxy, current lease holder, relationship creator, HTTP connection, or MCP transport.
+Actor omission remains permitted only for an unkeyed direct REST request and retains the Phase 5
+`unattributed` event behavior.
 
 The operation UUID is control data, not provenance. It does not appear in:
 
@@ -280,6 +297,8 @@ The replay does not re-run current checks. Consequently:
   recreate the edge;
 - an update replay after another update returns the original versioned response but does not roll
   current work backward;
+- a deferral replay after work returns to Pending returns the original Deferred snapshot but does
+  not defer the work again;
 - a completion replay after reopen returns the original completed response but does not complete
   the work again;
 - a deletion replay succeeds despite ordinary work visibility now returning `404`;
@@ -386,7 +405,7 @@ A repeated invalidation is an idempotent refresh hint, not a domain side effect.
 the commit-before-middleware-publication crash/cancellation window for other still-open dashboards;
 a transactional outbox would be disproportionate for the current in-process best-effort channel.
 Covered-route orchestration returns `executed/replayed/unprotected` plus `mutation_applied` and
-places only the boolean publication decision on request state. Write routes outside the nine
+places only the boolean publication decision on request state. Write routes outside the ten
 covered operations retain the shipped successful-method/path fallback when no explicit decision is
 present; the middleware must not silently suppress them. No operation UUID or response data enters
 the WebSocket event. Reconnect/refetch remains an additional recovery path.
@@ -412,7 +431,7 @@ the WebSocket event. Reconnect/refetch remains an additional recovery path.
 
 ### 5.1 `client_operations`
 
-Migration `0011_idempotent_mutations` adds one private table:
+Migration `0013_idempotent_mutations` adds one private table:
 
 ```text
 id                          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY
@@ -431,7 +450,7 @@ created_at                  TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 completed_at                TIMESTAMPTZ NULL
 ```
 
-The exact `operation_kind` values are the nine names in Section 3.1. Future phases widen the
+The exact `operation_kind` values are the ten names in Section 3.1. Future phases widen the
 database check and application registry in the same increment that adds a new mutation; Phase 6
 does not reserve fake gate or verification kinds.
 
@@ -582,7 +601,7 @@ de-duplication without measured need. PostgreSQL TOAST is the initial large-JSON
 ### 6.1 Closed operation registry
 
 Add `backend/src/mnemonic_api/services/client_operations.py` as the only place that may reserve, compare,
-complete, or replay a generic receipt. Its registry is a closed mapping from the nine operation
+complete, or replay a generic receipt. Its registry is a closed mapping from the ten operation
 kinds to the request/response models and policies defined in Section 5.5. Route modules select a
 registered operation; they do not construct ad hoc kinds, fingerprints, response versions, or
 receipt SQL.
@@ -835,7 +854,7 @@ patch containing only version, actor, and operation ID remains invalid.
 
 ### 7.2 Route behavior
 
-All nine existing routes keep their paths, ordinary success status, and response model. No
+All ten enrolled routes keep their paths, ordinary success status, and response model. No
 `/operations` endpoint, lookup route, cancellation route, replay flag, idempotency header, or
 alternate response wrapper is added. The only wire change is the optional request field and the
 new stable errors.
@@ -989,7 +1008,7 @@ Tests must prove:
 
 ### 9.1 Browser mutation coverage
 
-The dashboard can invoke eight protected operations:
+The dashboard can invoke nine protected operations:
 
 | Dashboard action | Backend operation |
 | --- | --- |
@@ -998,6 +1017,7 @@ The dashboard can invoke eight protected operations:
 | append progress | `append_event` |
 | add dependency/relationship | `add_relationship` |
 | edit identity or lifecycle | `update_work` |
+| defer work | `defer_work` |
 | complete with checkpoint | `complete_work` |
 | soft-delete work | `delete_work` |
 | remove relationship | `remove_relationship` |
@@ -1049,7 +1069,7 @@ append actions, and work create likewise use explicit conflict groups without bo
 another's operation key. A second click while a request is in flight is coalesced or disabled; if
 it reaches the backend, it still uses the same frozen request.
 
-Replace the generic compile-time cast in `frontend/lib/api.ts` for these eight mutation paths with
+Replace the generic compile-time cast in `frontend/lib/api.ts` for these nine mutation paths with
 a closed per-operation runtime response registry. Each entry fixes the expected success status and
 a strict body decoder for the corresponding REST response. A response is definitive success only
 after JSON parsing and runtime validation of the exact expected status, required/allowed fields,
@@ -1088,7 +1108,7 @@ or user-facing error output. A generic “retry the same pending action” affor
 
 ### 9.3 Proxy policy
 
-Extend the exact body allowlists in `frontend/lib/proxy-policy.ts` for the eight browser-covered
+Extend the exact body allowlists in `frontend/lib/proxy-policy.ts` for the nine browser-covered
 routes with one top-level `client_operation_id`. Validate it as a UUID before forwarding and
 preserve it unchanged. Do not make it a generic allowed key for excluded routes.
 
@@ -1145,7 +1165,7 @@ backend receipt path and its database tests are green.
 
 Deliver:
 
-- migration `0011_idempotent_mutations`;
+- migration `0013_idempotent_mutations`;
 - the ORM receipt model and exact constraints/triggers;
 - the operation-kind registry skeleton;
 - top-level optional REST schema fields and conditional actors;
@@ -1181,7 +1201,7 @@ the maximum 10-second receipt wait.
 
 ### 10.3 Increment 6C — backend route enrollment
 
-Enroll the nine routes one by one using the closed registry. For each route, add its target
+Enroll the ten routes one by one using the closed registry. For each route, add its target
 envelope, project/UUID identity extractor, provenance validator, response/status contract, and
 `mutation_applied` mapping; retain its domain service and one route-owned commit.
 
@@ -1189,7 +1209,7 @@ Recommended order:
 
 1. append event and add checkpoint;
 2. create work;
-3. update, complete, and delete work;
+3. update, defer, complete, and delete work;
 4. add and remove relationship; and
 5. release claim.
 
@@ -1197,7 +1217,7 @@ This order exercises a simple insert first, then aggregate generated IDs, mutabl
 graph locks/natural no-ops, and finally a request-known capability. Run the full backend database
 suite after every group, not only new tests.
 
-Exit when all nine replay before current guards, all domain failures roll receipts back, unkeyed
+Exit when all ten replay before current guards, all domain failures roll receipts back, unkeyed
 REST behavior remains explicitly tested, and excluded mutations cannot enter the registry.
 
 ### 10.4 Increment 6D — MCP breaking contract
@@ -1213,7 +1233,7 @@ unknown outcome with the same arguments, and receives the original typed respons
 ### 10.5 Increment 6E — proxy and dashboard intents
 
 Deliver exact proxy allowlists, the dashboard-owned same-document intent registry, strict
-per-operation response decoders, integration across all eight browser actions, conservative
+per-operation response decoders, integration across all nine browser actions, conservative
 outcome classification, current-state reconciliation, and unit/e2e lost-response coverage. Keep
 browser lease denial intact.
 
@@ -1250,10 +1270,11 @@ directly; do not hide them behind retries, compatibility modes, or disabled test
 
 Add PostgreSQL tests that prove:
 
-- `0010 -> 0011` preserves populated projects, visible/soft-deleted work, checkpoints,
+- `0011_project_settings -> 0012_pending_deferred_statuses -> 0013` preserves populated
+  projects, visible/soft-deleted work, checkpoints,
   relationships, leases, embeddings, events, and their IDs/timestamps;
 - no historical receipt is created and the new table starts empty;
-- all nine operation kinds are accepted and unknown/future placeholder kinds are rejected;
+- all ten operation kinds are accepted and unknown/future placeholder kinds are rejected;
 - null/invalid project or operation UUID, invalid versions/state/status/body type, non-32-byte
   salt/digest, oversized response, and inconsistent pending/completed columns fail;
 - the unique scope is exactly `(project_id, client_operation_id)`; no provenance column
@@ -1327,7 +1348,7 @@ and activity timestamps. A test that checks only the HTTP body is insufficient.
 
 ### 11.4 Per-operation acceptance matrix
 
-For each of the nine operations, test:
+For each of the ten REST operations, test:
 
 - keyed first success and exact replay status/body equality;
 - same-key change to each operation-specific target and at least one semantic body field;
@@ -1344,6 +1365,7 @@ Additionally:
 - create work asserts stable generated work/checkpoint/relationship IDs;
 - checkpoint and progress assert stable timestamps and only one immutable history row;
 - update asserts original versioned snapshot after later updates;
+- defer asserts the original Deferred snapshot after an explicit return to Pending;
 - complete asserts one completion checkpoint and replay after reopen;
 - delete asserts replay after ordinary visibility becomes `404`;
 - relationship add/remove assert original true/false flags across later edge changes; and
@@ -1429,7 +1451,7 @@ microbenchmark green.
 | schema contract frozen | roadmap/prior-plan reconciliation | coverage, scope, canonical v1, response v1, lock order, and exclusions reviewed |
 | migration merged | schema contract | populated upgrade, invariant, unused downgrade, and existing-data preservation tests |
 | receipt core merged | migration | deterministic owner/waiter/rollback/commit/corruption tests |
-| backend routes enrolled | receipt core | nine-operation matrix plus full unskipped PostgreSQL suite |
+| backend routes enrolled | receipt core | ten-operation matrix plus full unskipped PostgreSQL suite |
 | MCP contract changed | backend routes | live backend replay and stable error behavior |
 | dashboard/proxy changed | backend routes | frozen-intent unit tests and proxy allowlists |
 | docs/plugin release changed | MCP and dashboard behavior stable | fresh/sequential plugin validation and exact examples |
@@ -1445,7 +1467,7 @@ translation shims.
 
 ### 13.1 Upgrade
 
-`0011_idempotent_mutations` is additive for production data:
+`0013_idempotent_mutations` is additive for production data:
 
 1. create the empty receipt table, constraints, exact unique index, functions, and triggers;
 2. leave the shipped `mnemonic_work_event_metadata_v1_is_valid` function and its existing check
@@ -1455,10 +1477,11 @@ translation shims.
    new rows, while the migration never validates or scans preserved rows;
 4. do not rewrite or backfill domain rows, and verify the Phase 5 function definition/hash plus
    every existing trigger and constraint is unchanged; and
-5. stamp `0011` only after the complete transaction succeeds.
+5. stamp `0013` only after the complete transaction succeeds.
 
 Run the migration with mutation writers quiesced and keep them quiesced until the Phase 6 backend
-is active. A Phase 5 binary ignores the receipt table but does not know how to map the new
+is active. A pre-Phase-6 binary at revision `0012` ignores the receipt table but does not know how
+to map the new
 request-only `client_operation_id` metadata error; do not reopen progress writes in the
 migration/backend gap. Then deploy MCP and dashboard clients. Rehearse empty-table creation and
 the `NOT VALID` constraint addition against a production-sized restore and record their catalog
@@ -1467,14 +1490,15 @@ lock durations.
 Before rollout:
 
 - take and restore-test a database backup;
-- confirm the database is at exactly `0010_work_events`;
+- confirm the database is at exactly `0012_pending_deferred_statuses` after first
+  preserving/migrating the `0011_project_settings` content;
 - confirm no locally invented `client_operations` object collides;
 - run schema/trigger introspection on the restored copy; and
 - validate both pre-migration data counts and post-migration content hashes for preserved tables.
 
 ### 13.2 Application rollback
 
-If the Phase 6 application must roll back after keyed operations exist, keep revision `0011` and
+If the Phase 6 application must roll back after keyed operations exist, keep revision `0013` and
 the receipt data. Disable/revert MCP and dashboard clients that require the new contract before
 running the older server. The older prerelease server may reject the extra request field, but it
 must not be presented as idempotency-capable. Because it also cannot translate the separate
@@ -1549,10 +1573,11 @@ npm run test:e2e:stack
 Supply the repository's documented `TEST_DATABASE_URL` where the test compose environment does
 not inject it. Also run:
 
-- `alembic upgrade 0010_work_events -> head` against a populated Phase 5 fixture containing
+- upgrade a populated `0011_project_settings` fixture through
+  `0012_pending_deferred_statuses` to head (`0013_idempotent_mutations`), including
   nested/case-varied legacy metadata, followed by the supported dump/restore path;
 - fresh-database `alembic upgrade head`;
-- writer-quiesced guarded downgrade on an unused `0011` database, then re-upgrade;
+- writer-quiesced guarded downgrade on an unused `0013` database, then re-upgrade;
 - refused downgrade after one completed receipt and the two-connection check/drop race;
 - schema/function/constraint/trigger introspection, including unchanged metadata-v1 definition;
 - plugin manifest validation, fresh install, sequential upgrade/cache-buster validation;
@@ -1627,7 +1652,7 @@ Add `client_operation_id`, `request_fingerprint`, and `request_fingerprint_salt`
 exception, tracing, and serialization denylist tests. Existing structured log records use only:
 
 ```text
-operation_kind = one of nine registered values
+operation_kind = one of ten registered values
 outcome = executed | replayed | no_op | conflict | unavailable
 ```
 
@@ -1673,20 +1698,20 @@ This map is specific enough to guide implementation but does not require artific
 
 | Area | Expected files | Planned change |
 | --- | --- | --- |
-| migration | `backend/alembic/versions/0011_idempotent_mutations.py` | ledger and guards; separate new-row-only `NOT VALID` metadata helper/check; Phase 5 validator unchanged; locked downgrade |
+| migration | `backend/alembic/versions/0013_idempotent_mutations.py` | ledger and guards; separate new-row-only `NOT VALID` metadata helper/check; Phase 5 validator unchanged; locked downgrade |
 | ORM | `backend/src/mnemonic_api/models.py` | private `ClientOperation` model and WorkEvent Phase 6 check declaration matching database invariants without changing metadata-v1 |
 | public schemas | `backend/src/mnemonic_api/schemas.py` | optional request IDs, conditional actors, request-only progress metadata validator; historical read type unchanged |
 | errors | `backend/src/mnemonic_api/errors.py` | stable conflict/unavailable/secret-echo errors |
 | runtime/config | `backend/src/mnemonic_api/config.py`, `database.py`, `.env.example`, `compose.yaml`, config/database tests | wait default 10/range 1..10, deployment wiring, explicit `READ COMMITTED`, transaction-local timeout/reset behavior |
 | receipt service | new `backend/src/mnemonic_api/services/client_operations.py`, service exports | registry, canonicalization, reservation, replay, completion |
-| routes/transactions | `backend/src/mnemonic_api/application.py` | enroll nine routes, retain route commit, set internal outcome |
+| routes/transactions | `backend/src/mnemonic_api/application.py` | enroll ten REST routes, retain route commit, set internal outcome |
 | live sync | `backend/src/mnemonic_api/application.py`, `backend/src/mnemonic_api/live_sync.py` | publication policy consumes data-free mutation outcome |
 | backend fixtures/tests | `backend/tests/conftest.py`, new `test_phase6_migration_postgres.py`, new `test_idempotent_mutations_postgres.py`, existing validation/domain/live-sync suites | cleanup, migration, concurrency, per-operation, security, regression coverage |
 | MCP contract | `mcp/src/mnemonic_mcp/server.py`, `models.py`, `validation.py`, `api.py` | required inputs, forwarding, annotations, validation, stable guidance |
 | MCP tests | `mcp/tests/test_tools.py`, `test_transport.py`, fixtures/snapshots | exact catalog/schema, one attempt, retry/error behavior |
 | frontend API/types | `frontend/lib/api.ts`, `types.ts`, new `mutation-intent.ts`, new `mutation-responses.ts` (or equivalents) | body field, conflict-key registry/state machine, strict status/body/coherence decoders |
 | proxy | `frontend/lib/proxy-policy.ts`, `frontend/app/api/mnemonic/[...path]/route.ts` | exact allowlists/UUID validation and ambiguous outcome handling |
-| dashboard actions | `frontend/components/dashboard.tsx`, work editor/detail/event/relationship components | dashboard-level registry ownership, eight integrations, unresolved-intent blocking, current-state reconciliation |
+| dashboard actions | `frontend/components/dashboard.tsx`, work editor/detail/event/relationship components | dashboard-level registry ownership, nine integrations, unresolved-intent blocking, current-state reconciliation |
 | frontend tests | unit tests beside helpers/components; new `frontend/tests/e2e/phase6-idempotent-mutations.spec.ts` | decoder strictness, unmount lifecycle, policy, lost response, convergence |
 | stack smoke | `scripts/check-stack.py` | retained IDs/arguments on all protected writes/cleanup, catalog assertions, lost result, replay-vs-new-key no-ops, durable counts; writable disposable-stack mode only |
 | public docs | `docs/api-contract.md`, `architecture.md`, `operations.md`, `validation.md`, `agents.md`, `development.md`, `roadmap.md` | contract, lock/transaction model, retry/runbook/verification, phase status |
@@ -1724,7 +1749,7 @@ verification.
 | edit/cancel replaces ambiguous intent | related new UUID can duplicate a committed action | retain and lock dispatched unresolved intent; block related new intent until same-key resolution |
 | dashboard reload loses frozen intent | user cannot safely reconstruct exact browser retry | explicit unrecoverable same-document limit, best-effort unload warning, no claim that a new UUID is safe |
 | live invalidation lost after commit | another open dashboard remains stale | applied replay republishes the existing data-free invalidation; no-op replay does not; reconnect/refetch remains fallback |
-| rollback removes receipt data | old retries execute after redeploy | retain `0011`, guarded downgrade, restore-tested backup |
+| rollback removes receipt data | old retries execute after redeploy | retain `0013`, guarded downgrade, restore-tested backup |
 | generic registry enrolls a capability response | expired/replaced token is replayed | static response allowlist, negative registry tests, claim/renew exclusion |
 
 ## 18. Explicitly deferred work
@@ -1756,103 +1781,104 @@ Phase 6 is complete only when all items below are true.
 
 ### Persistence and transaction safety
 
-- [ ] `0011` upgrades empty and populated Phase 5 databases and dump/restores legacy
+- [x] `0013` upgrades empty and populated `0012_pending_deferred_statuses` databases and
+      dump/restores legacy
       nested/case-varied metadata without changing existing content.
-- [ ] Receipt uniqueness is exactly `(project_id, client_operation_id)`; provenance has no ledger
+- [x] Receipt uniqueness is exactly `(project_id, client_operation_id)`; provenance has no ledger
       column or key scope, and no resource foreign key exists.
-- [ ] The first pending INSERT contains the final 32-byte salt and salted SHA-256 digest.
-- [ ] Direct completed INSERT, committed pending state, completed update/delete, and protected-field
+- [x] The first pending INSERT contains the final 32-byte salt and salted SHA-256 digest.
+- [x] Direct completed INSERT, committed pending state, completed update/delete, and protected-field
       mutation are rejected by the database.
-- [ ] The Phase 5 metadata-v1 function/check remain unchanged; a separate unvalidated Phase 6
+- [x] The Phase 5 metadata-v1 function/check remain unchanged; a separate unvalidated Phase 6
       constraint rejects the reserved key only on new rows.
-- [ ] One keyed success atomically commits domain rows, authoritative events, and typed receipt.
-- [ ] Failures before commit leave no receipt or partial domain/event state.
-- [ ] Backup/restore preserves replay; downgrade quiesces writers, locks before checking, refuses a
+- [x] One keyed success atomically commits domain rows, authoritative events, and typed receipt.
+- [x] Failures before commit leave no receipt or partial domain/event state.
+- [x] Backup/restore preserves replay; downgrade quiesces writers, locks before checking, refuses a
       nonempty ledger, and holds `ACCESS EXCLUSIVE` through drop.
 
 ### API semantics
 
-- [ ] Exactly nine REST mutations accept the optional top-level UUID and conditional actors are
+- [x] Exactly ten REST mutations accept the optional top-level UUID and conditional actors are
       enforced.
-- [ ] Progress requests use the new request-only reserved-metadata validator while historical
+- [x] Progress requests use the new request-only reserved-metadata validator while historical
       `WorkEventRead` retains the Phase 5 validation contract.
-- [ ] Every keyed wire model is projected to a domain-only request; checkpoint construction and
+- [x] Every keyed wire model is projected to a domain-only request; checkpoint construction and
       work patching cannot consume the control field.
-- [ ] Exact same-key retry returns the original status and parsed JSON before current domain guards.
-- [ ] Every semantic mismatch, including changed provenance, returns sanitized
+- [x] Exact same-key retry returns the original status and parsed JSON before current domain guards.
+- [x] Every semantic mismatch, including changed provenance, returns sanitized
       `client_operation_conflict` with no effect.
-- [ ] All successful natural no-ops bind and replay their original false flag.
-- [ ] Unkeyed REST and excluded project/claim/renew behavior are explicitly tested and documented.
-- [ ] No public receipt API, replay wrapper/header, server-generated key, or compatibility path
+- [x] All successful natural no-ops bind and replay their original false flag.
+- [x] Unkeyed REST and excluded project/claim/renew behavior are explicitly tested and documented.
+- [x] No public receipt API, replay wrapper/header, server-generated key, or compatibility path
       exists.
 
 ### Concurrency and operation coverage
 
-- [ ] Deterministic concurrent identical calls yield one execution and one replay.
-- [ ] Owner rollback lets a waiter execute; owner commit makes a waiter replay.
-- [ ] Same-key waits never exceed the configured maximum of 10 seconds, never fallback-execute, and
+- [x] Deterministic concurrent identical calls yield one execution and one replay.
+- [x] Owner rollback lets a waiter execute; owner commit makes a waiter replay.
+- [x] Same-key waits never exceed the configured maximum of 10 seconds, never fallback-execute, and
       release saturated pool capacity after a sanitized unavailable result.
-- [ ] The same UUID in another project is independent; changed client/session under one project/UUID
+- [x] The same UUID in another project is independent; changed client/session under one project/UUID
       conflicts and performs no work.
-- [ ] Different-key graph/work races preserve the documented lock order without deadlock.
-- [ ] Each of the nine operations passes the first/replay/mismatch/failure/no-duplicate/current-state
+- [x] Different-key graph/work races preserve the documented lock order without deadlock.
+- [x] Each of the ten REST operations passes the first/replay/mismatch/failure/no-duplicate/current-state
       matrix.
-- [ ] Delete/remove/release replay works after the source state disappears or is replaced.
-- [ ] Canonical v1 and response v1 vectors are frozen for every registry entry.
+- [x] Delete/remove/release replay works after the source state disappears or is replaced.
+- [x] Canonical v1 and response v1 vectors are frozen for every registry entry.
 
 ### Client surfaces
 
-- [ ] Among mutating MCP tools, exactly nine require the UUID, forward it exactly, and advertise
+- [x] Among mutating MCP tools, exactly nine require the UUID, forward it exactly, and advertise
       idempotency; read-only tools retain truthful hints and excluded mutations remain false.
-- [ ] The MCP catalog remains 22, makes one outbound attempt per invocation, and documents that
+- [x] The MCP catalog remains 22, makes one outbound attempt per invocation, and documents that
       losing either key or exact arguments makes server receipt recovery unavailable.
-- [ ] All eight dashboard mutations use a dashboard-owned frozen same-document registry and
+- [x] All nine dashboard mutations use a dashboard-owned frozen same-document registry and
       exact-body retry; unresolved dispatched intent survives component unmount and blocks every
       intersecting conflict key, including checkpoint versus completion.
-- [ ] An asserted exact-key conflict enters a retained safety state and cannot fall into ordinary
+- [x] An asserted exact-key conflict enters a retained safety state and cannot fall into ordinary
       edit/new-key flow.
-- [ ] Strict per-operation runtime decoders clear browser recovery only after the expected status,
+- [x] Strict per-operation runtime decoders clear browser recovery only after the expected status,
       exact shape, UUID/time types, and frozen path/result coherence; malformed, missing,
       wrong-typed, extra, or inconsistent data retains it.
-- [ ] Reload/process loss is explicitly unrecoverable; no browser store or unsafe new-key claim is
+- [x] Reload/process loss is explicitly unrecoverable; no browser store or unsafe new-key claim is
       added.
-- [ ] Proxy allowlists accept the field only on those eight routes and retain lease-route denial.
-- [ ] Lost/malformed-response Playwright and explicitly authorized writable stack-smoke cases on
+- [x] Proxy allowlists accept the field only on those nine routes and retain lease-route denial.
+- [x] Lost/malformed-response Playwright and explicitly authorized writable stack-smoke cases on
       disposable stacks prove exact request reuse, original-result recovery, one durable effect,
       safe blocking, healing invalidation, and current-state convergence.
-- [ ] The inner plugin manifest is `0.4.0` and fresh/sequential install validation passes without
+- [x] The inner plugin manifest is `0.4.0` and fresh/sequential install validation passes without
       aliases.
 
 ### Security, side effects, and operations
 
-- [ ] Receipts contain no raw request, bearer, lease token, claim ID, or automatic history copy.
-- [ ] Fingerprints use salted SHA-256 with explicit limited claims; no HMAC primitive or key
+- [x] Receipts contain no raw request, bearer, lease token, claim ID, or automatic history copy.
+- [x] Fingerprints use salted SHA-256 with explicit limited claims; no HMAC primitive or key
       semantics are implemented.
-- [ ] Responses, errors, existing-log outcome records, traces/pre-existing telemetry, WebSockets,
+- [x] Responses, errors, existing-log outcome records, traces/pre-existing telemetry, WebSockets,
       timelines, and contexts pass redaction tests.
-- [ ] Phase 6 adds no metrics subsystem or identifying metric-label instrumentation.
-- [ ] Replays create no duplicate domain row, event, version/activity change, lease action, cache
+- [x] Phase 6 adds no metrics subsystem or identifying metric-label instrumentation.
+- [x] Replays create no duplicate domain row, event, version/activity change, lease action, cache
       write, or unauthorized current-state change.
-- [ ] A keyed or unkeyed first applied covered execution publishes once, its applied replay may
+- [x] A keyed or unkeyed first applied covered execution publishes once, its applied replay may
       republish one data-free healing invalidation, and covered original/replayed no-ops plus
       failures publish none; excluded writes retain their shipped fallback.
-- [ ] Storage, latency, contention, backup, and restore measurements meet recorded budgets.
-- [ ] Operations documentation treats receipt loss/corruption as an incident and never recommends
+- [x] Storage, latency, contention, backup, and restore measurements meet recorded budgets.
+- [x] Operations documentation treats receipt loss/corruption as an incident and never recommends
       purge/re-execution.
 
 ### Quality gate
 
-- [ ] Backend tests and Ruff pass with the PostgreSQL suite unskipped.
-- [ ] MCP tests pass in its separate frozen environment.
-- [ ] Frontend unit tests, typecheck, production build, and isolated Playwright stack pass.
-- [ ] Migration fresh/legacy-populated upgrade/dump-restore/locked unused-downgrade/refused-
+- [x] Backend tests and Ruff pass with the PostgreSQL suite unskipped.
+- [x] MCP tests pass in its separate frozen environment.
+- [x] Frontend unit tests, typecheck, production build, and isolated Playwright stack pass.
+- [x] Migration fresh/legacy-populated upgrade/dump-restore/locked unused-downgrade/refused-
       downgrade/two-connection race paths pass.
-- [ ] The updated writable stack smoke passes on a disposable stack, retains keys/arguments for
+- [x] The updated writable stack smoke passes on a disposable stack, retains keys/arguments for
       all protected writes and cleanup, and proves committed-response loss, exact replay, new-key
       no-op distinctions, and unchanged durable counts.
-- [ ] API, architecture, operations, validation, agent, plugin, and roadmap docs agree on coverage,
+- [x] API, architecture, operations, validation, agent, plugin, and roadmap docs agree on coverage,
       exclusions, retention, historical response semantics, and retry guidance.
-- [ ] No Phase 7/11 placeholder models and no prerelease back-compat shims were added.
+- [x] No Phase 7/11 placeholder models and no prerelease back-compat shims were added.
 
 ## 20. Cold adversarial review disposition
 
