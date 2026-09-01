@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from mnemonic_api.errors import conflict, not_found
+from mnemonic_api.errors import ApplicationError, conflict, not_found
 from mnemonic_api.models import Checkpoint, Project, WorkItem, WorkRelationship
 from mnemonic_api.schemas import (
     CheckpointCreate,
@@ -34,6 +34,18 @@ def require_project(database: Session, project_id: UUID) -> Project:
     return project
 
 
+def missing_work_item(database: Session, project_id: UUID) -> ApplicationError:
+    """Name the ID that was actually wrong.
+
+    A work-item lookup matches id and project_id together, so a miss alone does
+    not say which one was bad — and the two have different recoveries. Resolve
+    that with one extra query, taken only on a path that has already failed.
+    """
+    if database.get(Project, project_id) is None:
+        return not_found("project_not_found", "Project not found.")
+    return not_found("work_item_not_found", "Work item not found in this project.")
+
+
 def require_work_item(
     database: Session, project_id: UUID, work_item_id: UUID, *, lock: bool = False
 ) -> WorkItem:
@@ -46,7 +58,7 @@ def require_work_item(
         statement = statement.with_for_update()
     work_item = database.scalar(statement)
     if work_item is None:
-        raise not_found("work_item_not_found", "Work item not found.")
+        raise missing_work_item(database, project_id)
     return work_item
 
 

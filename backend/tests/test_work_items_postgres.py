@@ -485,3 +485,14 @@ def test_missing_project_and_work_return_typed_not_found(api, project, work_payl
     response = api.get(f"{collection(project)}/{uuid4()}")
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "work_item_not_found"
+
+    # A wrong project and a wrong work item have different recoveries, so the
+    # two must stay distinguishable even on routes addressing both.
+    created = api.post(collection(project), json=work_payload).json()["work_item"]
+    for suffix in ("", "/context", "/checkpoints"):
+        stray = api.get(f"/api/v1/projects/{missing_project}/work-items/{created['id']}{suffix}")
+        assert stray.status_code == 404, suffix
+        assert stray.json()["detail"]["code"] == "project_not_found", suffix
+        absent = api.get(f"{collection(project)}/{uuid4()}{suffix}")
+        assert absent.status_code == 404, suffix
+        assert absent.json()["detail"]["code"] == "work_item_not_found", suffix

@@ -7,7 +7,6 @@ from uuid import UUID
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from mnemonic_api.errors import not_found
 from mnemonic_api.models import Checkpoint, WorkItem, WorkLease
 from mnemonic_api.schemas import (
     CheckpointPointer,
@@ -418,7 +417,9 @@ def assemble_work_context(
         },
     ).mappings().one_or_none()
     if row is None:
-        raise not_found("work_item_not_found", "Work item not found.")
+        from mnemonic_api.services.work_items import missing_work_item
+
+        raise missing_work_item(database, project_id)
 
     work_item = WorkItemRead.model_validate(row["work_item"])
     initial = CheckpointRead.model_validate(row["initial_checkpoint"])
