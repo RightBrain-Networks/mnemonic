@@ -109,15 +109,22 @@ to that repository's `.claude/settings.json` instead:
 ```json
 {
   "extraKnownMarketplaces": {
-    "mnemonic": { "source": { "source": "local", "path": "/srv/mnemonic" } }
+    "mnemonic": { "source": { "source": "directory", "path": "/srv/mnemonic" } }
   },
   "enabledPlugins": { "mnemonic@mnemonic": true }
 }
 ```
 
-Replace the local path with `{ "source": "github", "repo": "<owner>/mnemonic" }`
-once the repository is reachable remotely; `claude plugin marketplace update
-mnemonic` then pulls changes. The plugin provides:
+Replace the directory source with
+`{ "source": "github", "repo": "<owner>/mnemonic" }` once the repository is
+reachable remotely.
+
+Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest
+version, so editing a skill in place does not change an installed copy.
+`claude plugin marketplace update mnemonic` refreshes the marketplace listing,
+not the installed files. To pick up local edits, bump `version` in
+`plugin/.claude-plugin/plugin.json`, or remove that version's directory under
+`~/.claude/plugins/cache/mnemonic/` and install again. The plugin provides:
 
 - **`mnemonic-save`** searches for existing work, creates a durable objective
   with its initial checkpoint and explicit atomic links, or appends corrective
