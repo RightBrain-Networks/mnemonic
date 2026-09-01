@@ -10,7 +10,10 @@
 
 **Planning constraint:** This document defines the work; it does not implement it.
 
-**Baseline correction (2026-08-31):** written against a tree that still carried the deprecated hand-off surface. That surface — the eight MCP tools, the `/projects/{project_id}/handoffs` REST routes, the `handoffs` resource URI, and the `resume_handoff` prompt — has since been removed, so Phases 4 and 5 have no compatibility surface to preserve. The sections that planned for one are corrected below.
+**Baseline correction (2026-08-31):** written against a tree that still carried the deprecated
+hand-off surface. Its eight MCP tools, REST routes, resource URI, and prompt have since been
+removed. Phases 4 and 5 must not restore them; support for actor-omitting requests below applies
+only to still-shipped direct REST operations.
 
 ## 1. Outcome
 
@@ -42,11 +45,11 @@ The implementation starts from the shipped Phase 3 architecture, not from the fo
 | Readiness | Python projection plus SQL blocker/lease calculations | One reusable eligibility query and ready-list service |
 | Claims | Work row, retained lease row, database time, blocker recheck | Preserve claim authority and make replay precedence explicit |
 | Relationships | Five project-local types; only `blocks` affects readiness | Relationship writes emit endpoint events |
-| Search | Open-only lexical browse by default; optional semantic retrieval | Remains separate from ready discovery |
+| Search | Open-only lexical browse by default; MCP defaults to the compact `minimal` view and optional semantic retrieval | Remains retrieval and stays separate from ready discovery |
 | Dashboard | Hierarchical work browse, checkpoint history, lease/readiness badges, relationships | Per-work event timeline; no Phase 4 scheduler dashboard |
 | Live sync | Data-free WebSocket invalidations after successful HTTP mutations | Timeline refetches on the existing invalidation contract |
 | API structure | Routes in `application.py`; transaction helpers in `services/` | Add focused readiness and event services |
-| MCP | Exact 27-tool canonical/compatibility catalog | Add three canonical tools, for an exact catalog of 30 |
+| MCP | Exact 19-tool canonical catalog | Add three canonical tools, for an exact catalog of 22 |
 | Database | Alembic head `0008_work_relationships` | Add `0009_ready_work_indexes` and `0010_work_events` |
 
 Existing invariants that remain unchanged:
@@ -164,8 +167,8 @@ The Phase 5 event types are fixed as follows:
 | `work_updated` | versioned patch without a lifecycle transition | none | typed before/after change set and resulting version |
 | `work_status_changed` | transition to `wont-do` or `promoted` | none | typed before/after status and any companion changes |
 | `work_reopened` | terminal status to `open` | none | typed before/after status and any companion changes |
-| `work_claimed` | a new or expired-replacement claim | none | acquisition-time `expires_at` |
-| `work_released` | an actual explicit release | none | released lease-holder subject, distinct from actor |
+| `work_claimed` | a new or expired-replacement claim | none | nonsecret `lease_generation_id`; acquisition-time `expires_at` |
+| `work_released` | an actual explicit release | none | same `lease_generation_id` plus transaction-scoped `lease_release_id`; released lease-holder subject, distinct from actor |
 | `checkpoint_added` | non-completion checkpoint append | none | `checkpoint_id`; checkpoint kind |
 | `progress` | explicit client append | required | caller-supplied bounded object |
 | `dependency_added` | newly created `blocks` edge | none | typed complete edge snapshot; relative direction/counterpart projection |
@@ -196,7 +199,7 @@ Metadata is a versioned discriminated contract, not an undocumented JSON dumping
 | `work_updated` | `{changes: ChangeSet, work_version: PositiveInt}` |
 | `work_status_changed`, `work_reopened` | `{from_status: Status, to_status: Status, changes: ChangeSet, work_version: PositiveInt}` |
 | `work_claimed` | live: `{expires_at: UTCDateTime}`; backfill: `{observed_expires_at: UTCDateTime, expiry_basis: "retained_lease_at_cutover"}` |
-| `work_released` | `{lease_holder_client: ClientName, lease_holder_session_id: SessionID}`; these describe the released capability subject, not the caller |
+| `work_released` | valid retained holder: `{lease_holder_kind: "client", lease_holder_client: ClientName, lease_holder_session_id: SessionID}`; whitespace-invalid retained holder admitted by the older schema: `{lease_holder_kind: "unattributed"}`; these describe the released capability subject, not the caller |
 | `checkpoint_added` | `{checkpoint_kind: "context" | "progress"}` |
 | `progress` | the caller-supplied bounded finite JSON object, with the recursive secret-key denylist applied |
 | dependency/relationship add/remove | `{relationship_type: RelationshipType}`; endpoints live in typed columns, while direction/counterpart are deterministic response projections |
@@ -205,9 +208,18 @@ Metadata is a versioned discriminated contract, not an undocumented JSON dumping
 
 `WorkSnapshot` is exactly `{title: Title, summary: Summary, status: CreateStatus, priority: 0..100, version: 1}`. `ChangeSet` is a nonempty object whose only keys are `title`, `summary`, `priority`, and `status`; each present value is exactly `{before, after}` using that field's normal API type. It records requested versioned patches even when a caller supplied the existing value, because the shipped operation still advances `WorkItem.version`. Status-event `changes` includes the status entry plus every companion field in the same patch. Unknown keys are rejected. The database metadata validator also enforces the event-specific status transitions, dependency-versus-relationship type, live/backfill variants, recursive denied keys, and the 16 KiB encoded bound.
 
-Checkpoint IDs and the complete relationship snapshot—relationship ID, source/target IDs, and optional context-checkpoint pair—are typed event columns, not JSON-only references. The initial/checkpoint/completion event constructors populate only `checkpoint_id`; relationship constructors populate the relationship columns exactly as retained on the edge; all other event types require every reference column to be null. Section 5.3 defines the foreign keys, endpoint/context consistency, source-fact triggers, and uniqueness that make these claims enforceable where the retained schema permits it. `relationship_id` cannot retain a foreign key because removal events outlive the deleted edge row; its endpoint work and optional context-checkpoint rows remain soft-retained and therefore do use foreign keys.
+Checkpoint IDs, lease-generation/release IDs, and the complete relationship snapshot—relationship
+ID, source/target IDs, and optional context-checkpoint pair—are typed event columns, not JSON-only
+references. The initial/checkpoint/completion event constructors populate only `checkpoint_id`;
+claim constructors populate only `lease_generation_id`; release constructors populate both
+lease IDs; relationship constructors populate the relationship columns exactly as retained on the
+edge; all other event types require every reference column to be null. Section 5.3 defines the
+foreign keys, endpoint/context consistency, source-fact triggers, and uniqueness that make these
+claims enforceable where the retained schema permits it. Lease and relationship action IDs cannot
+retain foreign keys because release/removal events outlive the mutable source rows; endpoint work
+and optional context-checkpoint rows remain soft-retained and therefore do use foreign keys.
 
-### 3.7 Actor provenance and compatibility
+### 3.7 Actor provenance and direct REST evolution
 
 Event actor data is client-declared provenance, not an authenticated human identity.
 
@@ -226,7 +238,7 @@ actor_kind          client | unattributed
 
 `client` requires nonblank client and session fields. `unattributed` requires all actor fields to be null. Never infer an actor from the bearer key, HTTP connection, MCP transport session, relationship creator, or current dashboard user label.
 
-The database also enforces the event/origin actor matrix. Live `work_created`, `checkpoint_added`, `work_completed`, `work_claimed`, `dependency_added`, `relationship_added`, and `progress` require `actor_kind=client`. Their backfilled counterparts use `client` only when both retained source fields satisfy the new shared nonwhitespace predicate; a Phase 3 row admitted by older `btrim` checks but rejected by that predicate becomes honestly `unattributed`. Backfilled `work_deleted` also requires `unattributed`. Live work patch/status/reopen/delete, release, and relationship-removal events permit either client or unattributed for REST compatibility. No event-specific rule may weaken the generic nullability matrix.
+The database also enforces the event/origin actor matrix. Live `work_created`, `checkpoint_added`, `work_completed`, `work_claimed`, `dependency_added`, `relationship_added`, and `progress` require `actor_kind=client`. Their backfilled counterparts use `client` only when both retained source fields satisfy the new shared nonwhitespace predicate; a Phase 3 row admitted by older `btrim` checks but rejected by that predicate becomes honestly `unattributed`. Backfilled `work_deleted` also requires `unattributed`. Live work patch/status/reopen/delete, release, and relationship-removal events permit either client or unattributed so still-shipped direct REST request shapes remain valid. No event-specific rule may weaken the generic nullability matrix.
 
 Actor sources are:
 
@@ -243,9 +255,20 @@ Actor sources are:
 | Relationship removal | New optional JSON body with `actor`; required by updated canonical MCP/dashboard clients |
 | Older direct REST call that omits newly added actor data | `actor_kind=unattributed` |
 
-The optional REST actor fields preserve compatibility for existing API clients without fabricating identity. Add a release-specific request model containing the required lease token plus optional nested `actor`; the renewal request remains token-only. Updated canonical MCP `release_claim` requires actor client/session fields and serializes the nested REST actor, while an older token-only release is recorded as `unattributed`. Captured lease-holder fields belong only in the `work_released` subject metadata and must never be promoted to the event actor. Canonical MCP tools and the dashboard must always send truthful actor data after Phase 5. Any direct REST call that omits newly added actor data is represented honestly as unattributed history rather than given an invented identity.
+The optional REST actor fields preserve existing direct REST clients without fabricating identity.
+Add a release-specific request model containing the required lease token plus optional nested
+`actor`; the renewal request remains token-only. Updated canonical MCP `release_claim` requires
+actor client/session fields and serializes the nested REST actor, while an earlier token-only
+release is recorded as `unattributed`. Captured lease-holder fields belong only in the
+`work_released` subject metadata and must never be promoted to the event actor. If an old
+retained holder fails the new nonwhitespace predicate, the subject uses
+`lease_holder_kind="unattributed"` and does not expose or normalize the invalid raw fields; that
+variant is legal only while the locked source holder fails the predicate. Canonical MCP tools and
+the dashboard must always send truthful actor data after Phase 5. Any direct REST call that omits
+newly added actor data is represented honestly as unattributed history rather than given an
+invented identity.
 
-Before inserting backfill events, `0010` counts retained checkpoint, lease, and relationship actors that fail the new predicate, records source table/row IDs and field names without logging their values, and applies the unattributed fallback deterministically. It neither trims immutable provenance nor invents replacement names. The post-migration parity report includes fallback counts by source table so operators can distinguish incomplete legacy provenance from a failed backfill.
+Before inserting backfill events, `0010` counts retained checkpoint, lease, and relationship actors that fail the new predicate, records source table/row IDs and field names without logging their values, and applies the unattributed fallback deterministically. It neither trims immutable provenance nor invents replacement names. The post-migration parity report includes fallback counts by source table so operators can distinguish incomplete older-schema provenance from a failed backfill.
 
 ### 3.8 Event order, pagination, and future activity feeds
 
@@ -271,6 +294,14 @@ pre_phase5_history_may_be_incomplete
 ```
 
 `pre_phase5_history_may_be_incomplete` is computed by the indexed unique `work_created` row: it is true exactly when that event has `origin=backfill`, independently of the requested type filter or materialized slice. It therefore remains true after newer live rows push reconstructed events out of the page or recall window without scanning the history. `recent_event_limit` defaults to `10` and is bounded to `0..20`. Event bodies are bounded to 4,000 characters, so recall remains predictably sized.
+
+These additions preserve the shipped checkpoint de-duplication contract exactly:
+`initial_checkpoint` always carries the initial body; `current_context` is null when
+`current_context_is_initial=true`; `recent_checkpoints` excludes both the initial and
+materialized current checkpoint; and `checkpoint_total`/`omitted_checkpoint_count` count
+distinct checkpoint IDs. Event rows may reference checkpoint IDs, but neither recall, the work
+resource, nor the `resume_work` prompt may materialize a referenced checkpoint body a second
+time.
 
 ## 4. Requirement identifiers
 
@@ -312,7 +343,7 @@ The ready-page statement must:
 1. capture one `clock_timestamp()` value;
 2. select and count eligible IDs using `NOT EXISTS` probes;
 3. order and limit IDs before loading checkpoint/count projections;
-4. obtain the current context pointer and checkpoint count only for the bounded page;
+4. obtain only the checkpoint count needed by `WorkSummaryMinimal` for the bounded page;
 5. return page rows and total from one SQL statement;
 6. avoid loading the relationship graph into application memory.
 
@@ -339,7 +370,25 @@ Keep the existing relationship target index, raw tag GIN index, and lease primar
 
 ### 5.3 `work_events`
 
-Migration `0010_work_events` adds:
+Migration `0010_work_events` first extends `work_leases` with:
+
+```text
+lease_generation_id UUID
+pending_release_id  UUID NULL
+```
+
+Add it nullable, assign every retained row a database-generated random UUID, then make it
+`NOT NULL` with a unique constraint before backfilling events. Every new acquisition and
+expired-row replacement receives a fresh generation; active replay and renewal preserve the
+existing generation. This nonsecret key identifies a lease incarnation without treating
+PostgreSQL timestamps as unique or monotonic. `pending_release_id` remains null at rest. An
+explicit release assigns it a fresh UUID only inside the deletion transaction; claim replay,
+renewal, terminal lease consumption, and backfill never set it. The ORM and migration use the same
+UUID-generation policy, and migration tests prove retained rows are populated before the
+generation constraint becomes strict. Add a partial unique constraint for nonnull
+`pending_release_id` values; random UUID collision is rejected rather than conflated.
+
+The migration then adds:
 
 ```text
 id                  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY
@@ -352,6 +401,8 @@ actor_session_id    VARCHAR(200) NULL
 actor_model         VARCHAR(120) NULL
 body                TEXT NULL
 checkpoint_id       UUID NULL
+lease_generation_id UUID NULL
+lease_release_id    UUID NULL
 relationship_id     UUID NULL
 relationship_source_work_item_id UUID NULL
 relationship_target_work_item_id UUID NULL
@@ -375,6 +426,8 @@ Constraints and indexes:
 - check `length(body) <= 4000` and `mnemonic_has_non_whitespace(body)` when body is present, while preserving its exact stored bytes;
 - require a body only for `progress` and require body null for server-reserved types;
 - require `checkpoint_id` exactly for `work_created`, `checkpoint_added`, and `work_completed` and null for every other type;
+- require `lease_generation_id` exactly for `work_claimed` and `work_released` and null for every other type;
+- require `lease_release_id` exactly for `work_released` and null for every other type;
 - for the four relationship event types, require relationship ID and source/target columns, require the context columns as a both-null/both-present pair, require context work to be an endpoint, require `discovered-from` context to belong to the target, preserve normalized source/target order for `related`, and require `work_item_id` to equal one endpoint; require every relationship column null for all other event types;
 - check `metadata_version = 1`, `jsonb_typeof(metadata) = 'object'`, and `octet_length(metadata::text) <= 16384`;
 - create an immutable, schema-qualified `mnemonic_work_event_metadata_v1_is_valid(...)` function and table check that enforce every exact shape and origin variant from Section 3.6; the migration and ORM must carry the same constraint;
@@ -382,7 +435,9 @@ Constraints and indexes:
 - allow `origin=backfill` only for `work_created`, `checkpoint_added`, `work_completed`, `work_claimed`, `dependency_added`, `relationship_added`, and `work_deleted`; removal, update/status/reopen/release, and client progress events are live-only in Phase 5;
 - unique partial index `uq_work_events_checkpoint_fact` on `(work_item_id, checkpoint_id)` where `checkpoint_id IS NOT NULL`;
 - unique partial indexes `uq_work_events_work_created` and `uq_work_events_work_deleted` on `work_item_id` for those respective event types;
-- unique partial index `uq_work_events_work_claimed_fact` on `(work_item_id, created_at)` for `work_claimed`, whose source guard requires `created_at=WorkLease.acquired_at`;
+- unique partial index `uq_work_events_work_claimed_fact` on `(work_item_id, lease_generation_id)` for `work_claimed`;
+- unique partial index `uq_work_events_work_released_fact` on `(work_item_id, lease_generation_id)` for `work_released`;
+- unique partial index `uq_work_events_lease_release_id` on `lease_release_id` for `work_released`;
 - unique partial index `uq_work_events_relationship_added_fact` on `(work_item_id, relationship_id)` for event types in `('dependency_added','relationship_added')`;
 - unique partial index `uq_work_events_relationship_removed_fact` on `(work_item_id, relationship_id)` for event types in `('dependency_removed','relationship_removed')`;
 - index `ix_work_events_timeline` on `(project_id, work_item_id, created_at DESC, id DESC)` for timeline/recall reads;
@@ -391,19 +446,45 @@ Constraints and indexes:
 - no update or delete route;
 - an `events_immutable` trigger rejects direct `UPDATE` and `DELETE`, following the checkpoint trigger pattern.
 
-The metadata function accepts `event_type`, `origin`, `work_item_id`, the typed reference columns, `metadata_version`, and `metadata`, and returns false rather than allowing malformed casts to escape as accepted data. It enforces an exact key set and JSON primitive type at every server-reserved event shape, validates date-time strings without trusting arbitrary casts, cross-checks dependency versus non-blocking relationship type, and recursively rejects the reserved secret-like keys. The only intentionally open key set is the caller object for `progress`, still bounded and recursively screened. This database check is defense against bypass paths; application and MCP discriminated unions provide the normal typed errors.
+The metadata function accepts `event_type`, `origin`, `work_item_id`, the typed reference
+columns including both lease IDs, `metadata_version`, and `metadata`, and returns false
+rather than allowing malformed casts to escape as accepted data. It enforces an exact key set and
+JSON primitive type at every server-reserved event shape, validates date-time strings without
+trusting arbitrary casts, cross-checks dependency versus non-blocking relationship type, and
+recursively rejects the reserved secret-like keys. For `work_released`, it also enforces the
+exact discriminated holder-subject variants from Section 3.6. The only intentionally open key set
+is the caller object for `progress`, still bounded and recursively screened. This database check
+is defense against bypass paths; application and MCP discriminated unions provide the normal
+typed errors.
 
 Install a `BEFORE INSERT` `work_event_source_fact_guard` before running the backfill. It must query retained source rows under the inserting transaction and reject:
 
-- `work_created` unless `checkpoint_id` equals the work's `initial_checkpoint_id`, the event timestamp equals `WorkItem.created_at`, and a live initial snapshot equals the retained just-created work fields; a backfill actor must match valid retained source fields or use the defined unattributed fallback;
-- `checkpoint_added` unless the checkpoint is noninitial, its retained kind is `context` or `progress`, metadata matches that kind, the event timestamp equals the checkpoint timestamp, and its backfill actor follows the same valid-source-or-unattributed rule;
-- `work_completed` unless the referenced checkpoint kind is `completion`, the event timestamp equals the checkpoint timestamp, and its backfill actor follows that rule; for live origin, resulting status/version metadata must match the just-mutated work row;
-- `work_claimed` unless a retained lease with matching valid holder actor—or the defined backfill fallback—acquisition timestamp, and live/observed expiry variant exists;
-- `work_released` unless its lease-holder subject metadata matches the locked retained lease that is about to be deleted; its independent request actor is not compared with the holder;
+- `work_created` unless `checkpoint_id` equals the work's `initial_checkpoint_id`, the event timestamp equals `WorkItem.created_at`, and a live initial snapshot equals the retained just-created work fields; a live actor must equal the initial checkpoint source, while a backfill actor must match valid retained source fields or use the defined unattributed fallback;
+- `checkpoint_added` unless the checkpoint is noninitial, its retained kind is `context` or `progress`, metadata matches that kind, the event timestamp equals the checkpoint timestamp, and a live actor equals the checkpoint source while a backfill actor follows the same valid-source-or-unattributed rule;
+- `work_completed` unless the referenced checkpoint kind is `completion`, the event timestamp equals the checkpoint timestamp, and a live actor equals the completion checkpoint source while a backfill actor follows that rule; for live origin, resulting status/version metadata must match the just-mutated work row;
+- `work_claimed` unless a retained lease with the same `lease_generation_id`, acquisition timestamp, live/observed expiry variant, and matching valid holder actor—or the defined backfill fallback—exists;
+- `work_released` unless the same `lease_generation_id` exists on the locked retained lease,
+  `lease_release_id` equals that row's nonnull `pending_release_id`, and holder-subject metadata
+  uses the exact valid-holder values or the unattributed-subject variant only when those retained
+  fields fail the shared predicate; its independent request actor is not compared with the holder;
 - `work_deleted` unless the work is soft-deleted, the event timestamp equals `deleted_at`, and final status/version metadata matches the retained row;
 - any relationship event unless ID, project, type, source, target, and optional context-checkpoint pair match the extant locked edge; live addition actors must match the edge creator, backfilled additions must match valid creator fields or use the defined fallback, and addition timestamps must equal the edge timestamp, while removal actors remain independent request provenance.
 
-Relationship removal therefore locks/snapshots the edge, inserts and flushes both removal events while the edge still exists, and only then deletes it. Explicit release similarly flushes its event while the locked lease exists and deletes the lease afterward. A second `DEFERRABLE INITIALLY DEFERRED` state trigger requires an added edge to exist at commit, a removed edge to be absent at commit, and a successfully released lease to be absent at commit; a relationship removal must also have a prior endpoint-local added event with the same ID/type/endpoints/context snapshot. These guards prove the referenced fact without preventing immutable history after the mutable edge or lease disappears. Downgrade drops the immutability and source/state triggers, event table, metadata and nonblank helpers in dependency order.
+Relationship removal therefore locks/snapshots the edge, inserts and flushes both removal events
+while the edge still exists, and only then deletes it. Explicit release locks the lease, assigns a
+fresh `pending_release_id`, flushes the matching generation/release-scoped event, and then deletes
+the lease. A second `DEFERRABLE INITIALLY DEFERRED` state trigger requires an added edge to exist
+at commit, a removed edge to be absent at commit, and the released lease generation to be absent;
+a relationship removal must also have a prior endpoint-local added event with the same
+ID/type/endpoints/context snapshot. A deferred lease-marker guard rejects a committed nonnull
+`pending_release_id` and requires a deleted marked row to have exactly one matching
+`work_released` event. Canonical terminal transitions delete an unmarked lease and emit no
+release event, while explicit release works for any database-valid retained lease status.
+Together with the generation/action-scoped unique indexes, these guards prove one claim and at
+most one explicit release per lease incarnation without assuming timestamps are unique or using
+final work status as a proxy for intent. Downgrade drops the immutability, source/state, and
+lease-marker triggers; event table; lease-generation/release-marker columns and constraint;
+metadata; and nonblank helpers in dependency order.
 
 Normal work deletion remains soft and event history remains stored. Ordinary event reads require a visible work item and therefore return `404` after soft deletion; recovery and audit tooling can inspect preserved rows under the existing operator trust boundary.
 
@@ -415,10 +496,25 @@ The `0010` migration backfills only facts derivable from retained rows:
 2. One `checkpoint_added` per later `context` or `progress` checkpoint.
 3. One `work_completed` per completion checkpoint, even if the work was later reopened.
 4. Two endpoint events per currently retained relationship, attributed from valid relationship creator fields or marked unattributed under the fallback.
-5. One `work_claimed` per currently retained lease, timestamped from `acquired_at` and attributed from a valid holder or marked unattributed under the fallback. Its metadata is exactly `{observed_expires_at, expiry_basis: "retained_lease_at_cutover"}`; it never labels a renewed current expiry as the original acquisition expiry.
+5. One `work_claimed` per currently retained lease, using the generation UUID assigned earlier
+   in `0010`, timestamped from `acquired_at`, and attributed from a valid holder or marked
+   unattributed under the fallback. Its metadata is exactly
+   `{observed_expires_at, expiry_basis: "retained_lease_at_cutover"}`; it never labels a renewed
+   current expiry as the original acquisition expiry.
 6. One unattributed `work_deleted` per soft-deleted work item, timestamped from `deleted_at`, with the retained final status and version. Deletion is a directly retained fact even though the older actor and preceding lifecycle edits are unknown.
 
-Every backfilled row has `origin=backfill` and `metadata_version=1`. Build one `UNION ALL` candidate stream for the complete migration and apply the complete sort before identity allocation; do not insert or batch source categories independently. The key is `(created_at, source_kind_rank, source_record_id, endpoint_role_rank)`, where source-kind rank is exactly `work_created=0`, checkpoint-derived event (`checkpoint_added` or `work_completed`)=1, relationship event=2, retained-lease observation=3, and `work_deleted=4`; endpoint role is source=0 and target=1. UUID source IDs deterministically order records within a category, then endpoint role guarantees each relationship's source event precedes its target event. This also guarantees creation precedes an initial relationship at the same PostgreSQL timestamp.
+Every backfilled row has `origin=backfill` and `metadata_version=1`. Build one `UNION ALL`
+candidate stream for the complete migration and apply the complete sort before identity
+allocation; do not insert or batch source categories independently. The key is
+`(created_at, source_kind_rank, source_record_id, endpoint_role_rank)`, where source-kind rank is
+exactly `work_created=0`, checkpoint-derived event (`checkpoint_added` or `work_completed`)=1,
+relationship event=2, retained-lease observation=3, and `work_deleted=4`; endpoint role is
+source=0 and target=1. `source_record_id` maps explicitly to work ID for creation/deletion,
+checkpoint ID for checkpoint-derived events, relationship ID for relationship events, and the
+lease row's stable `work_item_id` for retained-lease observations. Never sort by the freshly
+generated lease generation or release marker. These stable UUIDs order records within a category,
+then endpoint role guarantees each relationship's source event precedes its target event. This
+also guarantees creation precedes an initial relationship at the same PostgreSQL timestamp.
 
 Do not synthesize:
 
@@ -468,10 +564,15 @@ For every automatically recorded mutation:
 1. Acquire the mutation's existing locks in the existing order.
 2. Validate the mutation and determine whether it will change durable state.
 3. For creation, update, and additive mutations, stage/flush the domain fact and then its event rows using the same SQLAlchemy `Session`.
-4. For relationship removal and explicit release, retain the locked source row, stage/flush the source-guarded event rows, then delete the edge/lease in that same session; the deferred state guard verifies the deletion at commit.
+4. For relationship removal and explicit release, retain the locked source row, stage/flush the
+   source-guarded event rows, then delete the edge/lease in that same session; the deferred guards
+   verify the edge deletion or marked generation consumption at commit.
 5. Commit once in the outer route.
 
-If event validation/insertion fails, the domain mutation rolls back. If the domain mutation fails, no event exists. Never emit authoritative events in HTTP middleware or after commit. Compatibility routes get the same behavior by calling the canonical service helper exactly once.
+If event validation/insertion fails, the domain mutation rolls back. If the domain mutation fails,
+no event exists. Never emit authoritative events in HTTP middleware or after commit. Every
+still-shipped REST and MCP path calls the canonical service helper exactly once; the removed
+hand-off paths remain absent.
 
 Event insertion adds no new **explicit** application lock, although its foreign keys may acquire PostgreSQL `KEY SHARE` locks on referenced rows. Existing explicit lock order remains:
 
@@ -492,11 +593,11 @@ Event insertion adds no new **explicit** application lock, although its foreign 
 | `complete_work` | one `work_completed`; no checkpoint/release duplicate |
 | `update_work` | one primary status event when status changes; otherwise `work_updated`; metadata also lists other fields changed in the same patch |
 | `delete_work` | one `work_deleted` after all guards pass |
-| `claim_work` / new `claim_and_recall` acquisition | one `work_claimed` |
+| `claim_work` / new `claim_and_recall` acquisition | assign a fresh lease generation and emit one generation-scoped `work_claimed` |
 | identical active claim replay | no event |
-| expired-row replacement | one new `work_claimed`; no fabricated expiry event |
-| `renew_claim` | no event |
-| `release_claim` with `released=true` | validate/flush one `work_released` while the lease exists, using the request actor or `unattributed` and holder-only subject metadata, then delete the lease |
+| expired-row replacement | assign a fresh generation and emit one new `work_claimed`; no fabricated expiry event |
+| `renew_claim` | preserve the generation; no event |
+| `release_claim` with `released=true` | assign `pending_release_id`, validate/flush one matching generation/release-scoped `work_released` while the lease exists, use the request actor or `unattributed` plus the exact holder-subject variant, then delete the lease |
 | `release_claim` with `released=false` | no event |
 | `add_relationship` with `created=true` | two endpoint dependency/relationship events |
 | `add_relationship` with `created=false` | no event |
@@ -557,20 +658,27 @@ Existing mutation request changes:
 - replace release's shared token-only request schema with `LeaseReleaseCreate {lease_token, actor?}` while leaving renewal token-only; a token-only release remains valid and emits an unattributed event.
 - relationship `DELETE` accepts an optional JSON body containing `actor`; a bodyless call remains supported.
 - canonical MCP and dashboard calls always send the actor.
-- compatibility requests may omit it and produce `unattributed` events.
-- validation tests cover actor-only canonical and legacy patches so attribution data can never consume a work version by itself.
+- direct REST requests may omit it and produce `unattributed` events.
+- validation tests cover actor-only and actor-omitting patches so attribution data can never consume a work version by itself.
 
 The browser proxy must normalize a truly bodyless DELETE and a JSON-bearing DELETE correctly; neither path may forward an empty stream as malformed JSON.
 
 ### 7.2 Response shapes
 
-The ready endpoint returns the existing pointer-only envelope:
+The ready endpoint returns a dedicated strict envelope whose item reuses the shipped compact
+search projection:
 
 ```text
-Page[WorkSummary]
+ReadyWorkPage(items: WorkSummaryMinimal[])
 ```
 
-Every returned `WorkSummary.readiness.is_ready` is true at the statement snapshot. `active_lease` is null, blocker count is zero, and checkpoint prompts/source metadata are absent. `total`, `limit`, and `offset` retain their existing meanings.
+Every item has `display_state="ready"` at the statement snapshot and contains only the shipped
+`WorkSummaryMinimal` fields: compact work identity, priority/version/activity time, checkpoint
+count, and display state. It never exposes the full search projection, summary, checkpoint
+pointer/source metadata, ancestor path, readiness internals, active-lease identity, or
+capabilities. `total`, `limit`, and `offset` retain their existing meanings. The dedicated
+model is strict so an accidental full-search row fails validation instead of widening the ready
+tool response.
 
 `WorkEventRead` is:
 
@@ -585,6 +693,8 @@ actor_session_id      string | null
 actor_model           string | null
 body                  string | null
 checkpoint_id         UUID | null
+lease_generation_id   UUID | null
+lease_release_id      UUID | null
 relationship_id       UUID | null
 relationship_source_work_item_id UUID | null
 relationship_target_work_item_id UUID | null
@@ -641,9 +751,15 @@ list_work_events
 - the work resource and `resume_work` prompt inherit the bounded event context without adding another unbounded resource.
 - `update_work`, `delete_work`, `release_claim`, and `remove_relationship` require actor client/session in their canonical MCP schemas and serialize the optional nested REST actor envelope.
 
-The exact Phase 5 MCP catalog is 30 tools: the shipped 27 plus these three. Do not add `get_activity` in this phase.
+The exact Phase 5 MCP catalog is 22 tools: the shipped 19 plus these three. Do not add
+`get_activity` in this phase.
 
-Strict response models reject unknown fields. The deliberate pointer-only `WorkSummary` behavior remains tolerant only to prevent accidental upstream content additions from reaching a tool result.
+Strict event and ready response models reject unknown fields. Existing full-search
+`WorkSummary` tolerance remains search-specific and must not weaken `ReadyWorkPage`.
+Keep the global MCP instructions within the shipped 1,200-character bound and preserve their
+trigger condition as the first sentence. Put ready-list authority, append retry, and event-content
+safety doctrine in the relevant tool descriptions and bundled skills instead of pushing the
+trigger below secondary guidance.
 
 ### 7.4 Browser proxy and dashboard boundary
 
@@ -660,9 +776,10 @@ Phase 5 allows only:
 
 All claim routes remain denied. WebSocket invalidations remain data-free; event body and metadata never travel over the sync channel.
 
-### 7.5 Compatibility behavior
+### 7.5 Existing-client behavior
 
-There is no deprecated surface left to preserve: the hand-off tools, routes, resource URI, and prompt were removed on 2026-08-31, so every write already goes through the canonical work services and emits exactly one event.
+The removed hand-off tools, routes, resource URI, and prompt stay absent. Every remaining write
+goes through the canonical work services and emits at most the one event outcome defined here.
 
 - Existing direct REST release callers may keep sending only `lease_token`; a real release emits `actor_kind=unattributed` and records retained holder fields only as subject metadata.
 - Existing response shapes do not add event fields.
@@ -670,7 +787,11 @@ There is no deprecated surface left to preserve: the hand-off tools, routes, res
 
 ## 8. Error and observability contract
 
-No new Phase 4 application conflict is required. Invalid filters are `422`; an unknown parent is the existing sanitized `work_item_not_found` `404`.
+No new Phase 4 application conflict is required. Invalid filters are `422`. A missing project
+returns the shipped `project_not_found` `404`; within a visible project, a missing or
+cross-project parent returns `work_item_not_found` without revealing cross-project existence.
+MCP preserves the entity-specific safe message so callers know whether to re-resolve the project
+or work item.
 
 Phase 5 uses strict validation for the public event type and actor/body/metadata rules. If a service-level check is needed after parsing, add only stable codes such as:
 
@@ -704,7 +825,7 @@ Give agents a purpose-built, deterministic view of work that can be claimed now,
 2. Assert that only `done` resolves a blocker; `wont-do` and `promoted` remain unresolved.
 3. Freeze the active identical-request replay behavior when a blocker is added after lease acquisition.
 4. Freeze the shipped different-holder combined-conflict precedence (`work_blocked` before `lease_held`) and add explicit tests for every branch in Section 3.4; Phase 4 must not silently change existing public error codes.
-5. Assert current `WorkSummary`, `WorkContext`, relationship counterpart, completion, and claim results agree about the same work item.
+5. Assert current full/minimal search summaries, `WorkContext`, relationship counterpart, completion, and claim results agree about the same work item.
 6. Add a test seam representing zero unresolved gates without creating a Gate model.
 
 **Exit check:** `RW-1` and `RW-4` semantics are executable before the ready route exists, and all existing Phase 1–3 behavior remains green.
@@ -741,10 +862,10 @@ Give agents a purpose-built, deterministic view of work that can be claimed now,
 **Depends on:** Phase 4C.
 
 1. Add the exact `GET /projects/{project_id}/ready-work` route.
-2. Add the strict `list_ready_work` MCP tool and reuse the canonical `WorkPage` output model.
-3. Update MCP server instructions to distinguish search, ready listing, recall, and claim authority.
+2. Add the strict `list_ready_work` MCP tool and dedicated `ReadyWorkPage` output model over `WorkSummaryMinimal`; do not use the full/minimal `WorkPage` union.
+3. Update MCP guidance to distinguish compact retrieval search, ready listing, recall, and claim authority while keeping the global trigger first and under 1,200 characters; put operation-specific doctrine on the tools.
 4. Update typed validation/error mapping without adding a second readiness implementation to MCP.
-5. Update exact HTTP and stdio catalog assertions from 27 to 28 for the Phase 4 increment.
+5. Update exact HTTP and stdio catalog assertions from 19 to 20 for the Phase 4 increment.
 6. Add negative browser-proxy tests for the ready route; do not add a dashboard view.
 
 **Exit check:** an MCP client can list compact ready work, then use the existing `claim_and_recall` tool to arbitrate ownership.
@@ -758,6 +879,11 @@ Give agents a purpose-built, deterministic view of work that can be claimed now,
 3. Extend `scripts/check-stack.py` to create ready, blocked, terminal, and leased synthetic work; assert only the ready item appears; then remove/complete/release the constraining facts and assert deterministic reappearance.
 4. Keep cleanup scoped to exact synthetic IDs and relationships and preserve read-only behavior against an unapproved working stack.
 5. Record the representative ready-query plans and observed timings in `docs/validation.md` only after they are run.
+6. Update `plugin/skills/mnemonic-search/SKILL.md`,
+   `plugin/skills/mnemonic-recall/SKILL.md`, and the shared work-graph reference; bump the plugin
+   manifest from `0.1.0` to `0.2.0`, update its marketplace description, and verify a
+   disposable fresh install contains the new ready guidance. Marketplace refresh alone is not an
+   install refresh, so do not reuse `0.1.0` for changed bytes.
 
 **Exit check:** the isolated full-stack flow proves MCP → REST → PostgreSQL ready discovery and subsequent atomic claim.
 
@@ -778,7 +904,7 @@ Backend/PostgreSQL:
 - `total`, limit, offset, and out-of-range offset are correct;
 - every returned pointer is body/metadata/token-free;
 - a ready list followed by a concurrent blocker or lease loses at claim time;
-- simultaneous consumers may see the same snapshot, but only one compatible claim wins;
+- simultaneous consumers may see the same snapshot, but only one competing fresh claim wins;
 - active identical claim replay succeeds after a blocker is added and creates no new lease;
 - active different claim with no blocker returns `lease_held`, while the combined active-different-plus-blocked state preserves shipped `work_blocked` precedence;
 - the Phase 7 gate seam composes as an additional anti-predicate in a focused helper test.
@@ -788,9 +914,9 @@ MCP:
 - exact tool name, input schema, output model, annotations, REST path, and query serialization;
 - strict rejection of unknown filters and out-of-range limits;
 - pointer-only behavior when an upstream fixture includes accidental prompt/metadata fields;
-- sanitized parent/project errors;
+- missing project preserves `project_not_found`, while a missing/cross-project parent preserves `work_item_not_found`, and MCP maps each to its entity-specific safe message while retaining the unknown-code fallback;
 - authority guidance mentions claim-time revalidation;
-- exact 28-tool Streamable HTTP and stdio catalogs at the Phase 4 boundary.
+- exact 20-tool Streamable HTTP and stdio catalogs at the Phase 4 boundary.
 
 Proxy/security:
 
@@ -829,12 +955,12 @@ Record meaningful collaboration history as immutable structured events, atomical
 
 **Depends on:** completed Phase 4.
 
-1. Characterize every canonical and compatibility mutation's current transaction/no-op behavior.
+1. Characterize every still-shipped mutation and actor-omitting direct REST request's current transaction/no-op behavior.
 2. Add strict `MutationActor`, discriminated event-metadata v1, event input/output, event-list query, and `WorkEventPage` schemas.
 3. Add optional nested REST actors to work patch/delete, release, and relationship removal without breaking token-only or bodyless clients.
 4. Make canonical MCP actor fields required for `update_work`, `delete_work`, `release_claim`, and `remove_relationship`.
 5. Make dashboard mutations send exactly `actor: {actor_client: "dashboard", actor_session_id: <stable per-tab ID>, actor_model?: <model>}`.
-6. Verify older/compatibility calls without actor data are recorded as `unattributed`, never as the retained lease holder, relationship creator, or transport identity.
+6. Verify direct REST calls without actor data are recorded as `unattributed`, never as the retained lease holder, relationship creator, or transport identity.
 
 **Exit check:** `EV-5` is fixed and covered before any mutation starts emitting events.
 
@@ -842,10 +968,13 @@ Record meaningful collaboration history as immutable structured events, atomical
 
 **Depends on:** Phase 5A.
 
-1. Add `WorkEvent` to ORM metadata and `0010_work_events` with the exact columns, metadata validator, constraints, source-fact uniqueness, indexes, and trigger from Section 5.3.
+1. Add the lease generation/release-marker fields and `WorkEvent` to ORM metadata, then
+   implement `0010_work_events` with the exact lease upgrade, event columns, metadata validator,
+   constraints, source-fact uniqueness, indexes, and triggers from Section 5.3.
 2. Backfill only the facts listed in Section 5.4, including soft-deleted work.
-3. Install the source-fact and deferred relationship-state guards, then feed all backfill candidates through the explicit rank/order from Section 5.4 before identity allocation.
-4. Verify per-category counts, legacy-actor fallback counts, soft-deletion facts, endpoint duplication, source actor fields, source timestamps, complete relationship/context snapshots, typed references, exact metadata variants, and `origin=backfill` inside the migration.
+3. Install the source-fact, lease-marker, and deferred state guards, then feed all backfill
+   candidates through the explicit rank/order from Section 5.4 before identity allocation.
+4. Verify per-category counts, older-schema actor fallback counts, soft-deletion facts, endpoint duplication, source actor fields, source timestamps, complete relationship/context snapshots, typed references, exact metadata variants, and `origin=backfill` inside the migration.
 5. Install the immutable update/delete trigger after backfill.
 6. Update test cleanup to truncate `work_events` before referenced work tables and restart its identity.
 7. Run Alembic model parity at `0010`.
@@ -859,10 +988,13 @@ Record meaningful collaboration history as immutable structured events, atomical
 1. Add `services/work_events.py` with no-commit staging and bounded list helpers.
 2. Define typed constructors per server-reserved event type that accept domain records/before-and-after values and produce the exact metadata v1 union; do not let general dictionaries choose authoritative metadata.
 3. Integrate events with each service according to the emission matrix in Section 6.2.
-4. Capture complete relationship snapshots and lease-holder subject facts before deleting their mutable rows, while taking a release actor only from the request; flush relationship-removal events before edge deletion so the source guard can validate them.
+4. Capture complete relationship snapshots plus lease generation/holder-subject facts before
+   deleting their mutable rows, while taking a release actor only from the request; explicit
+   release assigns its marker and flushes the matching event before lease deletion, while
+   relationship removal flushes both events before edge deletion.
 5. Return internal outcome flags so exact claim replay, relationship replay, absent removal, and absent release cannot emit.
 6. Generate both relationship endpoint events in one deterministic order and the same transaction as the edge mutation.
-7. Keep compatibility aliases on the same canonical helper path to avoid double emission.
+7. Keep every still-shipped REST/MCP path on the same canonical helper and assert removed hand-off paths remain absent.
 8. Ensure event insertion failure rolls back the owning mutation through fault-injection tests.
 
 **Exit check:** `EV-2` and `EV-3` pass for every row in the emission matrix.
@@ -889,7 +1021,9 @@ Record meaningful collaboration history as immutable structured events, atomical
 1. Extend `WorkContextQuery` with `recent_event_limit=10`, maximum 20.
 2. Extend the single-snapshot context assembly with newest-N event selection reordered chronologically, total, omitted count, and the history-level partial-history flag.
 3. Flush a newly acquired claim event before `claim_and_recall` assembles context.
-4. Keep initial/current/recent checkpoint bounds and relationship direction bounds unchanged.
+4. Preserve `current_context=null` plus `current_context_is_initial=true` for initial-only
+   context; keep initial/current/recent checkpoint IDs mutually exclusive, retain distinct-ID
+   totals/omission counts, and keep relationship direction bounds unchanged.
 5. Confirm zero events and `recent_event_limit=0` produce an empty list plus accurate totals.
 6. Keep prompt/resource authority warnings and add equivalent language for event bodies.
 
@@ -905,11 +1039,20 @@ Record meaningful collaboration history as immutable structured events, atomical
 4. Require actor provenance on canonical `release_claim`, preserve upstream-field rejection for full event models, and preserve pointer-only suppression for ready results.
 5. Add unknown-write guidance specific to `append_event`: do not retry automatically; inspect recent/listed events because general `client_operation_id` arrives in Phase 6.
 6. Update validation field allowlists and error sanitization without echoing body/metadata values.
-7. Update exact catalogs from 28 to 30.
+7. Update exact catalogs from 20 to 22.
 8. Update bundled skills:
    - `mnemonic-save`: checkpoint for resume context, event for concise progress;
    - `mnemonic-search`: ready discovery remains distinct from retrieval;
    - `mnemonic-recall`: inspect bounded events, page explicitly when needed, then claim before execution.
+9. Update the plugin's shared references instead of duplicating doctrine:
+   `plugin/reference/work-graph.md` owns ready/claim semantics, while
+   `plugin/reference/authority-and-provenance.md` owns event/checkpoint authority and truthful
+   actor guidance. Preserve each `${CLAUDE_PLUGIN_ROOT}` reference and keep operation detail in
+   the relevant skill/tool.
+10. Because installation copies a manifest-versioned plugin into cache, bump
+    `plugin/.claude-plugin/plugin.json` from `0.2.0` to `0.3.0` at the Phase 5 boundary and
+    refresh the plugin/marketplace descriptions. Never publish changed skill bytes under an
+    already installed version.
 
 **Exit check:** canonical event workflows pass through both MCP transports and copied resume pointers remain bounded.
 
@@ -929,7 +1072,7 @@ The dashboard must:
 
 - show a paginated per-work Activity timeline ordered newest-first in the UI;
 - render deterministic human labels for every event type using structured metadata;
-- show actor client/session only when attributed and label older unknown actors as “Unattributed legacy action”;
+- show actor client/session only when attributed and label unknown earlier actors as “Unattributed earlier action”;
 - mark reconstructed rows and show one concise partial-history notice whenever `pre_phase5_history_may_be_incomplete=true`, even when the current newest page or type filter contains no backfilled row;
 - display progress body as untrusted text, never HTML;
 - render checkpoint events as references and keep exact checkpoint bodies in the existing Checkpoint timeline rather than duplicating them;
@@ -962,13 +1105,18 @@ Update the proxy only for the exact Phase 5 matrix. Never expose claim routes or
 Schema/migration:
 
 - populated `0009 -> 0010` backfill exact formula and per-category parity;
+- retained leases receive distinct nonnull generation UUIDs before event backfill; their release
+  marker is null at rest, and equal acquisition timestamps remain valid;
 - exact known actor/source timestamp/typed-reference preservation, complete discovered-from context snapshots, and metadata version;
 - populated-`0009` checkpoint, lease, and relationship rows whose actor client/session is spaces, tabs, newlines, nonbreaking space, or em space become unattributed exactly when the new predicate rejects them; fallback diagnostics contain IDs/field names and counts but never raw values;
 - soft-deleted work receives an unattributed `work_deleted` at `deleted_at` with final status/version, while its history remains hidden from ordinary APIs;
 - same-timestamp create-plus-initial-relationship and multi-source fixtures follow the complete source-rank/UUID/endpoint ordering;
 - no invented update, release, removal, reopen, or expiry facts;
 - raw SQL `UPDATE` and `DELETE` fail under the event trigger;
-- cross-project event/work references, wrong initial checkpoint, wrong/noninitial checkpoint kind, nonexistent checkpoint, mismatched checkpoint metadata, duplicate checkpoint/source facts, and duplicate relationship action facts fail under direct SQL;
+- cross-project event/work references, wrong initial checkpoint, wrong/noninitial checkpoint kind,
+  nonexistent checkpoint, mismatched checkpoint metadata, a live checkpoint-sourced event actor
+  different from its checkpoint source, duplicate checkpoint/lease-generation/source facts, and
+  duplicate relationship action facts fail under direct SQL;
 - nonexistent or mismatched relationship ID/type/endpoints/context snapshots fail the insert guard; added edges must remain and removed edges plus matching prior add facts must satisfy the deferred commit guard;
 - every event-specific missing/extra/wrong-type metadata key, invalid live/backfill variant, tab/newline/Unicode-whitespace-only body or actor, invalid actor nullability/matrix, wrong typed-reference column, body/type/origin combination, and oversized/secret-key metadata shape fails at the database layer as specified;
 - Alembic model parity and isolated downgrade mechanics.
@@ -980,14 +1128,22 @@ Atomicity and replay:
 - forced domain failure leaves no event;
 - simultaneous checkpoint/progress appenders both succeed with deterministic event order;
 - barrier-controlled progress append against claim, renew, release, completion, reopen/terminal patch, and soft delete preserves work-before-lease order, has no deadlock, and either commits before the terminal mutation or returns the documented post-wait result without appending behind deletion;
-- identical claim replay creates one claim event;
-- expired replacement creates one additional claim event and no expiry event;
-- renewal creates no event;
-- matching release with an asserted actor creates one attributed event; a matching legacy token-only release creates one unattributed event whose retained holder is subject metadata; absent/different-expired release creates none;
+- identical claim replay preserves one generation and creates one claim event;
+- expired replacement creates a fresh generation plus one additional claim event and no expiry
+  event, even when its acquisition timestamp equals an earlier generation;
+- renewal preserves the generation and creates no event;
+- matching release with an asserted actor creates one attributed generation/release-scoped event;
+  a matching earlier token-only release creates one unattributed event; a valid retained holder
+  uses the exact client subject variant, a whitespace-invalid retained holder uses only the
+  unattributed subject variant, a second release fact for the same generation fails, and
+  absent/different-expired release creates none;
+- a populated-`0009` terminal work item with a retained token-matching lease can be explicitly
+  released and recorded; terminal lease consumption uses no marker and emits no release, while
+  setting a marker without exactly one matching release event cannot commit;
 - relationship create replay and absent removal create no duplicate event;
 - each real graph mutation creates exactly two endpoint events with the complete context-checkpoint snapshot and action-family uniqueness;
 - completion creates only `work_completed`, creation only `work_created` for its initial checkpoint;
-- compatibility aliases emit exactly once through canonical services.
+- every still-shipped path emits exactly once through canonical services and removed hand-off paths remain absent.
 
 REST/recall:
 
@@ -1008,7 +1164,7 @@ MCP:
 - reserved event types rejected locally or by strict API validation;
 - no automatic retry after ambiguous append outcome;
 - event/list/recalled content remains bounded and secrets are redacted from errors/logs;
-- exact 30-tool HTTP and stdio catalogs.
+- exact 22-tool HTTP and stdio catalogs.
 
 Frontend/E2E:
 
@@ -1052,16 +1208,17 @@ Use reviewable increments and keep Phase 4 deployable independently from Phase 5
 | --- | --- | --- | --- |
 | 1 | Readiness characterization and shared service extraction | Phase 3 | Existing suite plus parity matrix |
 | 2 | `0009` ready/tag indexes, ready query, REST route | 1 | PostgreSQL correctness and query plans |
-| 3 | `list_ready_work`, MCP/docs/check-stack | 2 | Exact 28-tool transports and full-stack Phase 4 flow |
-| 4 | Actor contract seam and event schemas | 3 | Compatibility/actor tests |
+| 3 | `list_ready_work`, MCP/docs/check-stack | 2 | Exact 20-tool transports and full-stack Phase 4 flow |
+| 4 | Actor contract seam and event schemas | 3 | Actor/direct-REST tests |
 | 5 | `0010` event table, conservative backfill, trigger | 4 | Populated migration, parity, immutability |
 | 6 | Atomic event emission across canonical services | 5 | Emission matrix and fault-injection suite |
 | 7 | Progress append, event list, bounded recall | 6 | REST/PostgreSQL Phase 5 tests |
-| 8 | MCP event tools and skills | 7 | Exact 30-tool HTTP/stdio catalogs |
+| 8 | MCP event tools and skills | 7 | Exact 22-tool HTTP/stdio catalogs |
 | 9 | Dashboard timeline, composer, proxy/live sync | 7 | Unit/type/build and Playwright |
 | 10 | Full-stack, performance, backup/restore, documentation | 8–9 | All program gates green |
 
-Do not start automatic event emission before actor compatibility and the immutable table exist. Do not expose `append_event` before server-reserved types are impossible in its request schema.
+Do not start automatic event emission before the actor contract and immutable table exist. Do not
+expose `append_event` before server-reserved types are impossible in its request schema.
 
 ## 12. Migration, deployment, and rollback
 
@@ -1081,7 +1238,9 @@ The Phase 4 API/MCP image can deploy together after the index migration. Rolling
 
 ### 12.3 Phase 5 cutover
 
-Old writers cannot emit events, so quiesce all API/MCP/dashboard writers while the `0010` migration backfills and the new compatible stack starts. Do not run old and Phase 5 writers concurrently around the cutover or the timeline will have an unrecorded gap.
+Old writers cannot emit events, so quiesce all API/MCP/dashboard writers while the `0010`
+migration backfills and the Phase 5 stack starts. Do not run old and Phase 5 writers concurrently
+around the cutover or the timeline will have an unrecorded gap.
 
 The API startup still upgrades to Alembic `head` before readiness. Health traffic may begin only after migration, parity checks, and application readiness succeed. Browser, MCP, and API contracts deploy together because actor bodies and response shapes change in concert.
 
@@ -1140,12 +1299,21 @@ Update fixtures and exact catalog tests for:
 - schema annotations and strictness;
 - REST paths/query/body serialization;
 - bounded recall/resource/prompt responses;
+- initial-only recall keeps `current_context=null` and
+  `current_context_is_initial=true`; checkpoint IDs/bodies never repeat across
+  `initial_checkpoint`, `current_context`, and `recent_checkpoints`; distinct totals and
+  omissions remain unchanged through REST, MCP, the work resource, and `resume_work`;
 - actor-bearing canonical mutations;
 - unknown-write guidance for progress events;
 - typed validation and secret redaction;
-- Streamable HTTP and stdio initialization at 28 tools after Phase 4 and 30 after Phase 5.
+- Streamable HTTP and stdio initialization at 20 tools after Phase 4 and 22 after Phase 5.
 
 MCP remains database-agnostic and never retries a mutation automatically.
+
+Plugin packaging checks must parse both manifests, retain marketplace source `./plugin`, include
+all three skill directories and both shared references in the copied package, resolve every
+`${CLAUDE_PLUGIN_ROOT}` link, and exercise disposable fresh installs at `0.2.0` after Phase 4
+and `0.3.0` after Phase 5. Do not validate by deleting or mutating a user's real plugin cache.
 
 ### 13.3 Frontend verification
 
@@ -1205,7 +1373,8 @@ Also build the production images, run the writable checker only against its disp
 
 ### 14.2 Performance
 
-- Select/limit ready IDs before checkpoint counts or current-context projection.
+- Select/limit ready IDs before loading checkpoint counts and derived display state; never load
+  current-context pointers for ready pages.
 - Use anti-joins/index probes; never build the graph in Python.
 - Bound ready pages to 100, event pages to 100, and recent recall events to 20.
 - Use the per-work event order index for unfiltered reads and the event-type/order index for filtered reads in both directions.
@@ -1254,6 +1423,7 @@ Modify:
 - `mcp/src/mnemonic_mcp/models.py`
 - `mcp/src/mnemonic_mcp/api.py`
 - `mcp/src/mnemonic_mcp/server.py`
+- `mcp/src/mnemonic_mcp/validation.py`
 - `mcp/tests/conftest.py`
 - `mcp/tests/test_tools.py`
 - `mcp/tests/test_transport.py`
@@ -1266,6 +1436,7 @@ Modify:
 - `frontend/components/work-item-detail.tsx`
 - `frontend/app/globals.css`
 - `frontend/lib/types.ts`
+- `frontend/lib/current-context.ts`
 - `frontend/lib/proxy-policy.ts`
 - relevant proxy/live-sync/API tests
 
@@ -1281,9 +1452,13 @@ Add:
 
 Modify:
 
-- `skills/mnemonic-save/SKILL.md`
-- `skills/mnemonic-search/SKILL.md`
-- `skills/mnemonic-recall/SKILL.md`
+- `plugin/skills/mnemonic-save/SKILL.md`
+- `plugin/skills/mnemonic-search/SKILL.md`
+- `plugin/skills/mnemonic-recall/SKILL.md`
+- `plugin/reference/authority-and-provenance.md`
+- `plugin/reference/work-graph.md`
+- `plugin/.claude-plugin/plugin.json`
+- `.claude-plugin/marketplace.json`
 - `scripts/check-stack.py`
 - `README.md`
 - `docs/architecture.md`
@@ -1351,7 +1526,9 @@ The `work_events.project_id` field and server-reserved type catalog are extensio
 - [ ] `RW-4`: every fresh claim rechecks readiness, while active identical replay remains recoverable.
 - [ ] `RW-5`: representative plans use bounded index-supported work, blocker, and lease queries.
 - [ ] Search remains retrieval and no dashboard/browser scheduler surface is added.
-- [ ] REST, the exact 28-tool MCP catalog, skills, checker, docs, and validation record agree.
+- [ ] REST, the exact 20-tool MCP catalog, skills, checker, docs, and validation record agree.
+- [ ] Plugin version `0.2.0` fresh-installs the Phase 4 skills and shared references from
+  marketplace source `./plugin`.
 
 ### Phase 5
 
@@ -1364,7 +1541,9 @@ The `work_events.project_id` field and server-reserved type catalog are extensio
 - [ ] `EV-7`: migration backfills only provable facts, including explicit soft-deletion facts, with exact parity and origin markers.
 - [ ] `EV-8`: body/metadata/tokens never leak into pointers, errors, logs, metrics, browser capabilities, or sync messages.
 - [ ] Checkpoint and event responsibilities remain distinct and the dashboard avoids duplicate content.
-- [ ] The exact 30-tool MCP catalog passes Streamable HTTP and stdio tests.
+- [ ] The exact 22-tool MCP catalog passes Streamable HTTP and stdio tests.
+- [ ] Plugin version `0.3.0` fresh-installs the Phase 5 skill/reference updates without relying
+  on a stale cached `0.2.0` copy.
 - [ ] Backend PostgreSQL, Ruff, MCP, frontend unit/type/build, Playwright, production-image, full-stack, performance, and secret-scan checks pass.
 - [ ] A real backup/restore drill preserves event order, content, identity state, and immutability.
 - [ ] Operational docs state the quiesced cutover and honest rollback boundary.
