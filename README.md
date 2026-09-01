@@ -10,7 +10,7 @@ It does not modify Claude's memory subsystem. While Claude Code is the first cli
 
 - You build with Claude Code (*support for additional platforms coming soon*).
 
-- Important context and follow-up tasks are often overlooked because they get buried under verbose LLM output.
+- Important FYIs and follow-up tasks are often overlooked because they get buried under verbose LLM output.
 
 - Dozens or hundreds of transient Markdown documents are cluttering your repo. Or, your issue tracker has so many AI-written issues that it's become painful for a human eyes.
 
