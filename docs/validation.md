@@ -1,5 +1,52 @@
 # Mnemonic validation record
 
+## Deprecated hand-off surface removal — 2026-08-31
+
+Validated in the local Linux workspace with the locked environments and an
+isolated PostgreSQL 17 test stack, after removing the deprecated hand-off tools,
+REST routes, resource, and prompt.
+
+- **120 backend tests passed against disposable PostgreSQL 17**, none skipped.
+  A control run without `TEST_DATABASE_URL` reported 77 passed and 51 skipped,
+  confirming the PostgreSQL tests actually executed. Backend Ruff passed; the
+  only warning was the existing upstream Starlette TestClient deprecation.
+  Coverage that previously reached canonical behavior through a deprecated route
+  was retargeted rather than deleted: weighted full-text ranking, literal and
+  wildcard query safety, `search_vector` re-derivation after an edit, combined
+  filters with pagination, concurrent-writer version conflict, and the shared
+  schema validation cases.
+- **86 MCP tests passed**, and MCP Ruff passed. The suite now verifies the exact
+  19-tool canonical catalog. The eight deprecated tools were removed, so the
+  count fell from the 87 recorded for Phase 3 above.
+- **39 frontend unit tests passed under Node 24.** TypeScript checking and the
+  Next.js production build passed. Six tests covering deprecated-only helpers
+  were removed with those helpers.
+- **The production-image full-stack check passed** after `docker compose up
+  --build`. `scripts/check-stack.py` read-only mode verified service security and
+  the exact 19-tool catalog.
+- **Live MCP surface measured against the running stack.** `tools/list` returned
+  19 tools with no `*_handoff*` name; the model-visible tool surface fell from
+  27,627 to 21,860 bytes. The `handoffs` resource template and the
+  `resume_handoff` prompt are absent; the `work-items` resource and `resume_work`
+  prompt still resolve. All eight `/projects/{project_id}/handoffs*` REST routes
+  return `404` while the canonical routes return `200`.
+- **Recall duplication eliminated.** Across the eight live work items, bounded
+  recall returned 191,411 bytes with 89,985 bytes (47.0%) of byte-identical
+  checkpoint duplication before the change, and 111,357 bytes with 0 duplicated
+  bytes after it.
+- **Search compaction measured.** The default agent-facing `view=minimal`
+  returned 315 bytes per item against 1,824 bytes for the unchanged `view=full`
+  dashboard shape.
+- **`INSTRUCTIONS` is 581 characters** and leads with the trigger condition.
+- **Migration provenance verified against the live database, not from code.**
+  All seven checkpoints carrying `migration_origin = 'legacy-handoff-snapshot'`
+  retain their `legacy_record_id`, and both fields still surface through the
+  canonical context route. The Alembic head remains `0008_work_relationships`
+  and no file under `backend/alembic/versions/` was modified.
+
+The "27-tool canonical/compatibility catalog" recorded for Phase 3 below was
+observed before this removal and is left as written.
+
 ## Phase 3 typed work-relationship validation — 2026-08-31
 
 The complete three-phase program was validated in the local Linux workspace
