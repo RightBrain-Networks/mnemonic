@@ -65,6 +65,7 @@ from mnemonic_api.schemas import (
     WorkContext,
     WorkContextQuery,
     WorkCreation,
+    WorkDeferralCreate,
     WorkDeletionCreate,
     WorkDeletionRead,
     WorkEventListQuery,
@@ -104,6 +105,7 @@ from mnemonic_api.services.work_items import (
     append_checkpoint_record,
     complete_work_record,
     create_work_records,
+    defer_work_record,
     delete_work_record,
     require_project,
     require_work_item,
@@ -283,7 +285,15 @@ def _search_work_rows(
             .correlate(WorkItem)
             .exists()
         )
-        conditions.extend([WorkItem.status == "open", retained_lease_exists])
+        conditions.extend([WorkItem.status == "pending", retained_lease_exists])
+    elif filters.status == "pending":
+        retained_lease_exists = (
+            select(WorkLease.work_item_id)
+            .where(WorkLease.work_item_id == WorkItem.id)
+            .correlate(WorkItem)
+            .exists()
+        )
+        conditions.extend([WorkItem.status == "pending", ~retained_lease_exists])
     elif filters.status != "all":
         conditions.append(WorkItem.status == filters.status)
 
@@ -828,6 +838,21 @@ def update_work(
 ) -> WorkItem:
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
     update_work_record(database, work_item, payload)
+    database.commit()
+    database.refresh(work_item)
+    return work_item
+
+
+@router.post("/projects/{project_id}/work-items/{work_item_id}/defer", response_model=WorkItemRead)
+def defer_work(
+    project_id: UUID,
+    work_item_id: UUID,
+    payload: WorkDeferralCreate,
+    database: Database,
+) -> WorkItem:
+    """Human dashboard action; intentionally absent from the agent MCP surface."""
+    work_item = require_work_item(database, project_id, work_item_id, lock=True)
+    defer_work_record(database, work_item, payload)
     database.commit()
     database.refresh(work_item)
     return work_item

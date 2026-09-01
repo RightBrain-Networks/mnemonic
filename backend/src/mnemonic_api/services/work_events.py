@@ -188,7 +188,7 @@ def stage_work_changed(
     old_status = str(before["status"])
     status_requested = "status" in changes
     status_changed = status_requested and old_status != work_item.status
-    if status_changed and work_item.status == "open":
+    if status_changed and work_item.status == "pending":
         event_type = "work_reopened"
     elif status_changed:
         event_type = "work_status_changed"

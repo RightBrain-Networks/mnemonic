@@ -15,7 +15,7 @@ claim durability from a draft or bypass the MCP connection.
    established project ID, or an unambiguous repository/slug match. Paginate
    when needed. Never default to the first project. Ask only if ambiguity
    remains. `create_project` creates a Mnemonic project, not a repository.
-2. Call `search_work(project_id, q, status="open")` before creating work. Search
+2. Call `search_work(project_id, q, status="pending")` before creating work. Search
    for the failure shape and distinctive symbols, paths, or identifiers. Search
    is lexical/literal by default; optionally use `semantic=true` for hybrid
    retrieval. Try a useful alternate term when a narrow query misses.
@@ -120,7 +120,10 @@ authorized history readers.
 For distinct work, call `create_work` with `project_id`, `title`, `summary`, and
 an `initial_checkpoint` containing the complete prompt and provenance, plus
 `initial_relationships` only when the explicit links must be created atomically.
-Use a few useful tags; new proposals normally remain `open`.
+Use a few useful tags; new proposals normally remain `pending`. Deferred is a
+human-only hold: do not assign it while saving, and do not return existing
+Deferred work to Pending unless the current human instruction explicitly asks
+to work on that item.
 
 For the same objective, call `add_checkpoint(project_id, work_item_id,
 kind="context", checkpoint={...})`. If only mutable work identity must change,

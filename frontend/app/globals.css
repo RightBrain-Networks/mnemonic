@@ -239,7 +239,10 @@ button { touch-action: manipulation; }
 .card-topline { display: flex; align-items: center; gap: 13px; margin-bottom: 13px; min-width: 0; }
 .status-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border-radius: 4px; font-size: 10px; line-height: 1.5; font-weight: 600; white-space: nowrap; }
 .status-badge > span { height: 4px; width: 4px; background: currentColor; border-radius: 50%; }
-.status-open { background: #eef5eb; color: #497743; }
+.status-pending { background: #eef5eb; color: #497743; }
+.status-active { background: #f0e8ff; color: #6d35d7; }
+.status-dropped { background: #fff0e8; color: #a63700; }
+.status-deferred { background: #edf0f2; color: #56636a; }
 .status-done { background: #eaf1f6; color: #4c6d86; }
 .status-wont-do { background: #f2efe9; color: #85765c; }
 .status-promoted { background: #efedf7; color: #776798; }
@@ -600,7 +603,10 @@ button { touch-action: manipulation; }
 
 .work-item-card { border-color: #e4d8c4; box-shadow: 0 2px 2px #25113005; }
 .work-item-card:hover { border-color: var(--accent); box-shadow: 0 6px 18px #2511300d; }
-.status-open { color: #477800; background: #efffd7; }
+.status-pending { color: #477800; background: #efffd7; }
+.status-active { color: #6d35d7; background: var(--violet-soft); }
+.status-dropped { color: #a63700; background: var(--accent-soft); }
+.status-deferred { color: #56636a; background: #edf0f2; }
 .status-done { color: #6d35d7; background: var(--violet-soft); }
 .status-wont-do { color: #6b5b45; background: #f5eddc; }
 .status-promoted { color: #a63700; background: var(--accent-soft); }
@@ -615,6 +621,8 @@ button { touch-action: manipulation; }
   background: var(--violet-soft);
   border-color: var(--violet);
 }
+.defer-button { min-width: auto; padding: 7px 9px; color: #735d05; background: #fff8d8; border-color: #e2c771; font-size: 10px; }
+.defer-button:hover:not(:disabled) { color: #574400; background: #fff0ae; border-color: #cda82b; }
 
 .empty-state { background: #faf5e9; border-color: #d8c8ae; }
 .empty-art { color: var(--accent); background: var(--accent-soft); }
@@ -664,8 +672,6 @@ button { touch-action: manipulation; }
 .sync-status-retrying { color: #866000; border-color: #e2c771; background: #fff8d8; }
 .sync-status-retrying .sync-status-dot { background: #bd8900; box-shadow: 0 0 0 3px #f4e7af; }
 .operational-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 8px; font: 700 9px/1.5 var(--mono); text-transform: uppercase; letter-spacing: .5px; }
-.operational-badge.ready { color: #477800; background: #efffd7; border: 1px solid #cfeaa5; }
-.operational-badge.active { color: #6d35d7; background: var(--violet-soft); border: 1px solid #d8c5ff; }
 .work-card-facts { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin: -8px 0 16px; color: var(--muted); font-size: 10px; }
 .work-card-facts .mono { max-width: min(420px, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
 .active-lease-summary { display: grid; gap: 9px; margin: -3px 0 16px; padding: 11px 13px; border: 1px solid #d8c5ff; border-radius: 7px; color: #4d3669; background: #f7f2ff; }

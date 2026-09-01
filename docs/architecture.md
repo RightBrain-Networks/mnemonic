@@ -43,15 +43,18 @@ request fields. Server-reserved events are constructed only by the mutation
 that proves them. Clients can append only bounded `progress`; that does not
 replace resume context and does not increment the work version.
 
-The persisted lifecycle values remain `open`, `done`, `wont-do`, and
-`promoted`. `ready`, `active`, and `blocked` are derived facts, never stored
-statuses. Open, visible work is ready only when it has neither an unexpired
-lease nor an unresolved incoming `blocks` edge. Only a blocker whose source is
-`done` is resolved; `wont-do` and `promoted` do not imply completion. A work
-item can be active and blocked simultaneously because adding a blocker does not
-revoke an existing lease. Completion is the only operation that can set `done`,
-and it atomically appends a completion checkpoint. Reopening leaves that
-historical completion checkpoint intact.
+The persisted lifecycle values are `pending`, `deferred`, `done`, `wont-do`,
+and `promoted`. Pending means no session has started or work remains incomplete;
+Deferred is an intentional human-controlled hold outside the agent queue.
+`active`, `dropped`, and `blocked` are derived facts. Active means an unexpired
+lease exists; Dropped means the retained lease expired unexpectedly. Pending,
+visible work is ready only when it has neither an unexpired lease nor an
+unresolved incoming `blocks` edge. Only a blocker whose source is `done` is
+resolved; `wont-do` and `promoted` do not imply completion. A work item can be
+active and blocked simultaneously because adding a blocker does not revoke an
+existing lease. Completion is the only operation that can set `done`, and it
+atomically appends a completion checkpoint. Reopening leaves that historical
+completion checkpoint intact.
 
 Ready discovery runs the same nonrecursive blocker/lease predicate used by a
 fresh claim and returns only compact pointers. Its order is `priority DESC,

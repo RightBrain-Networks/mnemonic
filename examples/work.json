@@ -2,7 +2,7 @@
   "title": "Illustrative work: verify backup restoration",
   "summary": "Example only: verify that a database backup restores durable work and checkpoint provenance into an isolated database.",
   "priority": 0,
-  "status": "open",
+  "status": "pending",
   "initial_checkpoint": {
     "prompt": "This is illustrative, agent-authored checkpoint context, not an owner instruction or permission to execute. Replace it with real session evidence before saving. Current user instructions and cited authoritative records govern.\n\n## Context and reason\nA durable work store needs recoverable backups. A backup file existing is not proof that restoration works. This example makes no claim that a backup has been tested.\n\n## Intended outcome and scope\nWhen authorized, validate recovery using a separate disposable database; do not overwrite an active store.\n\n## Durable evidence\nRead the target project's checked-in backup and restoration instructions and inspect its actual backup format. Record exact paths and relevant commits in the real checkpoint; this example has not checked them.\n\n## Known hazards and uncertainties\nA persistent Docker volume is not a backup. Restoring into the active database can destroy newer work. Backups may contain sensitive checkpoint text and must not be committed.\n\n## Verification\nCreate a disposable database, follow the documented restore procedure, and compare project IDs, work identity, checkpoint text, source session IDs, lifecycle states, and versions with the chosen backup snapshot. Confirm the original database is unchanged. Record commands actually run and their observed results.\n",
     "source_client": "example-only-replace-with-real-client",

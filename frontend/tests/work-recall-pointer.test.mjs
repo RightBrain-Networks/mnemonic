@@ -19,7 +19,7 @@ const summary = {
     project_id: projectId,
     title: "Investigate proxy policy",
     summary: "Keep proxy behavior safe and predictable.",
-    status: "open",
+    status: "pending",
     priority: 17
   }
 };
@@ -68,7 +68,7 @@ test("custom templates expand every supported macro", () => {
     [
       "title=Investigate proxy policy",
       "summary=Keep proxy behavior safe and predictable.",
-      "status=open",
+      "status=pending",
       "priority=17",
       `project_id=${projectId}`,
       "project_name=Mnemonic dashboard",

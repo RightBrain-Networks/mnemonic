@@ -115,7 +115,7 @@ def work_item():
         "project_id": PROJECT_ID,
         "title": "Investigate empty results",
         "summary": "Recall loses a result when its session ID contains punctuation.",
-        "status": "open",
+        "status": "pending",
         "priority": 7,
         "initial_checkpoint_id": CHECKPOINT_ID,
         "version": 3,
@@ -148,14 +148,15 @@ def checkpoint():
 @pytest.fixture
 def readiness():
     return {
-        "lifecycle_status": "open",
+        "lifecycle_status": "pending",
         "is_terminal": False,
         "has_active_lease": False,
+        "has_dropped_lease": False,
         "active_lease": None,
         "unresolved_blocker_count": 0,
         "is_blocked": False,
         "is_ready": True,
-        "display_state": "ready",
+        "display_state": "pending",
     }
 
 
@@ -185,7 +186,7 @@ def adjacent_relationship(relationship, readiness):
         "counterpart": {
             "id": OTHER_WORK_ID,
             "title": "Prepare prerequisite",
-            "status": "open",
+            "status": "pending",
             "readiness": readiness,
         },
     }
@@ -268,7 +269,7 @@ def same_status_update_event(progress_event):
         "event_type": "work_updated",
         "body": None,
         "metadata": {
-            "changes": {"status": {"before": "open", "after": "open"}},
+            "changes": {"status": {"before": "pending", "after": "pending"}},
             "work_version": 4,
         },
     }
@@ -305,6 +306,7 @@ def active_work_context(work_context, claim_receipt):
         "readiness": {
             **work_context["readiness"],
             "has_active_lease": True,
+            "has_dropped_lease": False,
             "active_lease": public_lease,
             "is_ready": False,
             "display_state": "active",

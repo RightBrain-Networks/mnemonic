@@ -56,7 +56,8 @@ The Phase 5 backend suite verifies:
 - append-only checkpoint enforcement in both the API and database, concurrent
   appenders, and checkpoint appends that do not consume the work version;
 - version-protected identity/lifecycle edits, typed application errors, atomic
-  completion checkpoints, default-open filtering, and soft deletion;
+  completion checkpoints, default-Pending filtering, human-only deferral, and
+  soft deletion;
 - exclusive concurrent acquisition, identical-request replay, expiry takeover,
   renewal/release precision, safe public projections, and claim-and-context
   atomicity;
@@ -260,7 +261,8 @@ named project. Prefer a disposable full stack for automated write-path checks.
 ## Manual Phase 5 browser pass
 
 Exercise project empty state and switching, root browsing, lazy child expansion,
-subtree-aware filters, flat-search breadcrumbs, open/all lifecycle filters,
+subtree-aware filters, flat-search breadcrumbs, Pending/Active/Dropped/Deferred
+lifecycle filters,
 lexical search and explicit Semantic opt-in, work selection, bounded context,
 grouped pointer-only relationships, checkpoint timeline, immutable activity
 timeline paging, progress-event creation, prompt copy, identity editing,
@@ -285,5 +287,5 @@ readiness recovers. Confirm no claim or force-release UI exists.
 
 With a nonblank search, Semantic starts disabled. Enabling it performs a hybrid
 request; disabling it restores lexical retrieval. Repeat the enabled query once
-to exercise cache reuse. Never leave synthetic relationships or open work in a
+to exercise cache reuse. Never leave synthetic relationships or pending work in a
 user's project after manual verification.

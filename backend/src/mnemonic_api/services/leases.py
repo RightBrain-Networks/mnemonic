@@ -73,8 +73,8 @@ def claim_lease_record(
 ) -> ClaimReceipt:
     """Acquire, replay, or replace one lease while the work row is locked."""
     lease = _locked_lease(database, work_item.id)
-    if work_item.status != "open":
-        raise conflict("work_not_open", "Only open work can be claimed.")
+    if work_item.status != "pending":
+        raise conflict("work_not_pending", "Only pending work can be claimed.")
 
     # Capture time only after both possible work/lease lock waits.
     database_now = _database_now(database)
@@ -234,6 +234,25 @@ def validate_optional_lease_token(
         _token_mismatch()
     if lease.expires_at <= database_now:
         _expired()
+
+
+def require_no_active_lease(database: Session, work_item_id: UUID) -> None:
+    """Reject active deferral and clear an expired retained lease before parking work."""
+    lease = _locked_lease(database, work_item_id)
+    if lease is None:
+        return
+    database_now = _database_now(database)
+    if lease.expires_at > database_now:
+        raise conflict(
+            "lease_held",
+            "Active work cannot be deferred until its lease is released or expires.",
+            context={
+                "holder_client": lease.holder_client,
+                "expires_at": _utc(lease.expires_at),
+            },
+        )
+    database.delete(lease)
+    database.flush()
 
 
 def consume_lease_for_terminal_mutation(

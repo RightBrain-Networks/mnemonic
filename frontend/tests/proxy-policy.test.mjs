@@ -77,6 +77,7 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/events`, "GET"), ["order", "event_type", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/events`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/complete`, "POST"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/defer`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/delete`, "POST"), []);
   for (const path of ["sync", "healthz", "readyz", "docs", "openapi.json", "projects/../docs", "projects/%2e%2e/docs", "projects/not-a-uuid", `projects/${project}/unknown-collection`, "https://attacker.example", "//attacker.example"]) {
     assert.equal(allowedQueryKeys(path, "GET"), null);
@@ -145,6 +146,21 @@ test("Phase 5 mutation bodies use exact route-specific actor and event allowlist
     "PATCH",
     { expected_version: 2, title: "Updated", actor }
   ), null);
+  assert.match(invalidMutationBody(
+    `projects/${project}/work-items/${work}`,
+    "PATCH",
+    { expected_version: 2, status: "deferred", actor }
+  ), /allowlist/);
+  assert.equal(invalidMutationBody(
+    `projects/${project}/work-items/${work}/defer`,
+    "POST",
+    { expected_version: 2, actor }
+  ), null);
+  assert.match(invalidMutationBody(
+    `projects/${project}/work-items/${work}/defer`,
+    "POST",
+    { expected_version: 2, status: "deferred", actor }
+  ), /allowlist/);
   assert.match(invalidMutationBody(
     `projects/${project}/work-items/${work}`,
     "PATCH",
@@ -222,6 +238,7 @@ test("canonical mutation bodies cannot carry lease tokens", () => {
   const browserMutations = [
     [`projects/${project}/work-items/${work}`, "PATCH"],
     [`projects/${project}/work-items/${work}/complete`, "POST"],
+    [`projects/${project}/work-items/${work}/defer`, "POST"],
     [`projects/${project}/work-items/${work}/delete`, "POST"],
     [`projects/${project}/work-items/${work}/checkpoints`, "POST"],
     [`projects/${project}/relationships`, "POST"]

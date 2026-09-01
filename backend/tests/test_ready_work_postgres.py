@@ -138,7 +138,7 @@ def test_ready_work_predicate_order_filters_and_pointer_boundary(
     assert leased["id"] not in returned_ids
     for item in page["items"]:
         assert set(item) == {"work_item", "checkpoint_count", "display_state"}
-        assert item["display_state"] == "ready"
+        assert item["display_state"] == "pending"
         assert "summary" not in item["work_item"]
         assert "prompt" not in item
         assert "lease_token" not in str(item)

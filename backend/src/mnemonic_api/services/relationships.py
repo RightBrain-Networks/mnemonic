@@ -397,6 +397,14 @@ def _work_pointers(database: Session, work_item_ids: Sequence[UUID]) -> dict[UUI
             )
         )
     }
+    dropped_lease_ids = set(
+        database.scalars(
+            select(WorkLease.work_item_id).where(
+                WorkLease.work_item_id.in_(work_item_ids),
+                WorkLease.expires_at <= func.clock_timestamp(),
+            )
+        )
+    )
     blocker_counts = unresolved_blocker_counts(database, work_item_ids)
     return {
         work_item.id: WorkPointer(
@@ -407,6 +415,7 @@ def _work_pointers(database: Session, work_item_ids: Sequence[UUID]) -> dict[UUI
                 work_item,
                 active_leases.get(work_item.id),
                 blocker_counts.get(work_item.id, 0),
+                work_item.id in dropped_lease_ids,
             ),
         )
         for work_item in work_items
@@ -509,7 +518,7 @@ def _hierarchy_match_sql(
     parameters: dict[str, object] = {}
     if filters.status == "active":
         conditions.append(
-            "candidate.status = 'open' AND EXISTS ("
+            "candidate.status = 'pending' AND EXISTS ("
             "SELECT 1 FROM work_leases AS filter_lease "
             "WHERE filter_lease.work_item_id = candidate.id "
             "AND filter_lease.expires_at > clock_timestamp()"
@@ -517,10 +526,17 @@ def _hierarchy_match_sql(
         )
     elif filters.status == "dropped":
         conditions.append(
-            "candidate.status = 'open' AND EXISTS ("
+            "candidate.status = 'pending' AND EXISTS ("
             "SELECT 1 FROM work_leases AS filter_lease "
             "WHERE filter_lease.work_item_id = candidate.id "
             "AND filter_lease.expires_at <= clock_timestamp()"
+            ")"
+        )
+    elif filters.status == "pending":
+        conditions.append(
+            "candidate.status = 'pending' AND NOT EXISTS ("
+            "SELECT 1 FROM work_leases AS filter_lease "
+            "WHERE filter_lease.work_item_id = candidate.id"
             ")"
         )
     elif filters.status != "all":

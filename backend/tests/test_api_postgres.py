@@ -271,13 +271,19 @@ def test_work_list_sort_orders_flat_and_hierarchy_pages(api, project, work_paylo
         assert ordered_ids(view, "priority") == [second["id"], first["id"]]
 
 
-def test_active_and_dropped_filters_derive_open_lease_state(
+def test_active_and_dropped_filters_derive_pending_lease_state(
     api, project, work_payload, postgres_engine
 ):
     unleased = save(api, project, work_payload)["work_item"]
     active = save(api, project, work_payload)["work_item"]
     dropped = save(api, project, work_payload)["work_item"]
+    deferred = save(api, project, work_payload)["work_item"]
     promoted = save(api, project, work_payload, status="promoted")["work_item"]
+    deferred_response = api.post(
+        f"{path(project, deferred)}/defer",
+        json={"expected_version": 1},
+    )
+    assert deferred_response.status_code == 200, deferred_response.text
 
     for item, request_id in ((active, "active-claim"), (dropped, "dropped-claim")):
         response = api.post(
@@ -311,13 +317,18 @@ def test_active_and_dropped_filters_derive_open_lease_state(
 
     assert filtered_ids("active") == {active["id"]}
     assert filtered_ids("dropped") == {dropped["id"]}
-    assert filtered_ids("open") == {unleased["id"], active["id"], dropped["id"]}
+    assert filtered_ids("pending") == {unleased["id"]}
+    assert filtered_ids("deferred") == {deferred["id"]}
     assert filtered_ids("all") == {
         unleased["id"],
         active["id"],
         dropped["id"],
+        deferred["id"],
         promoted["id"],
     }
+    dropped_result = api.get(path(project), params={"status": "dropped"}).json()["items"][0]
+    assert dropped_result["readiness"]["has_dropped_lease"] is True
+    assert dropped_result["readiness"]["display_state"] == "dropped"
 
 
 def test_edit_refreshes_search_vector(api, project, work_payload):

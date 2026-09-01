@@ -10,6 +10,7 @@ const WORK_RELATIONSHIPS = new RegExp(`^projects/${UUID}/work-items/${UUID}/rela
 const RELATIONSHIPS = new RegExp(`^projects/${UUID}/relationships$`);
 const RELATIONSHIP = new RegExp(`^projects/${UUID}/relationships/${UUID}$`);
 const WORK_COMPLETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/complete$`);
+const WORK_DEFER = new RegExp(`^projects/${UUID}/work-items/${UUID}/defer$`);
 const WORK_DELETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/delete$`);
 const WORK_EVENTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/events$`);
 const LEASE_CAPABILITY = new RegExp(`^projects/${UUID}/work-items/${UUID}/(?:claim|claim-and-recall|renew-claim|release-claim)$`);
@@ -57,6 +58,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     if (method === "POST") return [];
   }
   if (WORK_COMPLETE.test(path) && method === "POST") return [];
+  if (WORK_DEFER.test(path) && method === "POST") return [];
   if (WORK_DELETE.test(path) && method === "POST") return [];
   return null;
 }
@@ -189,9 +191,19 @@ export function invalidMutationBody(path: string, method: string, value: unknown
     if (
       !allowedKeys(body, ["expected_version", "title", "summary", "priority", "status", "actor"])
       || !("expected_version" in body)
+      || body.status === "deferred"
       || ("actor" in body && !validActor(body.actor))
     ) {
       return "The work-item patch does not match the dashboard allowlist.";
+    }
+  }
+  if (WORK_DEFER.test(path) && method === "POST") {
+    if (
+      !allowedKeys(body, ["expected_version", "actor"])
+      || !("expected_version" in body)
+      || ("actor" in body && !validActor(body.actor))
+    ) {
+      return "The work-item deferral does not match the dashboard allowlist.";
     }
   }
   if (PROJECT_SETTINGS.test(path) && method === "PATCH") {

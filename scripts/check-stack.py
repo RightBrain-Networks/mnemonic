@@ -131,7 +131,7 @@ async def require_event_types(
 def ready_ids(page: dict[str, Any]) -> list[str]:
     for item in page["items"]:
         require(
-            item.get("display_state") == "ready"
+            item.get("display_state") in {"pending", "dropped"}
             and "summary" not in item.get("work_item", {})
             and "current_context" not in item,
             "Ready discovery widened beyond the compact pointer contract.",
@@ -299,7 +299,7 @@ async def cleanup_synthetic_work(
         if (
             cleanup_token is None
             and claim_request_id is not None
-            and record["status"] == "open"
+            and record["status"] == "pending"
         ):
             recovered = await api.post(
                 path + "/claim",
@@ -317,7 +317,7 @@ async def cleanup_synthetic_work(
                     and typed_error_code(recovered) == "claim_request_expired",
                     "Could not recover the synthetic lease for cleanup.",
                 )
-        if cleanup_token is not None and record["status"] == "open":
+        if cleanup_token is not None and record["status"] == "pending":
             released = await api.post(
                 path + "/release-claim",
                 json={
@@ -1201,12 +1201,12 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         {
                             **terminal_identity,
                             "expected_version": terminal["version"],
-                            "changes": {"status": "open"},
+                            "changes": {"status": "pending"},
                             **mutation_actor(run_id),
                         },
                     )
                     require(
-                        terminal["status"] == "open",
+                        terminal["status"] == "pending",
                         "The terminal fixture did not reopen.",
                     )
                     await require_event_types(
@@ -1392,7 +1392,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
 
                     children = await api.get(
                         path + "/children",
-                        params={"status": "open", "limit": 100, "offset": 0},
+                        params={"status": "pending", "limit": 100, "offset": 0},
                     )
                     require(
                         children.status_code == 200
@@ -1405,7 +1405,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         f"projects/{project_id}/work-items",
                         params={
                             "view": "roots",
-                            "status": "open",
+                            "status": "pending",
                             "source_client": SYNTHETIC_CLIENT,
                             "source_session_id": run_id,
                             "limit": 100,
@@ -1489,7 +1489,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     require(
                         found["total"] == 0,
-                        "Completed work remained in default-open search.",
+                        "Completed work remained in default-Pending search.",
                     )
                     found = await tool(
                         session,
@@ -1557,12 +1557,12 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         {
                             **identity,
                             "expected_version": completion["work_item"]["version"],
-                            "changes": {"status": "open"},
+                            "changes": {"status": "pending"},
                             **mutation_actor(run_id),
                         },
                     )
                     require(
-                        reopened["status"] == "open",
+                        reopened["status"] == "pending",
                         "Completed work did not reopen through the canonical update.",
                     )
                     final_events = await require_event_types(

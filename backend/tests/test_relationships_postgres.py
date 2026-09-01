@@ -395,7 +395,7 @@ def test_blocker_readiness_claim_completion_resolution_and_active_overlap(
     assert retired.status_code == 200
     assert api.get(f"{target_endpoint}/context").json()["readiness"]["is_blocked"] is True
     reopened_from_retired = api.patch(
-        work_path(project, blocker), json={"expected_version": 2, "status": "open"}
+        work_path(project, blocker), json={"expected_version": 2, "status": "pending"}
     )
     assert reopened_from_retired.status_code == 200
     promoted = api.patch(
@@ -404,7 +404,7 @@ def test_blocker_readiness_claim_completion_resolution_and_active_overlap(
     assert promoted.status_code == 200
     assert api.get(f"{target_endpoint}/context").json()["readiness"]["is_blocked"] is True
     reopened = api.patch(
-        work_path(project, blocker), json={"expected_version": 4, "status": "open"}
+        work_path(project, blocker), json={"expected_version": 4, "status": "pending"}
     )
     assert reopened.status_code == 200
     completed_blocker = api.post(
@@ -561,7 +561,7 @@ def test_atomic_linked_creation_hierarchy_filters_and_search_ancestry(
     grandchild = grandchild_created["work_item"]
 
     roots = api.get(
-        work_collection(project), params={"view": "roots", "status": "open"}
+        work_collection(project), params={"view": "roots", "status": "pending"}
     )
     assert roots.status_code == 200, roots.text
     root_page = roots.json()
@@ -572,7 +572,7 @@ def test_atomic_linked_creation_hierarchy_filters_and_search_ancestry(
     assert root_entry["has_matching_descendants"] is True
 
     children = api.get(
-        f"{work_path(project, root)}/children", params={"status": "open"}
+        f"{work_path(project, root)}/children", params={"status": "pending"}
     ).json()
     assert children["total"] == 1
     assert children["items"][0]["summary"]["work_item"]["id"] == child["id"]

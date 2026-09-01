@@ -179,9 +179,11 @@ def event_metadata_is_safe(value: dict[str, JsonValue]) -> dict[str, JsonValue]:
 
 
 EventMetadata = Annotated[dict[str, JsonValue], AfterValidator(event_metadata_is_safe)]
-Status = Literal["open", "done", "wont-do", "promoted"]
-MutableStatus = Literal["open", "wont-do", "promoted"]
-CreateStatus = Literal["open", "wont-do", "promoted"]
+Status = Literal["pending", "deferred", "done", "wont-do", "promoted"]
+EventStatus = Literal["open", "pending", "deferred", "done", "wont-do", "promoted"]
+EventCreateStatus = Literal["open", "pending", "deferred", "wont-do", "promoted"]
+MutableStatus = Literal["pending", "wont-do", "promoted"]
+CreateStatus = Literal["pending", "wont-do", "promoted"]
 CheckpointKind = Literal["context", "progress", "completion"]
 AppendCheckpointKind = Literal["context", "progress"]
 MigrationOrigin = Literal["legacy-handoff-snapshot", "legacy-comment"]
@@ -339,7 +341,7 @@ class WorkItemCreate(APIModel):
     title: Title
     summary: Summary
     priority: Annotated[StrictInt, Field(ge=0, le=100)] = 0
-    status: CreateStatus = "open"
+    status: CreateStatus = "pending"
     initial_checkpoint: InitialCheckpointCreate
     initial_relationships: Annotated[list[InitialRelationshipCreate], Field(max_length=10)] = Field(
         default_factory=list
@@ -382,6 +384,11 @@ class WorkItemPatch(APIModel):
             if getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")
         return self
+
+
+class WorkDeferralCreate(APIModel):
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+    actor: MutationActor | None = None
 
 
 class WorkCompletionCreate(APIModel):
@@ -489,11 +496,14 @@ class Readiness(APIModel):
     lifecycle_status: Status
     is_terminal: bool
     has_active_lease: bool = False
+    has_dropped_lease: bool = False
     active_lease: LeasePublic | None = None
     unresolved_blocker_count: int = 0
     is_blocked: bool = False
     is_ready: bool
-    display_state: Literal["ready", "active", "blocked", "done", "wont-do", "promoted"]
+    display_state: Literal[
+        "pending", "active", "dropped", "blocked", "deferred", "done", "wont-do", "promoted"
+    ]
 
 
 class WorkIdentityPointer(APIModel):
@@ -563,7 +573,9 @@ class WorkSummaryMinimal(APIModel):
 
     work_item: WorkItemPointer
     checkpoint_count: int
-    display_state: Literal["ready", "active", "blocked", "done", "wont-do", "promoted"] = Field(
+    display_state: Literal[
+        "pending", "active", "dropped", "blocked", "deferred", "done", "wont-do", "promoted"
+    ] = Field(
         description="readiness.display_state; request view=full for the whole readiness object."
     )
 
@@ -623,7 +635,7 @@ class EmptyEventMetadata(APIModel):
 class WorkSnapshot(APIModel):
     title: Title
     summary: Summary
-    status: CreateStatus
+    status: EventCreateStatus
     priority: Annotated[StrictInt, Field(ge=0, le=100)]
     version: Literal[1]
 
@@ -648,8 +660,8 @@ class PriorityChange(APIModel):
 
 
 class StatusChange(APIModel):
-    before: Status
-    after: Status
+    before: EventStatus
+    after: EventStatus
 
 
 class WorkChangeSet(APIModel):
@@ -678,8 +690,8 @@ class WorkUpdatedMetadata(APIModel):
 
 
 class WorkStatusMetadata(APIModel):
-    from_status: Status
-    to_status: Status
+    from_status: EventStatus
+    to_status: EventStatus
     changes: WorkChangeSet
     work_version: Annotated[StrictInt, Field(ge=1)]
 
@@ -721,13 +733,13 @@ class RelationshipEventMetadata(APIModel):
 
 
 class WorkCompletedLiveMetadata(APIModel):
-    from_status: Literal["open"]
+    from_status: Literal["open", "pending"]
     to_status: Literal["done"]
     work_version: Annotated[StrictInt, Field(ge=1)]
 
 
 class WorkDeletedMetadata(APIModel):
-    final_status: Status
+    final_status: EventStatus
     final_version: Annotated[StrictInt, Field(ge=1)]
 
 
@@ -926,13 +938,15 @@ class WorkEventRead(APIModel):
             ):
                 raise ValueError("Lifecycle event status metadata is inconsistent")
             if self.event_type == "work_status_changed" and (
-                parsed.from_status != "open" or parsed.to_status not in {"wont-do", "promoted"}
+                parsed.from_status not in {"open", "pending"}
+                or parsed.to_status not in {"deferred", "wont-do", "promoted"}
             ):
-                raise ValueError("Status-change events must leave open work")
+                raise ValueError("Status-change events must leave pending work")
             if self.event_type == "work_reopened" and (
-                parsed.to_status != "open" or parsed.from_status == "open"
+                parsed.to_status not in {"open", "pending"}
+                or parsed.from_status in {"open", "pending"}
             ):
-                raise ValueError("Reopen events must return terminal work to open")
+                raise ValueError("Reopen events must return held or terminal work to pending")
         elif self.event_type == "work_claimed":
             metadata_type = (
                 WorkClaimedLiveMetadata if self.origin == "live" else WorkClaimedBackfillMetadata
@@ -1077,8 +1091,10 @@ class ProjectListQuery(APIModel):
 class WorkItemListQuery(APIModel):
     q: Annotated[str, StringConstraints(max_length=500), AfterValidator(no_nul)] | None = None
     semantic: bool = False
-    status: Literal["open", "active", "dropped", "done", "wont-do", "promoted", "all"] = (
-        "open"
+    status: Literal[
+        "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
+    ] = (
+        "pending"
     )
     sort: Literal["updated", "created", "priority"] = "updated"
     tag: Tag | None = None
@@ -1119,7 +1135,9 @@ class RelationshipListQuery(APIModel):
 
 
 class ChildrenListQuery(APIModel):
-    status: Literal["open", "active", "dropped", "done", "wont-do", "promoted", "all"] = "open"
+    status: Literal[
+        "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
+    ] = "pending"
     sort: Literal["updated", "created", "priority"] = "updated"
     tag: Tag | None = None
     source_client: ClientName | None = None

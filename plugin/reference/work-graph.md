@@ -28,7 +28,7 @@ Blocking does not cancel an existing lease, so `has_active_lease` and
 
 ## Ready discovery is advisory; claim is authoritative
 
-`list_ready_work` returns visible `open` work with no unresolved incoming
+`list_ready_work` returns visible `pending` work with no unresolved incoming
 blocker and no active retained lease at one database-time snapshot. Future
 gates will extend the same predicate. Its exact order is priority descending,
 creation time ascending, then ID ascending. Filters are deliberately small:
@@ -44,6 +44,13 @@ blockers, lease time, and future gates. An identical still-active claim request
 replays its original receipt even if a blocker was added after acquisition;
 this recovers the existing capability and does not make newly blocked work safe
 to continue.
+
+Pending work has not started or remains incomplete. Active and Dropped are
+derived lease states: Active has a live lease, while Dropped retains an expired
+lease so an unexpectedly terminated session remains visible. Deferred is a
+persisted, intentional human hold and never appears in ready discovery. Do not
+return Deferred work to Pending unless the current human instruction explicitly
+selects it for work.
 ## Never infer an edge
 
 Record only a fact the current authorized task or the user established.

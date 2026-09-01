@@ -11,11 +11,13 @@ from mnemonic_api.schemas import (
     CheckpointCreate,
     CompletionCheckpointCreate,
     MutationActor,
+    WorkDeferralCreate,
     WorkItemCreate,
     WorkItemPatch,
 )
 from mnemonic_api.services.leases import (
     consume_lease_for_terminal_mutation,
+    require_no_active_lease,
     validate_optional_lease_token,
 )
 from mnemonic_api.services.readiness import require_unblocked
@@ -221,10 +223,11 @@ def update_work_record(database: Session, work_item: WorkItem, payload: WorkItem
     requested_status = changes.get("status")
     if requested_status is not None and requested_status != work_item.status:
         allowed = {
-            "open": {"wont-do", "promoted"},
-            "wont-do": {"open"},
-            "promoted": {"open"},
-            "done": {"open"},
+            "pending": {"wont-do", "promoted"},
+            "deferred": {"pending"},
+            "wont-do": {"pending"},
+            "promoted": {"pending"},
+            "done": {"pending"},
         }
         if requested_status not in allowed[work_item.status]:
             raise conflict(
@@ -255,6 +258,38 @@ def update_work_record(database: Session, work_item: WorkItem, payload: WorkItem
     database.flush()
 
 
+def defer_work_record(
+    database: Session,
+    work_item: WorkItem,
+    payload: WorkDeferralCreate,
+) -> None:
+    """Apply the dashboard-only deferral transition without displacing active work."""
+    require_version(work_item, payload.expected_version)
+    if work_item.status != "pending":
+        raise conflict(
+            "invalid_status_transition",
+            "Only pending work can be deferred.",
+        )
+    require_no_active_lease(database, work_item.id)
+    before = {
+        field: getattr(work_item, field) for field in ("title", "summary", "priority", "status")
+    }
+    mutation_time = database_now(database)
+    work_item.status = "deferred"
+    work_item.version += 1
+    work_item.updated_at = mutation_time
+    database.flush()
+    stage_work_changed(
+        database,
+        work_item,
+        before=before,
+        requested_fields={"status"},
+        actor=payload.actor,
+        created_at=mutation_time,
+    )
+    database.flush()
+
+
 def complete_work_record(
     database: Session,
     work_item: WorkItem,
@@ -262,8 +297,8 @@ def complete_work_record(
     payload: CompletionCheckpointCreate,
     lease_token: str | None = None,
 ) -> Checkpoint:
-    if work_item.status != "open":
-        raise conflict("work_not_open", "Only open work can be completed.")
+    if work_item.status != "pending":
+        raise conflict("work_not_pending", "Only pending work can be completed.")
     require_version(work_item, expected_version)
     require_unblocked(database, work_item.id)
     consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
@@ -278,7 +313,7 @@ def complete_work_record(
         database,
         work_item,
         checkpoint,
-        from_status="open",
+        from_status="pending",
     )
     database.flush()
     return checkpoint

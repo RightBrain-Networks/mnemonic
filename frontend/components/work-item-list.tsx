@@ -7,11 +7,14 @@ import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import type { HierarchySummary, Page, StatusFilter, WorkSort, WorkSummary } from "@/lib/types";
 
 const WORK_PAGE_SIZE = 20;
-const filters: StatusFilter[] = ["open", "active", "dropped", "done", "wont-do", "promoted", "all"];
+const filters: StatusFilter[] = [
+  "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
+];
 const filterLabels: Record<StatusFilter, string> = {
-  open: "Open",
+  pending: "Pending",
   active: "Active",
   dropped: "Dropped",
+  deferred: "Deferred",
   done: "Done",
   "wont-do": "Won’t do",
   promoted: "Promoted",
@@ -54,6 +57,7 @@ type Props = {
   refreshKey: number;
   viewKey: string;
   copiedKey: string | null;
+  deferringId: string | null;
   onQuery: (value: string) => void;
   onToggleSemantic: () => void;
   onStatus: (status: StatusFilter) => void;
@@ -64,6 +68,7 @@ type Props = {
   onOpen: (summary: WorkSummary) => void;
   onEdit: (summary: WorkSummary) => void;
   onDelete: (summary: WorkSummary) => void;
+  onDefer: (summary: WorkSummary) => void;
   onCopyPointer: (summary: WorkSummary) => void;
   onOffset: (offset: number) => void;
 };
@@ -82,6 +87,7 @@ export default function WorkItemList({
   refreshKey,
   viewKey,
   copiedKey,
+  deferringId,
   onQuery,
   onToggleSemantic,
   onStatus,
@@ -92,6 +98,7 @@ export default function WorkItemList({
   onOpen,
   onEdit,
   onDelete,
+  onDefer,
   onCopyPointer,
   onOffset
 }: Props) {
@@ -116,7 +123,7 @@ export default function WorkItemList({
       </div>
       <div className="filter-row">
         <div className="status-filters" role="group" aria-label="Filter work items">
-          {filters.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "open" && <span className="filter-dot" />}{filterLabels[filter]}</button>)}
+          {filters.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "pending" && <span className="filter-dot" />}{filterLabels[filter]}</button>)}
         </div>
         <div className="list-meta">
           <fieldset className="sort-control">
@@ -137,7 +144,7 @@ export default function WorkItemList({
     {error && !results ? <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" type="button" onClick={onRetry}>Try again</button></div> :
       loading && !results ? <div className="card-skeletons" role="status" aria-label="Loading work items">{[1, 2, 3].map((item) => <div className="card-skeleton" key={item}><span /><span /><span /></div>)}</div> :
       results ? <>
-        {searchedQuery ? <section ref={searchMotionRef} className="work-list search-results" aria-label="Matching durable work items">{searchResults.map((item) => <div className="search-result" data-work-item-id={item.work_item.id} key={item.work_item.id}><SearchBreadcrumb summary={item} /><WorkItemCard summary={item} copied={copiedKey === `${item.work_item.id}:pointer`} onOpen={() => onOpen(item)} onEdit={() => onEdit(item)} onDelete={() => onDelete(item)} onCopyPointer={() => onCopyPointer(item)} /></div>)}</section> :
+        {searchedQuery ? <section ref={searchMotionRef} className="work-list search-results" aria-label="Matching durable work items">{searchResults.map((item) => <div className="search-result" data-work-item-id={item.work_item.id} key={item.work_item.id}><SearchBreadcrumb summary={item} /><WorkItemCard summary={item} copied={copiedKey === `${item.work_item.id}:pointer`} deferring={deferringId === item.work_item.id} onOpen={() => onOpen(item)} onEdit={() => onEdit(item)} onDelete={() => onDelete(item)} onDefer={() => onDefer(item)} onCopyPointer={() => onCopyPointer(item)} /></div>)}</section> :
           <WorkHierarchy
             items={hierarchyResults}
             status={status}
@@ -149,9 +156,11 @@ export default function WorkItemList({
             motionSnapshotSignal={refreshKey}
             motionEnabled={offset === 0}
             copiedKey={copiedKey}
+            deferringId={deferringId}
             onOpen={onOpen}
             onEdit={onEdit}
             onDelete={onDelete}
+            onDefer={onDefer}
             onCopyPointer={onCopyPointer}
             onFlatSearch={(item) => {
               if (semantic) onToggleSemantic();
@@ -159,7 +168,7 @@ export default function WorkItemList({
               onQuery(item.work_item.id);
             }}
           />}
-        {!results.items.length && <section className="empty-state"><div className="empty-art"><Icon name={searchedQuery ? "search" : "box"} size={31} /><span /></div><h2>{searchedQuery ? "No matching work." : status === "open" ? "No open work yet." : status === "all" ? "No work yet." : `No ${filterLabels[status].toLowerCase()} work.`}</h2><p>{searchedQuery ? "Try another phrase or search across all lifecycle states." : "Create a durable objective here, or ask a connected agent to create one with its first checkpoint."}</p>{searchedQuery || status !== "open" ? <button type="button" className="button button-secondary" onClick={onClearFilters}>Clear filters</button> : <button type="button" className="button button-primary" onClick={onCreate}><Icon name="plus" size={16} />Create work</button>}</section>}
+        {!results.items.length && <section className="empty-state"><div className="empty-art"><Icon name={searchedQuery ? "search" : "box"} size={31} /><span /></div><h2>{searchedQuery ? "No matching work." : status === "pending" ? "No pending work yet." : status === "all" ? "No work yet." : `No ${filterLabels[status].toLowerCase()} work.`}</h2><p>{searchedQuery ? "Try another phrase or search across all lifecycle states." : "Create a durable objective here, or ask a connected agent to create one with its first checkpoint."}</p>{searchedQuery || status !== "pending" ? <button type="button" className="button button-secondary" onClick={onClearFilters}>Clear filters</button> : <button type="button" className="button button-primary" onClick={onCreate}><Icon name="plus" size={16} />Create work</button>}</section>}
       </> : null}
 
     {results && results.total > 0 && <nav className="pagination" aria-label="Work result pages"><span>Showing {offset + 1}–{Math.min(offset + results.items.length, results.total)} of {results.total}</span><div><button type="button" className="button button-secondary" disabled={loading || offset === 0} onClick={() => onOffset(Math.max(0, offset - WORK_PAGE_SIZE))}><Icon name="back" size={15} />Previous</button><button type="button" className="button button-secondary" disabled={loading || offset + results.items.length >= results.total} onClick={() => onOffset(offset + WORK_PAGE_SIZE)}>Next<Icon name="arrow" size={15} /></button></div></nav>}

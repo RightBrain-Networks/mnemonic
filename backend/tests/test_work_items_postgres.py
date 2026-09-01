@@ -86,7 +86,7 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
     initial = created["initial_checkpoint"]
     assert created["initial_relationships"] == []
     assert work_item["priority"] == 30
-    assert work_item["status"] == "open"
+    assert work_item["status"] == "pending"
     assert work_item["version"] == 1
     assert work_item["initial_checkpoint_id"] == initial["id"]
     assert initial["work_item_id"] == work_item["id"]
@@ -108,14 +108,15 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
     assert "source_metadata" not in summary["current_context"]
     assert summary["current_context"]["id"] == initial["id"]
     assert summary["readiness"] == {
-        "lifecycle_status": "open",
+        "lifecycle_status": "pending",
         "is_terminal": False,
         "has_active_lease": False,
+        "has_dropped_lease": False,
         "active_lease": None,
         "unresolved_blocker_count": 0,
         "is_blocked": False,
         "is_ready": True,
-        "display_state": "ready",
+        "display_state": "pending",
     }
 
     context = api.get(f"{item_path(project, work_item)}/context").json()
@@ -156,7 +157,7 @@ def test_minimal_view_returns_only_choosing_fields(api, project, work_payload):
             "updated_at": work_item["updated_at"],
         },
         "checkpoint_count": 1,
-        "display_state": "ready",
+        "display_state": "pending",
     }
 
     # The dashboard shape is unchanged and remains the REST default.
@@ -297,9 +298,9 @@ def test_lifecycle_versions_typed_errors_and_soft_delete(api, project, work_payl
         },
     )
     assert completed.status_code == 409
-    assert completed.json()["detail"]["code"] == "work_not_open"
+    assert completed.json()["detail"]["code"] == "work_not_pending"
 
-    reopened = api.patch(endpoint, json={"expected_version": 2, "status": "open"})
+    reopened = api.patch(endpoint, json={"expected_version": 2, "status": "pending"})
     assert reopened.status_code == 200
     assert reopened.json()["version"] == 3
     stale = api.patch(endpoint, json={"expected_version": 2, "title": "Stale"})
@@ -334,10 +335,10 @@ def test_lifecycle_versions_typed_errors_and_soft_delete(api, project, work_payl
         },
     )
     assert repeated.status_code == 409
-    assert repeated.json()["detail"]["code"] == "work_not_open"
+    assert repeated.json()["detail"]["code"] == "work_not_pending"
     assert api.patch(endpoint, json={"expected_version": 4, "status": "wont-do"}).status_code == 409
 
-    reopened = api.patch(endpoint, json={"expected_version": 4, "status": "open"})
+    reopened = api.patch(endpoint, json={"expected_version": 4, "status": "pending"})
     assert reopened.status_code == 200
     history = api.get(f"{endpoint}/checkpoints").json()
     assert any(row["kind"] == "completion" for row in history["items"])
@@ -351,6 +352,93 @@ def test_lifecycle_versions_typed_errors_and_soft_delete(api, project, work_payl
     }
     assert api.get(endpoint).status_code == 404
     assert api.get(collection(project), params={"status": "all"}).json()["total"] == 0
+
+
+def test_deferral_is_dedicated_nonterminal_and_excluded_from_agent_claims(
+    api, project, work_payload
+):
+    work_item = create_work(api, project, work_payload)["work_item"]
+    endpoint = item_path(project, work_item)
+    actor = {
+        "actor_client": "dashboard",
+        "actor_session_id": "human-deferral",
+    }
+
+    ordinary_patch = api.patch(
+        endpoint,
+        json={"expected_version": 1, "status": "deferred", "actor": actor},
+    )
+    assert ordinary_patch.status_code == 422
+    stale = api.post(
+        f"{endpoint}/defer",
+        json={"expected_version": 2, "actor": actor},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "version_conflict"
+
+    deferred = api.post(
+        f"{endpoint}/defer",
+        json={"expected_version": 1, "actor": actor},
+    )
+    assert deferred.status_code == 200, deferred.text
+    assert deferred.json()["status"] == "deferred"
+    assert deferred.json()["version"] == 2
+    context = api.get(f"{endpoint}/context").json()
+    assert context["readiness"]["lifecycle_status"] == "deferred"
+    assert context["readiness"]["is_terminal"] is False
+    assert context["readiness"]["is_ready"] is False
+    assert context["readiness"]["display_state"] == "deferred"
+    assert api.get(collection(project)).json()["total"] == 0
+    assert api.get(collection(project), params={"status": "deferred"}).json()["total"] == 1
+    assert api.get(f"/api/v1/projects/{project['id']}/ready-work").json()["total"] == 0
+
+    claim = api.post(
+        f"{endpoint}/claim",
+        json={
+            "holder_client": "claude-code",
+            "holder_session_id": "autonomous-session",
+            "claim_request_id": "deferred-autonomous-claim",
+        },
+    )
+    assert claim.status_code == 409
+    assert claim.json()["detail"]["code"] == "work_not_pending"
+    completion = api.post(
+        f"{endpoint}/complete",
+        json={
+            "expected_version": 2,
+            "checkpoint": {
+                "prompt": "Deferred work cannot be completed.",
+                "source_client": "claude-code",
+                "source_session_id": "deferred-completion",
+            },
+        },
+    )
+    assert completion.status_code == 409
+    assert completion.json()["detail"]["code"] == "work_not_pending"
+
+    pending = api.patch(
+        endpoint,
+        json={"expected_version": 2, "status": "pending", "actor": actor},
+    )
+    assert pending.status_code == 200, pending.text
+    assert pending.json()["version"] == 3
+    assert api.get(collection(project)).json()["total"] == 1
+
+    claimed = api.post(
+        f"{endpoint}/claim",
+        json={
+            "holder_client": "claude-code",
+            "holder_session_id": "directed-session",
+            "claim_request_id": "directed-claim",
+        },
+    )
+    assert claimed.status_code == 200, claimed.text
+    active_defer = api.post(
+        f"{endpoint}/defer",
+        json={"expected_version": 3, "actor": actor},
+    )
+    assert active_defer.status_code == 409
+    assert active_defer.json()["detail"]["code"] == "lease_held"
 
 
 def test_checkpoint_contract_is_append_only_and_validates_lease_fields(

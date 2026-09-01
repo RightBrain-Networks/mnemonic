@@ -23,7 +23,7 @@ async function createFixtureWork(
     data: {
       title,
       summary: "Disposable Phase 5 browser acceptance fixture.",
-      status: "open",
+      status: "pending",
       priority: 17,
       initial_checkpoint: {
         prompt: `Initial context for ${title}.`,
@@ -97,7 +97,7 @@ test("activity is live, safe text, actor-attributed, and usable at both viewport
       data: {
         title,
         summary: "Disposable work-event dashboard acceptance fixture.",
-        status: "open",
+        status: "pending",
         priority: 42,
         initial_checkpoint: {
           prompt: `Initial checkpoint text must stay out of activity rows for ${suffix}.`,
@@ -114,7 +114,7 @@ test("activity is live, safe text, actor-attributed, and usable at both viewport
       data: {
         title: counterpartTitle,
         summary: "Counterpart used to verify actor-bearing relationship removal.",
-        status: "open",
+        status: "pending",
         priority: 1,
         initial_checkpoint: {
           prompt: `Counterpart context for ${suffix}.`,

@@ -7,9 +7,10 @@ export const dashboardStorageKeys = {
 } as const;
 
 const statusFilters = new Set<StatusFilter>([
-  "open",
+  "pending",
   "active",
   "dropped",
+  "deferred",
   "done",
   "wont-do",
   "promoted",
@@ -18,7 +19,8 @@ const statusFilters = new Set<StatusFilter>([
 const workSorts = new Set<WorkSort>(["updated", "created", "priority"]);
 
 export function dashboardStatusPreference(value: string | null): StatusFilter {
-  return statusFilters.has(value as StatusFilter) ? value as StatusFilter : "open";
+  if (value === "open") return "pending";
+  return statusFilters.has(value as StatusFilter) ? value as StatusFilter : "pending";
 }
 
 export function dashboardSortPreference(value: string | null): WorkSort {

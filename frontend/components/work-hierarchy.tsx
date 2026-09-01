@@ -13,9 +13,11 @@ export const CHILD_PAGE_SIZE = 50;
 
 type Actions = {
   copiedKey: string | null;
+  deferringId: string | null;
   onOpen: (summary: WorkSummary) => void;
   onEdit: (summary: WorkSummary) => void;
   onDelete: (summary: WorkSummary) => void;
+  onDefer: (summary: WorkSummary) => void;
   onCopyPointer: (summary: WorkSummary) => void;
   onFlatSearch: (summary: WorkSummary) => void;
 };
@@ -152,9 +154,11 @@ function HierarchyBranch(props: BranchProps) {
         <WorkItemCard
           summary={summary}
           copied={props.copiedKey === `${id}:pointer`}
+          deferring={props.deferringId === id}
           onOpen={() => props.onOpen(summary)}
           onEdit={() => props.onEdit(summary)}
           onDelete={() => props.onDelete(summary)}
+          onDefer={() => props.onDefer(summary)}
           onCopyPointer={() => props.onCopyPointer(summary)}
         />
       </div>

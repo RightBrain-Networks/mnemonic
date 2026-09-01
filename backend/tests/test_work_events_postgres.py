@@ -57,7 +57,7 @@ def test_event_emission_replay_progress_reads_and_bounded_recall(api, project, w
     assert creation["metadata"]["initial"] == {
         "title": work_item["title"],
         "summary": work_item["summary"],
-        "status": "open",
+        "status": "pending",
         "priority": work_item["priority"],
         "version": 1,
     }

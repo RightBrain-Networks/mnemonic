@@ -15,9 +15,10 @@ test("dashboard preferences use stable local-storage keys", () => {
 });
 
 test("dashboard preferences restore valid status and sort selections", () => {
-  for (const status of ["open", "active", "dropped", "done", "wont-do", "promoted", "all"]) {
+  for (const status of ["pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"]) {
     assert.equal(dashboardStatusPreference(status), status);
   }
+  assert.equal(dashboardStatusPreference("open"), "pending");
   for (const sort of ["updated", "created", "priority"]) {
     assert.equal(dashboardSortPreference(sort), sort);
   }
@@ -25,7 +26,7 @@ test("dashboard preferences restore valid status and sort selections", () => {
 
 test("missing or invalid preferences fall back to dashboard defaults", () => {
   for (const value of [null, "", "closed", "UPDATED"]) {
-    assert.equal(dashboardStatusPreference(value), "open");
+    assert.equal(dashboardStatusPreference(value), "pending");
     assert.equal(dashboardSortPreference(value), "updated");
   }
 });

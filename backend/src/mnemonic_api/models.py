@@ -81,7 +81,10 @@ class WorkItem(Base):
     __table_args__ = (
         CheckConstraint("length(btrim(title)) > 0", name="title_nonblank"),
         CheckConstraint("length(btrim(summary)) > 0", name="summary_nonblank"),
-        CheckConstraint("status IN ('open', 'done', 'wont-do', 'promoted')", name="status_valid"),
+        CheckConstraint(
+            "status IN ('pending', 'deferred', 'done', 'wont-do', 'promoted')",
+            name="status_valid",
+        ),
         CheckConstraint("priority BETWEEN 0 AND 100", name="priority_range"),
         CheckConstraint("version >= 1", name="version_positive"),
         UniqueConstraint("project_id", "id", name="uq_work_items_project_id_id"),
@@ -107,7 +110,7 @@ class WorkItem(Base):
             text("priority DESC"),
             text("created_at ASC"),
             text("id ASC"),
-            postgresql_where=text("deleted_at IS NULL AND status = 'open'"),
+            postgresql_where=text("deleted_at IS NULL AND status = 'pending'"),
         ),
         Index("ix_work_items_search_vector", "search_vector", postgresql_using="gin"),
     )
@@ -116,7 +119,7 @@ class WorkItem(Base):
     project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id", ondelete="RESTRICT"))
     title: Mapped[str] = mapped_column(String(200))
     summary: Mapped[str] = mapped_column(String(1000))
-    status: Mapped[str] = mapped_column(String(20), default="open", server_default="open")
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
     priority: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
     initial_checkpoint_id: Mapped[UUID] = mapped_column()
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")

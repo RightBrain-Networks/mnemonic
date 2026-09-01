@@ -64,7 +64,7 @@ export default function WorkItemDetail(props: Props) {
   const { context } = props;
   if (props.mode === "edit" && props.editDraft) {
     return <>
-      <div className="detail-topline"><StatusBadge status={context.work_item.status} /><OperationalBadge readiness={context.readiness} /><span>Version {context.work_item.version}</span><span>Priority {context.work_item.priority}</span></div>
+      <div className="detail-topline"><StatusBadge status={context.work_item.status} readiness={context.readiness} /><OperationalBadge readiness={context.readiness} /><span>Version {context.work_item.version}</span><span>Priority {context.work_item.priority}</span></div>
       {context.readiness.active_lease && <ActiveLeaseSummary lease={context.readiness.active_lease} detailed />}
       <WorkItemEditor work={context.work_item} draft={props.editDraft} setDraft={props.setEditDraft} saving={props.editSaving} error={props.editError} conflict={props.conflict} onSubmit={props.onSaveEdits} onCancel={props.onCancelEdit} onLoadCurrent={props.onLoadCurrent} onUseCurrentVersion={props.onUseCurrentVersion} />
     </>;
@@ -79,7 +79,7 @@ export default function WorkItemDetail(props: Props) {
     readiness: context.readiness
   };
   return <>
-    <div className="detail-topline"><StatusBadge status={context.work_item.status} /><OperationalBadge readiness={context.readiness} /><span>Version {context.work_item.version}</span><span>Priority {context.work_item.priority}</span></div>
+    <div className="detail-topline"><StatusBadge status={context.work_item.status} readiness={context.readiness} /><OperationalBadge readiness={context.readiness} /><span>Version {context.work_item.version}</span><span>Priority {context.work_item.priority}</span></div>
     <h3 className="detail-title">{context.work_item.title}</h3>
     <p className="detail-summary">{context.work_item.summary}</p>
     <div className="detail-actions">
@@ -103,7 +103,7 @@ export default function WorkItemDetail(props: Props) {
         <label className="field">Checkpoint text<textarea rows={7} maxLength={100000} value={props.checkpointBody} onChange={(event) => props.onCheckpointBody(event.target.value)} placeholder="What changed, what was learned, hazards, evidence, and useful next steps…" /><span className="field-hint">The text is stored exactly and cannot be edited or deleted.</span></label>
         <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input maxLength={200} value={props.checkpointBranch} onChange={(event) => props.onCheckpointBranch(event.target.value)} /></label><label className="field">Verified commit<input className="mono" maxLength={64} value={props.checkpointCommit} onChange={(event) => props.onCheckpointCommit(event.target.value)} /></label><label className="field">Tags <span className="optional">Comma separated</span><input value={props.checkpointTags} onChange={(event) => props.onCheckpointTags(event.target.value)} /></label></div></details>
         {props.checkpointActionError && <div className="error-notice" role="alert"><p>{props.checkpointActionError}</p></div>}
-        <div className="comment-actions"><button type="submit" className="button button-secondary" disabled={props.checkpointSaving || !props.checkpointBody.trim()}>{props.checkpointSaving ? "Saving…" : "Add checkpoint"}</button>{context.work_item.status === "open" && <button type="button" className="button button-primary" disabled={props.checkpointSaving || !props.checkpointBody.trim()} onClick={props.onComplete}>{props.checkpointSaving ? "Saving…" : "Complete with summary"}<Icon name="check" size={16} /></button>}</div>
+        <div className="comment-actions"><button type="submit" className="button button-secondary" disabled={props.checkpointSaving || !props.checkpointBody.trim()}>{props.checkpointSaving ? "Saving…" : "Add checkpoint"}</button>{context.work_item.status === "pending" && <button type="button" className="button button-primary" disabled={props.checkpointSaving || !props.checkpointBody.trim()} onClick={props.onComplete}>{props.checkpointSaving ? "Saving…" : "Complete with summary"}<Icon name="check" size={16} /></button>}</div>
       </form>
     </section>
 

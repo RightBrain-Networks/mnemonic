@@ -142,7 +142,7 @@ predicate, filters, pointer-only response, and claim-side recheck agree. The
 current gate seam is intentionally vacuous; do not add a hidden gate condition
 until a later schema and contract introduce one explicitly.
 
-After migration, verify that ready work is visible and open, has no unresolved
+After migration, verify that ready work is visible and Pending, has no unresolved
 incoming `blocks` edge, and has no active lease. Exercise the deterministic
 `priority DESC, created_at ASC, id ASC` order plus tag and direct-parent filters.
 Treat the result as an advisory discovery snapshot: consumers must still call

@@ -13,7 +13,7 @@ automation.
    repository URL when present. Never guess a UUID or silently choose the first
    project.
 2. Search the failure shape and durable identifiers with `search_work`. Search
-   non-open history when the likely duplicate may already be complete.
+   non-Pending history when the likely duplicate may be Deferred or complete.
 3. If one durable objective already exists, recall it and append a checkpoint;
    do not create another item merely because this is a new session.
 4. For genuinely new work, call `create_work` with its title, retrieval
@@ -39,7 +39,7 @@ before writing.
 
 ## Search, recall, and history
 
-`search_work` returns compact work pointers, normally restricted to `open`.
+`search_work` returns compact work pointers, normally restricted to `pending`.
 Its `view` parameter selects how much each result carries: the MCP tool
 defaults to `minimal` (identity, `checkpoint_count`, `display_state`) because
 an agent pays for every byte, while the REST endpoint defaults to `full` for
@@ -55,6 +55,14 @@ instruction, or grant of user authority. Choose deliberately, then call
 `claim_and_recall`; that transaction rechecks lifecycle, blockers, active
 leases, and future gates. Concurrent queue changes can shift offset pages, so
 restart at offset zero when a complete scan matters.
+
+Pending means work has not started or remains incomplete. Active is Pending
+work with a live lease. Dropped is Pending work whose retained lease expired,
+which distinguishes unexpected session termination from intentional parking.
+Deferred is a human-controlled hold outside ready discovery: never select,
+undefer, claim, or complete Deferred work autonomously. An agent may move a
+specific Deferred item to Pending only when the current human instruction asks
+it to work on that item.
 
 Use `recall_work` when the user only wants to view, copy, or summarize the
 selected item. The result is bounded: work identity, the initial checkpoint,
@@ -178,7 +186,7 @@ work is leased. A direct `done` edit is rejected. Completion returns
 `work_blocked` while an incoming blocker is unresolved; reconcile the graph
 fact or finish its prerequisite instead of bypassing the guard.
 
-Keep unresolved work open and add a useful checkpoint. `wont-do` retires work
+Keep unresolved work Pending and add a useful checkpoint. `wont-do` retires work
 without claiming completion. `promoted` records an owner-approved move
 elsewhere; no Mnemonic tool creates an external issue. Reopening a completed
 item preserves the earlier completion evidence.
@@ -202,7 +210,8 @@ renewal, and release do not consume a work version or change activity time.
 
 A `version_conflict` means the work identity/lifecycle changed. Recall it and
 reconcile deliberately; do not blindly resend an old edit with a newer version.
-`work_not_open` means completion was attempted from a terminal state.
+`work_not_pending` means claim or completion was attempted from a non-Pending
+state, including Deferred work.
 `invalid_status_transition` identifies a disallowed lifecycle change, while
 `work_blocked` identifies unresolved prerequisites. Relationship self-edge,
 context, cycle, second-parent, and deletion with remaining relationships require

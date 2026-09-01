@@ -246,7 +246,7 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
           <h5 id={`relationship-${label.replaceAll(" ", "-").toLowerCase()}`}>{label}</h5>
           <div>{items.map((relationship) => <article className="relationship-row" key={relationship.relationship.id}>
             <div className="relationship-counterpart">
-              <div><strong>{relationship.counterpart.title}</strong><StatusBadge status={relationship.counterpart.status} /><OperationalBadge readiness={relationship.counterpart.readiness} /></div>
+              <div><strong>{relationship.counterpart.title}</strong><StatusBadge status={relationship.counterpart.status} readiness={relationship.counterpart.readiness} /><OperationalBadge readiness={relationship.counterpart.readiness} /></div>
               <span>Added {formatDate(relationship.relationship.created_at)} by {relationship.relationship.created_by_client}</span>
               {relationship.relationship.context_checkpoint_id && <span className="mono" title={relationship.relationship.context_checkpoint_id}>Context checkpoint {relationship.relationship.context_checkpoint_id}</span>}
             </div>
@@ -266,7 +266,7 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
         {searching && <div className="relationship-search-status" role="status">Searching…</div>}
         {searchError && <div className="error-notice" role="alert"><p>{searchError}</p></div>}
         {!searching && searchedQuery && !searchPage?.items.length && !searchError && <p className="relationship-search-status">No other work items match.</p>}
-        {searchPage?.items.length ? <div className="counterpart-results" role="listbox" aria-label="Matching work items">{searchPage.items.map((result) => <button type="button" role="option" aria-selected={counterpart?.work_item.id === result.work_item.id} className={counterpart?.work_item.id === result.work_item.id ? "selected" : ""} key={result.work_item.id} onClick={() => setCounterpart(result)}><span><strong>{result.work_item.title}</strong><span>{result.work_item.summary}</span></span><StatusBadge status={result.work_item.status} /></button>)}</div> : null}
+        {searchPage?.items.length ? <div className="counterpart-results" role="listbox" aria-label="Matching work items">{searchPage.items.map((result) => <button type="button" role="option" aria-selected={counterpart?.work_item.id === result.work_item.id} className={counterpart?.work_item.id === result.work_item.id ? "selected" : ""} key={result.work_item.id} onClick={() => setCounterpart(result)}><span><strong>{result.work_item.title}</strong><span>{result.work_item.summary}</span></span><StatusBadge status={result.work_item.status} readiness={result.readiness} /></button>)}</div> : null}
 
         {counterpart && <div className="relationship-fields">
           <label className="field">Relationship type<select value={type} onChange={(event) => setType(event.target.value as RelationshipType)}>{(Object.keys(relationshipTypeLabels) as RelationshipType[]).map((value) => <option value={value} key={value}>{relationshipTypeLabels[value]}</option>)}</select></label>

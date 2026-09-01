@@ -64,8 +64,13 @@ during recall:
   continuation, ordinary in-scope work does not require repetitive confirmation.
 - `Active` identifies an expiring lease holder, not an assignee. On
   `lease_held`, report only the safe holder and expiry details and choose other
-  work or wait; never work around the lease. An expired lease restores
-  claimability without operator repair.
+  work or wait; never work around the lease. `Dropped` identifies an expired
+  retained lease and makes unexpected termination visible while restoring
+  claimability.
+- `Deferred` is an intentional human hold outside the ready queue. Never
+  undefer, claim, or complete it autonomously. Move a specifically selected
+  Deferred item to Pending only when the current human instruction asks you to
+  work on it, then claim it normally.
 - Terminal work may be recalled deliberately but is not reopened automatically.
   `promoted` does not prove an external issue exists.
 

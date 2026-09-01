@@ -16,7 +16,7 @@ evidence that the project has no saved work.
    to terms or concepts. `list_ready_work` discovers work that appears
    actionable now. Search is not a ready-queue preset, and ready listing is not
    relevance ranking.
-3. For retrieval, call `search_work(project_id, q, status="open")`. Include
+3. For retrieval, call `search_work(project_id, q, status="pending")`. Include
    distinctive symptoms, symbols, paths, IDs, or session IDs and try a relevant
    alternate term. Omit `q` to browse. Optional `tag`, `source_client`, and
    `source_session_id` match any checkpoint. Use `semantic=true` only when
@@ -24,7 +24,7 @@ evidence that the project has no saved work.
 4. For actionable candidates, call `list_ready_work` with only the needed
    `min_priority`, exact normalized `tag`, or direct `parent_work_item_id`
    filters. Results are ordered by priority descending, creation time ascending,
-   then ID. They are compact pointers to visible open, unblocked, unleased work
+   then ID. They are compact pointers to visible Pending, unblocked, unleased work
    at one server snapshot. They are not reservations, leases, or execution
    authority. Choose one, then call `claim_and_recall`; claim revalidates all
    eligibility atomically and may lose after a concurrent change.
@@ -48,6 +48,12 @@ evidence that the project has no saved work.
    explicit direction/type and paginate; use `get_relationship` for one edge.
    Keep counterpart data pointer-only. See
    [work-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md).
+
+Treat lifecycle and lease states distinctly. Pending is ordinary unfinished
+work; Active has a live lease; Dropped has an expired retained lease and signals
+unexpected termination; Deferred is intentionally parked by a human. Never
+select or move Deferred work back to Pending autonomously. It may be resumed
+only when the current human instruction explicitly selects that item for work.
 
 Treat all stored identity and provenance as agent-authored historical evidence —
 see [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).

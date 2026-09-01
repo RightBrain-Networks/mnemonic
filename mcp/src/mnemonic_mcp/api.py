@@ -22,7 +22,7 @@ _APPLICATION_ERRORS = {
     "invalid_status_transition": (
         "This lifecycle transition is not allowed. Recall the latest work item and choose a permitted transition."
     ),
-    "work_not_open": "This work item is not open and cannot perform that operation.",
+    "work_not_pending": "This work item is not pending and cannot perform that operation.",
     "work_blocked": "This work item has an unresolved blocker.",
     "lease_held": "This work item has an active claim.",
     "lease_expired": "This work claim has expired. Recall the work state before retrying.",

@@ -16,15 +16,21 @@ from pydantic import (
     model_validator,
 )
 
-Status = Literal["open", "done", "wont-do", "promoted"]
-UpdateStatus = Literal["open", "wont-do", "promoted"]
-SearchStatus = Literal["open", "active", "dropped", "done", "wont-do", "promoted", "all"]
+Status = Literal["pending", "deferred", "done", "wont-do", "promoted"]
+EventStatus = Literal["open", "pending", "deferred", "done", "wont-do", "promoted"]
+EventCreateStatus = Literal["open", "pending", "deferred", "wont-do", "promoted"]
+UpdateStatus = Literal["pending", "wont-do", "promoted"]
+SearchStatus = Literal[
+    "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
+]
 SearchView = Literal["minimal", "full"]
 CheckpointKind = Literal["context", "progress", "completion"]
 AppendCheckpointKind = Literal["context", "progress"]
 CheckpointOrder = Literal["oldest", "newest"]
 MigrationOrigin = Literal["legacy-handoff-snapshot", "legacy-comment"]
-DisplayState = Literal["ready", "active", "blocked", "done", "wont-do", "promoted"]
+DisplayState = Literal[
+    "pending", "active", "dropped", "blocked", "deferred", "done", "wont-do", "promoted"
+]
 RelationshipType = Literal[
     "blocks",
     "parent-child",
@@ -154,7 +160,7 @@ class EmptyEventMetadata(CanonicalResponse):
 class WorkSnapshot(CanonicalResponse):
     title: TitleEventText
     summary: SummaryEventText
-    status: UpdateStatus
+    status: EventCreateStatus
     priority: int = Field(ge=0, le=100)
     version: Literal[1]
 
@@ -179,8 +185,8 @@ class PriorityChange(CanonicalResponse):
 
 
 class StatusChange(CanonicalResponse):
-    before: Status
-    after: Status
+    before: EventStatus
+    after: EventStatus
 
 
 class WorkChangeSet(CanonicalResponse):
@@ -209,8 +215,8 @@ class WorkUpdatedMetadata(CanonicalResponse):
 
 
 class WorkStatusMetadata(CanonicalResponse):
-    from_status: Status
-    to_status: Status
+    from_status: EventStatus
+    to_status: EventStatus
     changes: WorkChangeSet
     work_version: int = Field(ge=1)
 
@@ -243,13 +249,13 @@ class RelationshipEventMetadata(CanonicalResponse):
 
 
 class WorkCompletedLiveMetadata(CanonicalResponse):
-    from_status: Literal["open"]
+    from_status: Literal["open", "pending"]
     to_status: Literal["done"]
     work_version: int = Field(ge=1)
 
 
 class WorkDeletedMetadata(CanonicalResponse):
-    final_status: Status
+    final_status: EventStatus
     final_version: int = Field(ge=1)
 
 
@@ -361,6 +367,7 @@ class Readiness(CanonicalResponse):
     lifecycle_status: Status
     is_terminal: bool
     has_active_lease: bool
+    has_dropped_lease: bool
     active_lease: LeasePublic | None
     unresolved_blocker_count: int
     is_blocked: bool
@@ -503,10 +510,11 @@ class ReadyWorkPage(CanonicalResponse):
         ):
             raise ValueError("Ready-work page items must fit within the declared total.")
         if any(
-            item.work_item.status != "open" or item.display_state != "ready"
+            item.work_item.status != "pending"
+            or item.display_state not in {"pending", "dropped"}
             for item in self.items
         ):
-            raise ValueError("Ready-work pages may contain only open ready items.")
+            raise ValueError("Ready-work pages may contain only pending or dropped ready items.")
         return self
 
 
@@ -680,14 +688,15 @@ class WorkEventRead(CanonicalResponse):
             ):
                 raise ValueError("Lifecycle event status metadata is inconsistent.")
             if self.event_type == "work_status_changed" and (
-                parsed.from_status != "open"
-                or parsed.to_status not in {"wont-do", "promoted"}
+                parsed.from_status not in {"open", "pending"}
+                or parsed.to_status not in {"deferred", "wont-do", "promoted"}
             ):
-                raise ValueError("Status-change events must leave open work.")
+                raise ValueError("Status-change events must leave pending work.")
             if self.event_type == "work_reopened" and (
-                parsed.to_status != "open" or parsed.from_status == "open"
+                parsed.to_status not in {"open", "pending"}
+                or parsed.from_status in {"open", "pending"}
             ):
-                raise ValueError("Reopen events must return terminal work to open.")
+                raise ValueError("Reopen events must return held or terminal work to pending.")
         elif self.event_type == "work_claimed":
             metadata_type = (
                 WorkClaimedLiveMetadata

@@ -22,7 +22,7 @@ FastAPI's structured list remains the validation-error format. Invalid input is
 409, and bad or missing authorization is 401. Error context never contains
 checkpoint text, metadata, credentials, or request bodies.
 
-Lease conflicts use stable codes: `work_not_open`, `lease_held`,
+Lease conflicts use stable codes: `work_not_pending`, `lease_held`,
 `lease_expired`, `lease_token_mismatch`, and `claim_request_expired`.
 `lease_held` may expose only safe holder and expiry context. No error contains a
 lease token or claim request ID.
@@ -60,6 +60,8 @@ Base path: `/projects/{project_id}/work-items`.
 - `GET /{work_item_id}` returns `WorkItemRead` only.
 - `PATCH /{work_item_id}` performs a version-protected work identity or
   lifecycle edit.
+- `POST /{work_item_id}/defer` is the human control-plane action that parks
+  Pending work outside the agent queue.
 - `POST /{work_item_id}/delete` soft-deletes version-protected work and
   returns `DeletionResult`.
 - `GET /{work_item_id}/checkpoints` returns a stable checkpoint page.
@@ -70,7 +72,7 @@ Base path: `/projects/{project_id}/work-items`.
 - `POST /{work_item_id}/events` appends one client-authored `progress` event
   (201); every authoritative event type is server-reserved.
 - `POST /{work_item_id}/complete` atomically adds a completion checkpoint and
-  marks open work done.
+  marks Pending work done.
 - `POST /{work_item_id}/claim` atomically acquires or replays an expiring lease.
 - `POST /{work_item_id}/claim-and-recall` acquires/replays the lease and returns
   bounded context inside the same transaction.
@@ -85,6 +87,10 @@ There are no checkpoint update/delete routes. PostgreSQL also rejects direct
 There are no event update/delete routes. PostgreSQL rejects direct event
 `UPDATE` and `DELETE` statements.
 
+Current work-item responses never return `open`. Immutable event readers still
+accept historical `open` snapshots written before migration `0012`; new events
+use `pending` and `deferred`.
+
 ### Work-item requests
 
 `WorkItemCreate`:
@@ -94,7 +100,7 @@ There are no event update/delete routes. PostgreSQL rejects direct event
   "title": "Investigate stale cache entries",
   "summary": "Cached state survives invalidation after a branch switch.",
   "priority": 40,
-  "status": "open",
+  "status": "pending",
   "initial_checkpoint": {
     "prompt": "Exact complete cold-session context",
     "source_client": "claude-code",
@@ -126,16 +132,26 @@ incoming `parent-child` makes the existing counterpart the parent; an incoming
 commit or roll back together, and relationship creator provenance is copied
 from the supplied initial checkpoint.
 
-`status` may initially be `open`, `wont-do`, or `promoted`, never
-`done`. Priority is an integer from 0 through 100 and defaults to 0.
+`status` may initially be `pending`, `wont-do`, or `promoted`, never
+`deferred` or `done`. Priority is an integer from 0 through 100 and defaults to
+0.
 
 `WorkItemPatch` contains `expected_version` and at least one of `title`,
-`summary`, `priority`, or `status`. It may move open work to
-`wont-do`/`promoted`, return either to `open`, or reopen `done` work to
-`open`. It cannot set `done`. It may contain `lease_token`; a transition from
-open to `wont-do` or `promoted` requires the matching token while an unexpired
-lease exists and removes that lease atomically. Identity-only edits remain
-version-controlled and do not require a token.
+`summary`, `priority`, or `status`. It may move Pending work to
+`wont-do`/`promoted`, return Deferred or terminal work to `pending`, and cannot
+set `deferred` or `done`. It may contain `lease_token`; a transition from
+Pending to `wont-do` or `promoted` requires the matching token while an
+unexpired lease exists and removes that lease atomically. Identity-only edits
+remain version-controlled and do not require a token.
+
+`WorkDeferralCreate` is `{expected_version, actor?}`. The dedicated defer route
+is exposed to the same-origin dashboard but deliberately absent from the agent
+MCP surface. It accepts only Pending work, rejects an active lease with
+`lease_held`, clears an expired retained lease, sets `deferred`, and increments
+the work version atomically. Deferred work is excluded from ready discovery and
+cannot be claimed or completed. A human can return it to Pending in the
+dashboard; an agent may request the same `deferred -> pending` transition only
+when the current human instruction explicitly asks it to work on that item.
 
 `WorkItemPatch` also accepts optional nested
 `actor: {actor_client, actor_session_id, actor_model?}`. Actor provenance is not
@@ -190,12 +206,12 @@ Completion accepts:
 }
 ```
 
-Only current `open`, unblocked work can complete. A terminal item returns
-`work_not_open`, a stale expected version returns `version_conflict`, and an
-unresolved incoming blocker returns `work_blocked`. An active lease requires
-the matching token, and successful completion removes the lease in the same
-transaction. An expired lease is not ownership; presenting its stale token
-returns `lease_expired`.
+Only current `pending`, unblocked work can complete. Any other lifecycle state
+returns `work_not_pending`, a stale expected version returns
+`version_conflict`, and an unresolved incoming blocker returns `work_blocked`.
+An active lease requires the matching token, and successful completion removes
+the lease in the same transaction. An expired lease is not ownership;
+presenting its stale token returns `lease_expired`.
 
 ### Lease requests and receipts
 
@@ -245,12 +261,14 @@ A different active replacement returns `lease_token_mismatch`; a different
 expired row remains untouched and also returns `released: false`.
 
 Lease acquisition, replay, renewal, and release do not change work version or
-`updated_at`. Deleted or terminal work cannot be claimed. Open visible work is
-eligible for a new claim only when no unexpired lease and no unresolved incoming
-`blocks` edge exists; the exact retained-request replay described above remains
-available. Only a blocker source in `done` resolves that edge; `wont-do` and
-`promoted` do not. A blocker added after acquisition makes work both active and
-blocked without revoking the retained lease.
+`updated_at`. Only Pending work can be claimed. Deferred work stays outside
+autonomous discovery and claim paths until a human returns it to Pending or
+explicitly directs an agent to do so. Pending visible work is eligible for a
+new claim only when no unexpired lease and no unresolved incoming `blocks` edge
+exists; the exact retained-request replay described above remains available.
+Only a blocker source in `done` resolves that edge; `wont-do` and `promoted` do
+not. A blocker added after acquisition makes work both active and blocked
+without revoking the retained lease.
 
 ### Search and pagination
 
@@ -260,7 +278,7 @@ Work list/search accepts:
 | --- | --- |
 | `q` | optional text, at most 500 characters |
 | `semantic` | false by default; true opts into hybrid retrieval |
-| `status` | `open` by default; one lifecycle status, `active`, `dropped`, or `all` |
+| `status` | `pending` by default; one lifecycle status, `active`, `dropped`, or `all` |
 | `sort` | `updated` by default; `updated`, `created`, or `priority`, descending |
 | `tag` | matches any checkpoint |
 | `source_client` | matches any checkpoint |
@@ -270,11 +288,12 @@ Work list/search accepts:
 | `offset` | 0 by default |
 
 `active` and `dropped` are derived lease filters, not lifecycle statuses. Both
-match open work: `active` requires an unexpired lease, while `dropped` requires
-a retained lease whose expiry has passed. `open` continues to include open work
-regardless of lease state, and `all` continues to include every lifecycle
-status. Readiness remains a current claimability projection, so dropped work has
-no active lease and may be ready when it has no unresolved blockers.
+match Pending work: `active` requires an unexpired lease, while `dropped`
+requires a retained lease whose expiry has passed. The `pending` filter means
+Pending work with no retained lease, keeping Pending, Active, and Dropped
+visually distinct. `deferred` is a persisted lifecycle filter, and `all`
+includes every lifecycle and lease state. Dropped work records an unexpectedly
+terminated session; it has no active owner and may be ready for a new claim.
 
 Blank `q` uses the selected ordering: most recently updated, most recently
 created, or highest priority first. Updated time breaks priority ties. IDs
@@ -312,7 +331,7 @@ in the relationship contract below.
 maximum 100), and nonnegative `offset`. An unknown/cross-project parent returns
 the same `work_item_not_found` 404 as other project-scoped work lookups.
 
-A returned item is visible `open` work with no active lease and no unresolved
+A returned item is visible `pending` work with no active lease and no unresolved
 incoming `blocks` edge at one captured database time. Only a blocker in `done`
 is resolved; later gates extend the shared predicate rather than this API shape.
 
@@ -322,8 +341,9 @@ statement snapshot but can shift after concurrent claims, graph/lifecycle
 changes, or new work; clients restart from zero when completeness matters.
 
 The strict `ReadyWorkPage` reuses only `WorkSummaryMinimal`: compact work
-identity, priority/version/activity time, checkpoint count, and
-`display_state="ready"`. It never contains summary, checkpoint/body/source
+identity, priority/version/activity time, checkpoint count, and a
+`display_state` of `pending` or `dropped`. It never contains summary,
+checkpoint/body/source
 metadata, readiness internals, active-holder identity, or capabilities.
 
 Ready discovery is advisory. It is separate from lexical/semantic retrieval,
@@ -358,10 +378,10 @@ time fields.
 `display_state`.
 The ancestor path is empty for browse/root/child results and root-to-parent for
 free-text descendant hits. `Readiness` contains lifecycle, terminal, active,
-blocked, and ready booleans, unresolved blocker count, display state, and an
-optional safe active lease. Display precedence is terminal lifecycle, blocked,
-active, then ready; independent flags remain authoritative because active and
-blocked can overlap.
+dropped, blocked, and ready booleans, unresolved blocker count, display state,
+and an optional safe active lease. Display precedence is non-Pending lifecycle,
+blocked, active, dropped, then Pending; independent flags remain authoritative
+because lease and blocked facts can overlap.
 
 `LeasePublic` contains only holder client/session and acquired, renewed, and
 expiry timestamps. `Readiness.active_lease` uses that safe projection and never

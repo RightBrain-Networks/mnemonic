@@ -124,13 +124,16 @@ Keep the mutable object intentionally small.
 Possible persistent statuses:
 
 ```text
-open
+pending
+deferred
 done
 wont-do
 promoted
 ```
 
-Avoid adding `in_progress`, `blocked`, `waiting`, or similar states if they can be derived from other first-class objects.
+Avoid adding `in_progress`, `blocked`, `waiting`, or similar states if they can
+be derived from other first-class objects. `deferred` is intentionally stored:
+it records a human decision to park the item outside the work queue.
 
 ## Proposed `Handoff` / `Checkpoint`
 
@@ -233,7 +236,7 @@ It should atomically:
 This eliminates races where two agents independently discover the same ready work and both begin executing it.
 
 Phase 2 does not require dependency relationships to exist. Until Phase 3 lands,
-"unblocked" is vacuously true for every open work item. Once `blocks`
+"unblocked" is vacuously true for every Pending work item. Once `blocks`
 relationships are writable, every claim operation must re-evaluate unresolved
 blockers inside the same transaction that acquires the lease. A prior search or
 ready-work response is never sufficient authority to claim work.
@@ -251,11 +254,12 @@ ready-work response is never sufficient authority to claim work.
 Do not persist workflow states that can be derived:
 
 ```text
-ready      = open + unblocked + no active lease + no unresolved gate
-active     = open + active lease
-blocked    = open + unresolved blocking dependency
-waiting    = open + unresolved gate
-abandoned  = open + recently expired lease, if useful for UI/diagnostics
+ready      = pending + unblocked + no active lease + no unresolved gate
+active     = pending + active lease
+dropped    = pending + expired retained lease
+blocked    = pending + unresolved blocking dependency
+waiting    = pending + unresolved gate
+deferred   = persisted human hold outside the queue
 ```
 
 ## Acceptance Criteria
@@ -390,13 +394,13 @@ list_ready_work(project_id, ...)
 The result should contain work satisfying approximately:
 
 ```text
-status = open
+status = pending
 AND no unresolved blockers
 AND no active lease
 AND no unresolved gate
 ```
 
-The blocker predicate is evaluated from the Phase 3 `blocks` DAG. An open work
+The blocker predicate is evaluated from the Phase 3 `blocks` DAG. A Pending work
 item is dependency-ready when it has no incoming `blocks` edge from unresolved
 work. Implementations may use recursive PostgreSQL queries for explanations and
 transitive diagnostics, but ordinary readiness should remain a bounded,
@@ -427,7 +431,7 @@ This could atomically choose and lease a ready work item according to determinis
 
 ## Acceptance Criteria
 
-- An agent does not need to search all open work to determine what it may safely execute.
+- An agent does not need to search all Pending work to determine what it may safely execute.
 - Blocked, leased, gated, or completed items are excluded.
 - Ordering is deterministic and documented.
 

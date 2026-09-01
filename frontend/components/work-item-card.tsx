@@ -2,7 +2,8 @@ import { formatDate, formatDateTime } from "@/lib/display-time";
 import type { LeasePublic, Readiness, WorkSummary, WorkStatus } from "@/lib/types";
 
 const statusLabels: Record<WorkStatus, string> = {
-  open: "Open",
+  pending: "Pending",
+  deferred: "Deferred",
   done: "Done",
   "wont-do": "Won’t do",
   promoted: "Promoted"
@@ -18,15 +19,29 @@ function clientLabel(client: string) {
   } as Record<string, string>)[client] ?? client;
 }
 
-function StatusBadge({ status }: { status: WorkStatus }) {
-  return <span className={`status-badge status-${status}`}><span />{statusLabels[status]}</span>;
+type CardStatus = WorkStatus | "active" | "dropped";
+
+const cardStatusLabels: Record<CardStatus, string> = {
+  ...statusLabels,
+  active: "Active",
+  dropped: "Dropped"
+};
+
+function effectiveCardStatus(status: WorkStatus, readiness?: Readiness): CardStatus {
+  if (status !== "pending" || !readiness) return status;
+  if (readiness.has_active_lease) return "active";
+  if (readiness.has_dropped_lease) return "dropped";
+  return "pending";
+}
+
+function StatusBadge({ status, readiness }: { status: WorkStatus; readiness?: Readiness }) {
+  const effective = effectiveCardStatus(status, readiness);
+  return <span className={`status-badge status-${effective}`}><span />{cardStatusLabels[effective]}</span>;
 }
 
 function OperationalBadge({ readiness }: { readiness: Readiness }) {
   return <>
-    {readiness.has_active_lease && <span className="operational-badge active">Active</span>}
     {readiness.is_blocked && <span className="operational-badge blocked">Blocked</span>}
-    {readiness.is_ready && <span className="operational-badge ready">Ready</span>}
   </>;
 }
 
@@ -52,7 +67,9 @@ type Props = {
   onOpen: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onDefer: () => void;
   onCopyPointer: () => void;
+  deferring: boolean;
 };
 
 export default function WorkItemCard({
@@ -61,13 +78,15 @@ export default function WorkItemCard({
   onOpen,
   onEdit,
   onDelete,
-  onCopyPointer
+  onDefer,
+  onCopyPointer,
+  deferring
 }: Props) {
   const work = summary.work_item;
   const context = summary.current_context;
   return <article className="work-item-card">
     <div className="card-topline">
-      <StatusBadge status={work.status} />
+      <StatusBadge status={work.status} readiness={summary.readiness} />
       <OperationalBadge readiness={summary.readiness} />
       <span className="card-source">
         Current context · {clientLabel(context.source_client)}
@@ -97,6 +116,18 @@ export default function WorkItemCard({
           <span className="migration-chip">Migrated snapshot</span>}
       </div>
       <div className="card-actions">
+        {(work.status === "pending" || work.status === "deferred") && <button
+          className="button defer-button"
+          type="button"
+          disabled={deferring || summary.readiness.has_active_lease}
+          aria-label={work.status === "deferred" ? `Move ${work.title} to Pending` : `Defer ${work.title}`}
+          title={summary.readiness.has_active_lease
+            ? "Active work cannot be deferred until its lease is released or expires."
+            : work.status === "deferred"
+              ? "Return this work item to the work queue"
+              : "Hold this work item out of the work queue"}
+          onClick={onDefer}
+        >{deferring ? "Saving…" : work.status === "deferred" ? "Move to Pending" : "Defer"}</button>}
         <button className="icon-button" type="button" aria-label={`Edit ${work.title}`} title="Edit work item" onClick={onEdit}>✎</button>
         <button className="icon-button danger-hover" type="button" aria-label={`Delete ${work.title}`} title="Delete work item" onClick={onDelete}>⌫</button>
         <span className="action-divider" />

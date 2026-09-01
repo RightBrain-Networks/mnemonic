@@ -275,7 +275,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         summary: Annotated[str, Field(min_length=1, max_length=1000)],
         initial_checkpoint: CheckpointInput,
         priority: Annotated[int, Field(ge=0, le=100)] = 0,
-        status: UpdateStatus = "open",
+        status: UpdateStatus = "pending",
         initial_relationships: Annotated[
             list[InitialRelationshipInput] | None, Field(max_length=10)
         ] = None,
@@ -308,7 +308,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
     async def search_work(
         project_id: UUID,
         q: Annotated[str | None, Field(max_length=500)] = None,
-        status: SearchStatus = "open",
+        status: SearchStatus = "pending",
         semantic: bool = False,
         tag: Annotated[str | None, Field(max_length=50)] = None,
         source_client: Annotated[str | None, Field(max_length=80)] = None,
@@ -317,7 +317,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         limit: Annotated[int, Field(ge=1, le=100)] = 30,
         offset: Annotated[int, Field(ge=0)] = 0,
     ) -> WorkPage:
-        """Retrieve relevant work, open-only and lexical by default; search is never the actionable ready queue. Each result is a pointer: no checkpoint prompt bodies, and a matching checkpoint never adds a duplicate row. view="minimal" (the default here) returns only id, title, status, priority, version, updated_at, checkpoint_count, and display_state; view="full" adds the summary, a current-context pointer, full readiness, and the ancestor path. Use list_ready_work when the question is what can be claimed now. Recall one chosen item for context; do not reconstruct context from search."""
+        """Retrieve relevant work, pending-only and lexical by default; search is never the actionable ready queue. Pending excludes active and dropped leases, while explicit active, dropped, and deferred filters preserve those distinctions. Each result is a pointer: no checkpoint prompt bodies, and a matching checkpoint never adds a duplicate row. view="minimal" (the default here) returns only id, title, status, priority, version, updated_at, checkpoint_count, and display_state; view="full" adds the summary, a current-context pointer, full readiness, and the ancestor path. Use list_ready_work when the question is what can be claimed now. Recall one chosen item for context; do not reconstruct context from search."""
         params: dict[str, object | None] = {
             "q": q,
             "status": status,
@@ -519,7 +519,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         holder_session_id: Annotated[str, Field(min_length=1, max_length=200)],
         claim_request_id: Annotated[str, Field(min_length=1, max_length=200)],
     ) -> ClaimReceipt:
-        """Acquire this open work item's expiring exclusive lease for an already-authorized session. Never work around another session's active claim; choose other work or wait for expiry. Keep the returned lease_token in active-session state only, never in checkpoints, logs, or chat, and treat MCP traces carrying it as sensitive. An identical active request replays safely without extending expiry. After an unknown outcome, retry promptly with the exact same claim_request_id."""
+        """Acquire this pending work item's expiring exclusive lease for an already-authorized session. Deferred work must first be moved to pending, and only when the current human request explicitly directs that work; never choose deferred work autonomously. Never work around another session's active claim; choose other work or wait for expiry. Keep the returned lease_token in active-session state only, never in checkpoints, logs, or chat, and treat MCP traces carrying it as sensitive. An identical active request replays safely without extending expiry. After an unknown outcome, retry promptly with the exact same claim_request_id."""
         return cast(
             ClaimReceipt,
             await api.request(
@@ -542,7 +542,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         holder_session_id: Annotated[str, Field(min_length=1, max_length=200)],
         claim_request_id: Annotated[str, Field(min_length=1, max_length=200)],
     ) -> ClaimAndRecall:
-        """Atomically acquire an expiring lease and bounded context before already-authorized execution. A claim coordinates agents and grants no authority beyond the user's request. Keep the returned lease_token in active-session state only, never in checkpoints, logs, or chat. Never work around another session's active claim. After an unknown outcome, retry promptly with the exact same claim_request_id."""
+        """Atomically acquire an expiring lease and bounded context before already-authorized execution. Deferred work must first be moved to pending, and only when the current human request explicitly directs that work; never choose deferred work autonomously. A claim coordinates agents and grants no authority beyond the user's request. Keep the returned lease_token in active-session state only, never in checkpoints, logs, or chat. Never work around another session's active claim. After an unknown outcome, retry promptly with the exact same claim_request_id."""
         return cast(
             ClaimAndRecall,
             await api.request(
@@ -708,7 +708,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         actor_model: ActorModelInput | None = None,
         lease_token: LeaseTokenInput | None = None,
     ) -> WorkItemRead:
-        """Update only mutable work identity/lifecycle fields using the version just read. An active lease requires its token for a terminal lifecycle transition. Checkpoint content and provenance are immutable; correct context with a new checkpoint instead. promoted records the owner's decision only; no tool here creates an external issue."""
+        """Update only mutable work identity/lifecycle fields using the version just read. This tool cannot assign deferred; that is a human dashboard action. Move deferred work back to pending only when the current human request explicitly directs that work, never to make it autonomously claimable. An active lease requires its token for a terminal lifecycle transition. Checkpoint content and provenance are immutable; correct context with a new checkpoint instead. promoted records the owner's decision only; no tool here creates an external issue."""
         return cast(
             WorkItemRead,
             await api.request(

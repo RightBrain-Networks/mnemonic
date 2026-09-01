@@ -32,8 +32,8 @@ def checkpoint_pointer(checkpoint: Checkpoint) -> CheckpointPointer:
 
 def _summary_inputs(
     database: Session, ids: list[UUID]
-) -> tuple[dict[UUID, int], dict[UUID, int], dict[UUID, WorkLease]]:
-    """Checkpoint counts, unresolved blockers, and active leases for one page."""
+) -> tuple[dict[UUID, int], dict[UUID, int], dict[UUID, WorkLease], set[UUID]]:
+    """Checkpoint counts, blockers, active leases, and expired retained leases for one page."""
     blocker_counts = unresolved_blocker_counts(database, ids)
     counts = dict(
         database.execute(
@@ -51,7 +51,15 @@ def _summary_inputs(
             )
         )
     }
-    return counts, blocker_counts, active_leases
+    dropped_lease_ids = set(
+        database.scalars(
+            select(WorkLease.work_item_id).where(
+                WorkLease.work_item_id.in_(ids),
+                WorkLease.expires_at <= func.clock_timestamp(),
+            )
+        )
+    )
+    return counts, blocker_counts, active_leases, dropped_lease_ids
 
 
 def minimal_work_summaries(
@@ -61,7 +69,7 @@ def minimal_work_summaries(
     if not work_items:
         return []
     ids = [work_item.id for work_item in work_items]
-    counts, blocker_counts, active_leases = _summary_inputs(database, ids)
+    counts, blocker_counts, active_leases, dropped_lease_ids = _summary_inputs(database, ids)
     return [
         WorkSummaryMinimal(
             work_item=WorkItemPointer.model_validate(work_item),
@@ -70,6 +78,7 @@ def minimal_work_summaries(
                 work_item,
                 active_leases.get(work_item.id),
                 blocker_counts.get(work_item.id, 0),
+                work_item.id in dropped_lease_ids,
             ).display_state,
         )
         for work_item in work_items
@@ -80,7 +89,7 @@ def work_summaries(database: Session, work_items: Sequence[WorkItem]) -> list[Wo
     if not work_items:
         return []
     ids = [work_item.id for work_item in work_items]
-    counts, blocker_counts, active_leases = _summary_inputs(database, ids)
+    counts, blocker_counts, active_leases, dropped_lease_ids = _summary_inputs(database, ids)
     current_contexts = {
         checkpoint.work_item_id: checkpoint
         for checkpoint in database.scalars(
@@ -103,6 +112,7 @@ def work_summaries(database: Session, work_items: Sequence[WorkItem]) -> list[Wo
                 work_item,
                 active_leases.get(work_item.id),
                 blocker_counts.get(work_item.id, 0),
+                work_item.id in dropped_lease_ids,
             ),
         )
         for work_item in work_items
@@ -239,7 +249,13 @@ def assemble_work_context(
                           AND blocker_edge.project_id = relationship.project_id
                           AND blocker_edge.target_work_item_id = counterpart.id
                           AND blocker_source.status <> 'done'
-                    ) AS counterpart_blocker_count
+                    ) AS counterpart_blocker_count,
+                    EXISTS (
+                        SELECT 1
+                        FROM work_leases AS dropped_counterpart_lease
+                        WHERE dropped_counterpart_lease.work_item_id = counterpart.id
+                          AND dropped_counterpart_lease.expires_at <= database_time.now
+                    ) AS counterpart_has_dropped_lease
                 FROM adjacent_limited AS relationship
                 JOIN work_items AS counterpart
                   ON counterpart.id = relationship.counterpart_id
@@ -275,22 +291,27 @@ def assemble_work_context(
                             'status', adjacent.counterpart_status,
                             'readiness', jsonb_build_object(
                                 'lifecycle_status', adjacent.counterpart_status,
-                                'is_terminal', adjacent.counterpart_status <> 'open',
+                                'is_terminal', adjacent.counterpart_status IN (
+                                    'done', 'wont-do', 'promoted'
+                                ),
                                 'has_active_lease',
                                     adjacent.counterpart_active_lease IS NOT NULL,
+                                'has_dropped_lease',
+                                    adjacent.counterpart_has_dropped_lease,
                                 'active_lease', adjacent.counterpart_active_lease,
                                 'unresolved_blocker_count',
                                     adjacent.counterpart_blocker_count,
                                 'is_blocked', adjacent.counterpart_blocker_count > 0,
-                                'is_ready', adjacent.counterpart_status = 'open'
+                                'is_ready', adjacent.counterpart_status = 'pending'
                                     AND adjacent.counterpart_active_lease IS NULL
                                     AND adjacent.counterpart_blocker_count = 0,
                                 'display_state', CASE
-                                    WHEN adjacent.counterpart_status <> 'open'
+                                    WHEN adjacent.counterpart_status <> 'pending'
                                         THEN adjacent.counterpart_status
                                     WHEN adjacent.counterpart_blocker_count > 0 THEN 'blocked'
                                     WHEN adjacent.counterpart_active_lease IS NOT NULL THEN 'active'
-                                    ELSE 'ready'
+                                    WHEN adjacent.counterpart_has_dropped_lease THEN 'dropped'
+                                    ELSE 'pending'
                                 END
                             )
                         )
@@ -327,6 +348,12 @@ def assemble_work_context(
                         'expires_at', active_lease.expires_at
                     )
                 END AS active_lease,
+                EXISTS (
+                    SELECT 1
+                    FROM work_leases AS dropped_lease
+                    WHERE dropped_lease.work_item_id = w.id
+                      AND dropped_lease.expires_at <= database_time.now
+                ) AS has_dropped_lease,
                 (
                     SELECT count(*)
                     FROM work_relationships AS blocker_edge
@@ -475,7 +502,12 @@ def assemble_work_context(
         recent_checkpoints=recent,
         checkpoint_total=total,
         omitted_checkpoint_count=total - len(materialized_ids),
-        readiness=readiness(work_item, active_lease, blocker_count),
+        readiness=readiness(
+            work_item,
+            active_lease,
+            blocker_count,
+            bool(row["has_dropped_lease"]),
+        ),
         incoming_relationships=row["incoming_relationships"],
         outgoing_relationships=row["outgoing_relationships"],
         undirected_relationships=row["undirected_relationships"],

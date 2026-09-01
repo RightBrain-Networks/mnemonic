@@ -14,11 +14,12 @@ test("dashboard checkpoint tags are normalized, deduplicated, bounded, and order
   assert.equal(normalizedTags(Array.from({ length: 25 }, (_, index) => `tag-${index}`).join(",")).length, 20);
 });
 
-test("identity edits preserve an active session instead of presenting it as ready", () => {
+test("identity edits preserve an active session instead of presenting it as pending", () => {
   const active = {
-    lifecycle_status: "open",
+    lifecycle_status: "pending",
     is_terminal: false,
     has_active_lease: true,
+    has_dropped_lease: false,
     active_lease: {
       holder_client: "claude-code",
       holder_session_id: "session-42",
@@ -31,7 +32,7 @@ test("identity edits preserve an active session instead of presenting it as read
     is_ready: false,
     display_state: "active"
   };
-  assert.deepEqual(readinessAfterWorkSave(active, "open", "open"), active);
+  assert.deepEqual(readinessAfterWorkSave(active, "pending", "pending"), active);
 });
 
 test("successful lifecycle transitions clear lease visibility and keep blockers authoritative", () => {
@@ -39,15 +40,16 @@ test("successful lifecycle transitions clear lease visibility and keep blockers 
     lifecycle_status: "done",
     is_terminal: true,
     has_active_lease: false,
+    has_dropped_lease: false,
     active_lease: null,
     unresolved_blocker_count: 2,
     is_blocked: true,
     is_ready: false,
     display_state: "done"
   };
-  assert.deepEqual(readinessAfterWorkSave(terminal, "done", "open"), {
+  assert.deepEqual(readinessAfterWorkSave(terminal, "done", "pending"), {
     ...terminal,
-    lifecycle_status: "open",
+    lifecycle_status: "pending",
     is_terminal: false,
     is_ready: false,
     display_state: "blocked"
@@ -55,8 +57,9 @@ test("successful lifecycle transitions clear lease visibility and keep blockers 
 });
 
 test("lifecycle choices are restricted by the persisted status", () => {
-  assert.deepEqual(editableLifecycleStatuses("open"), ["open", "wont-do", "promoted"]);
-  assert.deepEqual(editableLifecycleStatuses("done"), ["done", "open"]);
-  assert.deepEqual(editableLifecycleStatuses("wont-do"), ["wont-do", "open"]);
-  assert.deepEqual(editableLifecycleStatuses("promoted"), ["promoted", "open"]);
+  assert.deepEqual(editableLifecycleStatuses("pending"), ["pending", "wont-do", "promoted"]);
+  assert.deepEqual(editableLifecycleStatuses("deferred"), ["deferred", "pending"]);
+  assert.deepEqual(editableLifecycleStatuses("done"), ["done", "pending"]);
+  assert.deepEqual(editableLifecycleStatuses("wont-do"), ["wont-do", "pending"]);
+  assert.deepEqual(editableLifecycleStatuses("promoted"), ["promoted", "pending"]);
 });

@@ -110,7 +110,7 @@ def test_lifecycle_completion_reopen_and_delete_emit_one_exact_fact(
     assert retired.status_code == 200, retired.text
     reopened = api.patch(
         endpoint,
-        json={"expected_version": 2, "status": "open", "actor": actor("lifecycle-reopened")},
+        json={"expected_version": 2, "status": "pending", "actor": actor("lifecycle-reopened")},
     )
     assert reopened.status_code == 200, reopened.text
     completed = api.post(
@@ -123,7 +123,7 @@ def test_lifecycle_completion_reopen_and_delete_emit_one_exact_fact(
         endpoint,
         json={
             "expected_version": 4,
-            "status": "open",
+            "status": "pending",
             "actor": actor("lifecycle-reopened-again"),
         },
     )
@@ -154,10 +154,10 @@ def test_lifecycle_completion_reopen_and_delete_emit_one_exact_fact(
     ]
     status_event = rows[1]
     assert status_event.event_metadata == {
-        "from_status": "open",
+        "from_status": "pending",
         "to_status": "wont-do",
         "changes": {
-            "status": {"before": "open", "after": "wont-do"},
+            "status": {"before": "pending", "after": "wont-do"},
             "summary": {
                 "before": work_item["summary"],
                 "after": "Retired with one companion change.",
@@ -169,11 +169,11 @@ def test_lifecycle_completion_reopen_and_delete_emit_one_exact_fact(
     assert len(completion_events) == 1
     assert completion_events[0].event_type == "work_completed"
     assert completion_events[0].event_metadata == {
-        "from_status": "open",
+        "from_status": "pending",
         "to_status": "done",
         "work_version": 4,
     }
-    assert rows[-1].event_metadata == {"final_status": "open", "final_version": 6}
+    assert rows[-1].event_metadata == {"final_status": "pending", "final_version": 6}
 
 
 def test_claim_replay_expired_replacement_renew_and_release_provenance(
@@ -620,7 +620,7 @@ def test_event_staging_faults_roll_back_work_lease_checkpoint_and_relationship(
             ),
         )
     retained = api.get(completed_endpoint).json()
-    assert retained["status"] == "open"
+    assert retained["status"] == "pending"
     assert retained["version"] == 1
     assert api.get(f"{completed_endpoint}/checkpoints").json()["total"] == 1
     assert api.post(

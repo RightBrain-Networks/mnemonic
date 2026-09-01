@@ -22,10 +22,10 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     blocker: `Blocking prerequisite ${suffix}`,
     secondParent: `Second parent ${suffix}`,
     promotedRoot: `Promoted ancestor ${suffix}`,
-    promotedChild: `Open promoted descendant ${suffix}`,
+    promotedChild: `Pending promoted descendant ${suffix}`,
     doneRoot: `Done ancestor ${suffix}`,
-    doneChild: `Open done descendant ${suffix}`,
-    collapsedRoot: `Collapsed open root ${suffix}`,
+    doneChild: `Pending done descendant ${suffix}`,
+    collapsedRoot: `Collapsed pending root ${suffix}`,
     collapsedChild: `Initially hidden child ${suffix}`
   };
   const client = await request.newContext({
@@ -35,7 +35,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
 
   async function createWork(
     title: string,
-    status: "open" | "wont-do" | "promoted" = "open"
+    status: "pending" | "wont-do" | "promoted" = "pending"
   ) {
     const response = await client.post(`/api/v1/projects/${state.projectId}/work-items`, {
       data: {
@@ -151,15 +151,26 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect(
       page.getByRole("button", { name: `Expand children of ${titles.collapsedRoot}` })
     ).toHaveAttribute("aria-expanded", "false");
-    await expect(grandchildCard).toHaveCount(0);
+    // The Pending filter keeps Active distinct. The Active child is therefore
+    // navigation scaffolding and auto-expands to reveal its Pending descendant.
+    await expect(grandchildCard).toHaveCount(1);
     await expect(page.locator(".result-count")).toContainText("root branch");
 
     const childChildrenPath = `/work-items/${childId}/children?`;
-    expect(childRequests.some((url) => url.includes(childChildrenPath))).toBe(false);
+    await expect.poll(() => childRequests.some(
+      (url) => url.includes(childChildrenPath) && url.includes("limit=50") && url.includes("offset=0")
+    )).toBe(true);
+    const initialChildRequestCount = childRequests.filter(
+      (url) => url.includes(childChildrenPath)
+    ).length;
     const rootPagination = await page.locator(".pagination").innerText();
+    await page.getByRole("button", { name: `Collapse children of ${titles.child}` }).click();
+    await expect(grandchildCard).toHaveCount(0);
     await page.getByRole("button", { name: `Expand children of ${titles.child}` }).click();
     await expect(grandchildCard).toHaveCount(1);
-    await expect.poll(() => childRequests.some((url) => url.includes(childChildrenPath) && url.includes("limit=50") && url.includes("offset=0"))).toBe(true);
+    await expect.poll(() => childRequests.filter(
+      (url) => url.includes(childChildrenPath)
+    ).length).toBeGreaterThan(initialChildRequestCount);
     await expect.poll(() => page.locator(".pagination").innerText()).toBe(rootPagination);
 
     await page.getByLabel("Search work items").fill(titles.grandchild);
@@ -168,11 +179,12 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect(searchResult.getByRole("navigation", { name: `Ancestry for ${titles.grandchild}` })).toContainText(titles.root);
     await expect(searchResult.getByRole("navigation", { name: `Ancestry for ${titles.grandchild}` })).toContainText(titles.child);
 
+    await page.getByRole("button", { name: "Active", exact: true }).click();
     await page.getByLabel("Search work items").fill(titles.child);
     await expect(childCard).toHaveCount(1);
     await childCard.getByRole("button", { name: titles.child, exact: true }).click();
     const detail = page.getByRole("dialog", { name: "Work context" });
-    await expect(detail.locator(".operational-badge.active")).toHaveText("Active");
+    await expect(detail.locator(".detail-topline > .status-badge")).toHaveText("Active");
     await detail.getByText("Add a relationship", { exact: true }).click();
     await detail.getByLabel("Find another work item").fill(titles.blocker);
     await detail.getByRole("option", { name: new RegExp(titles.blocker) }).click();
@@ -181,14 +193,14 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect(detail.locator(".relationship-preview")).toContainText(`${titles.blocker} blocks ${titles.child}.`);
     await detail.getByRole("button", { name: "Add relationship" }).click();
     await expect(detail.getByRole("heading", { name: "Blocked by", exact: true })).toBeVisible();
-    await expect(detail.locator(".operational-badge.active")).toHaveText("Active");
+    await expect(detail.locator(".detail-topline > .status-badge")).toHaveText("Active");
     await expect(detail.locator(".operational-badge.blocked")).toHaveText("Blocked");
 
     const blockedByHeading = detail.getByRole("heading", { name: "Blocked by", exact: true });
     const blockedByGroup = blockedByHeading.locator("xpath=..");
     await blockedByGroup.getByRole("button", { name: "Remove" }).click();
     await expect(detail.getByRole("heading", { name: "Blocked by", exact: true })).toHaveCount(0);
-    await expect(detail.locator(".operational-badge.active")).toHaveText("Active");
+    await expect(detail.locator(".detail-topline > .status-badge")).toHaveText("Active");
     await expect(detail.locator(".operational-badge.blocked")).toHaveCount(0);
 
     await detail.getByLabel("Find another work item").fill(titles.secondParent);

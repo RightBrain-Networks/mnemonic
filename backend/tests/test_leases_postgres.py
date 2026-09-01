@@ -115,7 +115,7 @@ def test_claim_replay_context_readiness_renew_release_and_no_work_activity(
     assert different_request.status_code == 409
     assert different_request.json()["detail"]["code"] == "lease_held"
 
-    summary = api.get(collection(project)).json()["items"][0]
+    summary = api.get(collection(project), params={"status": "active"}).json()["items"][0]
     assert summary["readiness"] == readiness
     assert "lease_token" not in json.dumps(summary)
 
@@ -155,6 +155,30 @@ def test_claim_replay_context_readiness_renew_release_and_no_work_activity(
     assert ready["has_active_lease"] is False
     assert ready["active_lease"] is None
     assert api.get(endpoint).json() == before
+
+
+def test_deferring_dropped_work_clears_expired_lease_before_pending_resume(
+    api, project, work_payload, postgres_engine
+):
+    work_item = create_work(api, project, work_payload)["work_item"]
+    endpoint = item_path(project, work_item)
+    claimed = api.post(f"{endpoint}/claim", json=claim_payload("dropped-before-defer"))
+    assert claimed.status_code == 200, claimed.text
+    expire_lease(postgres_engine, work_item["id"])
+
+    dropped = api.get(f"{endpoint}/context").json()["readiness"]
+    assert dropped["has_dropped_lease"] is True
+    assert dropped["display_state"] == "dropped"
+    deferred = api.post(f"{endpoint}/defer", json={"expected_version": 1})
+    assert deferred.status_code == 200, deferred.text
+    with Session(postgres_engine) as database:
+        assert database.get(WorkLease, UUID(work_item["id"])) is None
+
+    resumed = api.patch(endpoint, json={"expected_version": 2, "status": "pending"})
+    assert resumed.status_code == 200, resumed.text
+    pending = api.get(f"{endpoint}/context").json()["readiness"]
+    assert pending["has_dropped_lease"] is False
+    assert pending["display_state"] == "pending"
 
 
 def test_simultaneous_distinct_and_identical_claims_are_serialized(
@@ -445,7 +469,7 @@ def test_terminal_deleted_and_cross_project_claims_are_rejected_without_token_le
         f"{item_path(project, terminal)}/claim", json=claim_payload("terminal-request")
     )
     assert terminal_claim.status_code == 409
-    assert terminal_claim.json()["detail"]["code"] == "work_not_open"
+    assert terminal_claim.json()["detail"]["code"] == "work_not_pending"
 
     deleted = create_work(
         api,
@@ -560,7 +584,7 @@ def test_capabilities_are_body_only_and_lease_routes_reject_every_query_paramete
     replay = api.post(f"{endpoint}/claim", json=payload)
     assert replay.status_code == 200
     assert replay.json() == receipt
-    assert api.get(endpoint).json()["status"] == "open"
+    assert api.get(endpoint).json()["status"] == "pending"
 
     # Ordinary retrieval queries remain valid, and the same capability is accepted
     # once it is carried in the request body instead of the URL.

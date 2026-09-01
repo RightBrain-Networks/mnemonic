@@ -1,5 +1,7 @@
-export type WorkStatus = "open" | "done" | "wont-do" | "promoted";
-export type MutableWorkStatus = Exclude<WorkStatus, "done">;
+export type WorkStatus = "pending" | "deferred" | "done" | "wont-do" | "promoted";
+export type EventWorkStatus = "open" | WorkStatus;
+export type EventCreateWorkStatus = Exclude<EventWorkStatus, "done">;
+export type MutableWorkStatus = "pending" | "wont-do" | "promoted";
 export type StatusFilter = WorkStatus | "active" | "dropped" | "all";
 export type WorkSort = "updated" | "created" | "priority";
 export type CheckpointKind = "context" | "progress" | "completion";
@@ -73,11 +75,12 @@ export interface Readiness {
   lifecycle_status: WorkStatus;
   is_terminal: boolean;
   has_active_lease: boolean;
+  has_dropped_lease: boolean;
   active_lease: LeasePublic | null;
   unresolved_blocker_count: number;
   is_blocked: boolean;
   is_ready: boolean;
-  display_state: WorkStatus | "ready" | "active" | "blocked";
+  display_state: WorkStatus | "active" | "dropped" | "blocked";
 }
 
 export interface WorkIdentityPointer {
@@ -138,7 +141,7 @@ export type WorkEventActorKind = "client" | "unattributed";
 export interface WorkSnapshot {
   title: string;
   summary: string;
-  status: MutableWorkStatus;
+  status: EventCreateWorkStatus;
   priority: number;
   version: 1;
 }
@@ -147,7 +150,7 @@ export type WorkEventChangeSet = Partial<{
   title: { before: string; after: string };
   summary: { before: string; after: string };
   priority: { before: number; after: number };
-  status: { before: WorkStatus; after: WorkStatus };
+  status: { before: EventWorkStatus; after: EventWorkStatus };
 }>;
 
 export type WorkEventMetadata =
@@ -155,8 +158,8 @@ export type WorkEventMetadata =
   | { initial: WorkSnapshot }
   | { changes: WorkEventChangeSet; work_version: number }
   | {
-      from_status: WorkStatus;
-      to_status: WorkStatus;
+      from_status: EventWorkStatus;
+      to_status: EventWorkStatus;
       changes: WorkEventChangeSet;
       work_version: number;
     }
@@ -170,8 +173,8 @@ export type WorkEventMetadata =
   | { lease_holder_kind: "unattributed" }
   | { checkpoint_kind: "context" | "progress" }
   | { relationship_type: RelationshipType }
-  | { from_status: "open"; to_status: "done"; work_version: number }
-  | { final_status: WorkStatus; final_version: number }
+  | { from_status: "open" | "pending"; to_status: "done"; work_version: number }
+  | { final_status: EventWorkStatus; final_version: number }
   | Record<string, unknown>;
 
 export interface WorkEventRead {

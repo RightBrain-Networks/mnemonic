@@ -25,28 +25,32 @@ def readiness(
     work_item: WorkItem | WorkItemRead,
     active_lease: WorkLease | LeasePublic | None = None,
     unresolved_blocker_count: int = 0,
+    has_dropped_lease: bool = False,
 ) -> Readiness:
     """Project lifecycle, blocker, and lease facts with fixed display precedence."""
-    terminal = work_item.status != "open"
+    terminal = work_item.status in {"done", "wont-do", "promoted"}
     lease_public = LeasePublic.model_validate(active_lease) if active_lease is not None else None
     has_active_lease = lease_public is not None
     is_blocked = unresolved_blocker_count > 0
-    if terminal:
+    if work_item.status != "pending":
         display_state = work_item.status
     elif is_blocked:
         display_state = "blocked"
     elif has_active_lease:
         display_state = "active"
+    elif has_dropped_lease:
+        display_state = "dropped"
     else:
-        display_state = "ready"
+        display_state = "pending"
     return Readiness(
         lifecycle_status=work_item.status,
         is_terminal=terminal,
         has_active_lease=has_active_lease,
+        has_dropped_lease=has_dropped_lease,
         active_lease=lease_public,
         unresolved_blocker_count=unresolved_blocker_count,
         is_blocked=is_blocked,
-        is_ready=not terminal and not has_active_lease and not is_blocked,
+        is_ready=work_item.status == "pending" and not has_active_lease and not is_blocked,
         display_state=display_state,
     )
 
@@ -102,13 +106,13 @@ def gate_eligibility_clause(work_item_id: ColumnElement[UUID]) -> ColumnElement[
 class EligibilityClauses:
     """Composable facts shared by listing and fresh claim validation."""
 
-    is_open: ColumnElement[bool]
+    is_pending: ColumnElement[bool]
     has_unresolved_blocker: ColumnElement[bool]
     has_active_lease: ColumnElement[bool]
     gate_eligible: ColumnElement[bool]
 
     def eligible(self, *, include_active_lease: bool = True) -> ColumnElement[bool]:
-        clauses = [self.is_open, ~self.has_unresolved_blocker, self.gate_eligible]
+        clauses = [self.is_pending, ~self.has_unresolved_blocker, self.gate_eligible]
         if include_active_lease:
             clauses.append(~self.has_active_lease)
         return and_(*clauses)
@@ -158,7 +162,7 @@ def eligibility_clauses(
         blocker_lookup = blocker_lookup.correlate(correlate_from)
         lease_lookup = lease_lookup.correlate(correlate_from)
     return EligibilityClauses(
-        is_open=work_item_status == "open",
+        is_pending=work_item_status == "pending",
         has_unresolved_blocker=func.coalesce(blocker_lookup.scalar_subquery(), false()),
         has_active_lease=func.coalesce(lease_lookup.scalar_subquery(), false()),
         gate_eligible=gate_eligibility_clause(work_item_id),
@@ -278,6 +282,14 @@ def ready_work_page(
             projected AS (
                 SELECT
                     paged.*,
+                    EXISTS (
+                        SELECT 1
+                        FROM work_leases AS dropped_lease
+                        WHERE dropped_lease.work_item_id = paged.id
+                          AND dropped_lease.expires_at <= (
+                              SELECT database_time.now FROM database_time
+                          )
+                    ) AS has_dropped_lease,
                     (
                         SELECT count(*)
                         FROM checkpoints AS checkpoint_count
@@ -298,7 +310,10 @@ def ready_work_page(
                                 'updated_at', projected.updated_at
                             ),
                             'checkpoint_count', projected.checkpoint_count,
-                            'display_state', 'ready'
+                            'display_state', CASE
+                                WHEN projected.has_dropped_lease THEN 'dropped'
+                                ELSE 'pending'
+                            END
                         )
                         ORDER BY projected.priority DESC, projected.created_at, projected.id
                     ),

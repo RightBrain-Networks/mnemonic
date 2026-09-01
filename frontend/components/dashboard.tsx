@@ -136,7 +136,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [semantic, setSemantic] = useState(false);
-  const [status, setStatus] = useState<StatusFilter>("open");
+  const [status, setStatus] = useState<StatusFilter>("pending");
   const [sort, setSort] = useState<WorkSort>("updated");
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -181,6 +181,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [checkpointSaving, setCheckpointSaving] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<WorkItem | null>(null);
+  const [deferringId, setDeferringId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
@@ -519,12 +520,12 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           title: form.get("title"),
           summary: form.get("summary"),
           priority: Number(form.get("priority") ?? 0),
-          status: "open",
+          status: "pending",
           initial_checkpoint: initialCheckpoint
         })
       });
       setWorkDialog(false);
-      setStatus("open");
+      setStatus("pending");
       setOffset(0);
       setRefresh((value) => value + 1);
       setNotice({ message: `“${created.work_item.title}” now has its first immutable checkpoint.` });
@@ -617,7 +618,12 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       setEditError("That lifecycle transition is no longer available from the saved status.");
       return;
     }
-    if (editDraft.status !== base.status && editDraft.status !== "done") patch.status = editDraft.status;
+    if (
+      editDraft.status !== base.status
+      && ["pending", "wont-do", "promoted"].includes(editDraft.status)
+    ) {
+      patch.status = editDraft.status as WorkPatch["status"];
+    }
     if (Object.keys(patch).length === 1) { setMode("view"); return; }
     patch.actor = dashboardMutationActor(dashboardSessionId());
     setEditSaving(true);
@@ -700,6 +706,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
             lifecycle_status: "done",
             is_terminal: true,
             has_active_lease: false,
+            has_dropped_lease: false,
             active_lease: null,
             is_ready: false,
             display_state: "done"
@@ -773,6 +780,41 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       }
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function toggleDeferral(summary: WorkSummary) {
+    const work = summary.work_item;
+    if (deferringId || (work.status !== "pending" && work.status !== "deferred")) return;
+    setDeferringId(work.id);
+    try {
+      const actor = dashboardMutationActor(dashboardSessionId());
+      if (work.status === "deferred") {
+        await api<WorkItem>(workItemPath(work.project_id, work.id), {
+          method: "PATCH",
+          body: JSON.stringify({
+            expected_version: work.version,
+            status: "pending",
+            actor
+          })
+        });
+        setNotice({ message: `“${work.title}” is Pending and available in the work queue.` });
+      } else {
+        await api<WorkItem>(`${workItemPath(work.project_id, work.id)}/defer`, {
+          method: "POST",
+          body: JSON.stringify({
+            expected_version: work.version,
+            actor
+          })
+        });
+        setNotice({ message: `“${work.title}” is Deferred and held out of the work queue.` });
+      }
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      if (isVersionConflict(error)) setRefresh((value) => value + 1);
+      setNotice({ message: errorMessage(error), error: true });
+    } finally {
+      setDeferringId(null);
     }
   }
 
@@ -880,16 +922,18 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 refreshKey={refresh}
                 viewKey={listViewKey}
                 copiedKey={copied}
+                deferringId={deferringId}
                 onQuery={setQuery}
                 onToggleSemantic={() => { setSemantic((value) => !value); setOffset(0); }}
                 onStatus={(value) => { setStatus(value); setOffset(0); }}
                 onSort={(value) => { setSort(value); setOffset(0); }}
                 onRetry={() => setRefresh((value) => value + 1)}
-                onClearFilters={() => { setQuery(""); setSearch(""); setStatus("open"); setOffset(0); }}
+                onClearFilters={() => { setQuery(""); setSearch(""); setStatus("pending"); setOffset(0); }}
                 onCreate={() => setWorkDialog(true)}
                 onOpen={(item) => openWork(item)}
                 onEdit={(item) => openWork(item, true)}
                 onDelete={(item) => { setDeleteTarget(item.work_item); setDeleteError(""); }}
+                onDefer={(item) => void toggleDeferral(item)}
                 onCopyPointer={(item) => void copyRecallPointer(item)}
                 onOffset={setOffset}
               />

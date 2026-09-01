@@ -21,8 +21,8 @@ export function normalizedTags(value: string): string[] {
 }
 
 export function editableLifecycleStatuses(status: WorkStatus): WorkStatus[] {
-  if (status === "open") return ["open", "wont-do", "promoted"];
-  return [status, "open"];
+  if (status === "pending") return ["pending", "wont-do", "promoted"];
+  return [status, "pending"];
 }
 
 export function readinessAfterWorkSave(
@@ -31,24 +31,30 @@ export function readinessAfterWorkSave(
   nextStatus: WorkStatus
 ): Readiness {
   if (previousStatus === nextStatus) {
-    return { ...readiness, lifecycle_status: nextStatus, is_terminal: nextStatus !== "open" };
-  }
-  if (nextStatus === "open") {
     return {
       ...readiness,
-      lifecycle_status: "open",
+      lifecycle_status: nextStatus,
+      is_terminal: ["done", "wont-do", "promoted"].includes(nextStatus)
+    };
+  }
+  if (nextStatus === "pending") {
+    return {
+      ...readiness,
+      lifecycle_status: "pending",
       is_terminal: false,
       has_active_lease: false,
+      has_dropped_lease: false,
       active_lease: null,
       is_ready: !readiness.is_blocked,
-      display_state: readiness.is_blocked ? "blocked" : "ready"
+      display_state: readiness.is_blocked ? "blocked" : "pending"
     };
   }
   return {
     ...readiness,
     lifecycle_status: nextStatus,
-    is_terminal: true,
+    is_terminal: ["done", "wont-do", "promoted"].includes(nextStatus),
     has_active_lease: false,
+    has_dropped_lease: false,
     active_lease: null,
     is_ready: false,
     display_state: nextStatus

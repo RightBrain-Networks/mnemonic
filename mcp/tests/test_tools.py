@@ -319,9 +319,10 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     assert '"source_session_url"' not in search_work_schema
     assert tools["search_work"].inputSchema["properties"]["semantic"]["default"] is False
     assert tools["search_work"].inputSchema["properties"]["status"]["enum"] == [
-        "open",
+        "pending",
         "active",
         "dropped",
+        "deferred",
         "done",
         "wont-do",
         "promoted",
@@ -477,7 +478,7 @@ async def test_create_work_preserves_nested_checkpoint_and_returns_both_records(
             "title": work_item["title"],
             "summary": work_item["summary"],
             "priority": 7,
-            "status": "open",
+            "status": "pending",
             "initial_checkpoint": checkpoint_input,
         }
         return httpx.Response(
@@ -551,7 +552,7 @@ async def test_create_work_serializes_atomic_initial_relationships(
             "title": work_item["title"],
             "summary": work_item["summary"],
             "priority": 0,
-            "status": "open",
+            "status": "pending",
             "initial_checkpoint": checkpoint_input,
             "initial_relationships": [initial_relationship],
         }
@@ -748,7 +749,7 @@ async def test_search_work_is_open_only_and_pointer_only(settings, work_summary)
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
         assert dict(request.url.params) == {
             "q": "src/search.py",
-            "status": "open",
+            "status": "pending",
             "view": "minimal",
             "limit": "30",
             "offset": "0",
@@ -783,7 +784,7 @@ async def test_ready_work_uses_exact_query_and_strict_pointer_envelope(
             for name in ("id", "title", "status", "priority", "version", "updated_at")
         },
         "checkpoint_count": 3,
-        "display_state": "ready",
+        "display_state": "pending",
     }
 
     def handler(request):
@@ -828,7 +829,7 @@ async def test_ready_work_rejects_an_accidental_full_upstream_projection(
             for name in ("id", "title", "status", "priority", "version", "updated_at")
         },
         "checkpoint_count": 1,
-        "display_state": "ready",
+        "display_state": "pending",
         "current_context": {"prompt": "must not cross the ready pointer boundary"},
     }
 
@@ -847,7 +848,7 @@ async def test_ready_work_rejects_an_accidental_full_upstream_projection(
 
 @pytest.mark.parametrize(
     ("status", "display_state"),
-    [("done", "done"), ("open", "blocked")],
+    [("done", "done"), ("pending", "blocked")],
 )
 async def test_ready_work_rejects_non_ready_upstream_items(
     settings, work_item, status, display_state
@@ -896,7 +897,7 @@ def test_ready_work_page_rejects_invalid_envelopes(work_item, invalid_page):
             for name in ("id", "title", "status", "priority", "version", "updated_at")
         },
         "checkpoint_count": 1,
-        "display_state": "ready",
+        "display_state": "pending",
     }
     payload = {
         **invalid_page,
@@ -1009,7 +1010,7 @@ async def test_work_updated_event_allows_only_same_value_status_metadata(
         **same_status_update_event,
         "id": 44,
         "metadata": {
-            "changes": {"status": {"before": "open", "after": "done"}},
+            "changes": {"status": {"before": "pending", "after": "done"}},
             "work_version": 4,
         },
     }
@@ -1900,7 +1901,7 @@ async def test_search_defaults_to_the_minimal_view_and_can_opt_up(settings, work
             for name in ("id", "title", "status", "priority", "version", "updated_at")
         },
         "checkpoint_count": 1,
-        "display_state": "ready",
+        "display_state": "pending",
     }
     seen: list[str] = []
 
@@ -1918,7 +1919,7 @@ async def test_search_defaults_to_the_minimal_view_and_can_opt_up(settings, work
     assert set(item["work_item"]) == {
         "id", "title", "status", "priority", "version", "updated_at"
     }
-    assert item["display_state"] == "ready"
+    assert item["display_state"] == "pending"
     # No summary, no current-context pointer, no readiness object, no ancestor path.
     assert "summary" not in item["work_item"]
     assert "current_context" not in item
@@ -1929,7 +1930,7 @@ async def test_search_defaults_to_the_minimal_view_and_can_opt_up(settings, work
         await server.call_tool("search_work", {"project_id": PROJECT_ID, "view": "full"})
     )
     assert full["items"][0]["current_context"]["id"] == work_summary["current_context"]["id"]
-    assert full["items"][0]["readiness"]["display_state"] == "ready"
+    assert full["items"][0]["readiness"]["display_state"] == "pending"
     assert seen == ["minimal", "full"]
 
 
@@ -2021,7 +2022,7 @@ async def test_delete_passes_version_and_conflict_is_not_retried(settings):
     "code, expected",
     [
         ("version_conflict", "Version conflict"),
-        ("work_not_open", "not open"),
+        ("work_not_pending", "not pending"),
         ("work_blocked", "unresolved blocker"),
         ("invalid_status_transition", "lifecycle transition is not allowed"),
         ("lease_expired", "claim has expired"),

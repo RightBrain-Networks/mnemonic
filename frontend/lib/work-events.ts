@@ -1,4 +1,5 @@
 import type {
+  EventWorkStatus,
   MutationActor,
   ProgressEventInput,
   RelationshipDirection,
@@ -6,8 +7,7 @@ import type {
   WorkEventChangeSet,
   WorkEventPage,
   WorkEventRead,
-  WorkEventType,
-  WorkStatus
+  WorkEventType
 } from "@/lib/types";
 
 export const WORK_EVENT_TYPES = [
@@ -29,7 +29,9 @@ export const WORK_EVENT_TYPES = [
 
 export const EVENT_PAGE_SIZE = 20;
 
-const WORK_STATUSES = new Set<WorkStatus>(["open", "done", "wont-do", "promoted"]);
+const WORK_STATUSES = new Set<EventWorkStatus>([
+  "open", "pending", "deferred", "done", "wont-do", "promoted"
+]);
 const RELATIONSHIP_TYPES = new Set<RelationshipType>([
   "blocks",
   "parent-child",
@@ -211,8 +213,8 @@ function validEventMetadata(value: unknown): value is JsonObject {
 }
 
 
-function isStatus(value: unknown): value is WorkStatus {
-  return typeof value === "string" && WORK_STATUSES.has(value as WorkStatus);
+function isStatus(value: unknown): value is EventWorkStatus {
+  return typeof value === "string" && WORK_STATUSES.has(value as EventWorkStatus);
 }
 
 function validChangeSet(value: unknown): value is WorkEventChangeSet {
@@ -247,7 +249,9 @@ function validMetadata(eventType: WorkEventType, origin: "live" | "backfill", va
       && exactKeys(initial!, ["title", "summary", "status", "priority", "version"])
       && boundedText(initial!.title, 200)
       && boundedText(initial!.summary, 1000)
-      && ["open", "wont-do", "promoted"].includes(String(initial!.status))
+      && ["open", "pending", "deferred", "wont-do", "promoted"].includes(
+        String(initial!.status)
+      )
       && finiteInteger(initial!.priority)
       && Number(initial!.priority) <= 100
       && initial!.version === 1;
@@ -264,10 +268,10 @@ function validMetadata(eventType: WorkEventType, origin: "live" | "backfill", va
     const changes = objectValue(metadata.changes);
     const statusChange = changes ? objectValue(changes.status) : null;
     const transitionMatches = eventType === "work_reopened"
-      ? metadata.to_status === "open"
-        && ["done", "wont-do", "promoted"].includes(String(metadata.from_status))
-      : metadata.from_status === "open"
-        && ["wont-do", "promoted"].includes(String(metadata.to_status));
+      ? ["open", "pending"].includes(String(metadata.to_status))
+        && !["open", "pending"].includes(String(metadata.from_status))
+      : ["open", "pending"].includes(String(metadata.from_status))
+        && ["deferred", "wont-do", "promoted"].includes(String(metadata.to_status));
     return transitionMatches
       && exactKeys(metadata, ["from_status", "to_status", "changes", "work_version"])
       && isStatus(metadata.from_status)
@@ -324,7 +328,7 @@ function validMetadata(eventType: WorkEventType, origin: "live" | "backfill", va
     return origin === "backfill"
       ? exactKeys(metadata, [])
       : exactKeys(metadata, ["from_status", "to_status", "work_version"])
-        && metadata.from_status === "open"
+        && ["open", "pending"].includes(String(metadata.from_status))
         && metadata.to_status === "done"
         && finiteInteger(metadata.work_version, 1);
   }
