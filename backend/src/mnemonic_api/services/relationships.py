@@ -507,7 +507,23 @@ def _hierarchy_match_sql(
 ) -> tuple[str, dict[str, object]]:
     conditions = ["candidate.deleted_at IS NULL"]
     parameters: dict[str, object] = {}
-    if filters.status != "all":
+    if filters.status == "active":
+        conditions.append(
+            "candidate.status = 'open' AND EXISTS ("
+            "SELECT 1 FROM work_leases AS filter_lease "
+            "WHERE filter_lease.work_item_id = candidate.id "
+            "AND filter_lease.expires_at > clock_timestamp()"
+            ")"
+        )
+    elif filters.status == "dropped":
+        conditions.append(
+            "candidate.status = 'open' AND EXISTS ("
+            "SELECT 1 FROM work_leases AS filter_lease "
+            "WHERE filter_lease.work_item_id = candidate.id "
+            "AND filter_lease.expires_at <= clock_timestamp()"
+            ")"
+        )
+    elif filters.status != "all":
         conditions.append("candidate.status = :filter_status")
         parameters["filter_status"] = filters.status
 

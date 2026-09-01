@@ -454,6 +454,60 @@ def test_blocker_readiness_claim_completion_resolution_and_active_overlap(
     ).json()["released"] is True
 
 
+def test_hierarchy_active_filter_matches_root_and_descendant_leases(
+    api, project, work_payload
+):
+    active_root = create_work(api, project, work_payload, "Active root")["work_item"]
+    ancestor = create_work(api, project, work_payload, "Inactive ancestor")["work_item"]
+    active_child = create_work(
+        api,
+        project,
+        work_payload,
+        "Active child",
+        initial_relationships=[
+            {
+                "type": "parent-child",
+                "direction": "incoming",
+                "other_work_item_id": ancestor["id"],
+            }
+        ],
+    )["work_item"]
+
+    for work_item, session_id in (
+        (active_root, "active-root-filter"),
+        (active_child, "active-child-filter"),
+    ):
+        claimed = api.post(
+            f"{work_path(project, work_item)}/claim",
+            json=claim_payload(session_id),
+        )
+        assert claimed.status_code == 200, claimed.text
+
+    roots = api.get(
+        work_collection(project), params={"view": "roots", "status": "active"}
+    )
+    assert roots.status_code == 200, roots.text
+    root_page = roots.json()
+    assert root_page["total"] == 2
+    root_entries = {
+        entry["summary"]["work_item"]["id"]: entry for entry in root_page["items"]
+    }
+    assert set(root_entries) == {active_root["id"], ancestor["id"]}
+    assert root_entries[active_root["id"]]["self_matches_filter"] is True
+    assert root_entries[active_root["id"]]["has_matching_descendants"] is False
+    assert root_entries[ancestor["id"]]["self_matches_filter"] is False
+    assert root_entries[ancestor["id"]]["has_matching_descendants"] is True
+
+    children = api.get(
+        f"{work_path(project, ancestor)}/children", params={"status": "active"}
+    )
+    assert children.status_code == 200, children.text
+    child_page = children.json()
+    assert child_page["total"] == 1
+    assert child_page["items"][0]["summary"]["work_item"]["id"] == active_child["id"]
+    assert child_page["items"][0]["self_matches_filter"] is True
+
+
 def test_atomic_linked_creation_hierarchy_filters_and_search_ancestry(
     api, project, work_payload
 ):
