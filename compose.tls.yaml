@@ -14,4 +14,5 @@ services:
       MNEMONIC_MCP_ALLOWED_ORIGINS: 'http://localhost:${MNEMONIC_MCP_PORT:-8001},http://127.0.0.1:${MNEMONIC_MCP_PORT:-8001},https://${MNEMONIC_TLS_HOST:-mnemonic.example.com}'
   web:
     environment:
+      TIMEZONE: ${TIMEZONE:-America/Detroit}
       MNEMONIC_DASHBOARD_ORIGINS: '${MNEMONIC_DASHBOARD_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000},https://${MNEMONIC_TLS_HOST:-mnemonic.example.com}'

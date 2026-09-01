@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from "@/lib/display-time";
 import type { LeasePublic, Readiness, WorkSummary, WorkStatus } from "@/lib/types";
 
 const statusLabels: Record<WorkStatus, string> = {
@@ -6,21 +7,6 @@ const statusLabels: Record<WorkStatus, string> = {
   "wont-do": "Won’t do",
   promoted: "Promoted"
 };
-
-function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(date);
-}
-
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(date);
-}
 
 function clientLabel(client: string) {
   return ({
@@ -87,8 +73,8 @@ export default function WorkItemCard({
         Current context · {clientLabel(context.source_client)}
         <span>·</span>
         Last activity
-        <time dateTime={work.updated_at} title={new Date(work.updated_at).toLocaleString()}>
-          {formatDate(work.updated_at)}
+        <time dateTime={work.updated_at} title={formatDateTime(work.updated_at)}>
+          {formatDateTime(work.updated_at)}
         </time>
       </span>
       <span className="card-version">v{work.version}</span>

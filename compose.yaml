@@ -66,6 +66,7 @@ services:
   web:
     build: ./frontend
     environment:
+      TIMEZONE: ${TIMEZONE:-America/Detroit}
       MNEMONIC_API_URL: http://api:8000
       MNEMONIC_API_KEY: ${MNEMONIC_API_KEY}
       MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_DASHBOARD_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}

@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 
 from fastapi import Request
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -9,7 +9,7 @@ from mnemonic_api.config import Settings
 
 
 def build_engine(settings: Settings) -> Engine:
-    return create_engine(
+    engine = create_engine(
         settings.database_url.get_secret_value(),
         pool_pre_ping=True,
         pool_size=5,
@@ -18,6 +18,13 @@ def build_engine(settings: Settings) -> Engine:
         connect_args={"connect_timeout": 5},
         hide_parameters=True,
     )
+
+    @event.listens_for(engine, "connect")
+    def _ensure_utc_timezone(connection, _record) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute("SET TIME ZONE 'UTC'")
+
+    return engine
 
 
 def build_session_factory(engine: Engine) -> sessionmaker[Session]:

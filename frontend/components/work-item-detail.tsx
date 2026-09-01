@@ -1,7 +1,7 @@
 import type { FormEvent } from "react";
 import CheckpointTimeline from "@/components/checkpoint-timeline";
 import WorkEventTimeline from "@/components/work-event-timeline";
-import { ActiveLeaseSummary, OperationalBadge, StatusBadge, formatDate } from "@/components/work-item-card";
+import { ActiveLeaseSummary, OperationalBadge, StatusBadge, formatDateTime } from "@/components/work-item-card";
 import RelationshipPanel from "@/components/relationship-panel";
 import WorkItemEditor, { type WorkEditDraft } from "@/components/work-item-editor";
 import type { Checkpoint, CheckpointKind, Page, WorkContext, WorkSummary } from "@/lib/types";
@@ -108,6 +108,6 @@ export default function WorkItemDetail(props: Props) {
     </section>
 
     <CheckpointTimeline page={props.checkpointPage} offset={props.checkpointOffset} currentCheckpointId={current.id} loading={props.checkpointLoading} error={props.checkpointLoadError} onOffset={props.onCheckpointOffset} onReload={props.onReloadCheckpoints} />
-    <section className="context-section"><div className="section-label">WORK RECORD</div><dl className="metadata-grid"><div><dt>Created</dt><dd>{formatDate(context.work_item.created_at)}</dd></div><div><dt>Last activity</dt><dd>{formatDate(context.work_item.updated_at)}</dd></div><div><dt>Checkpoints</dt><dd>{context.checkpoint_total}</dd></div><div><dt>Omitted from bounded recall</dt><dd>{context.omitted_checkpoint_count}</dd></div><div className="span-two"><dt>Work item ID</dt><dd className="mono break-all">{context.work_item.id}</dd></div></dl></section>
+    <section className="context-section"><div className="section-label">WORK RECORD</div><dl className="metadata-grid"><div><dt>Created</dt><dd>{formatDateTime(context.work_item.created_at)}</dd></div><div><dt>Last activity</dt><dd>{formatDateTime(context.work_item.updated_at)}</dd></div><div><dt>Checkpoints</dt><dd>{context.checkpoint_total}</dd></div><div><dt>Omitted from bounded recall</dt><dd>{context.omitted_checkpoint_count}</dd></div><div className="span-two"><dt>Work item ID</dt><dd className="mono break-all">{context.work_item.id}</dd></div></dl></section>
   </>;
 }

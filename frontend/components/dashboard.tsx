@@ -6,6 +6,7 @@ import ProjectSettingsPanel from "@/components/project-settings";
 import WorkItemDetail from "@/components/work-item-detail";
 import WorkItemList, { WORK_PAGE_SIZE } from "@/components/work-item-list";
 import { StatusBadge, formatDate } from "@/components/work-item-card";
+import { setDisplayTimeZone } from "@/lib/display-time";
 import { draftFromWork, type WorkEditDraft } from "@/components/work-item-editor";
 import { api, errorMessage, isVersionConflict, workItemPath } from "@/lib/api";
 import { currentContext } from "@/lib/current-context";
@@ -111,7 +112,8 @@ function summaryWithContext(base: WorkSummary, context: WorkContext): WorkSummar
 
 type ContextLoadResult = "loaded" | "superseded" | "failed";
 
-export default function Dashboard({ view = "library" }: { view?: "library" | "settings" }) {
+export default function Dashboard({ view = "library", timeZone }: { view?: "library" | "settings"; timeZone?: string | null; }) {
+  setDisplayTimeZone(timeZone);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState("");
