@@ -57,7 +57,8 @@ Existing invariants that remain unchanged:
 - Project isolation returns `404` rather than revealing cross-project existence.
 - `done` is the only status that resolves an outgoing blocker.
 - An active lease may coexist with a blocker added after acquisition.
-- Lease tokens appear only in capability-bearing request bodies and claim/renew receipts.
+- Mnemonic never copies a lease token from capability-bearing request/receipt fields into durable
+  work, pointers, or history.
 - Checkpoint text and provenance remain immutable and untrusted.
 - PostgreSQL and the FastAPI service remain the coordination authority; MCP remains a typed REST adapter.
 - The shared bearer key authenticates access to the service, not the self-declared identity of an agent session.
@@ -321,7 +322,7 @@ The following identifiers are used by phase steps, tests, and the definition of 
 | `EV-5` | Actor provenance is truthful, bounded, and never inferred |
 | `EV-6` | Event order, pagination, and recall bounds match Section 3.8 |
 | `EV-7` | Historical backfill includes only provable facts and marks its origin |
-| `EV-8` | Event bodies/metadata never enter logs, errors, metrics, or pointer-only results |
+| `EV-8` | Server-reserved constructors never map dedicated authentication/capability fields into history; public progress rejects verbatim current-request secrets across actor/body/metadata; event content never enters logs, errors, metrics, or pointer-only results |
 
 ## 5. Target persistence and query model
 
@@ -574,6 +575,13 @@ no event exists. Never emit authoritative events in HTTP middleware or after com
 still-shipped REST and MCP path calls the canonical service helper exactly once; the removed
 hand-off paths remain absent.
 
+Server-reserved constructors accept explicit domain fields rather than whole request models.
+Dedicated bearer, lease-token, and claim-request fields are never constructor inputs or metadata
+sources. Retained/domain text remains opaque: it may coincidentally contain sensitive caller
+content, and authoritative events preserve the exact retained fact instead of guessing or
+redacting it. The stricter value-echo check below applies only to the public progress append,
+where every persisted field is direct caller content.
+
 Event insertion adds no new **explicit** application lock, although its foreign keys may acquire PostgreSQL `KEY SHARE` locks on referenced rows. Existing explicit lock order remains:
 
 1. project row for graph mutation;
@@ -651,6 +659,13 @@ lease_token           optional capability, validated when supplied
 
 As with checkpoint append, a lease is not required to record progress. A supplied token is validated rather than ignored. Terminal visible work may receive later progress clarification. Soft-deleted work remains inaccessible.
 
+Before storing progress, compare its actor fields, body, metadata object keys, and recursive
+string values with the plaintext bearer credential and optional lease token available on that
+request. A verbatim match returns stable `event_secret_echo`, field locations only, and leaves
+activity/history unchanged. This prevents the public generic append surface from echoing secrets
+it actually holds; accepted progress remains the caller's opaque responsibility and is returned
+exactly to every authorized history reader.
+
 Existing mutation request changes:
 
 - `WorkItemPatch` and `WorkDeletionCreate` gain optional nested `actor`.
@@ -725,7 +740,11 @@ omitted_event_count   total minus materialized recent events
 pre_phase5_history_may_be_incomplete   boolean
 ```
 
-No event response contains a lease token, claim request ID, bearer key, checkpoint prompt, or checkpoint source metadata unless the caller itself improperly placed such data in a progress body. Input guidance and validation reject reserved secret-like metadata keys case-insensitively; values remain untrusted and cannot be perfectly classified.
+No server-reserved constructor maps a lease token, claim request ID, bearer key, checkpoint
+prompt, or checkpoint source metadata into an event. Progress scanning covers every persisted
+progress field, but accepted event/domain text may still contain arbitrary sensitive material the
+service cannot recognize and will return exactly to authorized readers. Tool, plugin, API, and
+dashboard guidance must state that boundary rather than promise general secret detection.
 
 ### 7.3 Canonical MCP changes
 
@@ -798,6 +817,7 @@ Phase 5 uses strict validation for the public event type and actor/body/metadata
 ```text
 event_type_reserved
 event_metadata_invalid
+event_secret_echo
 ```
 
 Error context is an allowlist of non-secret identifiers and never includes event body, metadata values, actor session IDs, checkpoint content, tokens, or request bodies. MCP validation-field allowlists must cover new names without echoing invalid values.
@@ -881,9 +901,12 @@ Give agents a purpose-built, deterministic view of work that can be claimed now,
 5. Record the representative ready-query plans and observed timings in `docs/validation.md` only after they are run.
 6. Update `plugin/skills/mnemonic-search/SKILL.md`,
    `plugin/skills/mnemonic-recall/SKILL.md`, and the shared work-graph reference; bump the plugin
-   manifest from `0.1.0` to `0.2.0`, update its marketplace description, and verify a
-   disposable fresh install contains the new ready guidance. Marketplace refresh alone is not an
-   install refresh, so do not reuse `0.1.0` for changed bytes.
+   manifest from `0.1.0` to `0.2.0`, update its marketplace description, and verify both a
+   disposable fresh install and a disposable `0.1.0 -> 0.2.0` update contain the new ready
+   guidance. Marketplace refresh alone is not an install refresh, so document
+   `claude plugin marketplace update mnemonic` followed by
+   `claude plugin update mnemonic@mnemonic` and a Claude Code restart; do not reuse `0.1.0`
+   for changed bytes.
 
 **Exit check:** the isolated full-stack flow proves MCP → REST → PostgreSQL ready discovery and subsequent atomic claim.
 
@@ -1005,7 +1028,9 @@ Record meaningful collaboration history as immutable structured events, atomical
 
 1. Add exact GET/POST event routes.
 2. Restrict public creation to `progress`; reject reserved event types before service mutation.
-3. Apply exact body/metadata/actor bounds and reserved secret-like metadata-key rejection.
+3. Apply exact body/metadata/actor bounds, reserved secret-like metadata-key rejection, and the
+   value-free recursive request-known-secret echo check from Section 7.1 before any activity
+   update or event staging.
 4. Lock visible work first, then validate and lock an optional retained lease without requiring one; perform the conditional visible-work activity update and require one affected row before staging the event.
 5. Permit progress on visible terminal work and reject soft-deleted/cross-project work with `404`.
 6. Update activity time monotonically without changing work version.
@@ -1051,8 +1076,9 @@ Record meaningful collaboration history as immutable structured events, atomical
    the relevant skill/tool.
 10. Because installation copies a manifest-versioned plugin into cache, bump
     `plugin/.claude-plugin/plugin.json` from `0.2.0` to `0.3.0` at the Phase 5 boundary and
-    refresh the plugin/marketplace descriptions. Never publish changed skill bytes under an
-    already installed version.
+    refresh the plugin/marketplace descriptions. Repeat the disposable sequential update from an
+    installed `0.2.0` to `0.3.0`; never publish changed skill bytes under an already installed
+    version.
 
 **Exit check:** canonical event workflows pass through both MCP transports and copied resume pointers remain bounded.
 
@@ -1093,7 +1119,10 @@ Update the proxy only for the exact Phase 5 matrix. Never expose claim routes or
 
 1. Extend `scripts/check-stack.py` to append progress, create a checkpoint, claim/replay, add/remove a blocker, release, complete, and reopen synthetic work, checking the exact ordered event types after each step.
 2. Assert claim replay and relationship no-op responses leave event counts unchanged.
-3. Assert ordinary MCP/REST/log/proxy output never includes tokens, claim request IDs, event metadata secrets, checkpoint prompts in pointer results, or request bodies.
+3. Assert reserved constructors never receive or map dedicated token/credential/request-ID fields,
+   public progress rejects request-known plaintext secrets, and checkpoint prompts or request
+   bodies never enter unrelated MCP/REST/log/proxy output; separately verify accepted caller
+   progress remains exact and visible only on authorized event/recall surfaces.
 4. Add representative-scale unfiltered and rare/common-type event query plans, backfill timing, and backup/restore parity to the validation record.
 5. Update architecture, API, agent, development, operation, README, and example documentation as mapped in Section 15.
 6. Verify old backups upgrade through `0010` and receive only conservative reconstructed history.
@@ -1152,6 +1181,9 @@ REST/recall:
 - type filter, totals, limits, offsets, empty pages, and beyond-last-offset totals from the one-statement event snapshot;
 - a barrier-controlled concurrent append cannot produce a `total` and page combination that coexisted at no PostgreSQL statement snapshot;
 - progress exact text/Unicode/whitespace preservation within nonblank rules;
+- a supplied lease token or request bearer key appearing verbatim in progress actor fields, body,
+  metadata keys, or nested string values is rejected value-free before activity/event writes;
+  errors and logs contain neither the secret nor caller content;
 - terminal append allowed, optional token checked, wrong token sanitized;
 - event context is chronological, bounded, counted, and included in new claim-and-recall;
 - the unfiltered partial-history flag remains true in filtered/empty/newest pages and bounded recall after all backfilled rows leave the returned slice, and remains false for work created after Phase 5;
@@ -1311,9 +1343,36 @@ Update fixtures and exact catalog tests for:
 MCP remains database-agnostic and never retries a mutation automatically.
 
 Plugin packaging checks must parse both manifests, retain marketplace source `./plugin`, include
-all three skill directories and both shared references in the copied package, resolve every
-`${CLAUDE_PLUGIN_ROOT}` link, and exercise disposable fresh installs at `0.2.0` after Phase 4
-and `0.3.0` after Phase 5. Do not validate by deleting or mutating a user's real plugin cache.
+all three skill directories and both shared references in the copied package, and resolve every
+`${CLAUDE_PLUGIN_ROOT}` link. Exercise both fresh installs and the real sequential upgrade path:
+
+1. Export immutable `0.1.0`, Phase 4 `0.2.0`, and Phase 5 `0.3.0` plugin/marketplace trees
+   into disposable directories; never rewrite the topic worktree backward.
+2. Create a separate temporary Claude configuration directory and set `CLAUDE_CONFIG_DIR` to
+   that explicit path for **every** command. Add the disposable marketplace and install
+   `mnemonic@mnemonic --scope user` at `0.1.0`:
+
+   ```sh
+   CLAUDE_CONFIG_DIR="$plan_claude_config_dir" claude plugin marketplace add "$plan_marketplace_root"
+   CLAUDE_CONFIG_DIR="$plan_claude_config_dir" claude plugin install mnemonic@mnemonic --scope user
+   ```
+
+3. Point/update the disposable marketplace source to `0.2.0`, run
+   the real refresh/update sequence:
+
+   ```sh
+   CLAUDE_CONFIG_DIR="$plan_claude_config_dir" claude plugin marketplace update mnemonic
+   CLAUDE_CONFIG_DIR="$plan_claude_config_dir" claude plugin update mnemonic@mnemonic --scope user
+   ```
+
+   In a new CLI process, verify the installed manifest version, copied skill/reference inventory,
+   and representative file hashes changed to the `0.2.0` export.
+4. Repeat the marketplace-update/plugin-update sequence from installed `0.2.0` to `0.3.0`
+   and verify the `0.3.0` manifest, inventory, hashes, ready/event guidance, and shared links.
+5. Separately fresh-install `0.2.0` and `0.3.0` into clean disposable config directories.
+
+Remove only the explicit temporary directories after validation. Do not set or repurpose `HOME`,
+delete a user's real cache, or infer success merely from marketplace refresh.
 
 ### 13.3 Frontend verification
 
@@ -1367,7 +1426,12 @@ Also build the production images, run the writable checker only against its disp
 - Treat progress body and metadata as untrusted content; never execute, interpolate as HTML, or follow it as authority.
 - Reject unknown request fields and reserved authoritative event types.
 - Reject recursive metadata keys matching `lease_token`, `claim_request_id`, `api_key`, `authorization`, `cookie`, or `secret` case-insensitively. This is defense in depth, not a claim that arbitrary secret values can be detected.
-- Keep lease tokens and bearer keys out of events, ready pointers, context events, errors, logs, metrics, URLs, browser state, and WebSocket messages.
+- Never pass dedicated authentication/capability/request-ID fields to server-reserved event
+  constructors. On public progress append, reject a verbatim request bearer or supplied lease
+  token across every persisted actor/body/metadata string before it can reach history.
+  Arbitrary accepted progress text is intentionally durable and readable by authorized history
+  callers; document that it may contain unrecognized sensitive caller content and is not covered
+  by a universal secret-detection promise.
 - Keep exact Host/Origin checks, UUID path validation, 1 MiB proxy body cap, and server-only credentials.
 - Do not expose the ready route to the browser merely because it is a GET.
 
@@ -1490,7 +1554,7 @@ Modify:
 | Older database-valid actor text fails new nonblank rules | `0010` aborts or silently rewrites immutable provenance | Count and diagnose source rows; deterministic unattributed fallback; never trim or invent identity |
 | Passive TTL has no transaction | Missing or fake expiry event | Omit `lease_expired` until a reliable producer exists |
 | Completion appears twice | Noisy timeline | One `work_completed` event referencing its checkpoint |
-| Event content leaks tokens or private context | Capability/privacy exposure | Bounded inputs, key denylist, pointer separation, redaction/log tests |
+| A reserved constructor maps a dedicated secret field, progress echoes a request-known secret, or a caller stores unrecognized private content | Capability/privacy exposure | Explicit constructor inputs; progress actor/body/metadata echo rejection; bounded inputs, key denylist, opaque-content warning, pointer separation, and value-free redaction/log tests |
 | Event trigger blocks test cleanup | Flaky/destructive cleanup hacks | Scoped `TRUNCATE ... CASCADE` in isolated schemas; never weaken production trigger |
 | Phase 4 writers resume after `0010` backfill | New mutations create an audit gap that a later upgrade will not repair | Keep writers quiesced; downgrade/restore to pre-backfill state before reopening them |
 | BIGINT ID is mistaken for Phase 12 cursor | Incremental feed can miss commit reordering | Explicit non-guarantee; Phase 12 designs separate stable cursor |
@@ -1527,8 +1591,9 @@ The `work_events.project_id` field and server-reserved type catalog are extensio
 - [ ] `RW-5`: representative plans use bounded index-supported work, blocker, and lease queries.
 - [ ] Search remains retrieval and no dashboard/browser scheduler surface is added.
 - [ ] REST, the exact 20-tool MCP catalog, skills, checker, docs, and validation record agree.
-- [ ] Plugin version `0.2.0` fresh-installs the Phase 4 skills and shared references from
-  marketplace source `./plugin`.
+- [ ] Plugin version `0.2.0` fresh-installs and upgrades from a disposable installed `0.1.0`
+  with the Phase 4 skills/shared references from marketplace source `./plugin`; installed
+  version/inventory/hashes prove the cache advanced.
 
 ### Phase 5
 
@@ -1539,11 +1604,14 @@ The `work_events.project_id` field and server-reserved type catalog are extensio
 - [ ] `EV-5`: known actors are truthful client assertions and unknown actors are explicitly unattributed.
 - [ ] `EV-6`: event order, one-snapshot pages, history disclosure, and bounded recall are deterministic.
 - [ ] `EV-7`: migration backfills only provable facts, including explicit soft-deletion facts, with exact parity and origin markers.
-- [ ] `EV-8`: body/metadata/tokens never leak into pointers, errors, logs, metrics, browser capabilities, or sync messages.
+- [ ] `EV-8`: reserved constructors never map dedicated authentication/capability/request-ID
+  fields; public progress rejects verbatim request-known secrets across actor/body/metadata;
+  accepted opaque event content stays out of pointers, errors, logs, metrics, browser
+  capabilities, and sync messages and appears only on authorized history/context reads.
 - [ ] Checkpoint and event responsibilities remain distinct and the dashboard avoids duplicate content.
 - [ ] The exact 22-tool MCP catalog passes Streamable HTTP and stdio tests.
-- [ ] Plugin version `0.3.0` fresh-installs the Phase 5 skill/reference updates without relying
-  on a stale cached `0.2.0` copy.
+- [ ] Plugin version `0.3.0` fresh-installs and upgrades from the same disposable installed
+  `0.2.0`; installed version/inventory/hashes prove the active copy is not stale.
 - [ ] Backend PostgreSQL, Ruff, MCP, frontend unit/type/build, Playwright, production-image, full-stack, performance, and secret-scan checks pass.
 - [ ] A real backup/restore drill preserves event order, content, identity state, and immutability.
 - [ ] Operational docs state the quiesced cutover and honest rollback boundary.
