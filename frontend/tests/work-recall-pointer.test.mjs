@@ -27,11 +27,15 @@ const summary = {
 test("the default template preserves the canonical recall pointer", () => {
   assert.equal(
     DEFAULT_RECALL_POINTER_TEMPLATE,
-    'Recall the Mnemonic work item "$WORK_ITEM_TITLE" (project_id $PROJECT_ID, work_item_id $WORK_ITEM_ID) using recall_work, then summarise its current context and wait for my direction.'
+    `Recall the mnemonic work item "$WORK_ITEM_TITLE" (project_id $PROJECT_ID, work_item_id $WORK_ITEM_ID) using \`recall_work\`. Verify its premises and, if confirmed, proceed with the work as described.
+
+If the stated premises are refuted or you determine that no work is needed, close the issue as "won't do" with a detailed disposition explanation. If you acquire a work lease, create a background task to remind you to renew it prior to expiration. Reset the timer upon work release renewal.`
   );
   assert.equal(
     workRecallPointer(summary),
-    `Recall the Mnemonic work item "Investigate proxy policy" (project_id ${projectId}, work_item_id ${workId}) using recall_work, then summarise its current context and wait for my direction.`
+    `Recall the mnemonic work item "Investigate proxy policy" (project_id ${projectId}, work_item_id ${workId}) using \`recall_work\`. Verify its premises and, if confirmed, proceed with the work as described.
+
+If the stated premises are refuted or you determine that no work is needed, close the issue as "won't do" with a detailed disposition explanation. If you acquire a work lease, create a background task to remind you to renew it prior to expiration. Reset the timer upon work release renewal.`
   );
 });
 

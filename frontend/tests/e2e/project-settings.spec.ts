@@ -248,7 +248,9 @@ test("project recall pointer settings drive card and detail clipboard content", 
     await expect(restoredCard).toHaveCount(1);
     await restoredCard.getByRole("button", { name: "Copy recall pointer" }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
-      `Recall the Mnemonic work item "${title}" (project_id ${state.projectId}, work_item_id ${seededWork.id}) using recall_work, then summarise its current context and wait for my direction.`
+      `Recall the mnemonic work item "${title}" (project_id ${state.projectId}, work_item_id ${seededWork.id}) using \`recall_work\`. Verify its premises and, if confirmed, proceed with the work as described.
+
+If the stated premises are refuted or you determine that no work is needed, close the issue as "won't do" with a detailed disposition explanation. If you acquire a work lease, create a background task to remind you to renew it prior to expiration. Reset the timer upon work release renewal.`
     );
   } finally {
     await clearRecallPointerTemplate(client);
