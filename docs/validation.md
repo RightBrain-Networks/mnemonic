@@ -1,5 +1,28 @@
 # Mnemonic validation record
 
+## Sidebar artwork and edge SVG serving — 2026-09-01
+
+Checks observed while replacing the sidebar's drawn page stack with the robot
+SVG and moving static SVG delivery to the host nginx.
+
+- **73 frontend unit tests, TypeScript checking, and the production build
+  passed.** The isolated Node 24 Playwright stack passed all 26 desktop and
+  narrow-viewport executions, including a new check that the sidebar image
+  resolves to a decoded asset rather than a broken `<img>`.
+- **The installed configuration passed `nginx -t` on nginx 1.24.0 and was
+  reloaded.** Against the live host: `/img/robot.svg` returned 200 from disk
+  with `cache-control: max-age=604800` and gzip encoding, carrying HSTS and all
+  six response headers `next.config.ts` sets. `/icon.svg`, which Next.js
+  generates outside `public/`, still returned 200 from the dashboard through
+  the fallback, and an absent `.svg` returned the dashboard's 404.
+- **The routing guards were unchanged by the new location.** `/` returned 200,
+  `/mcp` without a bearer token returned 401, `/mcp/foo.svg` returned 404 from
+  the `^~` prefix rather than the SVG regex, a traversal sequence resolved
+  outside the root and returned 404, and port 80 still returned 308.
+
+Not checked: behavior after the web image is rebuilt, and any client outside
+the address allowlist. No stored prompts were read or modified.
+
 ## Phase 4 ready-work and Phase 5 event validation — 2026-09-01
 
 Validated in the local Linux workspace with the locked environments, isolated
