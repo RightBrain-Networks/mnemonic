@@ -8,8 +8,8 @@
 
 **Planning precedent:** `docs/phases-4-5-implementation-plan.md`
 
-**Implementation baseline:** current main at commit `493eec7`, with shipped Phase 5 schema at
-Alembic revision `0010_work_events` (Phase 5 milestone `18d9308`)
+**Implementation baseline:** current main at commit `3a0bf46`, with shipped Phase 5 schema at
+Alembic revision `0010_work_events` (Phase 5 milestone `f959ea5`)
 
 **Planning constraint:** this document defines implementation work; it does not implement it.
 
