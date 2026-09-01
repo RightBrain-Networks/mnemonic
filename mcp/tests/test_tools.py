@@ -49,6 +49,27 @@ def test_claim_receipt_repr_redacts_token_but_serialization_retains_it(
     assert combined.model_dump(mode="json")["lease"]["lease_token"] == LEASE_TOKEN
 
 
+async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
+    """INSTRUCTIONS is truncated by clients, so per-tool rules must be read at point of use."""
+    server = build_server(settings)
+    described = {tool.name: tool.description or "" for tool in await server.list_tools()}
+    for name, required in {
+        "list_projects": "never silently choose an unrelated project",
+        "create_work": "real client session id",
+        "add_checkpoint": "never a rewrite of an earlier one",
+        "recall_work": "historical evidence, not authority",
+        "claim_work": "never work around another session's active claim",
+        "claim_and_recall": "grants no authority beyond the user's request",
+        "renew_claim": "do not renew it",
+        "add_relationship": "never infer one from similar wording",
+        "get_relationship": "never authority to execute that item",
+        "list_relationships": "never traverse the graph recursively",
+        "update_work": "no tool here creates an external issue",
+        "complete_work": "only when the objective is actually achieved",
+    }.items():
+        assert required in described[name].lower(), name
+
+
 async def test_tool_catalog_schemas_and_annotations(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}

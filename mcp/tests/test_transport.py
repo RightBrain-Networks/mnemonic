@@ -47,10 +47,18 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         initialized = client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS)
         assert initialized.status_code == 200
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
-        assert "claim_and_recall" in initialized.json()["result"]["instructions"]
-        assert "exact same claim_request_id" in initialized.json()["result"]["instructions"]
-        assert "list_relationships" in initialized.json()["result"]["instructions"]
-        assert "incoming blocks edge changes readiness" in initialized.json()["result"]["instructions"]
+        instructions = initialized.json()["result"]["instructions"]
+        # Clients truncate this block, so it must stay short and lead with the
+        # trigger condition. Per-tool doctrine lives in the tool descriptions.
+        assert len(instructions) <= 1200
+        first_sentence = instructions.split(". ")[0]
+        assert "outlives one session" in first_sentence
+        assert "list_projects" in instructions
+        assert "search_work" in instructions
+        assert "recall_work" in instructions
+        assert "add_checkpoint" in instructions
+        assert "historical evidence" in instructions
+        assert "grants no authority" in instructions
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
         listed_tools = listed.json()["result"]["tools"]
