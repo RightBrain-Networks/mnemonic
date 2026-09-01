@@ -10,6 +10,8 @@
 
 **Planning constraint:** This document defines the work; it does not implement it.
 
+**Baseline correction (2026-08-31):** written against a tree that still carried the deprecated hand-off surface. That surface — the eight MCP tools, the `/projects/{project_id}/handoffs` REST routes, the `handoffs` resource URI, and the `resume_handoff` prompt — has since been removed, so Phases 4 and 5 have no compatibility surface to preserve. The sections that planned for one are corrected below.
+
 ## 1. Outcome
 
 After these two phases, an agent can ask Mnemonic for a deterministic, bounded list of work that is actionable now instead of treating ordinary search results as a queue. Mnemonic will also retain an immutable, actor-attributed history of meaningful work changes and expose that history as a bounded per-work timeline.
@@ -57,7 +59,6 @@ Existing invariants that remain unchanged:
 - PostgreSQL and the FastAPI service remain the coordination authority; MCP remains a typed REST adapter.
 - The shared bearer key authenticates access to the service, not the self-declared identity of an agent session.
 - Browser proxy routes remain exact allowlists with Host/Origin enforcement and a server-only API key.
-- Compatibility hand-off operations continue to call canonical services so they cannot bypass new invariants.
 
 The current work browse index is optimized for status and recent activity, not scheduling order. The current target-edge and lease primary-key indexes are suitable for correlated readiness probes. The Phase 4 query plan must prove whether the new priority order needs its own work-item index; this plan fixes that decision in Section 5.2.
 
@@ -218,9 +219,9 @@ Actor sources are:
 | Explicit progress event | Required event actor fields |
 | Work patch/reopen/delete | New optional REST `actor`; required by updated canonical MCP/dashboard clients |
 | Relationship removal | New optional JSON body with `actor`; required by updated canonical MCP/dashboard clients |
-| Older direct/compatibility call that omits newly added actor data | `actor_kind=unattributed` |
+| Older direct REST call that omits newly added actor data | `actor_kind=unattributed` |
 
-The optional REST actor fields preserve compatibility for existing API clients without fabricating identity. Canonical MCP tools and the dashboard must always send truthful actor data after Phase 5. Deprecated hand-off tools may accept optional actor fields; omission is represented honestly as unattributed history.
+The optional REST actor fields preserve compatibility for existing API clients without fabricating identity. Canonical MCP tools and the dashboard must always send truthful actor data after Phase 5. Any call that omits them is represented honestly as unattributed history rather than given an invented identity.
 
 ### 3.8 Event order, pagination, and future activity feeds
 
@@ -572,13 +573,10 @@ All claim routes remain denied. WebSocket invalidations remain data-free; event 
 
 ### 7.5 Compatibility behavior
 
-Legacy hand-off create/checkpoint/completion/update/delete routes continue to invoke canonical work services and therefore emit the same events. They do not receive a second compatibility-specific event.
+There is no deprecated surface left to preserve: the hand-off tools, routes, resource URI, and prompt were removed on 2026-08-31, so every write already goes through the canonical work services and emits exactly one event.
 
-- Legacy create and comments have truthful source provenance and map to `work_created`/`checkpoint_added`.
-- Legacy completion maps to `work_completed`.
-- Deprecated update/delete may accept optional actor fields; without them the event is explicitly unattributed.
-- Existing response projections do not add event fields.
-- Existing IDs and pointers continue resolving.
+- Existing response shapes do not add event fields.
+- Existing work and checkpoint IDs continue resolving, including IDs preserved from the migration.
 
 ## 8. Error and observability contract
 
