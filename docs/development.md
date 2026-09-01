@@ -8,9 +8,9 @@ dashboard uses `package-lock.json` and `npm ci`.
 Use Python 3.13, uv, and Node 24 for native development. Docker-only users do
 not need these tools to run Mnemonic.
 
-## Phase 2 backend verification
+## Phase 3 backend verification
 
-The database suite needs a real PostgreSQL instance because Phases 1 and 2
+The database suite needs a real PostgreSQL instance because Phases 1 through 3
 depend on PostgreSQL search, row locking, database time, triggers, and Alembic
 behavior. Start the isolated
 test database from the repository root:
@@ -35,7 +35,7 @@ In PowerShell, replace the export with:
 $env:TEST_DATABASE_URL = 'postgresql+psycopg://mnemonic_test:mnemonic_test_only@127.0.0.1:55432/mnemonic_test'
 ```
 
-The Phase 2 backend suite verifies:
+The Phase 3 backend suite verifies:
 
 - the `0004` expansion and populated `0005` backfill, including exact legacy
   text/provenance parity, preserved IDs, migration markers, and frozen legacy
@@ -43,6 +43,8 @@ The Phase 2 backend suite verifies:
 - the `0006` contract boundary and `0007` lease schema, including model parity,
   constraints, indexes, and compatibility aliases after physical legacy-table
   removal;
+- the `0008` typed-relationship schema, composite project scoping, normalized
+  identity, context ownership, one-parent constraint, and lookup indexes;
 - atomic work-plus-initial-checkpoint creation, pointer-only grouped search,
   literal and full-text retrieval, optional hybrid search, and cache invalidation;
 - identity-only work reads, bounded context assembly, deterministic checkpoint
@@ -56,6 +58,11 @@ The Phase 2 backend suite verifies:
   atomicity;
 - lease-token enforcement and removal on completion, retirement, promotion,
   and deletion, without changing work version/activity during lease operations;
+- five relationship types, idempotent add/remove, project-serialized cycle and
+  parent checks, atomic initial links, blocker-driven readiness/claimability,
+  active-plus-blocked recovery, and relationship-protected deletion;
+- pointer-only immediate adjacency and exact directional counts in bounded
+  recall, plus root/child hierarchy filtering and flat-search breadcrumbs;
 - cross-project isolation, hostile/unknown input rejection, pagination/filter
   totals, and deprecated handoff projections backed by canonical rows.
 
@@ -73,7 +80,7 @@ Stop the disposable database afterward from the repository root:
 docker compose -f compose.test.yaml down
 ```
 
-## Phase 2 MCP verification
+## Phase 3 MCP verification
 
 Run from `mcp`:
 
@@ -85,12 +92,14 @@ uv run pytest -q
 The MCP suite verifies the exact canonical-plus-compatibility catalog, nested
 checkpoint request bodies, strict response shapes, pointer-only search, bounded
 recall, deterministic checkpoint pagination, versioned update/completion/delete
-receipts, and the `resume_work` prompt and work-item resource. It also exercises
-claim/replay/renew/release body serialization and annotations, token redaction,
-claim-specific unknown-outcome recovery, the REST HTTP boundary, sanitized
-typed and legacy errors, generic unknown write outcomes, project scoping,
-host/origin/key checks, body limits, Streamable HTTP, and a real stdio subprocess
-handshake. It uses an HTTP mock and needs no live database.
+receipts, atomic initial-relationship serialization, relationship add/get/list/
+remove tools, and the `resume_work` prompt and work-item resource. It also
+exercises claim/replay/renew/release body serialization and annotations, token
+redaction, claim-specific unknown-outcome recovery, pointer-only counterparts,
+typed graph errors, strict unknown-field rejection, and sanitized local
+validation across direct, Streamable HTTP, and real stdio transports. REST
+boundary, generic unknown write outcomes, project scoping, host/origin/key
+checks, and body limits are covered with an HTTP mock and need no live database.
 
 The MCP package currently does not declare Ruff in its own development group.
 After syncing `backend`, run the repository's available Ruff binary from the
@@ -100,7 +109,7 @@ repository root over the MCP and live-check code:
 uv run --project backend ruff check mcp/src/mnemonic_mcp mcp/tests scripts/check-stack.py
 ```
 
-## Phase 2 dashboard verification
+## Phase 3 dashboard verification
 
 Run from `frontend`:
 
@@ -111,11 +120,16 @@ npm run typecheck
 npm run build
 ```
 
-The Node tests cover canonical work search parameters, compact recall pointers,
-checkpoint display normalization, derived Ready/Active formatting and expiry
-refresh scheduling, sanitized typed errors, same-origin/host enforcement, and
-the exact Phase 2 proxy allowlist. Mutation-policy tests prove lease paths and
-token-bearing browser mutations are rejected rather than stripped or forwarded.
+The Node tests cover canonical work/root/child query construction, compact
+recall pointers, checkpoint normalization, Ready/Active/Blocked formatting,
+expiry refresh scheduling, relationship labels/direction previews, graph
+conflict/depth helpers, sanitized typed errors, same-origin/host enforcement,
+and the exact Phase 3 proxy allowlist. Mutation-policy tests prove lease paths
+and token-bearing browser mutations are rejected rather than stripped or
+forwarded while relationship and hierarchy routes remain narrowly admitted.
+Backend and Playwright suites cover subtree retention, breadcrumbs, lazy
+expansion, and relationship-editor behavior.
+
 `typecheck` verifies component and API model alignment; the production build
 catches server/client boundary and asset issues.
 
@@ -176,66 +190,73 @@ run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 23-tool Phase
-2 MCP catalog, REST-backed project listing, the dashboard proxy's host/origin
+Read-only mode verifies REST/MCP health, authentication, the exact 27-tool Phase
+3 MCP catalog, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, and the shipped WOFF2 font assets. It does
-not create, edit, complete, or delete records.
+not create, edit, relate, claim, complete, or delete records.
 
 Writes require the explicit `--project-id` opt-in. Use a dedicated validation
-project whose contents may safely include one synthetic, soft-deleted record:
+project whose contents may safely include three synthetic, soft-deleted records:
 
 ```sh
 uv run --project mcp python scripts/check-stack.py --project-id YOUR_TEST_PROJECT_UUID
 ```
 
-The write path performs the Phase 2 lifecycle:
+The write path performs the canonical Phase 3 lifecycle:
 
-1. atomically creates one uniquely marked work item and initial checkpoint;
-2. verifies one compact pointer-only search result and bounded recall;
-3. checks the canonical resource and `resume_work` prompt;
-4. appends and pages an immutable progress checkpoint without changing version;
-5. edits through the dashboard proxy and proves a stale REST edit returns the
-   typed `version_conflict` error;
-6. atomically claims and recalls, replays the exact request without extending
-   expiry, renews with the same capability, and confirms ordinary reads never
-   expose the request ID or token;
-7. proves the dashboard cannot call a lease route or forward a token;
-8. completes with an atomic completion checkpoint and matching lease token;
-9. proves default-open search excludes the completed item while `status=all`
-   still finds it;
-10. resolves the preserved ID through deprecated search/recall/timeline,
-   resource, and prompt compatibility paths;
-11. soft-deletes through the canonical action and checks both canonical and
-   compatibility reads return `404`.
+1. creates uniquely marked work and its initial checkpoint atomically;
+2. finds one compact pointer-only result through search;
+3. recalls bounded context and checks the resource and `resume_work` prompt;
+4. appends and pages a second immutable checkpoint without changing version;
+5. edits through the proxy and proves a stale edit returns `version_conflict`;
+6. claims and recalls atomically, then replays the exact request without
+   extending expiry or exposing request ID/token through ordinary reads;
+7. adds an incoming blocker, proves readiness and claim eligibility change,
+   releases the retained active claim, removes the blocker, and claims again;
+8. creates a child/discovered item with both relationships in its creation
+   transaction and verifies pointer-only adjacency plus hierarchy navigation;
+9. completes the primary work with a completion checkpoint and lease token;
+10. verifies default-open filtering plus deprecated ID/resource/tool aliases;
+11. removes every synthetic relationship before soft-deleting all synthetic
+    work, then confirms canonical and compatibility reads return `404`.
 
 The script registers cleanup as soon as the run marker exists. Its `finally`
-path deletes the exact returned work ID, or searches for the marker plus exact
-synthetic session provenance if creation committed but its MCP response was
-lost. Cleanup refuses records that lack the run's marker. Soft deletion remains
-in database history by design; the script never deletes the project or touches
+path recovers exact synthetic IDs by marker plus exact synthetic session
+provenance when a response may have been lost. It removes only relationships
+created by that run and then deletes only marker-bearing records. Soft deletion
+remains in database history; the script never deletes the project or touches
 unrelated work.
 
 Add `--other-project-id` to prove the new ID cannot be read through a second
 project. Do not pass either project option without authorization to write in the
 named project. Prefer a disposable full stack for automated write-path checks.
 
-## Manual Phase 2 browser pass
+## Manual Phase 3 browser pass
 
-Exercise the project empty state and switching, open/all lifecycle filters,
+Exercise project empty state and switching, root browsing, lazy child expansion,
+subtree-aware filters, flat-search breadcrumbs, open/all lifecycle filters,
 lexical search and explicit Semantic opt-in, work selection, bounded context,
-checkpoint timeline, prompt copy, cancel/save identity edits, progress/context
-checkpoint creation, completion with a completion checkpoint, deletion
-confirmation, and stale-version recovery. At a narrow viewport, confirm lists,
-detail panes, dialogs, and long IDs remain usable.
+grouped pointer-only relationships, checkpoint timeline, prompt copy, identity
+editing, checkpoint creation, completion, deletion, and stale-version recovery.
+At a narrow viewport, confirm lists, hierarchy, detail panes, editors, dialogs,
+long IDs, and defensive depth/cycle fallbacks remain usable.
 
-Use an API or MCP client—not the browser—to claim a visible work item. Confirm
-the existing lifecycle badge remains distinct from `Active`, safe holder and
-lease timestamps appear, no token appears in browser state or network payloads,
-manual refresh works, and the view automatically refreshes when the displayed
-expiry is reached. Expire the test row directly in an isolated database instead
-of waiting for the minimum TTL. Confirm there is no claim or force-release UI.
+Add and remove every relationship type through the editor with exact stored
+direction and truthful provenance. Confirm duplicate adds are harmless and the
+editor prevents self-links or invalid context selection. Use REST or MCP in the
+test project to verify cycle, second-parent, missing-context, and invalid-context
+requests return sanitized actionable errors. Confirm work with active
+relationships cannot be deleted. A nonmatching ancestor should
+remain visible only when a matching descendant needs navigation scaffolding.
 
-With a nonblank search, Semantic must start disabled. Enabling it should perform
-a hybrid request; disabling it should restore lexical retrieval. Repeat the
-enabled query once to exercise cache reuse. Never leave fabricated open work in
-a user's project after manual verification.
+Use an API or MCP client—not the browser—to claim a visible work item, then add
+an unresolved incoming blocker. Confirm lifecycle, `Active`, and `Blocked` stay
+distinct; the retained lease remains visible through safe holder/timestamps but
+no token appears in browser state or network payloads. Release it through the
+client, verify new claims remain blocked, complete the blocker, and verify
+readiness recovers. Confirm no claim or force-release UI exists.
+
+With a nonblank search, Semantic starts disabled. Enabling it performs a hybrid
+request; disabling it restores lexical retrieval. Repeat the enabled query once
+to exercise cache reuse. Never leave synthetic relationships or open work in a
+user's project after manual verification.

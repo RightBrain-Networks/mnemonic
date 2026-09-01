@@ -74,13 +74,90 @@ export interface Readiness {
   display_state: WorkStatus | "ready" | "active" | "blocked";
 }
 
+export interface WorkIdentityPointer {
+  id: string;
+  title: string;
+  status: WorkStatus;
+}
+
 export interface WorkSummary {
   work_item: WorkItem;
   checkpoint_count: number;
-  ancestor_path: Array<Pick<WorkItem, "id" | "title" | "status">>;
+  ancestor_path: WorkIdentityPointer[];
   ancestor_path_truncated: boolean;
   current_context: CheckpointPointer;
   readiness: Readiness;
+}
+
+export interface HierarchySummary {
+  summary: WorkSummary;
+  self_matches_filter: boolean;
+  has_matching_descendants: boolean;
+}
+
+export type RelationshipType =
+  | "blocks"
+  | "parent-child"
+  | "discovered-from"
+  | "duplicate-of"
+  | "related";
+
+export type RelationshipDirection = "incoming" | "outgoing" | "undirected";
+
+export interface RelationshipEdgeRead {
+  id: string;
+  project_id: string;
+  relationship_type: RelationshipType;
+  source_work_item_id: string;
+  target_work_item_id: string;
+  context_checkpoint_work_item_id: string | null;
+  context_checkpoint_id: string | null;
+  created_by_client: string;
+  created_by_session_id: string;
+  created_by_model: string | null;
+  created_at: string;
+}
+
+export interface WorkPointer {
+  id: string;
+  title: string;
+  status: WorkStatus;
+  readiness: Readiness;
+}
+
+export interface AdjacentRelationshipRead {
+  relationship: RelationshipEdgeRead;
+  relative_to_work_item_id: string;
+  direction: RelationshipDirection;
+  counterpart: WorkPointer;
+}
+
+export interface RelationshipCreationResult {
+  relationship: RelationshipEdgeRead;
+  created: boolean;
+}
+
+export interface RelationshipRemovalResult {
+  project_id: string;
+  relationship_id: string;
+  removed: boolean;
+}
+
+export interface RelationshipCreateInput {
+  relationship_type: RelationshipType;
+  source_work_item_id: string;
+  target_work_item_id: string;
+  created_by_client: string;
+  created_by_session_id: string;
+  created_by_model?: string | null;
+  context_checkpoint_id?: string | null;
+}
+
+export interface InitialRelationshipInput {
+  type: RelationshipType;
+  direction: Exclude<RelationshipDirection, "undirected">;
+  other_work_item_id: string;
+  context_checkpoint_id?: string | null;
 }
 
 export interface RelationshipCounts {
@@ -98,16 +175,16 @@ export interface WorkContext {
   checkpoint_total: number;
   omitted_checkpoint_count: number;
   readiness: Readiness;
-  incoming_relationships: [];
-  outgoing_relationships: [];
-  undirected_relationships: [];
+  incoming_relationships: AdjacentRelationshipRead[];
+  outgoing_relationships: AdjacentRelationshipRead[];
+  undirected_relationships: AdjacentRelationshipRead[];
   relationship_counts: RelationshipCounts;
 }
 
 export interface WorkCreation {
   work_item: WorkItem;
   initial_checkpoint: Checkpoint;
-  initial_relationships: [];
+  initial_relationships: RelationshipEdgeRead[];
 }
 
 export interface CompletionResult {

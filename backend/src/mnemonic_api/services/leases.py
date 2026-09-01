@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from mnemonic_api.errors import conflict
 from mnemonic_api.models import WorkItem, WorkLease
 from mnemonic_api.schemas import ClaimReceipt, ReleaseResult, WorkClaimCreate
+from mnemonic_api.services.relationships import unresolved_blocker_count
 
 
 def _database_now(database: Session) -> datetime:
@@ -73,10 +74,9 @@ def claim_lease_record(
     if work_item.status != "open":
         raise conflict("work_not_open", "Only open work can be claimed.")
 
-    # Phase 3 extends this base eligibility check with unresolved blockers. The
-    # retained lease is intentionally handled below so an identical request can
-    # recover its original token without extending the lease.
+    # Capture time only after both possible work/lease lock waits.
     database_now = _database_now(database)
+    blocker_count = unresolved_blocker_count(database, work_item.id)
     requested_identity = (
         payload.holder_client,
         payload.holder_session_id,
@@ -84,6 +84,8 @@ def claim_lease_record(
     )
 
     if lease is None:
+        if blocker_count:
+            raise conflict("work_blocked", "This work item has an unresolved blocker.")
         lease = WorkLease(
             work_item_id=work_item.id,
             holder_client=payload.holder_client,
@@ -106,6 +108,8 @@ def claim_lease_record(
     if lease.expires_at > database_now:
         if retained_identity == requested_identity:
             return claim_receipt(lease)
+        if blocker_count:
+            raise conflict("work_blocked", "This work item has an unresolved blocker.")
         raise conflict(
             "lease_held",
             "This work item has an active lease.",
@@ -115,16 +119,20 @@ def claim_lease_record(
             },
         )
 
-    if retained_identity == requested_identity:
+    if lease.claim_request_id == payload.claim_request_id:
         raise conflict(
             "claim_request_expired",
             "This claim request belongs to an expired lease; use a new claim_request_id.",
             context={"expires_at": _utc(lease.expires_at)},
         )
 
+    if blocker_count:
+        raise conflict("work_blocked", "This work item has an unresolved blocker.")
+
     lease.holder_client = payload.holder_client
     lease.holder_session_id = payload.holder_session_id
     lease.claim_request_id = payload.claim_request_id
+
     lease.lease_token = secrets.token_urlsafe(32)
     lease.acquired_at = database_now
     lease.renewed_at = database_now

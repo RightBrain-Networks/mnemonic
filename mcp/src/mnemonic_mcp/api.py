@@ -8,50 +8,9 @@ from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import BaseModel, ValidationError
 
 from .config import Settings
+from .validation import VALIDATION_FIELDS, validation_error_message
 
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
-_VALIDATION_FIELDS = frozenset(
-    {
-        "name",
-        "slug",
-        "description",
-        "repository_url",
-        "project_id",
-        "work_item_id",
-        "checkpoint_id",
-        "handoff_id",
-        "title",
-        "summary",
-        "priority",
-        "initial_checkpoint",
-        "checkpoint",
-        "kind",
-        "prompt",
-        "source_client",
-        "source_session_id",
-        "source_model",
-        "source_session_url",
-        "repository_branch",
-        "verified_against",
-        "tags",
-        "source_metadata",
-        "status",
-        "body",
-        "q",
-        "semantic",
-        "tag",
-        "view",
-        "order",
-        "recent_limit",
-        "limit",
-        "offset",
-        "expected_version",
-        "holder_client",
-        "holder_session_id",
-        "claim_request_id",
-        "lease_token",
-    }
-)
 _APPLICATION_ERRORS = {
     "slug_conflict": "A project with this slug already exists. List projects before creating another.",
     "semantic_unavailable": (
@@ -59,6 +18,9 @@ _APPLICATION_ERRORS = {
     ),
     "version_conflict": (
         "Version conflict. Recall the latest work item and review its changes before retrying."
+    ),
+    "invalid_status_transition": (
+        "This lifecycle transition is not allowed. Recall the latest work item and choose a permitted transition."
     ),
     "work_not_open": "This work item is not open and cannot perform that operation.",
     "work_blocked": "This work item has an unresolved blocker.",
@@ -69,6 +31,9 @@ _APPLICATION_ERRORS = {
         "That claim request can no longer be resumed. Claim again with a new claim_request_id."
     ),
     "relationship_cycle": "That relationship would create a cycle.",
+    "relationship_context_invalid": (
+        "Discovery context must belong to the originating target work item."
+    ),
     "relationship_exists": "That relationship already exists.",
     "parent_already_set": "That work item already has a parent.",
     "active_relationships": "Remove this work item's relationships before deleting it.",
@@ -177,9 +142,12 @@ class MnemonicAPI:
             )
         if response.status_code == 404:
             raise ToolError(
-                "The requested project, work item, checkpoint, or hand-off was not found "
+                "The requested project, work item, checkpoint, relationship, or hand-off was not found "
                 "in this project."
             )
+
+        if response.status_code >= 500 and _is_claim_operation(method, path):
+            raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
 
         application_error = _application_error(response)
         if application_error is not None and not 200 <= response.status_code < 300:
@@ -187,8 +155,6 @@ class MnemonicAPI:
             message = _application_error_message(error_code, error_context)
             if message is not None:
                 raise ToolError(message)
-            if response.status_code >= 500 and _is_claim_operation(method, path):
-                raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
             raise ToolError(
                 "Mnemonic could not complete this operation. Recall the current work state "
                 "before retrying."
@@ -215,16 +181,11 @@ class MnemonicAPI:
                             fields.update(
                                 item
                                 for item in error["loc"]
-                                if isinstance(item, str) and item in _VALIDATION_FIELDS
+                                if isinstance(item, str) and item in VALIDATION_FIELDS
                             )
             except (ValueError, AttributeError):
                 pass
-            hint = (
-                f" Check: {', '.join(sorted(fields))}."
-                if fields
-                else " Check the field constraints."
-            )
-            raise ToolError(f"Mnemonic rejected the input.{hint}")
+            raise ToolError(validation_error_message(fields))
         if response.status_code == 503 and semantic_read:
             raise ToolError("Mnemonic semantic search is unavailable. Retry with semantic disabled.")
         if not 200 <= response.status_code < 300:

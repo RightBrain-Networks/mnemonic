@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   connectLiveSync,
+  invalidatesOpenWork,
   liveSyncUrl,
   parseLiveSyncMessage
 } from "../lib/live-sync.ts";
@@ -72,6 +73,39 @@ test("live sync accepts only the documented data-free message contract", () => {
   ]) {
     assert.equal(parseLiveSyncMessage(invalid), null);
   }
+});
+
+test("project-wide work invalidations refresh an open work context", () => {
+  const otherProject = "a90aab72-cde8-459a-ac72-bf052c47ade7";
+  const otherWork = "f563ce11-bb0b-490f-a10c-cb5d38df0607";
+  assert.equal(invalidatesOpenWork({
+    type: "invalidate",
+    revision: 1,
+    scope: "work-items",
+    project_id: project,
+    work_item_id: null
+  }, project, work), true);
+  assert.equal(invalidatesOpenWork({
+    type: "invalidate",
+    revision: 2,
+    scope: "work-items",
+    project_id: project,
+    work_item_id: work
+  }, project, work), true);
+  assert.equal(invalidatesOpenWork({
+    type: "invalidate",
+    revision: 3,
+    scope: "work-items",
+    project_id: project,
+    work_item_id: otherWork
+  }, project, work), false);
+  assert.equal(invalidatesOpenWork({
+    type: "invalidate",
+    revision: 4,
+    scope: "work-items",
+    project_id: otherProject,
+    work_item_id: null
+  }, project, work), false);
 });
 
 test("live sync reconnects and reports connection state", async () => {

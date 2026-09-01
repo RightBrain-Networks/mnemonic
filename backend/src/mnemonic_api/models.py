@@ -218,3 +218,99 @@ class WorkLease(Base):
             f"claim_request_id={self.claim_request_id!r}, "
             f"expires_at={self.expires_at!r})"
         )
+
+
+class WorkRelationship(Base):
+    """An immutable, project-local structural fact between two work items."""
+
+    __tablename__ = "work_relationships"
+    __table_args__ = (
+        CheckConstraint(
+            "relationship_type IN "
+            "('blocks', 'parent-child', 'discovered-from', 'duplicate-of', 'related')",
+            name="type_valid",
+        ),
+        CheckConstraint("source_work_item_id <> target_work_item_id", name="endpoints_differ"),
+        CheckConstraint(
+            "(context_checkpoint_work_item_id IS NULL AND context_checkpoint_id IS NULL) OR "
+            "(context_checkpoint_work_item_id IS NOT NULL AND context_checkpoint_id IS NOT NULL)",
+            name="context_pair",
+        ),
+        CheckConstraint(
+            "context_checkpoint_work_item_id IS NULL OR "
+            "context_checkpoint_work_item_id IN (source_work_item_id, target_work_item_id)",
+            name="context_endpoint",
+        ),
+        CheckConstraint(
+            "relationship_type <> 'discovered-from' OR "
+            "(context_checkpoint_id IS NOT NULL AND "
+            "context_checkpoint_work_item_id = target_work_item_id)",
+            name="discovery_context",
+        ),
+        CheckConstraint(
+            "relationship_type <> 'related' OR source_work_item_id < target_work_item_id",
+            name="related_normalized",
+        ),
+        CheckConstraint(
+            "length(btrim(created_by_client)) > 0", name="created_by_client_nonblank"
+        ),
+        CheckConstraint(
+            "length(btrim(created_by_session_id)) > 0",
+            name="created_by_session_id_nonblank",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "source_work_item_id"],
+            ["work_items.project_id", "work_items.id"],
+            name="fk_work_relationships_source_work_item",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "target_work_item_id"],
+            ["work_items.project_id", "work_items.id"],
+            name="fk_work_relationships_target_work_item",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["context_checkpoint_work_item_id", "context_checkpoint_id"],
+            ["checkpoints.work_item_id", "checkpoints.id"],
+            name="fk_work_relationships_context_checkpoint",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "relationship_type",
+            "source_work_item_id",
+            "target_work_item_id",
+            name="uq_work_relationships_identity",
+        ),
+        Index(
+            "uq_work_relationships_one_parent",
+            "target_work_item_id",
+            unique=True,
+            postgresql_where=text("relationship_type = 'parent-child'"),
+        ),
+        Index(
+            "ix_work_relationships_source",
+            "project_id",
+            "source_work_item_id",
+            "relationship_type",
+        ),
+        Index(
+            "ix_work_relationships_target",
+            "project_id",
+            "target_work_item_id",
+            "relationship_type",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column()
+    relationship_type: Mapped[str] = mapped_column(String(32))
+    source_work_item_id: Mapped[UUID] = mapped_column()
+    target_work_item_id: Mapped[UUID] = mapped_column()
+    context_checkpoint_work_item_id: Mapped[UUID | None] = mapped_column()
+    context_checkpoint_id: Mapped[UUID | None] = mapped_column()
+    created_by_client: Mapped[str] = mapped_column(String(80))
+    created_by_session_id: Mapped[str] = mapped_column(String(200))
+    created_by_model: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

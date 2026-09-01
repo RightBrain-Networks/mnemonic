@@ -1,6 +1,6 @@
-# Mnemonic Phase 2 architecture
+# Mnemonic Phase 3 architecture
 
-This architecture implements Phases 1 and 2 of the product roadmap. The original
+This architecture implements Phases 1 through 3 of the product roadmap. The original
 [`ADR.md`](../ADR.md) remains historical context; its memory-store and hook
 proposal is not the implementation described here. The longer-term direction and
 the boundaries of later phases are in [`roadmap.md`](roadmap.md).
@@ -21,6 +21,12 @@ flowchart LR
     WorkItem --> Progress[Progress checkpoint]
     WorkItem --> Completion[Completion checkpoint]
     WorkItem -. optional and expiring .-> Lease[Work lease]
+    WorkItem --> Graph[Typed relationships]
+    Graph --> Blocks[blocks]
+    Graph --> Parent[parent-child]
+    Graph --> Discovery[discovered-from]
+    Graph --> Duplicate[duplicate-of]
+    Graph --> Related[related]
 ```
 
 A work item owns only mutable identity and lifecycle: title, summary, status,
@@ -29,15 +35,30 @@ client/session/model, optional session URL and repository provenance, tags,
 metadata, kind, and creation time.
 
 The persisted lifecycle values remain `open`, `done`, `wont-do`, and
-`promoted`. `ready` and `active` are derived facts, never stored statuses. In
-Phase 2, visible open work with no unexpired lease is ready; an unexpired lease
-makes it active. Completion is the only operation that can set `done`, and it
-atomically appends a completion checkpoint. Reopening leaves that historical
-completion checkpoint intact.
+`promoted`. `ready`, `active`, and `blocked` are derived facts, never stored
+statuses. Open, visible work is ready only when it has neither an unexpired
+lease nor an unresolved incoming `blocks` edge. Only a blocker whose source is
+`done` is resolved; `wont-do` and `promoted` do not imply completion. A work
+item can be active and blocked simultaneously because adding a blocker does not
+revoke an existing lease. Completion is the only operation that can set `done`,
+and it atomically appends a completion checkpoint. Reopening leaves that
+historical completion checkpoint intact.
 
 ## Invariants
 
 - New work and its initial `context` checkpoint commit in one transaction.
+- Up to ten initial relationships may commit in that same transaction. A
+  failed edge leaves neither partial work nor partial graph state.
+- Relationship endpoints are project-local and use `source --type--> target`.
+  `related` endpoints are normalized; `blocks` and `parent-child` cycles are
+  rejected, and each child has at most one parent.
+- Graph mutations serialize on the project row and then lock endpoint work in
+  UUID order so concurrent cycle checks cannot both commit reciprocal edges.
+- Only unresolved incoming `blocks` edges affect readiness and claimability.
+  Existing leases survive later blockers; new claim attempts are rejected.
+- Work with any relationship cannot be soft-deleted until its edges are
+  removed. Relationship context is supporting historical evidence; it never
+  grants authority to follow or execute the linked work.
 - Checkpoint text and provenance never change. The database rejects direct
   checkpoint `UPDATE` and `DELETE` statements as well as the API exposing no
   such routes. Corrections are new `context` checkpoints.
@@ -77,13 +98,15 @@ flowchart LR
 ```
 
 FastAPI owns validation, lifecycle transitions, project isolation, search,
-context assembly, compatibility projections, and commits. Service functions
-receive one SQLAlchemy session; reusable helpers do not commit. Routes translate
-typed application errors into a stable sanitized `detail.code` envelope.
+relationship invariants, readiness, bounded context, hierarchy queries,
+compatibility projections, and commits. Service functions receive one
+SQLAlchemy session; reusable helpers do not commit. Routes translate typed
+application errors into a stable sanitized `detail.code` envelope.
 
-The MCP service is a typed HTTP adapter. Canonical tools use work/checkpoint
-terminology; deprecated hand-off tools continue to project the same canonical
-rows. The dashboard calls only an exact same-origin proxy allowlist. Its API key
+The MCP service is a typed HTTP adapter. Canonical tools use work, checkpoint,
+lease, and relationship terminology; deprecated hand-off tools continue to
+project the same canonical rows. The dashboard calls only an exact same-origin
+proxy allowlist. Its API key
 is server-only. Every lease-capability route is denied to the browser, and any
 browser mutation body containing `lease_token` is rejected rather than
 forwarded.
@@ -128,6 +151,15 @@ work item, bounded holder/request fields, acquisition/renewal/expiry ordering
 constraints, and an expiry index for diagnostics. Expired rows may remain;
 correctness never depends on a cleanup worker.
 
+Phase 3 migration `0008_work_relationships` adds project-local typed graph
+edges, composite endpoint and checkpoint foreign keys, normalized natural
+identity, a one-parent partial unique index, and source/target lookup indexes.
+Database checks enforce different endpoints, paired context fields,
+endpoint-owned context, required target context for `discovered-from`, and UUID
+ordering for `related`. The service adds serialized cycle checks and
+transactional initial-link creation; the migration does not infer graph facts
+from checkpoint prose.
+
 ## Recall and retrieval
 
 `recall_work` is deliberately bounded. It returns the work identity, initial
@@ -139,7 +171,9 @@ through deterministic checkpoint pagination.
 Ordinary recall and search return only the safe active-lease projection: holder
 client/session and acquisition, renewal, and expiry timestamps. The request ID
 and token are excluded. `claim_and_recall` acquires or replays a claim and
-assembles the same bounded context before one commit. Context assembly is one
+assembles the same bounded context before one commit. Recall includes immediate
+incoming, outgoing, and undirected relationships with counts and pointer-only
+counterparts; it never recursively injects the graph. Context assembly is one
 SQL statement so a `READ COMMITTED` request does not mix multiple snapshots.
 
 Search returns one compact `WorkSummary` per work item, even when several
@@ -155,6 +189,20 @@ digest changes after either a work identity edit or checkpoint append. Hybrid
 search preserves the established candidate-total semantics and never becomes a
 work scheduler.
 
+## Hierarchical browse
+
+The hierarchy REST views apply subtree-aware lifecycle/source/tag filters. A
+root or direct branch is retained when it or any descendant matches; nonmatching
+ancestors are navigation scaffolding. The dashboard consumes root pages and
+lazily fetched children with its exposed lifecycle filter. Root totals count
+roots, and expanding a child never changes root
+pagination. A nonblank query instead uses flat search and returns a bounded
+root-to-parent breadcrumb plus `ancestor_path_truncated` on the direct
+`WorkSummary` hit. Root/child pages expose direct-match and matching-descendant
+flags rather than a truncation field. The renderer applies explicit cycle and
+depth fallbacks instead of silently hiding corrupt or unexpectedly deep
+branches.
+
 ## Compatibility window
 
 Legacy hand-off REST routes, MCP tools, resource URIs, and the
@@ -169,22 +217,23 @@ Legacy hand-off REST routes, MCP tools, resource URIs, and the
 - legacy edits may change work fields but cannot rewrite checkpoint content or
   provenance;
 - legacy completion and terminal edits accept a lease token when a claim is
-  active; direct legacy REST deletion remains available only while unleased.
+  active; direct legacy REST deletion requires the expected version, no active
+  lease, and no remaining relationship.
 
 The migrated initial snapshot carries an explicit warning because the former
 schema could retain the original source session while allowing later prompt
 edits. Mnemonic preserves the recorded values but does not fabricate authorship
 history that never existed.
 
-## Deliberate Phase 2 limits
+## Deliberate Phase 3 limits
 
-Phase 2 does not add ready-work scheduling, typed relationships, blocker graph
-semantics, hierarchies, human gates, merge behavior, repository verification,
-presence, or automatic execution. Before Phase 3 the unresolved blocker count
-is always zero and relationship collections remain empty extension points.
-Those later concepts must not be inferred from checkpoint prose or implemented
-as hidden workflow state.
+Phase 3 does not add ready-work scheduling, a claim-next operation, human gates,
+duplicate merging, aggregate descendant counts, repository freshness
+verification, resource reservation, presence, or automatic execution.
+`duplicate-of`, `related`, `parent-child`, and `discovered-from` remain
+descriptive; only `blocks` changes readiness. No relationship may be inferred
+from search similarity or checkpoint prose.
 
-Backups include canonical work and checkpoint history. Operators must still copy
-backups off-machine and rehearse restores; a persistent Docker volume is not a
-backup.
+Backups include canonical work, checkpoint, lease, and relationship state.
+Operators must still copy backups off-machine and rehearse restores; a
+persistent Docker volume is not a backup.

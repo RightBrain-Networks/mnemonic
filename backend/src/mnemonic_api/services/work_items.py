@@ -7,7 +7,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import conflict, not_found
-from mnemonic_api.models import Checkpoint, Project, WorkItem
+from mnemonic_api.models import Checkpoint, Project, WorkItem, WorkRelationship
 from mnemonic_api.schemas import (
     CheckpointCreate,
     CompletionCheckpointCreate,
@@ -17,6 +17,13 @@ from mnemonic_api.schemas import (
 from mnemonic_api.services.leases import (
     consume_lease_for_terminal_mutation,
     validate_optional_lease_token,
+)
+from mnemonic_api.services.relationships import (
+    lock_endpoint_work_items,
+    lock_project_graph,
+    require_no_relationships,
+    require_unblocked,
+    stage_relationship_locked,
 )
 
 
@@ -63,9 +70,18 @@ def _checkpoint(
 
 def create_work_records(
     database: Session, project_id: UUID, payload: WorkItemCreate
-) -> tuple[WorkItem, Checkpoint]:
-    """Stage one work item and its required initial context in the same transaction."""
-    require_project(database, project_id)
+) -> tuple[WorkItem, Checkpoint, list[WorkRelationship]]:
+    """Stage required work, context, and requested graph facts in one transaction."""
+    if payload.initial_relationships:
+        lock_project_graph(database, project_id)
+        locked_work_items = lock_endpoint_work_items(
+            database,
+            project_id,
+            [item.other_work_item_id for item in payload.initial_relationships],
+        )
+    else:
+        require_project(database, project_id)
+        locked_work_items = {}
     work_item_id = uuid4()
     initial_checkpoint_id = uuid4()
     work_item = WorkItem(
@@ -83,14 +99,46 @@ def create_work_records(
         kind="context",
         **payload.initial_checkpoint.model_dump(),
     )
-    # Explicitly stage the parent first. The deferred work->initial-checkpoint
-    # constraint permits this order, while the immediate checkpoint->work FK
-    # requires it. A single outer transaction still commits both or neither.
     database.add(work_item)
     database.flush()
     database.add(checkpoint)
     database.flush()
-    return work_item, checkpoint
+
+    relationships: list[WorkRelationship] = []
+    if payload.initial_relationships:
+        locked_work_items[work_item.id] = work_item
+        seen_relationship_ids: set[UUID] = set()
+        ordered = sorted(
+            payload.initial_relationships,
+            key=lambda item: (
+                item.type,
+                item.direction,
+                str(item.other_work_item_id),
+                str(item.context_checkpoint_id or ""),
+            ),
+        )
+        for item in ordered:
+            source_id, target_id = (
+                (work_item.id, item.other_work_item_id)
+                if item.direction == "outgoing"
+                else (item.other_work_item_id, work_item.id)
+            )
+            relationship, _ = stage_relationship_locked(
+                database,
+                project_id=project_id,
+                relationship_type=item.type,
+                source_work_item_id=source_id,
+                target_work_item_id=target_id,
+                created_by_client=payload.initial_checkpoint.source_client,
+                created_by_session_id=payload.initial_checkpoint.source_session_id,
+                created_by_model=payload.initial_checkpoint.source_model,
+                context_checkpoint_id=item.context_checkpoint_id,
+                locked_work_items=locked_work_items,
+            )
+            if relationship.id not in seen_relationship_ids:
+                relationships.append(relationship)
+                seen_relationship_ids.add(relationship.id)
+    return work_item, checkpoint, relationships
 
 
 def append_checkpoint_record(
@@ -162,6 +210,7 @@ def complete_work_record(
     if work_item.status != "open":
         raise conflict("work_not_open", "Only open work can be completed.")
     require_version(work_item, expected_version)
+    require_unblocked(database, work_item.id)
     consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
     checkpoint = _checkpoint(work_item.id, payload, kind="completion")
     database.add(checkpoint)
@@ -179,6 +228,7 @@ def delete_work_record(
     lease_token: str | None = None,
 ) -> None:
     require_version(work_item, expected_version)
+    require_no_relationships(database, work_item.project_id, work_item.id)
     consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
     now = datetime.now(UTC)
     work_item.deleted_at = now

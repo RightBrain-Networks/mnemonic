@@ -62,9 +62,10 @@ or session IDs.
 
 Those addresses are defaults, not fixed values. Each port is set in `.env`, so
 change one there if it collides with something already running on the host, and
-substitute your own value wherever this README shows a port. `python
-scripts/check-stack.py` resolves all three from `.env` and checks that the stack
-answers on them.
+substitute your own value wherever this README shows a port. With `uv`
+installed, `uv run --project mcp python scripts/check-stack.py` resolves all
+three from `.env` and performs the read-only live-stack checks. See
+[`docs/development.md`](docs/development.md) before opting into its write path.
 
 The four application services run alongside a small backup container. PostgreSQL
 has no published port. Dashboard, REST, and MCP ports bind to loopback only.
@@ -91,19 +92,23 @@ In PowerShell, the URL and header expressions are
 so set the port variable explicitly there. Do not paste the real key into
 tracked project configuration. Configuration examples, including a Docker stdio
 alternative and OpenCode, live in [`examples/`](examples/); they show the
-default ports and need the same substitution if yours differ.
+default ports and need the same substitution if yours differ. The canonical
+[`work.json`](examples/work.json) supersedes the explicitly deprecated
+[`handoff.json`](examples/handoff.json) compatibility example.
 
 Copy the three folders under [`skills/`](skills/) into the target project's
 `.claude/skills/` directory, or into `~/.claude/skills/` for personal use:
 
 - **`mnemonic-save`** searches for existing work, creates a durable objective
-  with its initial checkpoint, or appends corrective context to an existing one.
+  with its initial checkpoint and explicit atomic links, or appends corrective
+  context to an existing one.
 - **`mnemonic-search`** finds compact work-item leads within the chosen project,
-  normally restricted to open work.
+  normally restricted to open work, with lifecycle/readiness pointers.
 - **`mnemonic-recall`** loads bounded current context, pages older checkpoints
   when needed, atomically claims already-authorized execution, renews or
-  releases that expiring lease, appends useful progress, and records an atomic
-  completion checkpoint when the work is complete.
+  releases that expiring lease, inspects immediate typed relationships, appends
+  useful progress, and records an atomic completion checkpoint when the work is
+  complete.
 
 Invoke `/mnemonic-save`, `/mnemonic-search`, or `/mnemonic-recall`, or ask Claude
 in natural language. The skills require the connected `mnemonic` MCP server.
@@ -113,7 +118,7 @@ refer to the originating LLM conversation, not the MCP transport session.
 
 See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 
-## What Phase 2 does
+## What Phase 3 does
 
 - Separates durable work by project, with a project selector and project
   creation. One work-item card can represent checkpoints from many sessions.
@@ -140,23 +145,39 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   server-timed lease. A client request ID recovers an active claim receipt after
   an unknown response, renewal extends responsibility, release hands unfinished
   work back, and expiry restores claimability without operator repair.
-- Derives `Ready` and `Active` separately from durable lifecycle. Search,
+- Derives `Ready`, `Active`, and `Blocked` independently from lifecycle. Search,
   recall, and the dashboard expose only safe holder/session/timing details; the
   capability token appears only in MCP/API claim receipts and JSON mutation
   bodies, never browser data, URLs, errors, or ordinary responses.
+- Stores explicit project-local `blocks`, `parent-child`, `discovered-from`,
+  `duplicate-of`, and `related` relationships. All directed edges use
+  `source --type--> target`; `related` is normalized and presented as
+  undirected.
+- Makes only unresolved incoming `blocks` edges affect readiness and claim
+  eligibility. `done` resolves a blocker; `wont-do` and `promoted` do not.
+  Active work may become blocked without revoking its existing lease.
+- Creates a new objective, initial checkpoint, and up to ten explicit typed
+  relationships atomically. A `discovered-from` link must cite a
+  checkpoint on the originating target work item.
+- Browses collapsible structural roots and lazily loaded children in the
+  dashboard. Subtree-aware filters keep matching descendants visible beneath
+  muted ancestors, while free-text search returns direct hits with bounded
+  ancestor breadcrumbs.
 - Requires the matching lease token for completion, retirement, promotion, or
   deletion while work has an active lease. Checkpoint append remains open and
   lease operations do not alter work version or activity time.
 - Preserves deprecated hand-off REST/MCP calls as projections over the canonical
-  work/checkpoint tables during the migration window.
+  work/checkpoint tables during the compatibility window.
 - Saves a PostgreSQL backup at startup and daily, retaining earlier dumps.
 
 It does **not** automatically execute checkpoints, grant authority by claiming,
 create GitHub issues, inject memory hooks, infer missing session IDs, schedule
-the next ready item, or model relationships. Mnemonic is deliberately
-LLM-centric: checkpoints record an agent's claims rather than server-verified
-proof. Context quality and freshness remain agent workflow obligations; storing
-a commit ID is not proof the service verified anything.
+the next ready item, infer relationships from semantic similarity, merge
+duplicates, or reserve repository resources. Mnemonic is deliberately
+LLM-centric: checkpoints and relationship context record an agent's claims
+rather than server-verified proof. Context quality and freshness remain agent
+workflow obligations; storing a commit ID is not proof the service verified
+anything.
 
 ## Operate and develop
 

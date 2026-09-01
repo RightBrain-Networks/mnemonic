@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -187,6 +188,46 @@ def test_canonical_create_priority_status_and_checkpoint_kind_contract(work_payl
     assert CompletionCheckpointCreate.model_validate(provenance).prompt == "Exact context."
     with pytest.raises(ValidationError):
         CompletionCheckpointCreate.model_validate({**provenance, "kind": "completion"})
+
+
+def test_initial_relationships_are_bounded_and_discovery_is_outgoing_with_context(
+    work_payload,
+):
+    discovery = {
+        "type": "discovered-from",
+        "direction": "outgoing",
+        "other_work_item_id": str(uuid4()),
+        "context_checkpoint_id": str(uuid4()),
+    }
+    parsed = WorkItemCreate.model_validate(
+        {**work_payload, "initial_relationships": [discovery]}
+    )
+    assert parsed.initial_relationships[0].direction == "outgoing"
+
+    with pytest.raises(ValidationError):
+        WorkItemCreate.model_validate(
+            {**work_payload, "initial_relationships": [discovery] * 11}
+        )
+    with pytest.raises(ValidationError):
+        WorkItemCreate.model_validate(
+            {
+                **work_payload,
+                "initial_relationships": [{**discovery, "direction": "incoming"}],
+            }
+        )
+    with pytest.raises(ValidationError):
+        WorkItemCreate.model_validate(
+            {
+                **work_payload,
+                "initial_relationships": [
+                    {
+                        key: value
+                        for key, value in discovery.items()
+                        if key != "context_checkpoint_id"
+                    }
+                ],
+            }
+        )
 
 
 def test_project_slug_normalization():

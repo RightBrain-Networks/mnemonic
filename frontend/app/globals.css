@@ -664,3 +664,84 @@ button { touch-action: manipulation; }
   .checkpoint-header { align-items: flex-start; }
   .active-lease-times { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
+
+/* Phase 3 hierarchy and relationship views. */
+.operational-badge.blocked { color: #8f1d14; background: var(--danger-soft); border: 1px solid #f2b8af; }
+.hierarchy-list { gap: 16px; }
+.hierarchy-node { min-width: 0; }
+.hierarchy-node-row { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
+.hierarchy-card { flex: 1; min-width: 0; }
+.hierarchy-toggle, .hierarchy-toggle-spacer { flex: 0 0 28px; width: 28px; height: 34px; margin-top: 18px; }
+.hierarchy-toggle { display: grid; place-items: center; padding: 0; border: 1px solid #d8c8ae; border-radius: 7px; color: #6d35d7; background: #fffdf8; }
+.hierarchy-toggle:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.hierarchy-toggle > span { font-size: 25px; line-height: 1; transform: rotate(0); transition: transform .15s; }
+.hierarchy-toggle[aria-expanded="true"] > span { transform: rotate(90deg); }
+.hierarchy-children { display: grid; gap: 14px; margin: 13px 0 0 13px; padding-left: 23px; border-left: 2px solid #e8dcc8; }
+.hierarchy-children .hierarchy-children .hierarchy-children .hierarchy-children .hierarchy-children .hierarchy-children {
+  margin-left: 0;
+  padding-left: 0;
+  border-left-style: dotted;
+}
+.hierarchy-scaffold > .hierarchy-node-row > .hierarchy-card > .handoff-card { border-style: dashed; background: #faf5e9; box-shadow: none; }
+.hierarchy-scaffold > .hierarchy-node-row > .hierarchy-card > .handoff-card .card-summary,
+.hierarchy-scaffold > .hierarchy-node-row > .hierarchy-card > .handoff-card .card-source { color: #786f62; }
+.scaffold-label { display: inline-flex; margin: 0 0 6px 4px; color: #756944; font: 700 8px/1.5 var(--mono); text-transform: uppercase; letter-spacing: .45px; }
+.hierarchy-loading, .hierarchy-error, .hierarchy-guard { padding: 12px 14px; border: 1px dashed #d8c8ae; border-radius: 7px; color: var(--muted); background: #faf5e9; font-size: 10px; }
+.hierarchy-error, .hierarchy-guard { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 12px; }
+.hierarchy-guard strong { color: var(--ink); }
+.child-pagination { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 3px 5px 6px; color: var(--muted); font-size: 10px; }
+.child-pagination > div { display: flex; gap: 12px; }
+.text-link:disabled { cursor: not-allowed; opacity: .45; }
+.search-result { min-width: 0; }
+.search-ancestry { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 7px; margin: 0 0 6px 5px; color: var(--muted); font-size: 10px; }
+.search-ancestry > span { display: inline-flex; gap: 7px; min-width: 0; }
+.search-ancestry > span:last-child { color: #5b466f; font-weight: 650; }
+.search-ancestry > span > span { color: #b6a58b; }
+
+.relationship-panel { margin: 2px 0 27px; padding: 24px 0 26px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.relationship-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
+.relationship-heading h4 { margin: 6px 0 0; font-size: 18px; }
+.relationship-heading > span { color: var(--muted); font-size: 10px; }
+.no-relationships { margin: 0 0 16px; padding: 13px 15px; border: 1px dashed #d8c8ae; border-radius: 7px; color: var(--muted); background: #faf5e9; font-size: 11px; }
+.relationship-groups { display: grid; gap: 16px; margin-bottom: 19px; }
+.relationship-group h5 { margin: 0 0 7px; color: #5b466f; font: 700 10px/1.5 var(--mono); text-transform: uppercase; letter-spacing: .55px; }
+.relationship-group > div { display: grid; gap: 7px; }
+.relationship-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 12px; border: 1px solid #e4d8c4; border-radius: 7px; background: #fffdf8; }
+.relationship-counterpart { display: grid; gap: 4px; min-width: 0; }
+.relationship-counterpart > div { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.relationship-counterpart strong { overflow-wrap: anywhere; }
+.relationship-counterpart > span { color: var(--muted); font-size: 9px; }
+.relationship-counterpart > .mono { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; }
+.relationship-remove { flex-shrink: 0; padding: 6px 9px; font-size: 10px; }
+.relationship-editor { border: 1px solid #d7c5f7; border-radius: 8px; background: #faf7ff; }
+.relationship-editor > summary { padding: 13px 15px; color: #6d35d7; font-weight: 700; cursor: pointer; }
+.relationship-editor[open] > summary { border-bottom: 1px solid #dfd2f6; }
+.relationship-editor-body { display: grid; gap: 14px; padding: 16px; }
+.relationship-semantics { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.75; }
+.relationship-search-status { margin: -5px 0 0; color: var(--muted); font-size: 10px; }
+.counterpart-results { display: grid; gap: 5px; max-height: 250px; overflow-y: auto; }
+.counterpart-results > button { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 10px 11px; border: 1px solid #ddcfb8; border-radius: 6px; color: inherit; background: #fffdf8; text-align: left; }
+.counterpart-results > button:hover, .counterpart-results > button.selected { border-color: var(--violet); background: var(--violet-soft); }
+.counterpart-results > button > span:first-child { display: grid; gap: 3px; min-width: 0; }
+.counterpart-results > button strong, .counterpart-results > button span span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.counterpart-results > button span span { color: var(--muted); font-size: 9px; }
+.relationship-fields { display: grid; gap: 14px; padding-top: 4px; }
+.relationship-direction { display: flex; flex-wrap: wrap; gap: 8px 17px; margin: 0; padding: 12px; border: 1px solid #ddcfb8; border-radius: 7px; }
+.relationship-direction legend { padding: 0 5px; color: #42372b; font-size: 11px; font-weight: 650; }
+.relationship-direction label { display: flex; align-items: center; gap: 6px; color: #514438; font-size: 11px; }
+.relationship-preview { display: grid; gap: 4px; padding: 12px 14px; border-left: 3px solid var(--accent); border-radius: 5px; background: var(--accent-soft); }
+.relationship-preview span { color: var(--accent-deep); font: 700 8px/1.4 var(--mono); text-transform: uppercase; }
+.relationship-preview strong { font-size: 12px; overflow-wrap: anywhere; }
+.add-relationship-button { justify-self: end; }
+.relationship-action-message, .relationship-notice { margin-top: 12px; }
+.relationship-notice { padding: 10px 12px; border: 1px solid #b9df7a; border-radius: 7px; color: #477800; background: #f4ffe3; font-size: 10px; }
+
+@media (max-width: 580px) {
+  .hierarchy-node-row { gap: 5px; }
+  .hierarchy-toggle, .hierarchy-toggle-spacer { flex-basis: 24px; width: 24px; }
+  .hierarchy-children { margin-left: 9px; padding-left: 12px; }
+  .relationship-row { align-items: stretch; flex-direction: column; }
+  .relationship-remove { align-self: flex-end; }
+  .counterpart-results > button { align-items: flex-start; }
+  .add-relationship-button { justify-self: stretch; }
+}

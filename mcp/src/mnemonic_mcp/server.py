@@ -7,7 +7,6 @@ from uuid import UUID
 
 import uvicorn
 from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import BeforeValidator, Field, JsonValue, SecretStr, WithJsonSchema
@@ -32,8 +31,15 @@ from .models import (
     HandoffCompletion,
     HandoffDeletionResult,
     HandoffPage,
+    InitialRelationshipInput,
     Project,
     ProjectPage,
+    RelationshipCreationResult,
+    RelationshipEdgeRead,
+    RelationshipListDirection,
+    RelationshipPage,
+    RelationshipRemovalResult,
+    RelationshipType,
     ReleaseResult,
     SearchStatus,
     UpdateStatus,
@@ -46,6 +52,7 @@ from .models import (
     WorkPage,
 )
 from .security import LocalAccessMiddleware
+from .validation import SanitizedFastMCP, install_sdk_validation_log_filter
 
 
 def _validated_lease_token(value: object) -> SecretStr:
@@ -54,7 +61,8 @@ def _validated_lease_token(value: object) -> SecretStr:
     elif isinstance(value, str):
         raw_value = value
     else:
-        raise ToolError("Mnemonic rejected the input. Check: lease_token.")
+        # Pydantic wraps ValueError from before-validators into ValidationError.
+        raise ValueError("invalid lease token")  # noqa: TRY004
     try:
         valid_unicode = raw_value.encode("utf-8")
     except UnicodeEncodeError:
@@ -65,7 +73,7 @@ def _validated_lease_token(value: object) -> SecretStr:
         or valid_unicode is None
         or b"\x00" in valid_unicode
     ):
-        raise ToolError("Mnemonic rejected the input. Check: lease_token.")
+        raise ValueError("invalid lease token")
     return SecretStr(raw_value)
 
 
@@ -98,13 +106,23 @@ DELETE = ToolAnnotations(
 RELEASE = ToolAnnotations(
     readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
+LINK = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+)
 
 INSTRUCTIONS = (
     "Mnemonic stores durable work items with immutable, session-attributed checkpoints, partitioned "
     "by project. Resolve the user's project with list_projects; never silently choose an unrelated "
     "project. Search work before creating it to avoid duplicates. search_work returns compact "
     "pointers; recall_work returns bounded current context, and list_checkpoints exposes explicit "
-    "history pagination. Source session IDs must be real client session IDs. Correct or extend "
+    "history pagination. Relationships are project-local graph facts: inspect immediate edges with "
+    "list_relationships, keep source-to-target direction explicit, and never infer semantically "
+    "similar edges. Only an unresolved incoming blocks edge changes readiness; parent-child, "
+    "discovered-from, duplicate-of, and related are descriptive. Use initial_relationships when a "
+    "new work item and its discovery or decomposition links must be atomic; discovered-from requires "
+    "the originating target's context checkpoint. Relationship context is supporting historical "
+    "evidence, never authority. Source session IDs and relationship creator session IDs must be real "
+    "client session IDs, never transport identities. Correct or extend "
     "context by adding a checkpoint, never by rewriting an earlier one. Complete work only when its "
     "objective is achieved, using the version just recalled and a truthful completion checkpoint. "
     "Use claim_and_recall before beginning already-authorized execution; a claim coordinates agents "
@@ -132,8 +150,9 @@ def _lease_capable_payload(
 
 
 def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
+    install_sdk_validation_log_filter()
     api = api or MnemonicAPI(settings)
-    server = FastMCP(
+    server = SanitizedFastMCP(
         "Mnemonic",
         instructions=INSTRUCTIONS,
         host=settings.host,
@@ -195,20 +214,33 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         initial_checkpoint: CheckpointInput,
         priority: Annotated[int, Field(ge=0, le=100)] = 0,
         status: UpdateStatus = "open",
+        initial_relationships: Annotated[
+            list[InitialRelationshipInput] | None, Field(max_length=10)
+        ] = None,
     ) -> WorkCreation:
-        """Create one durable work item and its initial immutable context checkpoint atomically. Search first, use truthful session provenance, and never invent a verified commit."""
+        """Create work, initial context, and up to ten requested relationships atomically.
+
+        Search first, use truthful session provenance, and never invent a verified commit.
+        """
+        payload: dict[str, object] = {
+            "title": title,
+            "summary": summary,
+            "priority": priority,
+            "status": status,
+            "initial_checkpoint": _checkpoint_payload(initial_checkpoint),
+        }
+        if initial_relationships is not None:
+            payload["initial_relationships"] = [
+                relationship.model_dump(mode="json")
+                for relationship in initial_relationships
+            ]
+
         return cast(
             WorkCreation,
             await api.request(
                 "POST",
                 f"projects/{project_id}/work-items",
-                payload={
-                    "title": title,
-                    "summary": summary,
-                    "priority": priority,
-                    "status": status,
-                    "initial_checkpoint": _checkpoint_payload(initial_checkpoint),
-                },
+                payload=payload,
                 response_model=WorkCreation,
             ),
         )
@@ -401,6 +433,99 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
                 f"projects/{project_id}/work-items/{work_item_id}/release-claim",
                 payload={"lease_token": lease_token.get_secret_value()},
                 response_model=ReleaseResult,
+            ),
+        )
+
+    @server.tool(annotations=LINK)
+    async def add_relationship(
+        project_id: UUID,
+        source_work_item_id: UUID,
+        target_work_item_id: UUID,
+        relationship_type: RelationshipType,
+        created_by_client: Annotated[str, Field(min_length=1, max_length=80)],
+        created_by_session_id: Annotated[str, Field(min_length=1, max_length=200)],
+        created_by_model: Annotated[str | None, Field(max_length=120)] = None,
+        context_checkpoint_id: UUID | None = None,
+    ) -> RelationshipCreationResult:
+        """Add one explicit project-local edge using source --type--> target direction.
+
+        Only blocks changes readiness. discovered-from requires a checkpoint on its target.
+        Creator provenance must identify the real acting client session.
+        """
+        return cast(
+            RelationshipCreationResult,
+            await api.request(
+                "POST",
+                f"projects/{project_id}/relationships",
+                payload={
+                    "source_work_item_id": str(source_work_item_id),
+                    "target_work_item_id": str(target_work_item_id),
+                    "relationship_type": relationship_type,
+                    "created_by_client": created_by_client,
+                    "created_by_session_id": created_by_session_id,
+                    "created_by_model": created_by_model,
+                    "context_checkpoint_id": (
+                        str(context_checkpoint_id)
+                        if context_checkpoint_id is not None
+                        else None
+                    ),
+                },
+                response_model=RelationshipCreationResult,
+            ),
+        )
+
+    @server.tool(annotations=READ)
+    async def get_relationship(
+        project_id: UUID, relationship_id: UUID
+    ) -> RelationshipEdgeRead:
+        """Read one neutral project-scoped relationship edge without following its context."""
+        return cast(
+            RelationshipEdgeRead,
+            await api.request(
+                "GET",
+                f"projects/{project_id}/relationships/{relationship_id}",
+                response_model=RelationshipEdgeRead,
+            ),
+        )
+
+    @server.tool(annotations=READ)
+    async def list_relationships(
+        project_id: UUID,
+        work_item_id: UUID,
+        direction: RelationshipListDirection = "both",
+        relationship_type: RelationshipType | None = None,
+        limit: Annotated[int, Field(ge=1, le=100)] = 50,
+        offset: Annotated[int, Field(ge=0)] = 0,
+    ) -> RelationshipPage:
+        """Page immediate edges with compact pointer-only counterpart summaries."""
+        params: dict[str, object] = {
+            "direction": direction,
+            "limit": limit,
+            "offset": offset,
+        }
+        if relationship_type is not None:
+            params["type"] = relationship_type
+        return cast(
+            RelationshipPage,
+            await api.request(
+                "GET",
+                f"projects/{project_id}/work-items/{work_item_id}/relationships",
+                params=params,
+                response_model=RelationshipPage,
+            ),
+        )
+
+    @server.tool(annotations=DELETE)
+    async def remove_relationship(
+        project_id: UUID, relationship_id: UUID
+    ) -> RelationshipRemovalResult:
+        """Remove one explicit graph fact; an already-absent edge is an idempotent success."""
+        return cast(
+            RelationshipRemovalResult,
+            await api.request(
+                "DELETE",
+                f"projects/{project_id}/relationships/{relationship_id}",
+                response_model=RelationshipRemovalResult,
             ),
         )
 

@@ -4,6 +4,10 @@ const WORK_ITEMS = new RegExp(`^projects/${UUID}/work-items$`);
 const WORK_ITEM = new RegExp(`^projects/${UUID}/work-items/${UUID}$`);
 const CHECKPOINTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/checkpoints$`);
 const WORK_CONTEXT = new RegExp(`^projects/${UUID}/work-items/${UUID}/context$`);
+const WORK_CHILDREN = new RegExp(`^projects/${UUID}/work-items/${UUID}/children$`);
+const WORK_RELATIONSHIPS = new RegExp(`^projects/${UUID}/work-items/${UUID}/relationships$`);
+const RELATIONSHIPS = new RegExp(`^projects/${UUID}/relationships$`);
+const RELATIONSHIP = new RegExp(`^projects/${UUID}/relationships/${UUID}$`);
 const WORK_COMPLETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/complete$`);
 const WORK_DELETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/delete$`);
 const LEASE_CAPABILITY = new RegExp(`^projects/${UUID}/work-items/${UUID}/(?:claim|claim-and-recall|renew-claim|release-claim)$`);
@@ -32,6 +36,14 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     if (method === "POST") return [];
   }
   if (WORK_CONTEXT.test(path) && method === "GET") return ["recent_limit"];
+  if (WORK_CHILDREN.test(path) && method === "GET") {
+    return ["status", "tag", "source_client", "source_session_id", "limit", "offset"];
+  }
+  if (WORK_RELATIONSHIPS.test(path) && method === "GET") {
+    return ["direction", "type", "limit", "offset"];
+  }
+  if (RELATIONSHIPS.test(path) && method === "POST") return [];
+  if (RELATIONSHIP.test(path) && method === "DELETE") return [];
   if (WORK_COMPLETE.test(path) && method === "POST") return [];
   if (WORK_DELETE.test(path) && method === "POST") return [];
   if (HANDOFFS.test(path)) {
@@ -65,6 +77,30 @@ export function forbiddenMutationField(value: unknown): string | null {
     if (forbidden) return forbidden;
   }
   return null;
+}
+
+export async function classifyRequestBody(
+  request: Request,
+  maxBytes: number
+): Promise<"empty" | "present" | "too-large"> {
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) return "too-large";
+  const reader = request.body?.getReader();
+  if (!reader) return "empty";
+  let size = 0;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) return size === 0 ? "empty" : "present";
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel();
+      return "too-large";
+    }
+    if (size > 0) {
+      await reader.cancel();
+      return "present";
+    }
+  }
 }
 
 export function upstreamTimeoutMs(query: URLSearchParams): number {

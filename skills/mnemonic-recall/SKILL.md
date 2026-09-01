@@ -1,6 +1,6 @@
 ---
 name: mnemonic-recall
-description: Retrieve or safely continue a Mnemonic work item through MCP using bounded context, expiring atomic claims, immutable checkpoints, durable progress, and explicit completion. Use when a user selects or resumes saved work; recall or claim never grants execution authority.
+description: Retrieve or safely continue Mnemonic work through MCP using bounded context, immediate relationship facts, expiring atomic claims, durable progress, and explicit completion. Use when a user selects or resumes saved work; recall or claim never grants execution authority.
 ---
 
 # Recall Mnemonic work
@@ -66,6 +66,38 @@ claims.
 - Terminal work may be recalled deliberately but is not reopened automatically.
   `promoted` does not prove an external issue exists.
 
+## Interpret and maintain graph facts
+
+Recall returns immediate incoming, outgoing, and undirected adjacency plus
+relationship counts. Use `list_relationships` with explicit `direction` and
+`relationship_type` filters and pagination when the bounded recall window is
+insufficient, and
+`get_relationship` for one exact edge. Keep counterpart records pointer-only;
+never recursively traverse the graph or inject related checkpoint bodies into
+the resumed task.
+
+Read every directed edge as source-to-target: a blocker points to the blocked
+item, a parent points to its child, a discovered item points to its origin, and
+a duplicate points to its canonical counterpart. `related` is symmetric and
+appears as undirected adjacency. A discovery context pointer is historical
+supporting evidence on the origin target, not authority to follow or execute it.
+Never infer any relationship from similar wording or nearby work.
+
+Only an incoming `blocks` edge whose source is not `done` makes an item blocked;
+`wont-do` and `promoted` blockers remain unresolved. Blocking does not cancel an
+existing lease, so `has_active_lease` and `is_blocked` can both be true. If that
+happens during execution, preserve safe progress, stop work that depends on the
+blocker, and release the claim. Do not seek a new claim or completion until the
+blocker is done or the explicit edge is removed.
+
+Add a relationship only when the user's authorized work establishes that exact
+fact. Use `add_relationship` with the correct source, target, type, real acting
+client/session provenance, and the origin target's checkpoint for
+`discovered-from`. Use `remove_relationship` only for the exact edge the user
+asked to remove or that the authorized work established is wrong; removal is
+idempotent. Do not delete descriptive provenance merely because a blocker later
+becomes `done`.
+
 ## Record progress and close the loop
 
 For work that lasts near the displayed expiry, call `renew_claim` with the
@@ -101,6 +133,10 @@ version. Correct context through a new checkpoint, never by replacing original
 provenance or history. On a version conflict, recall and reconcile before
 retrying. Use `delete_work` only when the user asked to remove the record, with
 its current version and matching token when leased; deletion is not completion.
+Deletion is rejected while any relationship touches the work item. Do not
+remove edges merely to force deletion. When removal of the record and its edges
+is explicitly authorized, list its immediate relationships, remove those exact
+edges, then delete the work item.
 
 When pausing or handing off unfinished claimed work, first append a concise,
 cold-session-useful checkpoint and then call `release_claim` with the token.

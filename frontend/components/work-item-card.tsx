@@ -37,13 +37,11 @@ function StatusBadge({ status }: { status: WorkStatus }) {
 }
 
 function OperationalBadge({ readiness }: { readiness: Readiness }) {
-  if (readiness.has_active_lease) {
-    return <span className="operational-badge active">Active</span>;
-  }
-  if (readiness.is_ready) {
-    return <span className="operational-badge ready">Ready</span>;
-  }
-  return null;
+  return <>
+    {readiness.has_active_lease && <span className="operational-badge active">Active</span>}
+    {readiness.is_blocked && <span className="operational-badge blocked">Blocked</span>}
+    {readiness.is_ready && <span className="operational-badge ready">Ready</span>}
+  </>;
 }
 
 function ActiveLeaseSummary({ lease, detailed = false }: { lease: LeasePublic; detailed?: boolean }) {

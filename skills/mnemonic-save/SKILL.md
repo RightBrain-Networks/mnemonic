@@ -1,6 +1,6 @@
 ---
 name: mnemonic-save
-description: Save a durable Mnemonic work item with an initial context checkpoint, or append corrected context to matching work. Use when a user wants to preserve a follow-up for another session; saving does not authorize executing it.
+description: Save durable Mnemonic work with an initial context checkpoint and, when explicit, atomic initial graph links; or append corrected context to matching work. Use when a user wants to preserve a follow-up for another session; saving does not authorize executing it.
 ---
 
 # Save Mnemonic work
@@ -26,7 +26,9 @@ claim durability from a draft or bypass the MCP connection.
    objective, append a `context` checkpoint to correct or extend the current
    context. Never rewrite an earlier checkpoint. Use `update_work` only for
    intended identity fields such as title, summary, priority, or permitted
-   lifecycle state; do not reopen terminal work implicitly.
+   lifecycle state; do not reopen terminal work implicitly. Similarity alone is
+   not evidence of a `duplicate-of` relationship; never infer graph facts from
+   search results.
 
 ## Establish truthful provenance
 
@@ -47,6 +49,36 @@ verification. When evidence depends on uncommitted work, say so in the prompt
 and `source_metadata`. Preserve useful JSON metadata such as evidence locations,
 capture reason, and verification limits. Never store credentials, unnecessary
 transcript dumps, or private personal information.
+
+## Record explicit relationships
+
+Relationships are project-local facts, not semantic guesses. Keep their
+source-to-target meaning explicit:
+
+- `A blocks B` means B has an incoming blocker from A.
+- `A parent-child B` means A is B's parent.
+- `A discovered-from B` means A was discovered from B; cite a context
+  checkpoint belonging to B.
+- `A duplicate-of B` identifies B as the canonical counterpart.
+- `related` is symmetric and is returned as undirected adjacency.
+
+Only an unresolved incoming `blocks` edge changes readiness, and only a blocker
+whose lifecycle is `done` resolves it. The other relationship types are
+descriptive and do not make work ready or blocked.
+
+When a new work item and its explicit decomposition or discovery links must
+succeed together, pass up to ten `initial_relationships` to `create_work`.
+Each entry's `direction` is relative to the new item and names the
+`other_work_item_id`. An initial `discovered-from` edge must be `outgoing` and
+must cite a checkpoint on its originating target. These atomic edges inherit
+creator provenance from the initial checkpoint.
+
+For a fact connecting existing work, use `add_relationship` with the exact
+source, target, type, and real acting client/session provenance. Use
+`list_relationships` and, when needed, `get_relationship` to inspect immediate
+pointer-only edges before changing them. Never recursively traverse the graph,
+inject counterpart checkpoint text, or add an edge merely because two items
+sound related.
 
 ## Write cold-session context
 
@@ -88,8 +120,9 @@ never claim a test passed unless this session observed it.
 ## Persist and report
 
 For distinct work, call `create_work` with `project_id`, `title`, `summary`, and
-an `initial_checkpoint` containing the complete prompt and provenance. Use a few
-useful tags; new proposals normally remain `open`.
+an `initial_checkpoint` containing the complete prompt and provenance, plus
+`initial_relationships` only when the explicit links must be created atomically.
+Use a few useful tags; new proposals normally remain `open`.
 
 For the same objective, call `add_checkpoint(project_id, work_item_id,
 kind="context", checkpoint={...})`. If only mutable work identity must change,

@@ -236,15 +236,8 @@ def test_expiry_requires_new_request_and_old_token_cannot_delete_replacement(
             "original-request", client="different-client", session="different-session"
         ),
     )
-    assert changed_holder_reuse.status_code == 200, changed_holder_reuse.text
-    changed_holder_receipt = changed_holder_reuse.json()
-    assert changed_holder_receipt["holder_client"] == "different-client"
-    assert changed_holder_receipt["holder_session_id"] == "different-session"
-    assert changed_holder_receipt["claim_request_id"] == "original-request"
-    assert changed_holder_receipt["lease_token"] != original["lease_token"]
-
-    # Restore an expired retained row for the remaining replacement/release branches.
-    expire_lease(postgres_engine, work_item["id"])
+    assert changed_holder_reuse.status_code == 409
+    assert changed_holder_reuse.json()["detail"]["code"] == "claim_request_expired"
 
     wrong_expired_release = api.post(
         f"{endpoint}/release-claim", json={"lease_token": "different-expired-token"}

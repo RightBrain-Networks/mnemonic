@@ -1,4 +1,4 @@
-# Phase 2 API contract
+# Phase 3 API contract
 
 All application routes use `/api/v1` and
 `Authorization: Bearer <MNEMONIC_API_KEY>`. `GET /healthz` and
@@ -27,6 +27,13 @@ Lease conflicts use stable codes: `work_not_open`, `lease_held`,
 `lease_held` may expose only safe holder and expiry context. No error contains a
 lease token or claim request ID.
 
+Lifecycle and graph conflicts use stable codes including
+`invalid_status_transition`, `work_blocked`, `relationship_context_invalid`,
+`relationship_cycle`, `parent_already_set`, and `active_relationships`.
+Self-edges and a missing discovery context fail strict request validation with
+422. Missing or cross-project endpoints/checkpoints use sanitized 404 codes.
+Error context never includes checkpoint content or non-allowlisted upstream values.
+
 ## Projects
 
 - `GET /projects?limit=100&offset=0` returns
@@ -44,8 +51,8 @@ lowercase, and hyphen-separated; omitting one derives it from the name.
 
 Base path: `/projects/{project_id}/work-items`.
 
-- `POST /` creates one work item and its initial context checkpoint
-  atomically, returning `WorkCreation` (201).
+- `POST /` creates one work item, its initial context checkpoint, and optional
+  initial relationships atomically, returning `WorkCreation` (201).
 - `GET /` browses or searches one compact `WorkSummary` per work item.
 - `GET /{work_item_id}` returns `WorkItemRead` only.
 - `PATCH /{work_item_id}` performs a version-protected work identity or
@@ -63,6 +70,8 @@ Base path: `/projects/{project_id}/work-items`.
   bounded context inside the same transaction.
 - `POST /{work_item_id}/renew-claim` renews an unexpired matching capability.
 - `POST /{work_item_id}/release-claim` releases a matching retained capability.
+- `GET /{work_item_id}/relationships` pages immediate adjacent graph facts.
+- `GET /{work_item_id}/children` pages subtree-aware direct child branches.
 
 There are no checkpoint update/delete routes. PostgreSQL also rejects direct
 `UPDATE` and `DELETE` against checkpoint rows.
@@ -87,9 +96,26 @@ There are no checkpoint update/delete routes. PostgreSQL also rejects direct
     "verified_against": "abc1234",
     "tags": ["cache", "correctness"],
     "source_metadata": {}
-  }
+  },
+  "initial_relationships": [
+    {
+      "type": "discovered-from",
+      "direction": "outgoing",
+      "other_work_item_id": "11111111-1111-4111-8111-111111111111",
+      "context_checkpoint_id": "22222222-2222-4222-8222-222222222222"
+    }
+  ]
 }
 ```
+
+`initial_relationships` is optional and contains at most ten entries expressed
+relative to the new work item: `{type, direction: incoming|outgoing,
+other_work_item_id, context_checkpoint_id?}`. An initial `discovered-from` must
+be outgoing and cite a checkpoint on its existing originating target. An
+incoming `parent-child` makes the existing counterpart the parent; an incoming
+`blocks` makes it the prerequisite. Work, checkpoint, and every requested edge
+commit or roll back together, and relationship creator provenance is copied
+from the supplied initial checkpoint.
 
 `status` may initially be `open`, `wont-do`, or `promoted`, never
 `done`. Priority is an integer from 0 through 100 and defaults to 0.
@@ -104,6 +130,7 @@ version-controlled and do not require a token.
 
 `WorkDeletionCreate` is `{"expected_version": N, "lease_token": "..."}`;
 the token is optional for unleased work and required when a lease is active.
+Deletion returns `active_relationships` until every adjacent edge is removed.
 Successful deletion removes a matching lease and returns body-bearing JSON:
 
 ```json
@@ -147,10 +174,11 @@ Completion accepts:
 }
 ```
 
-Only current `open` work can complete. Repeated completion returns
-`work_not_open`; stale completion returns `version_conflict`. An active lease
-requires the matching token, and successful completion removes the lease in the
-same transaction. An expired lease is not ownership; presenting its stale token
+Only current `open`, unblocked work can complete. A terminal item returns
+`work_not_open`, a stale expected version returns `version_conflict`, and an
+unresolved incoming blocker returns `work_blocked`. An active lease requires
+the matching token, and successful completion removes the lease in the same
+transaction. An expired lease is not ownership; presenting its stale token
 returns `lease_expired`.
 
 ### Lease requests and receipts
@@ -194,9 +222,12 @@ A different active replacement returns `lease_token_mismatch`; a different
 expired row remains untouched and also returns `released: false`.
 
 Lease acquisition, replay, renewal, and release do not change work version or
-`updated_at`. Deleted or terminal work cannot be claimed. Before Phase 3 there
-are no relationship blockers, so an open visible item is base-claimable; an
-unexpired lease then determines whether it is already active.
+`updated_at`. Deleted or terminal work cannot be claimed. Open visible work is
+eligible for a new claim only when no unexpired lease and no unresolved incoming
+`blocks` edge exists; the exact retained-request replay described above remains
+available. Only a blocker source in `done` resolves that edge; `wont-do` and
+`promoted` do not. A blocker added after acquisition makes work both active and
+blocked without revoking the retained lease.
 
 ### Search and pagination
 
@@ -210,7 +241,7 @@ Work list/search accepts:
 | `tag` | matches any checkpoint |
 | `source_client` | matches any checkpoint |
 | `source_session_id` | matches any checkpoint |
-| `view` | Phase 2 supports `all` only |
+| `view` | `all` by default; `roots` for structural root browsing |
 | `limit` | 30 by default, maximum 100 |
 | `offset` | 0 by default |
 
@@ -221,8 +252,19 @@ Hybrid `total` retains the full lifecycle/metadata-qualified candidate count;
 relevance controls its page order. Search results never contain prompt or
 source-metadata bodies.
 
+`view=all` returns flat `WorkSummary` pages. A nonblank `q` requires that view
+and gives each direct hit a bounded root-to-parent `ancestor_path` plus an
+`ancestor_path_truncated` flag. `view=roots` forbids free-text search and returns
+`HierarchySummary` root branches. Root filters are subtree-aware: a structural
+root remains when it or any descendant matches, and `total` counts qualifying
+roots rather than descendants.
+
 Checkpoint list accepts `order=oldest|newest`, `limit` up to 100, and
 `offset`. Context accepts `recent_limit`, default 5 and maximum 20.
+Child pages inherit `status`, `tag`, `source_client`, and `source_session_id`,
+with `limit` defaulting to 50 (maximum 100) and `offset=0`; totals count
+qualifying direct child branches. Relationship pages use the filters documented
+in the relationship contract below.
 
 ### Core response shapes
 
@@ -245,20 +287,22 @@ migration_origin, legacy_record_id, created_at
 retains compact source/session/model, repository, tag, migration, kind, ID, and
 time fields.
 
-`WorkSummary` contains `work_item`, `checkpoint_count`, an empty Phase 2
-`ancestor_path`, `ancestor_path_truncated=false`, `current_context` as a
-pointer, and `readiness`. Phase 2 readiness is derived from lifecycle and
-database-time lease expiry: visible open unleased work is `ready`, visible open
-work with an unexpired lease is `active`, and terminal work reports its
-lifecycle value. Blocker fields remain zero/false until Phase 3.
+`WorkSummary` contains `work_item`, `checkpoint_count`, `ancestor_path`,
+`ancestor_path_truncated`, `current_context` as a pointer, and `readiness`.
+The ancestor path is empty for browse/root/child results and root-to-parent for
+free-text descendant hits. `Readiness` contains lifecycle, terminal, active,
+blocked, and ready booleans, unresolved blocker count, display state, and an
+optional safe active lease. Display precedence is terminal lifecycle, blocked,
+active, then ready; independent flags remain authoritative because active and
+blocked can overlap.
 
 `LeasePublic` contains only holder client/session and acquired, renewed, and
 expiry timestamps. `Readiness.active_lease` uses that safe projection and never
 contains request ID or token. Its independent `has_active_lease`, `is_ready`,
 and lifecycle fields remain authoritative.
 
-`WorkCreation` contains `work_item`, `initial_checkpoint`, and an empty
-`initial_relationships` list.
+`WorkCreation` contains `work_item`, `initial_checkpoint`, and the exact
+`initial_relationships` edges created in the transaction (empty when omitted).
 
 `WorkContext` contains:
 
@@ -278,8 +322,14 @@ relationship_counts
 
 `current_context` is the newest context-kind checkpoint, not the newest
 progress or completion record. Recent checkpoints are chronological and exclude
-the initial/current IDs. The three relationship lists and counts are empty in
-Phase 2.
+the initial/current IDs. Each immediate relationship list contains at most 50
+pointer-only counterparts; `relationship_counts` covers all adjacent edges by
+direction even when a list is truncated.
+
+`HierarchySummary` contains `summary` (a compact `WorkSummary`),
+`self_matches_filter`, and `has_matching_descendants`. Root and child summaries
+have empty ancestor paths. The flags distinguish a direct filter match from an
+ancestor retained only to navigate to a matching descendant.
 
 Pages retain `items`, `total`, `limit`, and `offset`.
 `CompletionResult` contains `work_item` and `checkpoint`.
@@ -299,8 +349,9 @@ cutover window, but all reads and writes use canonical tables:
 - update permits title, summary, and non-completion lifecycle changes only and
   accepts a token for an actively leased terminal transition;
 - `DELETE /{handoff_id}?expected_version=N` remains query-versioned and
-  returns 204 only while unleased. The MCP `delete_handoff` alias uses the
-  canonical JSON action and accepts an optional token.
+  returns 204 only while unleased and without any remaining relationship. The
+  MCP `delete_handoff` alias uses the canonical JSON action, accepts an optional
+  token, and enforces the same relationship guard.
 
 Legacy source/tag filters apply to the initial checkpoint to preserve their old
 meaning. Prompt, checkpoint provenance, repository fields, tags, and metadata
@@ -314,7 +365,8 @@ Canonical tools are:
 list_projects, create_project,
 create_work, search_work, get_work, add_checkpoint, list_checkpoints,
 recall_work, update_work, complete_work, delete_work,
-claim_work, claim_and_recall, renew_claim, release_claim
+claim_work, claim_and_recall, renew_claim, release_claim,
+add_relationship, get_relationship, list_relationships, remove_relationship
 ```
 
 The resource
@@ -326,23 +378,83 @@ The eight hand-off tools, old resource URI, and `resume_handoff` remain as
 deprecated projections. MCP error handling maps stable application codes and
 also accepts legacy string errors during the compatibility window.
 
+Every top-level tool input schema rejects unknown fields and publishes
+`additionalProperties: false`. Direct, HTTP, and stdio validation failures
+return only allowlisted field names, never supplied values, prompt/metadata
+content, claim request IDs, or lease tokens. A claim or claim-and-recall 5xx is
+always treated as an unknown outcome and directs exact-request-ID recovery.
+
 ## Browser proxy
 
-The same-origin proxy allows exact project and Phase 2 work/checkpoint
-read/write routes and their documented query keys. It rejects arbitrary paths,
-unknown query keys, untrusted hosts/origins, bodies over 1 MiB, and every
-`lease_token` field at any nesting depth. All four claim/renew/release routes
-are denied rather than stripped. The API URL and bearer key remain server-only;
-the dashboard can display `LeasePublic` but never receive or forward a token.
+The same-origin proxy allows exact project, Phase 3 work/checkpoint/hierarchy,
+and human-facing relationship list/add/remove routes with documented query
+keys. Project-level relationship GET-by-ID is intentionally denied. It rejects
+arbitrary paths, unknown query keys, untrusted hosts/origins, bodies over 1 MiB,
+and every `lease_token` field at any nesting depth. All four claim/renew/release
+routes are denied rather than stripped. The API URL and bearer key remain
+server-only; the dashboard can display `LeasePublic` but never receive or
+forward a token.
 
 ## Runtime configuration
 
-API: `DATABASE_URL`, `MNEMONIC_API_KEY` (required, at least 32 characters), and
-`MNEMONIC_LEASE_TTL_SECONDS` (default 900, allowed 60 through 3600).
+API: `DATABASE_URL`, `MNEMONIC_API_KEY` (required, at least 32 characters),
+`MNEMONIC_LEASE_TTL_SECONDS` (default 900, allowed 60 through 3600), and
+`MNEMONIC_DASHBOARD_ORIGINS` for exact browser/WebSocket origins.
 
-MCP: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, `MNEMONIC_MCP_HOST`, and
-`MNEMONIC_MCP_PORT`.
+MCP: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, `MNEMONIC_MCP_HOST`,
+`MNEMONIC_MCP_PORT`, `MNEMONIC_MCP_ALLOWED_HOSTS`, and
+`MNEMONIC_MCP_ALLOWED_ORIGINS`.
 
 Dashboard server: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, and
 `MNEMONIC_DASHBOARD_ORIGINS`. Credentials must never use a
 `NEXT_PUBLIC_*` variable.
+
+## Relationship contract
+
+Project-level relationship routes are:
+
+- `POST /projects/{project_id}/relationships` to add one explicit edge;
+- `GET /projects/{project_id}/relationships/{relationship_id}` to read its
+  neutral stored direction and provenance;
+- `DELETE /projects/{project_id}/relationships/{relationship_id}` to remove it.
+
+Creation accepts:
+
+```json
+{
+  "relationship_type": "blocks",
+  "source_work_item_id": "33333333-3333-4333-8333-333333333333",
+  "target_work_item_id": "44444444-4444-4444-8444-444444444444",
+  "created_by_client": "claude-code",
+  "created_by_session_id": "opaque-current-session",
+  "created_by_model": null,
+  "context_checkpoint_id": null
+}
+```
+
+The five types are `blocks`, `parent-child`, `discovered-from`,
+`duplicate-of`, and `related`. Directed facts always use
+`source --type--> target`; `related` endpoints are UUID-normalized and returned
+as undirected adjacency. `discovered-from` requires a context checkpoint on its
+originating target. Other types may cite a checkpoint on either endpoint.
+Context is evidence, not an instruction. Self-edges, cross-project endpoints,
+block/parent cycles, and a second parent are rejected. An identical natural-key
+add returns the existing edge with `created=false`.
+
+`RelationshipEdgeRead` contains the relationship/project/type, source and
+target IDs, optional context checkpoint composite, truthful creator
+client/session/model, and creation time. Project-scoped create returns
+`{relationship, created}`. Delete returns
+`{project_id, relationship_id, removed}`; repeating it returns `removed=false`
+without affecting a different edge.
+
+`GET /projects/{project_id}/work-items/{work_item_id}/relationships` accepts
+`direction=incoming|outgoing|undirected|both` (default `both`), optional `type`,
+`limit` (default 50, maximum 100), and `offset`. Each
+`AdjacentRelationshipRead` includes the neutral edge, the requested relative
+work ID, endpoint-relative direction, and a compact counterpart containing only
+ID, title, lifecycle status, and readiness. It never embeds checkpoint prompt
+or metadata.
+
+Only an unresolved incoming `blocks` edge changes readiness or claimability.
+The other four types are descriptive in Phase 3.

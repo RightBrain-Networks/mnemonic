@@ -32,9 +32,11 @@ from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.live_sync import LiveSyncHub, mutation_event
 from mnemonic_api.models import Checkpoint, Project, WorkItem
 from mnemonic_api.schemas import (
+    AdjacentRelationshipRead,
     CheckpointCreate,
     CheckpointListQuery,
     CheckpointRead,
+    ChildrenListQuery,
     ClaimAndRecall,
     ClaimReceipt,
     CompletionCheckpointCreate,
@@ -48,6 +50,7 @@ from mnemonic_api.schemas import (
     HandoffPatch,
     HandoffRead,
     HandoffSummary,
+    HierarchySummary,
     InitialCheckpointCreate,
     LeaseTokenCreate,
     Page,
@@ -55,6 +58,11 @@ from mnemonic_api.schemas import (
     ProjectListQuery,
     ProjectPatch,
     ProjectRead,
+    RelationshipCreate,
+    RelationshipCreationResult,
+    RelationshipEdgeRead,
+    RelationshipListQuery,
+    RelationshipRemovalResult,
     ReleaseResult,
     WorkClaimCreate,
     WorkCompletionCreate,
@@ -75,6 +83,15 @@ from mnemonic_api.services.leases import (
     claim_lease_record,
     release_lease_record,
     renew_lease_record,
+)
+from mnemonic_api.services.relationships import (
+    add_relationship_record,
+    ancestor_paths,
+    hierarchy_page,
+    list_adjacent_relationships,
+    relationship_edge,
+    remove_relationship_record,
+    require_relationship,
 )
 from mnemonic_api.services.work_context import (
     assemble_work_context,
@@ -175,7 +192,17 @@ def _search_work_rows(
 
     checkpoint_filters = []
     if filters.tag is not None:
-        checkpoint_filters.append(Checkpoint.tags.contains([filters.tag]))
+        checkpoint_tag = func.unnest(Checkpoint.tags).column_valued("checkpoint_tag")
+        checkpoint_filters.append(
+            or_(
+                # Keep the indexed normalized-data fast path while allowing
+                # exact migrations that preserved historical tag case.
+                Checkpoint.tags.contains([filters.tag]),
+                select(1)
+                .where(func.lower(checkpoint_tag) == filters.tag)
+                .exists(),
+            )
+        )
     if filters.source_client is not None:
         checkpoint_filters.append(Checkpoint.source_client == filters.source_client)
     if filters.source_session_id is not None:
@@ -351,28 +378,138 @@ def update_project(project_id: UUID, payload: ProjectPatch, database: Database) 
 def create_work(
     project_id: UUID, payload: WorkItemCreate, database: Database
 ) -> WorkCreation:
-    work_item, checkpoint = create_work_records(database, project_id, payload)
+    work_item, checkpoint, relationships = create_work_records(database, project_id, payload)
     database.commit()
     database.refresh(work_item)
     database.refresh(checkpoint)
+    for relationship in relationships:
+        database.refresh(relationship)
     return WorkCreation(
         work_item=WorkItemRead.model_validate(work_item),
         initial_checkpoint=checkpoint_read(checkpoint),
+        initial_relationships=[relationship_edge(item) for item in relationships],
     )
 
 
-@router.get("/projects/{project_id}/work-items", response_model=Page[WorkSummary])
+@router.get(
+    "/projects/{project_id}/work-items",
+    response_model=Page[WorkSummary | HierarchySummary],
+)
 def search_work(
     project_id: UUID,
     filters: Annotated[WorkItemListQuery, Query()],
     request: Request,
     database: Database,
-) -> Page[WorkSummary]:
+) -> Page[WorkSummary | HierarchySummary]:
+    if filters.view == "roots":
+        hierarchy_items, hierarchy_total = hierarchy_page(database, project_id, filters)
+        return Page(
+            items=hierarchy_items,
+            total=hierarchy_total,
+            limit=filters.limit,
+            offset=filters.offset,
+        )
     work_items, total = _search_work_rows(
         project_id, filters, request, database, legacy_filters=False
     )
+    summaries = work_summaries(database, work_items)
+    if (filters.q or "").strip():
+        paths, truncated = ancestor_paths(
+            database, project_id, [work_item.id for work_item in work_items]
+        )
+        for summary in summaries:
+            summary.ancestor_path = paths.get(summary.work_item.id, [])
+            summary.ancestor_path_truncated = summary.work_item.id in truncated
     return Page(
-        items=work_summaries(database, work_items),
+        items=summaries,
+        total=total,
+        limit=filters.limit,
+        offset=filters.offset,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/relationships",
+    response_model=RelationshipCreationResult,
+)
+def add_relationship(
+    project_id: UUID,
+    payload: RelationshipCreate,
+    database: Database,
+) -> RelationshipCreationResult:
+    result = add_relationship_record(database, project_id, payload)
+    database.commit()
+    return result
+
+
+@router.get(
+    "/projects/{project_id}/relationships/{relationship_id}",
+    response_model=RelationshipEdgeRead,
+)
+def get_relationship(
+    project_id: UUID,
+    relationship_id: UUID,
+    database: Database,
+) -> RelationshipEdgeRead:
+    return relationship_edge(require_relationship(database, project_id, relationship_id))
+
+
+@router.delete(
+    "/projects/{project_id}/relationships/{relationship_id}",
+    response_model=RelationshipRemovalResult,
+)
+def remove_relationship(
+    project_id: UUID,
+    relationship_id: UUID,
+    database: Database,
+) -> RelationshipRemovalResult:
+    result = remove_relationship_record(database, project_id, relationship_id)
+    database.commit()
+    return result
+
+
+@router.get(
+    "/projects/{project_id}/work-items/{work_item_id}/relationships",
+    response_model=Page[AdjacentRelationshipRead],
+)
+def list_relationships(
+    project_id: UUID,
+    work_item_id: UUID,
+    filters: Annotated[RelationshipListQuery, Query()],
+    database: Database,
+) -> Page[AdjacentRelationshipRead]:
+    items, total = list_adjacent_relationships(
+        database,
+        project_id,
+        work_item_id,
+        filters,
+    )
+    return Page(
+        items=items,
+        total=total,
+        limit=filters.limit,
+        offset=filters.offset,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/work-items/{work_item_id}/children",
+    response_model=Page[HierarchySummary],
+)
+def list_children(
+    project_id: UUID,
+    work_item_id: UUID,
+    filters: Annotated[ChildrenListQuery, Query()],
+    database: Database,
+) -> Page[HierarchySummary]:
+    items, total = hierarchy_page(
+        database,
+        project_id,
+        filters,
+        parent_work_item_id=work_item_id,
+    )
+    return Page(
+        items=items,
         total=total,
         limit=filters.limit,
         offset=filters.offset,
@@ -643,7 +780,7 @@ def save_handoff(project_id: UUID, payload: HandoffCreate, database: Database) -
         status=payload.status,
         initial_checkpoint=initial,
     )
-    work_item, checkpoint = create_work_records(database, project_id, canonical)
+    work_item, checkpoint, _relationships = create_work_records(database, project_id, canonical)
     database.commit()
     database.refresh(work_item)
     database.refresh(checkpoint)

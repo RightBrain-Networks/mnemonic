@@ -68,6 +68,16 @@ export function parseLiveSyncMessage(data: unknown): LiveSyncMessage | null {
   };
 }
 
+export function invalidatesOpenWork(
+  message: LiveSyncInvalidation,
+  projectId: string,
+  workItemId: string
+): boolean {
+  return message.scope === "work-items"
+    && message.project_id === projectId
+    && (message.work_item_id === null || message.work_item_id === workItemId);
+}
+
 export function liveSyncUrl(
   location: BrowserLocation = window.location
 ): string {

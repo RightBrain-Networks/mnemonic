@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { workSearchParams } from "../lib/work-item-search.ts";
+import { childSearchParams, workSearchParams } from "../lib/work-item-search.ts";
 
 test("work search includes the explicit all-project view and defaults to lexical retrieval", () => {
   const params = workSearchParams({ status: "open", limit: 20, offset: 0, query: "database migration" });
@@ -15,5 +15,11 @@ test("semantic work search trims and requires a nonblank query", () => {
   assert.equal(semantic.get("view"), "all");
 
   const blank = workSearchParams({ status: "all", limit: 20, offset: 0, query: " \n\t ", semantic: true });
-  assert.equal(blank.toString(), "status=all&view=all&limit=20&offset=0");
+  assert.equal(blank.toString(), "status=all&view=roots&limit=20&offset=0");
+});
+
+test("ordinary browse pages structural roots and child pages inherit filters", () => {
+  const browse = workSearchParams({ status: "open", limit: 20, offset: 20, query: "" });
+  assert.equal(browse.toString(), "status=open&view=roots&limit=20&offset=20");
+  assert.equal(childSearchParams({ status: "promoted", limit: 50, offset: 100 }).toString(), "status=promoted&limit=50&offset=100");
 });

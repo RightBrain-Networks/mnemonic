@@ -15,7 +15,8 @@
     "source_metadata": {
       "example_only": true,
       "author_verified": false,
-      "note": "Illustrative canonical body. Use a real client/session ID and actual evidence. For MCP create_work, also supply project_id."
+      "note": "Illustrative canonical Phase 3 body. Use a real client/session ID and actual evidence. initial_relationships is intentionally empty because graph facts require explicit, existing same-project work IDs. For MCP create_work, also supply project_id."
     }
-  }
+  },
+  "initial_relationships": []
 }

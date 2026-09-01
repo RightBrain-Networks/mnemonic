@@ -62,6 +62,9 @@ def test_mutation_events_are_scoped_without_record_contents():
         "work-items", project_id=project_id, work_item_id=work_item_id
     )
     assert mutation_event(
+        "DELETE", f"/api/v1/projects/{project_id}/relationships/{uuid4()}"
+    ) == MutationEvent("work-items", project_id=project_id)
+    assert mutation_event(
         "DELETE", f"/api/v1/projects/{project_id}/handoffs/{work_item_id}"
     ) == MutationEvent(
         "work-items", project_id=project_id, work_item_id=work_item_id

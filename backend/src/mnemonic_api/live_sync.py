@@ -45,6 +45,8 @@ def mutation_event(method: str, path: str) -> MutationEvent | None:
     project_id = remaining[0].lower()
     if len(remaining) == 1:
         return MutationEvent("projects", project_id=project_id) if method == "PATCH" else None
+    if remaining[1] == "relationships":
+        return MutationEvent("work-items", project_id=project_id)
     if remaining[1] not in {"work-items", "handoffs"}:
         return None
     work_item_id = None

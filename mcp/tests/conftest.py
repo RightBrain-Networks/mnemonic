@@ -11,6 +11,74 @@ NOW = "2026-08-30T12:00:00Z"
 EXPIRES_AT = "2026-08-30T12:15:00Z"
 CLAIM_REQUEST_ID = "claim-request-phase-2-001"
 LEASE_TOKEN = "lease-" + "t" * 43
+OTHER_WORK_ID = "17956493-a5bc-49ae-a099-ead952f2dec8"
+OTHER_CHECKPOINT_ID = "0663bc2f-42de-487a-b1d0-d3f8dbffbc0c"
+RELATIONSHIP_ID = "6ba44356-d44d-4515-b502-653642fe723f"
+
+PRIVATE_PROMPT_MARKER = "private-prompt-marker"
+PRIVATE_METADATA_MARKER = "private-metadata-marker"
+PRIVATE_UUID_MARKER = "private-uuid-marker"
+PRIVATE_CLAIM_REQUEST_MARKER = "private-claim-request-marker"
+PRIVATE_LEASE_TOKEN_MARKER = "private-lease-token-marker"
+PRIVATE_EXTRA_FIELD = "private_extra_argument"
+PRIVATE_EXTRA_VALUE = "private-extra-value-marker"
+
+LOCAL_VALIDATION_CASES = (
+    (
+        "create_work",
+        {
+            "project_id": PROJECT_ID,
+            "title": "Validation boundary",
+            "summary": "Reject invalid checkpoint content locally.",
+            "initial_checkpoint": {
+                "prompt": (
+                    PRIVATE_PROMPT_MARKER
+                    + "p" * 100_001
+                    + PRIVATE_PROMPT_MARKER
+                ),
+                "source_client": "test-client",
+                "source_session_id": "test-session",
+                "source_metadata": [PRIVATE_METADATA_MARKER],
+            },
+        },
+        ("initial_checkpoint", "prompt", "source_metadata"),
+        (PRIVATE_PROMPT_MARKER, PRIVATE_METADATA_MARKER),
+    ),
+    (
+        "claim_work",
+        {
+            "project_id": PRIVATE_UUID_MARKER,
+            "work_item_id": WORK_ID,
+            "holder_client": "test-client",
+            "holder_session_id": "test-session",
+            "claim_request_id": PRIVATE_CLAIM_REQUEST_MARKER + "c" * 201,
+        },
+        ("claim_request_id", "project_id"),
+        (PRIVATE_UUID_MARKER, PRIVATE_CLAIM_REQUEST_MARKER),
+    ),
+    (
+        "renew_claim",
+        {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "lease_token": PRIVATE_LEASE_TOKEN_MARKER + "t" * 201,
+        },
+        ("lease_token",),
+        (PRIVATE_LEASE_TOKEN_MARKER,),
+    ),
+    (
+        "list_projects",
+        {PRIVATE_EXTRA_FIELD: PRIVATE_EXTRA_VALUE},
+        (),
+        (PRIVATE_EXTRA_FIELD, PRIVATE_EXTRA_VALUE),
+    ),
+)
+
+
+def expected_validation_message(fields: tuple[str, ...]) -> str:
+    if fields:
+        return f"Mnemonic rejected the input. Check: {', '.join(fields)}."
+    return "Mnemonic rejected the input. Check the field names and constraints."
 
 
 @pytest.fixture
@@ -88,6 +156,38 @@ def readiness():
         "is_blocked": False,
         "is_ready": True,
         "display_state": "ready",
+    }
+
+
+@pytest.fixture
+def relationship():
+    return {
+        "id": RELATIONSHIP_ID,
+        "project_id": PROJECT_ID,
+        "relationship_type": "blocks",
+        "source_work_item_id": OTHER_WORK_ID,
+        "target_work_item_id": WORK_ID,
+        "context_checkpoint_work_item_id": None,
+        "context_checkpoint_id": None,
+        "created_by_client": "claude-code",
+        "created_by_session_id": "relationship-session",
+        "created_by_model": "test-model",
+        "created_at": NOW,
+    }
+
+
+@pytest.fixture
+def adjacent_relationship(relationship, readiness):
+    return {
+        "relationship": relationship,
+        "relative_to_work_item_id": WORK_ID,
+        "direction": "incoming",
+        "counterpart": {
+            "id": OTHER_WORK_ID,
+            "title": "Prepare prerequisite",
+            "status": "open",
+            "readiness": readiness,
+        },
     }
 
 

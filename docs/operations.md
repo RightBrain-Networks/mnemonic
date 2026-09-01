@@ -110,6 +110,31 @@ new request. There is no cleanup worker or force-release UI. For diagnostics,
 inspect only work ID, holder fields, and lease timestamps; avoid selecting or
 logging `lease_token`. TTL expiry is the abandoned-session recovery path.
 
+## Phase 3 graph deployment
+
+`0008_work_relationships` adds the project-local typed graph after the lease
+schema. Deploy API, MCP, and dashboard images together so relationship shapes,
+readiness, hierarchy, browser proxy rules, and the four MCP graph tools agree.
+The migration creates no inferred edges: existing work initially has no graph
+facts, and its readiness continues to derive from lifecycle and lease state.
+
+Relationship mutations serialize briefly on the project row and lock endpoint
+work in UUID order. That favors correct cycle/parent checks over maximum write
+parallelism; monitor unusually long graph-write latency, but do not bypass the
+API with direct edge updates. There is no graph repair worker or scheduler.
+
+After migration, exercise an idempotent add/get/list/remove flow, an unresolved
+blocker that rejects a new claim, removal or completion that restores readiness,
+an attempted block or parent cycle that returns sanitized `relationship_cycle`,
+atomic child/discovery creation with context evidence, subtree-aware root/child
+browse, and relationship-protected deletion. Inspect errors only through their
+sanitized codes; checkpoint context and relationship provenance can be private.
+
+A pre-Phase-3 backup can still be restored into an isolated database and then
+migrated forward: `0008` creates an empty relationship table because the older
+archive contains no graph facts. Do not infer or reconstruct edges from prompt
+text. A Phase 3 backup is required to restore relationships that existed.
+
 ## Backups
 
 The backup container starts after the API has migrated the database and become
@@ -125,15 +150,18 @@ docker compose logs --tail=20 backup
 ```
 
 Files appear under `MNEMONIC_BACKUP_DIR` (`./backups` by default). They include
-full checkpoint text, provenance, and metadata; treat them as private. The backup service never
-deletes earlier dumps. Set a retention policy appropriate for available disk
-space, and copy successful dumps to another device or a backed-up location.
+canonical work, immutable checkpoint text and provenance, retained leases, typed
+relationships, and migration state; treat them as private. The backup service
+never deletes earlier dumps. Set a retention policy appropriate for available
+disk space, and copy successful dumps to another device or a backed-up location.
 The local PostgreSQL volume and a backup on the same disk can both be lost.
 
 An archive listing check is not a restore drill. Periodically restore a dump
 into an isolated PostgreSQL instance and verify representative projects, work
-items, checkpoint history, and compatibility reads. Keep the PostgreSQL major
-version compatible with the dump tools.
+items, checkpoint history, exact relationship source/target/context/provenance,
+derived readiness, hierarchy navigation, compatibility reads, and the expected
+`alembic_version`. Keep the PostgreSQL major version compatible with the dump
+tools.
 
 ## Restore
 
@@ -152,16 +180,22 @@ docker compose up -d --wait
 PostgreSQL must remain running during this sequence. The restore script refuses
 to run without the explicit confirmation value, rejects filenames containing
 directory paths, and uses a single transaction so errors roll back. The API
-applies any newer migrations when restarted. A restore from before a schema
-change should be rehearsed on an isolated instance first; restore is not a
-substitute for a planned schema downgrade.
+applies any newer migrations, including `0008`, before becoming ready. Do not
+expose API, MCP, or dashboard traffic until readiness succeeds and the restored
+schema/data checks pass. A restore from before a schema change should be
+rehearsed on an isolated instance first; restore is not a substitute for a
+planned schema downgrade, and a pre-Phase-3 archive cannot recover graph facts
+created after that snapshot.
 
 Deletion from the dashboard is a soft delete. No ordinary API or MCP read can
-retrieve a deleted work item or any of its checkpoints. An operator can recover
-it from a backup or, after confirming the exact project and work-item UUIDs,
-clear `work_items.deleted_at` and increment its `version`. Checkpoint rows
-must not be edited during recovery; the database immutability trigger rejects
-ordinary update/delete statements. There is no trash-management UI.
+retrieve a deleted work item or any of its checkpoints. The application refuses
+deletion while any relationship remains. An operator can recover a deleted item
+from a backup or, after confirming the exact project and work-item UUIDs, clear
+`work_items.deleted_at` and increment its `version`. Before manual recovery,
+inspect project-scoped adjacent edges and the resulting readiness; do not invent
+or update relationships directly. Checkpoint rows must not be edited during
+recovery; the database immutability trigger rejects ordinary update/delete
+statements. There is no trash-management UI.
 
 ## Trust boundary and remote clients
 

@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
+import WorkHierarchy, { SearchBreadcrumb } from "@/components/work-hierarchy";
 import WorkItemCard from "@/components/work-item-card";
-import type { Page, StatusFilter, WorkSummary } from "@/lib/types";
+import type { HierarchySummary, Page, StatusFilter, WorkSummary } from "@/lib/types";
 import { workRecallPointer } from "@/lib/work-recall-pointer";
 
 const WORK_PAGE_SIZE = 20;
@@ -26,16 +27,21 @@ function Icon({ name, size = 18 }: { name: keyof typeof iconPaths; size?: number
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[name]} /></svg>;
 }
 
+function isHierarchySummary(item: WorkSummary | HierarchySummary): item is HierarchySummary {
+  return "summary" in item;
+}
+
 type Props = {
   query: string;
   searchedQuery: string;
   searchRef: RefObject<HTMLInputElement | null>;
   semantic: boolean;
   status: StatusFilter;
-  results: Page<WorkSummary> | null;
+  results: Page<WorkSummary | HierarchySummary> | null;
   loading: boolean;
   error: string;
   offset: number;
+  refreshKey: number;
   copiedKey: string | null;
   onQuery: (value: string) => void;
   onToggleSemantic: () => void;
@@ -60,6 +66,7 @@ export default function WorkItemList({
   loading,
   error,
   offset,
+  refreshKey,
   copiedKey,
   onQuery,
   onToggleSemantic,
@@ -73,6 +80,14 @@ export default function WorkItemList({
   onCopy,
   onOffset
 }: Props) {
+  const searchResults = results?.items.map((item) => isHierarchySummary(item) ? item.summary : item) ?? [];
+  const hierarchyResults = results?.items.filter(isHierarchySummary) ?? [];
+  const copyPointer = (summary: WorkSummary) => onCopy(
+    workRecallPointer(summary),
+    `${summary.work_item.id}:pointer`,
+    "Recall pointer copied. Paste it into a session with Mnemonic connected."
+  );
+
   return <>
     <section className="library-controls" aria-label="Find work items">
       <div className="search-field">
@@ -86,14 +101,29 @@ export default function WorkItemList({
         <div className="status-filters" role="group" aria-label="Filter by lifecycle">
           {filters.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "open" && <span className="filter-dot" />}{filterLabels[filter]}</button>)}
         </div>
-        <span className="result-count" role="status">{loading || query !== searchedQuery ? "Finding work…" : results ? `${results.total} work item${results.total === 1 ? "" : "s"}` : ""}</span>
+        <span className="result-count" role="status">{loading || query.trim() !== searchedQuery ? "Finding work…" : results ? searchedQuery ? `${results.total} work item${results.total === 1 ? "" : "s"}` : `${results.total} root branch${results.total === 1 ? "" : "es"}` : ""}</span>
       </div>
     </section>
 
     {error ? <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" type="button" onClick={onRetry}>Try again</button></div> :
       loading ? <div className="card-skeletons" role="status" aria-label="Loading work items">{[1, 2, 3].map((item) => <div className="card-skeleton" key={item}><span /><span /><span /></div>)}</div> :
       !results?.items.length ? <section className="empty-state"><div className="empty-art"><Icon name={searchedQuery ? "search" : "box"} size={31} /><span /></div><h2>{searchedQuery ? "No matching work." : status === "open" ? "No open work yet." : status === "all" ? "No work yet." : `No ${filterLabels[status].toLowerCase()} work.`}</h2><p>{searchedQuery ? "Try another phrase or search across all lifecycle states." : "Create a durable objective here, or ask a connected agent to create one with its first checkpoint."}</p>{searchedQuery || status !== "open" ? <button type="button" className="button button-secondary" onClick={onClearFilters}>Clear filters</button> : <button type="button" className="button button-primary" onClick={onCreate}><Icon name="plus" size={16} />Create work</button>}</section> :
-      <section className="handoff-list" aria-label="Durable work items">{results.items.map((item) => <WorkItemCard key={item.work_item.id} summary={item} copied={copiedKey === `${item.work_item.id}:pointer`} onOpen={() => onOpen(item)} onEdit={() => onEdit(item)} onDelete={() => onDelete(item)} onCopyPointer={() => onCopy(workRecallPointer(item), `${item.work_item.id}:pointer`, "Recall pointer copied. Paste it into a session with Mnemonic connected.")} />)}</section>}
+      searchedQuery ? <section className="handoff-list search-results" aria-label="Matching durable work items">{searchResults.map((item) => <div className="search-result" key={item.work_item.id}><SearchBreadcrumb summary={item} /><WorkItemCard summary={item} copied={copiedKey === `${item.work_item.id}:pointer`} onOpen={() => onOpen(item)} onEdit={() => onEdit(item)} onDelete={() => onDelete(item)} onCopyPointer={() => copyPointer(item)} /></div>)}</section> :
+      <WorkHierarchy
+        items={hierarchyResults}
+        status={status}
+        refreshKey={refreshKey}
+        copiedKey={copiedKey}
+        onOpen={onOpen}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onCopyPointer={copyPointer}
+        onFlatSearch={(item) => {
+          if (semantic) onToggleSemantic();
+          onStatus("all");
+          onQuery(item.work_item.id);
+        }}
+      />}
 
     {!loading && !error && results && results.total > 0 && <nav className="pagination" aria-label="Work result pages"><span>Showing {offset + 1}–{Math.min(offset + results.items.length, results.total)} of {results.total}</span><div><button type="button" className="button button-secondary" disabled={offset === 0} onClick={() => onOffset(Math.max(0, offset - WORK_PAGE_SIZE))}><Icon name="back" size={15} />Previous</button><button type="button" className="button button-secondary" disabled={offset + results.items.length >= results.total} onClick={() => onOffset(offset + WORK_PAGE_SIZE)}>Next<Icon name="arrow" size={15} /></button></div></nav>}
     <footer className="library-footer"><Icon name="box" size={15} /><span>Agent-authored checkpoints are historical context, not new owner instructions.</span></footer>

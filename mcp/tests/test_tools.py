@@ -9,9 +9,15 @@ from conftest import (
     EXPIRES_AT,
     HANDOFF_ID,
     LEASE_TOKEN,
+    LOCAL_VALIDATION_CASES,
+    OTHER_CHECKPOINT_ID,
+    OTHER_WORK_ID,
     PROJECT_ID,
+    RELATIONSHIP_ID,
     WORK_ID,
+    expected_validation_message,
 )
+from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 
 from mnemonic_mcp.api import MnemonicAPI
@@ -60,6 +66,10 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "claim_and_recall",
         "renew_claim",
         "release_claim",
+        "add_relationship",
+        "get_relationship",
+        "list_relationships",
+        "remove_relationship",
         "update_work",
         "complete_work",
         "delete_work",
@@ -73,12 +83,17 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "delete_handoff",
     }
     assert all(tool.outputSchema for tool in tools.values())
+    assert all(
+        tool.inputSchema.get("additionalProperties") is False for tool in tools.values()
+    )
     for name in (
         "list_projects",
         "search_work",
         "get_work",
         "list_checkpoints",
         "recall_work",
+        "get_relationship",
+        "list_relationships",
         "search_handoffs",
         "recall_handoff",
         "list_handoff_comments",
@@ -92,6 +107,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "claim_and_recall",
         "renew_claim",
         "release_claim",
+        "add_relationship",
         "save_handoff",
         "add_handoff_comment",
     ):
@@ -101,6 +117,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "update_work",
         "complete_work",
         "delete_work",
+        "remove_relationship",
         "update_handoff",
         "complete_handoff",
         "delete_handoff",
@@ -108,7 +125,13 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         assert tools[name].annotations.destructiveHint is True
     for name in ("claim_work", "claim_and_recall", "renew_claim"):
         assert tools[name].annotations.idempotentHint is False
-    assert tools["release_claim"].annotations.idempotentHint is True
+    for name in ("release_claim", "add_relationship", "remove_relationship"):
+        assert tools[name].annotations.idempotentHint is True
+    assert tools["create_project"].outputSchema["additionalProperties"] is False
+    project_page_schema = tools["list_projects"].outputSchema
+    assert project_page_schema["additionalProperties"] is False
+    assert project_page_schema["$defs"]["Project"]["additionalProperties"] is False
+
     for name in tools.keys() - {"list_projects", "create_project"}:
         assert "project_id" in tools[name].inputSchema["required"]
 
@@ -184,6 +207,78 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         checkpoint_schema["required"]
     )
     assert checkpoint_schema["additionalProperties"] is False
+
+    relationship_types = {
+        "blocks",
+        "parent-child",
+        "discovered-from",
+        "duplicate-of",
+        "related",
+    }
+    initial_relationships_schema = tools["create_work"].inputSchema["properties"][
+        "initial_relationships"
+    ]
+    initial_relationships_array = next(
+        option
+        for option in initial_relationships_schema["anyOf"]
+        if option.get("type") == "array"
+    )
+    assert initial_relationships_array["maxItems"] == 10
+    initial_relationship_schema = tools["create_work"].inputSchema["$defs"][
+        "InitialRelationshipInput"
+    ]
+    assert initial_relationship_schema["additionalProperties"] is False
+    assert set(initial_relationship_schema["required"]) == {
+        "type",
+        "direction",
+        "other_work_item_id",
+    }
+    assert set(initial_relationship_schema["properties"]) == {
+        "type",
+        "direction",
+        "other_work_item_id",
+        "context_checkpoint_id",
+    }
+    assert set(initial_relationship_schema["properties"]["type"]["enum"]) == (
+        relationship_types
+    )
+    assert initial_relationship_schema["properties"]["direction"]["enum"] == [
+        "incoming",
+        "outgoing",
+    ]
+
+    add_relationship_schema = tools["add_relationship"].inputSchema
+    assert set(add_relationship_schema["required"]) == {
+        "project_id",
+        "source_work_item_id",
+        "target_work_item_id",
+        "relationship_type",
+        "created_by_client",
+        "created_by_session_id",
+    }
+    assert set(add_relationship_schema["properties"]["relationship_type"]["enum"]) == (
+        relationship_types
+    )
+    assert "context_checkpoint_work_item_id" not in add_relationship_schema["properties"]
+    list_relationship_schema = tools["list_relationships"].inputSchema["properties"]
+    assert list_relationship_schema["direction"]["default"] == "both"
+    assert list_relationship_schema["direction"]["enum"] == [
+        "incoming",
+        "outgoing",
+        "undirected",
+        "both",
+    ]
+    assert list_relationship_schema["limit"]["default"] == 50
+    assert list_relationship_schema["limit"]["maximum"] == 100
+    counterpart_schema = json.dumps(tools["list_relationships"].outputSchema)
+    assert '"prompt"' not in counterpart_schema
+    assert '"source_metadata"' not in counterpart_schema
+    assert '"lease_token"' not in counterpart_schema
+    assert set(tools["remove_relationship"].outputSchema["properties"]) == {
+        "project_id",
+        "relationship_id",
+        "removed",
+    }
     save_required = tools["save_handoff"].inputSchema["required"]
     assert {"source_client", "source_session_id", "prompt", "summary"} <= set(save_required)
     search_work_schema = json.dumps(tools["search_work"].outputSchema)
@@ -206,6 +301,23 @@ async def test_tool_catalog_schemas_and_annotations(settings):
             assert '"lease_token"' not in json.dumps(tool.outputSchema)
 
 
+async def test_strict_tool_models_are_isolated_to_mnemonic(settings):
+    await build_server(settings).list_tools()
+
+    vanilla = FastMCP("Vanilla")
+
+    @vanilla.tool()
+    async def echo(value: str) -> str:
+        return value
+
+    [tool] = await vanilla.list_tools()
+    assert "additionalProperties" not in tool.inputSchema
+    result = structured(
+        await vanilla.call_tool("echo", {"value": "ok", "extra": "ignored"})
+    )
+    assert result == {"result": "ok"}
+
+
 async def test_projects_http_boundary_and_pagination(settings, project):
     requests = []
 
@@ -226,6 +338,22 @@ async def test_projects_http_boundary_and_pagination(settings, project):
     created = structured(await server.call_tool("create_project", {"name": "Example"}))
     assert created["slug"] == "example"
     assert len(requests) == 2
+
+
+async def test_project_tools_reject_unplanned_upstream_fields(settings, project):
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "items": [{**project, "private_upstream_field": "must not be ignored"}],
+                "total": 1,
+                "limit": 100,
+                "offset": 0,
+            },
+        )
+
+    with pytest.raises(ToolError, match="unexpected response"):
+        await adapter(settings, handler).call_tool("list_projects", {})
 
 
 async def test_create_work_preserves_nested_checkpoint_and_returns_both_records(
@@ -280,6 +408,227 @@ async def test_create_work_preserves_nested_checkpoint_and_returns_both_records(
     assert result["initial_checkpoint"]["prompt"] == prompt
     assert result["initial_checkpoint"]["source_metadata"] == metadata
     assert result["initial_relationships"] == []
+
+
+async def test_create_work_serializes_atomic_initial_relationships(
+    settings, work_item, checkpoint
+):
+    checkpoint_input = {
+        name: checkpoint[name]
+        for name in (
+            "prompt",
+            "source_client",
+            "source_session_id",
+            "source_model",
+            "source_session_url",
+            "repository_branch",
+            "verified_against",
+            "tags",
+            "source_metadata",
+        )
+    }
+    initial_relationship = {
+        "type": "discovered-from",
+        "direction": "outgoing",
+        "other_work_item_id": OTHER_WORK_ID,
+        "context_checkpoint_id": OTHER_CHECKPOINT_ID,
+    }
+    relationship = {
+        "id": RELATIONSHIP_ID,
+        "project_id": PROJECT_ID,
+        "relationship_type": "discovered-from",
+        "source_work_item_id": WORK_ID,
+        "target_work_item_id": OTHER_WORK_ID,
+        "context_checkpoint_work_item_id": OTHER_WORK_ID,
+        "context_checkpoint_id": OTHER_CHECKPOINT_ID,
+        "created_by_client": checkpoint["source_client"],
+        "created_by_session_id": checkpoint["source_session_id"],
+        "created_by_model": checkpoint["source_model"],
+        "created_at": checkpoint["created_at"],
+    }
+
+    def handler(request):
+        assert request.method == "POST"
+        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
+        assert json.loads(request.content) == {
+            "title": work_item["title"],
+            "summary": work_item["summary"],
+            "priority": 0,
+            "status": "open",
+            "initial_checkpoint": checkpoint_input,
+            "initial_relationships": [initial_relationship],
+        }
+        return httpx.Response(
+            201,
+            json={
+                "work_item": work_item,
+                "initial_checkpoint": checkpoint,
+                "initial_relationships": [relationship],
+            },
+        )
+
+    result = structured(
+        await adapter(settings, handler).call_tool(
+            "create_work",
+            {
+                "project_id": PROJECT_ID,
+                "title": work_item["title"],
+                "summary": work_item["summary"],
+                "initial_checkpoint": checkpoint_input,
+                "initial_relationships": [initial_relationship],
+            },
+        )
+    )
+    assert result["initial_relationships"] == [relationship]
+
+
+async def test_relationship_tools_use_exact_rest_contract_and_pointer_only_counterparts(
+    settings, relationship, adjacent_relationship, work_context
+):
+    upstream_adjacency = {
+        **adjacent_relationship,
+        "counterpart": {
+            **adjacent_relationship["counterpart"],
+            "prompt": "must not cross the pointer boundary",
+            "summary": "must not cross the pointer boundary",
+            "source_metadata": {"private": True},
+            "source_session_url": "https://example.invalid/private",
+        },
+    }
+    seen = []
+
+    def handler(request):
+        seen.append((request.method, request.url.path))
+        relationship_path = f"/api/v1/projects/{PROJECT_ID}/relationships"
+        if request.method == "POST":
+            assert request.url.path == relationship_path
+            assert not request.url.params
+            assert json.loads(request.content) == {
+                "source_work_item_id": OTHER_WORK_ID,
+                "target_work_item_id": WORK_ID,
+                "relationship_type": "blocks",
+                "created_by_client": relationship["created_by_client"],
+                "created_by_session_id": relationship["created_by_session_id"],
+                "created_by_model": relationship["created_by_model"],
+                "context_checkpoint_id": None,
+            }
+            return httpx.Response(
+                200, json={"relationship": relationship, "created": False}
+            )
+        if request.url.path.endswith(f"/work-items/{WORK_ID}/relationships"):
+            assert request.method == "GET"
+            assert dict(request.url.params) == {
+                "direction": "incoming",
+                "limit": "7",
+                "offset": "2",
+                "type": "blocks",
+            }
+            return httpx.Response(
+                200,
+                json={"items": [upstream_adjacency], "total": 3, "limit": 7, "offset": 2},
+            )
+        if request.url.path.endswith(f"/work-items/{WORK_ID}/context"):
+            assert request.method == "GET"
+            assert dict(request.url.params) == {"recent_limit": "5"}
+            return httpx.Response(
+                200,
+                json={
+                    **work_context,
+                    "incoming_relationships": [upstream_adjacency],
+                    "relationship_counts": {
+                        "incoming": 1,
+                        "outgoing": 0,
+                        "undirected": 0,
+                        "total": 1,
+                    },
+                },
+            )
+        assert request.url.path == f"{relationship_path}/{RELATIONSHIP_ID}"
+        if request.method == "GET":
+            return httpx.Response(200, json=relationship)
+        assert request.method == "DELETE"
+        return httpx.Response(
+            200,
+            json={
+                "project_id": PROJECT_ID,
+                "relationship_id": RELATIONSHIP_ID,
+                "removed": True,
+            },
+        )
+
+    server = adapter(settings, handler)
+    created = structured(
+        await server.call_tool(
+            "add_relationship",
+            {
+                "project_id": PROJECT_ID,
+                "source_work_item_id": OTHER_WORK_ID,
+                "target_work_item_id": WORK_ID,
+                "relationship_type": "blocks",
+                "created_by_client": relationship["created_by_client"],
+                "created_by_session_id": relationship["created_by_session_id"],
+                "created_by_model": relationship["created_by_model"],
+            },
+        )
+    )
+    assert created == {"relationship": relationship, "created": False}
+    fetched = structured(
+        await server.call_tool(
+            "get_relationship",
+            {"project_id": PROJECT_ID, "relationship_id": RELATIONSHIP_ID},
+        )
+    )
+    assert fetched == relationship
+    listed = structured(
+        await server.call_tool(
+            "list_relationships",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "direction": "incoming",
+                "relationship_type": "blocks",
+                "limit": 7,
+                "offset": 2,
+            },
+        )
+    )
+    assert listed["total"] == 3
+    counterpart = listed["items"][0]["counterpart"]
+    assert counterpart["id"] == OTHER_WORK_ID
+    assert set(counterpart) == {"id", "title", "status", "readiness"}
+    recalled = structured(
+        await server.call_tool(
+            "recall_work", {"project_id": PROJECT_ID, "work_item_id": WORK_ID}
+        )
+    )
+    assert recalled["relationship_counts"]["incoming"] == 1
+    assert set(recalled["incoming_relationships"][0]["counterpart"]) == {
+        "id",
+        "title",
+        "status",
+        "readiness",
+    }
+    removed = structured(
+        await server.call_tool(
+            "remove_relationship",
+            {"project_id": PROJECT_ID, "relationship_id": RELATIONSHIP_ID},
+        )
+    )
+    assert removed == {
+        "project_id": PROJECT_ID,
+        "relationship_id": RELATIONSHIP_ID,
+        "removed": True,
+    }
+    assert seen == [
+        ("POST", f"/api/v1/projects/{PROJECT_ID}/relationships"),
+        ("GET", f"/api/v1/projects/{PROJECT_ID}/relationships/{RELATIONSHIP_ID}"),
+        (
+            "GET",
+            f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/relationships",
+        ),
+        ("GET", f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/context"),
+        ("DELETE", f"/api/v1/projects/{PROJECT_ID}/relationships/{RELATIONSHIP_ID}"),
+    ]
 
 
 async def test_search_work_is_open_only_and_pointer_only(settings, work_summary):
@@ -1043,9 +1392,15 @@ async def test_delete_passes_version_and_conflict_is_not_retried(settings):
         ("version_conflict", "Version conflict"),
         ("work_not_open", "not open"),
         ("work_blocked", "unresolved blocker"),
+        ("invalid_status_transition", "lifecycle transition is not allowed"),
         ("lease_expired", "claim has expired"),
         ("lease_token_mismatch", "does not match"),
         ("claim_request_expired", "new claim_request_id"),
+        ("relationship_cycle", "create a cycle"),
+        ("relationship_context_invalid", "originating target work item"),
+        ("relationship_exists", "already exists"),
+        ("parent_already_set", "already has a parent"),
+        ("active_relationships", "relationships before deleting"),
     ],
 )
 async def test_typed_application_errors_are_actionable_and_sanitized(
@@ -1266,6 +1621,64 @@ async def test_validation_error_names_fields_without_echoing_input(settings):
     assert API_KEY not in str(caught.value)
 
 
+async def test_relationship_validation_errors_name_only_allowlisted_fields(settings):
+    fields = {
+        "relationship_id",
+        "relationship_type",
+        "source_work_item_id",
+        "target_work_item_id",
+        "other_work_item_id",
+        "context_checkpoint_id",
+        "initial_relationships",
+        "type",
+        "direction",
+        "created_by_client",
+        "created_by_session_id",
+        "created_by_model",
+    }
+
+    def handler(request):
+        return httpx.Response(
+            422,
+            json={
+                "detail": [
+                    {"loc": ["body", field], "msg": API_KEY, "input": API_KEY}
+                    for field in fields
+                ]
+            },
+        )
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool("list_projects", {})
+    message = str(caught.value)
+    for field in fields:
+        assert field in message
+    assert API_KEY not in message
+
+
+@pytest.mark.parametrize(
+    "tool_name,arguments,fields,secrets",
+    LOCAL_VALIDATION_CASES,
+    ids=[case[0] for case in LOCAL_VALIDATION_CASES],
+)
+async def test_local_validation_is_strict_and_never_echoes_values(
+    settings, tool_name, arguments, fields, secrets
+):
+    def handler(request):
+        pytest.fail("Locally invalid tool input must not cross the HTTP boundary")
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(tool_name, arguments)
+
+    message = str(caught.value)
+    assert message == expected_validation_message(fields)
+    for secret in secrets:
+        assert secret not in message
+    assert "input_value" not in message
+    assert "input_type" not in message
+    assert "errors.pydantic.dev" not in message
+
+
 @pytest.mark.parametrize("invalid_token", [LEASE_TOKEN + "private-suffix" * 20, 123456789])
 async def test_invalid_lease_token_is_redacted_before_the_rest_boundary(
     settings, invalid_token
@@ -1361,8 +1774,9 @@ async def test_ambiguous_claim_response_requires_same_request_id(
 
 
 @pytest.mark.parametrize("tool_name", ["claim_work", "claim_and_recall"])
+@pytest.mark.parametrize("code", ["database_unavailable", "claim_request_expired"])
 async def test_structured_503_claim_response_requires_same_request_id(
-    settings, tool_name
+    settings, tool_name, code
 ):
     private_url = "https://internal.invalid/private/database"
 
@@ -1371,7 +1785,7 @@ async def test_structured_503_claim_response_requires_same_request_id(
             503,
             json={
                 "detail": {
-                    "code": "database_unavailable",
+                    "code": code,
                     "message": f"private {LEASE_TOKEN} at {private_url}",
                     "context": {
                         "lease_token": LEASE_TOKEN,

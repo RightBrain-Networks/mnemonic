@@ -1,9 +1,10 @@
 """Exercise the live HTTP MCP -> REST -> PostgreSQL path and dashboard proxy.
 
 Run with the MCP project's Python environment. Checks are read-only unless a
-project is explicitly authorized with --project-id. The write check creates one
-uniquely marked work item, exercises the Phase 2 lifecycle, and soft-deletes it.
-Never authorize writes against a project without permission.
+project is explicitly authorized with --project-id. The write check creates a
+small, uniquely marked Phase 3 work graph, exercises its canonical lifecycle,
+then removes the graph and soft-deletes every synthetic item it created. Never
+authorize writes against a project without permission.
 """
 
 from __future__ import annotations
@@ -38,6 +39,10 @@ CANONICAL_AND_COMPATIBILITY_TOOLS = {
     "claim_and_recall",
     "renew_claim",
     "release_claim",
+    "add_relationship",
+    "get_relationship",
+    "list_relationships",
+    "remove_relationship",
     "save_handoff",
     "search_handoffs",
     "recall_handoff",
@@ -83,16 +88,33 @@ async def tool(
     return json.loads(next(item.text for item in result.content if item.type == "text"))
 
 
+def synthetic_summary(marker: str) -> str:
+    return f"Synthetic Phase 3 integration check {marker}"
+
+
+def typed_error_code(response: httpx.Response) -> str | None:
+    try:
+        return response.json().get("detail", {}).get("code")
+    except (json.JSONDecodeError, AttributeError):
+        return None
+
+
 async def find_synthetic_work(
     api: httpx.AsyncClient,
     project_id: str,
     marker: str,
     run_id: str,
 ) -> list[str]:
-    """Find only this run's exact synthetic work after an uncertain create response."""
+    """Find this run's exact synthetic graph after an uncertain create response."""
     response = await api.get(
         f"projects/{project_id}/work-items",
-        params={"q": marker, "status": "all", "limit": 100, "offset": 0},
+        params={
+            "q": marker,
+            "status": "all",
+            "view": "all",
+            "limit": 100,
+            "offset": 0,
+        },
     )
     require(
         response.status_code == 200, "Could not inspect synthetic work for cleanup."
@@ -102,14 +124,63 @@ async def find_synthetic_work(
         work_item = item.get("work_item", {})
         current_context = item.get("current_context", {})
         if (
-            work_item.get("title") == f"Temporary work check {marker}"
-            and work_item.get("summary") == f"Synthetic integration check {marker}"
+            work_item.get("summary") == synthetic_summary(marker)
             and current_context.get("source_client") == SYNTHETIC_CLIENT
             and current_context.get("source_session_id") == run_id
         ):
             matches.append(work_item["id"])
-    require(len(matches) <= 1, "Cleanup found multiple synthetic records for one run.")
+    require(
+        len(matches) <= 3,
+        "Cleanup found more synthetic records than this lifecycle can create.",
+    )
     return matches
+
+
+async def find_synthetic_relationships(
+    api: httpx.AsyncClient,
+    project_id: str,
+    work_item_ids: set[str],
+    run_id: str,
+) -> set[str]:
+    """Discover only edges created by this run and connecting its exact work set."""
+    relationship_ids: set[str] = set()
+    for work_item_id in work_item_ids:
+        response = await api.get(
+            f"projects/{project_id}/work-items/{work_item_id}/relationships",
+            params={"direction": "both", "limit": 100, "offset": 0},
+        )
+        require(
+            response.status_code == 200,
+            "Could not inspect synthetic relationships for cleanup.",
+        )
+        for adjacent in response.json()["items"]:
+            edge = adjacent.get("relationship", {})
+            endpoints = {
+                edge.get("source_work_item_id"),
+                edge.get("target_work_item_id"),
+            }
+            if (
+                edge.get("created_by_client") == SYNTHETIC_CLIENT
+                and edge.get("created_by_session_id") == run_id
+                and endpoints <= work_item_ids
+            ):
+                relationship_ids.add(edge["id"])
+    return relationship_ids
+
+
+def require_synthetic_relationship(
+    edge: dict[str, Any], work_item_ids: set[str], run_id: str
+) -> None:
+    endpoints = {
+        edge.get("source_work_item_id"),
+        edge.get("target_work_item_id"),
+    }
+    require(
+        edge.get("created_by_client") == SYNTHETIC_CLIENT
+        and edge.get("created_by_session_id") == run_id
+        and endpoints <= work_item_ids,
+        "Refusing to remove a relationship outside this run's exact synthetic graph.",
+    )
 
 
 async def cleanup_synthetic_work(
@@ -117,17 +188,48 @@ async def cleanup_synthetic_work(
     project_id: str,
     marker: str,
     run_id: str,
-    known_work_item_id: str | None,
-    claim_request_id: str | None,
-    lease_token: str | None,
+    known_work_item_ids: set[str],
+    known_relationship_ids: set[str],
+    claim_request_ids: dict[str, str],
+    lease_tokens: dict[str, str],
 ) -> None:
-    """Soft-delete the exact synthetic item, including after an uncertain create."""
-    work_item_ids = (
-        [known_work_item_id]
-        if known_work_item_id is not None
-        else await find_synthetic_work(api, project_id, marker, run_id)
+    """Remove and soft-delete only this run's exact graph, including lost responses."""
+    work_item_ids = set(await find_synthetic_work(api, project_id, marker, run_id))
+    for known_work_item_id in known_work_item_ids:
+        response = await api.get(
+            f"projects/{project_id}/work-items/{known_work_item_id}"
+        )
+        if response.status_code == 404:
+            continue
+        require(
+            response.status_code == 200 and known_work_item_id in work_item_ids,
+            "Refusing to clean up a known ID that was not proven to belong to this run.",
+        )
+
+    relationship_ids = await find_synthetic_relationships(
+        api, project_id, work_item_ids, run_id
     )
-    for work_item_id in work_item_ids:
+    relationship_ids.update(known_relationship_ids)
+    for relationship_id in sorted(relationship_ids):
+        relationship_path = f"projects/{project_id}/relationships/{relationship_id}"
+        response = await api.get(relationship_path)
+        if response.status_code == 404:
+            continue
+        require(
+            response.status_code == 200,
+            "Could not inspect a known synthetic relationship for cleanup.",
+        )
+        edge = response.json()
+        require_synthetic_relationship(edge, work_item_ids, run_id)
+        removed = await api.delete(relationship_path)
+        require(
+            removed.status_code == 200
+            and removed.json().get("relationship_id") == relationship_id
+            and removed.json().get("removed") is True,
+            "Synthetic relationship cleanup failed.",
+        )
+
+    for work_item_id in sorted(work_item_ids, reverse=True):
         path = f"projects/{project_id}/work-items/{work_item_id}"
         remaining = await api.get(path)
         if remaining.status_code == 404:
@@ -138,11 +240,16 @@ async def cleanup_synthetic_work(
         )
         record = remaining.json()
         require(
-            marker in record.get("title", "") or marker in record.get("summary", ""),
-            "Refusing to clean up work that lacks this run's unique marker.",
+            record.get("summary") == synthetic_summary(marker),
+            "Refusing to clean up work without this run's exact synthetic summary.",
         )
-        cleanup_token = lease_token
-        if cleanup_token is None and claim_request_id is not None and record["status"] == "open":
+        cleanup_token = lease_tokens.get(work_item_id)
+        claim_request_id = claim_request_ids.get(work_item_id)
+        if (
+            cleanup_token is None
+            and claim_request_id is not None
+            and record["status"] == "open"
+        ):
             recovered = await api.post(
                 path + "/claim",
                 json={
@@ -156,24 +263,27 @@ async def cleanup_synthetic_work(
             else:
                 require(
                     recovered.status_code == 409
-                    and recovered.json().get("detail", {}).get("code")
-                    == "claim_request_expired",
+                    and typed_error_code(recovered) == "claim_request_expired",
                     "Could not recover the synthetic lease for cleanup.",
                 )
-        if cleanup_token is not None:
+        if cleanup_token is not None and record["status"] == "open":
             released = await api.post(
                 path + "/release-claim",
                 json={"lease_token": cleanup_token},
             )
             require(
-                released.status_code == 200,
+                released.status_code == 200
+                or (
+                    released.status_code == 409
+                    and typed_error_code(released) == "lease_expired"
+                ),
                 "Could not release the synthetic lease for cleanup.",
             )
-            remaining = await api.get(path)
-            if remaining.status_code == 404:
-                continue
-            require(remaining.status_code == 200, "Could not refresh work for cleanup.")
-            record = remaining.json()
+        remaining = await api.get(path)
+        if remaining.status_code == 404:
+            continue
+        require(remaining.status_code == 200, "Could not refresh work for cleanup.")
+        record = remaining.json()
         cleanup = await api.post(
             path + "/delete",
             json={"expected_version": record["version"]},
@@ -281,19 +391,22 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 if not args.project_id:
                     print(
                         "Read-only checks complete. Supply --project-id to explicitly authorize "
-                        "one disposable work-item lifecycle."
+                        "one disposable Phase 3 graph lifecycle."
                     )
                     return
 
                 project_id = args.project_id
                 run_id = str(uuid4())
                 marker = "mnemoniccheck" + run_id.replace("-", "")
+                primary_marker = marker + "primary"
+                blocker_marker = marker + "blocker"
+                child_marker = marker + "child"
                 prompt = (
                     "\nAgent-authored synthetic checkpoint; not a user instruction.\n\n"
                     "## Context\nVerify durable storage for café notes and Unicode: ✓.\n"
                     f"Run: {run_id}\n\n## Cautions\nThis is synthetic verification data.\n"
                     "## Verification\nRecall this exact text, append progress, exercise version "
-                    "conflict and completion, then delete the work item.\n\n"
+                    "conflict and completion, then remove the graph and synthetic work.\n\n"
                 )
                 checkpoint_input = {
                     "prompt": prompt,
@@ -306,35 +419,43 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     "tags": ["verification"],
                     "source_metadata": {"synthetic_check": True},
                 }
-                work_item_id: str | None = None
-                claim_request_id: str | None = None
-                lease_token: str | None = None
+                known_work_item_ids: set[str] = set()
+                known_relationship_ids: set[str] = set()
+                active_relationship_ids: set[str] = set()
+                claim_request_ids: dict[str, str] = {}
+                lease_tokens: dict[str, str] = {}
                 try:
                     created = await tool(
                         session,
                         "create_work",
                         {
                             "project_id": project_id,
-                            "title": f"Temporary work check {marker}",
-                            "summary": f"Synthetic integration check {marker}",
+                            "title": f"Temporary primary work check {primary_marker}",
+                            "summary": synthetic_summary(marker),
                             "initial_checkpoint": checkpoint_input,
+                            "initial_relationships": [],
                         },
                     )
                     work_item = created["work_item"]
                     initial_checkpoint = created["initial_checkpoint"]
                     work_item_id = work_item["id"]
                     path = f"projects/{project_id}/work-items/{work_item_id}"
+                    known_work_item_ids.add(work_item_id)
                     identity = {"project_id": project_id, "work_item_id": work_item_id}
                     require(
                         initial_checkpoint["prompt"] == prompt
                         and initial_checkpoint["source_session_id"] == run_id,
                         "Initial checkpoint/provenance did not survive creation.",
                     )
+                    require(
+                        created["initial_relationships"] == [],
+                        "Unlinked creation returned unexpected relationships.",
+                    )
 
                     found = await tool(
                         session,
                         "search_work",
-                        {"project_id": project_id, "q": marker},
+                        {"project_id": project_id, "q": primary_marker},
                     )
                     require(
                         found["total"] == 1
@@ -421,7 +542,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         headers={"Origin": args.web_url.rstrip("/")},
                         json={
                             "expected_version": work_item["version"],
-                            "title": "Temporary work check edited in dashboard",
+                            "title": f"Temporary primary edited {primary_marker}",
                         },
                     )
                     require(
@@ -446,6 +567,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
 
                     claim_request_id = str(uuid4())
+                    claim_request_ids[work_item_id] = claim_request_id
                     claim_arguments = {
                         **identity,
                         "holder_client": SYNTHETIC_CLIENT,
@@ -455,6 +577,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     claimed = await tool(session, "claim_and_recall", claim_arguments)
                     receipt = claimed["lease"]
                     lease_token = receipt["lease_token"]
+                    lease_tokens[work_item_id] = lease_token
                     require(
                         claimed["context"]["work_item"]["id"] == work_item_id
                         and claimed["context"]["readiness"]["display_state"] == "active"
@@ -513,6 +636,297 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         denied_claim.status_code == 404 and denied_token.status_code == 400,
                         "Dashboard proxy accepted a lease route or token-bearing body.",
                     )
+                    blocker_checkpoint = {
+                        **checkpoint_input,
+                        "prompt": (
+                            "Synthetic prerequisite used to verify blocker readiness "
+                            f"for run {run_id}."
+                        ),
+                        "tags": ["verification", "blocker"],
+                    }
+                    blocker_created = await tool(
+                        session,
+                        "create_work",
+                        {
+                            "project_id": project_id,
+                            "title": f"Temporary blocker work check {blocker_marker}",
+                            "summary": synthetic_summary(marker),
+                            "initial_checkpoint": blocker_checkpoint,
+                            "initial_relationships": [],
+                        },
+                    )
+                    blocker = blocker_created["work_item"]
+                    blocker_id = blocker["id"]
+                    known_work_item_ids.add(blocker_id)
+                    require(
+                        blocker_created["initial_relationships"] == [],
+                        "Unlinked blocker creation returned unexpected relationships.",
+                    )
+
+                    block_result = await tool(
+                        session,
+                        "add_relationship",
+                        {
+                            "project_id": project_id,
+                            "source_work_item_id": blocker_id,
+                            "target_work_item_id": work_item_id,
+                            "relationship_type": "blocks",
+                            "created_by_client": SYNTHETIC_CLIENT,
+                            "created_by_session_id": run_id,
+                        },
+                    )
+                    block_edge = block_result["relationship"]
+                    block_relationship_id = block_edge["id"]
+                    known_relationship_ids.add(block_relationship_id)
+                    active_relationship_ids.add(block_relationship_id)
+                    require(
+                        block_result["created"] is True
+                        and block_edge["relationship_type"] == "blocks"
+                        and block_edge["source_work_item_id"] == blocker_id
+                        and block_edge["target_work_item_id"] == work_item_id,
+                        "The explicit blocker edge was not created in source-to-target order.",
+                    )
+                    fetched_block = await tool(
+                        session,
+                        "get_relationship",
+                        {
+                            "project_id": project_id,
+                            "relationship_id": block_relationship_id,
+                        },
+                    )
+                    listed_blocks = await tool(
+                        session,
+                        "list_relationships",
+                        {
+                            **identity,
+                            "direction": "incoming",
+                            "relationship_type": "blocks",
+                        },
+                    )
+                    require(
+                        fetched_block == block_edge
+                        and listed_blocks["total"] == 1
+                        and listed_blocks["items"][0]["relationship"]["id"]
+                        == block_relationship_id
+                        and listed_blocks["items"][0]["direction"] == "incoming"
+                        and listed_blocks["items"][0]["counterpart"]["id"] == blocker_id
+                        and "prompt" not in listed_blocks["items"][0]["counterpart"],
+                        "Relationship get/list did not return the compact incoming blocker.",
+                    )
+
+                    blocked_context = await tool(session, "recall_work", identity)
+                    blocked_readiness = blocked_context["readiness"]
+                    require(
+                        blocked_readiness["is_blocked"] is True
+                        and blocked_readiness["unresolved_blocker_count"] == 1
+                        and blocked_readiness["has_active_lease"] is True
+                        and blocked_readiness["is_ready"] is False
+                        and blocked_readiness["display_state"] == "blocked",
+                        "Adding a blocker did not expose the active-plus-blocked overlap.",
+                    )
+                    released = await tool(
+                        session,
+                        "release_claim",
+                        {**identity, "lease_token": lease_token},
+                    )
+                    require(
+                        released["released"] is True,
+                        "The original synthetic claim was not released.",
+                    )
+                    lease_tokens.pop(work_item_id, None)
+                    claim_request_ids.pop(work_item_id, None)
+
+                    blocked_claim_request_id = str(uuid4())
+                    blocked_claim = await api.post(
+                        path + "/claim",
+                        json={
+                            "holder_client": SYNTHETIC_CLIENT,
+                            "holder_session_id": run_id,
+                            "claim_request_id": blocked_claim_request_id,
+                        },
+                    )
+                    require(
+                        blocked_claim.status_code == 409
+                        and typed_error_code(blocked_claim) == "work_blocked",
+                        "A fresh claim was not rejected with typed work_blocked.",
+                    )
+
+                    removed_block = await tool(
+                        session,
+                        "remove_relationship",
+                        {
+                            "project_id": project_id,
+                            "relationship_id": block_relationship_id,
+                        },
+                    )
+                    require(
+                        removed_block["removed"] is True
+                        and removed_block["relationship_id"] == block_relationship_id,
+                        "The blocker edge was not removed.",
+                    )
+                    active_relationship_ids.remove(block_relationship_id)
+                    unblocked_context = await tool(session, "recall_work", identity)
+                    require(
+                        unblocked_context["readiness"]["is_ready"] is True
+                        and unblocked_context["readiness"]["is_blocked"] is False
+                        and unblocked_context["readiness"]["unresolved_blocker_count"] == 0,
+                        "Removing the blocker did not restore readiness.",
+                    )
+
+                    claim_request_id = str(uuid4())
+                    claim_request_ids[work_item_id] = claim_request_id
+                    final_receipt = await tool(
+                        session,
+                        "claim_work",
+                        {
+                            **identity,
+                            "holder_client": SYNTHETIC_CLIENT,
+                            "holder_session_id": run_id,
+                            "claim_request_id": claim_request_id,
+                        },
+                    )
+                    lease_token = final_receipt["lease_token"]
+                    lease_tokens[work_item_id] = lease_token
+                    require(
+                        final_receipt["claim_request_id"] == claim_request_id,
+                        "Claimability was not restored after blocker removal.",
+                    )
+
+                    child_checkpoint = {
+                        **checkpoint_input,
+                        "prompt": (
+                            "Synthetic child discovered from the primary progress checkpoint "
+                            f"for run {run_id}."
+                        ),
+                        "tags": ["verification", "child"],
+                    }
+                    child_created = await tool(
+                        session,
+                        "create_work",
+                        {
+                            "project_id": project_id,
+                            "title": f"Temporary child work check {child_marker}",
+                            "summary": synthetic_summary(marker),
+                            "initial_checkpoint": child_checkpoint,
+                            "initial_relationships": [
+                                {
+                                    "type": "parent-child",
+                                    "direction": "incoming",
+                                    "other_work_item_id": work_item_id,
+                                },
+                                {
+                                    "type": "discovered-from",
+                                    "direction": "outgoing",
+                                    "other_work_item_id": work_item_id,
+                                    "context_checkpoint_id": progress["id"],
+                                },
+                            ],
+                        },
+                    )
+                    child = child_created["work_item"]
+                    child_id = child["id"]
+                    known_work_item_ids.add(child_id)
+                    initial_edges = child_created["initial_relationships"]
+                    edges_by_type = {
+                        edge["relationship_type"]: edge for edge in initial_edges
+                    }
+                    require(
+                        len(initial_edges) == 2
+                        and set(edges_by_type) == {"parent-child", "discovered-from"}
+                        and edges_by_type["parent-child"]["source_work_item_id"]
+                        == work_item_id
+                        and edges_by_type["parent-child"]["target_work_item_id"]
+                        == child_id
+                        and edges_by_type["discovered-from"]["source_work_item_id"]
+                        == child_id
+                        and edges_by_type["discovered-from"]["target_work_item_id"]
+                        == work_item_id
+                        and edges_by_type["discovered-from"]["context_checkpoint_id"]
+                        == progress["id"]
+                        and edges_by_type["discovered-from"][
+                            "context_checkpoint_work_item_id"
+                        ]
+                        == work_item_id
+                        and all(
+                            edge["created_by_client"] == SYNTHETIC_CLIENT
+                            and edge["created_by_session_id"] == run_id
+                            for edge in initial_edges
+                        ),
+                        "Atomic child/discovery creation returned incorrect graph facts.",
+                    )
+                    for edge in initial_edges:
+                        known_relationship_ids.add(edge["id"])
+                        active_relationship_ids.add(edge["id"])
+
+                    child_identity = {
+                        "project_id": project_id,
+                        "work_item_id": child_id,
+                    }
+                    child_relationships = await tool(
+                        session,
+                        "list_relationships",
+                        {**child_identity, "direction": "both"},
+                    )
+                    child_context = await tool(
+                        session,
+                        "recall_work",
+                        child_identity,
+                    )
+                    require(
+                        child_relationships["total"] == 2
+                        and {
+                            item["direction"] for item in child_relationships["items"]
+                        }
+                        == {"incoming", "outgoing"}
+                        and all(
+                            "prompt" not in item["counterpart"]
+                            for item in child_relationships["items"]
+                        )
+                        and child_context["relationship_counts"]["incoming"] == 1
+                        and child_context["relationship_counts"]["outgoing"] == 1
+                        and child_context["readiness"]["is_ready"] is True,
+                        "Atomic child relationships were not projected as bounded context.",
+                    )
+
+                    children = await api.get(
+                        path + "/children",
+                        params={"status": "open", "limit": 100, "offset": 0},
+                    )
+                    require(
+                        children.status_code == 200
+                        and children.json()["total"] == 1
+                        and children.json()["items"][0]["summary"]["work_item"]["id"]
+                        == child_id,
+                        "The synthetic child was not returned by hierarchy expansion.",
+                    )
+                    roots = await api.get(
+                        f"projects/{project_id}/work-items",
+                        params={
+                            "view": "roots",
+                            "status": "open",
+                            "source_client": SYNTHETIC_CLIENT,
+                            "source_session_id": run_id,
+                            "limit": 100,
+                            "offset": 0,
+                        },
+                    )
+                    require(roots.status_code == 200, "Root hierarchy browse failed.")
+                    root_ids = {
+                        item["summary"]["work_item"]["id"]
+                        for item in roots.json()["items"]
+                    }
+                    require(
+                        work_item_id in root_ids and child_id not in root_ids,
+                        "Root hierarchy browse did not separate the child from its parent.",
+                    )
+                    rejected_root_query = await api.get(
+                        f"projects/{project_id}/work-items",
+                        params={"view": "roots", "q": child_marker},
+                    )
+                    require(
+                        rejected_root_query.status_code == 422,
+                        "A nonblank hierarchy-root query was not rejected.",
+                    )
 
                     completion_input = {
                         "prompt": (
@@ -546,11 +960,12 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         == completion_input["prompt"],
                         "Completion did not atomically save its checkpoint and done status.",
                     )
-                    done = completion["work_item"]
+                    lease_tokens.pop(work_item_id, None)
+                    claim_request_ids.pop(work_item_id, None)
                     found = await tool(
                         session,
                         "search_work",
-                        {"project_id": project_id, "q": marker},
+                        {"project_id": project_id, "q": primary_marker},
                     )
                     require(
                         found["total"] == 0,
@@ -559,7 +974,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     found = await tool(
                         session,
                         "search_work",
-                        {"project_id": project_id, "q": marker, "status": "all"},
+                        {"project_id": project_id, "q": primary_marker, "status": "all"},
                     )
                     require(
                         found["total"] == 1,
@@ -569,7 +984,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     legacy_found = await tool(
                         session,
                         "search_handoffs",
-                        {"project_id": project_id, "q": marker, "status": "all"},
+                        {"project_id": project_id, "q": primary_marker, "status": "all"},
                     )
                     legacy_identity = {
                         "project_id": project_id,
@@ -616,31 +1031,67 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "Legacy resume prompt no longer resolves.",
                     )
 
-                    deleted = await tool(
-                        session,
-                        "delete_work",
-                        {**identity, "expected_version": done["version"]},
-                    )
+                    for relationship_id in sorted(active_relationship_ids):
+                        removed = await tool(
+                            session,
+                            "remove_relationship",
+                            {
+                                "project_id": project_id,
+                                "relationship_id": relationship_id,
+                            },
+                        )
+                        require(
+                            removed["removed"] is True
+                            and removed["relationship_id"] == relationship_id,
+                            "A synthetic relationship was not removed before work deletion.",
+                        )
+                        active_relationship_ids.remove(relationship_id)
+
+                    for item_id in (child_id, blocker_id, work_item_id):
+                        item_identity = {
+                            "project_id": project_id,
+                            "work_item_id": item_id,
+                        }
+                        latest = await tool(session, "get_work", item_identity)
+                        deleted = await tool(
+                            session,
+                            "delete_work",
+                            {
+                                **item_identity,
+                                "expected_version": latest["version"],
+                            },
+                        )
+                        require(
+                            deleted["deleted"] is True
+                            and deleted["work_item_id"] == item_id,
+                            "Canonical delete did not return its explicit receipt.",
+                        )
+
+                    for item_id in (child_id, blocker_id, work_item_id):
+                        require(
+                            (
+                                await api.get(
+                                    f"projects/{project_id}/work-items/{item_id}"
+                                )
+                            ).status_code
+                            == 404,
+                            "Soft-deleted synthetic work remains readable.",
+                        )
                     require(
-                        deleted["deleted"] is True
-                        and deleted["work_item_id"] == work_item_id,
-                        "Canonical delete did not return its explicit receipt.",
-                    )
-                    require(
-                        (await api.get(path)).status_code == 404
-                        and (
+                        (
                             await api.get(
                                 f"projects/{project_id}/handoffs/{work_item_id}"
                             )
                         ).status_code
                         == 404,
-                        "Soft-deleted work remains readable through a canonical or legacy route.",
+                        "Soft-deleted primary remains readable through the legacy route.",
                     )
                     print(
                         "PASS: canonical create/search/recall/checkpoints, resource/prompt, "
                         "dashboard edit, typed stale conflict, claim/replay/renew, token isolation, "
-                        "atomic leased completion, default-open filtering, compatibility aliases "
-                        "and soft deletion"
+                        "blocker readiness and restored claimability, atomic child/discovery, "
+                        "hierarchy browse, leased completion, default-open filtering, compatibility "
+                        "aliases, graph removal and soft deletion"
                     )
                 finally:
                     await cleanup_synthetic_work(
@@ -648,9 +1099,10 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         project_id,
                         marker,
                         run_id,
-                        work_item_id,
-                        claim_request_id,
-                        lease_token,
+                        known_work_item_ids,
+                        known_relationship_ids,
+                        claim_request_ids,
+                        lease_tokens,
                     )
 
 
@@ -673,7 +1125,7 @@ def main() -> None:
         "--project-id",
         type=project_uuid,
         help=(
-            "Explicitly authorizes one synthetic canonical lifecycle and soft deletion "
+            "Explicitly authorizes one synthetic Phase 3 graph lifecycle and cleanup "
             "inside this project"
         ),
     )

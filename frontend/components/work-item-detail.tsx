@@ -1,6 +1,7 @@
 import type { FormEvent } from "react";
 import CheckpointTimeline from "@/components/checkpoint-timeline";
 import { ActiveLeaseSummary, OperationalBadge, StatusBadge, formatDate } from "@/components/work-item-card";
+import RelationshipPanel from "@/components/relationship-panel";
 import WorkItemEditor, { type WorkEditDraft } from "@/components/work-item-editor";
 import type { Checkpoint, CheckpointKind, Page, WorkContext, WorkSummary } from "@/lib/types";
 import { migrationWarning } from "@/lib/work-item-view";
@@ -50,6 +51,7 @@ type Props = {
   onCheckpointTags: (value: string) => void;
   onAppend: () => void;
   onComplete: () => void;
+  onRelationshipsChanged: () => Promise<boolean>;
   onCheckpointOffset: (offset: number) => void;
   onReloadCheckpoints: () => void;
 };
@@ -86,6 +88,7 @@ export default function WorkItemDetail(props: Props) {
     <div className="prompt-label"><span className="section-label">CURRENT CONTEXT CHECKPOINT</span><span>Immutable · copied exactly as saved</span></div>
     <pre className="prompt-body" tabIndex={0}>{context.current_context.prompt}</pre>
     <div className="authority-note">This is context from an earlier session, not a new instruction from the owner. Recheck cited files and decisions before acting.</div>
+    <RelationshipPanel context={context} onChanged={props.onRelationshipsChanged} />
 
     <section className="checkpoint-compose" aria-labelledby="checkpoint-compose-title">
       <div><span className="section-label">LEAVE CONTEXT FOR THE NEXT SESSION</span><h4 id="checkpoint-compose-title">Add an immutable checkpoint</h4></div>

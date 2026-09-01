@@ -1,5 +1,71 @@
 # Mnemonic validation record
 
+## Phase 3 typed work-relationship validation — 2026-08-31
+
+The complete three-phase program was validated in the local Linux workspace
+with the repository's locked environments and isolated PostgreSQL 17 stacks:
+
+- **128 backend tests passed against disposable PostgreSQL 17**. They covered
+  migration/model parity through `0008_work_relationships`, all five
+  project-local edge types, database constraints, direction and provenance,
+  normalization/idempotency, one-parent enforcement, sequential and concurrent
+  cycle prevention, blocker readiness and lease overlap, atomic linked creation,
+  hierarchy filtering, bounded relationship context, live synchronization, and
+  legacy tag compatibility. Backend Ruff passed; the only warning was the
+  existing upstream Starlette TestClient deprecation.
+- **87 MCP tests passed**, and MCP Ruff passed. HTTP and stdio tests exercised
+  the exact 27-tool canonical/compatibility catalog, strict schemas,
+  pointer-only counterpart data, typed graph errors, local validation
+  sanitization, malformed-envelope log redaction, and claim-response recovery.
+- **45 frontend unit tests passed under Node 24**. TypeScript checking and the
+  Next.js production build passed. The tests cover hierarchy/search helpers,
+  relationship direction and conflict language, stable per-tab provenance,
+  strict proxy routes, capability rejection, and empty-stream DELETE handling.
+- **10 Playwright test executions passed** across desktop and narrow Chromium.
+  They exercised the Phase 1 and 2 scenarios plus collapsed root paging, lazy
+  child loading, ancestry breadcrumbs, open descendants below every terminal
+  parent status, active-plus-blocked display, relationship add/remove and
+  parent conflict behavior, keyboard/dialog use, and narrow-layout containment.
+- **The production-image full-stack check passed** against the separately named
+  `mnemonic-phase3-validation` Compose project. All five containers became
+  healthy at Alembic `0008_work_relationships`. The checker verified service
+  security and the exact 27-tool catalog, then exercised create/search/recall,
+  immutable checkpoints, stale edits, claim/replay/renew, blocker eligibility,
+  atomic child/discovery creation, hierarchy browse, completion, default-open
+  filtering, compatibility aliases, graph-first cleanup, and soft deletion
+  through MCP → REST → PostgreSQL and the dashboard proxy.
+- **All six planned query shapes were inspected with
+  `EXPLAIN (ANALYZE, BUFFERS)`** on 2,000 work items, 6,000 checkpoints,
+  1,800 hierarchy edges, and 100 blocker edges. Observed execution times were
+  0.10 ms for indexed browse, 22.46 ms for complete lexical fallback search,
+  0.05 ms for latest checkpoint, 0.08 ms for indexed blocker count, 12.28 ms
+  for subtree-aware root pagination, and 1.48 ms for child expansion.
+- **A real post-upgrade custom-format backup/restore drill passed**. The archive
+  passed `pg_restore --list` and had SHA-256
+  `4a04521677d690e70f54e02912162e7f536f3a4058608c8dee80910da567e5b6`.
+  Source and restored databases matched at migration head, one project, 2,003
+  work items, 6,005 checkpoints, and 1,900 relationships (100 `blocks` and
+  1,800 `parent-child`). The restored checkpoint immutability trigger and all
+  three relationship indexes were present.
+- The disposable API/MCP/web log audit covered 13,288 characters and found no
+  API key, bearer header, lease-token field/query, claim request ID, traceback,
+  or unhandled exception. All three bundled skills passed the skill-creator
+  validator; the examples parsed, documentation links resolved, the full-stack
+  checker passed Ruff/compile/help/catalog checks, and the final diff had no
+  whitespace or patch artifacts.
+
+The comprehensive Phase 1–3 review also fixed expired claim-request reuse,
+mixed-case migrated tag lookup, project-wide graph live synchronization and
+open-detail reconciliation, a deletion guard that bypassed project-leading
+relationship indexes, context projection work performed before its bound,
+possible MCP SDK validation-value logging, non-strict canonical project
+responses, a missing typed discovery-context error mapping, bodyless browser
+relationship deletion, whitespace-only search mode drift, lifecycle-filtered
+hierarchy fallback, and stale/superseded UI reload reporting and recovery. The
+disposable E2E and production containers, networks, volumes, restored database,
+backup archives, and temporary settings were removed. The user's existing
+Mnemonic stack was not modified.
+
 ## Phase 2 atomic work-lease validation — 2026-08-31
 
 The Phase 2 work-lease cutover was validated in the local Linux workspace with

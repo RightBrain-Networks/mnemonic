@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { migrationWarning, normalizedTags, readinessAfterWorkSave } from "../lib/work-item-view.ts";
+import { editableLifecycleStatuses, migrationWarning, normalizedTags, readinessAfterWorkSave } from "../lib/work-item-view.ts";
 
 test("legacy snapshots receive an explicit provenance limitation warning", () => {
   const warning = migrationWarning("legacy-handoff-snapshot");
@@ -52,4 +52,11 @@ test("successful lifecycle transitions clear lease visibility and keep blockers 
     is_ready: false,
     display_state: "blocked"
   });
+});
+
+test("lifecycle choices are restricted by the persisted status", () => {
+  assert.deepEqual(editableLifecycleStatuses("open"), ["open", "wont-do", "promoted"]);
+  assert.deepEqual(editableLifecycleStatuses("done"), ["done", "open"]);
+  assert.deepEqual(editableLifecycleStatuses("wont-do"), ["wont-do", "open"]);
+  assert.deepEqual(editableLifecycleStatuses("promoted"), ["promoted", "open"]);
 });

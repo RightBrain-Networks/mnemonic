@@ -17,7 +17,7 @@ export function workSearchParams({
 }: WorkSearchOptions): URLSearchParams {
   const params = new URLSearchParams({
     status,
-    view: "all",
+    view: query.trim() ? "all" : "roots",
     limit: String(limit),
     offset: String(offset)
   });
@@ -27,4 +27,12 @@ export function workSearchParams({
     if (semantic) params.set("semantic", "true");
   }
   return params;
+}
+
+export function childSearchParams({
+  status,
+  limit,
+  offset
+}: Pick<WorkSearchOptions, "status" | "limit" | "offset">): URLSearchParams {
+  return new URLSearchParams({ status, limit: String(limit), offset: String(offset) });
 }

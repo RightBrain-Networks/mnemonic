@@ -15,6 +15,16 @@ CheckpointOrder = Literal["oldest", "newest"]
 MigrationOrigin = Literal["legacy-handoff-snapshot", "legacy-comment"]
 DisplayState = Literal["ready", "active", "blocked", "done", "wont-do", "promoted"]
 CommentKind = Literal["comment", "work-summary"]
+RelationshipType = Literal[
+    "blocks",
+    "parent-child",
+    "discovered-from",
+    "duplicate-of",
+    "related",
+]
+RelationshipDirection = Literal["incoming", "outgoing", "undirected"]
+RelationshipListDirection = Literal["incoming", "outgoing", "undirected", "both"]
+InitialRelationshipDirection = Literal["incoming", "outgoing"]
 
 
 class CanonicalResponse(BaseModel):
@@ -23,7 +33,7 @@ class CanonicalResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class Project(BaseModel):
+class Project(CanonicalResponse):
     id: UUID
     name: str
     slug: str
@@ -33,7 +43,7 @@ class Project(BaseModel):
     updated_at: datetime
 
 
-class ProjectPage(BaseModel):
+class ProjectPage(CanonicalResponse):
     items: list[Project]
     total: int
     limit: int
@@ -130,6 +140,67 @@ class WorkIdentityPointer(CanonicalResponse):
     status: Status
 
 
+class WorkPointer(CanonicalResponse):
+    """Compact relationship counterpart; ignore accidental upstream content additions."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: UUID
+    title: str
+    status: Status
+    readiness: Readiness
+
+
+class RelationshipEdgeRead(CanonicalResponse):
+    id: UUID
+    project_id: UUID
+    relationship_type: RelationshipType
+    source_work_item_id: UUID
+    target_work_item_id: UUID
+    context_checkpoint_work_item_id: UUID | None
+    context_checkpoint_id: UUID | None
+    created_by_client: str
+    created_by_session_id: str
+    created_by_model: str | None
+    created_at: datetime
+
+
+class AdjacentRelationshipRead(CanonicalResponse):
+    relationship: RelationshipEdgeRead
+    relative_to_work_item_id: UUID
+    direction: RelationshipDirection
+    counterpart: WorkPointer
+
+
+class RelationshipPage(CanonicalResponse):
+    items: list[AdjacentRelationshipRead]
+    total: int
+    limit: int
+    offset: int
+
+
+class RelationshipCreationResult(CanonicalResponse):
+    relationship: RelationshipEdgeRead
+    created: bool
+
+
+class RelationshipRemovalResult(CanonicalResponse):
+    project_id: UUID
+    relationship_id: UUID
+    removed: bool
+
+
+class InitialRelationshipInput(BaseModel):
+    """A relationship expressed relative to a work item being created."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: RelationshipType
+    direction: InitialRelationshipDirection
+    other_work_item_id: UUID
+    context_checkpoint_id: UUID | None = None
+
+
 class WorkSummary(CanonicalResponse):
     # Search must stay pointer-only even if an API regression adds checkpoint bodies.
     model_config = ConfigDict(extra="ignore")
@@ -171,11 +242,9 @@ class WorkContext(CanonicalResponse):
     checkpoint_total: int
     omitted_checkpoint_count: int
     readiness: Readiness
-    # Phase 1 returns an empty immediate graph. Keep the response bounded and
-    # forward-compatible without exposing Phase 3 mutation tools yet.
-    incoming_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
-    outgoing_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
-    undirected_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
+    incoming_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
+    outgoing_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
+    undirected_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
     relationship_counts: RelationshipCounts = Field(default_factory=RelationshipCounts)
 
 
@@ -205,7 +274,7 @@ class ReleaseResult(CanonicalResponse):
 class WorkCreation(CanonicalResponse):
     work_item: WorkItemRead
     initial_checkpoint: CheckpointRead
-    initial_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
+    initial_relationships: list[RelationshipEdgeRead] = Field(default_factory=list)
 
 
 class WorkChanges(BaseModel):

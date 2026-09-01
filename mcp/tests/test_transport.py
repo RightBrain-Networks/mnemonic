@@ -4,7 +4,13 @@ from pathlib import Path
 
 import httpx
 import pytest
-from conftest import API_KEY, PROJECT_ID, WORK_ID
+from conftest import (
+    API_KEY,
+    LOCAL_VALIDATION_CASES,
+    PROJECT_ID,
+    WORK_ID,
+    expected_validation_message,
+)
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from starlette.testclient import TestClient
@@ -43,15 +49,25 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
         assert "claim_and_recall" in initialized.json()["result"]["instructions"]
         assert "exact same claim_request_id" in initialized.json()["result"]["instructions"]
+        assert "list_relationships" in initialized.json()["result"]["instructions"]
+        assert "incoming blocks edge changes readiness" in initialized.json()["result"]["instructions"]
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
         listed_tools = listed.json()["result"]["tools"]
-        assert len(listed_tools) == 23
+        assert len(listed_tools) == 27
+        assert all(
+            tool["inputSchema"].get("additionalProperties") is False
+            for tool in listed_tools
+        )
         assert {
             "claim_work",
             "claim_and_recall",
             "renew_claim",
             "release_claim",
+            "add_relationship",
+            "get_relationship",
+            "list_relationships",
+            "remove_relationship",
         } <= {tool["name"] for tool in listed_tools}
         called = client.post("/mcp", json={
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -70,6 +86,76 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
             work_context["current_context"]["source_session_id"]
         )
     assert len(seen) == 1
+
+
+def test_http_tool_validation_is_strict_and_value_free(settings):
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(500)
+
+    app = create_app(settings, MnemonicAPI(settings, httpx.MockTransport(handler)))
+    with TestClient(app, base_url="http://localhost:8001") as client:
+        initialized = client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS)
+        assert initialized.status_code == 200
+
+        for request_id, (tool_name, arguments, fields, secrets) in enumerate(
+            LOCAL_VALIDATION_CASES,
+            start=10,
+        ):
+            response = client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "method": "tools/call",
+                    "params": {"name": tool_name, "arguments": arguments},
+                },
+                headers=JSON_HEADERS,
+            )
+            assert response.status_code == 200
+            payload = response.json()["result"]
+            assert payload["isError"] is True
+            assert payload["content"][0]["text"] == expected_validation_message(fields)
+            for secret in secrets:
+                assert secret not in response.text
+            assert "input_value" not in response.text
+            assert "input_type" not in response.text
+            assert "errors.pydantic.dev" not in response.text
+
+    assert seen == []
+
+
+def test_malformed_http_envelope_is_value_free_in_response_and_logs(settings, caplog):
+    secret = "malformed-envelope-secret-lease-token"
+    app = create_app(settings)
+    caplog.set_level("DEBUG")
+
+    with TestClient(app, base_url="http://localhost:8001") as client:
+        initialized = client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS)
+        assert initialized.status_code == 200
+        response = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 20,
+                "method": "tools/call",
+                "params": {
+                    "name": "release_claim",
+                    "arguments": secret,
+                },
+            },
+            headers=JSON_HEADERS,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["error"]["message"] == "Invalid request parameters"
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "input_value" not in caplog.text
+    assert "Invalid MCP request details were suppressed." in caplog.text
+    assert "MCP request parameters were invalid." in caplog.text
 
 
 @pytest.mark.parametrize("headers,expected", [
@@ -141,11 +227,31 @@ async def test_stdio_transport_handshake_and_catalog():
         initialized = await session.initialize()
         assert initialized.serverInfo.name == "Mnemonic"
         result = await session.list_tools()
-        assert len(result.tools) == 23
+        assert len(result.tools) == 27
         assert all(tool.outputSchema is not None for tool in result.tools)
+        assert all(
+            tool.inputSchema.get("additionalProperties") is False for tool in result.tools
+        )
         assert {
             "claim_work",
             "claim_and_recall",
             "renew_claim",
             "release_claim",
+            "add_relationship",
+            "get_relationship",
+            "list_relationships",
+            "remove_relationship",
         } <= {tool.name for tool in result.tools}
+
+        for tool_name, arguments, fields, secrets in LOCAL_VALIDATION_CASES:
+            invalid = await session.call_tool(tool_name, arguments)
+            assert invalid.isError is True
+            assert len(invalid.content) == 1
+            text = invalid.content[0].text
+            assert text == expected_validation_message(fields)
+            rendered = repr(invalid)
+            for secret in secrets:
+                assert secret not in rendered
+            assert "input_value" not in rendered
+            assert "input_type" not in rendered
+            assert "errors.pydantic.dev" not in rendered

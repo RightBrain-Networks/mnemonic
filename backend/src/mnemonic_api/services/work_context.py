@@ -32,15 +32,20 @@ def checkpoint_pointer(checkpoint: Checkpoint) -> CheckpointPointer:
 
 
 def readiness(
-    work_item: WorkItem | WorkItemRead, active_lease: WorkLease | LeasePublic | None = None
+    work_item: WorkItem | WorkItemRead,
+    active_lease: WorkLease | LeasePublic | None = None,
+    unresolved_blocker_count: int = 0,
 ) -> Readiness:
     terminal = work_item.status != "open"
     lease_public = (
         LeasePublic.model_validate(active_lease) if active_lease is not None else None
     )
     has_active_lease = lease_public is not None
+    is_blocked = unresolved_blocker_count > 0
     if terminal:
         display_state = work_item.status
+    elif is_blocked:
+        display_state = "blocked"
     elif has_active_lease:
         display_state = "active"
     else:
@@ -50,7 +55,9 @@ def readiness(
         is_terminal=terminal,
         has_active_lease=has_active_lease,
         active_lease=lease_public,
-        is_ready=not terminal and not has_active_lease,
+        unresolved_blocker_count=unresolved_blocker_count,
+        is_blocked=is_blocked,
+        is_ready=not terminal and not has_active_lease and not is_blocked,
         display_state=display_state,
     )
 
@@ -71,6 +78,9 @@ def work_summaries(database: Session, work_items: Sequence[WorkItem]) -> list[Wo
     if not work_items:
         return []
     ids = [work_item.id for work_item in work_items]
+    from mnemonic_api.services.relationships import unresolved_blocker_counts
+
+    blocker_counts = unresolved_blocker_counts(database, ids)
     counts = dict(
         database.execute(
             select(Checkpoint.work_item_id, func.count())
@@ -105,7 +115,11 @@ def work_summaries(database: Session, work_items: Sequence[WorkItem]) -> list[Wo
             work_item=WorkItemRead.model_validate(work_item),
             checkpoint_count=counts[work_item.id],
             current_context=checkpoint_pointer(current_contexts[work_item.id]),
-            readiness=readiness(work_item, active_leases.get(work_item.id)),
+            readiness=readiness(
+                work_item,
+                active_leases.get(work_item.id),
+                blocker_counts.get(work_item.id, 0),
+            ),
         )
         for work_item in work_items
     ]
@@ -150,6 +164,122 @@ def assemble_work_context(
                   AND checkpoint.id <> w.current_checkpoint_id
                 ORDER BY checkpoint.created_at DESC, checkpoint.id DESC
                 LIMIT :recent_limit
+            ),
+            adjacent_base AS (
+                SELECT
+                    relationship.*,
+                    CASE
+                        WHEN relationship.relationship_type = 'related' THEN 'undirected'
+                        WHEN relationship.target_work_item_id = w.id THEN 'incoming'
+                        ELSE 'outgoing'
+                    END AS relative_direction,
+                    CASE
+                        WHEN relationship.source_work_item_id = w.id
+                        THEN relationship.target_work_item_id
+                        ELSE relationship.source_work_item_id
+                    END AS counterpart_id
+                FROM chosen AS w
+                JOIN work_relationships AS relationship
+                  ON relationship.project_id = w.project_id
+                 AND (
+                    relationship.source_work_item_id = w.id
+                    OR relationship.target_work_item_id = w.id
+                 )
+            ),
+            adjacent_limited AS (
+                SELECT *
+                FROM (
+                    SELECT
+                        adjacent_base.*,
+                        row_number() OVER (
+                            PARTITION BY adjacent_base.relative_direction
+                            ORDER BY adjacent_base.created_at, adjacent_base.id
+                        ) AS direction_rank
+                    FROM adjacent_base
+                ) AS ranked
+                WHERE ranked.direction_rank <= 50
+            ),
+            adjacent_rows AS (
+                SELECT
+                    relationship.*,
+                    counterpart.title AS counterpart_title,
+                    counterpart.status AS counterpart_status,
+                    CASE
+                        WHEN counterpart_lease.work_item_id IS NULL THEN NULL
+                        ELSE jsonb_build_object(
+                            'holder_client', counterpart_lease.holder_client,
+                            'holder_session_id', counterpart_lease.holder_session_id,
+                            'acquired_at', counterpart_lease.acquired_at,
+                            'renewed_at', counterpart_lease.renewed_at,
+                            'expires_at', counterpart_lease.expires_at
+                        )
+                    END AS counterpart_active_lease,
+                    (
+                        SELECT count(*)
+                        FROM work_relationships AS blocker_edge
+                        JOIN work_items AS blocker_source
+                          ON blocker_source.id = blocker_edge.source_work_item_id
+                        WHERE blocker_edge.relationship_type = 'blocks'
+                          AND blocker_edge.project_id = relationship.project_id
+                          AND blocker_edge.target_work_item_id = counterpart.id
+                          AND blocker_source.status <> 'done'
+                    ) AS counterpart_blocker_count
+                FROM adjacent_limited AS relationship
+                JOIN work_items AS counterpart
+                  ON counterpart.id = relationship.counterpart_id
+                 AND counterpart.deleted_at IS NULL
+                CROSS JOIN database_time
+                LEFT JOIN work_leases AS counterpart_lease
+                  ON counterpart_lease.work_item_id = counterpart.id
+                 AND counterpart_lease.expires_at > database_time.now
+            ),
+            adjacent_projected AS (
+                SELECT
+                    adjacent.*,
+                    jsonb_build_object(
+                        'relationship', jsonb_build_object(
+                            'id', adjacent.id,
+                            'project_id', adjacent.project_id,
+                            'relationship_type', adjacent.relationship_type,
+                            'source_work_item_id', adjacent.source_work_item_id,
+                            'target_work_item_id', adjacent.target_work_item_id,
+                            'context_checkpoint_work_item_id',
+                                adjacent.context_checkpoint_work_item_id,
+                            'context_checkpoint_id', adjacent.context_checkpoint_id,
+                            'created_by_client', adjacent.created_by_client,
+                            'created_by_session_id', adjacent.created_by_session_id,
+                            'created_by_model', adjacent.created_by_model,
+                            'created_at', adjacent.created_at
+                        ),
+                        'relative_to_work_item_id', :work_item_id,
+                        'direction', adjacent.relative_direction,
+                        'counterpart', jsonb_build_object(
+                            'id', adjacent.counterpart_id,
+                            'title', adjacent.counterpart_title,
+                            'status', adjacent.counterpart_status,
+                            'readiness', jsonb_build_object(
+                                'lifecycle_status', adjacent.counterpart_status,
+                                'is_terminal', adjacent.counterpart_status <> 'open',
+                                'has_active_lease',
+                                    adjacent.counterpart_active_lease IS NOT NULL,
+                                'active_lease', adjacent.counterpart_active_lease,
+                                'unresolved_blocker_count',
+                                    adjacent.counterpart_blocker_count,
+                                'is_blocked', adjacent.counterpart_blocker_count > 0,
+                                'is_ready', adjacent.counterpart_status = 'open'
+                                    AND adjacent.counterpart_active_lease IS NULL
+                                    AND adjacent.counterpart_blocker_count = 0,
+                                'display_state', CASE
+                                    WHEN adjacent.counterpart_status <> 'open'
+                                        THEN adjacent.counterpart_status
+                                    WHEN adjacent.counterpart_blocker_count > 0 THEN 'blocked'
+                                    WHEN adjacent.counterpart_active_lease IS NOT NULL THEN 'active'
+                                    ELSE 'ready'
+                                END
+                            )
+                        )
+                    ) AS edge_json
+                FROM adjacent_rows AS adjacent
             )
             SELECT
                 to_jsonb(w) - 'deleted_at' - 'search_vector' - 'current_checkpoint_id'
@@ -180,7 +310,77 @@ def assemble_work_context(
                         'renewed_at', active_lease.renewed_at,
                         'expires_at', active_lease.expires_at
                     )
-                END AS active_lease
+                END AS active_lease,
+                (
+                    SELECT count(*)
+                    FROM work_relationships AS blocker_edge
+                    JOIN work_items AS blocker_source
+                      ON blocker_source.id = blocker_edge.source_work_item_id
+                    WHERE blocker_edge.relationship_type = 'blocks'
+                      AND blocker_edge.project_id = w.project_id
+                      AND blocker_edge.target_work_item_id = w.id
+                      AND blocker_source.status <> 'done'
+                ) AS unresolved_blocker_count,
+                COALESCE(
+                    (
+                        SELECT jsonb_agg(
+                            limited.edge_json ORDER BY limited.created_at, limited.id
+                        )
+                        FROM (
+                            SELECT edge_json, created_at, id
+                            FROM adjacent_projected
+                            WHERE relative_direction = 'incoming'
+                            ORDER BY created_at, id
+                            LIMIT 50
+                        ) AS limited
+                    ),
+                    '[]'::jsonb
+                ) AS incoming_relationships,
+                COALESCE(
+                    (
+                        SELECT jsonb_agg(
+                            limited.edge_json ORDER BY limited.created_at, limited.id
+                        )
+                        FROM (
+                            SELECT edge_json, created_at, id
+                            FROM adjacent_projected
+                            WHERE relative_direction = 'outgoing'
+                            ORDER BY created_at, id
+                            LIMIT 50
+                        ) AS limited
+                    ),
+                    '[]'::jsonb
+                ) AS outgoing_relationships,
+                COALESCE(
+                    (
+                        SELECT jsonb_agg(
+                            limited.edge_json ORDER BY limited.created_at, limited.id
+                        )
+                        FROM (
+                            SELECT edge_json, created_at, id
+                            FROM adjacent_projected
+                            WHERE relative_direction = 'undirected'
+                            ORDER BY created_at, id
+                            LIMIT 50
+                        ) AS limited
+                    ),
+                    '[]'::jsonb
+                ) AS undirected_relationships,
+                (
+                    SELECT jsonb_build_object(
+                        'incoming', count(*) FILTER (
+                            WHERE relative_direction = 'incoming'
+                        ),
+                        'outgoing', count(*) FILTER (
+                            WHERE relative_direction = 'outgoing'
+                        ),
+                        'undirected', count(*) FILTER (
+                            WHERE relative_direction = 'undirected'
+                        ),
+                        'total', count(*)
+                    )
+                    FROM adjacent_base
+                ) AS relationship_counts
             FROM chosen AS w
             JOIN checkpoints AS initial_checkpoint
               ON initial_checkpoint.work_item_id = w.id
@@ -212,6 +412,7 @@ def assemble_work_context(
         if row["active_lease"] is not None
         else None
     )
+    blocker_count = int(row["unresolved_blocker_count"])
     materialized_ids = {initial.id, current.id, *(item.id for item in recent)}
     total = int(row["checkpoint_total"])
     return WorkContext(
@@ -221,7 +422,11 @@ def assemble_work_context(
         recent_checkpoints=recent,
         checkpoint_total=total,
         omitted_checkpoint_count=total - len(materialized_ids),
-        readiness=readiness(work_item, active_lease),
+        readiness=readiness(work_item, active_lease, blocker_count),
+        incoming_relationships=row["incoming_relationships"],
+        outgoing_relationships=row["outgoing_relationships"],
+        undirected_relationships=row["undirected_relationships"],
+        relationship_counts=row["relationship_counts"],
     )
 
 

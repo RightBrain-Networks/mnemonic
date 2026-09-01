@@ -132,6 +132,10 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
                         "created_at": created_at,
                     },
                 )
+            connection.execute(
+                text("UPDATE handoffs SET tags = ARRAY['MixedLegacy'] WHERE id = :id"),
+                {"id": open_id},
+            )
             # One comment deliberately reuses the hand-off UUID. The other is
             # collision-free and must preserve its UUID exactly.
             connection.execute(
@@ -277,7 +281,7 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
         with engine.connect() as connection:
             assert connection.execute(
                 text("SELECT version_num FROM alembic_version")
-            ).scalar_one() == "0007_work_leases"
+            ).scalar_one() == "0008_work_relationships"
             assert connection.execute(text("SELECT to_regclass('handoffs')")).scalar_one() is None
             assert connection.execute(
                 text("SELECT to_regclass('handoff_comments')")
@@ -300,6 +304,11 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
             assert client.get(f"{legacy_base}/{handoff_id}").status_code == 404
             assert client.get(canonical_base, params={"status": "all"}).json()["total"] == 3
             assert client.get(legacy_base, params={"status": "all"}).json()["total"] == 3
+            legacy_tag_match = client.get(canonical_base, params={"tag": "mixedlegacy"})
+            assert legacy_tag_match.status_code == 200
+            assert [item["work_item"]["id"] for item in legacy_tag_match.json()["items"]] == [
+                str(open_id)
+            ]
             context = client.get(f"{canonical_base}/{open_id}/context")
             assert context.status_code == 200
             assert context.json()["initial_checkpoint"]["migration_origin"] == (

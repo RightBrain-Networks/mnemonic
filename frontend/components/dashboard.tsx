@@ -7,14 +7,16 @@ import WorkItemList, { WORK_PAGE_SIZE } from "@/components/work-item-list";
 import { StatusBadge, formatDate } from "@/components/work-item-card";
 import { draftFromWork, type WorkEditDraft } from "@/components/work-item-editor";
 import { api, errorMessage, isVersionConflict, workItemPath } from "@/lib/api";
+import { dashboardSessionId } from "@/lib/dashboard-session";
 import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
-import { connectLiveSync, type LiveSyncStatus } from "@/lib/live-sync";
+import { connectLiveSync, invalidatesOpenWork, type LiveSyncStatus } from "@/lib/live-sync";
 import type {
   Checkpoint,
   CheckpointInput,
   CheckpointKind,
   CompletionResult,
   DeletionResult,
+  HierarchySummary,
   Page,
   Project,
   StatusFilter,
@@ -24,7 +26,7 @@ import type {
   WorkPatch,
   WorkSummary
 } from "@/lib/types";
-import { normalizedTags } from "@/lib/work-item-view";
+import { editableLifecycleStatuses, normalizedTags } from "@/lib/work-item-view";
 import { workSearchParams } from "@/lib/work-item-search";
 
 const iconPaths = {
@@ -65,19 +67,6 @@ function ErrorNotice({ message, children }: { message: string; children?: ReactN
   return <div className="error-notice" role="alert"><p>{message}</p>{children}</div>;
 }
 
-function dashboardSessionId() {
-  const key = "mnemonic.dashboard-session";
-  try {
-    const saved = sessionStorage.getItem(key);
-    if (saved) return saved;
-    const created = crypto.randomUUID();
-    sessionStorage.setItem(key, created);
-    return created;
-  } catch {
-    return `dashboard-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  }
-}
-
 function checkpointPayload(
   prompt: string,
   branch = "",
@@ -110,6 +99,8 @@ function summaryWithContext(base: WorkSummary, context: WorkContext): WorkSummar
   };
 }
 
+type ContextLoadResult = "loaded" | "superseded" | "failed";
+
 export default function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
@@ -126,7 +117,7 @@ export default function Dashboard() {
   const [status, setStatus] = useState<StatusFilter>("open");
   const [offset, setOffset] = useState(0);
   const [refresh, setRefresh] = useState(0);
-  const [results, setResults] = useState<Page<WorkSummary> | null>(null);
+  const [results, setResults] = useState<Page<WorkSummary | HierarchySummary> | null>(null);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -171,7 +162,7 @@ export default function Dashboard() {
   const openedRef = useRef(opened);
   const lastContextRefresh = useRef(0);
   const nextLeaseExpiry = earliestLeaseExpiry([
-    ...(results?.items.map((item) => item.readiness.active_lease?.expires_at) ?? []),
+    ...(results?.items.map((item) => ("summary" in item ? item.summary : item).readiness.active_lease?.expires_at) ?? []),
     context?.readiness.active_lease?.expires_at
   ]);
 
@@ -209,7 +200,7 @@ export default function Dashboard() {
   }, [activeId]);
 
   useEffect(() => {
-    const timer = setTimeout(() => { setSearch(query); setOffset(0); }, 300);
+    const timer = setTimeout(() => { setSearch(query.trim()); setOffset(0); }, 300);
     return () => clearTimeout(timer);
   }, [query]);
 
@@ -219,7 +210,7 @@ export default function Dashboard() {
     setListLoading(true);
     setListError("");
     const params = workSearchParams({ status, limit: WORK_PAGE_SIZE, offset, query: search, semantic });
-    api<Page<WorkSummary>>(`${workItemPath(activeId)}?${params}`, { signal: controller.signal })
+    api<Page<WorkSummary | HierarchySummary>>(`${workItemPath(activeId)}?${params}`, { signal: controller.signal })
       .then((page) => {
         if (controller.signal.aborted) return;
         if (offset > 0 && offset >= page.total) {
@@ -286,10 +277,8 @@ export default function Dashboard() {
         pending.projects = true;
       } else {
         if (message.project_id === activeIdRef.current) pending.list = true;
-        if (
-          message.work_item_id !== null
-          && message.work_item_id === openedRef.current?.work_item.id
-        ) {
+        const openedWork = openedRef.current?.work_item;
+        if (openedWork && invalidatesOpenWork(message, openedWork.project_id, openedWork.id)) {
           pending.open = true;
         }
       }
@@ -329,7 +318,7 @@ export default function Dashboard() {
     if (!nextLeaseExpiry) return;
     return scheduleLeaseExpiryRefresh(nextLeaseExpiry, () => {
       setRefresh((value) => value + 1);
-      if (opened) void loadContext(opened);
+      if (opened) setContextRefresh((value) => value + 1);
     });
   }, [nextLeaseExpiry, opened?.work_item.id]);
 
@@ -417,17 +406,22 @@ export default function Dashboard() {
     }
   }
 
-  async function loadContext(summary: WorkSummary, requestId = recordRequest.current) {
+  async function loadContext(
+    summary: WorkSummary,
+    requestId = ++recordRequest.current
+  ): Promise<ContextLoadResult> {
     setContextLoading(true);
     setContextError("");
     try {
       const full = await api<WorkContext>(`${workItemPath(summary.work_item.project_id, summary.work_item.id)}/context?recent_limit=5`);
-      if (recordRequest.current !== requestId) return;
+      if (recordRequest.current !== requestId) return "superseded";
       setContext(full);
       setOpened((current) => current ? summaryWithContext(current, full) : current);
       setEditDraft(draftFromWork(full.work_item));
+      return "loaded";
     } catch (error) {
       if (recordRequest.current === requestId) setContextError(errorMessage(error));
+      return recordRequest.current === requestId ? "failed" : "superseded";
     } finally {
       if (recordRequest.current === requestId) setContextLoading(false);
     }
@@ -464,9 +458,10 @@ export default function Dashboard() {
     setCheckpointBody("");
   }
 
-  async function reloadOpenContext() {
-    if (!opened) return;
-    await loadContext(opened);
+  async function reloadOpenContext(): Promise<boolean> {
+    if (!opened) return false;
+    const result = await loadContext(opened);
+    return result !== "failed";
   }
 
   async function saveWorkEdits(event: FormEvent<HTMLFormElement>) {
@@ -477,16 +472,31 @@ export default function Dashboard() {
     if (editDraft.title !== base.title) patch.title = editDraft.title;
     if (editDraft.summary !== base.summary) patch.summary = editDraft.summary;
     if (editDraft.priority !== base.priority) patch.priority = editDraft.priority;
+    if (!editableLifecycleStatuses(base.status).includes(editDraft.status)) {
+      setEditError("That lifecycle transition is no longer available from the saved status.");
+      return;
+    }
     if (editDraft.status !== base.status && editDraft.status !== "done") patch.status = editDraft.status;
     if (Object.keys(patch).length === 1) { setMode("view"); return; }
     setEditSaving(true);
     setEditError("");
     try {
       const saved = await api<WorkItem>(workItemPath(base.project_id, base.id), { method: "PATCH", body: JSON.stringify(patch) });
-      await loadContext({ ...opened, work_item: saved });
+      const savedSummary = { ...opened, work_item: saved };
+      setContext((value) => value ? { ...value, work_item: saved } : value);
+      setOpened(savedSummary);
+      setRefresh((value) => value + 1);
+      const reconciled = await loadContext(savedSummary);
+      if (reconciled === "failed") {
+        const message = "The work item was saved, but its current context could not be reloaded. Retry or use Refresh before continuing.";
+        setContext(null);
+        setMode("view");
+        setEditError(message);
+        setNotice({ message, error: true });
+        return;
+      }
       setConflict(null);
       setMode("view");
-      setRefresh((value) => value + 1);
       setNotice({ message: "Work item saved. Checkpoint history was not changed." });
     } catch (error) {
       if (isVersionConflict(error)) {
@@ -503,8 +513,10 @@ export default function Dashboard() {
     if (!context) return;
     setEditError("");
     try {
-      const latest = await api<WorkItem>(workItemPath(context.work_item.project_id, context.work_item.id));
-      setConflict(latest);
+      const latest = await api<WorkContext>(`${workItemPath(context.work_item.project_id, context.work_item.id)}/context?recent_limit=5`);
+      setContext(latest);
+      setOpened((value) => value ? summaryWithContext(value, latest) : value);
+      setConflict(latest.work_item);
     } catch (error) {
       setEditError(errorMessage(error));
     }
@@ -514,6 +526,10 @@ export default function Dashboard() {
     if (!conflict) return;
     setContext((value) => value ? { ...value, work_item: conflict } : value);
     setOpened((value) => value ? { ...value, work_item: conflict } : value);
+    setEditDraft((value) => {
+      if (!value || editableLifecycleStatuses(conflict.status).includes(value.status)) return value;
+      return { ...value, status: conflict.status };
+    });
     setConflict(null);
     setEditError("");
   }
@@ -560,11 +576,18 @@ export default function Dashboard() {
       setCheckpointOffset(0);
       setCheckpointRefresh((value) => value + 1);
       setRefresh((value) => value + 1);
-      await reloadOpenContext();
+      const reconciled = await reloadOpenContext();
+      if (!reconciled) {
+        const message = "The checkpoint was saved, but the current work context could not be reloaded. Retry or use Refresh before continuing.";
+        setCheckpointActionError(message);
+        setNotice({ message, error: true });
+      }
     } catch (error) {
       if (complete && isVersionConflict(error)) {
-        setCheckpointActionError("This work item changed before completion. Your summary is still here; the current version has been reloaded for review.");
-        await reloadOpenContext();
+        const reconciled = await reloadOpenContext();
+        setCheckpointActionError(reconciled
+          ? "This work item changed before completion. Your summary is still here; the current version has been reloaded for review."
+          : "This work item changed before completion, and its current context could not be reloaded. Your summary is still here; retry or use Refresh before continuing.");
       } else {
         setCheckpointActionError(errorMessage(error));
       }
@@ -642,7 +665,7 @@ export default function Dashboard() {
     <main id="main-content" className="main-content">
       <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span></div><span className="topbar-note"><span className="small-mark">m.</span>Context worth keeping</span></header>
       <div className="page-content">
-        <section className="page-heading"><div><div className="eyebrow">DURABLE WORK FOR TEMPORARY SESSIONS</div><h1>Work library<span>.</span></h1><p>{project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}</p></div><div className="heading-actions">{project && <button className="button button-primary" type="button" onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
+        <section className="page-heading"><div><div className="eyebrow">DURABLE WORK FOR TEMPORARY SESSIONS</div><h1>Work library<span>.</span></h1><p>{project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setRefresh((value) => value + 1); setCheckpointRefresh((value) => value + 1); setContextRefresh((value) => value + 1); }}>Refresh</button>{project && <button className="button button-primary" type="button" onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
 
         {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
           projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
@@ -657,6 +680,7 @@ export default function Dashboard() {
               loading={listLoading}
               error={listError}
               offset={offset}
+              refreshKey={refresh}
               copiedKey={copied}
               onQuery={setQuery}
               onToggleSemantic={() => { setSemantic((value) => !value); setOffset(0); }}
@@ -699,7 +723,9 @@ export default function Dashboard() {
     {opened && <Dialog title={mode === "edit" ? "Edit work item" : "Work context"} onClose={closeWork} wide busy={editSaving || checkpointSaving}>
       {contextLoading && !context ? <div className="loading-state" role="status"><span className="spinner" />Recalling work context…</div> :
         contextError && !context ? <ErrorNotice message={contextError}><button className="button button-secondary" onClick={() => void loadContext(opened)}>Try again</button></ErrorNotice> :
-        context && <WorkItemDetail
+        context && <>
+          {contextError && <ErrorNotice message={contextError}><button className="button button-secondary" onClick={() => void loadContext(opened)}>Try again</button></ErrorNotice>}
+          <WorkItemDetail
           opened={opened}
           context={context}
           mode={mode}
@@ -724,7 +750,7 @@ export default function Dashboard() {
           onCancelEdit={() => { setMode("view"); setEditDraft(draftFromWork(context.work_item)); setEditError(""); setConflict(null); }}
           onLoadCurrent={() => void loadLatestWork()}
           onUseCurrentVersion={useCurrentVersion}
-          onEdit={() => { setEditDraft(draftFromWork(context.work_item)); setMode("edit"); }}
+          onEdit={() => { setEditDraft(draftFromWork(context.work_item)); setEditError(""); setConflict(null); setMode("edit"); }}
           onDelete={() => { setDeleteTarget(context.work_item); setDeleteError(""); }}
           onCopy={(value, key, success) => void copyText(value, key, success)}
           onCheckpointKind={setCheckpointKind}
@@ -734,9 +760,14 @@ export default function Dashboard() {
           onCheckpointTags={setCheckpointTags}
           onAppend={() => void saveCheckpoint(false)}
           onComplete={() => void saveCheckpoint(true)}
+          onRelationshipsChanged={async () => {
+            const reconciled = await reloadOpenContext();
+            setRefresh((value) => value + 1);
+            return reconciled;
+          }}
           onCheckpointOffset={setCheckpointOffset}
           onReloadCheckpoints={() => setCheckpointRefresh((value) => value + 1)}
-        />}
+        /></>}
     </Dialog>}
 
     {deleteTarget && <Dialog title="Delete this work item?" onClose={() => { if (!deleting) setDeleteTarget(null); }} busy={deleting}>

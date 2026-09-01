@@ -20,6 +20,11 @@ export function normalizedTags(value: string): string[] {
   return [...new Set(value.split(",").map((tag) => tag.trim().toLowerCase()).filter(Boolean))].slice(0, 20);
 }
 
+export function editableLifecycleStatuses(status: WorkStatus): WorkStatus[] {
+  if (status === "open") return ["open", "wont-do", "promoted"];
+  return [status, "open"];
+}
+
 export function readinessAfterWorkSave(
   readiness: Readiness,
   previousStatus: WorkStatus,

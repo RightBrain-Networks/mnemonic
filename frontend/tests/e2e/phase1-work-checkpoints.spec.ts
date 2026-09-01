@@ -17,7 +17,7 @@ test("external API writes appear through live browser sync", async ({ page }, te
   await page.goto("/");
   await page.locator("#project-select").selectOption(state.projectId);
   await expect(page.locator(".sync-status")).toHaveText("Live updates");
-  await expect(page.getByRole("button", { name: "Refresh" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
 
   const client = await playwrightRequest.newContext({
     baseURL: apiURL,

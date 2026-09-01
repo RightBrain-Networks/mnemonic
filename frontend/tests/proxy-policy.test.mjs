@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allowedQueryKeys, configuredOrigins, forbiddenMutationField, trustedRequest, upstreamTimeoutMs } from "../lib/proxy-policy.ts";
+import {
+  allowedQueryKeys,
+  classifyRequestBody,
+  configuredOrigins,
+  forbiddenMutationField,
+  trustedRequest,
+  upstreamTimeoutMs
+} from "../lib/proxy-policy.ts";
 
 const origins = configuredOrigins();
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
@@ -48,7 +55,7 @@ test("origins must be canonical HTTP origins, not credentials, paths, or wildcar
   assert.equal(trustedRequest(headers({ origin: "http://localhost:3000/" }), "POST", origins), false);
 });
 
-test("the route allowlist exposes canonical Phase 2 work/checkpoint operations and compatibility aliases", () => {
+test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relationship operations and compatibility aliases", () => {
   assert.deepEqual(allowedQueryKeys("projects", "GET"), ["limit", "offset"]);
   assert.deepEqual(allowedQueryKeys("projects", "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}`, "PATCH"), []);
@@ -57,6 +64,11 @@ test("the route allowlist exposes canonical Phase 2 work/checkpoint operations a
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "GET"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "PATCH"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/context`, "GET"), ["recent_limit"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/children`, "GET"), ["status", "tag", "source_client", "source_session_id", "limit", "offset"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/relationships`, "GET"), ["direction", "type", "limit", "offset"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/relationships`, "POST"), []);
+  assert.equal(allowedQueryKeys(`projects/${project}/relationships/${handoff}`, "GET"), null);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/relationships/${handoff}`, "DELETE"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "GET"), ["order", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/complete`, "POST"), []);
@@ -101,6 +113,7 @@ test("canonical and compatibility mutation bodies cannot carry lease tokens", ()
     [`projects/${project}/work-items/${work}/complete`, "POST"],
     [`projects/${project}/work-items/${work}/delete`, "POST"],
     [`projects/${project}/work-items/${work}/checkpoints`, "POST"],
+    [`projects/${project}/relationships`, "POST"],
     [`projects/${project}/handoffs/${handoff}`, "PATCH"],
     [`projects/${project}/handoffs/${handoff}/complete`, "POST"],
     [`projects/${project}/handoffs/${handoff}/comments`, "POST"],
@@ -110,6 +123,22 @@ test("canonical and compatibility mutation bodies cannot carry lease tokens", ()
     assert.notEqual(allowedQueryKeys(path, method), null, `${method} ${path} should otherwise be allowed`);
     assert.equal(forbiddenMutationField({ expected_version: 1, lease_token: "browser-secret" }), "lease_token");
   }
+});
+
+test("bodyless DELETE requests survive fetch stream normalization", async () => {
+  const url = "http://localhost:3000/api/mnemonic/relationship";
+  assert.equal(
+    await classifyRequestBody(new Request(url, { method: "DELETE" }), 1024),
+    "empty"
+  );
+  assert.equal(
+    await classifyRequestBody(new Request(url, { method: "DELETE", body: "" }), 1024),
+    "empty"
+  );
+  assert.equal(
+    await classifyRequestBody(new Request(url, { method: "DELETE", body: "{}" }), 1024),
+    "present"
+  );
 });
 
 test("only nonblank semantic searches receive the warmup timeout", () => {

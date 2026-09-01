@@ -147,6 +147,9 @@ CreateStatus = Literal["open", "wont-do", "promoted"]
 CheckpointKind = Literal["context", "progress", "completion"]
 AppendCheckpointKind = Literal["context", "progress"]
 MigrationOrigin = Literal["legacy-handoff-snapshot", "legacy-comment"]
+RelationshipType = Literal[
+    "blocks", "parent-child", "discovered-from", "duplicate-of", "related"
+]
 ProjectName = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
@@ -240,12 +243,52 @@ class CompletionCheckpointCreate(CheckpointPayload):
     pass
 
 
+class InitialRelationshipCreate(APIModel):
+    type: RelationshipType
+    direction: Literal["incoming", "outgoing"]
+    other_work_item_id: UUID
+    context_checkpoint_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def discovery_context(self) -> Self:
+        if self.type == "discovered-from":
+            if self.direction != "outgoing":
+                raise ValueError(
+                    "Initial discovered-from relationships must be outgoing from the new work item"
+                )
+            if self.context_checkpoint_id is None:
+                raise ValueError("discovered-from requires context_checkpoint_id")
+        return self
+
+
 class WorkItemCreate(APIModel):
     title: Title
     summary: Summary
     priority: Annotated[StrictInt, Field(ge=0, le=100)] = 0
     status: CreateStatus = "open"
     initial_checkpoint: InitialCheckpointCreate
+    initial_relationships: Annotated[
+        list[InitialRelationshipCreate], Field(max_length=10)
+    ] = Field(default_factory=list)
+
+
+class RelationshipCreate(APIModel):
+    relationship_type: RelationshipType
+    source_work_item_id: UUID
+    target_work_item_id: UUID
+    created_by_client: ClientName
+    created_by_session_id: SessionID
+    created_by_model: ModelName | None = None
+    context_checkpoint_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def relationship_rules(self) -> Self:
+        if self.source_work_item_id == self.target_work_item_id:
+            raise ValueError("A relationship cannot connect a work item to itself")
+        if self.relationship_type == "discovered-from" and self.context_checkpoint_id is None:
+            raise ValueError("discovered-from requires context_checkpoint_id")
+        return self
+
 
 
 class WorkItemPatch(APIModel):
@@ -375,6 +418,49 @@ class WorkIdentityPointer(APIModel):
     status: Status
 
 
+class RelationshipEdgeRead(APIModel):
+    id: UUID
+    project_id: UUID
+    relationship_type: RelationshipType
+    source_work_item_id: UUID
+    target_work_item_id: UUID
+    context_checkpoint_work_item_id: UUID | None
+    context_checkpoint_id: UUID | None
+    created_by_client: str
+    created_by_session_id: str
+    created_by_model: str | None
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def utc_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class WorkPointer(APIModel):
+    id: UUID
+    title: str
+    status: Status
+    readiness: Readiness
+
+
+class AdjacentRelationshipRead(APIModel):
+    relationship: RelationshipEdgeRead
+    relative_to_work_item_id: UUID
+    direction: Literal["incoming", "outgoing", "undirected"]
+    counterpart: WorkPointer
+
+
+class RelationshipCreationResult(APIModel):
+    relationship: RelationshipEdgeRead
+    created: bool
+
+
+class RelationshipRemovalResult(APIModel):
+    project_id: UUID
+    relationship_id: UUID
+    removed: bool
+
+
 class WorkSummary(APIModel):
     work_item: WorkItemRead
     checkpoint_count: int
@@ -384,10 +470,16 @@ class WorkSummary(APIModel):
     readiness: Readiness
 
 
+class HierarchySummary(APIModel):
+    summary: WorkSummary
+    self_matches_filter: bool
+    has_matching_descendants: bool
+
+
 class WorkCreation(APIModel):
     work_item: WorkItemRead
     initial_checkpoint: CheckpointRead
-    initial_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
+    initial_relationships: list[RelationshipEdgeRead] = Field(default_factory=list)
 
 
 class RelationshipCounts(APIModel):
@@ -405,9 +497,9 @@ class WorkContext(APIModel):
     checkpoint_total: int
     omitted_checkpoint_count: int
     readiness: Readiness
-    incoming_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
-    outgoing_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
-    undirected_relationships: list[dict[str, JsonValue]] = Field(default_factory=list)
+    incoming_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
+    outgoing_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
+    undirected_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
     relationship_counts: RelationshipCounts = Field(default_factory=RelationshipCounts)
 
 
@@ -452,7 +544,7 @@ class WorkItemListQuery(APIModel):
     tag: Tag | None = None
     source_client: ClientName | None = None
     source_session_id: SessionID | None = None
-    view: Literal["all"] = "all"
+    view: Literal["all", "roots"] = "all"
     limit: int = Field(default=30, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
 
@@ -460,6 +552,37 @@ class WorkItemListQuery(APIModel):
     @classmethod
     def normalize_tag(cls, value: str | None) -> str | None:
         return value.lower() if value else value
+
+    @model_validator(mode="after")
+    def query_view_rules(self) -> Self:
+        query = (self.q or "").strip()
+        if self.semantic and not query:
+            raise ValueError("semantic=true requires a nonblank q")
+        if self.view == "roots" and query:
+            raise ValueError("A nonblank q requires view=all")
+        return self
+
+
+class RelationshipListQuery(APIModel):
+    direction: Literal["incoming", "outgoing", "undirected", "both"] = "both"
+    type: RelationshipType | None = None
+    limit: int = Field(default=50, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class ChildrenListQuery(APIModel):
+    status: Literal["open", "done", "wont-do", "promoted", "all"] = "open"
+    tag: Tag | None = None
+    source_client: ClientName | None = None
+    source_session_id: SessionID | None = None
+    limit: int = Field(default=50, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+    @field_validator("tag")
+    @classmethod
+    def normalize_tag_filter(cls, value: str | None) -> str | None:
+        return value.lower() if value else value
+
 
 
 class CheckpointListQuery(APIModel):
