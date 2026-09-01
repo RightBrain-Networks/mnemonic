@@ -103,7 +103,7 @@ def test_http_tool_validation_is_strict_and_value_free(settings):
         initialized = client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS)
         assert initialized.status_code == 200
 
-        for request_id, (tool_name, arguments, fields, secrets) in enumerate(
+        for request_id, (tool_name, arguments, fields, secrets, kinds) in enumerate(
             LOCAL_VALIDATION_CASES,
             start=10,
         ):
@@ -120,7 +120,7 @@ def test_http_tool_validation_is_strict_and_value_free(settings):
             assert response.status_code == 200
             payload = response.json()["result"]
             assert payload["isError"] is True
-            assert payload["content"][0]["text"] == expected_validation_message(fields)
+            assert payload["content"][0]["text"] == expected_validation_message(fields, kinds)
             for secret in secrets:
                 assert secret not in response.text
             assert "input_value" not in response.text
@@ -246,12 +246,12 @@ async def test_stdio_transport_handshake_and_catalog():
             "remove_relationship",
         } <= {tool.name for tool in result.tools}
 
-        for tool_name, arguments, fields, secrets in LOCAL_VALIDATION_CASES:
+        for tool_name, arguments, fields, secrets, kinds in LOCAL_VALIDATION_CASES:
             invalid = await session.call_tool(tool_name, arguments)
             assert invalid.isError is True
             assert len(invalid.content) == 1
             text = invalid.content[0].text
-            assert text == expected_validation_message(fields)
+            assert text == expected_validation_message(fields, kinds)
             rendered = repr(invalid)
             for secret in secrets:
                 assert secret not in rendered

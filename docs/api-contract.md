@@ -365,7 +365,16 @@ The resource
 authority.
 
 MCP error handling maps stable application codes and also tolerates plain
-string error bodies.
+string error bodies. A 404 names the entity kind that missed — project, work
+item, checkpoint, or relationship — so a caller knows whether to re-resolve the
+project or search again within it, falling back to the combined wording when
+the code is absent. A rejected input names the allowlisted field path and its
+pydantic error kind, for example `initial_checkpoint.prompt (string_too_long)`.
+Field paths are built only from allowlisted names and error kinds only from an
+allowlisted set, so neither can carry a caller-supplied value; an unknown key
+rejected by `extra_forbidden` reports the kind alone and never the key itself.
+No error text contains a supplied value, a UUID, prompt content, a
+`claim_request_id`, or a lease token.
 
 Every top-level tool input schema rejects unknown fields and publishes
 `additionalProperties: false`. Direct, HTTP, and stdio validation failures

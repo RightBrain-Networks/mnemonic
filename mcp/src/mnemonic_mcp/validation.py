@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any, ClassVar
 
 from mcp.server.fastmcp import FastMCP
@@ -68,6 +68,44 @@ VALIDATION_FIELDS = frozenset(
     }
 )
 
+VALIDATION_ERROR_TYPES = frozenset(
+    {
+        "missing",
+        "extra_forbidden",
+        "value_error",
+        "literal_error",
+        "enum",
+        "string_type",
+        "string_too_short",
+        "string_too_long",
+        "string_pattern_mismatch",
+        "uuid_parsing",
+        "uuid_type",
+        "int_type",
+        "int_parsing",
+        "float_type",
+        "bool_type",
+        "bool_parsing",
+        "greater_than",
+        "greater_than_equal",
+        "less_than",
+        "less_than_equal",
+        "too_short",
+        "too_long",
+        "list_type",
+        "dict_type",
+        "model_type",
+        "model_attributes_type",
+        "json_invalid",
+        "json_type",
+        "url_parsing",
+        "url_type",
+        "datetime_parsing",
+        "datetime_type",
+        "none_required",
+    }
+)
+
 
 class _SDKValidationLogFilter(logging.Filter):
     """Remove user-supplied values from MCP SDK envelope-validation logs."""
@@ -98,11 +136,34 @@ def install_sdk_validation_log_filter() -> None:
         root_logger.addFilter(_SDK_VALIDATION_LOG_FILTER)
 
 
-def validation_error_message(fields: Iterable[str]) -> str:
-    """Build a stable rejection without rendering values or arbitrary field names."""
-    safe_fields = sorted(set(fields) & VALIDATION_FIELDS)
+def _is_safe_path(path: str) -> bool:
+    return bool(path) and all(part in VALIDATION_FIELDS for part in path.split("."))
+
+
+def _rendered(field: str, types: Iterable[str]) -> str:
+    safe_types = sorted(set(types) & VALIDATION_ERROR_TYPES)
+    return f"{field} ({', '.join(safe_types)})" if safe_types else field
+
+
+def validation_error_message(
+    field_types: Mapping[str, Iterable[str]],
+    unattributed_types: Iterable[str] = (),
+) -> str:
+    """Build a stable rejection without rendering values or arbitrary field names.
+
+    Every part of every field path comes from VALIDATION_FIELDS and every error
+    kind from VALIDATION_ERROR_TYPES, so neither can carry a caller-supplied value.
+    """
+    safe_fields = sorted(path for path in field_types if _is_safe_path(path))
     if safe_fields:
-        return f"Mnemonic rejected the input. Check: {', '.join(safe_fields)}."
+        rendered = ", ".join(_rendered(field, field_types[field]) for field in safe_fields)
+        return f"Mnemonic rejected the input. Check: {rendered}."
+    safe_types = sorted(set(unattributed_types) & VALIDATION_ERROR_TYPES)
+    if safe_types:
+        return (
+            f"Mnemonic rejected the input ({', '.join(safe_types)}). "
+            "Check the field names and constraints."
+        )
     return "Mnemonic rejected the input. Check the field names and constraints."
 
 
@@ -123,19 +184,38 @@ def _pydantic_validation_error(error: BaseException) -> ValidationError | None:
     return None
 
 
-def _validation_fields(error: ValidationError) -> set[str]:
-    fields: set[str] = set()
-    for item in error.errors(
-        include_url=False, include_context=False, include_input=False
-    ):
-        location = item.get("loc", ())
-        if isinstance(location, tuple | list):
-            fields.update(
-                part
-                for part in location
-                if isinstance(part, str) and part in VALIDATION_FIELDS
-            )
-    return fields
+def validation_details(
+    locations_and_types: Iterable[tuple[object, object]],
+) -> tuple[dict[str, set[str]], set[str]]:
+    """Split raw pydantic (loc, type) pairs into allowlisted fields and error kinds."""
+    field_types: dict[str, set[str]] = {}
+    unattributed: set[str] = set()
+    for location, raw_type in locations_and_types:
+        kind = raw_type if isinstance(raw_type, str) and raw_type in VALIDATION_ERROR_TYPES else None
+        parts = location if isinstance(location, tuple | list) else ()
+        matched = [
+            part for part in parts if isinstance(part, str) and part in VALIDATION_FIELDS
+        ]
+        if not matched:
+            # extra_forbidden names the caller's own unknown key, so it is never
+            # allowlisted; report the kind alone rather than echoing the key.
+            if kind is not None:
+                unattributed.add(kind)
+            continue
+        # Keep the whole allowlisted path so a nested field says where it lives.
+        types = field_types.setdefault(".".join(matched), set())
+        if kind is not None:
+            types.add(kind)
+    return field_types, unattributed
+
+
+def _validation_details(error: ValidationError) -> tuple[dict[str, set[str]], set[str]]:
+    return validation_details(
+        (item.get("loc", ()), item.get("type"))
+        for item in error.errors(
+            include_url=False, include_context=False, include_input=False
+        )
+    )
 
 
 class SanitizedFastMCP(FastMCP[Any]):
@@ -192,5 +272,5 @@ class SanitizedFastMCP(FastMCP[Any]):
             ):
                 raise
             raise ToolError(
-                validation_error_message(_validation_fields(validation_error))
+                validation_error_message(*_validation_details(validation_error))
             ) from None

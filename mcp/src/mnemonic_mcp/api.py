@@ -8,7 +8,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import BaseModel, ValidationError
 
 from .config import Settings
-from .validation import VALIDATION_FIELDS, validation_error_message
+from .validation import validation_details, validation_error_message
 
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 _APPLICATION_ERRORS = {
@@ -43,6 +43,34 @@ _UNKNOWN_CLAIM_OUTCOME = (
     "with the exact same claim_request_id from this call. A new request ID can conflict, and search "
     "or recall cannot recover the lease token."
 )
+
+
+_NOT_FOUND_MESSAGES = {
+    "project_not_found": (
+        "Project not found. Use list_projects to resolve the correct project_id."
+    ),
+    "work_item_not_found": (
+        "Work item not found in this project. Search this project again, or confirm the "
+        "project_id is the one that holds it."
+    ),
+    "checkpoint_not_found": (
+        "Checkpoint not found on this work item. Use list_checkpoints to see its history."
+    ),
+    "relationship_not_found": (
+        "Relationship not found in this project. Use list_relationships to see current edges."
+    ),
+}
+_UNKNOWN_NOT_FOUND = (
+    "The requested project, work item, checkpoint, or relationship was not found in this project."
+)
+
+
+def _not_found_message(response: httpx.Response) -> str:
+    """Say which entity kind missed, so the caller knows what to re-resolve."""
+    application_error = _application_error(response)
+    if application_error is None:
+        return _UNKNOWN_NOT_FOUND
+    return _NOT_FOUND_MESSAGES.get(application_error[0], _UNKNOWN_NOT_FOUND)
 
 
 def _is_claim_operation(method: str, path: str) -> bool:
@@ -141,10 +169,7 @@ class MnemonicAPI:
                 "Mnemonic API authentication failed. Check the services' API-key configuration."
             )
         if response.status_code == 404:
-            raise ToolError(
-                "The requested project, work item, checkpoint, or relationship was not found "
-                "in this project."
-            )
+            raise ToolError(_not_found_message(response))
 
         if response.status_code >= 500 and _is_claim_operation(method, path):
             raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
@@ -172,20 +197,18 @@ class MnemonicAPI:
                 "A project with this slug already exists. List projects before creating another."
             )
         if response.status_code == 422:
-            fields: set[str] = set()
+            pairs: list[tuple[object, object]] = []
             try:
                 detail = response.json().get("detail", [])
                 if isinstance(detail, list):
-                    for error in detail:
-                        if isinstance(error, dict) and isinstance(error.get("loc"), list):
-                            fields.update(
-                                item
-                                for item in error["loc"]
-                                if isinstance(item, str) and item in VALIDATION_FIELDS
-                            )
+                    pairs = [
+                        (error.get("loc"), error.get("type"))
+                        for error in detail
+                        if isinstance(error, dict)
+                    ]
             except (ValueError, AttributeError):
                 pass
-            raise ToolError(validation_error_message(fields))
+            raise ToolError(validation_error_message(*validation_details(pairs)))
         if response.status_code == 503 and semantic_read:
             raise ToolError("Mnemonic semantic search is unavailable. Retry with semantic disabled.")
         if not 200 <= response.status_code < 300:

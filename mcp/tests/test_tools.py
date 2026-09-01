@@ -1326,6 +1326,69 @@ async def test_upstream_errors_are_actionable_and_do_not_leak_details(settings, 
     assert "http://api:8000" not in str(caught.value)
 
 
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("project_not_found", "Project not found"),
+        ("work_item_not_found", "Work item not found in this project"),
+        ("checkpoint_not_found", "Checkpoint not found on this work item"),
+        ("relationship_not_found", "Relationship not found in this project"),
+    ],
+)
+async def test_not_found_names_the_entity_kind_that_missed(settings, code, expected):
+    """An agent must know whether to re-resolve the project or re-search within it."""
+
+    def handler(request):
+        return httpx.Response(
+            404,
+            json={
+                "detail": {
+                    "code": code,
+                    "message": f"private detail {API_KEY}",
+                    "context": {},
+                }
+            },
+        )
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(
+            "recall_work", {"project_id": PROJECT_ID, "work_item_id": WORK_ID}
+        )
+    message = str(caught.value)
+    assert expected in message
+    # Naming the kind must not start echoing identifiers or upstream detail.
+    assert API_KEY not in message
+    assert PROJECT_ID not in message
+    assert WORK_ID not in message
+
+
+async def test_unknown_not_found_code_falls_back_without_guessing(settings):
+    def handler(request):
+        return httpx.Response(404, json={"detail": f"private {API_KEY}"})
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(
+            "recall_work", {"project_id": PROJECT_ID, "work_item_id": WORK_ID}
+        )
+    message = str(caught.value)
+    assert "was not found in this project" in message
+    assert API_KEY not in message
+
+
+async def test_validation_error_reports_the_pydantic_kind_without_the_value(settings):
+    def handler(request):
+        return httpx.Response(422, json={"detail": [{
+            "loc": ["body", "summary"], "type": "string_too_long",
+            "msg": API_KEY, "input": API_KEY,
+        }]})
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool("list_projects", {})
+    message = str(caught.value)
+    assert "summary (string_too_long)" in message
+    assert API_KEY not in message
+
+
 async def test_validation_error_names_fields_without_echoing_input(settings):
     def handler(request):
         return httpx.Response(422, json={"detail": [{
@@ -1373,12 +1436,12 @@ async def test_relationship_validation_errors_name_only_allowlisted_fields(setti
 
 
 @pytest.mark.parametrize(
-    "tool_name,arguments,fields,secrets",
+    "tool_name,arguments,fields,secrets,kinds",
     LOCAL_VALIDATION_CASES,
     ids=[case[0] for case in LOCAL_VALIDATION_CASES],
 )
 async def test_local_validation_is_strict_and_never_echoes_values(
-    settings, tool_name, arguments, fields, secrets
+    settings, tool_name, arguments, fields, secrets, kinds
 ):
     def handler(request):
         pytest.fail("Locally invalid tool input must not cross the HTTP boundary")
@@ -1387,7 +1450,7 @@ async def test_local_validation_is_strict_and_never_echoes_values(
         await adapter(settings, handler).call_tool(tool_name, arguments)
 
     message = str(caught.value)
-    assert message == expected_validation_message(fields)
+    assert message == expected_validation_message(fields, kinds)
     for secret in secrets:
         assert secret not in message
     assert "input_value" not in message

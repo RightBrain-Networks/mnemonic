@@ -40,8 +40,12 @@ LOCAL_VALIDATION_CASES = (
                 "source_metadata": [PRIVATE_METADATA_MARKER],
             },
         },
-        ("initial_checkpoint", "prompt", "source_metadata"),
+        (
+            "initial_checkpoint.prompt (string_too_long)",
+            "initial_checkpoint.source_metadata (dict_type)",
+        ),
         (PRIVATE_PROMPT_MARKER, PRIVATE_METADATA_MARKER),
+        (),
     ),
     (
         "claim_work",
@@ -52,8 +56,9 @@ LOCAL_VALIDATION_CASES = (
             "holder_session_id": "test-session",
             "claim_request_id": PRIVATE_CLAIM_REQUEST_MARKER + "c" * 201,
         },
-        ("claim_request_id", "project_id"),
+        ("claim_request_id (string_too_long)", "project_id (uuid_parsing)"),
         (PRIVATE_UUID_MARKER, PRIVATE_CLAIM_REQUEST_MARKER),
+        (),
     ),
     (
         "renew_claim",
@@ -62,21 +67,31 @@ LOCAL_VALIDATION_CASES = (
             "work_item_id": WORK_ID,
             "lease_token": PRIVATE_LEASE_TOKEN_MARKER + "t" * 201,
         },
-        ("lease_token",),
+        ("lease_token (value_error)",),
         (PRIVATE_LEASE_TOKEN_MARKER,),
+        (),
     ),
     (
+        # extra_forbidden names the caller's own unknown key, so only the kind
+        # is reported and the key itself never appears.
         "list_projects",
         {PRIVATE_EXTRA_FIELD: PRIVATE_EXTRA_VALUE},
         (),
         (PRIVATE_EXTRA_FIELD, PRIVATE_EXTRA_VALUE),
+        ("extra_forbidden",),
     ),
 )
 
 
-def expected_validation_message(fields: tuple[str, ...]) -> str:
+def expected_validation_message(fields: tuple[str, ...], kinds: tuple[str, ...] = ()) -> str:
+    """fields are already rendered as 'path (kind, kind)'; kinds are unattributed."""
     if fields:
         return f"Mnemonic rejected the input. Check: {', '.join(fields)}."
+    if kinds:
+        return (
+            f"Mnemonic rejected the input ({', '.join(kinds)}). "
+            "Check the field names and constraints."
+        )
     return "Mnemonic rejected the input. Check the field names and constraints."
 
 
