@@ -2,7 +2,6 @@ import type { RefObject } from "react";
 import WorkHierarchy, { SearchBreadcrumb } from "@/components/work-hierarchy";
 import WorkItemCard from "@/components/work-item-card";
 import type { HierarchySummary, Page, StatusFilter, WorkSummary } from "@/lib/types";
-import { workRecallPointer } from "@/lib/work-recall-pointer";
 
 const WORK_PAGE_SIZE = 20;
 const filters: StatusFilter[] = ["open", "done", "wont-do", "promoted", "all"];
@@ -52,7 +51,7 @@ type Props = {
   onOpen: (summary: WorkSummary) => void;
   onEdit: (summary: WorkSummary) => void;
   onDelete: (summary: WorkSummary) => void;
-  onCopy: (value: string, key: string, success: string) => void;
+  onCopyPointer: (summary: WorkSummary) => void;
   onOffset: (offset: number) => void;
 };
 
@@ -77,17 +76,11 @@ export default function WorkItemList({
   onOpen,
   onEdit,
   onDelete,
-  onCopy,
+  onCopyPointer,
   onOffset
 }: Props) {
   const searchResults = results?.items.map((item) => isHierarchySummary(item) ? item.summary : item) ?? [];
   const hierarchyResults = results?.items.filter(isHierarchySummary) ?? [];
-  const copyPointer = (summary: WorkSummary) => onCopy(
-    workRecallPointer(summary),
-    `${summary.work_item.id}:pointer`,
-    "Recall pointer copied. Paste it into a session with Mnemonic connected."
-  );
-
   return <>
     <section className="library-controls" aria-label="Find work items">
       <div className="search-field">
@@ -108,7 +101,7 @@ export default function WorkItemList({
     {error ? <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" type="button" onClick={onRetry}>Try again</button></div> :
       loading ? <div className="card-skeletons" role="status" aria-label="Loading work items">{[1, 2, 3].map((item) => <div className="card-skeleton" key={item}><span /><span /><span /></div>)}</div> :
       !results?.items.length ? <section className="empty-state"><div className="empty-art"><Icon name={searchedQuery ? "search" : "box"} size={31} /><span /></div><h2>{searchedQuery ? "No matching work." : status === "open" ? "No open work yet." : status === "all" ? "No work yet." : `No ${filterLabels[status].toLowerCase()} work.`}</h2><p>{searchedQuery ? "Try another phrase or search across all lifecycle states." : "Create a durable objective here, or ask a connected agent to create one with its first checkpoint."}</p>{searchedQuery || status !== "open" ? <button type="button" className="button button-secondary" onClick={onClearFilters}>Clear filters</button> : <button type="button" className="button button-primary" onClick={onCreate}><Icon name="plus" size={16} />Create work</button>}</section> :
-      searchedQuery ? <section className="work-list search-results" aria-label="Matching durable work items">{searchResults.map((item) => <div className="search-result" key={item.work_item.id}><SearchBreadcrumb summary={item} /><WorkItemCard summary={item} copied={copiedKey === `${item.work_item.id}:pointer`} onOpen={() => onOpen(item)} onEdit={() => onEdit(item)} onDelete={() => onDelete(item)} onCopyPointer={() => copyPointer(item)} /></div>)}</section> :
+      searchedQuery ? <section className="work-list search-results" aria-label="Matching durable work items">{searchResults.map((item) => <div className="search-result" key={item.work_item.id}><SearchBreadcrumb summary={item} /><WorkItemCard summary={item} copied={copiedKey === `${item.work_item.id}:pointer`} onOpen={() => onOpen(item)} onEdit={() => onEdit(item)} onDelete={() => onDelete(item)} onCopyPointer={() => onCopyPointer(item)} /></div>)}</section> :
       <WorkHierarchy
         items={hierarchyResults}
         status={status}
@@ -117,7 +110,7 @@ export default function WorkItemList({
         onOpen={onOpen}
         onEdit={onEdit}
         onDelete={onDelete}
-        onCopyPointer={copyPointer}
+        onCopyPointer={onCopyPointer}
         onFlatSearch={(item) => {
           if (semantic) onToggleSemantic();
           onStatus("all");

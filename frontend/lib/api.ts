@@ -40,6 +40,7 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "project_id",
   "prompt",
   "q",
+  "recall_pointer_template",
   "recent_event_limit",
   "recent_limit",
   "relationship_id",

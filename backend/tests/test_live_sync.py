@@ -53,6 +53,9 @@ def test_mutation_events_are_scoped_without_record_contents():
         "projects", project_id=project_id
     )
     assert mutation_event(
+        "PATCH", f"/api/v1/projects/{project_id}/settings"
+    ) == MutationEvent("projects", project_id=project_id)
+    assert mutation_event(
         "POST", f"/api/v1/projects/{project_id}/work-items"
     ) == MutationEvent("work-items", project_id=project_id)
     assert mutation_event(
@@ -77,6 +80,8 @@ def test_mutation_events_are_scoped_without_record_contents():
 
     assert mutation_event("GET", "/api/v1/projects") is None
     assert mutation_event("POST", "/healthz") is None
+    assert mutation_event("GET", f"/api/v1/projects/{project_id}/settings") is None
+    assert mutation_event("POST", f"/api/v1/projects/{project_id}/settings") is None
     assert mutation_event("POST", "/api/v1/projects/not-a-uuid/work-items") is None
     assert mutation_event("POST", f"/api/v1/projects/{project_id}/unknown") is None
 

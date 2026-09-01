@@ -53,6 +53,27 @@ class Project(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ProjectSettings(Base):
+    """Optional project-local dashboard behavior overrides."""
+
+    __tablename__ = "project_settings"
+    __table_args__ = (
+        CheckConstraint(
+            "mnemonic_has_non_whitespace(recall_pointer_template)",
+            name="recall_pointer_template_nonblank",
+        ),
+        CheckConstraint(
+            "length(recall_pointer_template) <= 100000",
+            name="recall_pointer_template_max_length",
+        ),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    recall_pointer_template: Mapped[str] = mapped_column(Text)
+
+
 class WorkItem(Base):
     """The durable, intentionally small identity and lifecycle for work."""
 

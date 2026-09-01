@@ -37,8 +37,12 @@ from mnemonic_api.services.work_events import (
 )
 
 
-def require_project(database: Session, project_id: UUID) -> Project:
-    project = database.get(Project, project_id)
+def require_project(database: Session, project_id: UUID, *, lock: bool = False) -> Project:
+    project = (
+        database.scalar(select(Project).where(Project.id == project_id).with_for_update())
+        if lock
+        else database.get(Project, project_id)
+    )
     if project is None:
         raise not_found("project_not_found", "Project not found.")
     return project

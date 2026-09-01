@@ -211,6 +211,11 @@ ProjectDescription = Annotated[str, StringConstraints(max_length=4000), AfterVal
 Slug = Annotated[
     str, StringConstraints(min_length=1, max_length=100, pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$")
 ]
+RecallPointerTemplate = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=100000),
+    AfterValidator(nonblank),
+]
 
 
 class APIModel(BaseModel):
@@ -271,6 +276,15 @@ class ProjectRead(Timestamps):
     slug: str
     description: str
     repository_url: str | None
+
+
+class ProjectSettingsPatch(APIModel):
+    recall_pointer_template: RecallPointerTemplate | None
+
+
+class ProjectSettingsRead(APIModel):
+    project_id: UUID
+    recall_pointer_template: str | None
 
 
 class CheckpointPayload(APIModel):

@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { CHECKPOINT_PAGE_SIZE } from "@/components/checkpoint-timeline";
+import ProjectSettingsPanel from "@/components/project-settings";
 import WorkItemDetail from "@/components/work-item-detail";
 import WorkItemList, { WORK_PAGE_SIZE } from "@/components/work-item-list";
 import { StatusBadge, formatDate } from "@/components/work-item-card";
@@ -20,6 +21,7 @@ import type {
   HierarchySummary,
   Page,
   Project,
+  ProjectSettings,
   StatusFilter,
   WorkContext,
   WorkCreation,
@@ -30,6 +32,7 @@ import type {
 import { editableLifecycleStatuses, normalizedTags } from "@/lib/work-item-view";
 import { dashboardMutationActor } from "@/lib/work-events";
 import { workSearchParams } from "@/lib/work-item-search";
+import { workRecallPointer } from "@/lib/work-recall-pointer";
 
 const iconPaths = {
   search: "m21 21-4.4-4.4M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0Z",
@@ -38,6 +41,7 @@ const iconPaths = {
   check: "m5 12 4 4L19 6",
   close: "m6 6 12 12M6 18 18 6",
   library: "M3 3h6v18H3V3Zm10 0h4l4 17-4 1-4-18Z",
+  settings: "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7.4-.5 1.6 1-2 3.5-1.8-1a8 8 0 0 1-2.2 1.3V22h-4v-2.2a8 8 0 0 1-2.2-1.3l-1.8 1L5 16l1.6-1a8 8 0 0 1 0-2L5 12l2-3.5 1.8 1A8 8 0 0 1 11 8.2V6h4v2.2a8 8 0 0 1 2.2 1.3l1.8-1 2 3.5-1.6 1a8 8 0 0 1 0 2Z",
   arrow: "M5 12h14m-5-5 5 5-5 5",
   back: "M19 12H5m5-5-5 5 5 5",
   box: "M4 8h16v13H4V8ZM2 3h20v5H2V3Zm7 10h6"
@@ -103,7 +107,7 @@ function summaryWithContext(base: WorkSummary, context: WorkContext): WorkSummar
 
 type ContextLoadResult = "loaded" | "superseded" | "failed";
 
-export default function Dashboard() {
+export default function Dashboard({ view = "library" }: { view?: "library" | "settings" }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState("");
@@ -112,6 +116,10 @@ export default function Dashboard() {
   const [projectDialog, setProjectDialog] = useState(false);
   const [projectSaving, setProjectSaving] = useState(false);
   const [newProjectError, setNewProjectError] = useState("");
+  const [projectSettings, setProjectSettings] = useState<ProjectSettings | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsLoadError, setSettingsLoadError] = useState("");
+  const [settingsRefresh, setSettingsRefresh] = useState(0);
 
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
@@ -203,12 +211,42 @@ export default function Dashboard() {
   }, [activeId]);
 
   useEffect(() => {
+    if (!activeId) {
+      setProjectSettings(null);
+      setSettingsLoading(false);
+      setSettingsLoadError("");
+      return;
+    }
+    const controller = new AbortController();
+    setProjectSettings((current) => current?.project_id === activeId ? current : null);
+    setSettingsLoading(true);
+    setSettingsLoadError("");
+    api<ProjectSettings>(`/projects/${encodeURIComponent(activeId)}/settings`, {
+      signal: controller.signal
+    })
+      .then((loaded) => {
+        if (controller.signal.aborted) return;
+        if (loaded.project_id !== activeId) {
+          throw new Error("Mnemonic returned settings for a different project.");
+        }
+        setProjectSettings(loaded);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setSettingsLoadError(errorMessage(error));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSettingsLoading(false);
+      });
+    return () => controller.abort();
+  }, [activeId, settingsRefresh]);
+
+  useEffect(() => {
     const timer = setTimeout(() => { setSearch(query.trim()); setOffset(0); }, 300);
     return () => clearTimeout(timer);
   }, [query]);
 
   useEffect(() => {
-    if (!activeId) { setResults(null); return; }
+    if (view !== "library" || !activeId) { setResults(null); return; }
     const controller = new AbortController();
     setListLoading(true);
     setListError("");
@@ -225,7 +263,7 @@ export default function Dashboard() {
       .catch((error) => { if (!controller.signal.aborted) setListError(errorMessage(error)); })
       .finally(() => { if (!controller.signal.aborted) setListLoading(false); });
     return () => controller.abort();
-  }, [activeId, offset, refresh, search, semantic, status]);
+  }, [activeId, offset, refresh, search, semantic, status, view]);
 
   useEffect(() => {
     if (!opened) { setCheckpointPage(null); return; }
@@ -248,12 +286,13 @@ export default function Dashboard() {
   }, [opened, checkpointOffset, checkpointRefresh]);
 
   useEffect(() => {
-    const pending = { projects: false, list: false, open: false };
+    const pending = { projects: false, settings: false, list: false, open: false };
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
     function flush() {
       refreshTimer = undefined;
       if (pending.projects) setProjectsRefresh((value) => value + 1);
+      if (pending.settings) setSettingsRefresh((value) => value + 1);
       if (pending.list) setRefresh((value) => value + 1);
       if (pending.open) {
         setCheckpointRefresh((value) => value + 1);
@@ -261,6 +300,7 @@ export default function Dashboard() {
         setContextRefresh((value) => value + 1);
       }
       pending.projects = false;
+      pending.settings = false;
       pending.list = false;
       pending.open = false;
     }
@@ -272,6 +312,7 @@ export default function Dashboard() {
     const disconnect = connectLiveSync((message) => {
       if (message.type === "ready") {
         pending.projects = true;
+        pending.settings = true;
         pending.list = true;
         pending.open = true;
         schedule();
@@ -279,6 +320,9 @@ export default function Dashboard() {
       }
       if (message.scope === "projects") {
         pending.projects = true;
+        if (message.project_id === null || message.project_id === activeIdRef.current) {
+          pending.settings = true;
+        }
       } else {
         if (message.project_id === activeIdRef.current) pending.list = true;
         const openedWork = openedRef.current?.work_item;
@@ -327,6 +371,7 @@ export default function Dashboard() {
   }, [nextLeaseExpiry, opened?.work_item.id]);
 
   useEffect(() => {
+    if (view !== "library") return;
     function focusSearch(event: KeyboardEvent) {
       const target = event.target as HTMLElement;
       if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) && !target.isContentEditable && !document.querySelector("dialog[open]")) {
@@ -336,7 +381,7 @@ export default function Dashboard() {
     }
     window.addEventListener("keydown", focusSearch);
     return () => window.removeEventListener("keydown", focusSearch);
-  }, []);
+  }, [view]);
 
   function chooseProject(id: string) {
     setActiveId(id);
@@ -651,12 +696,48 @@ export default function Dashboard() {
     }
   }
 
+  function copyRecallPointer(summary: WorkSummary) {
+    const projectId = summary.work_item.project_id;
+    const pointerProject = projects.find((item) => item.id === projectId);
+    if (!pointerProject) {
+      setNotice({
+        message: "Project details are unavailable. Refresh the workspace and try again.",
+        error: true
+      });
+      return;
+    }
+    if (settingsLoadError) {
+      setNotice({
+        message: `Project settings could not be loaded. ${settingsLoadError} Use Refresh and try again.`,
+        error: true
+      });
+      return;
+    }
+    if (!projectSettings || projectSettings.project_id !== projectId) {
+      setNotice({
+        message: settingsLoading
+          ? "Project settings are still loading. Wait a moment and try again."
+          : "Project settings are unavailable. Use Refresh and try again.",
+        error: true
+      });
+      return;
+    }
+    void copyText(
+      workRecallPointer(summary, {
+        template: projectSettings.recall_pointer_template ?? undefined,
+        project: pointerProject
+      }),
+      `${summary.work_item.id}:pointer`,
+      "Recall pointer copied. Paste it into a session with Mnemonic connected."
+    );
+  }
+
   async function copyProjectId() {
     if (project) await copyText(project.id, "project", `Project ID copied: ${project.id}`);
   }
 
   return <div className="app-shell">
-    <a className="skip-link" href="#main-content">Skip to work items</a>
+    <a className="skip-link" href="#main-content">{view === "settings" ? "Skip to project settings" : "Skip to work items"}</a>
     <aside className="sidebar">
       <a href="/" className="brand" aria-label="Mnemonic home"><Logo /><span>mnemonic<span className="brand-period">.</span></span></a>
       <div className="workspace-picker">
@@ -668,44 +749,68 @@ export default function Dashboard() {
         <button className="new-project-button" type="button" disabled={projectsLoading} onClick={() => { setNewProjectError(""); setProjectDialog(true); }}><Icon name="plus" size={15} />New project</button>
         {project && <button className="copy-project-button" type="button" title={`Project ID: ${project.id}`} onClick={() => void copyProjectId()}><Icon name="copy" size={13} />Copy project ID for your agent</button>}
       </div>
-      <nav aria-label="Workspace navigation"><a className="nav-item active" href="#main-content" aria-current="page"><Icon name="library" /><span>Work library</span><Icon name="arrow" size={15} /></a></nav>
+      <nav aria-label="Workspace navigation">
+        <a className={`nav-item ${view === "library" ? "active" : ""}`} href="/" aria-current={view === "library" ? "page" : undefined}><Icon name="library" /><span>Work library</span><Icon name="arrow" size={15} /></a>
+        <a className={`nav-item ${view === "settings" ? "active" : ""}`} href="/settings" aria-current={view === "settings" ? "page" : undefined}><Icon name="settings" /><span>Project settings</span><Icon name="arrow" size={15} /></a>
+      </nav>
       <div className="sidebar-note"><div className="note-art" aria-hidden="true"><span /><span /><span /></div><h2>Keep the objective.<br />Pass on the context.</h2><p>Durable work survives while sessions leave immutable checkpoints.</p></div>
       <div className="sidebar-footer"><span className="local-dot" /><span>Local workspace</span><span className="mvp-label">WORK GRAPH</span></div>
     </aside>
 
     <main id="main-content" className="main-content">
-      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span></div><span className="topbar-note"><span className="small-mark">m.</span>Context worth keeping</span></header>
+      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view === "settings" && <><span className="breadcrumb-slash">/</span><span>Project settings</span></>}</div><span className="topbar-note"><span className="small-mark">m.</span>Context worth keeping</span></header>
       <div className="page-content">
-        <section className="page-heading"><div><div className="eyebrow">DURABLE WORK FOR TEMPORARY SESSIONS</div><h1>Work library<span>.</span></h1><p>{project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setRefresh((value) => value + 1); setCheckpointRefresh((value) => value + 1); setEventRefresh((value) => value + 1); setContextRefresh((value) => value + 1); }}>Refresh</button>{project && <button className="button button-primary" type="button" onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
+        {view === "settings" ? <>
+          <section className="page-heading"><div><div className="eyebrow">PROJECT CONFIGURATION</div><h1>Project settings<span>.</span></h1><p>{project ? `Control how Mnemonic hands off work from “${project.name}”.` : "Choose a project, then configure how Mnemonic hands off its work."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setSettingsRefresh((value) => value + 1); }}>Refresh</button><div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
+          {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
+            projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
+            <ProjectSettingsPanel
+              key={project?.id ?? "no-project"}
+              project={project}
+              settings={projectSettings}
+              loading={settingsLoading}
+              loadError={settingsLoadError}
+              onRetry={() => setSettingsRefresh((value) => value + 1)}
+              onSaved={(saved) => {
+                if (saved.project_id === activeIdRef.current) {
+                  setProjectSettings(saved);
+                  setSettingsLoadError("");
+                }
+              }}
+              onNotice={(message, error) => setNotice({ message, error })}
+            />}
+        </> : <>
+          <section className="page-heading"><div><div className="eyebrow">DURABLE WORK FOR TEMPORARY SESSIONS</div><h1>Work library<span>.</span></h1><p>{project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setRefresh((value) => value + 1); setCheckpointRefresh((value) => value + 1); setEventRefresh((value) => value + 1); setContextRefresh((value) => value + 1); }}>Refresh</button>{project && <button className="button button-primary" type="button" onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
 
-        {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
-          projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
-          !projects.length ? <section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">A DURABLE PLACE TO CONTINUE</div><h2>Create your first project.</h2><p>Projects hold stable objectives and the session checkpoints that move them forward.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}><Icon name="plus" size={17} />Create your first project</button></section> : <>
-            <WorkItemList
-              query={query}
-              searchedQuery={search}
-              searchRef={searchRef}
-              semantic={semantic}
-              status={status}
-              results={results}
-              loading={listLoading}
-              error={listError}
-              offset={offset}
-              refreshKey={refresh}
-              copiedKey={copied}
-              onQuery={setQuery}
-              onToggleSemantic={() => { setSemantic((value) => !value); setOffset(0); }}
-              onStatus={(value) => { setStatus(value); setOffset(0); }}
-              onRetry={() => setRefresh((value) => value + 1)}
-              onClearFilters={() => { setQuery(""); setSearch(""); setStatus("open"); setOffset(0); }}
-              onCreate={() => setWorkDialog(true)}
-              onOpen={(item) => openWork(item)}
-              onEdit={(item) => openWork(item, true)}
-              onDelete={(item) => { setDeleteTarget(item.work_item); setDeleteError(""); }}
-              onCopy={(value, key, success) => void copyText(value, key, success)}
-              onOffset={setOffset}
-            />
-          </>}
+          {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
+            projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
+            !projects.length ? <section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">A DURABLE PLACE TO CONTINUE</div><h2>Create your first project.</h2><p>Projects hold stable objectives and the session checkpoints that move them forward.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}><Icon name="plus" size={17} />Create your first project</button></section> : <>
+              <WorkItemList
+                query={query}
+                searchedQuery={search}
+                searchRef={searchRef}
+                semantic={semantic}
+                status={status}
+                results={results}
+                loading={listLoading}
+                error={listError}
+                offset={offset}
+                refreshKey={refresh}
+                copiedKey={copied}
+                onQuery={setQuery}
+                onToggleSemantic={() => { setSemantic((value) => !value); setOffset(0); }}
+                onStatus={(value) => { setStatus(value); setOffset(0); }}
+                onRetry={() => setRefresh((value) => value + 1)}
+                onClearFilters={() => { setQuery(""); setSearch(""); setStatus("open"); setOffset(0); }}
+                onCreate={() => setWorkDialog(true)}
+                onOpen={(item) => openWork(item)}
+                onEdit={(item) => openWork(item, true)}
+                onDelete={(item) => { setDeleteTarget(item.work_item); setDeleteError(""); }}
+                onCopyPointer={(item) => void copyRecallPointer(item)}
+                onOffset={setOffset}
+              />
+            </>}
+        </>}
       </div>
     </main>
 
@@ -765,6 +870,7 @@ export default function Dashboard() {
           onEdit={() => { setEditDraft(draftFromWork(context.work_item)); setEditError(""); setConflict(null); setMode("edit"); }}
           onDelete={() => { setDeleteTarget(context.work_item); setDeleteError(""); }}
           onCopy={(value, key, success) => void copyText(value, key, success)}
+          onCopyPointer={(item) => void copyRecallPointer(item)}
           onCheckpointKind={setCheckpointKind}
           onCheckpointBody={setCheckpointBody}
           onCheckpointBranch={setCheckpointBranch}

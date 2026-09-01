@@ -1,5 +1,6 @@
 const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 const PROJECT = new RegExp(`^projects/${UUID}$`);
+const PROJECT_SETTINGS = new RegExp(`^projects/${UUID}/settings$`);
 const WORK_ITEMS = new RegExp(`^projects/${UUID}/work-items$`);
 const WORK_ITEM = new RegExp(`^projects/${UUID}/work-items/${UUID}$`);
 const CHECKPOINTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/checkpoints$`);
@@ -30,6 +31,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     if (method === "POST") return [];
   }
   if (PROJECT.test(path) && (method === "GET" || method === "PATCH")) return [];
+  if (PROJECT_SETTINGS.test(path) && (method === "GET" || method === "PATCH")) return [];
   if (WORK_ITEMS.test(path)) {
     if (method === "GET") {
       return ["q", "semantic", "status", "tag", "source_client", "source_session_id", "view", "limit", "offset"];
@@ -190,6 +192,16 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || ("actor" in body && !validActor(body.actor))
     ) {
       return "The work-item patch does not match the dashboard allowlist.";
+    }
+  }
+  if (PROJECT_SETTINGS.test(path) && method === "PATCH") {
+    if (
+      !allowedKeys(body, ["recall_pointer_template"])
+      || Object.keys(body).length !== 1
+      || (body.recall_pointer_template !== null
+        && !boundedText(body.recall_pointer_template, 100000))
+    ) {
+      return "The project-settings patch does not match the dashboard allowlist.";
     }
   }
   if (WORK_DELETE.test(path) && method === "POST") {

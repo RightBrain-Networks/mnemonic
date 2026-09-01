@@ -30,7 +30,7 @@ from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine, build_session_factory, get_session
 from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.live_sync import LiveSyncHub, mutation_event
-from mnemonic_api.models import Checkpoint, Project, WorkItem
+from mnemonic_api.models import Checkpoint, Project, ProjectSettings, WorkItem
 from mnemonic_api.schemas import (
     AdjacentRelationshipRead,
     CheckpointCreate,
@@ -48,6 +48,8 @@ from mnemonic_api.schemas import (
     ProjectListQuery,
     ProjectPatch,
     ProjectRead,
+    ProjectSettingsPatch,
+    ProjectSettingsRead,
     ReadyWorkListQuery,
     ReadyWorkPage,
     RelationshipCreate,
@@ -125,6 +127,7 @@ _PUBLIC_VALIDATION_LOCATION_SEGMENTS = frozenset(
     target_work_item_id other_work_item_id context_checkpoint_id created_by_client
     created_by_session_id created_by_model holder_client holder_session_id
     claim_request_id lease_token actor actor_client actor_session_id actor_model metadata
+    recall_pointer_template
     """.split()
 )
 
@@ -427,6 +430,45 @@ def update_project(project_id: UUID, payload: ProjectPatch, database: Database) 
     database.commit()
     database.refresh(project)
     return project
+
+
+@router.get("/projects/{project_id}/settings", response_model=ProjectSettingsRead)
+def get_project_settings(project_id: UUID, database: Database) -> ProjectSettingsRead:
+    require_project(database, project_id)
+    settings = database.get(ProjectSettings, project_id)
+    return ProjectSettingsRead(
+        project_id=project_id,
+        recall_pointer_template=(
+            settings.recall_pointer_template if settings is not None else None
+        ),
+    )
+
+
+@router.patch("/projects/{project_id}/settings", response_model=ProjectSettingsRead)
+def update_project_settings(
+    project_id: UUID,
+    payload: ProjectSettingsPatch,
+    database: Database,
+) -> ProjectSettingsRead:
+    require_project(database, project_id, lock=True)
+    settings = database.get(ProjectSettings, project_id)
+    if payload.recall_pointer_template is None:
+        if settings is not None:
+            database.delete(settings)
+    elif settings is None:
+        database.add(
+            ProjectSettings(
+                project_id=project_id,
+                recall_pointer_template=payload.recall_pointer_template,
+            )
+        )
+    else:
+        settings.recall_pointer_template = payload.recall_pointer_template
+    database.commit()
+    return ProjectSettingsRead(
+        project_id=project_id,
+        recall_pointer_template=payload.recall_pointer_template,
+    )
 
 
 @router.post("/projects/{project_id}/work-items", response_model=WorkCreation, status_code=201)

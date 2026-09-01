@@ -18,6 +18,7 @@ from mnemonic_api.schemas import (
     LeaseTokenCreate,
     ProjectCreate,
     ProjectPatch,
+    ProjectSettingsPatch,
     WorkClaimCreate,
     WorkCompletionCreate,
     WorkDeletionCreate,
@@ -248,6 +249,42 @@ def test_project_slug_normalization():
 def test_project_patch_rejects_invalid_edits(payload):
     with pytest.raises(ValidationError):
         ProjectPatch.model_validate(payload)
+
+
+def test_project_settings_patch_is_exact_nullable_and_bounded():
+    template = "  Recall $WORK_ITEM_TITLE.\r\nKeep this spacing.\t "
+    parsed = ProjectSettingsPatch(recall_pointer_template=template)
+    assert parsed.recall_pointer_template == template
+    assert ProjectSettingsPatch(recall_pointer_template=None).recall_pointer_template is None
+
+    for payload in [
+        {},
+        {"recall_pointer_template": " \r\n\t"},
+        {"recall_pointer_template": "x" * 100001},
+        {"recall_pointer_template": "NUL\x00byte"},
+        {"recall_pointer_template": "Invalid Unicode \ud800"},
+        {"recall_pointer_template": "valid", "unknown": "field"},
+    ]:
+        with pytest.raises(ValidationError):
+            ProjectSettingsPatch.model_validate(payload)
+
+
+def test_project_settings_validation_location_is_public():
+    assert _public_validation_errors(
+        [
+            {
+                "type": "value_error",
+                "loc": ("body", "recall_pointer_template"),
+                "msg": "caller-controlled message",
+            }
+        ]
+    ) == [
+        {
+            "type": "value_error",
+            "loc": ["body", "recall_pointer_template"],
+            "msg": "Value is invalid.",
+        }
+    ]
 
 
 def test_unknown_fields_rejected(work_payload, checkpoint_fields):

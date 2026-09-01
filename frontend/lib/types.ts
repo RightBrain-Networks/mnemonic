@@ -14,6 +14,11 @@ export interface Project {
   updated_at: string;
 }
 
+export interface ProjectSettings {
+  project_id: string;
+  recall_pointer_template: string | null;
+}
+
 export interface Page<T> {
   items: T[];
   total: number;

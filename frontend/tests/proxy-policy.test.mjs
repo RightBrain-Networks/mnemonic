@@ -60,6 +60,8 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.deepEqual(allowedQueryKeys("projects", "GET"), ["limit", "offset"]);
   assert.deepEqual(allowedQueryKeys("projects", "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}`, "PATCH"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/settings`, "GET"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/settings`, "PATCH"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "GET"), ["q", "semantic", "status", "tag", "source_client", "source_session_id", "view", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "GET"), []);
@@ -80,9 +82,33 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
     assert.equal(allowedQueryKeys(path, "GET"), null);
   }
   assert.equal(allowedQueryKeys(`projects/${project}`, "DELETE"), null);
+  assert.equal(allowedQueryKeys(`projects/${project}/settings`, "POST"), null);
+  assert.equal(allowedQueryKeys(`projects/${project}/settings`, "DELETE"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}`, "DELETE"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "PATCH"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/context`, "POST"), null);
+});
+
+test("project settings expose only the exact recall-pointer patch", () => {
+  const path = `projects/${project}/settings`;
+  assert.equal(invalidMutationBody(path, "PATCH", {
+    recall_pointer_template: "Recall $WORK_ITEM_ID"
+  }), null);
+  assert.equal(invalidMutationBody(path, "PATCH", {
+    recall_pointer_template: null
+  }), null);
+  for (const body of [
+    {},
+    { recall_pointer_template: 17 },
+    { recall_pointer_template: { nested: "value" } },
+    { recall_pointer_template: " \r\n\t" },
+    { recall_pointer_template: "NUL\0byte" },
+    { recall_pointer_template: "Invalid Unicode \ud800" },
+    { recall_pointer_template: "x".repeat(100001) },
+    { recall_pointer_template: "Recall $WORK_ITEM_ID", project_id: project }
+  ]) {
+    assert.match(invalidMutationBody(path, "PATCH", body), /allowlist/);
+  }
 });
 
 test("Phase 4 ready discovery is not exposed through the browser proxy", () => {

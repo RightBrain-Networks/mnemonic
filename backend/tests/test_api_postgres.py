@@ -58,6 +58,69 @@ def test_project_crud_counts_and_conflict(api, project):
     assert api.get(f"/api/v1/projects/{uuid4()}").status_code == 404
 
 
+def test_project_settings_are_exact_nullable_and_project_local(api, project):
+    endpoint = f"/api/v1/projects/{project['id']}/settings"
+    unset = {"project_id": project["id"], "recall_pointer_template": None}
+    assert api.get(endpoint).json() == unset
+
+    template = "  Recall $WORK_ITEM_TITLE\r\nfor $PROJECT_ID.\t "
+    saved = api.patch(endpoint, json={"recall_pointer_template": template})
+    assert saved.status_code == 200, saved.text
+    assert saved.json() == {**unset, "recall_pointer_template": template}
+    assert api.get(endpoint).json() == saved.json()
+
+    other = api.post("/api/v1/projects", json={"name": "Settings isolation"}).json()
+    assert api.get(f"/api/v1/projects/{other['id']}/settings").json() == {
+        "project_id": other["id"],
+        "recall_pointer_template": None,
+    }
+
+    cleared = api.patch(endpoint, json={"recall_pointer_template": None})
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json() == unset
+    assert api.get(endpoint).json() == unset
+
+
+def test_two_simultaneous_first_project_settings_saves_both_succeed(api, project):
+    endpoint = f"/api/v1/projects/{project['id']}/settings"
+    templates = [
+        "Writer A: $PROJECT_ID / $WORK_ITEM_ID",
+        "Writer B: $WORK_ITEM_TITLE / $WORK_ITEM_SUMMARY",
+    ]
+    barrier = Barrier(2)
+
+    def writer(template):
+        barrier.wait(timeout=5)
+        return api.patch(endpoint, json={"recall_pointer_template": template})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(writer, templates))
+
+    assert [response.status_code for response in responses] == [200, 200]
+    assert {
+        response.json()["recall_pointer_template"] for response in responses
+    } == set(templates)
+    assert api.get(endpoint).json()["recall_pointer_template"] in templates
+
+
+def test_project_settings_validate_payload_and_project(api, project):
+    endpoint = f"/api/v1/projects/{project['id']}/settings"
+    for payload in [
+        {},
+        {"recall_pointer_template": " \r\n\t"},
+        {"recall_pointer_template": "x" * 100001},
+        {"recall_pointer_template": "valid", "unknown": "field"},
+    ]:
+        response = api.patch(endpoint, json=payload)
+        assert response.status_code == 422, response.text
+
+    missing_endpoint = f"/api/v1/projects/{uuid4()}/settings"
+    assert api.get(missing_endpoint).status_code == 404
+    assert api.patch(
+        missing_endpoint, json={"recall_pointer_template": "valid"}
+    ).status_code == 404
+
+
 def test_postgres_full_text_stemming_and_weighted_ranking(api, project, work_payload):
     body_match = save(
         api,
