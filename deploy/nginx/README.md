@@ -34,9 +34,10 @@ is no application login. Tighten that subnet to your actual trusted clients, or
 enable the dashboard's optional Basic authentication below. MCP always requires
 the existing bearer API key, in addition to the network allowlist.
 
-The example's custom Docker pool, `198.51.100.0/24`, is commented out deliberately:
-it is public address space, not an RFC 1918 private subnet. Uncomment it only if
-that pool really belongs to local, trusted containers on your host. Prefer a
+The example's custom Docker pool, `198.51.100.0/24`, is a documentation
+placeholder and is commented out deliberately: it sits outside the RFC 1918
+private ranges, and such addresses may be routable public space. Uncomment it
+only if that pool really belongs to local, trusted containers on your host. Prefer a
 private subnet for new Docker networks; do not broaden the ACL to all addresses
 just to make a remote client connect. IPv6 LAN access is not enabled by default.
 
