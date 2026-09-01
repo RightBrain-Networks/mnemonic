@@ -121,12 +121,7 @@ button { touch-action: manipulation; }
 .sidebar-note { margin-top: auto; padding: 70px 8px 42px; }
 .sidebar-note h2 { font-size: 20px; font-weight: 500; letter-spacing: -.4px; line-height: 1.45; margin: 22px 0 12px; }
 .sidebar-note p { margin: 0; font-size: 12px; line-height: 1.8; color: #748078; max-width: 170px; }
-.note-art { position: relative; height: 66px; width: 68px; margin-left: 4px; }
-.note-art span { position: absolute; width: 47px; height: 58px; top: 4px; left: 8px; border-radius: 5px; border: 1px solid #a9c2ac; background: #e4eadc; transform: rotate(-15deg); }
-.note-art span:nth-child(2) { transform: rotate(7deg); left: 14px; top: 3px; background: #eaf0e1; }
-.note-art span:nth-child(3) { transform: rotate(17deg); top: 3px; left: 20px; background: #f6f8ee; }
-.note-art span:nth-child(3)::before, .note-art span:nth-child(3)::after { content: ""; position: absolute; top: 16px; left: 10px; width: 25px; height: 1px; background: #90b298; box-shadow: 0 7px #90b298; }
-.note-art span:nth-child(3)::after { top: 30px; width: 17px; box-shadow: none; }
+.note-art { display: block; width: 72px; height: auto; margin-left: 4px; }
 .sidebar-footer { display: flex; align-items: center; gap: 7px; border-top: 1px solid #dce2d6; padding-top: 17px; font-size: 10px; color: var(--muted); }
 .local-dot { width: 6px; height: 6px; border-radius: 50%; background: #829e77; }
 .mvp-label { margin-left: auto; border: 1px solid #d3dccd; border-radius: 4px; padding: 2px 5px; font-size: 9px; letter-spacing: .6px; }
@@ -562,13 +557,6 @@ button { touch-action: manipulation; }
 .nav-item { color: #e5e7eb; }
 .nav-item:hover { background: #32183d; }
 .nav-item.active { color: #fff; background: var(--accent); }
-.note-art span { background: #4b213c; border-color: #8d54ff; }
-.note-art span:nth-child(2) { background: #352044; }
-.note-art span:nth-child(3) { background: #f5eddc; }
-.note-art span:nth-child(3)::before, .note-art span:nth-child(3)::after {
-  background: var(--accent);
-  box-shadow: 0 7px var(--accent);
-}
 .sidebar-footer { border-color: #4b213c; }
 .local-dot { background: var(--lime); box-shadow: 0 0 0 3px #80cd0026; }
 .mvp-label { border-color: #704b78; }

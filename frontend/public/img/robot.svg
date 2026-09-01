@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Friendly robot head laptop sticker</title>
+  <desc id="desc">A cheerful teal and charcoal robot head with a white die-cut sticker border, antenna, glowing eyes, smile, status lights, and code chevrons.</desc>
+
+  <defs>
+    <linearGradient id="shell" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F8FAFC"/>
+      <stop offset="0.62" stop-color="#E2E8F0"/>
+      <stop offset="1" stop-color="#B8C4D2"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1F3146"/>
+      <stop offset="1" stop-color="#0B1422"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5EEAD4"/>
+      <stop offset="0.55" stop-color="#14B8A6"/>
+      <stop offset="1" stop-color="#0F766E"/>
+    </linearGradient>
+    <radialGradient id="antennaOrb" cx="35%" cy="28%" r="72%">
+      <stop offset="0" stop-color="#CCFBF1"/>
+      <stop offset="0.28" stop-color="#5EEAD4"/>
+      <stop offset="0.75" stop-color="#14B8A6"/>
+      <stop offset="1" stop-color="#0F766E"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#0F172A" flood-opacity="0.26"/>
+    </filter>
+    <clipPath id="screenClip">
+      <rect x="235" y="347" width="530" height="352" rx="112"/>
+    </clipPath>
+  </defs>
+
+  <!-- White die-cut silhouette -->
+  <g fill="none" stroke="#FFFFFF" stroke-linejoin="round" stroke-linecap="round" filter="url(#shadow)">
+    <line x1="500" y1="202" x2="500" y2="128" stroke-width="76"/>
+    <circle cx="500" cy="102" r="60" stroke-width="42"/>
+    <ellipse cx="126" cy="520" rx="76" ry="126" stroke-width="54"/>
+    <ellipse cx="874" cy="520" rx="76" ry="126" stroke-width="54"/>
+    <rect x="138" y="214" width="724" height="646" rx="206" stroke-width="58"/>
+  </g>
+
+  <!-- Antenna -->
+  <g>
+    <line x1="500" y1="224" x2="500" y2="132" stroke="#263244" stroke-width="34" stroke-linecap="round"/>
+    <line x1="489" y1="215" x2="489" y2="140" stroke="#526175" stroke-width="8" stroke-linecap="round" opacity="0.8"/>
+    <circle cx="500" cy="102" r="48" fill="url(#antennaOrb)" stroke="#0B5960" stroke-width="12"/>
+    <ellipse cx="483" cy="84" rx="12" ry="18" fill="#FFFFFF" opacity="0.82" transform="rotate(34 483 84)"/>
+    <path d="M438 236 Q500 201 562 236 L575 279 H425 Z" fill="#263244" stroke="#111827" stroke-width="12" stroke-linejoin="round"/>
+    <path d="M461 238 Q500 222 539 238" fill="none" stroke="#526175" stroke-width="9" stroke-linecap="round"/>
+  </g>
+
+  <!-- Side ear pods -->
+  <g>
+    <ellipse cx="126" cy="520" rx="60" ry="110" fill="url(#teal)" stroke="#0B5960" stroke-width="15"/>
+    <ellipse cx="874" cy="520" rx="60" ry="110" fill="url(#teal)" stroke="#0B5960" stroke-width="15"/>
+    <rect x="112" y="425" width="84" height="190" rx="40" fill="#C7D1DE" stroke="#334155" stroke-width="14"/>
+    <rect x="804" y="425" width="84" height="190" rx="40" fill="#C7D1DE" stroke="#334155" stroke-width="14"/>
+    <path d="M124 450 H175 V590 H124" fill="#FFFFFF" opacity="0.34"/>
+    <path d="M825 450 H876 V590 H825" fill="#FFFFFF" opacity="0.34"/>
+  </g>
+
+  <!-- Main shell -->
+  <g>
+    <rect x="150" y="226" width="700" height="620" rx="190" fill="url(#shell)" stroke="#273548" stroke-width="22"/>
+    <path d="M275 244 Q500 204 725 244 L675 306 Q650 332 608 332 H392 Q350 332 325 306 Z" fill="url(#teal)" stroke="#273548" stroke-width="16" stroke-linejoin="round"/>
+    <path d="M313 258 Q493 229 688 254 Q646 281 599 282 H401 Q352 282 313 258 Z" fill="#99F6E4" opacity="0.48"/>
+    <path d="M214 698 Q236 781 314 811 Q500 872 686 811 Q764 781 786 698" fill="#273548" opacity="0.98"/>
+    <path d="M331 817 L371 774 H629 L669 817 Q500 861 331 817 Z" fill="#AAB7C7" stroke="#526175" stroke-width="12" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Face screen -->
+  <g>
+    <rect x="225" y="337" width="550" height="372" rx="122" fill="#9AA8B8" opacity="0.55"/>
+    <rect x="235" y="347" width="530" height="352" rx="112" fill="url(#screen)" stroke="#111827" stroke-width="16"/>
+    <g clip-path="url(#screenClip)">
+      <path d="M248 394 Q500 318 752 394" fill="none" stroke="#48647F" stroke-width="24" opacity="0.28"/>
+      <ellipse cx="500" cy="710" rx="250" ry="78" fill="#020617" opacity="0.22"/>
+      <circle cx="313" cy="415" r="7" fill="#5EEAD4" opacity="0.2"/>
+      <circle cx="696" cy="620" r="5" fill="#5EEAD4" opacity="0.16"/>
+      <path d="M286 642 L326 602 M326 642 L286 602" stroke="#5EEAD4" stroke-width="5" opacity="0.08"/>
+      <path d="M682 421 H720 M701 402 V440" stroke="#5EEAD4" stroke-width="5" opacity="0.08"/>
+    </g>
+  </g>
+
+  <!-- Expression -->
+  <g>
+    <path d="M310 460 Q365 416 420 456" fill="none" stroke="#67E8F9" stroke-width="17" stroke-linecap="round"/>
+    <path d="M580 456 Q635 416 690 460" fill="none" stroke="#67E8F9" stroke-width="17" stroke-linecap="round"/>
+
+    <ellipse cx="365" cy="535" rx="72" ry="82" fill="#B6F7FF" stroke="#22D3EE" stroke-width="10"/>
+    <ellipse cx="635" cy="535" rx="72" ry="82" fill="#B6F7FF" stroke="#22D3EE" stroke-width="10"/>
+    <ellipse cx="365" cy="543" rx="37" ry="47" fill="#152235"/>
+    <ellipse cx="635" cy="543" rx="37" ry="47" fill="#152235"/>
+    <circle cx="350" cy="525" r="14" fill="#FFFFFF"/>
+    <circle cx="620" cy="525" r="14" fill="#FFFFFF"/>
+    <circle cx="378" cy="559" r="6" fill="#FFFFFF" opacity="0.82"/>
+    <circle cx="648" cy="559" r="6" fill="#FFFFFF" opacity="0.82"/>
+
+    <path d="M422 618 Q500 690 578 618" fill="none" stroke="#67E8F9" stroke-width="20" stroke-linecap="round"/>
+  </g>
+
+  <!-- Lower shell details -->
+  <g>
+    <circle cx="292" cy="749" r="14" fill="#22D3EE" stroke="#0E7490" stroke-width="5"/>
+    <circle cx="337" cy="749" r="14" fill="#FBBF24" stroke="#B45309" stroke-width="5"/>
+    <circle cx="382" cy="749" r="14" fill="#84CC16" stroke="#3F6212" stroke-width="5"/>
+
+    <path d="M624 733 L598 749 L624 765" fill="none" stroke="#273548" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M676 733 L702 749 L676 765" fill="none" stroke="#273548" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="641" y1="771" x2="662" y2="727" stroke="#273548" stroke-width="12" stroke-linecap="round"/>
+  </g>
+
+  <!-- Small shell highlights -->
+  <path d="M196 374 Q180 487 194 603" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" opacity="0.58"/>
+  <path d="M791 388 Q818 512 792 626" fill="none" stroke="#94A3B8" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
+</svg>
