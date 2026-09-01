@@ -102,7 +102,7 @@ button { touch-action: manipulation; }
 .skip-link { position: fixed; top: 12px; left: 12px; transform: translateY(-200%); padding: 10px 16px; background: var(--ink); color: white; z-index: 100; border-radius: 7px; }
 .skip-link:focus { transform: translateY(0); }
 
-.app-shell { min-height: 100svh; display: grid; grid-template-columns: 252px minmax(0, 1fr); }
+.app-shell { min-height: 100svh; display: grid; grid-template-columns: 252px minmax(0, 1fr); overflow-anchor: none; }
 .sidebar { position: sticky; top: 0; height: 100svh; display: flex; flex-direction: column; padding: 36px 24px 20px; background: #f0f2eb; border-right: 1px solid var(--line); }
 .brand { display: inline-flex; align-items: center; gap: 10px; width: fit-content; text-decoration: none; font-size: 25px; font-weight: 650; letter-spacing: -.9px; }
 .brand-period { color: var(--accent); }
@@ -219,7 +219,10 @@ button { touch-action: manipulation; }
 .filter-dot { height: 5px; width: 5px; border-radius: 50%; background: #448a6b; }
 .result-count { color: #839087; font-size: 11px; white-space: nowrap; }
 
-.work-list { display: grid; gap: 14px; }
+.work-list { display: grid; gap: 14px; overflow-anchor: none; }
+.hierarchy-children { overflow-anchor: none; }
+.pagination, .library-footer { overflow-anchor: none; }
+.work-item-entering { pointer-events: none; }
 .work-item-card { min-width: 0; padding: 22px 24px 17px; border: 1px solid #e0e5de; border-radius: 11px; background: var(--surface); box-shadow: 0 2px 2px #24382a02; transition: border-color .15s, box-shadow .15s; }
 .work-item-card:hover { border-color: #bccaBA; box-shadow: 0 4px 14px #24382a05; }
 .card-topline { display: flex; align-items: center; gap: 13px; margin-bottom: 13px; min-width: 0; }
@@ -277,6 +280,7 @@ button { touch-action: manipulation; }
 .error-notice { padding: 14px 17px; border: 1px solid #edc6bb; border-radius: 8px; background: #fcf1ed; color: #8e4b3a; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
 .error-notice > p { margin: 0; }
 .error-notice > .button { margin-top: 11px; }
+.background-list-error { margin-bottom: 14px; }
 
 .dialog { width: min(560px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 40px); padding: 0; border: 1px solid #d8e0d3; border-radius: 15px; background: #fff; color: var(--ink); box-shadow: 0 26px 100px #10271b3b; }
 .dialog::backdrop { background: #1d32266b; backdrop-filter: blur(4px); }

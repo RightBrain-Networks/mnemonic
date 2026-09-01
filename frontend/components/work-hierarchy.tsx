@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import WorkItemCard from "@/components/work-item-card";
+import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import { api, errorMessage, workItemPath } from "@/lib/api";
 import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
 import { childSearchParams } from "@/lib/work-item-search";
@@ -23,6 +24,7 @@ type BranchProps = Actions & {
   item: HierarchySummary;
   status: StatusFilter;
   refreshKey: number;
+  viewKey: string;
   depth: number;
   visited: ReadonlySet<string>;
 };
@@ -54,14 +56,31 @@ function HierarchyBranch(props: BranchProps) {
     !item.self_matches_filter && item.has_matching_descendants
   );
   const [offset, setOffset] = useState(0);
-  const [page, setPage] = useState<Page<HierarchySummary> | null>(null);
+  const [loadedPage, setLoadedPage] = useState<{
+    viewKey: string;
+    value: Page<HierarchySummary>;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState("");
+  const [loadFailure, setLoadFailure] = useState<{
+    viewKey: string;
+    message: string;
+  } | null>(null);
   const [retry, setRetry] = useState(0);
   const guardReason = hierarchyGuardReason(id, visited, depth);
+  const childViewKey = `${props.viewKey}:children:${id}:${status}:${offset}`;
+  const page = loadedPage?.viewKey === childViewKey ? loadedPage.value : null;
+  const loadError = loadFailure?.viewKey === childViewKey ? loadFailure.message : "";
   const nextChildLeaseExpiry = earliestLeaseExpiry(
     page?.items.map((child) => child.summary.readiness.active_lease?.expires_at) ?? []
   );
+  const childMotionRef = useWorkItemMotion<HTMLDivElement>({
+    itemIds: page?.items.map((child) => child.summary.work_item.id) ?? [],
+    total: page?.total ?? null,
+    viewKey: childViewKey,
+    revision: page?.items,
+    snapshotSignal: refreshKey,
+    enabled: expanded && offset === 0
+  });
 
   useEffect(() => {
     if (!item.self_matches_filter && item.has_matching_descendants) setExpanded(true);
@@ -70,9 +89,10 @@ function HierarchyBranch(props: BranchProps) {
   useEffect(() => {
     if (guardReason || !expanded || !item.has_matching_descendants) return;
     const controller = new AbortController();
+    const requestedViewKey = childViewKey;
     const params = childSearchParams({ status, limit: CHILD_PAGE_SIZE, offset });
     setLoading(true);
-    setLoadError("");
+    setLoadFailure(null);
     api<Page<HierarchySummary>>(
       `${workItemPath(summary.work_item.project_id, id)}/children?${params}`,
       { signal: controller.signal }
@@ -82,14 +102,16 @@ function HierarchyBranch(props: BranchProps) {
         setOffset(Math.max(0, Math.floor((result.total - 1) / CHILD_PAGE_SIZE) * CHILD_PAGE_SIZE));
         return;
       }
-      setPage(result);
+      setLoadedPage({ viewKey: requestedViewKey, value: result });
     }).catch((error) => {
-      if (!controller.signal.aborted) setLoadError(errorMessage(error));
+      if (!controller.signal.aborted) {
+        setLoadFailure({ viewKey: requestedViewKey, message: errorMessage(error) });
+      }
     }).finally(() => {
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [expanded, guardReason, id, item.has_matching_descendants, offset, refreshKey, status, summary.work_item.project_id, retry]);
+  }, [childViewKey, expanded, guardReason, id, item.has_matching_descendants, offset, refreshKey, status, summary.work_item.project_id, retry]);
 
   useEffect(() => {
     if (!nextChildLeaseExpiry) return;
@@ -113,6 +135,7 @@ function HierarchyBranch(props: BranchProps) {
   return <div
     className={`hierarchy-node ${item.self_matches_filter ? "" : "hierarchy-scaffold"}`}
     data-depth={depth}
+    data-work-item-id={id}
   >
     <div className="hierarchy-node-row">
       {canExpand ? <button
@@ -135,24 +158,30 @@ function HierarchyBranch(props: BranchProps) {
         />
       </div>
     </div>
-    {expanded && canExpand && <div id={regionId} className="hierarchy-children">
-      {loading && !page ? <div className="hierarchy-loading" role="status">Loading children…</div> :
-        loadError ? <div className="hierarchy-error" role="alert">
+    {expanded && canExpand && <div ref={childMotionRef} id={regionId} className="hierarchy-children">
+      {!page && !loadError ? <div className="hierarchy-loading" role="status">Loading children…</div> :
+        loadError && !page ? <div className="hierarchy-error" role="alert">
           <span>{loadError}</span>
           <button type="button" className="text-link" onClick={() => setRetry((value) => value + 1)}>Try again</button>
         </div> :
-        page?.items.map((child) => <HierarchyBranch
-          {...props}
-          key={child.summary.work_item.id}
-          item={child}
-          depth={depth + 1}
-          visited={descendants}
-        />)}
-      {!loading && page && page.total > CHILD_PAGE_SIZE && <nav className="child-pagination" aria-label={`Children of ${summary.work_item.title}`}>
+        <>
+          {loadError && <div className="hierarchy-error" role="alert">
+            <span>{loadError}</span>
+            <button type="button" className="text-link" onClick={() => setRetry((value) => value + 1)}>Try again</button>
+          </div>}
+          {page?.items.map((child) => <HierarchyBranch
+            {...props}
+            key={child.summary.work_item.id}
+            item={child}
+            depth={depth + 1}
+            visited={descendants}
+          />)}
+        </>}
+      {page && page.total > CHILD_PAGE_SIZE && <nav className="child-pagination" aria-label={`Children of ${summary.work_item.title}`}>
         <span>{offset + 1}–{Math.min(offset + page.items.length, page.total)} of {page.total}</span>
         <div>
-          <button type="button" className="text-link" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - CHILD_PAGE_SIZE))}>Previous</button>
-          <button type="button" className="text-link" disabled={offset + page.items.length >= page.total} onClick={() => setOffset(offset + CHILD_PAGE_SIZE)}>Next</button>
+          <button type="button" className="text-link" disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - CHILD_PAGE_SIZE))}>Previous</button>
+          <button type="button" className="text-link" disabled={loading || offset + page.items.length >= page.total} onClick={() => setOffset(offset + CHILD_PAGE_SIZE)}>Next</button>
         </div>
       </nav>}
     </div>}
@@ -161,17 +190,36 @@ function HierarchyBranch(props: BranchProps) {
 
 export default function WorkHierarchy({
   items,
+  viewKey,
+  motionRevision,
+  motionTotal,
+  motionSnapshotSignal,
+  motionEnabled,
   ...actions
 }: Actions & {
   items: HierarchySummary[];
   status: StatusFilter;
   refreshKey: number;
+  viewKey: string;
+  motionRevision: unknown;
+  motionTotal: number;
+  motionSnapshotSignal: unknown;
+  motionEnabled: boolean;
 }) {
-  return <section className="work-list hierarchy-list" aria-label="Durable work item hierarchy">
+  const motionRef = useWorkItemMotion<HTMLElement>({
+    itemIds: items.map((item) => item.summary.work_item.id),
+    total: motionTotal,
+    viewKey: `${viewKey}:hierarchy`,
+    revision: motionRevision,
+    snapshotSignal: motionSnapshotSignal,
+    enabled: motionEnabled
+  });
+  return <section ref={motionRef} className="work-list hierarchy-list" aria-label="Durable work item hierarchy">
     {items.map((item) => <HierarchyBranch
       {...actions}
       key={item.summary.work_item.id}
       item={item}
+      viewKey={viewKey}
       depth={0}
       visited={new Set()}
     />)}

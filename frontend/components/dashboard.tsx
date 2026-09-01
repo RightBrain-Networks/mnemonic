@@ -132,8 +132,12 @@ export default function Dashboard({ view = "library" }: { view?: "library" | "se
   const [offset, setOffset] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const [results, setResults] = useState<Page<WorkSummary | HierarchySummary> | null>(null);
+  const [resultsViewKey, setResultsViewKey] = useState("");
   const [listLoading, setListLoading] = useState(false);
-  const [listError, setListError] = useState("");
+  const [listFailure, setListFailure] = useState<{
+    viewKey: string;
+    message: string;
+  } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const [workDialog, setWorkDialog] = useState(false);
@@ -173,13 +177,16 @@ export default function Dashboard({ view = "library" }: { view?: "library" | "se
   const [notice, setNotice] = useState<{ message: string; error?: boolean } | null>(null);
   const [liveSyncStatus, setLiveSyncStatus] = useState<LiveSyncStatus>("connecting");
   const project = projects.find((item) => item.id === activeId);
+  const listViewKey = JSON.stringify([activeId, status, offset, search, semantic]);
+  const visibleResults = resultsViewKey === listViewKey ? results : null;
+  const visibleListError = listFailure?.viewKey === listViewKey ? listFailure.message : "";
   const activeIdRef = useRef(activeId);
   const openedRef = useRef(opened);
   const settingsLoadController = useRef<AbortController | null>(null);
   const settingsLoadGeneration = useRef(0);
   const lastContextRefresh = useRef(0);
   const nextLeaseExpiry = earliestLeaseExpiry([
-    ...(results?.items.map((item) => ("summary" in item ? item.summary : item).readiness.active_lease?.expires_at) ?? []),
+    ...(visibleResults?.items.map((item) => ("summary" in item ? item.summary : item).readiness.active_lease?.expires_at) ?? []),
     context?.readiness.active_lease?.expires_at
   ]);
 
@@ -278,10 +285,16 @@ export default function Dashboard({ view = "library" }: { view?: "library" | "se
   }, [query]);
 
   useEffect(() => {
-    if (view !== "library" || !activeId) { setResults(null); return; }
+    if (view !== "library" || !activeId) {
+      setResults(null);
+      setResultsViewKey("");
+      setListFailure(null);
+      return;
+    }
     const controller = new AbortController();
+    const requestedViewKey = listViewKey;
     setListLoading(true);
-    setListError("");
+    setListFailure(null);
     const params = workSearchParams({ status, limit: WORK_PAGE_SIZE, offset, query: search, semantic });
     api<Page<WorkSummary | HierarchySummary>>(`${workItemPath(activeId)}?${params}`, { signal: controller.signal })
       .then((page) => {
@@ -291,11 +304,16 @@ export default function Dashboard({ view = "library" }: { view?: "library" | "se
           return;
         }
         setResults(page);
+        setResultsViewKey(requestedViewKey);
       })
-      .catch((error) => { if (!controller.signal.aborted) setListError(errorMessage(error)); })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setListFailure({ viewKey: requestedViewKey, message: errorMessage(error) });
+        }
+      })
       .finally(() => { if (!controller.signal.aborted) setListLoading(false); });
     return () => controller.abort();
-  }, [activeId, offset, refresh, search, semantic, status, view]);
+  }, [activeId, listViewKey, offset, refresh, search, semantic, status, view]);
 
   useEffect(() => {
     if (!opened) { setCheckpointPage(null); return; }
@@ -423,6 +441,7 @@ export default function Dashboard({ view = "library" }: { view?: "library" | "se
     setSemantic(false);
     setStatus("open");
     setResults(null);
+    setResultsViewKey("");
   }
 
   async function createProject(event: FormEvent<HTMLFormElement>) {
@@ -824,11 +843,12 @@ export default function Dashboard({ view = "library" }: { view?: "library" | "se
                 searchRef={searchRef}
                 semantic={semantic}
                 status={status}
-                results={results}
-                loading={listLoading}
-                error={listError}
+                results={visibleResults}
+                loading={listLoading || (!visibleResults && !visibleListError)}
+                error={visibleListError}
                 offset={offset}
                 refreshKey={refresh}
+                viewKey={listViewKey}
                 copiedKey={copied}
                 onQuery={setQuery}
                 onToggleSemantic={() => { setSemantic((value) => !value); setOffset(0); }}
