@@ -21,5 +21,8 @@ test("semantic work search trims and requires a nonblank query", () => {
 test("ordinary browse pages structural roots and child pages inherit filters", () => {
   const browse = workSearchParams({ status: "open", limit: 20, offset: 20, query: "" });
   assert.equal(browse.toString(), "status=open&view=roots&limit=20&offset=20");
+  const active = workSearchParams({ status: "active", limit: 20, offset: 0, query: "" });
+  assert.equal(active.toString(), "status=active&view=roots&limit=20&offset=0");
   assert.equal(childSearchParams({ status: "promoted", limit: 50, offset: 100 }).toString(), "status=promoted&limit=50&offset=100");
+  assert.equal(childSearchParams({ status: "dropped", limit: 50, offset: 0 }).toString(), "status=dropped&limit=50&offset=0");
 });

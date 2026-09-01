@@ -7,9 +7,11 @@ import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import type { HierarchySummary, Page, StatusFilter, WorkSummary } from "@/lib/types";
 
 const WORK_PAGE_SIZE = 20;
-const filters: StatusFilter[] = ["open", "done", "wont-do", "promoted", "all"];
+const filters: StatusFilter[] = ["open", "active", "dropped", "done", "wont-do", "promoted", "all"];
 const filterLabels: Record<StatusFilter, string> = {
   open: "Open",
+  active: "Active",
+  dropped: "Dropped",
   done: "Done",
   "wont-do": "Won’t do",
   promoted: "Promoted",
@@ -104,7 +106,7 @@ export default function WorkItemList({
         <button className={`semantic-toggle ${semantic ? "selected" : ""}`} type="button" aria-label="Semantic search" aria-pressed={semantic} onClick={onToggleSemantic}><span className="semantic-switch"><span /></span><span>Semantic</span></button>
       </div>
       <div className="filter-row">
-        <div className="status-filters" role="group" aria-label="Filter by lifecycle">
+        <div className="status-filters" role="group" aria-label="Filter work items">
           {filters.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "open" && <span className="filter-dot" />}{filterLabels[filter]}</button>)}
         </div>
         <span className="result-count" role="status">{loading || query.trim() !== searchedQuery ? "Finding work…" : results ? searchedQuery ? `${results.total} work item${results.total === 1 ? "" : "s"}` : `${results.total} root branch${results.total === 1 ? "" : "es"}` : ""}</span>

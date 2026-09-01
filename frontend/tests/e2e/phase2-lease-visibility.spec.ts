@@ -99,6 +99,7 @@ test("an active lease is visible without exposing its capability and refreshes a
   await page.clock.install();
   await page.goto("/");
   await page.locator("#project-select").selectOption(state.projectId);
+  await page.getByRole("button", { name: "Active", exact: true }).click();
   await page.getByLabel("Search work items").fill(title);
 
   const card = page.locator("article.work-item-card").filter({ hasText: title });
@@ -121,6 +122,10 @@ test("an active lease is visible without exposing its capability and refreshes a
 
   await expireLease(state.projectId, workItemId);
   await page.clock.fastForward(61 * 1000);
+  await expect(card).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Dropped", exact: true }).click();
+  await expect(card).toHaveCount(1);
   await expect(card.locator(".status-badge")).toHaveText(/Open/);
   await expect(card.locator(".operational-badge")).toHaveText("Ready");
   await expect(card.getByLabel("Active work lease")).toHaveCount(0);

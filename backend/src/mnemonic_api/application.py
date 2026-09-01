@@ -30,7 +30,7 @@ from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine, build_session_factory, get_session
 from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.live_sync import LiveSyncHub, mutation_event
-from mnemonic_api.models import Checkpoint, Project, ProjectSettings, WorkItem
+from mnemonic_api.models import Checkpoint, Project, ProjectSettings, WorkItem, WorkLease
 from mnemonic_api.schemas import (
     AdjacentRelationshipRead,
     CheckpointCreate,
@@ -268,7 +268,23 @@ def _search_work_rows(
 ) -> tuple[list[WorkItem], int]:
     require_project(database, project_id)
     conditions = [WorkItem.project_id == project_id, WorkItem.deleted_at.is_(None)]
-    if filters.status != "all":
+    if filters.status in {"active", "dropped"}:
+        lease_expiry_condition = (
+            WorkLease.expires_at > func.clock_timestamp()
+            if filters.status == "active"
+            else WorkLease.expires_at <= func.clock_timestamp()
+        )
+        retained_lease_exists = (
+            select(WorkLease.work_item_id)
+            .where(
+                WorkLease.work_item_id == WorkItem.id,
+                lease_expiry_condition,
+            )
+            .correlate(WorkItem)
+            .exists()
+        )
+        conditions.extend([WorkItem.status == "open", retained_lease_exists])
+    elif filters.status != "all":
         conditions.append(WorkItem.status == filters.status)
 
     checkpoint_filters = []

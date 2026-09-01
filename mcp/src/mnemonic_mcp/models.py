@@ -18,7 +18,7 @@ from pydantic import (
 
 Status = Literal["open", "done", "wont-do", "promoted"]
 UpdateStatus = Literal["open", "wont-do", "promoted"]
-SearchStatus = Literal["open", "done", "wont-do", "promoted", "all"]
+SearchStatus = Literal["open", "active", "dropped", "done", "wont-do", "promoted", "all"]
 SearchView = Literal["minimal", "full"]
 CheckpointKind = Literal["context", "progress", "completion"]
 AppendCheckpointKind = Literal["context", "progress"]

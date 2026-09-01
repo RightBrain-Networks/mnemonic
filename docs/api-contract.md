@@ -260,13 +260,20 @@ Work list/search accepts:
 | --- | --- |
 | `q` | optional text, at most 500 characters |
 | `semantic` | false by default; true opts into hybrid retrieval |
-| `status` | `open` by default; one lifecycle status or `all` |
+| `status` | `open` by default; one lifecycle status, `active`, `dropped`, or `all` |
 | `tag` | matches any checkpoint |
 | `source_client` | matches any checkpoint |
 | `source_session_id` | matches any checkpoint |
 | `view` | `full` by default; `minimal` for pointer-only results; `roots` for structural root browsing |
 | `limit` | 30 by default, maximum 100 |
 | `offset` | 0 by default |
+
+`active` and `dropped` are derived lease filters, not lifecycle statuses. Both
+match open work: `active` requires an unexpired lease, while `dropped` requires
+a retained lease whose expiry has passed. `open` continues to include open work
+regardless of lease state, and `all` continues to include every lifecycle
+status. Readiness remains a current claimability projection, so dropped work has
+no active lease and may be ready when it has no unresolved blockers.
 
 Blank `q` browses by recent activity. A nonblank query searches weighted work
 title/summary, checkpoint text, and literal IDs/provenance/tags without

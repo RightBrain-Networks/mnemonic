@@ -318,6 +318,15 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     assert '"source_metadata"' not in search_work_schema
     assert '"source_session_url"' not in search_work_schema
     assert tools["search_work"].inputSchema["properties"]["semantic"]["default"] is False
+    assert tools["search_work"].inputSchema["properties"]["status"]["enum"] == [
+        "open",
+        "active",
+        "dropped",
+        "done",
+        "wont-do",
+        "promoted",
+        "all",
+    ]
 
     ready_input = tools["list_ready_work"].inputSchema
     assert set(ready_input["properties"]) == {
@@ -1863,11 +1872,12 @@ async def test_canonical_mutations_send_optional_lease_token_only_in_body(
     ]
 
 
-async def test_search_passes_explicit_filters_and_pagination(settings):
+@pytest.mark.parametrize("status", ["all", "active", "dropped"])
+async def test_search_passes_explicit_filters_and_pagination(settings, status):
     def handler(request):
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
         assert dict(request.url.params) == {
-            "status": "all", "tag": "search", "source_client": "opencode",
+            "status": status, "tag": "search", "source_client": "opencode",
             "source_session_id": "ses_123/opaque", "view": "full", "limit": "5",
             "offset": "10", "semantic": "true",
         }
@@ -1876,7 +1886,7 @@ async def test_search_passes_explicit_filters_and_pagination(settings):
         return httpx.Response(200, json={"items": [], "total": 10, "limit": 5, "offset": 10})
 
     await adapter(settings, handler).call_tool("search_work", {
-        "project_id": PROJECT_ID, "status": "all", "tag": "search", "source_client": "opencode",
+        "project_id": PROJECT_ID, "status": status, "tag": "search", "source_client": "opencode",
         "source_session_id": "ses_123/opaque", "view": "full", "semantic": True,
         "limit": 5, "offset": 10,
     })

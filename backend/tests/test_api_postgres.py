@@ -232,6 +232,55 @@ def test_pagination_and_combined_filters(api, project, work_payload):
     assert api.get(path(project), params={"status": "all", "offset": 200}).json()["items"] == []
 
 
+def test_active_and_dropped_filters_derive_open_lease_state(
+    api, project, work_payload, postgres_engine
+):
+    unleased = save(api, project, work_payload)["work_item"]
+    active = save(api, project, work_payload)["work_item"]
+    dropped = save(api, project, work_payload)["work_item"]
+    promoted = save(api, project, work_payload, status="promoted")["work_item"]
+
+    for item, request_id in ((active, "active-claim"), (dropped, "dropped-claim")):
+        response = api.post(
+            f"{path(project, item)}/claim",
+            json={
+                "holder_client": "claude-code",
+                "holder_session_id": f"session-{request_id}",
+                "claim_request_id": request_id,
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    with postgres_engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE work_leases "
+                "SET acquired_at = clock_timestamp() - interval '3 seconds', "
+                "renewed_at = clock_timestamp() - interval '2 seconds', "
+                "expires_at = clock_timestamp() - interval '1 second' "
+                "WHERE work_item_id = CAST(:work_item_id AS uuid)"
+            ),
+            {"work_item_id": dropped["id"]},
+        )
+
+    def filtered_ids(status):
+        response = api.get(path(project), params={"status": status})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["total"] == len(body["items"])
+        return {item["work_item"]["id"] for item in body["items"]}
+
+    assert filtered_ids("active") == {active["id"]}
+    assert filtered_ids("dropped") == {dropped["id"]}
+    assert filtered_ids("open") == {unleased["id"], active["id"], dropped["id"]}
+    assert filtered_ids("all") == {
+        unleased["id"],
+        active["id"],
+        dropped["id"],
+        promoted["id"],
+    }
+
+
 def test_edit_refreshes_search_vector(api, project, work_payload):
     work_item = save(api, project, work_payload, title="Orchestrating state")["work_item"]
     assert api.get(path(project), params={"q": "orchestrates"}).json()["total"] == 1
