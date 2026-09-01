@@ -1,10 +1,10 @@
-# Mnemonic
+# mnemonic
 
-> A lightweight coordination system for multiple agents to communicate amongst 
-themselves -- without littering your repo with random Markdown docs or blowing 
-up your issue tracker.
+> A lightweight coordination system that coding agents can use to communicate
+> amongst themselves -- without littering your repo with random Markdown docs
+> or blowing up your issue tracker.
 
-**Mnemonic** is a standalone, local-first application: **PostgreSQL + FastAPI +
+**`mnemonic`** is a standalone, local-first application: **PostgreSQL + FastAPI +
 Next.js**, with an **MCP server that calls the REST API**. It does not modify
 Claude's memory subsystem. Claude Code is the first client; the API, metadata,
 and MCP interface do not depend on a particular LLM provider.
@@ -14,7 +14,7 @@ item, carry it forward through immutable session-attributed checkpoints, and
 preserve what each session knew, changed, and verified. Many sessions can
 continue the same objective without multiplying its human-visible identity.
 
-## Is Mnemonic right for you?
+## Is `mnemonic` right for you?
 
 - You build with Claude Code (*support for additional platforms coming soon*).
 
