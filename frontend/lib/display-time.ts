@@ -34,7 +34,7 @@ function formatTimePart(value: Date, timeZone: string): string {
     minute: "2-digit",
     hour12: true,
     timeZone,
-  }).format(value).replace(/\s*(am|pm)$/i, "$1").toLowerCase();
+  }).format(value).toLowerCase();
 }
 
 function dateOptions(timeZone: string): Intl.DateTimeFormatOptions {
