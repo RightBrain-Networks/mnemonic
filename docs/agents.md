@@ -30,7 +30,7 @@ warning, what and why, verified context and durable references, cautions and
 scope, and concrete verification. The server preserves exact text; it does not
 generate or rewrite the packet.
 
-The installable [skills](../skills/) contain the complete capture/search/recall
+The installable [skills](../plugin/skills/) contain the complete capture/search/recall
 workflows. Claude Code expands `${CLAUDE_SESSION_ID}` in skill text. Other
 clients may not; an unexpanded token is not a valid session ID. If the current
 host cannot reveal its real conversation ID, obtain a truthful identifier

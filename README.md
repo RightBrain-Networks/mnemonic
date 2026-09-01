@@ -95,8 +95,29 @@ alternative and OpenCode, live in [`examples/`](examples/); they show the
 default ports and need the same substitution if yours differ.
 [`work.json`](examples/work.json) is the canonical example.
 
-Copy the three folders under [`skills/`](skills/) into the target project's
-`.claude/skills/` directory, or into `~/.claude/skills/` for personal use:
+The three skills ship as a Claude Code plugin. Register this repository as a
+marketplace once, then enable the plugin in any project that should have them:
+
+```bash
+claude plugin marketplace add /srv/mnemonic
+claude plugin install mnemonic@mnemonic
+```
+
+To make it automatic for everyone who clones a consuming repository, commit this
+to that repository's `.claude/settings.json` instead:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "mnemonic": { "source": { "source": "local", "path": "/srv/mnemonic" } }
+  },
+  "enabledPlugins": { "mnemonic@mnemonic": true }
+}
+```
+
+Replace the local path with `{ "source": "github", "repo": "<owner>/mnemonic" }`
+once the repository is reachable remotely; `claude plugin marketplace update
+mnemonic` then pulls changes. The plugin provides:
 
 - **`mnemonic-save`** searches for existing work, creates a durable objective
   with its initial checkpoint and explicit atomic links, or appends corrective

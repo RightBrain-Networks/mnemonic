@@ -1,10 +1,12 @@
 {
   "name": "mnemonic",
-  "owner": { "name": "Jamie Begin" },
+  "owner": {
+    "name": "Jamie Begin"
+  },
   "plugins": [
     {
       "name": "mnemonic",
-      "source": "./",
+      "source": "./plugin",
       "description": "Save, search, and recall durable work items with immutable, session-attributed checkpoints."
     }
   ]
