@@ -881,7 +881,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         <a className={`nav-item ${view === "library" ? "active" : ""}`} href="/" aria-current={view === "library" ? "page" : undefined}><Icon name="library" /><span>Work library</span><Icon name="arrow" size={15} /></a>
         <a className={`nav-item ${view === "settings" ? "active" : ""}`} href="/settings" aria-current={view === "settings" ? "page" : undefined}><Icon name="settings" /><span>Project settings</span><Icon name="arrow" size={15} /></a>
       </nav>
-      <div className="sidebar-note"><img className="note-art" src="/img/robot.svg" alt="" width={72} height={72} aria-hidden="true" /><h2>Keep your agents on the same page.</h2><p>Work units are reserved and nothing is forgotten.</p></div>
+      <div className="sidebar-note"><img className="note-art" src="/img/robot.svg" alt="" width={115} height={115} aria-hidden="true" /><h2>Keep your agents on the same page.</h2><p>Work units are reserved and nothing is forgotten.</p></div>
       <div className="sidebar-footer"><span className="local-dot" /><span>Local workspace</span><span className="mvp-label">WORK GRAPH</span></div>
     </aside>
 
