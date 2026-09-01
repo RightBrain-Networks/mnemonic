@@ -18,18 +18,20 @@ continue the same objective without multiplying its human-visible identity.
 
 - You build with Claude Code (*support for additional platforms coming soon*).
 
-- Sometimes important hand-off tasks and follow-ups are overlooked because
-they're lost within walls of text output.
+- Important hand-offs and follow-up tasks are often overlooked because they 
+get buried under overly verbose LLM output.
 
 - Dozens or hundreds of transient Markdown documents are cluttering 
-up your repo, or your issue tracker has so many agent-to-agent issues that it's 
-painful to use as a human.
+your repo, or your issue tracker has so many agent-to-agent issues that it's 
+become painful for a human user.
 
 - Multiple agents are concurrently working on the same project and occasionally 
 clobber each other.
 
 - You prefer a managing a locally-hosted Docker stack rather than paying for a 
 SaaS product.
+
+- You don't want the complexity of a full orchestration platform like Openclaw.
 
 ## Run it
 
