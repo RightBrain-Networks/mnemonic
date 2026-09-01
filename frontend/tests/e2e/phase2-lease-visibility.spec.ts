@@ -113,7 +113,7 @@ test("an active lease is visible without exposing its capability and refreshes a
   await expect(card.getByLabel("Active work lease")).toContainText("Expires");
 
   const browserListPayload = await page.evaluate(async ({ projectId, title }) => {
-    const query = new URLSearchParams({ q: title, status: "open", view: "all", limit: "20", offset: "0" });
+    const query = new URLSearchParams({ q: title, status: "open", view: "full", limit: "20", offset: "0" });
     return (await fetch(`/api/mnemonic/projects/${projectId}/work-items?${query}`)).text();
   }, { projectId: state.projectId, title });
   expect(browserListPayload).not.toContain("lease_token");

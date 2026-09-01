@@ -15,8 +15,10 @@ from mnemonic_api.schemas import (
     LeasePublic,
     Readiness,
     WorkContext,
+    WorkItemPointer,
     WorkItemRead,
     WorkSummary,
+    WorkSummaryMinimal,
 )
 
 
@@ -59,10 +61,10 @@ def readiness(
     )
 
 
-def work_summaries(database: Session, work_items: Sequence[WorkItem]) -> list[WorkSummary]:
-    if not work_items:
-        return []
-    ids = [work_item.id for work_item in work_items]
+def _summary_inputs(
+    database: Session, ids: list[UUID]
+) -> tuple[dict[UUID, int], dict[UUID, int], dict[UUID, WorkLease]]:
+    """Checkpoint counts, unresolved blockers, and active leases for one page."""
     from mnemonic_api.services.relationships import unresolved_blocker_counts
 
     blocker_counts = unresolved_blocker_counts(database, ids)
@@ -82,6 +84,36 @@ def work_summaries(database: Session, work_items: Sequence[WorkItem]) -> list[Wo
             )
         )
     }
+    return counts, blocker_counts, active_leases
+
+
+def minimal_work_summaries(
+    database: Session, work_items: Sequence[WorkItem]
+) -> list[WorkSummaryMinimal]:
+    """Pointer-only summaries for callers on a context budget. No checkpoint pointer."""
+    if not work_items:
+        return []
+    ids = [work_item.id for work_item in work_items]
+    counts, blocker_counts, active_leases = _summary_inputs(database, ids)
+    return [
+        WorkSummaryMinimal(
+            work_item=WorkItemPointer.model_validate(work_item),
+            checkpoint_count=counts[work_item.id],
+            display_state=readiness(
+                work_item,
+                active_leases.get(work_item.id),
+                blocker_counts.get(work_item.id, 0),
+            ).display_state,
+        )
+        for work_item in work_items
+    ]
+
+
+def work_summaries(database: Session, work_items: Sequence[WorkItem]) -> list[WorkSummary]:
+    if not work_items:
+        return []
+    ids = [work_item.id for work_item in work_items]
+    counts, blocker_counts, active_leases = _summary_inputs(database, ids)
     current_contexts = {
         checkpoint.work_item_id: checkpoint
         for checkpoint in database.scalars(

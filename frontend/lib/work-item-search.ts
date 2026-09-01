@@ -17,7 +17,7 @@ export function workSearchParams({
 }: WorkSearchOptions): URLSearchParams {
   const params = new URLSearchParams({
     status,
-    view: query.trim() ? "all" : "roots",
+    view: query.trim() ? "full" : "roots",
     limit: String(limit),
     offset: String(offset)
   });

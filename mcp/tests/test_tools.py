@@ -620,6 +620,7 @@ async def test_search_work_is_open_only_and_pointer_only(settings, work_summary)
         assert dict(request.url.params) == {
             "q": "src/search.py",
             "status": "open",
+            "view": "minimal",
             "limit": "30",
             "offset": "0",
         }
@@ -1037,8 +1038,8 @@ async def test_search_passes_explicit_filters_and_pagination(settings):
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
         assert dict(request.url.params) == {
             "status": "all", "tag": "search", "source_client": "opencode",
-            "source_session_id": "ses_123/opaque", "limit": "5", "offset": "10",
-            "semantic": "true",
+            "source_session_id": "ses_123/opaque", "view": "full", "limit": "5",
+            "offset": "10", "semantic": "true",
         }
         assert request.extensions["timeout"]["read"] == 60.0
         assert request.extensions["timeout"]["connect"] == 5.0
@@ -1046,8 +1047,50 @@ async def test_search_passes_explicit_filters_and_pagination(settings):
 
     await adapter(settings, handler).call_tool("search_work", {
         "project_id": PROJECT_ID, "status": "all", "tag": "search", "source_client": "opencode",
-        "source_session_id": "ses_123/opaque", "semantic": True, "limit": 5, "offset": 10,
+        "source_session_id": "ses_123/opaque", "view": "full", "semantic": True,
+        "limit": 5, "offset": 10,
     })
+
+
+async def test_search_defaults_to_the_minimal_view_and_can_opt_up(settings, work_summary):
+    """The agent path is cheap by default; view="full" is an explicit opt-in."""
+    minimal_item = {
+        "work_item": {
+            name: work_summary["work_item"][name]
+            for name in ("id", "title", "status", "priority", "version", "updated_at")
+        },
+        "checkpoint_count": 1,
+        "display_state": "ready",
+    }
+    seen: list[str] = []
+
+    def handler(request):
+        seen.append(request.url.params["view"])
+        payload = minimal_item if request.url.params["view"] == "minimal" else work_summary
+        return httpx.Response(
+            200, json={"items": [payload], "total": 1, "limit": 30, "offset": 0}
+        )
+
+    server = adapter(settings, handler)
+    default = structured(await server.call_tool("search_work", {"project_id": PROJECT_ID}))
+    item = default["items"][0]
+    assert set(item) == {"work_item", "checkpoint_count", "display_state"}
+    assert set(item["work_item"]) == {
+        "id", "title", "status", "priority", "version", "updated_at"
+    }
+    assert item["display_state"] == "ready"
+    # No summary, no current-context pointer, no readiness object, no ancestor path.
+    assert "summary" not in item["work_item"]
+    assert "current_context" not in item
+    assert "readiness" not in item
+    assert "ancestor_path" not in item
+
+    full = structured(
+        await server.call_tool("search_work", {"project_id": PROJECT_ID, "view": "full"})
+    )
+    assert full["items"][0]["current_context"]["id"] == work_summary["current_context"]["id"]
+    assert full["items"][0]["readiness"]["display_state"] == "ready"
+    assert seen == ["minimal", "full"]
 
 
 async def test_semantic_search_unavailable_suggests_lexical_fallback(settings):

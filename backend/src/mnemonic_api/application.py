@@ -64,6 +64,7 @@ from mnemonic_api.schemas import (
     WorkItemPatch,
     WorkItemRead,
     WorkSummary,
+    WorkSummaryMinimal,
 )
 from mnemonic_api.semantic import Embedder, FastembedEmbedder, hybrid_rank
 from mnemonic_api.services.leases import (
@@ -83,6 +84,7 @@ from mnemonic_api.services.relationships import (
 from mnemonic_api.services.work_context import (
     assemble_work_context,
     checkpoint_read,
+    minimal_work_summaries,
     work_summaries,
 )
 from mnemonic_api.services.work_items import (
@@ -353,14 +355,14 @@ def create_work(
 
 @router.get(
     "/projects/{project_id}/work-items",
-    response_model=Page[WorkSummary | HierarchySummary],
+    response_model=Page[WorkSummary | HierarchySummary | WorkSummaryMinimal],
 )
 def search_work(
     project_id: UUID,
     filters: Annotated[WorkItemListQuery, Query()],
     request: Request,
     database: Database,
-) -> Page[WorkSummary | HierarchySummary]:
+) -> Page[WorkSummary | HierarchySummary | WorkSummaryMinimal]:
     if filters.view == "roots":
         hierarchy_items, hierarchy_total = hierarchy_page(database, project_id, filters)
         return Page(
@@ -370,6 +372,14 @@ def search_work(
             offset=filters.offset,
         )
     work_items, total = _search_work_rows(project_id, filters, request, database)
+    if filters.view == "minimal":
+        # Agent callers pay for every byte; skip the ancestor-path query too.
+        return Page(
+            items=minimal_work_summaries(database, work_items),
+            total=total,
+            limit=filters.limit,
+            offset=filters.offset,
+        )
     summaries = work_summaries(database, work_items)
     if (filters.q or "").strip():
         paths, truncated = ancestor_paths(

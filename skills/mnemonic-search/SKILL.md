@@ -22,13 +22,19 @@ evidence that the project has no saved work.
 3. Optional `tag`, `source_client`, and `source_session_id` filters match any
    checkpoint on a work item. Search returns each matching work item once even
    when several checkpoints match.
-4. Keep retrieval pointer-only. Present the title, summary, work-item ID,
-   project, lifecycle/readiness, checkpoint count, current-context provenance,
-   and relevant age. Only unresolved incoming `blocks` edges affect readiness;
+4. `view` controls how much each result carries. The tool defaults to
+   `minimal`: `id`, `title`, `status`, `priority`, `version`, `updated_at`,
+   `checkpoint_count`, and `display_state` — enough to choose between items.
+   Ask for `view="full"` only when the summary, current-context provenance, or
+   ancestor path is actually needed; browsing a large project at `full` can
+   cost tens of thousands of tokens. Recall the one item you chose instead of
+   widening every result.
+5. Keep retrieval pointer-only. Present the title, work-item ID, project,
+   lifecycle/readiness, checkpoint count, and relevant age. Only unresolved incoming `blocks` edges affect readiness;
    an active lease and blocked readiness can coexist. Never describe search as a
    claimable or authoritative ready queue. Do not fetch every checkpoint body
    into an unrelated task.
-5. Use `limit` and `offset` to paginate and disclose when only a subset was
+6. Use `limit` and `offset` to paginate and disclose when only a subset was
    shown. An empty page at a high offset does not mean no matches exist. Default
    to `open`; use `done`, `wont-do`, `promoted`, or `all` only for requested
    lifecycle history. Deleted records remain excluded.

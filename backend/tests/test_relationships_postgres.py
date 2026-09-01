@@ -527,7 +527,7 @@ def test_atomic_linked_creation_hierarchy_filters_and_search_ancestry(
 
     search = api.get(
         work_collection(project),
-        params={"q": "Deep searchable descendant", "status": "all", "view": "all"},
+        params={"q": "Deep searchable descendant", "status": "all", "view": "full"},
     )
     assert search.status_code == 200, search.text
     hit = next(

@@ -241,7 +241,7 @@ Work list/search accepts:
 | `tag` | matches any checkpoint |
 | `source_client` | matches any checkpoint |
 | `source_session_id` | matches any checkpoint |
-| `view` | `all` by default; `roots` for structural root browsing |
+| `view` | `full` by default; `minimal` for pointer-only results; `roots` for structural root browsing |
 | `limit` | 30 by default, maximum 100 |
 | `offset` | 0 by default |
 
@@ -252,9 +252,14 @@ Hybrid `total` retains the full lifecycle/metadata-qualified candidate count;
 relevance controls its page order. Search results never contain prompt or
 source-metadata bodies.
 
-`view=all` returns flat `WorkSummary` pages. A nonblank `q` requires that view
-and gives each direct hit a bounded root-to-parent `ancestor_path` plus an
-`ancestor_path_truncated` flag. `view=roots` forbids free-text search and returns
+`view=full` returns flat `WorkSummary` pages. A nonblank `q` requires `full` or
+`minimal`, and under `full` gives each direct hit a bounded root-to-parent
+`ancestor_path` plus an `ancestor_path_truncated` flag. `view=minimal` returns
+`WorkSummaryMinimal` pages carrying only `work_item` (`id`, `title`, `status`,
+`priority`, `version`, `updated_at`), `checkpoint_count`, and `display_state`;
+it skips the ancestor-path query entirely. REST defaults to `full` for the
+dashboard; the MCP `search_work` tool defaults to `minimal` for agent callers.
+`view=roots` forbids free-text search and returns
 `HierarchySummary` root branches. Root filters are subtree-aware: a structural
 root remains when it or any descendant matches, and `total` counts qualifying
 roots rather than descendants.
@@ -289,6 +294,9 @@ time fields.
 
 `WorkSummary` contains `work_item`, `checkpoint_count`, `ancestor_path`,
 `ancestor_path_truncated`, `current_context` as a pointer, and `readiness`.
+`WorkSummaryMinimal` contains only a `work_item` pointer (`id`, `title`,
+`status`, `priority`, `version`, `updated_at`), `checkpoint_count`, and
+`display_state`.
 The ancestor path is empty for browse/root/child results and root-to-parent for
 free-text descendant hits. `Readiness` contains lifecycle, terminal, active,
 blocked, and ready booleans, unresolved blocker count, display state, and an
@@ -310,6 +318,7 @@ and lifecycle fields remain authoritative.
 work_item
 initial_checkpoint
 current_context
+current_context_is_initial
 recent_checkpoints
 checkpoint_total
 omitted_checkpoint_count
@@ -321,8 +330,12 @@ relationship_counts
 ```
 
 `current_context` is the newest context-kind checkpoint, not the newest
-progress or completion record. Recent checkpoints are chronological and exclude
-the initial/current IDs. Each immediate relationship list contains at most 50
+progress or completion record. It is `null` when that checkpoint is the initial
+one, in which case `current_context_is_initial` is `true` and the client reads
+`initial_checkpoint`; no checkpoint body is ever serialized twice. Recent
+checkpoints are chronological and exclude the initial/current IDs.
+`checkpoint_total` counts the whole history and `omitted_checkpoint_count`
+counts what this payload left out. Each immediate relationship list contains at most 50
 pointer-only counterparts; `relationship_counts` covers all adjacent edges by
 direction even when a list is truncated.
 

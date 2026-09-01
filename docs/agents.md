@@ -39,7 +39,10 @@ before writing.
 ## Search, recall, and history
 
 `search_work` returns compact work pointers, normally restricted to `open`.
-Lexical PostgreSQL retrieval is the default; `semantic=true` explicitly opts
+Its `view` parameter selects how much each result carries: the MCP tool
+defaults to `minimal` (identity, `checkpoint_count`, `display_state`) because
+an agent pays for every byte, while the REST endpoint defaults to `full` for
+the dashboard list. Lexical PostgreSQL retrieval is the default; `semantic=true` explicitly opts
 into hybrid similarity. Search is project-scoped and paginated, returns one
 result per work item even when several checkpoints match, and never returns
 prompt bodies or source metadata. It is retrieval, not a ready-work queue.

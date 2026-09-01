@@ -35,6 +35,7 @@ from .models import (
     RelationshipType,
     ReleaseResult,
     SearchStatus,
+    SearchView,
     UpdateStatus,
     WorkChanges,
     WorkCompletion,
@@ -247,16 +248,18 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         tag: Annotated[str | None, Field(max_length=50)] = None,
         source_client: Annotated[str | None, Field(max_length=80)] = None,
         source_session_id: Annotated[str | None, Field(max_length=200)] = None,
+        view: SearchView = "minimal",
         limit: Annotated[int, Field(ge=1, le=100)] = 30,
         offset: Annotated[int, Field(ge=0)] = 0,
     ) -> WorkPage:
-        """Search compact work pointers, open-only and lexical by default. Matching checkpoints never duplicate work results or add prompt bodies to this response."""
+        """Find work items to choose between, open-only and lexical by default. Each result is a pointer: no checkpoint prompt bodies, and a matching checkpoint never adds a duplicate row. view="minimal" (the default here) returns only id, title, status, priority, version, updated_at, checkpoint_count, and display_state; view="full" adds the summary, a current-context pointer, full readiness, and the ancestor path. The dashboard's REST default is "full"; this tool defaults to "minimal" because an agent pays for every byte. Recall one item for its context; do not reconstruct context from search."""
         params: dict[str, object | None] = {
             "q": q,
             "status": status,
             "tag": tag,
             "source_client": source_client,
             "source_session_id": source_session_id,
+            "view": view,
             "limit": limit,
             "offset": offset,
         }

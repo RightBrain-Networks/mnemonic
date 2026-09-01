@@ -103,7 +103,7 @@ async def find_synthetic_work(
         params={
             "q": marker,
             "status": "all",
-            "view": "all",
+            "view": "full",
             "limit": 100,
             "offset": 0,
         },

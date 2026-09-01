@@ -458,6 +458,29 @@ class RelationshipRemovalResult(APIModel):
     removed: bool
 
 
+class WorkItemPointer(APIModel):
+    id: UUID
+    title: str
+    status: Status
+    priority: int
+    version: int
+    updated_at: datetime
+
+    @field_serializer("updated_at")
+    def utc_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class WorkSummaryMinimal(APIModel):
+    """The cheapest shape that still supports choosing between work items."""
+
+    work_item: WorkItemPointer
+    checkpoint_count: int
+    display_state: Literal["ready", "active", "blocked", "done", "wont-do", "promoted"] = Field(
+        description="readiness.display_state; request view=full for the whole readiness object."
+    )
+
+
 class WorkSummary(APIModel):
     work_item: WorkItemRead
     checkpoint_count: int
@@ -562,7 +585,7 @@ class WorkItemListQuery(APIModel):
     tag: Tag | None = None
     source_client: ClientName | None = None
     source_session_id: SessionID | None = None
-    view: Literal["all", "roots"] = "all"
+    view: Literal["full", "minimal", "roots"] = "full"
     limit: int = Field(default=30, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
 
@@ -577,7 +600,7 @@ class WorkItemListQuery(APIModel):
         if self.semantic and not query:
             raise ValueError("semantic=true requires a nonblank q")
         if self.view == "roots" and query:
-            raise ValueError("A nonblank q requires view=all")
+            raise ValueError("A nonblank q requires view=full or view=minimal")
         return self
 
 

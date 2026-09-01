@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 Status = Literal["open", "done", "wont-do", "promoted"]
 UpdateStatus = Literal["open", "wont-do", "promoted"]
 SearchStatus = Literal["open", "done", "wont-do", "promoted", "all"]
+SearchView = Literal["minimal", "full"]
 CheckpointKind = Literal["context", "progress", "completion"]
 AppendCheckpointKind = Literal["context", "progress"]
 CheckpointOrder = Literal["oldest", "newest"]
@@ -212,8 +213,27 @@ class WorkSummary(CanonicalResponse):
     readiness: Readiness
 
 
+class WorkItemPointer(CanonicalResponse):
+    id: UUID
+    title: str
+    status: Status
+    priority: int
+    version: int
+    updated_at: datetime
+
+
+class WorkSummaryMinimal(CanonicalResponse):
+    # Strict: a full WorkSummary must never validate as the minimal shape.
+    model_config = ConfigDict(extra="forbid")
+
+    work_item: WorkItemPointer
+    checkpoint_count: int
+    display_state: DisplayState
+
+
 class WorkPage(CanonicalResponse):
-    items: list[WorkSummary]
+    # view="minimal" yields WorkSummaryMinimal items; view="full" yields WorkSummary.
+    items: list[WorkSummary | WorkSummaryMinimal]
     total: int
     limit: int
     offset: int

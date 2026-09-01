@@ -1,5 +1,6 @@
 """Phase 1 canonical work/checkpoint API and database invariants."""
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from uuid import UUID, uuid4
@@ -136,6 +137,41 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
         "undirected": 0,
         "total": 0,
     }
+
+
+def test_minimal_view_returns_only_choosing_fields(api, project, work_payload):
+    created = api.post(collection(project), json=work_payload).json()
+    work_item = created["work_item"]
+
+    minimal = api.get(collection(project), params={"view": "minimal"})
+    assert minimal.status_code == 200, minimal.text
+    item = minimal.json()["items"][0]
+    assert item == {
+        "work_item": {
+            "id": work_item["id"],
+            "title": work_item["title"],
+            "status": work_item["status"],
+            "priority": work_item["priority"],
+            "version": work_item["version"],
+            "updated_at": work_item["updated_at"],
+        },
+        "checkpoint_count": 1,
+        "display_state": "ready",
+    }
+
+    # The dashboard shape is unchanged and remains the REST default.
+    default = api.get(collection(project)).json()["items"][0]
+    assert default == api.get(collection(project), params={"view": "full"}).json()["items"][0]
+    assert set(default) == {
+        "work_item",
+        "checkpoint_count",
+        "ancestor_path",
+        "ancestor_path_truncated",
+        "current_context",
+        "readiness",
+    }
+    # Minimal is strictly cheaper than the shape it replaces for agent callers.
+    assert len(json.dumps(item)) < len(json.dumps(default))
 
 
 def test_append_history_current_context_and_terminal_clarification(
