@@ -1,6 +1,6 @@
 # Mnemonic Phase 6 — Idempotent Mutations Implementation Plan
 
-**Status:** Implemented and fully verified 2026-09-01; post-implementation cold review pending
+**Status:** Implemented, fully verified, and cold-reviewed 2026-09-01
 
 **Scope:** Roadmap Phase 6, “Idempotent Mutations”
 
@@ -8,13 +8,13 @@
 
 **Planning precedent:** `docs/phases-4-5-implementation-plan.md`
 
-**Implementation baseline:** implementation rebased onto main at commit `13357b1`, where
+**Implementation baseline:** implementation rebased onto main through commit `777e81f`, where
 `0012_pending_deferred_statuses` follows `0011_project_settings`; the shipped Phase 5
 milestone is `f959ea5`
 
 **Planning constraint:** this document defines implementation work; it does not implement it.
 
-**Observed implementation evidence:** `docs/validation.md`, “Phase 6 idempotent-mutation
+**Observed implementation evidence:** `docs/validation.md`, “Phase 6 final integrated
 validation”
 
 **Final integration amendment (2026-09-01):** While Phase 6 was being implemented, main gained
@@ -1069,6 +1069,12 @@ append actions, and work create likewise use explicit conflict groups without bo
 another's operation key. A second click while a request is in flight is coalesced or disabled; if
 it reaches the backend, it still uses the same frozen request.
 
+Every browser attempt has one 20-second client deadline, five seconds above the proxy's ordinary
+15-second upstream timeout. Its per-attempt abort signal remains active across both `fetch` and
+strict response-body decoding, while a deadline race also bounds a transport or decoder that
+ignores abort. Deadline expiry retains the intent as unresolved; settling any path clears the
+timer, and a late response cannot mutate registry state.
+
 Replace the generic compile-time cast in `frontend/lib/api.ts` for these nine mutation paths with
 a closed per-operation runtime response registry. Each entry fixes the expected success status and
 a strict body decoder for the corresponding REST response. A response is definitive success only
@@ -1841,6 +1847,8 @@ Phase 6 is complete only when all items below are true.
 - [x] All nine dashboard mutations use a dashboard-owned frozen same-document registry and
       exact-body retry; unresolved dispatched intent survives component unmount and blocks every
       intersecting conflict key, including checkpoint versus completion.
+- [x] One 20-second browser deadline covers fetch and strict body decoding; hung fetch/body paths
+      become unresolved and preserve the exact UUID, method, path, and frozen body for retry.
 - [x] An asserted exact-key conflict enters a retained safety state and cannot fall into ordinary
       edit/new-key flow.
 - [x] Strict per-operation runtime decoders clear browser recovery only after the expected status,
@@ -1912,3 +1920,22 @@ blocker or high-severity issue. Its residual medium finding (unkeyed covered liv
 low finding (exact versus proper-substring secret tests) are resolved in Sections 3.10, 6.6, 11.5,
 and 11.6. This disposition records planning decisions, not implementation evidence; every item
 remains subject to the Section 19 release gates.
+
+## 21. Post-implementation cold code review disposition
+
+A fresh-context adversarial review of the completed code found two high-severity recovery gaps.
+First, the new request-side reserved-metadata rule had also been applied to historical MCP
+progress-event decoding, which would reject legacy nested or case-varied
+`client_operation_id` keys that Phase 6 must preserve. The implementation now uses separate
+request and historical metadata validators, and tests exercise both event listing and recall.
+
+Second, the browser registry could wait forever in `in_flight` if either the request or response
+body stalled. A per-attempt 20-second deadline now passes an abort signal through fetch and strict
+body decoding, races the complete transport/decoder path, retains expiry as unresolved, and clears
+its timer on every settled path. Dedicated hung-fetch and hung-body tests prove exact same-key and
+frozen-body retry after the deadline.
+
+The reviewer and a second read-only reviewer inspected the remediation without editing it and
+found no remaining blocker, high-severity, or medium-severity issue. The final MCP suite passed 186 tests;
+the frontend passed 96 unit tests, typecheck, production build, and 36/36 isolated Playwright
+executions. The full backend suite and Ruff gate remained green at 314 tests.

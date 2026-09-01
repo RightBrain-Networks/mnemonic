@@ -11,6 +11,7 @@ import {
 import {
   classifyMutationResponse,
   type FrozenMutationRequest,
+  type MutationHttpOutcome,
   type MutationKind,
   type MutationResultByKind
 } from "./mutation-responses.ts";
@@ -67,6 +68,7 @@ type RecoveryListener = (intent: MutationIntentSummary) => void;
 const UNKNOWN_OUTCOME = "The mutation outcome is unknown. Retry the same pending action.";
 const SAFETY_CONFLICT = "Mnemonic could not match this retry to its original request. This action remains blocked; stop and inspect the client or server state before continuing.";
 const BLOCKED = "A related mutation has an unresolved outcome. Resolve that pending action before making another change.";
+const MUTATION_REQUEST_DEADLINE_MS = 20_000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function immutableIntent<K extends MutationKind>(intent: MutationIntent<K>): MutationIntent<K> {
@@ -115,6 +117,7 @@ export function mutationCreateKey(projectId: string): string {
 export class MutationIntentRegistry {
   readonly #fetcher: Fetcher;
   readonly #uuidFactory: UuidFactory;
+  readonly #requestDeadlineMs: number;
   readonly #intents = new Map<string, MutationIntent>();
   readonly #listeners = new Set<Listener>();
   readonly #recoveryListeners = new Set<RecoveryListener>();
@@ -123,10 +126,15 @@ export class MutationIntentRegistry {
 
   constructor(
     fetcher: Fetcher = (input, init) => fetch(input, init),
-    uuidFactory: UuidFactory = () => crypto.randomUUID()
+    uuidFactory: UuidFactory = () => crypto.randomUUID(),
+    requestDeadlineMs = MUTATION_REQUEST_DEADLINE_MS
   ) {
+    if (!Number.isInteger(requestDeadlineMs) || requestDeadlineMs <= 0) {
+      throw new Error("The mutation request deadline must be a positive integer.");
+    }
     this.#fetcher = fetcher;
     this.#uuidFactory = uuidFactory;
+    this.#requestDeadlineMs = requestDeadlineMs;
   }
 
   readonly subscribe = (listener: Listener): (() => void) => {
@@ -268,23 +276,36 @@ export class MutationIntentRegistry {
     intent: MutationIntent<K>,
     recovered: boolean
   ): Promise<MutationResultByKind[K]> {
-    let response: Response;
+    const controller = new AbortController();
+    let deadlineHandle: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      deadlineHandle = setTimeout(() => {
+        controller.abort();
+        reject(new Error("The mutation request deadline expired."));
+      }, this.#requestDeadlineMs);
+    });
+    let outcome: MutationHttpOutcome<K>;
     try {
-      response = await this.#fetcher(`/api/mnemonic${intent.path}`, {
-        method: intent.method,
-        body: intent.body,
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: { Accept: "application/json", "Content-Type": "application/json" }
-      });
+      outcome = await Promise.race([
+        (async () => {
+          const response = await this.#fetcher(`/api/mnemonic${intent.path}`, {
+            method: intent.method,
+            body: intent.body,
+            credentials: "same-origin",
+            cache: "no-store",
+            headers: { Accept: "application/json", "Content-Type": "application/json" },
+            signal: controller.signal
+          });
+          return classifyMutationResponse(intent, response);
+        })(),
+        deadline
+      ]);
     } catch {
       this.#retain(intent, "unresolved", UNKNOWN_OUTCOME);
       throw new MutationIntentError(UNKNOWN_OUTCOME, "unresolved", intent.slot);
+    } finally {
+      if (deadlineHandle !== undefined) clearTimeout(deadlineHandle);
     }
-    const outcome = await classifyMutationResponse(intent, response).catch(() => {
-      this.#retain(intent, "unresolved", UNKNOWN_OUTCOME);
-      throw new MutationIntentError(UNKNOWN_OUTCOME, "unresolved", intent.slot);
-    });
     if (outcome.type === "success") {
       this.#intents.delete(intent.slot);
       this.#emit();

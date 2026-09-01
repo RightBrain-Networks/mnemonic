@@ -42,11 +42,11 @@ MCP tools, and nine browser intents.
   backend Ruff check was clean.** The run produced three known warnings.
   Focused migration validation passed four tests, and the deterministic
   receipt-race, deferral, and readiness batches also passed.
-- **The full MCP suite passed 185 tests in its separate environment.** The
+- **The full MCP suite passed 186 tests in its separate environment.** The
   protected surface remains exactly nine MCP mutation tools within the exact
   22-tool catalog.
-- **The frontend passed 94 unit tests, TypeScript checking, and the production
-  build.** The complete isolated Playwright stack then passed 34/34 executions
+- **The frontend passed 96 unit tests, TypeScript checking, and the production
+  build.** The complete isolated Playwright stack then passed 36/36 executions
   in 1.1 minutes across desktop and narrow Chromium. Its disposable stack was
   cleaned after the run.
 - **Both plugin manifests validated, and real disposable installation drills
@@ -75,9 +75,18 @@ MCP tools, and nine browser intents.
   diagnostic query against the nonexistent `mutation_receipts` name; it was not
   an application runtime query or failure.
 
-The post-implementation cold adversarial code review was still pending when
-this integrated validation evidence was recorded, so this section makes no
-claim about that review's result.
+The post-implementation cold adversarial code review found and drove fixes for
+two high-severity recovery gaps. Request-only MCP metadata validation had been
+reused for historical progress-event reads, so nested legacy
+`Client_Operation_ID` metadata could no longer be recalled; request and
+historical validators are now separate, with a regression through both event
+listing and recall. The browser mutation registry also lacked a client-side
+deadline spanning both `fetch` and response-body decoding, so a stalled request
+could remain permanently in flight. Every attempt now has a 20-second deadline,
+five seconds above the ordinary proxy timeout, with one abort signal kept active
+through strict decoding; hung-fetch and hung-body tests prove transition to
+unresolved followed by exact UUID/method/path/body retry. Read-only remediation
+reviews found no remaining blocker or high-severity issue.
 
 ## Phase 6 pre-integration validation checkpoint — 2026-09-01
 

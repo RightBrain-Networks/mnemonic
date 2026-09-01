@@ -85,6 +85,69 @@ test("double submission coalesces one in-flight request", async () => {
   assert.equal(fetchCount, 1);
 });
 
+test("a hung fetch becomes retryable with the exact frozen request", { timeout: 1_000 }, async () => {
+  const calls = [];
+  const registry = new MutationIntentRegistry((url, init) => {
+    calls.push({ url: String(url), method: init.method, body: init.body, signal: init.signal });
+    if (calls.length > 1) return Promise.resolve(deletionResponse());
+    return new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+    });
+  }, () => operation, 10);
+
+  await assert.rejects(
+    registry.execute(deletionInput()),
+    (error) => error instanceof MutationIntentError && error.state === "unresolved"
+  );
+  const retained = registry.get(deletionInput().slot);
+  assert.equal(retained.state, "unresolved");
+  assert.equal(calls[0].signal.aborted, true);
+
+  const result = await registry.retry(deletionInput().slot);
+  assert.equal(result.version, 3);
+  assert.deepEqual(
+    calls.map(({ url, method, body }) => ({ url, method, body })),
+    [calls[0], calls[0]].map(({ url, method, body }) => ({ url, method, body }))
+  );
+  assert.equal(JSON.parse(calls[1].body).client_operation_id, operation);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(calls[1].signal.aborted, false);
+});
+
+test("a hung response body becomes retryable with the exact frozen request", {
+  timeout: 1_000
+}, async () => {
+  const calls = [];
+  let bodyReadStarted = false;
+  const registry = new MutationIntentRegistry(async (url, init) => {
+    calls.push({ url: String(url), method: init.method, body: init.body, signal: init.signal });
+    if (calls.length > 1) return deletionResponse();
+    return {
+      status: 200,
+      text: () => {
+        bodyReadStarted = true;
+        return new Promise(() => {});
+      }
+    };
+  }, () => operation, 10);
+
+  await assert.rejects(
+    registry.execute(deletionInput()),
+    (error) => error instanceof MutationIntentError && error.state === "unresolved"
+  );
+  assert.equal(bodyReadStarted, true);
+  assert.equal(calls[0].signal.aborted, true);
+  assert.equal(registry.get(deletionInput().slot).state, "unresolved");
+
+  const result = await registry.retry(deletionInput().slot);
+  assert.equal(result.version, 3);
+  assert.deepEqual(
+    calls.map(({ url, method, body }) => ({ url, method, body })),
+    [calls[0], calls[0]].map(({ url, method, body }) => ({ url, method, body }))
+  );
+  assert.equal(JSON.parse(calls[1].body).client_operation_id, operation);
+});
+
 test("prepared intents can be discarded, but dispatched ambiguity blocks intersecting work", async () => {
   let uuidCount = 0;
   const registry = new MutationIntentRegistry(
