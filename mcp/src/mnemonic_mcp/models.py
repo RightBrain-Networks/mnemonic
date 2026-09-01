@@ -236,8 +236,13 @@ class RelationshipCounts(CanonicalResponse):
 class WorkContext(CanonicalResponse):
     work_item: WorkItemRead
     initial_checkpoint: CheckpointRead
-    current_context: CheckpointRead
+    # Null when the newest context checkpoint is the initial one; read
+    # initial_checkpoint instead. The body is never serialized twice.
+    current_context: CheckpointRead | None
+    current_context_is_initial: bool
+    # Never repeats initial_checkpoint or current_context.
     recent_checkpoints: list[CheckpointRead]
+    # Every checkpoint on the work item; omitted counts what is not in this payload.
     checkpoint_total: int
     omitted_checkpoint_count: int
     readiness: Readiness

@@ -170,7 +170,10 @@ export interface RelationshipCounts {
 export interface WorkContext {
   work_item: WorkItem;
   initial_checkpoint: Checkpoint;
-  current_context: Checkpoint;
+  // Null when the newest context checkpoint is the initial one; read
+  // initial_checkpoint instead. Use currentContext() rather than reading this.
+  current_context: Checkpoint | null;
+  current_context_is_initial: boolean;
   recent_checkpoints: Checkpoint[];
   checkpoint_total: number;
   omitted_checkpoint_count: number;

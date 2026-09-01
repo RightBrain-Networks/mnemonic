@@ -489,10 +489,31 @@ class RelationshipCounts(APIModel):
 class WorkContext(APIModel):
     work_item: WorkItemRead
     initial_checkpoint: CheckpointRead
-    current_context: CheckpointRead
-    recent_checkpoints: list[CheckpointRead]
-    checkpoint_total: int
-    omitted_checkpoint_count: int
+    current_context: CheckpointRead | None = Field(
+        description=(
+            "The newest context checkpoint, or null when it is the initial checkpoint. "
+            "When current_context_is_initial is true, read initial_checkpoint instead; "
+            "the body is never serialized twice."
+        )
+    )
+    current_context_is_initial: bool = Field(
+        description="True when the newest context checkpoint is the initial checkpoint."
+    )
+    recent_checkpoints: list[CheckpointRead] = Field(
+        description=(
+            "Older checkpoints for context, newest first. Never repeats the checkpoint "
+            "returned as initial_checkpoint or current_context."
+        )
+    )
+    checkpoint_total: int = Field(
+        description="Every checkpoint on this work item, including those not returned here."
+    )
+    omitted_checkpoint_count: int = Field(
+        description=(
+            "checkpoint_total minus the distinct checkpoints in this payload. Page the "
+            "remainder with list_checkpoints."
+        )
+    )
     readiness: Readiness
     incoming_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
     outgoing_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)

@@ -120,7 +120,10 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
     context = api.get(f"{item_path(project, work_item)}/context").json()
     assert context["work_item"] == work_item
     assert context["initial_checkpoint"] == initial
-    assert context["current_context"] == initial
+    # A single-checkpoint item serializes that body once: current_context is null
+    # and the client reads initial_checkpoint.
+    assert context["current_context"] is None
+    assert context["current_context_is_initial"] is True
     assert context["recent_checkpoints"] == []
     assert context["checkpoint_total"] == 1
     assert context["omitted_checkpoint_count"] == 0
@@ -179,6 +182,11 @@ def test_append_history_current_context_and_terminal_clarification(
 
     context = api.get(f"{endpoint}/context", params={"recent_limit": 1}).json()
     assert context["current_context"]["id"] == correction.json()["id"]
+    assert context["current_context_is_initial"] is False
+    # No checkpoint body is serialized twice.
+    returned = [context["initial_checkpoint"]["id"], context["current_context"]["id"]]
+    returned += [row["id"] for row in context["recent_checkpoints"]]
+    assert len(returned) == len(set(returned))
     assert [row["id"] for row in context["recent_checkpoints"]] == [
         later_progress.json()["id"]
     ]
@@ -228,6 +236,7 @@ def test_append_history_current_context_and_terminal_clarification(
     assert api.get(endpoint).json()["status"] == "done"
     terminal_context = api.get(f"{endpoint}/context").json()
     assert terminal_context["current_context"]["id"] == clarification.json()["id"]
+    assert terminal_context["current_context_is_initial"] is False
     assert terminal_context["readiness"]["display_state"] == "done"
 
 

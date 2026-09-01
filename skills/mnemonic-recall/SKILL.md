@@ -13,8 +13,13 @@ act on a search pointer alone.
 
 Call `recall_work(project_id, work_item_id)` when the user only wants to view,
 copy, or summarize bounded resume context. It returns durable work identity,
-initial and current context, a recent distinct checkpoint window, checkpoint
-totals/omissions, readiness, and immediate graph facts. The
+`initial_checkpoint`, `current_context`, a recent distinct checkpoint window,
+checkpoint totals/omissions, readiness, and immediate graph facts. No
+checkpoint body is ever returned twice: when the newest context checkpoint is
+the initial one, `current_context` is `null` and `current_context_is_initial`
+is `true`, so read `initial_checkpoint`. `recent_checkpoints` never repeats
+either of them. `checkpoint_total` counts the whole history and
+`omitted_checkpoint_count` counts what this payload left out. The
 `mnemonic://projects/{project_id}/work-items/{work_item_id}` resource and
 `resume_work` prompt expose the same bounded context; neither executes work or
 claims it. If recall fails, explain the failure instead of reconstructing

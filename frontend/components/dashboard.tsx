@@ -7,6 +7,7 @@ import WorkItemList, { WORK_PAGE_SIZE } from "@/components/work-item-list";
 import { StatusBadge, formatDate } from "@/components/work-item-card";
 import { draftFromWork, type WorkEditDraft } from "@/components/work-item-editor";
 import { api, errorMessage, isVersionConflict, workItemPath } from "@/lib/api";
+import { currentContext } from "@/lib/current-context";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
 import { connectLiveSync, invalidatesOpenWork, type LiveSyncStatus } from "@/lib/live-sync";
@@ -94,7 +95,7 @@ function summaryWithContext(base: WorkSummary, context: WorkContext): WorkSummar
     ...base,
     work_item: context.work_item,
     checkpoint_count: context.checkpoint_total,
-    current_context: context.current_context,
+    current_context: currentContext(context),
     readiness: context.readiness
   };
 }

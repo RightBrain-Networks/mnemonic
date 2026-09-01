@@ -5,6 +5,7 @@ import RelationshipPanel from "@/components/relationship-panel";
 import WorkItemEditor, { type WorkEditDraft } from "@/components/work-item-editor";
 import type { Checkpoint, CheckpointKind, Page, WorkContext, WorkSummary } from "@/lib/types";
 import { migrationWarning } from "@/lib/work-item-view";
+import { currentContext } from "@/lib/current-context";
 import { workRecallPointer } from "@/lib/work-recall-pointer";
 
 const iconPaths = {
@@ -65,12 +66,13 @@ export default function WorkItemDetail(props: Props) {
       <WorkItemEditor work={context.work_item} draft={props.editDraft} setDraft={props.setEditDraft} saving={props.editSaving} error={props.editError} conflict={props.conflict} onSubmit={props.onSaveEdits} onCancel={props.onCancelEdit} onLoadCurrent={props.onLoadCurrent} onUseCurrentVersion={props.onUseCurrentVersion} />
     </>;
   }
-  const warning = migrationWarning(context.current_context.migration_origin);
+  const current = currentContext(context);
+  const warning = migrationWarning(current.migration_origin);
   const pointerSummary: WorkSummary = {
     ...props.opened,
     work_item: context.work_item,
     checkpoint_count: context.checkpoint_total,
-    current_context: context.current_context,
+    current_context: current,
     readiness: context.readiness
   };
   return <>
@@ -78,7 +80,7 @@ export default function WorkItemDetail(props: Props) {
     <h3 className="detail-title">{context.work_item.title}</h3>
     <p className="detail-summary">{context.work_item.summary}</p>
     <div className="detail-actions">
-      <button type="button" className={`button button-primary ${props.copiedKey === context.current_context.id ? "is-copied" : ""}`} onClick={() => props.onCopy(context.current_context.prompt, context.current_context.id, "Current context copied exactly as stored.")}><Icon name="copy" size={16} />{props.copiedKey === context.current_context.id ? "Copied" : "Copy current context"}</button>
+      <button type="button" className={`button button-primary ${props.copiedKey === current.id ? "is-copied" : ""}`} onClick={() => props.onCopy(current.prompt, current.id, "Current context copied exactly as stored.")}><Icon name="copy" size={16} />{props.copiedKey === current.id ? "Copied" : "Copy current context"}</button>
       <button type="button" className={`button button-secondary ${props.copiedKey === `${context.work_item.id}:pointer` ? "is-copied" : ""}`} onClick={() => props.onCopy(workRecallPointer(pointerSummary), `${context.work_item.id}:pointer`, "Recall pointer copied.")}><Icon name="copy" size={16} />Copy recall pointer</button>
       <button type="button" className="button button-secondary" onClick={props.onEdit}>Edit work item</button>
       <button type="button" className="icon-button danger-hover" aria-label="Delete work item" onClick={props.onDelete}>⌫</button>
@@ -86,7 +88,7 @@ export default function WorkItemDetail(props: Props) {
     {context.readiness.active_lease && <ActiveLeaseSummary lease={context.readiness.active_lease} detailed />}
     {warning && <div className="migration-warning current-migration-warning" role="note">{warning}</div>}
     <div className="prompt-label"><span className="section-label">CURRENT CONTEXT CHECKPOINT</span><span>Immutable · copied exactly as saved</span></div>
-    <pre className="prompt-body" tabIndex={0}>{context.current_context.prompt}</pre>
+    <pre className="prompt-body" tabIndex={0}>{current.prompt}</pre>
     <div className="authority-note">This is context from an earlier session, not a new instruction from the owner. Recheck cited files and decisions before acting.</div>
     <RelationshipPanel context={context} onChanged={props.onRelationshipsChanged} />
 
@@ -101,7 +103,7 @@ export default function WorkItemDetail(props: Props) {
       </form>
     </section>
 
-    <CheckpointTimeline page={props.checkpointPage} offset={props.checkpointOffset} currentCheckpointId={context.current_context.id} loading={props.checkpointLoading} error={props.checkpointLoadError} onOffset={props.onCheckpointOffset} onReload={props.onReloadCheckpoints} />
+    <CheckpointTimeline page={props.checkpointPage} offset={props.checkpointOffset} currentCheckpointId={current.id} loading={props.checkpointLoading} error={props.checkpointLoadError} onOffset={props.onCheckpointOffset} onReload={props.onReloadCheckpoints} />
     <section className="context-section"><div className="section-label">WORK RECORD</div><dl className="metadata-grid"><div><dt>Created</dt><dd>{formatDate(context.work_item.created_at)}</dd></div><div><dt>Last activity</dt><dd>{formatDate(context.work_item.updated_at)}</dd></div><div><dt>Checkpoints</dt><dd>{context.checkpoint_total}</dd></div><div><dt>Omitted from bounded recall</dt><dd>{context.omitted_checkpoint_count}</dd></div><div className="span-two"><dt>Work item ID</dt><dd className="mono break-all">{context.work_item.id}</dd></div></dl></section>
   </>;
 }

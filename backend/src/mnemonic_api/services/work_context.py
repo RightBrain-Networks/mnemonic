@@ -400,10 +400,14 @@ def assemble_work_context(
     blocker_count = int(row["unresolved_blocker_count"])
     materialized_ids = {initial.id, current.id, *(item.id for item in recent)}
     total = int(row["checkpoint_total"])
+    # One checkpoint body per payload: when the newest context checkpoint is the
+    # initial one, the client reads initial_checkpoint instead of a second copy.
+    current_is_initial = current.id == initial.id
     return WorkContext(
         work_item=work_item,
         initial_checkpoint=initial,
-        current_context=current,
+        current_context=None if current_is_initial else current,
+        current_context_is_initial=current_is_initial,
         recent_checkpoints=recent,
         checkpoint_total=total,
         omitted_checkpoint_count=total - len(materialized_ids),

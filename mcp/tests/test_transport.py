@@ -79,11 +79,14 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         assert called.status_code == 200
         result = called.json()["result"]
         assert result["isError"] is False
-        assert result["structuredContent"]["current_context"]["prompt"] == (
-            work_context["current_context"]["prompt"]
+        # A single-checkpoint item carries its body once, on initial_checkpoint.
+        assert result["structuredContent"]["current_context"] is None
+        assert result["structuredContent"]["current_context_is_initial"] is True
+        assert result["structuredContent"]["initial_checkpoint"]["prompt"] == (
+            work_context["initial_checkpoint"]["prompt"]
         )
-        assert result["structuredContent"]["current_context"]["source_session_id"] == (
-            work_context["current_context"]["source_session_id"]
+        assert result["structuredContent"]["initial_checkpoint"]["source_session_id"] == (
+            work_context["initial_checkpoint"]["source_session_id"]
         )
     assert len(seen) == 1
 

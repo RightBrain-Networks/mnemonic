@@ -198,7 +198,9 @@ def work_context(work_item, checkpoint, readiness):
     return {
         "work_item": work_item,
         "initial_checkpoint": checkpoint,
-        "current_context": checkpoint,
+        # Recall serializes a single-checkpoint item's body once.
+        "current_context": None,
+        "current_context_is_initial": True,
         "recent_checkpoints": [],
         "checkpoint_total": 1,
         "omitted_checkpoint_count": 0,
