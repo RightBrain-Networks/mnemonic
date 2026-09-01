@@ -12,11 +12,9 @@ It does not modify Claude's memory subsystem. While Claude Code is the first cli
 
 - Important FYIs and follow-up tasks are often overlooked because they get buried under verbose LLM output.
 
-- Dozens or hundreds of transient Markdown documents are cluttering your repo. Or, your issue tracker has so many AI-written issues that it's become painful for a human eyes.
+- Dozens or hundreds of transient Markdown documents are cluttering your repo. Or, your issue tracker has so many AI-written issues that it's become painful for human eyes.
 
 - Multiple agents are concurrently working on the same project and occasionally clobber each other.
-
-- You prefer a managing a locally-hosted Docker stack rather than paying for a SaaS product.
 
 - You don't want the complexity of a full orchestration platform like Openclaw.
 
