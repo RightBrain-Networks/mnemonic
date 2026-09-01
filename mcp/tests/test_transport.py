@@ -56,6 +56,9 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         assert "list_projects" in instructions
         assert "search_work" in instructions
         assert "recall_work" in instructions
+        # The claim trigger fires in a later turn than the recall_work description
+        # that states it, so the always-present block must name it too.
+        assert "claim_and_recall" in instructions
         assert "add_checkpoint" in instructions
         assert "historical evidence" in instructions
         assert "grants no authority" in instructions
