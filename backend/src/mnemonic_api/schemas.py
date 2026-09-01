@@ -1080,6 +1080,7 @@ class WorkItemListQuery(APIModel):
     status: Literal["open", "active", "dropped", "done", "wont-do", "promoted", "all"] = (
         "open"
     )
+    sort: Literal["updated", "created", "priority"] = "updated"
     tag: Tag | None = None
     source_client: ClientName | None = None
     source_session_id: SessionID | None = None
@@ -1118,7 +1119,8 @@ class RelationshipListQuery(APIModel):
 
 
 class ChildrenListQuery(APIModel):
-    status: Literal["open", "done", "wont-do", "promoted", "all"] = "open"
+    status: Literal["open", "active", "dropped", "done", "wont-do", "promoted", "all"] = "open"
+    sort: Literal["updated", "created", "priority"] = "updated"
     tag: Tag | None = None
     source_client: ClientName | None = None
     source_session_id: SessionID | None = None

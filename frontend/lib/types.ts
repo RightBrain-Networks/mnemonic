@@ -1,6 +1,7 @@
 export type WorkStatus = "open" | "done" | "wont-do" | "promoted";
 export type MutableWorkStatus = Exclude<WorkStatus, "done">;
 export type StatusFilter = WorkStatus | "active" | "dropped" | "all";
+export type WorkSort = "updated" | "created" | "priority";
 export type CheckpointKind = "context" | "progress" | "completion";
 export type MigrationOrigin = "legacy-handoff-snapshot" | "legacy-comment" | null;
 

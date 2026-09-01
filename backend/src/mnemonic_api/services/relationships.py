@@ -594,6 +594,16 @@ def hierarchy_page(
               AND child_edge.source_work_item_id = :parent_work_item_id
         """
 
+    root_ordering = {
+        "updated": "root.updated_at DESC, root.id DESC",
+        "created": "root.created_at DESC, root.id DESC",
+        "priority": "root.priority DESC, root.updated_at DESC, root.id DESC",
+    }[filters.sort]
+    page_ordering = {
+        "updated": "paged.updated_at DESC, paged.root_id DESC",
+        "created": "paged.created_at DESC, paged.root_id DESC",
+        "priority": "paged.priority DESC, paged.updated_at DESC, paged.root_id DESC",
+    }[filters.sort]
     match_sql, match_parameters = _hierarchy_match_sql(filters)
     row = (
         database.execute(
@@ -639,10 +649,10 @@ def hierarchy_page(
                 HAVING bool_or(matches.id IS NOT NULL)
             ),
             paged AS (
-                SELECT qualifying.*, root.updated_at
+                SELECT qualifying.*, root.updated_at, root.created_at, root.priority
                 FROM qualifying
                 JOIN work_items AS root ON root.id = qualifying.root_id
-                ORDER BY root.updated_at DESC, root.id DESC
+                ORDER BY {root_ordering}
                 LIMIT :limit OFFSET :offset
             )
             SELECT
@@ -653,7 +663,7 @@ def hierarchy_page(
                             'self_matches_filter', paged.self_matches_filter,
                             'has_matching_descendants', paged.has_matching_descendants
                         )
-                        ORDER BY paged.updated_at DESC, paged.root_id DESC
+                        ORDER BY {page_ordering}
                     ),
                     '[]'::jsonb
                 ) AS items,

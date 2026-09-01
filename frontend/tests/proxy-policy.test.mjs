@@ -62,12 +62,12 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.deepEqual(allowedQueryKeys(`projects/${project}`, "PATCH"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/settings`, "GET"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/settings`, "PATCH"), []);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "GET"), ["q", "semantic", "status", "tag", "source_client", "source_session_id", "view", "limit", "offset"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "GET"), ["q", "semantic", "status", "sort", "tag", "source_client", "source_session_id", "view", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "GET"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "PATCH"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/context`, "GET"), ["recent_limit", "recent_event_limit"]);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/children`, "GET"), ["status", "tag", "source_client", "source_session_id", "limit", "offset"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/children`, "GET"), ["status", "sort", "tag", "source_client", "source_session_id", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/relationships`, "GET"), ["direction", "type", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/relationships`, "POST"), []);
   assert.equal(allowedQueryKeys(`projects/${project}/relationships/${other}`, "GET"), null);

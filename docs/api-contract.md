@@ -261,6 +261,7 @@ Work list/search accepts:
 | `q` | optional text, at most 500 characters |
 | `semantic` | false by default; true opts into hybrid retrieval |
 | `status` | `open` by default; one lifecycle status, `active`, `dropped`, or `all` |
+| `sort` | `updated` by default; `updated`, `created`, or `priority`, descending |
 | `tag` | matches any checkpoint |
 | `source_client` | matches any checkpoint |
 | `source_session_id` | matches any checkpoint |
@@ -275,11 +276,14 @@ regardless of lease state, and `all` continues to include every lifecycle
 status. Readiness remains a current claimability projection, so dropped work has
 no active lease and may be ready when it has no unresolved blockers.
 
-Blank `q` browses by recent activity. A nonblank query searches weighted work
+Blank `q` uses the selected ordering: most recently updated, most recently
+created, or highest priority first. Updated time breaks priority ties. IDs
+provide deterministic final tie-breaking. A nonblank query searches weighted work
 title/summary, checkpoint text, and literal IDs/provenance/tags without
 duplicating work rows. Lexical `total` is the number of matching work items.
 Hybrid `total` retains the full lifecycle/metadata-qualified candidate count;
-relevance controls its page order. Search results never contain prompt or
+relevance controls its page order, with the selected sort as a deterministic
+tie-breaker. Search results never contain prompt or
 source-metadata bodies.
 
 `view=full` returns flat `WorkSummary` pages. A nonblank `q` requires `full` or
@@ -296,7 +300,7 @@ roots rather than descendants.
 
 Checkpoint list accepts `order=oldest|newest`, `limit` up to 100, and
 `offset`. Context accepts `recent_limit`, default 5 and maximum 20.
-Child pages inherit `status`, `tag`, `source_client`, and `source_session_id`,
+Child pages inherit `status`, `sort`, `tag`, `source_client`, and `source_session_id`,
 with `limit` defaulting to 50 (maximum 100) and `offset=0`; totals count
 qualifying direct child branches. Relationship pages use the filters documented
 in the relationship contract below.

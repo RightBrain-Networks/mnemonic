@@ -217,6 +217,17 @@ button { touch-action: manipulation; }
 .filter-button:hover { background: #edf1e9; }
 .filter-button.selected { background: #e6eee4; border-color: #d8e4d4; color: #2f6552; }
 .filter-dot { height: 5px; width: 5px; border-radius: 50%; background: #448a6b; }
+.list-meta { display: flex; align-items: flex-end; gap: 17px; margin-left: auto; }
+.sort-control { min-width: 0; margin: 0; padding: 0; border: 0; }
+.sort-control legend { margin: 0 0 5px; padding: 0; color: var(--muted); font: 9px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.sort-options { display: grid; grid-template-columns: repeat(3, minmax(68px, 1fr)); overflow: hidden; border: 1px solid #cfc4b2; border-radius: 7px; background: var(--surface); }
+.sort-option { position: relative; cursor: pointer; color: var(--muted); font-size: 11px; font-weight: 600; text-align: center; white-space: nowrap; }
+.sort-option + .sort-option { border-left: 1px solid #cfc4b2; }
+.sort-option input { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.sort-option span { display: block; padding: 7px 10px; transition: color .15s, background .15s; }
+.sort-option:not(.selected):hover span { color: var(--accent-deep); background: var(--accent-soft); }
+.sort-option.selected span { color: #fff; background: var(--accent); }
+.sort-option input:focus-visible + span { position: relative; z-index: 1; box-shadow: inset 0 0 0 2px var(--plum); }
 .result-count { color: #839087; font-size: 11px; white-space: nowrap; }
 
 .work-list { display: grid; gap: 14px; overflow-anchor: none; }
@@ -449,6 +460,8 @@ button { touch-action: manipulation; }
   .filter-row { margin-top: 15px; flex-wrap: wrap; gap: 12px; }
   .status-filters { width: 100%; justify-content: flex-start; gap: 2px; padding-bottom: 2px; }
   .filter-button { font-size: 11px; padding: 7px 9px; }
+  .list-meta { width: 100%; justify-content: space-between; margin-left: 0; }
+  .sort-options { grid-template-columns: repeat(3, minmax(61px, 1fr)); }
   .result-count { font-size: 10px; margin-left: 2px; }
   .work-item-card { padding: 18px 17px 13px; }
   .card-topline { gap: 9px; }

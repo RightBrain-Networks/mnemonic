@@ -232,6 +232,45 @@ def test_pagination_and_combined_filters(api, project, work_payload):
     assert api.get(path(project), params={"status": "all", "offset": 200}).json()["items"] == []
 
 
+def test_work_list_sort_orders_flat_and_hierarchy_pages(api, project, work_payload):
+    first = save(
+        api,
+        project,
+        work_payload,
+        title="Created first",
+        priority=10,
+    )["work_item"]
+    second = save(
+        api,
+        project,
+        work_payload,
+        title="Created second",
+        priority=90,
+    )["work_item"]
+    updated = api.patch(
+        path(project, first),
+        json={"expected_version": 1, "title": "Updated most recently"},
+    )
+    assert updated.status_code == 200, updated.text
+
+    def ordered_ids(view, sort=None):
+        params = {"status": "all", "view": view}
+        if sort is not None:
+            params["sort"] = sort
+        response = api.get(path(project), params=params)
+        assert response.status_code == 200, response.text
+        return [
+            (item["summary"] if view == "roots" else item)["work_item"]["id"]
+            for item in response.json()["items"]
+        ]
+
+    for view in ("full", "roots"):
+        assert ordered_ids(view) == [first["id"], second["id"]]
+        assert ordered_ids(view, "updated") == [first["id"], second["id"]]
+        assert ordered_ids(view, "created") == [second["id"], first["id"]]
+        assert ordered_ids(view, "priority") == [second["id"], first["id"]]
+
+
 def test_active_and_dropped_filters_derive_open_lease_state(
     api, project, work_payload, postgres_engine
 ):
@@ -315,6 +354,7 @@ def test_two_simultaneous_writers_cannot_overwrite_each_other(api, project, work
         {"limit": 0},
         {"limit": 101},
         {"offset": -1},
+        {"sort": "oldest"},
         {"status": "deleted"},
         {"q": "x" * 501},
         {"tag": " "},

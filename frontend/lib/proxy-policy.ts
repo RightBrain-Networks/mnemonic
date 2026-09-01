@@ -34,7 +34,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   if (PROJECT_SETTINGS.test(path) && (method === "GET" || method === "PATCH")) return [];
   if (WORK_ITEMS.test(path)) {
     if (method === "GET") {
-      return ["q", "semantic", "status", "tag", "source_client", "source_session_id", "view", "limit", "offset"];
+      return ["q", "semantic", "status", "sort", "tag", "source_client", "source_session_id", "view", "limit", "offset"];
     }
     if (method === "POST") return [];
   }
@@ -45,7 +45,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   }
   if (WORK_CONTEXT.test(path) && method === "GET") return ["recent_limit", "recent_event_limit"];
   if (WORK_CHILDREN.test(path) && method === "GET") {
-    return ["status", "tag", "source_client", "source_session_id", "limit", "offset"];
+    return ["status", "sort", "tag", "source_client", "source_session_id", "limit", "offset"];
   }
   if (WORK_RELATIONSHIPS.test(path) && method === "GET") {
     return ["direction", "type", "limit", "offset"];

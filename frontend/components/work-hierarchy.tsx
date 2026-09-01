@@ -7,7 +7,7 @@ import { api, errorMessage, workItemPath } from "@/lib/api";
 import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
 import { childSearchParams } from "@/lib/work-item-search";
 import { hierarchyGuardReason } from "@/lib/work-relationships";
-import type { HierarchySummary, Page, StatusFilter, WorkSummary } from "@/lib/types";
+import type { HierarchySummary, Page, StatusFilter, WorkSort, WorkSummary } from "@/lib/types";
 
 export const CHILD_PAGE_SIZE = 50;
 
@@ -23,6 +23,7 @@ type Actions = {
 type BranchProps = Actions & {
   item: HierarchySummary;
   status: StatusFilter;
+  sort: WorkSort;
   refreshKey: number;
   viewKey: string;
   depth: number;
@@ -48,7 +49,7 @@ function GuardedBranch({
 }
 
 function HierarchyBranch(props: BranchProps) {
-  const { item, status, refreshKey, depth, visited } = props;
+  const { item, status, sort, refreshKey, depth, visited } = props;
   const summary = item.summary;
   const id = summary.work_item.id;
   const regionId = useId();
@@ -67,7 +68,7 @@ function HierarchyBranch(props: BranchProps) {
   } | null>(null);
   const [retry, setRetry] = useState(0);
   const guardReason = hierarchyGuardReason(id, visited, depth);
-  const childViewKey = `${props.viewKey}:children:${id}:${status}:${offset}`;
+  const childViewKey = `${props.viewKey}:children:${id}:${status}:${sort}:${offset}`;
   const page = loadedPage?.viewKey === childViewKey ? loadedPage.value : null;
   const loadError = loadFailure?.viewKey === childViewKey ? loadFailure.message : "";
   const nextChildLeaseExpiry = earliestLeaseExpiry(
@@ -90,7 +91,7 @@ function HierarchyBranch(props: BranchProps) {
     if (guardReason || !expanded || !item.has_matching_descendants) return;
     const controller = new AbortController();
     const requestedViewKey = childViewKey;
-    const params = childSearchParams({ status, limit: CHILD_PAGE_SIZE, offset });
+    const params = childSearchParams({ status, sort, limit: CHILD_PAGE_SIZE, offset });
     setLoading(true);
     setLoadFailure(null);
     api<Page<HierarchySummary>>(
@@ -111,7 +112,7 @@ function HierarchyBranch(props: BranchProps) {
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [childViewKey, expanded, guardReason, id, item.has_matching_descendants, offset, refreshKey, status, summary.work_item.project_id, retry]);
+  }, [childViewKey, expanded, guardReason, id, item.has_matching_descendants, offset, refreshKey, sort, status, summary.work_item.project_id, retry]);
 
   useEffect(() => {
     if (!nextChildLeaseExpiry) return;
@@ -199,6 +200,7 @@ export default function WorkHierarchy({
 }: Actions & {
   items: HierarchySummary[];
   status: StatusFilter;
+  sort: WorkSort;
   refreshKey: number;
   viewKey: string;
   motionRevision: unknown;

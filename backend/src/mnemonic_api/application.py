@@ -119,7 +119,7 @@ _PUBLIC_VALIDATION_LOCATION_SEGMENTS = frozenset(
     """
     body query path header cookie project_id work_item_id relationship_id
     name description slug q semantic status tag source_client source_session_id
-    view limit offset min_priority parent_work_item_id direction type order
+    view sort limit offset min_priority parent_work_item_id direction type order
     event_type recent_limit recent_event_limit title summary priority expected_version
     initial_checkpoint initial_relationships checkpoint kind prompt source_model
     source_session_url repository_branch verified_against tags source_metadata
@@ -307,6 +307,11 @@ def _search_work_rows(
 
     query = (filters.q or "").strip()
     semantic_search = filters.semantic and bool(query)
+    sort_ordering = {
+        "updated": [WorkItem.updated_at.desc(), WorkItem.id.desc()],
+        "created": [WorkItem.created_at.desc(), WorkItem.id.desc()],
+        "priority": [WorkItem.priority.desc(), WorkItem.updated_at.desc(), WorkItem.id.desc()],
+    }[filters.sort]
     lexical_match = None
     ordering = []
     if query:
@@ -350,7 +355,7 @@ def _search_work_rows(
                 func.coalesce(checkpoint_rank, 0.0),
             ).desc()
         )
-    ordering.extend([WorkItem.updated_at.desc(), WorkItem.id.desc()])
+    ordering.extend(sort_ordering)
 
     if semantic_search:
         lexical_ids = list(
@@ -362,7 +367,7 @@ def _search_work_rows(
             database.scalars(
                 select(WorkItem)
                 .where(*conditions)
-                .order_by(WorkItem.updated_at.desc(), WorkItem.id.desc())
+                .order_by(*sort_ordering)
             )
         )
         try:

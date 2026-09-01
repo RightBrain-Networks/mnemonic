@@ -11,6 +11,11 @@ import { draftFromWork, type WorkEditDraft } from "@/components/work-item-editor
 import { api, errorMessage, isVersionConflict, workItemPath } from "@/lib/api";
 import { currentContext } from "@/lib/current-context";
 import { dashboardSessionId } from "@/lib/dashboard-session";
+import {
+  dashboardSortPreference,
+  dashboardStatusPreference,
+  dashboardStorageKeys
+} from "@/lib/dashboard-preferences";
 import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
 import { connectLiveSync, invalidatesOpenWork, type LiveSyncStatus } from "@/lib/live-sync";
 import {
@@ -32,6 +37,7 @@ import type {
   WorkCreation,
   WorkItem,
   WorkPatch,
+  WorkSort,
   WorkSummary
 } from "@/lib/types";
 import { editableLifecycleStatuses, normalizedTags } from "@/lib/work-item-view";
@@ -131,6 +137,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [search, setSearch] = useState("");
   const [semantic, setSemantic] = useState(false);
   const [status, setStatus] = useState<StatusFilter>("open");
+  const [sort, setSort] = useState<WorkSort>("updated");
+  const [preferencesReady, setPreferencesReady] = useState(false);
   const [offset, setOffset] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const [results, setResults] = useState<Page<WorkSummary | HierarchySummary> | null>(null);
@@ -179,7 +187,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [notice, setNotice] = useState<{ message: string; error?: boolean } | null>(null);
   const [liveSyncStatus, setLiveSyncStatus] = useState<LiveSyncStatus>("connecting");
   const project = projects.find((item) => item.id === activeId);
-  const listViewKey = JSON.stringify([activeId, status, offset, search, semantic]);
+  const listViewKey = JSON.stringify([activeId, status, sort, offset, search, semantic]);
   const visibleResults = resultsViewKey === listViewKey ? results : null;
   const visibleListError = listFailure?.viewKey === listViewKey ? listFailure.message : "";
   const activeIdRef = useRef(activeId);
@@ -194,6 +202,16 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
 
   useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
   useEffect(() => { openedRef.current = opened; }, [opened]);
+
+  useEffect(() => {
+    try {
+      setStatus(dashboardStatusPreference(localStorage.getItem(dashboardStorageKeys.status)));
+      setSort(dashboardSortPreference(localStorage.getItem(dashboardStorageKeys.sort)));
+    } catch {
+      // Preferences are optional when storage is unavailable.
+    }
+    setPreferencesReady(true);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -212,7 +230,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       all.sort((a, b) => a.name.localeCompare(b.name));
       setProjects(all);
       let saved = "";
-      try { saved = localStorage.getItem("mnemonic.project") ?? ""; } catch { /* optional */ }
+      try { saved = localStorage.getItem(dashboardStorageKeys.project) ?? ""; } catch { /* optional */ }
       setActiveId((current) => all.some((item) => item.id === current) ? current : all.find((item) => item.id === saved)?.id ?? all[0]?.id ?? "");
     }
     load().catch((error) => { if (!controller.signal.aborted) setProjectsError(errorMessage(error)); })
@@ -222,8 +240,18 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
 
   useEffect(() => {
     if (!activeId) return;
-    try { localStorage.setItem("mnemonic.project", activeId); } catch { /* optional */ }
+    try { localStorage.setItem(dashboardStorageKeys.project, activeId); } catch { /* optional */ }
   }, [activeId]);
+
+  useEffect(() => {
+    if (!preferencesReady) return;
+    try {
+      localStorage.setItem(dashboardStorageKeys.status, status);
+      localStorage.setItem(dashboardStorageKeys.sort, sort);
+    } catch {
+      // Preferences are optional when storage is unavailable.
+    }
+  }, [preferencesReady, sort, status]);
 
   useEffect(() => {
     const generation = ++settingsLoadGeneration.current;
@@ -287,7 +315,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   }, [query]);
 
   useEffect(() => {
-    if (view !== "library" || !activeId) {
+    if (view !== "library" || !activeId || !preferencesReady) {
       setResults(null);
       setResultsViewKey("");
       setListFailure(null);
@@ -297,7 +325,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     const requestedViewKey = listViewKey;
     setListLoading(true);
     setListFailure(null);
-    const params = workSearchParams({ status, limit: WORK_PAGE_SIZE, offset, query: search, semantic });
+    const params = workSearchParams({ status, sort, limit: WORK_PAGE_SIZE, offset, query: search, semantic });
     api<Page<WorkSummary | HierarchySummary>>(`${workItemPath(activeId)}?${params}`, { signal: controller.signal })
       .then((page) => {
         if (controller.signal.aborted) return;
@@ -315,7 +343,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       })
       .finally(() => { if (!controller.signal.aborted) setListLoading(false); });
     return () => controller.abort();
-  }, [activeId, listViewKey, offset, refresh, search, semantic, status, view]);
+  }, [activeId, listViewKey, offset, preferencesReady, refresh, search, semantic, sort, status, view]);
 
   useEffect(() => {
     if (!opened) { setCheckpointPage(null); return; }
@@ -441,7 +469,6 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setQuery("");
     setSearch("");
     setSemantic(false);
-    setStatus("open");
     setResults(null);
     setResultsViewKey("");
   }
@@ -845,6 +872,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 searchRef={searchRef}
                 semantic={semantic}
                 status={status}
+                sort={sort}
                 results={visibleResults}
                 loading={listLoading || (!visibleResults && !visibleListError)}
                 error={visibleListError}
@@ -855,6 +883,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 onQuery={setQuery}
                 onToggleSemantic={() => { setSemantic((value) => !value); setOffset(0); }}
                 onStatus={(value) => { setStatus(value); setOffset(0); }}
+                onSort={(value) => { setSort(value); setOffset(0); }}
                 onRetry={() => setRefresh((value) => value + 1)}
                 onClearFilters={() => { setQuery(""); setSearch(""); setStatus("open"); setOffset(0); }}
                 onCreate={() => setWorkDialog(true)}

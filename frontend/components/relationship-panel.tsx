@@ -104,6 +104,7 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
     const controller = new AbortController();
     const params = workSearchParams({
       status: "all",
+      sort: "updated",
       limit: 10,
       offset: 0,
       query: searchedQuery

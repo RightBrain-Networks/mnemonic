@@ -4,7 +4,7 @@ import type { RefObject } from "react";
 import WorkHierarchy, { SearchBreadcrumb } from "@/components/work-hierarchy";
 import WorkItemCard from "@/components/work-item-card";
 import { useWorkItemMotion } from "@/components/use-work-item-motion";
-import type { HierarchySummary, Page, StatusFilter, WorkSummary } from "@/lib/types";
+import type { HierarchySummary, Page, StatusFilter, WorkSort, WorkSummary } from "@/lib/types";
 
 const WORK_PAGE_SIZE = 20;
 const filters: StatusFilter[] = ["open", "active", "dropped", "done", "wont-do", "promoted", "all"];
@@ -17,6 +17,11 @@ const filterLabels: Record<StatusFilter, string> = {
   promoted: "Promoted",
   all: "All"
 };
+const sortOptions: { value: WorkSort; label: string }[] = [
+  { value: "updated", label: "Updated" },
+  { value: "created", label: "Created" },
+  { value: "priority", label: "Priority" }
+];
 
 const iconPaths = {
   search: "m21 21-4.4-4.4M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0Z",
@@ -41,6 +46,7 @@ type Props = {
   searchRef: RefObject<HTMLInputElement | null>;
   semantic: boolean;
   status: StatusFilter;
+  sort: WorkSort;
   results: Page<WorkSummary | HierarchySummary> | null;
   loading: boolean;
   error: string;
@@ -51,6 +57,7 @@ type Props = {
   onQuery: (value: string) => void;
   onToggleSemantic: () => void;
   onStatus: (status: StatusFilter) => void;
+  onSort: (sort: WorkSort) => void;
   onRetry: () => void;
   onClearFilters: () => void;
   onCreate: () => void;
@@ -67,6 +74,7 @@ export default function WorkItemList({
   searchRef,
   semantic,
   status,
+  sort,
   results,
   loading,
   error,
@@ -77,6 +85,7 @@ export default function WorkItemList({
   onQuery,
   onToggleSemantic,
   onStatus,
+  onSort,
   onRetry,
   onClearFilters,
   onCreate,
@@ -109,7 +118,18 @@ export default function WorkItemList({
         <div className="status-filters" role="group" aria-label="Filter work items">
           {filters.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "open" && <span className="filter-dot" />}{filterLabels[filter]}</button>)}
         </div>
-        <span className="result-count" role="status">{loading || query.trim() !== searchedQuery ? "Finding work…" : results ? searchedQuery ? `${results.total} work item${results.total === 1 ? "" : "s"}` : `${results.total} root branch${results.total === 1 ? "" : "es"}` : ""}</span>
+        <div className="list-meta">
+          <fieldset className="sort-control">
+            <legend>Sort by</legend>
+            <div className="sort-options">
+              {sortOptions.map((option) => <label className={`sort-option ${sort === option.value ? "selected" : ""}`} key={option.value}>
+                <input type="radio" name="work-sort" value={option.value} checked={sort === option.value} onChange={() => onSort(option.value)} />
+                <span>{option.label}</span>
+              </label>)}
+            </div>
+          </fieldset>
+          <span className="result-count" role="status">{loading || query.trim() !== searchedQuery ? "Finding work…" : results ? searchedQuery ? `${results.total} work item${results.total === 1 ? "" : "s"}` : `${results.total} root branch${results.total === 1 ? "" : "es"}` : ""}</span>
+        </div>
       </div>
     </section>
 
@@ -121,6 +141,7 @@ export default function WorkItemList({
           <WorkHierarchy
             items={hierarchyResults}
             status={status}
+            sort={sort}
             refreshKey={refreshKey}
             viewKey={viewKey}
             motionRevision={results.items}
