@@ -10,13 +10,13 @@ It does not modify Claude's memory subsystem. While Claude Code is the first cli
 
 - You build with Claude Code (*support for additional platforms coming soon*).
 
-- Important FYIs and follow-up tasks are often overlooked because they get buried under verbose LLM output.
+- Important FYIs and follow-up tasks are getting overlooked because they're buried under verbose LLM output.
 
-- Dozens or hundreds of transient Markdown documents are cluttering your repo. Or, your issue tracker has so many AI-written issues that it's become painful for human eyes.
+- Dozens or hundreds of transient Markdown documents are cluttering your repo. Or, your issue tracker has so many AI-written issues that it's become nearly unusable.
 
-- Multiple agents are concurrently working on the same project and occasionally clobber each other.
+- Concurrent agents occasionally cause merge conflicts or reduplicate work, slowing progress and wasting tokens.
 
-- You don't want the complexity of a full orchestration platform like Openclaw and/or prefer a strong human-in-the-loop workflow.
+- You don't want the complexity of a full orchestration platform like OpenClaw and/or prefer a strong human-in-the-loop workflow.
 
 ## Basic concepts
 
