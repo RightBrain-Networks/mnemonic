@@ -22,6 +22,29 @@ Humans should see a relatively small number of meaningful workstreams. Agents ma
 
 This asymmetry is intentional. Mnemonic should absorb machine-generated coordination noise rather than push that noise back into GitHub Issues or the human-facing control surface.
 
+## Delivery Snapshot
+
+As of 2026-09-02, Phases 1–8 are shipped. Phases 9–13 remain planned, although
+some of their underlying primitives already exist. The phase sections retain
+the original design rationale and acceptance criteria; their status lines and
+shipped-implementation notes describe the current product.
+
+| Roadmap element | Status | Implemented functionality |
+| --- | --- | --- |
+| Phase 1 — Work items and checkpoints | Shipped | Canonical durable work items, immutable checkpoints, bounded recall, and a provenance-preserving migration from legacy hand-offs. |
+| Phase 2 — Atomic work leases | Shipped | Server-timed TTL claims with atomic claim-and-recall, renewal, release, active-claim replay, expiry, and takeover. |
+| Phase 3 — Typed relationships | Shipped | Five project-local edge types, blocker and parent-cycle protection, one-parent enforcement, atomic linked creation, graph-aware recall, and hierarchy browsing. |
+| Phase 4 — Ready-work discovery | Shipped | A deterministic, filtered REST/MCP ready queue derived from lifecycle, blockers, leases, and human gates, with claim-time revalidation. |
+| Phase 5 — Work event timeline | Shipped | Immutable typed per-work events, conservative historical backfill, atomic mutation events, explicit progress events, bounded recall, and a paged dashboard timeline. |
+| Phase 6 — Idempotent mutations | Shipped | Durable project-scoped success receipts protect twelve REST mutations, ten canonical MCP writes, and ten dashboard actions from duplicate execution. |
+| Phase 7 — Human gates | Shipped | Immutable question/answer history, drift-aware review, readiness and lifecycle guards, bounded recall, and a dedicated Needs Attention queue. |
+| Phase 8 — Hierarchical presentation | Shipped | Collapsed root workstreams, lazy child paging, subtree-aware filtering, breadcrumbs, discovery labels, and exact branch aggregates. |
+| Phase 9 — Duplicate handling | Planned | The Phase 3 `duplicate-of` edge can be recorded; canonical merging and duplicate suggestions have not shipped. |
+| Phase 10 — Freshness verification | Planned | Checkpoints retain caller-asserted `verified_against` commits; Mnemonic does not yet verify repository freshness. |
+| Phase 11 — Completion evidence | Planned | Completion checkpoints and completion events exist; structured verification results and artifact references have not shipped. |
+| Phase 12 — Project activity feed | Planned | Per-work timelines and data-free dashboard invalidations exist; a durable project-wide cursor/feed, SSE, and webhooks have not shipped. |
+| Phase 13 — Resource reservations | Planned | Work-item leases exist; arbitrary resource-key reservations have not shipped. |
+
 ---
 
 # Guiding Principles
@@ -97,11 +120,23 @@ The existing hand-off concept should evolve into an immutable checkpoint represe
 
 # Phase 1 - Separate Work Items from Hand-offs
 
+**Status: Shipped.**
+
 ## Objective
 
 Introduce a stable durable unit of work and stop treating each hand-off as a top-level task.
 
 This is the foundational architectural change and should be completed before substantial coordination features are added.
+
+## Shipped implementation
+
+Migrations `0004_work_graph_expand` through `0006_work_graph_contract` created
+canonical `WorkItem` and immutable `Checkpoint` records, backfilled every
+legacy hand-off and comment while preserving IDs, timestamps, text, lifecycle,
+and recorded provenance, and then removed the legacy storage after cutover.
+Work creation atomically includes its initial checkpoint; REST, MCP, and the
+dashboard support work-item browsing and search, bounded recall, versioned
+identity edits, checkpoint append, completion, and soft deletion.
 
 ## Proposed `WorkItem`
 
@@ -196,9 +231,21 @@ It also improves provenance because the text attributed to an originating agent/
 
 # Phase 2 - Atomic Work Leases
 
+**Status: Shipped.**
+
 ## Objective
 
 Allow multiple agents to safely select and coordinate work without introducing conventional permanent assignees.
+
+## Shipped implementation
+
+Migration `0007_work_leases` and the lease service provide `claim_work`,
+`claim_and_recall`, `renew_claim`, and `release_claim`. At most one server-timed
+lease exists per work item; a request ID can replay the same active claim, an
+opaque token protects renewal and release, and expiry permits safe takeover
+without a cleanup worker. Every new or replacement claim rechecks current
+blockers and human gates in the acquisition transaction, while ordinary reads
+and the dashboard expose only the non-capability lease projection.
 
 ## Proposed Model
 
@@ -273,9 +320,22 @@ deferred   = persisted human hold outside the queue
 
 # Phase 3 - Typed Work Relationships
 
+**Status: Shipped.**
+
 ## Objective
 
 Represent how work relates to other work without forcing every discovered item into a flat issue queue.
+
+## Shipped implementation
+
+Migration `0008_work_relationships` and the relationship service implement all
+five edge types with project-local database constraints, normalized identity,
+indexed incoming/outgoing traversal, and transactional add/remove operations.
+Serialized checks reject self-links, cross-project edges, duplicate parents,
+and `blocks` or `parent-child` cycles; linked work and its initial relationships
+can be created atomically. Recall, search, MCP, and the dashboard expose graph
+context, while unresolved incoming blockers are enforced by readiness and every
+claim path. Only `done` resolves a blocker automatically.
 
 ## Initial Relationship Types
 
@@ -379,11 +439,24 @@ why the dependency no longer applies.
 
 # Phase 4 - Ready-Work Discovery
 
+**Status: Shipped.**
+
 ## Objective
 
 Give agents a purpose-built way to discover actionable work.
 
 Search and recall are not sufficient coordination primitives.
+
+## Shipped implementation
+
+Migration `0009_ready_work_indexes` and the shared readiness service expose
+`GET /projects/{project_id}/ready-work` and the MCP `list_ready_work` tool.
+Results are computed at one database-time snapshot, ordered by priority,
+creation time, and UUID, and can be filtered by minimum priority, normalized
+exact tag, or direct parent. Exact totals and bounded pages exclude non-Pending,
+deleted, blocked, actively leased, or gated work. Discovery remains advisory:
+claims revalidate eligibility atomically, and `claim_next_ready_work` has not
+shipped.
 
 ## Proposed Operation
 
@@ -439,9 +512,21 @@ This could atomically choose and lease a ready work item according to determinis
 
 # Phase 5 - Append-only Work Event Timeline
 
+**Status: Shipped.**
+
 ## Objective
 
 Move collaboration history out of mutable work records.
+
+## Shipped implementation
+
+Migration `0010_work_events` adds immutable, actor-attributed, typed per-work
+events with event-specific metadata and references. Supported domain mutations
+write their authoritative events in the same transaction; callers may append
+only bounded `progress` events directly. The migration conservatively
+reconstructs provable earlier facts and labels that history as backfilled.
+Recall includes a bounded recent slice, and the dashboard pages the complete
+per-work timeline. A durable project-wide feed remains Phase 12 work.
 
 ## Proposed Model
 
@@ -799,6 +884,10 @@ tree walk, per-branch query, or load-all-descendants fallback.
 
 # Phase 9 - Structural Duplicate Handling
 
+**Status: Planned.** Phase 3 shipped the explicit `duplicate-of` relationship
+and its history, but canonical merge/redirect behavior and semantic duplicate
+suggestions have not shipped.
+
 ## Objective
 
 Handle inevitable duplicate work safely and explicitly.
@@ -848,6 +937,10 @@ Embeddings should produce candidates, not truth.
 ---
 
 # Phase 10 - Repository Freshness Verification
+
+**Status: Planned; provenance fields shipped.** Checkpoints already retain
+caller-asserted `repository_branch` and `verified_against` values. There is no
+`affected_paths` field or repository-aware freshness check yet.
 
 ## Objective
 
@@ -912,6 +1005,10 @@ For high-value checkpoints, optionally store Git blob IDs for specific files.
 
 # Phase 11 - Structured Completion Evidence
 
+**Status: Planned; completion history shipped.** Mnemonic already requires a
+completion checkpoint and records an immutable completion event, but it has no
+structured verification-result or artifact-reference model.
+
 ## Objective
 
 Allow completed work to answer:
@@ -967,6 +1064,10 @@ Keep prose verification instructions in the checkpoint where useful, but store f
 
 # Phase 12 - Project Activity Feed
 
+**Status: Planned; per-work activity shipped.** Phase 5 provides paged per-work
+event timelines, and the dashboard receives data-free invalidations. There is
+no durable project-wide cursor/feed, SSE stream, or webhook surface yet.
+
 ## Objective
 
 Provide an efficient incremental coordination API.
@@ -1011,6 +1112,9 @@ Do not require real-time transport initially. The durable ordered feed is the im
 ---
 
 # Phase 13 - Resource Reservations
+
+**Status: Planned.** Phase 2 leases coordinate ownership of a work item, but no
+generic resource-key reservation model or operations have shipped.
 
 ## Objective
 
@@ -1209,6 +1313,8 @@ The MCP interface should favor coarse-grained atomic operations over forcing age
 
 ## Milestone 1 - Durable Work Graph Foundation
 
+**Status: Shipped through Phases 1 and 3.**
+
 1. Introduce `WorkItem`.
 2. Convert existing hand-offs into immutable checkpoints.
 3. Add typed work relationships and traversal indexes.
@@ -1222,6 +1328,8 @@ This establishes the long-term data model.
 
 ## Milestone 2 - Safe Multi-agent Execution
 
+**Status: Shipped through Phases 2, 4, and 6.**
+
 1. Add TTL work leases.
 2. Add atomic `claim_and_recall`.
 3. Add blocker-aware `list_ready_work`.
@@ -1231,6 +1339,10 @@ This establishes the long-term data model.
 At this point multiple agents can safely share a project.
 
 ## Milestone 3 - Durable Collaboration History
+
+**Status: Partially shipped.** Phase 5 delivered append-only per-work events and
+the timeline UI. The Phase 9 duplicate workflow and Phase 12 project activity
+feed remain planned.
 
 1. Add append-only work events.
 2. Add project activity feed.
@@ -1252,6 +1364,8 @@ This directly addresses the original GitHub Issues noise problem.
 
 ## Milestone 5 - Provenance and Verification
 
+**Status: Planned; checkpoint and completion provenance groundwork exists.**
+
 1. Add `affected_paths`.
 2. Add repository freshness checks to the MCP client skill.
 3. Add structured verification results.
@@ -1260,6 +1374,8 @@ This directly addresses the original GitHub Issues noise problem.
 This improves trust in resumed and completed work.
 
 ## Milestone 6 - Advanced Coordination
+
+**Status: Planned.**
 
 1. Resource reservations.
 2. Additional gate types.
