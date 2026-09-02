@@ -15,14 +15,14 @@ REFERENCE_FILES = {
 }
 
 
-def test_plugin_050_manifest_and_inventory_are_exact():
+def test_plugin_manifest_and_inventory_are_exact():
     inner = json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text())
     marketplace = json.loads(
         (REPOSITORY_ROOT / ".claude-plugin" / "marketplace.json").read_text()
     )
 
     assert inner["name"] == "mnemonic"
-    assert inner["version"] == "0.5.0"
+    assert inner["version"] == "0.6.0"
     assert "human questions" in inner["description"]
     assert marketplace["plugins"] == [
         {

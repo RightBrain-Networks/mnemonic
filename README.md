@@ -93,21 +93,25 @@ Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemon
 reachable remotely.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current plugin is version `0.5.0`. It provides:
+not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current plugin is version `0.6.0`. It provides:
 
 - **`mnemonic-save`** searches for existing work, creates a durable objective
   with its initial checkpoint and explicit atomic links, appends corrective
-  resume context, records concise progress events, and requests a human gate
-  only for a concrete decision a person must make.
+  resume context, records concise progress events, and records a human gate
+  only for a concrete decision a person must make, after checking for an open
+  question and writing the supporting checkpoint first.
 - **`mnemonic-search`** finds compact work-item leads within the chosen project,
   normally restricted to pending work, separately lists priority-ordered ready
-  candidates, and inspects the human-attention queue without treating either read as authority.
+  candidates, and pages the Needs Attention queue without treating any read as
+  authority.
 - **`mnemonic-recall`** loads bounded current context, pages older checkpoints
   or events when needed, atomically claims already-authorized execution, renews
   or releases that expiring lease, inspects immediate typed relationships,
-  records concise progress events, inspects complete paired gate history when
-  bounded context omits an older decision, and saves an atomic completion
-  checkpoint when the work is complete.
+  reads unresolved and answered human questions with their drift flags, asks a
+  person mid-execution through the save procedure, records concise progress
+  events, pages complete paired gate history when bounded context omits an
+  older decision, and saves an atomic completion checkpoint when the work is
+  complete.
 
 Invoke `/mnemonic-save`, `/mnemonic-search`, or `/mnemonic-recall`, or ask Claude in natural language. The skills require the connected `mnemonic` MCP server. You can copy the selected project's ID from the dashboard, or use
 `list_projects`. Session IDs are opaque text (often UUIDs), not integers, and refer to the originating LLM conversation, not the MCP transport session. 

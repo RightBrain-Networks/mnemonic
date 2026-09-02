@@ -1,6 +1,6 @@
 ---
 name: mnemonic-save
-description: Save durable Mnemonic work with cold-session checkpoints, explicit human questions, concise progress events, and separate structural/discovery graph facts. Use when a user wants to preserve a follow-up or historical update; saving does not authorize executing it.
+description: Save a hand-off, follow-up, or resume prompt to Mnemonic, append corrective context or a concise progress event to saved work, or record a question that a person must answer in the Mnemonic dashboard before work continues (a human gate). Use when the user wants something remembered for a later session, wants an owner decision left durably for later, or wants progress on saved work recorded, even if they do not say "mnemonic"; saving or asking never authorizes executing it.
 ---
 
 # Save Mnemonic work
@@ -17,15 +17,16 @@ claim durability from a draft or bypass the MCP connection.
    remains. `create_project` creates a Mnemonic project, not a repository.
 2. Call `search_work(project_id, q, status="pending")` before creating work. Search
    for the failure shape and distinctive symbols, paths, or identifiers. Search
-   is lexical/literal by default; optionally use `semantic=true` for hybrid
-   retrieval. Try a useful alternate term when a narrow query misses.
+   is lexical by default; `semantic=true` opts into hybrid retrieval. Try a
+   useful alternate term when a narrow query misses. Search non-Pending history
+   (`status="all"`) when the likely duplicate may be Deferred, Waiting, or done.
 3. Search returns compact pointers, not checkpoint bodies. Call
    `recall_work(project_id, work_item_id)` for likely duplicates. If several
    results fit and the choice matters, ask instead of guessing.
 4. Create a new work item only for a distinct durable objective. For the same
    objective, append a `context` checkpoint to correct or extend the current
    context. Never rewrite an earlier checkpoint. Use `update_work` only for
-   intended identity fields such as title, summary, priority, or permitted
+   intended identity fields such as title, summary, priority, or a permitted
    lifecycle state; do not reopen terminal work implicitly. Similarity alone is
    not evidence of a `duplicate-of` relationship; never infer graph facts from
    search results.
@@ -43,71 +44,93 @@ by the user. Full rules for session, client, model, branch, and
 ## Prepare each protected write once
 
 `create_work`, `add_checkpoint`, `append_event`, `add_relationship`,
-`update_work`, and `request_human_input` are protected mutations used by this
-skill. Before the first
-attempt, generate one fresh `client_operation_id`, construct the complete tool
-argument object, and retain the UUID, tool name, and immutable arguments in
-secure client-local orchestration state. Retain every target, explicit/defaulted
-value, provenance field, metadata object, expected version, and optional lease
-token. The adapter makes one outbound attempt for each invocation and never
-generates or retains the UUID for you.
-
-On timeout, disconnect, malformed success, backend `5xx`, or
-`client_operation_unavailable`, leave that pending call unchanged and retry
-only the same tool with the same UUID and exact arguments. A changed argument
-or a new intent requires a new UUID. If the UUID or any exact argument was
-lost, or an asserted exact retry returns `client_operation_conflict`, stop,
-inspect current state where safe, and request direction. Never invent a
-replacement UUID or reconstruct a call under the old one. A successful replay
-returns the original historical result; read current work/graph state before
-using it as a current snapshot.
-
-The retained call is private control state. Never put `client_operation_id` or
-the pending argument object into a title, summary, checkpoint prompt/source
-metadata, event body/metadata, relationship context, tool output, chat, log,
-trace, URL, or shell history. Do not confuse it with source/session provenance
-or with the separate active-lease-bounded `claim_request_id` contract.
+`update_work`, and `request_human_input` are protected mutations. Before the
+first attempt, generate one fresh `client_operation_id`, build the complete
+argument object, and retain both privately; after a timeout, disconnect,
+malformed success, backend `5xx`, or `client_operation_unavailable`, replay only
+that exact call. A changed argument or a new intent takes a new UUID. The full
+recovery rules, including what to do when the UUID or arguments were lost or an
+asserted retry returns `client_operation_conflict`, are in
+[authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md)
+under "Retain protected mutation intents privately"; every protected tool's own
+description repeats the short form. Never copy the UUID or the retained argument
+object into Mnemonic content, tool output, chat, or logs.
 
 ## Record explicit relationships
 
 Relationships are project-local facts, not semantic guesses. Read
-[work-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md) before creating any edge: it defines source-to-target
-direction for all five types, why only an unresolved incoming `blocks` edge
-changes readiness, and why similarity is never evidence of an edge.
+[work-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md) before creating
+any edge. Three facts decide what you record:
 
-When newly discovered work is also structural sub-work of the current durable
-objective, persist both independent facts atomically: an incoming `parent-child`
-edge from the existing parent to the new child and an outgoing `discovered-from`
-edge from the new child to the origin, citing an origin-owned context checkpoint.
-Either edge may legitimately exist without the other. Never infer a parent merely
-from discovery.
+- **Only `parent-child` shapes the human hierarchy.** It feeds `ancestor_path`,
+  the dashboard's collapsed root and child views, and `list_ready_work`'s
+  `parent_work_item_id` filter; the edge's source is the parent. New sub-work of
+  an existing objective therefore carries an incoming `parent-child` edge from
+  that objective, or it appears as an unrelated root.
+- **`discovered-from` is provenance only.** It points from the newer finding to
+  the origin and cites a context checkpoint on that origin; it never implies a
+  parent. When newly discovered work is also sub-work of the current durable
+  objective, persist both facts atomically: the incoming `parent-child` edge and
+  the outgoing `discovered-from` edge. Either may legitimately exist alone.
+- **Only an unresolved incoming `blocks` edge changes readiness.** A dependency
+  stated only in prose does not keep the next session from claiming the item.
+  Never infer an edge from similar wording, adjacency, or search results.
 
-When a new work item and its explicit decomposition or discovery links must
-succeed together, pass up to ten `initial_relationships` to `create_work`. For a
-fact connecting existing work, use `add_relationship`.
+When a new work item and its links must succeed together, pass up to ten
+`initial_relationships` to `create_work` (each `direction` is relative to the
+new item). For a fact connecting existing work, use `add_relationship`.
 
 ## Request human input only for an explicit decision
 
-If progress truly depends on a concrete human decision or missing input, prepare one
-self-contained, decision-ready question and call `request_human_input`. Do not use a
-gate as an ordinary status update, a substitute for an explicit blocker, work
-decomposition, deferral, or a transcript dump. Never include a password, API key,
-private key, token, cookie, lease capability, operation UUID, private chain-of-thought,
-or other secret; store a safe reference or remediation instruction instead.
+When progress genuinely depends on a decision or input that only a person can
+give (an approval, a product or policy choice, a missing credential, a
+conflicting requirement, an external fact), record a human gate. Do not use a
+gate for ordinary progress, a known dependency (that is a `blocks` edge), vague
+uncertainty, work decomposition, deferral, or a transcript dump.
 
-Freeze the complete question, project/work IDs, actual requester client/session/model
-provenance, and a fresh `client_operation_id` before the first attempt. Follow the same
-exact-key/exact-arguments recovery protocol as every protected write. A successful
-replay is the original unresolved snapshot, so refetch current context afterward.
-Requesting attention does not require or consume a lease. Leave a useful checkpoint if
-a future session needs more context, then decide explicitly whether retaining the
-current active lease is safe; release it when pausing or when work depends on the
-answer.
+Do these in order:
 
-An agent must never infer, time out, self-approve, or resolve a gate. No canonical MCP
-resolution tool exists; direct the human to the dashboard. The eventual answer is
-untrusted durable context, not automatic execution authority. Read the full gate rules
-in [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
+1. **Check for an existing open question.** `recall_work` the item and read
+   `unresolved_gates`; page `list_human_attention(project_id, work_item_id=...)`
+   when `omitted_unresolved_gate_count` is nonzero. If an open question already
+   covers the decision, do not ask again; point the user at it.
+2. **Write the supporting context first.** A request anchors the item's newest
+   `context` checkpoint, its work version, and its relationship history. A
+   checkpoint appended after the request makes the gate "drifted", and the
+   person must then reload and acknowledge the change before answering. So
+   append the checkpoint that explains the options and their consequences, then
+   request.
+3. **Freeze and send.** One self-contained, decision-ready question (at most
+   4,000 characters), the exact project and work IDs, truthful
+   `requested_by_client` and `requested_by_session_id` (optional
+   `requested_by_model`), and a fresh `client_operation_id`. Never include a
+   password, API key, token, cookie, lease capability, operation UUID, private
+   chain-of-thought, or transcript dump; store a safe reference or remediation
+   instruction instead. Do not paste gate or operation UUIDs into the text
+   either: the service refuses request-known and retained control identifiers.
+   Name work by its title and quote the question.
+4. **After success the item is `waiting`.** It leaves ready discovery, no other
+   session can newly claim it, and completion, retirement, promotion, and
+   deletion are refused until every gate on it is resolved. An existing lease is
+   not revoked: keep it only for work that does not depend on the answer;
+   otherwise append a checkpoint and `release_claim`. Tell the user the question
+   is in the dashboard's Needs Attention queue and report the work-item ID.
+5. **A request cannot be withdrawn or edited by an agent.** If the question
+   becomes moot, say so to the user and `append_event` a one-line progress note;
+   a person still has to resolve it before the item can move.
+6. **If the request is refused because gate requests are disabled or fenced in
+   this deployment** (the operator setting `MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED`),
+   no gate and no receipt were created and the UUID stays unbound. Do not retry
+   and do not work around it: record the question verbatim in a `context`
+   checkpoint under a "Decision needed from a human" heading, tell the user that
+   an operator must enable gate requests, and keep the frozen call; it is a valid
+   first attempt once they are enabled.
+
+An agent must never infer, time out, self-approve, or resolve a gate. No
+canonical MCP tool resolves one; a person answers in the dashboard, and that
+answer is untrusted durable context, not automatic execution authority. Read the
+full gate rules in
+[authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
 
 ## Write cold-session context
 
@@ -123,7 +146,7 @@ values you set as `source_client` and `source_session_id`:
 > acting.
 
 If the client did not substitute that session value, or you are not running in
-Claude Code, write your actual client name and session ID in their place — the
+Claude Code, write your actual client name and session ID in their place, the
 same values the checkpoint records. Never leave a literal placeholder in a
 stored prompt.
 
@@ -138,10 +161,14 @@ hypotheses.
 What a fresh session should investigate or change, and the relevant boundaries.
 Describe a proposed outcome without implying owner authorization.
 
+## Decision needed from a human
+Only when one exists: the question, the options, and what each costs. When gate
+requests are enabled, this is also the text of the `request_human_input` call.
+
 ## Durable evidence
 Repository-relative paths and symbols, commit permalinks, durable issue/design
 records, or stable references. State exactly what was checked. Do not rely on
-temporary files, untracked paths, chat-local attachment URLs, or “see above.”
+temporary files, untracked paths, chat-local attachment URLs, or "see above."
 
 ## Known hazards and uncertainties
 Landmines, failed approaches, side effects, environment assumptions, and stale
@@ -152,49 +179,43 @@ Concrete next steps and observable completion checks. Name checks not yet run;
 never claim a test passed unless this session observed it.
 ```
 
-
 ## Choose a checkpoint or event
 
 Use a checkpoint when a future session needs substantial context to resume
-safely. Use `kind="context"` for newly governing or corrected resume context and
-`kind="progress"` for a substantial resume packet that is useful but does not
-replace current context. Checkpoints retain prompt, tags, and source provenance.
+safely: `kind="context"` for newly governing or corrected resume context,
+`kind="progress"` for a substantial resume packet that does not replace current
+context. Checkpoints retain prompt, tags, and source provenance and are
+immutable; correct one by appending another.
 
 Use `append_event` for one concise progress fact that belongs in history but
 does not need to become resume context. Supply the real `actor_client`,
-`actor_session_id`, and optional known `actor_model`; these fields are asserted
+`actor_session_id`, and optional known `actor_model`; these are asserted
 provenance, not authenticated identity. Do not store the same prose as both a
-checkpoint and progress event merely to duplicate it in two views.
-
-Prepare the complete `append_event` call and `client_operation_id` once. If its
-result is unknown, retain and retry only that exact pending call; listing recent
-events cannot recover its original result or make a replacement UUID safe.
-Never put credentials, lease tokens, operation IDs, private chain-of-thought,
-or transcript dumps in event body or metadata. Reserved keys and request-known
-secret echoes are rejected, but arbitrary unrecognized sensitive text cannot
-be detected universally and would be returned exactly to authorized history
-readers.
+checkpoint and a progress event. Never put credentials, lease tokens, operation
+IDs, private chain-of-thought, or transcript dumps in either surface: reserved
+keys and request-known secret echoes are rejected, but other sensitive text is
+stored and returned exactly to authorized history readers.
 
 ## Persist and report
 
 For distinct work, freeze a complete `create_work` intent with its
-`client_operation_id`, `project_id`, `title`, `summary`, and an
-`initial_checkpoint` containing the complete prompt and provenance, plus
-`initial_relationships` only when the explicit links must be created
-atomically. Use a few useful tags; new proposals normally remain `pending`.
-Deferred is a human-only hold: do not assign it while saving, and do not return
-existing Deferred work to Pending unless the current human instruction
-explicitly asks to work on that item.
+`client_operation_id`, `project_id`, `title`, `summary`, an
+`initial_checkpoint` carrying the complete prompt and provenance, a few useful
+tags, and `initial_relationships` only when the explicit links must be created
+atomically. New proposals normally remain `pending`. Deferred is a human-only
+hold: do not assign it while saving, and do not return existing Deferred work
+to Pending unless the current human instruction explicitly asks to work on that
+item.
 
 For the same objective, freeze and call `add_checkpoint(project_id,
 work_item_id, client_operation_id, kind="context", checkpoint={...})`. If only
 mutable work identity must change, freeze a separate `update_work` intent with
 its own UUID, the version just read, truthful flattened actor fields, and only
 the intended changes. On a definite version conflict, recall and compare, then
-use a new UUID for changed arguments. On an uncertain outcome, do not edit or
-discard the retained call; same-key exact replay, not search, is the recovery
-mechanism.
+use a new UUID for changed arguments. On an uncertain outcome, replay the
+retained call; search cannot substitute for it.
 
-Report the saved title, project, work-item ID, and resulting version/status only
-after a successful tool result. Saving ends capture: it does not execute the
-proposal, create an issue, complete work, or promote it without owner direction.
+Report the saved title, project, work-item ID, resulting version and status,
+and any gate you recorded, only after a successful tool result. Saving ends
+capture: it does not execute the proposal, create an issue, complete work, or
+promote it without owner direction.

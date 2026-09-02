@@ -154,28 +154,44 @@ are alternate read interfaces, not executors.
 Use `request_human_input` only for a concrete, self-contained decision or input
 that genuinely requires a person: an approval, product/policy choice, missing
 credential, conflicting requirement, or external fact. Do not use a human gate
-for ordinary progress, a known dependency, vague uncertainty, or work
-decomposition. Keep the question decision-ready and free of credentials,
-capabilities, gate or operation UUIDs, private chain-of-thought, and transcript
-dumps. The service rejects request-known controls and recognizable retained
-gate/operation UUIDs, but it cannot recognize every opaque secret.
+for ordinary progress, a known dependency (that is a `blocks` edge), vague
+uncertainty, or work decomposition. Keep the question decision-ready and free
+of credentials, capabilities, gate or operation UUIDs, private
+chain-of-thought, and transcript dumps. The service rejects request-known
+controls and recognizable retained gate/operation UUIDs, but it cannot
+recognize every opaque secret; name work by title rather than pasting IDs.
+
+Before requesting, read the item's `unresolved_gates` (`recall_work`, or
+`list_human_attention` with the work ID when some are omitted) and do not ask a
+question an open gate already covers. Append any supporting `context`
+checkpoint before the request: the request anchors the item's newest context
+checkpoint, work version, and relationship history, and a change to any of
+them afterwards marks the gate as drifted, so the person must reload and
+acknowledge the current state before answering.
 
 The request is one of the ten protected mutations. Prepare its UUID and exact
 project/work/question/requester arguments before the first attempt; after an
 unknown result, only the frozen same-key call is a retry. If the deployment
-returns `human_gates_not_enabled`, do not work around the fence or switch to an
-unprotected path. A completed historical request may still replay while the
-fence is closed.
+returns `human_gates_not_enabled`, no gate or receipt was created and the UUID
+stays unbound: do not retry, do not work around the fence or switch to an
+unprotected path, record the question verbatim in a context checkpoint, and
+tell the user an operator must enable gate requests; the frozen call is a valid
+first attempt once they are. A completed historical request still replays
+while the fence is closed.
 
 A request may be recorded while the current session has an active lease. It
 makes the work waiting and blocks every fresh/replacement claim, but exact
 active claim replay, renewal, and release remain available. Requesting does not
-automatically release the lease, append a checkpoint, or authorize another
-mutation. Leave useful context when needed, then explicitly decide whether to
-retain or release the existing capability according to the current task.
+release the lease, append a checkpoint, or authorize another mutation; decide
+explicitly whether to retain or release the capability, and release it when
+further work depends on the answer. No agent can withdraw or edit a request; if
+it becomes moot, say so and leave a progress event, and a person still resolves
+it.
 
 `list_human_attention` reads the explicit human queue in immutable cursor order.
-It is not an agent execution queue; `limit=0` is a text-free count. Never infer,
+It is not an agent execution queue; `limit=0` is a text-free count, and a
+forward traversal can miss a question whose sequence committed later, so
+restart without a cursor before concluding the queue is drained. Never infer,
 self-supply, time out, or synthesize an answer. There is intentionally no MCP
 resolution tool. Direct the person to Needs Attention in the dashboard, where
 resolution freezes the reviewed work/context/relationship revision and requires
@@ -186,8 +202,9 @@ independent verification, or renewed authority to execute. Resolver/requester
 fields are client assertions under one shared bearer. After resolution, refetch
 current context and revalidate the user's present instruction plus repository
 state. Several gates may coexist; the item stays waiting until all resolve.
-Complete history remains available through `list_work_gates`, including an exact
-retained soft-deleted work ID, but old answers never resolve later questions.
+Complete history remains available through `list_work_gates`, including an
+exact retained soft-deleted work ID, but old answers never resolve later
+questions.
 
 ## Relationships and readiness
 
