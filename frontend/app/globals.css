@@ -232,7 +232,7 @@ button { touch-action: manipulation; }
 .work-list { display: grid; gap: 14px; overflow-anchor: none; }
 .hierarchy-children { overflow-anchor: none; }
 .pagination, .library-footer { overflow-anchor: none; }
-.work-item-entering { pointer-events: none; }
+.work-item-entering, .work-item-exiting { pointer-events: none; }
 .work-item-card { min-width: 0; padding: 22px 24px 17px; border: 1px solid #e0e5de; border-radius: 11px; background: var(--surface); box-shadow: 0 2px 2px #24382a02; transition: border-color .15s, box-shadow .15s; }
 .work-item-card:hover { border-color: #bccaBA; box-shadow: 0 4px 14px #24382a05; }
 .card-topline { display: flex; align-items: center; gap: 13px; margin-bottom: 13px; min-width: 0; }

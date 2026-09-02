@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  EASE_OUT_CUBIC,
+  EASE_IN_OUT_QUINT,
   WORK_ITEM_FADE_DURATION_MS,
   WORK_ITEM_SLIDE_DURATION_MS,
   easeOutBounce,
-  planWorkItemInsertion,
+  planWorkItemMotion,
   workItemSlideKeyframes
 } from "../lib/work-item-motion.ts";
 
-test("work-item motion exposes the intended timings and cubic fade easing", () => {
+test("work-item motion exposes the intended timings and quint fade easing", () => {
   assert.equal(WORK_ITEM_SLIDE_DURATION_MS, 700);
-  assert.equal(WORK_ITEM_FADE_DURATION_MS, 200);
-  assert.equal(EASE_OUT_CUBIC, "cubic-bezier(0.33, 1, 0.68, 1)");
+  assert.equal(WORK_ITEM_FADE_DURATION_MS, 1000);
+  assert.equal(EASE_IN_OUT_QUINT, "cubic-bezier(0.83, 0, 0.17, 1)");
 });
 
 test("easeOutBounce follows the canonical piecewise bounce curve", () => {
@@ -48,27 +48,35 @@ test("slide keyframes densely sample bounce progress with linear offsets and exa
 
 test("insertion planning detects additions while preserving retained order", () => {
   assert.deepEqual(
-    planWorkItemInsertion(["old-a", "old-b"], 2, ["new-a", "old-a", "new-b", "old-b"], 4),
-    { addedIds: ["new-a", "new-b"], retainedIds: ["old-a", "old-b"] }
+    planWorkItemMotion(["old-a", "old-b"], 2, ["new-a", "old-a", "new-b", "old-b"], 4),
+    { addedIds: ["new-a", "new-b"], removedIds: [], retainedIds: ["old-a", "old-b"] }
   );
 });
 
 test("insertion planning fades the first item added to a loaded empty view", () => {
   assert.deepEqual(
-    planWorkItemInsertion([], 0, ["new"], 1),
-    { addedIds: ["new"], retainedIds: [] }
+    planWorkItemMotion([], 0, ["new"], 1),
+    { addedIds: ["new"], removedIds: [], retainedIds: [] }
   );
 });
 
-test("insertion planning permits an item evicted at a page boundary", () => {
+test("motion planning fades an item evicted at a page boundary", () => {
   assert.deepEqual(
-    planWorkItemInsertion(["old-a", "old-b", "old-c"], 8, ["new", "old-a", "old-b"], 9),
-    { addedIds: ["new"], retainedIds: ["old-a", "old-b"] }
+    planWorkItemMotion(["old-a", "old-b", "old-c"], 8, ["new", "old-a", "old-b"], 9),
+    { addedIds: ["new"], removedIds: ["old-c"], retainedIds: ["old-a", "old-b"] }
   );
 });
 
-test("insertion planning skips initial loads and updates that are not safe insertions", () => {
-  assert.equal(planWorkItemInsertion(["old"], 1, ["new", "old"], 1), null);
-  assert.equal(planWorkItemInsertion(["old-a", "old-b"], 2, ["old-a", "old-b"], 3), null);
-  assert.equal(planWorkItemInsertion(["old-a", "old-b"], 2, ["old-b", "new", "old-a"], 3), null);
+test("motion planning detects removals while preserving retained order", () => {
+  assert.deepEqual(
+    planWorkItemMotion(["old-a", "old-b"], 2, ["old-b"], 1),
+    { addedIds: [], removedIds: ["old-a"], retainedIds: ["old-b"] }
+  );
+});
+
+test("motion planning skips initial loads and unsafe list changes", () => {
+  assert.equal(planWorkItemMotion(["old"], 1, ["new", "old"], 1), null);
+  assert.equal(planWorkItemMotion(["old-a", "old-b"], 2, ["old-a", "old-b"], 3), null);
+  assert.equal(planWorkItemMotion(["old-a", "old-b"], 2, ["old-b"], 2), null);
+  assert.equal(planWorkItemMotion(["old-a", "old-b"], 2, ["old-b", "new", "old-a"], 3), null);
 });

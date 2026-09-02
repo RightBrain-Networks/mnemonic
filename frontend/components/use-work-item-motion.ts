@@ -2,18 +2,27 @@
 
 import { useLayoutEffect, useRef, type RefObject } from "react";
 import {
-  EASE_OUT_CUBIC,
+  EASE_IN_OUT_QUINT,
   WORK_ITEM_FADE_DURATION_MS,
   WORK_ITEM_SLIDE_DURATION_MS,
-  planWorkItemInsertion,
+  planWorkItemMotion,
   workItemSlideKeyframes
 } from "@/lib/work-item-motion";
+
+type ItemSnapshot = {
+  element: HTMLElement;
+  documentLeft: number;
+  documentTop: number;
+  width: number;
+  height: number;
+  opacity: string;
+};
 
 type MotionSnapshot = {
   viewKey: string;
   itemIds: string[];
   total: number;
-  tops: Map<string, number>;
+  items: Map<string, ItemSnapshot>;
 };
 
 type EnteringState = {
@@ -21,6 +30,11 @@ type EnteringState = {
   wasInert: boolean;
   inlineOpacity: string;
   hadEnteringClass: boolean;
+};
+
+type ExitingState = {
+  element: HTMLElement;
+  reposition: () => void;
 };
 
 type MotionOptions = {
@@ -62,6 +76,7 @@ export function useWorkItemMotion<T extends HTMLElement>({
   const snapshotRef = useRef<MotionSnapshot | null>(null);
   const animationsRef = useRef(new Set<Animation>());
   const enteringRef = useRef(new Map<string, EnteringState>());
+  const exitingRef = useRef(new Map<string, ExitingState>());
   const generationRef = useRef(0);
   const itemIdsKey = itemIds.join("\u0000");
 
@@ -84,9 +99,15 @@ export function useWorkItemMotion<T extends HTMLElement>({
     enteringRef.current.clear();
   }
 
+  function releaseExiting() {
+    for (const state of exitingRef.current.values()) removeExiting(state);
+    exitingRef.current.clear();
+  }
+
   function cancelMotion() {
     cancelAnimations();
     releaseEntering();
+    releaseExiting();
   }
 
   useLayoutEffect(() => {
@@ -111,7 +132,9 @@ export function useWorkItemMotion<T extends HTMLElement>({
       && previous.total === total
       && sameIds(previous.itemIds, itemIds);
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const motionActive = animationsRef.current.size > 0 || enteringRef.current.size > 0;
+    const motionActive = animationsRef.current.size > 0
+      || enteringRef.current.size > 0
+      || exitingRef.current.size > 0;
     if (sameResult && motionActive && list && enabled && !reducedMotion) return;
 
     const generation = ++generationRef.current;
@@ -121,10 +144,11 @@ export function useWorkItemMotion<T extends HTMLElement>({
     );
     const plan = list && total !== null && previous?.viewKey === viewKey
       && enabled && !reducedMotion
-      ? planWorkItemInsertion(previous.itemIds, previous.total, itemIds, total)
+      ? planWorkItemMotion(previous.itemIds, previous.total, itemIds, total)
       : null;
 
     cancelAnimations();
+    releaseExiting();
 
     if (!list || total === null) {
       releaseEntering();
@@ -133,10 +157,8 @@ export function useWorkItemMotion<T extends HTMLElement>({
     }
 
     const elements = directWorkItems(list);
-    const tops = new Map(
-      [...elements].map(([id, element]) => [id, documentTop(element)])
-    );
-    snapshotRef.current = { viewKey, itemIds: [...itemIds], total, tops };
+    const items = itemSnapshots(elements);
+    snapshotRef.current = { viewKey, itemIds: [...itemIds], total, items };
 
     if (!plan || !previous) {
       releaseEntering();
@@ -166,11 +188,16 @@ export function useWorkItemMotion<T extends HTMLElement>({
       element.inert = true;
     }
 
+    for (const id of plan.removedIds) {
+      const item = previous.items.get(id);
+      if (item) exitingRef.current.set(id, createExitingState(id, item));
+    }
+
     const slideAnimations: Animation[] = [];
     for (const id of plan.retainedIds) {
       const element = elements.get(id);
-      const previousTop = previous.tops.get(id);
-      const currentTop = tops.get(id);
+      const previousTop = previous.items.get(id)?.documentTop;
+      const currentTop = items.get(id)?.documentTop;
       const visualTop = visualTops.get(id);
       if (!element || enteringRef.current.has(id) || previousTop === undefined
         || currentTop === undefined || visualTop === undefined) continue;
@@ -204,7 +231,22 @@ export function useWorkItemMotion<T extends HTMLElement>({
           }
           const animation = state.element.animate([{ opacity: 0 }, { opacity: 1 }], {
             duration: WORK_ITEM_FADE_DURATION_MS,
-            easing: EASE_OUT_CUBIC,
+            easing: EASE_IN_OUT_QUINT,
+            fill: "both"
+          });
+          animationsRef.current.add(animation);
+          fades.push(animation);
+        }
+        const exiting = [...exitingRef.current.entries()];
+        for (const [id, state] of exiting) {
+          if (!state.element.isConnected) {
+            removeExiting(state);
+            exitingRef.current.delete(id);
+            continue;
+          }
+          const animation = state.element.animate([{ opacity: 1 }, { opacity: 0 }], {
+            duration: WORK_ITEM_FADE_DURATION_MS,
+            easing: EASE_IN_OUT_QUINT,
             fill: "both"
           });
           animationsRef.current.add(animation);
@@ -218,6 +260,11 @@ export function useWorkItemMotion<T extends HTMLElement>({
               restoreEntering(state);
               enteringRef.current.delete(id);
             }
+            for (const [id, state] of exiting) {
+              if (exitingRef.current.get(id) !== state) continue;
+              removeExiting(state);
+              exitingRef.current.delete(id);
+            }
             for (const animation of fades) {
               animationsRef.current.delete(animation);
               animation.cancel();
@@ -228,4 +275,62 @@ export function useWorkItemMotion<T extends HTMLElement>({
   }, [enabled, itemIdsKey, revision, snapshotSignal, total, viewKey]);
 
   return listRef;
+}
+
+function itemSnapshots(elements: Map<string, HTMLElement>): Map<string, ItemSnapshot> {
+  return new Map([...elements].map(([id, element]) => {
+    const rect = element.getBoundingClientRect();
+    return [id, {
+      element,
+      documentLeft: rect.left + window.scrollX,
+      documentTop: rect.top + window.scrollY,
+      width: rect.width,
+      height: rect.height,
+      opacity: getComputedStyle(element).opacity
+    }];
+  }));
+}
+
+function removeDuplicateIds(element: HTMLElement) {
+  element.removeAttribute("id");
+  for (const descendant of element.querySelectorAll("[id]")) {
+    descendant.removeAttribute("id");
+  }
+}
+
+function createExitingState(id: string, snapshot: ItemSnapshot): ExitingState {
+  const element = snapshot.element.cloneNode(true) as HTMLElement;
+  removeDuplicateIds(element);
+  element.removeAttribute("data-work-item-id");
+  element.dataset.workItemExitId = id;
+  element.classList.add("work-item-exiting");
+  element.setAttribute("aria-hidden", "true");
+  element.inert = true;
+  Object.assign(element.style, {
+    height: `${snapshot.height}px`,
+    left: "0",
+    margin: "0",
+    opacity: snapshot.opacity,
+    pointerEvents: "none",
+    position: "fixed",
+    top: "0",
+    width: `${snapshot.width}px`,
+    zIndex: "5"
+  });
+  const reposition = () => {
+    element.style.transform = `translate(${snapshot.documentLeft - window.scrollX}px, ${
+      snapshot.documentTop - window.scrollY
+    }px)`;
+  };
+  reposition();
+  document.body.append(element);
+  window.addEventListener("scroll", reposition, { passive: true });
+  window.addEventListener("resize", reposition);
+  return { element, reposition };
+}
+
+function removeExiting(state: ExitingState) {
+  window.removeEventListener("scroll", state.reposition);
+  window.removeEventListener("resize", state.reposition);
+  state.element.remove();
 }

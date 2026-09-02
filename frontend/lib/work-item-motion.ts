@@ -1,12 +1,13 @@
 export const WORK_ITEM_SLIDE_DURATION_MS = 700;
-export const WORK_ITEM_FADE_DURATION_MS = 200;
-export const EASE_OUT_CUBIC = "cubic-bezier(0.33, 1, 0.68, 1)";
+export const WORK_ITEM_FADE_DURATION_MS = 1000;
+export const EASE_IN_OUT_QUINT = "cubic-bezier(0.83, 0, 0.17, 1)";
 
 // easeOutBounce has no cubic-bezier form, so sample its piecewise curve at frame cadence.
 const BOUNCE_KEYFRAME_STEPS = 60;
 
-export type WorkItemInsertionPlan = {
+export type WorkItemMotionPlan = {
   addedIds: string[];
+  removedIds: string[];
   retainedIds: string[];
 };
 
@@ -43,25 +44,25 @@ export function workItemSlideKeyframes(deltaY: number): Keyframe[] {
   });
 }
 
-export function planWorkItemInsertion(
+export function planWorkItemMotion(
   previousIds: readonly string[],
   previousTotal: number,
   currentIds: readonly string[],
   currentTotal: number
-): WorkItemInsertionPlan | null {
-  if (currentTotal <= previousTotal) {
-    return null;
-  }
+): WorkItemMotionPlan | null {
+  if (currentTotal === previousTotal) return null;
 
   const previousSet = new Set(previousIds);
   const currentSet = new Set(currentIds);
   const addedIds = currentIds.filter((id) => !previousSet.has(id));
-  if (addedIds.length === 0) return null;
+  const removedIds = previousIds.filter((id) => !currentSet.has(id));
+  if (currentTotal > previousTotal && addedIds.length === 0) return null;
+  if (currentTotal < previousTotal && removedIds.length === 0) return null;
 
   const retainedIds = currentIds.filter((id) => previousSet.has(id));
   const previouslyOrderedRetainedIds = previousIds.filter((id) => currentSet.has(id));
   const retainedOrderChanged = retainedIds.length !== previouslyOrderedRetainedIds.length
     || retainedIds.some((id, index) => id !== previouslyOrderedRetainedIds[index]);
 
-  return retainedOrderChanged ? null : { addedIds, retainedIds };
+  return retainedOrderChanged ? null : { addedIds, removedIds, retainedIds };
 }
