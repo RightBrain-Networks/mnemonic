@@ -66,7 +66,7 @@ class Settings:
                 raise ValueError("MNEMONIC_MCP_ALLOWED_ORIGINS must contain HTTP(S) origins without paths.")
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         def entries(name: str) -> tuple[str, ...]:
             return tuple(part.strip() for part in os.getenv(name, "").split(",") if part.strip())
 

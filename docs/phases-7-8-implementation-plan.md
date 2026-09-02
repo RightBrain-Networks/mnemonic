@@ -1893,7 +1893,7 @@ facts, and migration objects. The restore drill:
 
 ### 15.1 Required automated suites
 
-Use Python 3.13, separate backend/MCP `uv` environments, Node 24, and a real isolated PostgreSQL
+Use Python 3.14, separate backend/MCP `uv` environments, Node 24, and a real isolated PostgreSQL
 test database. A skipped PostgreSQL-marked suite is a failed release gate.
 
 ```sh

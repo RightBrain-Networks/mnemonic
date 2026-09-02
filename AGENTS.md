@@ -16,7 +16,7 @@ Backend code, migrations, and tests live under `backend/`; the MCP adapter and t
 - `cd frontend && npm ci && npm test && npm run typecheck && npm run build`: verify the dashboard.
 - `cd frontend && npm run test:e2e:stack`: provision and run the isolated Playwright acceptance stack.
 
-Use Python 3.13, `uv`, and Node 24. Keep the backend and MCP virtual environments separate.
+Use Python 3.14, `uv`, and Node 24. Keep the backend and MCP virtual environments separate.
 
 ## Coding Style & Naming Conventions
 
