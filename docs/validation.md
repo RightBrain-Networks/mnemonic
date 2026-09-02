@@ -1,5 +1,22 @@
 # Mnemonic validation record
 
+## Plugin 0.6.0 skill update and MCP description change — 2026-09-02
+
+Checks observed while rewriting the three plugin skills and both shared
+references for the Phase 7–8 gate and hierarchy workflow, adding the
+parent-child hierarchy sentences to three MCP tool descriptions, and reordering
+the `request_human_input` guidance (supporting checkpoint before the request).
+
+- **The full MCP suite passed 206 tests** in its frozen environment after the
+  changes, including the doctrine test's new required phrases for
+  `add_relationship`, `create_work`, and `search_work`, and the plugin
+  inventory test at manifest `0.6.0`. Repository Ruff passed for the MCP
+  package and its tests.
+- **All three skills passed the skill-creator quick validator** (frontmatter,
+  single `SKILL.md`, name and description present).
+- Backend, frontend, and browser suites were not re-run: no backend, frontend,
+  or schema file changed in this update.
+
 ## Phases 7–8 final integrated validation — 2026-09-01
 
 This is the final combined prerelease release record. Counts below were
