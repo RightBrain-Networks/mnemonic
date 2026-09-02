@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { expect, request as playwrightRequest, test } from "@playwright/test";
+import { expect, request as playwrightRequest, test, type Page } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
 
 let state: E2EState;
@@ -8,6 +8,7 @@ type QueueMotionRecord = {
   title: string;
   keyframes: Array<{ transform: string | null; opacity: string | null }>;
   easing: string;
+  duration: number | null;
   startOrder: number;
   finishOrder: number | null;
 };
@@ -18,9 +19,58 @@ type QueueMotionState = {
   order: number;
 };
 
+type ExternalWork = {
+  work_item: { id: string; version: number };
+};
+
 test.beforeAll(async () => {
   state = JSON.parse(await readFile(statePath, "utf8")) as E2EState;
 });
+
+type FadeDirection = "in" | "out";
+
+async function sampleFadeMidpoint(
+  page: Page,
+  targetTitle: string,
+  direction: FadeDirection
+): Promise<number> {
+  const selector = direction === "in"
+    ? ".work-list > [data-work-item-id]"
+    : "[data-work-item-exit-id]";
+  const target = page.locator(selector).filter({ hasText: targetTitle });
+  await expect(target).toHaveCount(1);
+  await expect.poll(() => target.evaluate((element) => element.getAnimations().some((animation) => {
+    const effect = animation.effect;
+    return effect instanceof KeyframeEffect
+      && effect.getKeyframes().some((frame) => frame.opacity !== undefined);
+  })), {
+    message: targetTitle + " should have a running opacity animation"
+  }).toBe(true);
+
+  return target.evaluate((element, expectedDirection) => {
+    const animation = element.getAnimations().find((candidate) => {
+      const effect = candidate.effect;
+      return effect instanceof KeyframeEffect
+        && effect.getKeyframes().some((frame) => frame.opacity !== undefined);
+    });
+    if (!animation || !(animation.effect instanceof KeyframeEffect)) {
+      throw new Error("The expected opacity animation is not running.");
+    }
+    const frames = animation.effect.getKeyframes();
+    const expectedEndpoints = expectedDirection === "in" ? ["0", "1"] : ["1", "0"];
+    if (String(frames[0]?.opacity) !== expectedEndpoints[0]
+      || String(frames.at(-1)?.opacity) !== expectedEndpoints[1]) {
+      throw new Error("The opacity animation has the wrong direction.");
+    }
+    const duration = animation.effect.getTiming().duration;
+    if (typeof duration !== "number") throw new Error("The fade duration is not numeric.");
+    animation.pause();
+    animation.currentTime = duration / 2;
+    const opacity = Number.parseFloat(getComputedStyle(element).opacity);
+    void animation.play();
+    return opacity;
+  }, direction);
+}
 
 test("external API writes appear through live browser sync", async ({ page }, testInfo) => {
   const testKey = [
@@ -48,7 +98,7 @@ test("external API writes appear through live browser sync", async ({ page }, te
     extraHTTPHeaders: { Authorization: "Bearer " + apiKey, Accept: "application/json" }
   });
 
-  const createExternalWork = async (workTitle: string, sourceSessionId: string) => {
+  const createExternalWork = async (workTitle: string, sourceSessionId: string): Promise<ExternalWork> => {
     const response = await client.post(
       "/api/v1/projects/" + state.projectId + "/work-items",
       {
@@ -66,7 +116,9 @@ test("external API writes appear through live browser sync", async ({ page }, te
         }
       }
     );
-    expect(response.ok(), workTitle + ": " + await response.text()).toBe(true);
+    const body = await response.text();
+    expect(response.ok(), workTitle + ": " + body).toBe(true);
+    return JSON.parse(body) as ExternalWork;
   };
 
   try {
@@ -96,6 +148,7 @@ test("external API writes appear through live browser sync", async ({ page }, te
       ): Animation {
         const animation = nativeAnimate.call(this, keyframes, options);
         const effect = animation.effect;
+        const timing = effect instanceof KeyframeEffect ? effect.getTiming() : null;
         const card = this.matches("article.work-item-card")
           ? this
           : this.querySelector("article.work-item-card");
@@ -109,7 +162,8 @@ test("external API writes appear through live browser sync", async ({ page }, te
                 : null
             }))
             : [],
-          easing: effect instanceof KeyframeEffect ? effect.getTiming().easing ?? "" : "",
+          easing: timing?.easing ?? "",
+          duration: typeof timing?.duration === "number" ? timing.duration : null,
           startOrder: ++motionState.order,
           finishOrder: null
         };
@@ -140,14 +194,21 @@ test("external API writes appear through live browser sync", async ({ page }, te
       if (!motionState) throw new Error("The queue motion observer was not installed.");
       motionState.records.splice(0);
     });
-    await createExternalWork(emptyTitle, "live-sync-empty-" + state.runId);
+    const emptyWork = await createExternalWork(
+      emptyTitle,
+      "live-sync-empty-" + state.runId
+    );
+    const enterMidpoint = await sampleFadeMidpoint(page, emptyTitle, "in");
+    expect(enterMidpoint).toBeGreaterThan(0.45);
+    expect(enterMidpoint).toBeLessThan(0.55);
     await expect.poll(() => page.evaluate((targetTitle) => {
       const motionState = (window as typeof window & {
         __queueMotionTest?: QueueMotionState;
       }).__queueMotionTest;
       return motionState?.records.some((record) =>
         record.title === targetTitle
-        && record.keyframes.some((frame) => frame.opacity !== null)
+        && record.keyframes[0]?.opacity === "0"
+        && record.keyframes.at(-1)?.opacity === "1"
         && record.finishOrder !== null
       ) ?? false;
     }, emptyTitle), {
@@ -159,12 +220,48 @@ test("external API writes appear through live browser sync", async ({ page }, te
       }).__queueMotionTest;
       return motionState?.records.find((record) =>
         record.title === targetTitle
-        && record.keyframes.some((frame) => frame.opacity !== null)
+        && record.keyframes[0]?.opacity === "0"
+        && record.keyframes.at(-1)?.opacity === "1"
       ) ?? null;
     }, emptyTitle);
-    expect(emptyFade?.easing.replaceAll(" ", "")).toBe("cubic-bezier(0.33,1,0.68,1)");
-    expect(emptyFade?.keyframes[0]?.opacity).toBe("0");
-    expect(emptyFade?.keyframes.at(-1)?.opacity).toBe("1");
+    expect(emptyFade?.duration).toBe(1000);
+    expect(emptyFade?.easing.replaceAll(" ", "")).toBe("cubic-bezier(0.83,0,0.17,1)");
+
+    const deletion = await client.post(
+      "/api/v1/projects/" + state.projectId + "/work-items/"
+        + emptyWork.work_item.id + "/delete",
+      { data: { expected_version: emptyWork.work_item.version } }
+    );
+    expect(deletion.ok(), await deletion.text()).toBe(true);
+    const exitMidpoint = await sampleFadeMidpoint(page, emptyTitle, "out");
+    expect(exitMidpoint).toBeGreaterThan(0.45);
+    expect(exitMidpoint).toBeLessThan(0.55);
+    await expect.poll(() => page.evaluate((targetTitle) => {
+      const motionState = (window as typeof window & {
+        __queueMotionTest?: QueueMotionState;
+      }).__queueMotionTest;
+      return motionState?.records.some((record) =>
+        record.title === targetTitle
+        && record.keyframes[0]?.opacity === "1"
+        && record.keyframes.at(-1)?.opacity === "0"
+        && record.finishOrder !== null
+      ) ?? false;
+    }, emptyTitle), {
+      message: "a result removed from the view should fade out"
+    }).toBe(true);
+    const emptyExit = await page.evaluate((targetTitle) => {
+      const motionState = (window as typeof window & {
+        __queueMotionTest?: QueueMotionState;
+      }).__queueMotionTest;
+      return motionState?.records.find((record) =>
+        record.title === targetTitle
+        && record.keyframes[0]?.opacity === "1"
+        && record.keyframes.at(-1)?.opacity === "0"
+      ) ?? null;
+    }, emptyTitle);
+    expect(emptyExit?.duration).toBe(1000);
+    expect(emptyExit?.easing.replaceAll(" ", "")).toBe("cubic-bezier(0.83,0,0.17,1)");
+    await expect(page.getByRole("heading", { name: "No matching work." })).toBeVisible();
     await searchbox.fill("");
 
     const retainedCards = page.locator("article.work-item-card").filter({
@@ -290,8 +387,9 @@ test("external API writes appear through live browser sync", async ({ page }, te
       const fade = fades.reduce((first, record) =>
         record.startOrder < first.startOrder ? record : first
       );
+      expect(fade.duration).toBe(1000);
       expect(fade.easing.replaceAll(" ", "")).toBe(
-        "cubic-bezier(0.33,1,0.68,1)"
+        "cubic-bezier(0.83,0,0.17,1)"
       );
       expect(fade.keyframes[0]?.opacity).toBe("0");
       expect(fade.keyframes.at(-1)?.opacity).toBe("1");

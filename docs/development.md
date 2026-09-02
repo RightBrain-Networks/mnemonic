@@ -321,10 +321,10 @@ behavior, and the event UI.
 
 ### Automated browser acceptance
 
-Install the pinned Chromium build once on a development or CI host:
+Install the pinned Chromium and Firefox builds once on a development or CI host:
 
 ```sh
-npx playwright install --with-deps chromium
+npx playwright install --with-deps chromium firefox
 ```
 
 From `frontend`, run the complete isolated acceptance path with:
@@ -335,8 +335,8 @@ npm run test:e2e:stack
 
 The wrapper generates a uniquely scoped Compose project, API key, and available
 loopback ports. It builds API and dashboard images,
-runs PostgreSQL on tmpfs, and exercises both desktop and narrow Chromium
-layouts. On success, failure, or
+runs PostgreSQL on tmpfs, and exercises the live-motion regression in Firefox
+plus the complete desktop and narrow Chromium suite. On success, failure, or
 interruption it tears down that exact generated project with volumes and orphan
 containers included; it never targets the working application stack. The
 scoped teardown shape is:

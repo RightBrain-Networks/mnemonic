@@ -20,6 +20,11 @@ export default defineConfig({
   },
   projects: [
     { name: "chromium-desktop", use: { ...devices["Desktop Chrome"] } },
+    {
+      name: "firefox-motion",
+      grep: /external API writes appear through live browser sync/,
+      use: { ...devices["Desktop Firefox"], permissions: [] }
+    },
     { name: "chromium-narrow", use: { ...devices["Desktop Chrome"], viewport: { width: 390, height: 844 } } }
   ]
 });
