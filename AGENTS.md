@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Backend code, migrations, and tests live under `backend/`; the MCP adapter and tests under `mcp/`; and the Next.js app, components, libraries, tests, and assets under `frontend/`. Compose files are at root, with supporting material in `scripts/`, `docs/`, and `examples/`. The Claude Code plugin — the three skills and their shared reference — lives under `plugin/`, with the marketplace manifest in `.claude-plugin/`.
+Backend code, migrations, and tests live under `backend/`; the MCP adapter and tests under `mcp/`; and the Next.js app, components, libraries, tests, and assets under `frontend/`. Compose files are at root, with supporting material in `scripts/`, `docs/`, and `examples/`. The Claude Code plugin — the three skills and their shared references — lives under `plugin/`, with the marketplace manifest in `.claude-plugin/`.
 
 ## Build, Test, and Development Commands
 
@@ -46,3 +46,7 @@ If `main` advanced, rebase the topic branch, retest, then fast-forward. Remove o
 ## Commit & Pull Request Guidelines
 
 Use short, specific, sentence-case subjects instead of generic `Updates`. Keep commits scoped. PRs should explain behavior and migration/config impact, link relevant work, list checks run, and include screenshots for visual changes. Never commit `.env`, keys, test output, backups, or database volumes.
+
+`CLAUDE.md` is an intentionally local, ignored operator/client note rather than a
+tracked source of truth. Refresh any local copy when a phase changes the tool
+catalog, migration head, shipped-phase status, client retry rules, or error codes.

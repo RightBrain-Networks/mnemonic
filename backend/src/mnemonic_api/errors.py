@@ -120,11 +120,3 @@ def gate_secret_echo() -> ApplicationError:
         "gate_secret_echo",
         "Credential or control data cannot appear in durable human-gate fields.",
     )
-
-
-def human_gates_not_enabled() -> ApplicationError:
-    return ApplicationError(
-        503,
-        "human_gates_not_enabled",
-        "New human-gate requests are not enabled for this deployment.",
-    )

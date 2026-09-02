@@ -1,7 +1,16 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent,
+  type ReactNode
+} from "react";
 import { CHECKPOINT_PAGE_SIZE } from "@/components/checkpoint-timeline";
+import DashboardViewChrome from "@/components/dashboard-view-chrome";
 import ProjectSettingsPanel from "@/components/project-settings";
 import HumanAttentionList from "@/components/human-attention-list";
 import WorkItemDetail from "@/components/work-item-detail";
@@ -55,7 +64,10 @@ import type {
 } from "@/lib/types";
 import { editableLifecycleStatuses, normalizedTags } from "@/lib/work-item-view";
 import { dashboardMutationActor } from "@/lib/work-events";
-import { workSearchParams } from "@/lib/work-item-search";
+import {
+  scheduleHierarchyFilterCommit,
+  workSearchParams
+} from "@/lib/work-item-search";
 import { workRecallPointer } from "@/lib/work-recall-pointer";
 
 const mutationLabels: Record<MutationIntentSummary["kind"], string> = {
@@ -224,6 +236,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [semantic, setSemantic] = useState(false);
   const [status, setStatus] = useState<StatusFilter>("pending");
   const [sort, setSort] = useState<WorkSort>("updated");
+  const [tagInput, setTagInput] = useState("");
+  const [sourceClientInput, setSourceClientInput] = useState("");
+  const [sourceSessionInput, setSourceSessionInput] = useState("");
   const [tagFilter, setTagFilter] = useState("");
   const [sourceClientFilter, setSourceClientFilter] = useState("");
   const [sourceSessionFilter, setSourceSessionFilter] = useState("");
@@ -443,6 +458,23 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   }, [query]);
 
   useEffect(() => {
+    return scheduleHierarchyFilterCommit({
+      tag: tagInput,
+      sourceClient: sourceClientInput,
+      sourceSessionId: sourceSessionInput
+    }, {
+      tag: tagFilter,
+      sourceClient: sourceClientFilter,
+      sourceSessionId: sourceSessionFilter
+    }, (next) => {
+      setTagFilter(next.tag);
+      setSourceClientFilter(next.sourceClient);
+      setSourceSessionFilter(next.sourceSessionId);
+      setOffset(0);
+    });
+  }, [sourceClientInput, sourceSessionInput, tagInput]);
+
+  useEffect(() => {
     if (view !== "library" || !activeId || !preferencesReady) {
       setResults(null);
       setResultsViewKey("");
@@ -632,6 +664,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setQuery("");
     setSearch("");
     setSemantic(false);
+    setTagInput("");
+    setSourceClientInput("");
+    setSourceSessionInput("");
     setTagFilter("");
     setSourceClientFilter("");
     setSourceSessionFilter("");
@@ -1215,6 +1250,27 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     if (project) await copyText(project.id, "project", `Project ID copied: ${project.id}`);
   }
 
+  function blockNavigationWhilePending(event: MouseEvent<HTMLAnchorElement>): void {
+    if (!activeProjectMutationBlocked) return;
+    event.preventDefault();
+    setNotice({
+      message: "Resolve pending mutations before leaving this dashboard document.",
+      error: true
+    });
+  }
+
+  async function afterWorkMutation(
+    failureMessage: string,
+    { refreshAttention = false, refreshEvents = false } = {}
+  ): Promise<boolean> {
+    if (refreshAttention) setAttentionRefresh((value) => value + 1);
+    setRefresh((value) => value + 1);
+    if (refreshEvents) setEventRefresh((value) => value + 1);
+    const reconciled = await reloadOpenContext();
+    if (!reconciled) setNotice({ message: failureMessage, error: true });
+    return reconciled;
+  }
+
   const activeProjectMutationBlocked = Boolean(
     activeId && mutationRegistry.hasDispatchedForProject(activeId)
   );
@@ -1223,6 +1279,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
     ])
   );
+  const detailMutationBlocked = openedWorkMutationBlocked
+    || contextReconciliationRequired && contextLoading;
   const createWorkMutationBlocked = Boolean(
     project && mutationRegistry.blocks([mutationCreateKey(project.id)])
   );
@@ -1273,11 +1331,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   return <MutationIntentProvider registry={mutationRegistry}><div className="app-shell">
     <a className="skip-link" href="#main-content">{view === "settings" ? "Skip to project settings" : view === "attention" ? "Skip to human questions" : "Skip to work items"}</a>
     <aside className="sidebar">
-      <a href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={(event) => {
-        if (!activeProjectMutationBlocked) return;
-        event.preventDefault();
-        setNotice({ message: "Resolve pending mutations before leaving this dashboard document.", error: true });
-      }}><Logo /><span>mnemonic<span className="brand-period">.</span></span></a>
+      <a href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={blockNavigationWhilePending}><Logo /><span>mnemonic<span className="brand-period">.</span></span></a>
       <div className="workspace-picker">
         <label className="section-label" htmlFor="project-select">YOUR WORKSPACE</label>
         <div className="select-wrap"><select id="project-select" value={activeId} disabled={projectsLoading || !projects.length || activeProjectMutationBlocked} onChange={(event) => chooseProject(event.target.value)}>
@@ -1288,21 +1342,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         {project && <button className="copy-project-button" type="button" title={`Project ID: ${project.id}`} onClick={() => void copyProjectId()}><Icon name="copy" size={13} />Copy project ID for your agent</button>}
       </div>
       <nav aria-label="Workspace navigation">
-        <a className={`nav-item ${view === "library" ? "active" : ""}`} href="/" aria-current={view === "library" ? "page" : undefined} onClick={(event) => {
-          if (!activeProjectMutationBlocked) return;
-          event.preventDefault();
-          setNotice({ message: "Resolve pending mutations before leaving this dashboard document.", error: true });
-        }}><Icon name="library" /><span>Work library</span><Icon name="arrow" size={15} /></a>
-        <a className={`nav-item ${view === "attention" ? "active" : ""}`} href="/attention" aria-current={view === "attention" ? "page" : undefined} onClick={(event) => {
-          if (!activeProjectMutationBlocked) return;
-          event.preventDefault();
-          setNotice({ message: "Resolve pending mutations before leaving this dashboard document.", error: true });
-        }}><Icon name="attention" /><span>Needs Attention</span>{attentionCount !== null && <span className="attention-nav-count" aria-label={`${attentionCount} unresolved human question${attentionCount === 1 ? "" : "s"}`}>{attentionCount}</span>}<Icon name="arrow" size={15} /></a>
-        <a className={`nav-item ${view === "settings" ? "active" : ""}`} href="/settings" aria-current={view === "settings" ? "page" : undefined} onClick={(event) => {
-          if (!activeProjectMutationBlocked) return;
-          event.preventDefault();
-          setNotice({ message: "Resolve pending mutations before leaving this dashboard document.", error: true });
-        }}><Icon name="settings" /><span>Project settings</span><Icon name="arrow" size={15} /></a>
+        <a className={`nav-item ${view === "library" ? "active" : ""}`} href="/" aria-current={view === "library" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="library" /><span>Work library</span><Icon name="arrow" size={15} /></a>
+        <a className={`nav-item ${view === "attention" ? "active" : ""}`} href="/attention" aria-current={view === "attention" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="attention" /><span>Needs Attention</span>{attentionCount !== null && <span className="attention-nav-count" aria-label={`${attentionCount} unresolved human question${attentionCount === 1 ? "" : "s"}`}>{attentionCount}</span>}<Icon name="arrow" size={15} /></a>
+        <a className={`nav-item ${view === "settings" ? "active" : ""}`} href="/settings" aria-current={view === "settings" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="settings" /><span>Project settings</span><Icon name="arrow" size={15} /></a>
       </nav>
       <div className="sidebar-note"><img className="note-art" src="/img/robot.svg" alt="" width={115} height={115} aria-hidden="true" /><h2>Keep your agents on the same page.</h2><p>Work units are reserved and nothing is forgotten.</p></div>
       <div className="sidebar-footer"><span className="local-dot" /><span>Local workspace</span><span className="mvp-label">WORK GRAPH</span></div>
@@ -1312,7 +1354,16 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view !== "library" && <><span className="breadcrumb-slash">/</span><span>{view === "settings" ? "Project settings" : "Needs Attention"}</span></>}</div><span className="topbar-note"><span className="small-mark">m.</span>Context worth keeping</span></header>
       <div className="page-content">
         {view === "settings" ? <>
-          <section className="page-heading"><div><div className="eyebrow">PROJECT CONFIGURATION</div><h1>Project settings<span>.</span></h1><p>{project ? `Control how Mnemonic hands off work from “${project.name}”.` : "Choose a project, then configure how Mnemonic hands off its work."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setSettingsRefresh((value) => value + 1); }}>Refresh</button><div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
+          <DashboardViewChrome
+            eyebrow="PROJECT CONFIGURATION"
+            title="Project settings"
+            description={project ? `Control how Mnemonic hands off work from “${project.name}”.` : "Choose a project, then configure how Mnemonic hands off its work."}
+            liveSyncStatus={liveSyncStatus}
+            onRefresh={() => {
+              setProjectsRefresh((value) => value + 1);
+              setSettingsRefresh((value) => value + 1);
+            }}
+          />
           {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
             projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
             <ProjectSettingsPanel
@@ -1326,7 +1377,18 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
               onNotice={(message, error) => setNotice({ message, error })}
             />}
         </> : view === "attention" ? <>
-          <section className="page-heading"><div><div className="eyebrow">EXPLICIT HUMAN OVERSIGHT</div><h1>Needs Attention<span>.</span></h1><p>{project ? `Durable questions waiting in “${project.name}”.` : "Choose a project to review its explicit human questions."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setAttentionRefresh((value) => value + 1); setContextRefresh((value) => value + 1); setEventRefresh((value) => value + 1); }}>Refresh</button><div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
+          <DashboardViewChrome
+            eyebrow="EXPLICIT HUMAN OVERSIGHT"
+            title="Needs Attention"
+            description={project ? `Durable questions waiting in “${project.name}”.` : "Choose a project to review its explicit human questions."}
+            liveSyncStatus={liveSyncStatus}
+            onRefresh={() => {
+              setProjectsRefresh((value) => value + 1);
+              setAttentionRefresh((value) => value + 1);
+              setContextRefresh((value) => value + 1);
+              setEventRefresh((value) => value + 1);
+            }}
+          />
           {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
             projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
             <HumanAttentionList
@@ -1334,14 +1396,26 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
               refreshSignal={attentionRefresh}
               onOpen={(item) => openWork(item)}
               onResolved={() => {
-                setAttentionRefresh((value) => value + 1);
                 setRefresh((value) => value + 1);
                 setContextRefresh((value) => value + 1);
                 setEventRefresh((value) => value + 1);
               }}
             />}
         </> : <>
-          <section className="page-heading"><div><div className="eyebrow">DURABLE WORK FOR TEMPORARY SESSIONS</div><h1>Work library<span>.</span></h1><p>{project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setRefresh((value) => value + 1); setCheckpointRefresh((value) => value + 1); setEventRefresh((value) => value + 1); setContextRefresh((value) => value + 1); }}>Refresh</button>{project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
+          <DashboardViewChrome
+            eyebrow="DURABLE WORK FOR TEMPORARY SESSIONS"
+            title="Work library"
+            description={project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}
+            liveSyncStatus={liveSyncStatus}
+            onRefresh={() => {
+              setProjectsRefresh((value) => value + 1);
+              setRefresh((value) => value + 1);
+              setCheckpointRefresh((value) => value + 1);
+              setEventRefresh((value) => value + 1);
+              setContextRefresh((value) => value + 1);
+            }}
+            actions={project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}
+          />
 
           {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
             projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
@@ -1353,9 +1427,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 semantic={semantic}
                 status={status}
                 sort={sort}
-                tag={tagFilter}
-                sourceClient={sourceClientFilter}
-                sourceSessionId={sourceSessionFilter}
+                tag={tagInput}
+                sourceClient={sourceClientInput}
+                sourceSessionId={sourceSessionInput}
                 results={visibleResults}
                 loading={listLoading || (!visibleResults && !visibleListError)}
                 error={visibleListError}
@@ -1368,11 +1442,22 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 onToggleSemantic={() => { setSemantic((value) => !value); setOffset(0); }}
                 onStatus={(value) => { setStatus(value); setOffset(0); }}
                 onSort={(value) => { setSort(value); setOffset(0); }}
-                onTag={(value) => { setTagFilter(value); setOffset(0); }}
-                onSourceClient={(value) => { setSourceClientFilter(value); setOffset(0); }}
-                onSourceSessionId={(value) => { setSourceSessionFilter(value); setOffset(0); }}
+                onTag={setTagInput}
+                onSourceClient={setSourceClientInput}
+                onSourceSessionId={setSourceSessionInput}
                 onRetry={() => setRefresh((value) => value + 1)}
-                onClearFilters={() => { setQuery(""); setSearch(""); setStatus("pending"); setTagFilter(""); setSourceClientFilter(""); setSourceSessionFilter(""); setOffset(0); }}
+                onClearFilters={() => {
+                  setQuery("");
+                  setSearch("");
+                  setStatus("pending");
+                  setTagInput("");
+                  setSourceClientInput("");
+                  setSourceSessionInput("");
+                  setTagFilter("");
+                  setSourceClientFilter("");
+                  setSourceSessionFilter("");
+                  setOffset(0);
+                }}
                 onCreate={() => setWorkDialog(true)}
                 onOpen={(item) => openWork(item)}
                 onEdit={(item) => openWork(item, true)}
@@ -1414,12 +1499,14 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={workSaving || createWorkMutationBlocked} onClick={() => setWorkDialog(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={workSaving || createWorkMutationBlocked}>{workSaving ? "Creating…" : "Create work and checkpoint"}</button></div>
     </form></Dialog>}
 
-    {opened && <Dialog title={mode === "edit" ? "Edit work item" : "Work context"} onClose={closeWork} recovery={modalRecovery(openedDialogMutationIntents)} wide busy={editSaving || checkpointSaving || openedWorkMutationBlocked}>
-      {contextReconciliationRequired && contextLoading ? <div className="loading-state" role="status"><span className="spinner" />Reconciling saved work context…</div> :
-        contextReconciliationRequired ? <ErrorNotice message={contextError || "The saved mutation could not be reconciled with current work context."}><button className="button button-secondary" onClick={() => void loadContext(opened)}>Try again</button></ErrorNotice> :
+    {opened && <Dialog title={mode === "edit" ? "Edit work item" : "Work context"} onClose={closeWork} recovery={modalRecovery(openedDialogMutationIntents)} wide busy={editSaving || checkpointSaving || detailMutationBlocked}>
+      {contextReconciliationRequired && !contextLoading && contextError ? <ErrorNotice message={contextError}><button className="button button-secondary" onClick={() => void loadContext(opened)}>Try again</button></ErrorNotice> :
+        contextReconciliationRequired && !context ? contextLoading ? <div className="loading-state" role="status"><span className="spinner" />Reconciling saved work context…</div> : <ErrorNotice message={contextError || "The saved mutation could not be reconciled with current work context."}><button className="button button-secondary" onClick={() => void loadContext(opened)}>Try again</button></ErrorNotice> :
         contextLoading && !context ? <div className="loading-state" role="status"><span className="spinner" />Recalling work context…</div> :
         contextError && !context ? <ErrorNotice message={contextError}><button className="button button-secondary" onClick={() => void loadContext(opened)}>Try again</button></ErrorNotice> :
         context && <>
+          {contextReconciliationRequired && contextLoading && <div className="detail-reconciliation-status" role="status"><span className="spinner" />Reconciling saved work context…</div>}
+          <div className="detail-reconciliation-frame" aria-busy={contextReconciliationRequired && contextLoading} inert={contextReconciliationRequired && contextLoading}>
           {contextError && <ErrorNotice message={contextError}><button className="button button-secondary" onClick={() => void loadContext(opened)}>Try again</button></ErrorNotice>}
           <WorkItemDetail
           opened={opened}
@@ -1427,7 +1514,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           mode={mode}
           editDraft={editDraft}
           editSaving={editSaving}
-          mutationBlocked={openedWorkMutationBlocked}
+          mutationBlocked={detailMutationBlocked}
           editError={editError}
           conflict={conflict}
           copiedKey={copied}
@@ -1446,7 +1533,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           setEditDraft={(updater) => setEditDraft((draft) => draft ? updater(draft) : draft)}
           onSaveEdits={(event) => void saveWorkEdits(event)}
           onCancelEdit={() => {
-            if (openedWorkMutationBlocked) return;
+            if (detailMutationBlocked) return;
             setMode("view");
             setEditDraft(draftFromWork(context.work_item));
             setEditError("");
@@ -1473,30 +1560,18 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           }}
           onCheckpointOffset={setCheckpointOffset}
           onReloadCheckpoints={() => setCheckpointRefresh((value) => value + 1)}
-          onEventAppended={async () => {
-            setRefresh((value) => value + 1);
-            const reconciled = await reloadOpenContext();
-            if (!reconciled) {
-              setNotice({
-                message: "Progress was saved, but current work context could not be reloaded. Use Refresh before continuing.",
-                error: true
-              });
-            }
-            return reconciled;
-          }}
+          onEventAppended={() => afterWorkMutation(
+            "Progress was saved, but current work context could not be reloaded. Use Refresh before continuing."
+          )}
           onGateResolved={async () => {
-            setAttentionRefresh((value) => value + 1);
-            setRefresh((value) => value + 1);
-            setEventRefresh((value) => value + 1);
-            const reconciled = await reloadOpenContext();
-            if (!reconciled) {
-              setNotice({
-                message: "The answer was recorded, but current work context could not be reloaded. Use Refresh before continuing.",
-                error: true
-              });
-            }
+            await afterWorkMutation(
+              "The answer was recorded, but current work context could not be reloaded. Use Refresh before continuing.",
+              { refreshAttention: true, refreshEvents: true }
+            );
           }}
-        /></>}
+        />
+          </div>
+        </>}
     </Dialog>}
 
     {deleteTarget && <Dialog title="Delete this work item?" onClose={() => { if (!deleting && !mutationRegistry.blocks([mutationWorkKey(deleteTarget.project_id, deleteTarget.id)])) setDeleteTarget(null); }} recovery={modalRecovery(deleteDialogMutationIntents)} busy={deleting || mutationRegistry.blocks([mutationWorkKey(deleteTarget.project_id, deleteTarget.id)])}>

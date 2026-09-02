@@ -31,20 +31,10 @@ _APPLICATION_ERRORS = {
         "This work item has unresolved human input. Inspect its current context or the human "
         "attention queue; do not bypass the gate with another claim or terminal mutation."
     ),
-    "gate_already_resolved": (
-        "This human gate is already resolved. Read current gate history rather than overwriting it."
-    ),
-    "gate_context_changed": (
-        "The work context changed after the human question was requested. A human must reload "
-        "and review the current work context before submitting a new resolution intent."
-    ),
-    "human_gates_not_enabled": (
-        "New human-gate requests are temporarily disabled during the coordinated service cutover."
-    ),
     "invalid_cursor": "That page cursor is invalid for this project, work item, or filter.",
     "gate_secret_echo": (
-        "Mnemonic rejected the human-gate request because request-known or retained gate/operation "
-        "control material appeared in durable content. Remove it and create a genuinely corrected intent."
+        "Mnemonic rejected the human-gate request because request-known credential or operation "
+        "control data appeared in durable content. Remove it and create a genuinely corrected intent."
     ),
     "lease_held": "This work item has an active claim.",
     "lease_expired": "This work claim has expired. Recall the work state before retrying.",
@@ -56,13 +46,8 @@ _APPLICATION_ERRORS = {
     "relationship_context_invalid": (
         "Discovery context must belong to the originating target work item."
     ),
-    "relationship_exists": "That relationship already exists.",
     "parent_already_set": "That work item already has a parent.",
     "active_relationships": "Remove this work item's relationships before deleting it.",
-    "event_type_reserved": "Only progress events may be appended by clients.",
-    "event_metadata_invalid": (
-        "Progress metadata is invalid. Check its bounded JSON shape and reserved keys."
-    ),
     "event_secret_echo": (
         "Mnemonic rejected progress because a request-known secret matched a persisted field."
     ),
@@ -105,14 +90,9 @@ _NOT_FOUND_MESSAGES = {
     "relationship_not_found": (
         "Relationship not found in this project. Use list_relationships to see current edges."
     ),
-    "gate_not_found": (
-        "Human gate not found on this work item. Refresh current context or use list_work_gates "
-        "for the exact project and work item; do not guess another scope."
-    ),
 }
 _UNKNOWN_NOT_FOUND = (
-    "The requested project, work item, checkpoint, relationship, or human gate was not found "
-    "in this project."
+    "The requested project, work item, checkpoint, or relationship was not found in this project."
 )
 
 
@@ -228,12 +208,6 @@ class MnemonicAPI:
             raise ToolError(_not_found_message(response))
 
         application_error = _application_error(response)
-        if (
-            response.status_code >= 500
-            and application_error is not None
-            and application_error[0] == "human_gates_not_enabled"
-        ):
-            raise ToolError(_APPLICATION_ERRORS["human_gates_not_enabled"])
         if response.status_code >= 500:
             if idempotent_mutation:
                 raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
@@ -254,19 +228,6 @@ class MnemonicAPI:
                 "before retrying."
             )
 
-        # Legacy deployments return string details, so keep the old conflict
-        # interpretation during the compatibility window without exposing them.
-        if response.status_code == 409:
-            if idempotent_mutation:
-                raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
-            if method in {"PATCH", "DELETE"} or path.endswith(("/complete", "/delete")):
-                raise ToolError(
-                    "Version conflict. Recall the latest work item and review the changes "
-                    "before retrying."
-                )
-            raise ToolError(
-                "A project with this slug already exists. List projects before creating another."
-            )
         if response.status_code == 422:
             pairs: list[tuple[object, object]] = []
             try:

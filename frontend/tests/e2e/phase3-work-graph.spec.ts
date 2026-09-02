@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, request, test } from "@playwright/test";
+import { expireLease } from "./database";
 import { statePath, type E2EState } from "./global.setup";
 
 let state: E2EState;
@@ -26,12 +27,15 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     doneRoot: `Done ancestor ${suffix}`,
     doneChild: `Pending done descendant ${suffix}`,
     collapsedRoot: `Collapsed pending root ${suffix}`,
-    collapsedChild: `Initially hidden child ${suffix}`
+    collapsedChild: `Initially hidden child ${suffix}`,
+    discoveryRoot: `Discovery origin branch ${suffix}`,
+    discoveredChild: `Discovered child ${suffix}`
   };
   const client = await request.newContext({
     baseURL: apiURL,
     extraHTTPHeaders: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" }
   });
+  const initialCheckpoints = new Map<string, string>();
 
   async function createWork(
     title: string,
@@ -53,13 +57,19 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
       }
     });
     if (!response.ok()) throw new Error(`Could not create ${title} (${response.status()}): ${await response.text()}`);
-    return (await response.json() as { work_item: { id: string } }).work_item.id;
+    const created = await response.json() as {
+      work_item: { id: string };
+      initial_checkpoint: { id: string };
+    };
+    initialCheckpoints.set(created.work_item.id, created.initial_checkpoint.id);
+    return created.work_item.id;
   }
 
   async function addRelationship(
-    relationship_type: "parent-child" | "blocks",
+    relationship_type: "parent-child" | "blocks" | "discovered-from",
     source_work_item_id: string,
-    target_work_item_id: string
+    target_work_item_id: string,
+    context_checkpoint_id: string | null = null
   ) {
     const response = await client.post(`/api/v1/projects/${state.projectId}/relationships`, {
       data: {
@@ -69,7 +79,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
         created_by_client: "playwright-api",
         created_by_session_id: `phase3-${suffix}`,
         created_by_model: null,
-        context_checkpoint_id: null
+        context_checkpoint_id
       }
     });
     if (!response.ok()) throw new Error(`Could not add ${relationship_type} (${response.status()}): ${await response.text()}`);
@@ -89,6 +99,8 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     const doneChildId = await createWork(titles.doneChild);
     const collapsedRootId = await createWork(titles.collapsedRoot);
     const collapsedChildId = await createWork(titles.collapsedChild);
+    const discoveryRootId = await createWork(titles.discoveryRoot);
+    const discoveredChildId = await createWork(titles.discoveredChild);
     const completed = await client.post(
       `/api/v1/projects/${state.projectId}/work-items/${doneRootId}/complete`,
       {
@@ -110,6 +122,15 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await addRelationship("parent-child", promotedRootId, promotedChildId);
     await addRelationship("parent-child", doneRootId, doneChildId);
     await addRelationship("parent-child", collapsedRootId, collapsedChildId);
+    await addRelationship("parent-child", discoveryRootId, discoveredChildId);
+    const discoveryCheckpointId = initialCheckpoints.get(discoveryRootId);
+    if (!discoveryCheckpointId) throw new Error("Discovery origin checkpoint was not retained.");
+    await addRelationship(
+      "discovered-from",
+      discoveredChildId,
+      discoveryRootId,
+      discoveryCheckpointId
+    );
 
     const claimed = await client.post(`/api/v1/projects/${state.projectId}/work-items/${childId}/claim`, {
       data: {
@@ -139,47 +160,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     page.on("request", (request) => {
       if (request.url().includes("/children?")) childRequests.push(request.url());
     });
-    let syntheticCollapsedExpiry = "";
-    let collapsedRootSnapshots = 0;
-    await page.route(
-      `**/api/mnemonic/projects/${state.projectId}/work-items?*`,
-      async (route) => {
-        const url = new URL(route.request().url());
-        if (
-          url.searchParams.get("view") !== "roots"
-          || url.searchParams.get("status") !== "pending"
-        ) {
-          await route.continue();
-          return;
-        }
-        const response = await route.fetch();
-        const payload = await response.json() as {
-          items: Array<{
-            summary: { work_item: { id: string } };
-            presentation: {
-              active_descendant_count: number;
-              next_active_descendant_lease_expires_at: string | null;
-            };
-          }>;
-        };
-        const branch = payload.items.find(
-          (item) => item.summary.work_item.id === collapsedRootId
-        );
-        if (branch) {
-          if (!syntheticCollapsedExpiry) {
-            syntheticCollapsedExpiry = new Date(Date.now() + 4_000).toISOString();
-          }
-          const active = Date.now() < Date.parse(syntheticCollapsedExpiry);
-          branch.presentation.active_descendant_count = active ? 1 : 0;
-          branch.presentation.next_active_descendant_lease_expires_at = active
-            ? syntheticCollapsedExpiry
-            : null;
-          collapsedRootSnapshots += 1;
-        }
-        await route.fulfill({ response, json: payload });
-      }
-    );
-
+    await page.clock.install();
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
 
@@ -192,6 +173,8 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     const doneChildCard = page.locator("article.work-item-card").filter({ hasText: titles.doneChild });
     const collapsedRootCard = page.locator("article.work-item-card").filter({ hasText: titles.collapsedRoot });
     const collapsedChildCard = page.locator("article.work-item-card").filter({ hasText: titles.collapsedChild });
+    const discoveryRootCard = page.locator("article.work-item-card").filter({ hasText: titles.discoveryRoot });
+    const discoveredChildCard = page.locator("article.work-item-card").filter({ hasText: titles.discoveredChild });
     await expect(rootCard).toHaveCount(1);
     await expect(rootCard.locator("xpath=ancestor::div[contains(@class,'hierarchy-scaffold')]")).toHaveCount(1);
     await expect(childCard).toHaveCount(1);
@@ -209,25 +192,36 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     const collapsedBranch = collapsedRootCard.locator(
       "xpath=ancestor::div[contains(@class,'hierarchy-node')][1]"
     );
-    const collapsedAggregates = collapsedBranch.locator(".hierarchy-aggregate-strip");
-    await expect(collapsedAggregates).toHaveAttribute("aria-label", /1 active descendant/);
-    await expect.poll(() => collapsedRootSnapshots, { timeout: 10_000 }).toBeGreaterThan(1);
-    await expect(collapsedAggregates).toHaveAttribute("aria-label", /0 active descendants/);
+    const collapsedAggregates = collapsedBranch.getByRole("list", { name: "Branch totals" });
+    await expect(collapsedAggregates).toContainText("1 active descendant");
+    await expireLease(state.projectId, collapsedChildId);
+    await page.clock.fastForward(61 * 1000);
+    await expect(collapsedAggregates).toContainText("0 active descendants");
     await expect(
       page.getByRole("button", { name: `Expand children of ${titles.collapsedRoot}` })
     ).toHaveAttribute("aria-expanded", "false");
     // The Pending filter keeps Active distinct. The Active child is therefore
     // navigation scaffolding and auto-expands to reveal its Pending descendant.
     await expect(grandchildCard).toHaveCount(1);
+    await expect(discoveryRootCard).toHaveCount(1);
+    const discoveryBranch = discoveryRootCard.locator(
+      "xpath=ancestor::div[contains(@class,'hierarchy-node')][1]"
+    );
+    await expect(discoveryBranch.getByRole("list", { name: "Branch totals" })).toContainText(
+      "1 discovered descendant"
+    );
+    await page.getByRole("button", { name: `Expand children of ${titles.discoveryRoot}` }).click();
+    await expect(discoveredChildCard).toHaveCount(1);
+    await expect(discoveredChildCard.locator("xpath=ancestor::div[contains(@class,'hierarchy-card')][1]").locator(".hierarchy-origin")).toHaveText("Discovered sub-work");
     await expect(page.locator(".result-count")).toContainText("root branch");
 
     const rootBranch = rootCard.locator(
       "xpath=ancestor::div[contains(@class,'hierarchy-node')][1]"
     );
-    await expect(rootBranch.locator(".hierarchy-aggregate-strip")).toHaveAttribute(
-      "aria-label",
-      /1 direct child; 2 descendants;.*1 active descendant/
-    );
+    const rootAggregates = rootBranch.getByRole("list", { name: "Branch totals" });
+    await expect(rootAggregates).toContainText("1 direct child");
+    await expect(rootAggregates).toContainText("2 descendants");
+    await expect(rootAggregates).toContainText("1 active descendant");
     await page.getByRole("button", { name: "Won’t do", exact: true }).click();
     await expect(rootCard).toHaveCount(1);
     await page.getByRole("button", { name: `Expand children of ${titles.root}` }).click();
@@ -236,6 +230,11 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     });
     await expect(hiddenChildren).toBeVisible();
     await hiddenChildren.getByRole("button", { name: "Show all descendants" }).click();
+    const focusedChildrenRegion = page.locator(".hierarchy-children:focus");
+    await expect(focusedChildrenRegion).toHaveCount(1);
+    await expect(focusedChildrenRegion.locator("xpath=ancestor::div[contains(@class,'hierarchy-node')][1]")).toContainText(
+      titles.root
+    );
     await expect(
       page.getByRole("status").filter({ hasText: "Branch override active" })
     ).toBeVisible();
@@ -295,8 +294,8 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect(detail.locator(".detail-topline > .status-badge")).toHaveText("Active");
     await expect(detail.locator(".operational-badge.blocked")).toHaveCount(0);
 
-    // Relationship mutations reconcile the entire work context, which remounts the editor closed.
-    await detail.getByText("Add a relationship", { exact: true }).click();
+    // Relationship reconciliation keeps the editor mounted and its open state intact.
+    await expect(detail.getByText("Add a relationship", { exact: true })).toBeVisible();
     await detail.getByLabel("Find another work item").fill(titles.secondParent);
     await detail.getByRole("option", { name: new RegExp(titles.secondParent) }).click();
     await detail.getByLabel("Relationship type").selectOption("parent-child");

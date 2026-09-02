@@ -33,12 +33,17 @@ Lifecycle and graph conflicts use stable codes including
 Self-edges and a missing discovery context fail strict request validation with
 422. Missing or cross-project endpoints/checkpoints use sanitized 404 codes.
 Error context never includes checkpoint content or non-allowlisted upstream values.
-Event validation may use `event_type_reserved`, `event_metadata_invalid`, or
-`event_secret_echo`; their context identifies field locations, never caller
-values. Human-gate failures use `work_gated`, `gate_not_found`,
-`gate_already_resolved`, `gate_context_changed`, `gate_secret_echo`, and
-`human_gates_not_enabled`. Their messages and context never echo a question,
-answer, reviewed revision, actor/session value, or control UUID.
+Event validation failures are ordinary structured 422 errors; a request-known
+secret echo returns `event_secret_echo`, whose context identifies field
+locations, never caller values. Human-gate operations use `work_gated`,
+`gate_not_found`, `gate_already_resolved`, `gate_context_changed`,
+`gate_secret_echo`, and `invalid_cursor`. A malformed, foreign-scope, or
+filter-mismatched cursor returns `422 invalid_cursor`; restart at the first page.
+Their messages and context never echo a question, answer, reviewed revision,
+actor/session value, or control UUID. A hierarchy statement canceled by its
+five-second limit returns typed `503 hierarchy_timeout`; retry a narrower read.
+Any database failure may return `503 database_unavailable`; a write outcome can
+be unknown, so retain the exact request before deciding whether to retry.
 
 ## Idempotent mutation receipts
 
@@ -120,6 +125,15 @@ Project fields are `id`, `name`, `slug`, `description`,
 `repository_url`, `created_at`, and `updated_at`. Slugs are unique,
 lowercase, and hyphen-separated; omitting one derives it from the name.
 
+Project settings use `GET /projects/{project_id}/settings` and
+`PATCH /projects/{project_id}/settings`. GET returns exactly
+`{project_id, recall_pointer_template}`; `null` selects the built-in template.
+PATCH requires exactly `{recall_pointer_template}`, whose value is nonblank text
+of at most 100,000 characters or `null` to clear the saved override, and returns
+the same read shape. Unknown projects return 404. These routes need no
+`client_operation_id`, remain outside the receipt ledger, and are admitted by
+the dashboard proxy.
+
 ## Canonical work-item routes
 
 Base path: `/projects/{project_id}/work-items`.
@@ -142,8 +156,7 @@ Base path: `/projects/{project_id}/work-items`.
   retained decisions after soft deletion.
 - `GET /{work_item_id}/gates/{gate_id}/context` returns the exact unresolved-gate
   review context without placing the gate ID in a query string.
-- `POST /{work_item_id}/gates` atomically requests human input (201), subject to
-  the deployment request fence.
+- `POST /{work_item_id}/gates` atomically requests human input (201).
 - `POST /{work_item_id}/gates/{gate_id}/resolve` records one immutable human
   answer and its reviewed context revision.
 - `GET /{work_item_id}/events` pages the immutable event timeline.
@@ -400,9 +413,9 @@ relevance controls its page order, with the selected sort as a deterministic
 tie-breaker. Search results never contain prompt or
 source-metadata bodies.
 
-`view=full` returns flat `WorkSummary` pages. A nonblank `q` requires `full` or
-`minimal`, and under `full` gives each direct hit a bounded root-to-parent
-`ancestor_path` plus an `ancestor_path_truncated` flag. `view=minimal` returns
+`view=full` returns flat `WorkSummary` pages and gives every row a bounded
+root-to-parent `ancestor_path` plus an `ancestor_path_truncated` flag, including
+blank-query browse pages. A nonblank `q` requires `full` or `minimal`. `view=minimal` returns
 `WorkSummaryMinimal` pages carrying only `work_item` (`id`, `title`, `status`,
 `priority`, `version`, `updated_at`), `checkpoint_count`, and `display_state`;
 it skips the ancestor-path query entirely. REST defaults to `full` for the
@@ -472,8 +485,9 @@ time fields.
 `WorkSummaryMinimal` contains only a `work_item` pointer (`id`, `title`,
 `status`, `priority`, `version`, `updated_at`), `checkpoint_count`, and
 `display_state`.
-The ancestor path is empty for browse/root/child results and root-to-parent for
-free-text descendant hits. `Readiness` contains lifecycle, terminal, active,
+The ancestor path is root-to-parent for every full flat result and empty only
+for a structural root; hierarchy root/child summaries keep their documented
+empty compact-summary path. `Readiness` contains lifecycle, terminal, active,
 dropped, blocked, and ready booleans, unresolved blocker and human-gate counts, `is_gated`,
 display state, and an optional safe active lease. Display precedence is
 non-Pending lifecycle, waiting, blocked, active, dropped, then Pending;
@@ -530,8 +544,7 @@ dedicated gate-history route. In ordinary bounded context, each immediate
 relationship list contains at most 50 pointer-only counterparts and
 `relationship_counts` covers all adjacent edges by direction. The valid nested
 review route is the deliberate exception: that same one-statement review
-materializes every adjacent relationship, so drift acknowledgement cannot be
-armed from an omitted edge. Focused response size therefore grows with focal
+materializes every adjacent relationship, so drift review cannot be prepared from an omitted edge. Focused response size therefore grows with focal
 work-item degree and clients must request it only for explicit human review;
 invalid or resolved gate IDs are rejected.
 
@@ -545,90 +558,127 @@ inclusive branch unresolved-human-gate count; `is_discovered_work`;
 `discovered_from_parent`; and the earliest active descendant lease expiry. All
 fields come from one database statement and one database-time snapshot.
 
-Pages retain `items`, `total`, `limit`, and `offset`.
+Offset pages contain `items`, `total`, `limit`, and `offset`. Human-attention
+and per-work gate-history pages instead contain `items`, `total`, `limit`, and
+`next_cursor`.
 `CompletionResult` contains `work_item` and `checkpoint`.
 
 ## Human-gate contract
 
-Only `gate_type="human"` exists. A request accepts exact nonblank `question`
-text (1–4,000 characters), asserted requester client/session and optional model,
-and optional top-level `client_operation_id`. It is valid only for visible
-Pending work, including Pending work with an active or expired retained lease.
-The request transaction locks the work, freezes its current revision, inserts
-one immutable gate with one monotonic `attention_sequence`, appends exactly one
-`human_attention_requested` event, advances work activity without consuming its
-version, and completes the optional receipt atomically.
+Only `gate_type="human"` exists. A request is valid only for visible Pending
+work, including Pending work with an active or expired retained lease. Agents
+must check existing unresolved gates and append any supporting `context`
+checkpoint before requesting, because the request anchors the newest context,
+work version, and relationship history.
 
-Before receipt reservation, request and resolution reject any exact
-request-known credential/control value in a durable gate field. Completed
-receipt replay and UUID-conflict handling then return before any time-varying
-lookup. Only a genuinely new execution checks UUID substrings against currently
-retained gate IDs and protected operation IDs; a match rolls back its new
-reservation and returns sanitized `422 gate_secret_echo` with empty context and
-no echoed value. This ordering keeps controls out of new question, answer,
-provenance, event, and receipt-response content without making permanent replay
-depend on later state. It is not general secret detection: unrecognized opaque
-sensitive text can still be stored, so clients must keep all secrets out of
-gate content.
+`POST /projects/{project_id}/work-items/{work_item_id}/gates` accepts:
 
-`MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED` defaults to `false`. While false, a
-matching completed keyed request still replays before the fence; a genuinely
-new keyed or unkeyed request returns `503 human_gates_not_enabled` and leaves no
-receipt, gate, event, or activity change. Reads and resolution are not fenced.
-Direct unkeyed REST creation is accepted after enablement but remains
-retry-unprotected. MCP `request_human_input` always requires the operation UUID.
+```json
+{
+  "gate_type": "human",
+  "question": "Which rollout policy should this work use? Do not include secrets.",
+  "requested_by_client": "claude-code",
+  "requested_by_session_id": "opaque-current-session",
+  "requested_by_model": null,
+  "client_operation_id": "00000000-0000-4000-8000-000000000007"
+}
+```
 
-Every `HumanGateRead` contains the immutable request, request provenance/time,
-request anchors (`requested_work_version`, `requested_context_checkpoint_id`,
-`requested_relationship_event_count`), status, the current three-field context
-revision, and exact drift booleans. A resolved row additionally contains the
-answer, asserted resolver provenance/time, the reviewed resolution revision,
-and whether changed context was acknowledged. These provenance fields are
-client assertions under the shared bearer; Mnemonic does not authenticate a
-person's real-world identity or verify that the answer is correct.
+`question` is exact nonblank text of 1–4,000 characters. Requester fields are
+asserted provenance, not authenticated identity. Direct REST may omit the
+operation UUID and then has no retry protection; MCP requires it. Exact
+request-known credential or operation-control values in durable gate fields
+return sanitized `422 gate_secret_echo`. Gate IDs are public references and
+there is no database-wide retained-UUID content scan. This is not universal
+secret detection: clients must still keep every credential, capability,
+operation UUID, private chain-of-thought, and unnecessary transcript out of a
+question or answer.
 
-Resolution accepts exact nonblank `resolution`, asserted resolver
-client/session and optional model, `acknowledge_context_change`, optional
-`reviewed_context_revision`, and optional operation UUID. If the current
-revision still equals the request anchors, acknowledgement is false and no
-reviewed revision is sent. If work identity/version, newest context checkpoint,
-or relationship-event count changed, the caller must review the current
-one-snapshot context, set acknowledgement true, and submit that exact current
-revision. Any later drift returns `409 gate_context_changed`; the obsolete
-operation intent must not be reused with changed arguments. Resolution locks and
-revalidates, changes the gate exactly once, appends exactly one
-`human_attention_resolved` event, and advances activity without changing the work
-version. A resolved gate is immutable and cannot be reopened or overwritten.
+A new request locks the work, freezes its three-part revision, inserts one
+immutable gate with a monotonic `attention_sequence`, appends exactly one
+`human_attention_requested` event, advances activity without consuming a work
+version, and completes its optional receipt atomically. Completed receipt
+replay and UUID conflict handling occur before current-state lookup.
+
+Every `HumanGateRead` contains the immutable request and provenance, the nested
+`requested_context_revision` (`work_version`, `context_checkpoint_id`, and
+`relationship_event_count`), status, `current_context_revision`, and four
+backend-computed drift booleans. `context_changed_since_request` is the OR of the
+work, context-checkpoint, and relationship drift flags. A resolved row
+additionally contains the answer, resolver provenance/time,
+`resolved_context_revision`, and backend-computed
+`context_changed_at_resolution`. The resolution-drift boolean is derived from
+the retained requested and resolved revisions rather than independently
+persisted. Clients validate these fields and their status-dependent nullability;
+they do not reconstruct the server-owned drift values. The response has no
+acknowledgement field.
+
+`POST .../gates/{gate_id}/resolve` accepts:
+
+```json
+{
+  "resolution": "Use the staged rollout policy.",
+  "resolved_by_client": "mnemonic-dashboard",
+  "resolved_by_session_id": "opaque-dashboard-session",
+  "resolved_by_model": null,
+  "reviewed_context_revision": {
+    "work_version": 3,
+    "context_checkpoint_id": "11111111-1111-4111-8111-111111111111",
+    "relationship_event_count": 2
+  },
+  "client_operation_id": "00000000-0000-4000-8000-000000000008"
+}
+```
+
+`reviewed_context_revision` is required on every resolution, even when no drift
+occurred. The person first loads the unresolved gate's one-snapshot review
+context, reviews the exact work version, newest context checkpoint, and complete
+relationship set, then submits that exact tuple. Resolution locks and
+revalidates it. Intervening drift returns `409 gate_context_changed` and rolls
+back the new receipt reservation; changed reviewed state is a new intent and
+requires a new operation UUID. Success changes the gate exactly once, appends
+one `human_attention_resolved` event, and advances activity without changing the
+work version. A resolved gate is immutable; another new intent returns
+`409 gate_already_resolved`, while an exact completed receipt replay still
+returns its frozen success.
 
 `GET /projects/{project_id}/human-attention` returns unresolved gates in
-immutable `attention_sequence,id` order with current `WorkSummary` and bounded
-ancestor path. It accepts optional `work_item_id`, `limit=0..100`, and opaque
-`cursor`; `limit=0` accepts no cursor and returns an exact text-free total. The
-cursor is an immutable-key traversal rather than an offset snapshot, so
-concurrent resolution cannot cause an unseen gate to be skipped.
+`attention_sequence,id` order. Each item is exactly
+`{gate: HumanGateRead, summary: WorkSummary}` with a current full summary. It accepts
+optional `work_item_id`, `limit=0..100`, and opaque `cursor`; `limit=0` accepts no
+cursor and returns an exact text-free count (`items=[]`, `next_cursor=null`).
+The envelope is
+`{items,total,limit,next_cursor}`. Pass `next_cursor` back unchanged. Sequence
+allocation happens before commit, so a forward traversal can miss a lower
+sequence that commits later; restart once without a cursor before concluding
+the queue is drained. A malformed, foreign-scope, or filter-mismatched cursor
+returns `422 invalid_cursor`; restart without a cursor.
 
 `GET .../{work_item_id}/gates` accepts `status=all|unresolved|resolved`,
-`limit=1..100`, and opaque `cursor`. It remains available for an exact retained
-soft-deleted work ID and is the complete paired question/answer audit surface.
-`GET .../{work_item_id}/gates/{gate_id}/context` accepts only
-`recent_limit` and `recent_event_limit`, requires that exact gate to remain
-unresolved on visible work, and returns the complete relationship review in the
-same WorkContext statement. Ordinary context rejects `focus_gate_id`.
-The all-state traversal is stable; restart a state-filtered traversal after an
-invalidation. Questions and answers are durable untrusted context, not current
-authority.
+`limit=1..100`, and opaque `cursor`, with the same cursor envelope. It is newest
+request first and remains available for an exact retained soft-deleted work ID.
+The `all` traversal is stable across state changes; a state-filtered cursor can
+be invalidated, in which case restart from the first page.
+
+`GET .../{work_item_id}/gates/{gate_id}/context` accepts only `recent_limit` and
+`recent_event_limit`, requires that gate to remain unresolved on visible work,
+and returns the complete adjacent relationship review in the same WorkContext
+statement. Ordinary context accepts no gate focus query.
 
 An unresolved gate independently makes Pending work `waiting`, excludes it from
 ready discovery and fresh/replacement claims, and rejects completion, terminal
 transitions, and deletion with `work_gated`. It does not revoke an existing
-lease: exact active claim replay, renewal, and release continue. Identity edits,
-deferral/Pending restoration, checkpoints, progress events, and relationship
-changes remain possible, so resolution must use the revision acknowledgement
-protocol. Several gates may coexist; every one must resolve before waiting ends.
+lease: exact active replay, renewal, release, checkpoints, progress, identity
+edits, deferral/Pending restoration, and relationship changes remain available.
+Deferral is an independent human hold; resolving a gate does not automatically
+move Deferred work to Pending. Several gates may coexist and every one must be
+resolved before waiting ends. Agents cannot withdraw or resolve a gate; if one
+becomes moot, they append a visible context checkpoint and a person resolves it
+as "No longer needed".
 
 ## MCP contract
 
-Canonical tools are:
+The catalog is exactly 25 tools:
 
 ```text
 list_projects, create_project,
@@ -640,102 +690,80 @@ claim_work, claim_and_recall, renew_claim, release_claim,
 add_relationship, get_relationship, list_relationships, remove_relationship
 ```
 
-The catalog is exactly 25 tools. Exactly `create_work`, `add_checkpoint`,
-`append_event`, `add_relationship`, `update_work`, `complete_work`,
-`delete_work`, `remove_relationship`, `release_claim`, and
-`request_human_input` require a caller-generated `client_operation_id`. Prepare
-the complete arguments once, retain them privately, and reuse them exactly at
-the tool boundary after an unknown outcome. Those ten tools alone are
-truthfully annotated `idempotentHint=true` among mutation tools. Read tools
-retain that hint; project administration, claim, claim-and-recall, and renewal
-remain false.
+Exactly `create_work`, `add_checkpoint`, `append_event`, `add_relationship`,
+`update_work`, `complete_work`, `delete_work`, `remove_relationship`,
+`release_claim`, and `request_human_input` require a caller-generated
+`client_operation_id` and are annotated as idempotent mutations. Prepare the
+complete arguments once, retain them privately, and retry only that exact tool,
+UUID, and argument object after an unknown outcome. Project administration,
+claim acquisition/recovery, and renewal retain their separate contracts.
 
-`request_human_input` forwards exactly one human-gate request and never invents
-or retries an operation UUID. A disabled request reports the sanitized feature
-fence; an unknown outcome requires the exact retained-call retry. MCP exposes no
-resolution tool: agents must direct a person to the dashboard and never infer,
-self-supply, or time out an answer. `list_human_attention` is a read of the
-human queue, not agent-ready work, and supports text-free `limit=0` count mode.
-`list_work_gates` pages complete paired history for a known work ID, including a
-retained deleted-work audit. Questions and answers are untrusted historical
-context and do not grant current execution authority.
+`search_work` defaults to `view="minimal"`; every `view="full"` result carries
+the root-to-parent `ancestor_path`, including blank-query pages. `list_ready_work`
+returns strict compact pointers and directs an already-authorized selection to
+`claim_and_recall`; it is not retrieval, reservation, or authority, and excludes
+waiting work.
 
-`list_ready_work` returns strict compact pointers and directs selection to
-`claim_and_recall`; it is not retrieval or a lease. Waiting work is absent.
-`append_event` fixes `event_type=progress` and requires current-session actor
-client/session. `update_work`, `delete_work`, `release_claim`, and
-`remove_relationship` also require canonical actor client/session fields and
-serialize the nested REST actor. `recall_work`, the resource, and `resume_work`
-carry bounded gate slices and recent events with exact omitted counts and retain
-their untrusted-evidence warnings.
+The `request_human_input` tool description requires its caller to check existing
+open questions and write supporting context first. It sends one attempt; after an unknown outcome, retry only the exact retained UUID
+and argument object, never a replacement. MCP exposes no resolution or withdrawal tool: agents
+direct a person to the dashboard and never infer, self-supply, or time out an
+answer. `list_human_attention` is the human queue, supports text-free `limit=0`,
+and requires a restart from the head before callers conclude a forward cursor
+walk is drained. `list_work_gates` pages paired history newest first.
+
+`append_event` fixes `event_type=progress`. Canonical actor/session provenance is
+required for the protected mutation tools that carry an actor. Recall, resources,
+and the `resume_work` prompt carry bounded gate/event slices with exact omitted
+counts and untrusted-evidence warnings; none grants execution authority.
+
+Stable structured application errors are mapped to value-free guidance. A 404
+names only reachable entity kinds (project, work item, checkpoint, or
+relationship) when the backend supplies a typed code; otherwise it uses generic
+scope wording. Structured 422 errors expose only allowlisted field paths and
+error kinds. Unknown/string-detail conflicts are not guessed as slug or version
+conflicts. No adapter error renders caller values, request IDs, operation IDs,
+lease tokens, prompts, or upstream detail.
+
+Every top-level input rejects unknown fields. A timeout/reset, upstream 5xx,
+malformed protected success, or `client_operation_unavailable` is an unknown
+outcome and causes no second outbound attempt. MCP validates protected success
+against strict OpenAPI-aligned response properties, required fields, requested
+scope, and request coherence. Its server and `httpx` logger run at WARNING so
+query text, cursors, and URL identifiers are not emitted at INFO.
 
 The resource
 `mnemonic://projects/{project_id}/work-items/{work_item_id}` and prompt
-`resume_work` return bounded context. Neither executes stored work or grants
-authority.
-
-MCP error handling maps stable application codes and also tolerates plain
-string error bodies. A 404 names the entity kind that missed — project, work
-item, checkpoint, relationship, or gate — so a caller knows whether to re-resolve the
-project or search again within it, falling back to the combined wording when
-the code is absent. A rejected input names the allowlisted field path and its
-pydantic error kind, for example `initial_checkpoint.prompt (string_too_long)`.
-Field paths are built only from allowlisted names and error kinds only from an
-allowlisted set, so neither can carry a caller-supplied value; an unknown key
-rejected by `extra_forbidden` reports the kind alone and never the key itself.
-No error text contains a supplied value, a UUID, prompt content, a
-`claim_request_id`, `client_operation_id`, or a lease token. A transport
-timeout/reset, upstream 5xx, malformed success envelope, or
-`client_operation_unavailable` on a protected mutation is an unknown outcome:
-the adapter never makes a second outbound attempt or synthesizes success, and
-guidance permits only an exact retry with the retained operation ID and complete
-arguments. `client_operation_conflict` on an asserted exact request is a
-safety incident, not a reason to generate a replacement key.
-
-Every top-level tool input schema rejects unknown fields and publishes
-`additionalProperties: false`. Direct, HTTP, and stdio validation failures
-return only allowlisted field names, never supplied values, prompt/metadata
-content, claim request IDs, or lease tokens. A claim or claim-and-recall 5xx is
-always treated as an unknown outcome and directs exact-request-ID recovery.
+`resume_work` return bounded context. Neither executes work or grants authority.
 
 ## Browser proxy
 
-The same-origin proxy allows exact project, work/checkpoint/hierarchy,
-human-attention, per-work gate-history, and human-facing relationship routes
-with documented query keys. It allows gate resolution POST with exactly the
-answer, asserted dashboard resolver, acknowledgement, reviewed revision, and
-operation UUID. It deliberately denies gate creation; agents request input
-through MCP or an authorized direct REST client, while humans resolve it in the
-dashboard. Event POST accepts `{event_type,body,metadata,actor,client_operation_id}`
-and rejects `lease_token` rather than stripping it. Work
-create/patch/delete, checkpoint append, event append, deferral, completion,
-relationship add/remove, and gate resolution require one top-level operation
-UUID at the browser boundary. Relationship DELETE requires the dashboard's
-serialized actor-and-key body; only direct REST keeps the optional body and
-explicitly retry-unprotected behavior.
+The same-origin proxy allowlists exact project, work/checkpoint/hierarchy,
+human-attention, per-work gate-history/review, relationship, and event routes
+with their documented query keys. It allows gate resolution only with the
+answer, asserted dashboard resolver fields, required
+`reviewed_context_revision`, and operation UUID. It denies gate creation: agents
+request input through MCP or an authorized direct REST client, while a person
+resolves it in the dashboard.
 
-Project-level relationship GET-by-ID and project ready-work GET are denied. The
-proxy rejects arbitrary paths, unknown query keys, untrusted hosts/origins,
-bodies over 1 MiB, every `lease_token` at any nesting depth, operation IDs in
-paths/queries/headers/cookies/nested objects, and gate IDs in queries, headers,
-cookies, or nested objects outside the typed gate path. Reserved `gate_type`
-objects, invalid UUIDs, IDs equal to the server bearer, and IDs on excluded
-routes are also rejected. The proxy does not echo a rejected value.
-All claim, renew, and release routes are denied. The API URL/key remain
-server-only; the dashboard can display `LeasePublic` but never receive or
-forward a capability.
+Covered browser writes require one top-level operation UUID and a frozen body.
+Event POST accepts `{event_type,body,metadata,actor,client_operation_id}` and
+rejects `lease_token` rather than stripping it. Relationship DELETE carries the
+serialized actor/key body. Project relationship GET-by-ID, project ready-work,
+claim, renew, release, and every capability-bearing body are denied.
 
-The dashboard keeps each of its ten protected mutations' frozen body and UUID
-only in a dashboard-lifetime in-memory registry. Gate-resolution conflicts use
-both work and gate keys: they block unsafe intersecting work actions without
-serializing unrelated gates. Timeout, network, 5xx, and malformed-2xx outcomes
-stay unresolved and allow only exact retry; conflicting intents remain blocked
-until reconciled. A definite `gate_context_changed` ends the obsolete intent,
-retains only an editable answer draft, reloads the current revision, and
-requires a new review and UUID. Unmounting a dialog does not discard an intent.
-A reload or tab close can lose it, and the UI warns before unloading; no gate
-question, answer, mutation body, UUID, or credential is written to browser
-storage.
+The proxy rejects arbitrary paths, unknown query keys, untrusted hosts/origins,
+bodies over 1 MiB, a `lease_token` at any depth, operation IDs outside their
+allowed top-level bodies, and gate IDs outside typed path segments. Invalid UUIDs
+and values equal to the server bearer are rejected without echo.
+
+Frozen protected requests live only in dashboard memory. Timeout, network, 5xx,
+and malformed-success outcomes permit only exact retry. A definite
+`gate_context_changed` makes the reviewed revision obsolete: keep only the
+editable answer draft, reload the current gate review, and prepare a new UUID
+and complete body. Reload or tab close can lose an uncertain intent, so the UI
+warns before unloading; it never stores gate text, mutation bodies, UUIDs, or
+credentials in browser storage.
 
 ## Live invalidation
 
@@ -751,18 +779,16 @@ currently selected project/list/attention/open-context views as applicable.
 API: `DATABASE_URL`, `MNEMONIC_API_KEY` (required, at least 32 characters),
 `MNEMONIC_LEASE_TTL_SECONDS` (default 900, allowed 60 through 3600),
 `MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS` (default 10, allowed 1 through 10),
-`MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED` (default `false`; request creation only),
-and `MNEMONIC_DASHBOARD_ORIGINS` for exact browser/WebSocket origins. The gate
-fence does not disable attention/history reads, readiness enforcement, or
-direct REST/dashboard resolution.
+`MNEMONIC_EMBEDDING_CACHE`, and `MNEMONIC_DASHBOARD_ORIGINS` for exact
+browser/WebSocket origins.
 
 MCP: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, `MNEMONIC_MCP_HOST`,
 `MNEMONIC_MCP_PORT`, `MNEMONIC_MCP_ALLOWED_HOSTS`, and
 `MNEMONIC_MCP_ALLOWED_ORIGINS`.
 
 Dashboard server: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, and
-`MNEMONIC_DASHBOARD_ORIGINS`. Credentials must never use a
-`NEXT_PUBLIC_*` variable.
+`MNEMONIC_DASHBOARD_ORIGINS`. Credentials must never use a `NEXT_PUBLIC_*`
+variable.
 
 ## Relationship contract
 

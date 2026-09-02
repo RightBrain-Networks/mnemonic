@@ -3,9 +3,16 @@ from collections.abc import Iterator
 from fastapi import Request
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
 from mnemonic_api.config import Settings
+
+
+def database_sqlstate(error: DBAPIError) -> str | None:
+    """Return a driver SQLSTATE without exposing driver-specific exception types."""
+    sqlstate = getattr(error.orig, "sqlstate", None)
+    return sqlstate if isinstance(sqlstate, str) else None
 
 
 def build_engine(settings: Settings) -> Engine:

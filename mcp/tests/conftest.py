@@ -255,9 +255,11 @@ def human_gate():
         "requested_by_client": "claude-code",
         "requested_by_session_id": "phase-7-session",
         "requested_by_model": "test-model",
-        "requested_work_version": 3,
-        "requested_context_checkpoint_id": CHECKPOINT_ID,
-        "requested_relationship_event_count": 0,
+        "requested_context_revision": {
+            "work_version": 3,
+            "context_checkpoint_id": CHECKPOINT_ID,
+            "relationship_event_count": 0,
+        },
         "created_at": NOW,
         "status": "unresolved",
         "current_context_revision": {
@@ -276,7 +278,6 @@ def human_gate():
         "resolved_by_model": None,
         "resolved_context_revision": None,
         "context_changed_at_resolution": None,
-        "context_change_acknowledged": None,
     }
 
 
@@ -293,7 +294,6 @@ def resolved_human_gate(human_gate):
         "resolved_by_model": None,
         "resolved_context_revision": human_gate["current_context_revision"],
         "context_changed_at_resolution": False,
-        "context_change_acknowledged": False,
     }
 
 

@@ -9,7 +9,7 @@ import {
   hasCompleteRelationshipReview,
   humanGateChangedLabels,
   humanGatePath,
-  sameHumanGateRevision
+  humanGateProjectionKey
 } from "@/lib/human-gates";
 import {
   mutationGateKey,
@@ -49,15 +49,6 @@ function gateFromContext(context: WorkContext, gate: HumanGateRead): HumanGateRe
   return decoded;
 }
 
-function gateProjectionKey(gate: HumanGateRead): string {
-  return [
-    gate.current_context_revision.work_version,
-    gate.current_context_revision.context_checkpoint_id.toLowerCase(),
-    gate.current_context_revision.relationship_event_count,
-    gate.context_changed_since_request
-  ].join(":");
-}
-
 export default function HumanGateResolution({
   gate,
   reviewedContext: suppliedContext,
@@ -87,7 +78,7 @@ export default function HumanGateResolution({
   const pendingIntent = intents.find((intent) => (
     intent.state !== "prepared" && intent.conflictKeys.includes(gateKey)
   ));
-  const incomingRevisionKey = gateProjectionKey(gate);
+  const incomingRevisionKey = humanGateProjectionKey(gate);
   const reviewedProjectionIsCurrent = Boolean(
     reviewContext
     && reviewedGate
@@ -95,13 +86,7 @@ export default function HumanGateResolution({
     && reviewedGate.project_id.toLowerCase() === gate.project_id.toLowerCase()
     && reviewedGate.work_item_id.toLowerCase() === gate.work_item_id.toLowerCase()
     && (
-      (
-        sameHumanGateRevision(
-          reviewedGate.current_context_revision,
-          gate.current_context_revision
-        )
-        && reviewedGate.context_changed_since_request === gate.context_changed_since_request
-      )
+      humanGateProjectionKey(reviewedGate) === incomingRevisionKey
       || loadedReviewAgainstIncomingKey.current === incomingRevisionKey
     )
   );
@@ -137,7 +122,9 @@ export default function HumanGateResolution({
       return;
     }
     const projected = gateFromContext(suppliedContext, gate);
-    loadedReviewRevisionKey.current = gateProjectionKey(projected);
+    const projectedKey = humanGateProjectionKey(projected);
+    if (loadedReviewRevisionKey.current === projectedKey) return;
+    loadedReviewRevisionKey.current = projectedKey;
     loadedReviewAgainstIncomingKey.current = incomingRevisionKey;
     setReviewContext(suppliedContext);
     setReviewedGate(projected);
@@ -179,7 +166,7 @@ export default function HumanGateResolution({
           "Mnemonic returned an incomplete relationship review. Reload before acknowledging drift."
         );
       }
-      loadedReviewRevisionKey.current = gateProjectionKey(projected);
+      loadedReviewRevisionKey.current = humanGateProjectionKey(projected);
       loadedReviewAgainstIncomingKey.current = incomingRevisionKey;
       setReviewContext(context);
       setReviewedGate(projected);
@@ -214,16 +201,12 @@ export default function HumanGateResolution({
     event.preventDefault();
     if (!answer.trim() || submitting || pendingIntent || !reviewArmed) return;
     const source = effectiveGate;
-    const acknowledgeContextChange = source.context_changed_since_request;
     const payload: HumanGateResolutionInput = {
       resolution: answer,
       resolved_by_client: "dashboard",
       resolved_by_session_id: dashboardSessionId(),
       resolved_by_model: null,
-      acknowledge_context_change: acknowledgeContextChange,
-      ...(acknowledgeContextChange
-        ? { reviewed_context_revision: source.current_context_revision }
-        : {})
+      reviewed_context_revision: source.current_context_revision
     };
     setSubmitting(true);
     setMessage(null);

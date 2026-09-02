@@ -8,10 +8,25 @@ import type {
   RelationshipRemovalResult,
   HumanGateRead,
   WorkCreation,
-  WorkItem,
-  WorkStatus
+  WorkItem
 } from "@/lib/types";
 import { decodeHumanGate, sameHumanGateRevision } from "./human-gates.ts";
+import { isDefinitiveProxyError } from "./proxy-policy.ts";
+import {
+  UUID_PATTERN,
+  boundedText,
+  decodeWorkItem,
+  exactKeys,
+  finiteInteger,
+  nullableBoundedText,
+  nullableUuid,
+  objectValue,
+  sameUuid,
+  validUnicode,
+  validUtcDateTime,
+  validUuid,
+  type JsonObject
+} from "./wire-guards.ts";
 import { decodeWorkEventForWork } from "./work-events.ts";
 import type { WorkEventRead } from "@/lib/types";
 
@@ -57,11 +72,6 @@ export type MutationHttpOutcome<K extends MutationKind = MutationKind> =
   | { readonly type: "safety_conflict"; readonly error: ApiError }
   | { readonly type: "unresolved"; readonly message: string };
 
-const UUID_PATTERN = /^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/;
-const UTC_DATE_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/;
-const WORK_STATUSES = new Set<WorkStatus>([
-  "pending", "deferred", "done", "wont-do", "promoted"
-]);
 const CHECKPOINT_KINDS = new Set(["context", "progress", "completion"]);
 const RELATIONSHIP_TYPES = new Set([
   "blocks",
@@ -70,6 +80,21 @@ const RELATIONSHIP_TYPES = new Set([
   "duplicate-of",
   "related"
 ]);
+const CHECKPOINT_RESPONSE_FIELDS = [
+  "id", "work_item_id", "kind", "prompt", "source_client", "source_session_id",
+  "source_model", "source_session_url", "repository_branch", "verified_against", "tags",
+  "source_metadata", "migration_origin", "legacy_record_id", "created_at"
+] as const;
+const RELATIONSHIP_RESPONSE_FIELDS = [
+  "id", "project_id", "relationship_type", "source_work_item_id",
+  "target_work_item_id", "context_checkpoint_work_item_id", "context_checkpoint_id",
+  "created_by_client", "created_by_session_id", "created_by_model", "created_at"
+] as const;
+
+export const MUTATION_RESPONSE_DECODER_FIELDS = {
+  decodeCheckpoint: CHECKPOINT_RESPONSE_FIELDS,
+  decodeRelationship: RELATIONSHIP_RESPONSE_FIELDS
+} as const;
 const EXPECTED_STATUS: Record<MutationKind, number> = {
   create_work: 201,
   add_checkpoint: 201,
@@ -116,112 +141,9 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
   ])],
   [422, new Set(["event_secret_echo", "client_operation_secret_echo", "gate_secret_echo"])]
 ]);
-const DEFINITIVE_STRING_ERRORS = new Map<number, ReadonlySet<string>>([
-  [400, new Set([
-    "A request body is required.",
-    "The request body must be a JSON object.",
-    "The request body is not valid JSON.",
-    "Client operation IDs are accepted only in supported JSON request bodies.",
-    "The client operation ID is accepted only at the top level.",
-    "The client operation ID is not supported for this route.",
-    "The client operation ID must be a UUID.",
-    "Unsupported or repeated query parameter.",
-    "The work-creation body does not match the dashboard allowlist.",
-    "The checkpoint body does not match the dashboard allowlist.",
-    "The progress-event body does not match the dashboard allowlist.",
-    "The relationship-creation body does not match the dashboard allowlist.",
-    "The work-item patch does not match the dashboard allowlist.",
-    "The work-item deferral does not match the dashboard allowlist.",
-    "The work-completion body does not match the dashboard allowlist.",
-    "The work-item deletion does not match the dashboard allowlist.",
-    "The relationship-removal body does not match the dashboard allowlist."
-    ,"The human-gate resolution body does not match the dashboard allowlist."
-  ])],
-  [401, new Set(["Valid bearer authentication is required"])],
-  [403, new Set(["This dashboard request is not from a trusted origin."])],
-  [404, new Set(["Route not found."])],
-  [413, new Set(["Request body is too large."])],
-  [415, new Set(["Send a JSON request body."])],
-  [422, new Set(["The client operation ID cannot match a request credential."])]
+const DEFINITIVE_API_STRING_ERRORS = new Map<number, ReadonlySet<string>>([
+  [401, new Set(["Valid bearer authentication is required"])]
 ]);
-
-type JsonObject = Record<string, unknown>;
-
-function objectValue(value: unknown): JsonObject | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null
-    ? value as JsonObject
-    : null;
-}
-
-function exactKeys(value: JsonObject, keys: readonly string[] | Set<string>): boolean {
-  const expected = keys instanceof Set ? keys : new Set(keys);
-  const actual = Object.keys(value);
-  return actual.length === expected.size && actual.every((key) => expected.has(key));
-}
-
-function finiteInteger(value: unknown, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): value is number {
-  return Number.isSafeInteger(value) && Number(value) >= minimum && Number(value) <= maximum;
-}
-
-function validUnicode(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
-      index += 1;
-    } else if (code >= 0xdc00 && code <= 0xdfff) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function boundedText(value: unknown, maximum: number): value is string {
-  return typeof value === "string"
-    && validUnicode(value)
-    && !value.includes("\0")
-    && Array.from(value).length >= 1
-    && Array.from(value).length <= maximum
-    && value.trim().length > 0;
-}
-
-function nullableBoundedText(value: unknown, maximum: number): value is string | null {
-  return value === null || boundedText(value, maximum);
-}
-
-function validUuid(value: unknown): value is string {
-  return typeof value === "string" && UUID_PATTERN.test(value);
-}
-
-function nullableUuid(value: unknown): value is string | null {
-  return value === null || validUuid(value);
-}
-
-function sameUuid(left: unknown, right: unknown): boolean {
-  return validUuid(left) && validUuid(right) && left.toLowerCase() === right.toLowerCase();
-}
-
-function validUtcDateTime(value: unknown): value is string {
-  if (typeof value !== "string") return false;
-  const match = UTC_DATE_TIME_PATTERN.exec(value);
-  if (!match) return false;
-  const [, yearText, monthText, dayText, hourText, minuteText, secondText] = match;
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-  const second = Number(secondText);
-  if (year < 1 || month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) {
-    return false;
-  }
-  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-  const days = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  return day >= 1 && day <= days[month - 1]!;
-}
 
 function validJson(value: unknown, stack = new WeakSet<object>()): boolean {
   if (value === null || typeof value === "boolean") return true;
@@ -297,32 +219,6 @@ function requestBody(request: FrozenMutationRequest): JsonObject {
   return body;
 }
 
-function decodeWorkItem(value: unknown, projectId: string, workItemId?: string): WorkItem {
-  const item = objectValue(value);
-  if (
-    !item
-    || !exactKeys(item, [
-      "id", "project_id", "title", "summary", "status", "priority",
-      "initial_checkpoint_id", "version", "created_at", "updated_at"
-    ])
-    || !validUuid(item.id)
-    || !sameUuid(item.project_id, projectId)
-    || (workItemId !== undefined && !sameUuid(item.id, workItemId))
-    || !boundedText(item.title, 200)
-    || !boundedText(item.summary, 1000)
-    || typeof item.status !== "string"
-    || !WORK_STATUSES.has(item.status as WorkStatus)
-    || !finiteInteger(item.priority, 0, 100)
-    || !validUuid(item.initial_checkpoint_id)
-    || !finiteInteger(item.version, 1)
-    || !validUtcDateTime(item.created_at)
-    || !validUtcDateTime(item.updated_at)
-  ) {
-    throw new Error("Mnemonic returned an invalid mutation response.");
-  }
-  return item as unknown as WorkItem;
-}
-
 function decodeCheckpoint(
   value: unknown,
   workItemId: string,
@@ -332,11 +228,7 @@ function decodeCheckpoint(
   const checkpoint = objectValue(value);
   if (
     !checkpoint
-    || !exactKeys(checkpoint, [
-      "id", "work_item_id", "kind", "prompt", "source_client", "source_session_id",
-      "source_model", "source_session_url", "repository_branch", "verified_against", "tags",
-      "source_metadata", "migration_origin", "legacy_record_id", "created_at"
-    ])
+    || !exactKeys(checkpoint, CHECKPOINT_RESPONSE_FIELDS)
     || !validUuid(checkpoint.id)
     || !sameUuid(checkpoint.work_item_id, workItemId)
     || typeof checkpoint.kind !== "string"
@@ -467,11 +359,7 @@ function decodeRelationship(
   const relationship = objectValue(value);
   if (
     !relationship
-    || !exactKeys(relationship, [
-      "id", "project_id", "relationship_type", "source_work_item_id",
-      "target_work_item_id", "context_checkpoint_work_item_id", "context_checkpoint_id",
-      "created_by_client", "created_by_session_id", "created_by_model", "created_at"
-    ])
+    || !exactKeys(relationship, RELATIONSHIP_RESPONSE_FIELDS)
     || !validUuid(relationship.id)
     || !sameUuid(relationship.project_id, projectId)
     || typeof relationship.relationship_type !== "string"
@@ -691,26 +579,24 @@ function decodeSuccess<K extends MutationKind>(
       status: "resolved"
     });
     const reviewed = objectValue(body.reviewed_context_revision);
-    const acknowledged = body.acknowledge_context_change === true;
     if (
       gate.resolution !== body.resolution
       || gate.resolved_by_client !== body.resolved_by_client
       || gate.resolved_by_session_id !== body.resolved_by_session_id
       || gate.resolved_by_model !== (body.resolved_by_model ?? null)
-      || gate.context_changed_at_resolution !== acknowledged
-      || gate.context_change_acknowledged !== acknowledged
       || !gate.resolved_context_revision
       || !sameHumanGateRevision(gate.current_context_revision, gate.resolved_context_revision)
-      || (acknowledged
-        ? !reviewed
-          || !finiteInteger(reviewed.work_version, 1)
-          || !validUuid(reviewed.context_checkpoint_id)
-          || !finiteInteger(reviewed.relationship_event_count)
-          || !sameHumanGateRevision(
-            gate.resolved_context_revision,
-            reviewed as unknown as typeof gate.resolved_context_revision
-          )
-        : reviewed !== null && reviewed !== undefined)
+      || !reviewed
+      || !exactKeys(reviewed, [
+        "work_version", "context_checkpoint_id", "relationship_event_count"
+      ])
+      || !finiteInteger(reviewed.work_version, 1)
+      || !validUuid(reviewed.context_checkpoint_id)
+      || !finiteInteger(reviewed.relationship_event_count)
+      || !sameHumanGateRevision(
+        gate.resolved_context_revision,
+        reviewed as unknown as typeof gate.resolved_context_revision
+      )
     ) throw new Error("Mnemonic returned an incoherent human-gate resolution.");
     decoded = gate;
   } else {
@@ -828,14 +714,24 @@ export async function classifyMutationResponse<K extends MutationKind>(
       message: "Mnemonic returned an unexpected mutation status. Retry the same pending action."
     };
   }
+  const detail = safeError(value);
+  if (
+    response.status === 503
+    && detail?.category === "application"
+    && detail.code === "client_operation_unavailable"
+  ) {
+    return {
+      type: "unresolved",
+      message: "Mnemonic cannot verify the mutation outcome yet. Retry the same pending action."
+    };
+  }
   if (AMBIGUOUS_STATUSES.has(response.status) || response.status >= 500) {
     return {
       type: "unresolved",
       message: "The mutation outcome is unknown. Retry the same pending action."
     };
   }
-  const detail = safeError(value);
-  if (!detail || response.status < 400 || response.status >= 500) {
+  if (!detail || response.status < 400) {
     return {
       type: "unresolved",
       message: "Mnemonic returned an unrecognized mutation response. Retry the same pending action."
@@ -845,12 +741,6 @@ export async function classifyMutationResponse<K extends MutationKind>(
   if (response.status === 409 && detail.code === "client_operation_conflict") {
     return { type: "safety_conflict", error };
   }
-  if (detail.code === "client_operation_unavailable") {
-    return {
-      type: "unresolved",
-      message: "Mnemonic cannot verify the mutation outcome yet. Retry the same pending action."
-    };
-  }
   const recognized = detail.category === "validation"
     ? response.status === 422
     : detail.category === "application"
@@ -858,7 +748,8 @@ export async function classifyMutationResponse<K extends MutationKind>(
         detail.code
         && DEFINITIVE_APPLICATION_ERRORS.get(response.status)?.has(detail.code)
       )
-      : DEFINITIVE_STRING_ERRORS.get(response.status)?.has(detail.message) === true;
+      : isDefinitiveProxyError(response.status, detail.message)
+        || DEFINITIVE_API_STRING_ERRORS.get(response.status)?.has(detail.message) === true;
   return recognized
     ? { type: "rejected", error }
     : {

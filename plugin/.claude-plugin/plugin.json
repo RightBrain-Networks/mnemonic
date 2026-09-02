@@ -2,6 +2,6 @@
   "name": "mnemonic",
   "displayName": "Mnemonic",
   "description": "Save and retrieve durable work, coordinate explicit human questions, discover ready work, and preserve truthful graph and decision history.",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "author": { "name": "Jamie Begin" }
 }

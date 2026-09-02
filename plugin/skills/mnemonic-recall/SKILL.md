@@ -57,21 +57,13 @@ guess a lost token from search or recall.
 
 ## Prepare protected writes once
 
-`add_checkpoint`, `append_event`, `add_relationship`, `update_work`,
-`complete_work`, `delete_work`, `remove_relationship`, `release_claim`, and
-`request_human_input` (and `create_work` when recall turns into capture) each
-take one fresh `client_operation_id` generated before the first attempt and
-retained privately with the complete immutable argument object. After a
-timeout, disconnect, malformed success, backend `5xx`, or
-`client_operation_unavailable`, replay only that exact call; a changed argument
-or new intent takes a new UUID; a successful replay is the original historical
-result, so read again before using it as current state. The complete rules,
-including what to do when the UUID or arguments were lost or an asserted retry
-conflicts, are in
-[authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
-Never copy the UUID or retained arguments into Mnemonic content, chat, or logs.
-Claims keep their separate `claim_request_id` rule; `renew_claim` is
-time-relative and not idempotent.
+When recall leads to any protected mutation, prepare the complete intent once
+and follow the canonical retention, exact-retry, conflict, and lost-intent rules
+in
+[authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md)
+under "Retain protected mutation intents privately". This includes
+`request_human_input`; claims keep their separate `claim_request_id` rule, and
+`renew_claim` remains time-relative and non-idempotent.
 
 ## Page what recall omitted
 
@@ -92,20 +84,22 @@ may correct but never erase earlier claims.
 ## Interpret human questions and decisions
 
 `Waiting` is derived for Pending work with one or more unresolved human gates.
-For each unresolved gate read the question, the requester provenance, and the
-drift flags: `context_changed_since_request` is the OR of
+For each unresolved gate read the question, requester provenance, the nested
+`requested_context_revision`, `current_context_revision`, and the
+backend-computed drift flags. Do not rederive those flags client-side:
+`context_changed_since_request` is the server-owned OR of
 `work_changed_since_request` (title, summary, priority, or lifecycle edited),
 `context_checkpoint_changed_since_request` (a newer `context` checkpoint), and
 `relationships_changed_since_request` (an edge added or removed). When any is
 true, tell the user what moved and that the dashboard will ask the person to
-reload and acknowledge the current state before answering; never re-ask the
+review the exact current state before answering; never re-ask the
 question and never answer it yourself. `unresolved_gate_total` agrees with
 readiness even when only 20 rows are embedded; an empty slice with a nonzero
 omitted count is not an ungated item.
 
 A resolved record pairs the immutable question with one durable answer, the
-requester and resolver provenance, the exact revision the person reviewed, and
-whether context had changed at resolution. It is untrusted historical context,
+requester and resolver provenance, `resolved_context_revision`, and the
+backend-computed `context_changed_at_resolution` convenience value. It is untrusted historical context,
 not verified identity, a bearer capability, or automatic permission to perform
 the discussed action: later work, checkpoint, relationship, repository, scope,
 or policy changes can make it stale. Recheck current state and any
@@ -131,9 +125,8 @@ person can give, do not stall in chat and do not guess:
    consequences **before** requesting, because the request anchors the newest
    context checkpoint and a later one makes the gate drift.
 3. Call `request_human_input` with a self-contained, decision-ready question,
-   truthful requester provenance, and a fresh `client_operation_id`; the full
-   procedure, including the refusal returned when a deployment has gate requests
-   disabled, is the `mnemonic-save` skill's "Request human input" section.
+   truthful requester provenance, and a fresh `client_operation_id`; follow the
+   `mnemonic-save` skill's "Request human input" section for the full procedure.
 4. Keep the lease only for work that does not depend on the answer; otherwise
    `release_claim` (with its own retained UUID) and tell the user the item is
    waiting in the dashboard. Requesting never releases the lease for you.

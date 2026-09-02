@@ -44,17 +44,12 @@ by the user. Full rules for session, client, model, branch, and
 ## Prepare each protected write once
 
 `create_work`, `add_checkpoint`, `append_event`, `add_relationship`,
-`update_work`, and `request_human_input` are protected mutations. Before the
-first attempt, generate one fresh `client_operation_id`, build the complete
-argument object, and retain both privately; after a timeout, disconnect,
-malformed success, backend `5xx`, or `client_operation_unavailable`, replay only
-that exact call. A changed argument or a new intent takes a new UUID. The full
-recovery rules, including what to do when the UUID or arguments were lost or an
-asserted retry returns `client_operation_conflict`, are in
+`update_work`, and `request_human_input` are protected mutations. Prepare each
+complete intent once and follow the canonical retention, exact-retry, conflict,
+and lost-intent rules in
 [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md)
-under "Retain protected mutation intents privately"; every protected tool's own
-description repeats the short form. Never copy the UUID or the retained argument
-object into Mnemonic content, tool output, chat, or logs.
+under "Retain protected mutation intents privately". Never put an operation
+UUID or retained arguments in Mnemonic content, chat, or logs.
 
 ## Record explicit relationships
 
@@ -97,7 +92,7 @@ Do these in order:
 2. **Write the supporting context first.** A request anchors the item's newest
    `context` checkpoint, its work version, and its relationship history. A
    checkpoint appended after the request makes the gate "drifted", and the
-   person must then reload and acknowledge the change before answering. So
+   person must then review the changed state before answering. So
    append the checkpoint that explains the options and their consequences, then
    request.
 3. **Freeze and send.** One self-contained, decision-ready question (at most
@@ -106,25 +101,17 @@ Do these in order:
    `requested_by_model`), and a fresh `client_operation_id`. Never include a
    password, API key, token, cookie, lease capability, operation UUID, private
    chain-of-thought, or transcript dump; store a safe reference or remediation
-   instruction instead. Do not paste gate or operation UUIDs into the text
-   either: the service refuses request-known and retained control identifiers.
-   Name work by its title and quote the question.
+   instruction instead. Name work by its title and quote the question.
 4. **After success the item is `waiting`.** It leaves ready discovery, no other
    session can newly claim it, and completion, retirement, promotion, and
    deletion are refused until every gate on it is resolved. An existing lease is
    not revoked: keep it only for work that does not depend on the answer;
-   otherwise append a checkpoint and `release_claim`. Tell the user the question
+   otherwise `release_claim`. Tell the user the question
    is in the dashboard's Needs Attention queue and report the work-item ID.
-5. **A request cannot be withdrawn or edited by an agent.** If the question
-   becomes moot, say so to the user and `append_event` a one-line progress note;
-   a person still has to resolve it before the item can move.
-6. **If the request is refused because gate requests are disabled or fenced in
-   this deployment** (the operator setting `MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED`),
-   no gate and no receipt were created and the UUID stays unbound. Do not retry
-   and do not work around it: record the question verbatim in a `context`
-   checkpoint under a "Decision needed from a human" heading, tell the user that
-   an operator must enable gate requests, and keep the frozen call; it is a valid
-   first attempt once they are enabled.
+5. **A request cannot be withdrawn or edited by an agent.** If later evidence
+   makes the question moot, append a `kind="context"` checkpoint explaining what
+   answered it and why it is no longer needed, then tell the user that a person
+   must still resolve the gate as "No longer needed" before the item can move.
 
 An agent must never infer, time out, self-approve, or resolve a gate. No
 canonical MCP tool resolves one; a person answers in the dashboard, and that
@@ -162,8 +149,7 @@ What a fresh session should investigate or change, and the relevant boundaries.
 Describe a proposed outcome without implying owner authorization.
 
 ## Decision needed from a human
-Only when one exists: the question, the options, and what each costs. When gate
-requests are enabled, this is also the text of the `request_human_input` call.
+Only when one exists: the question, the options, and what each costs. When a gate is needed, this is also the text of the `request_human_input` call.
 
 ## Durable evidence
 Repository-relative paths and symbols, commit permalinks, durable issue/design

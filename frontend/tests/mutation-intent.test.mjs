@@ -196,7 +196,6 @@ test("gate resolution freezes the reviewed revision and conflicts on work plus g
       resolved_by_client: "dashboard",
       resolved_by_session_id: "tab-1",
       resolved_by_model: null,
-      acknowledge_context_change: true,
       reviewed_context_revision: {
         work_version: 4,
         context_checkpoint_id: reviewedCheckpoint,
@@ -209,7 +208,6 @@ test("gate resolution freezes the reviewed revision and conflicts on work plus g
     resolved_by_client: "dashboard",
     resolved_by_session_id: "tab-1",
     resolved_by_model: null,
-    acknowledge_context_change: true,
     reviewed_context_revision: {
       work_version: 4,
       context_checkpoint_id: reviewedCheckpoint,

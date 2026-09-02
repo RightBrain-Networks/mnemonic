@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import HumanGateResolution from "@/components/human-gate-resolution";
 import { SearchBreadcrumb } from "@/components/work-hierarchy";
 import {
@@ -15,9 +15,9 @@ import {
   humanAttentionSearchParams
 } from "@/lib/human-gates";
 import type { HumanAttentionPage, Project, WorkSummary } from "@/lib/types";
+import { validUuid } from "@/lib/wire-guards";
 
 const ATTENTION_PAGE_SIZE = 30;
-const UUID_PATTERN = /^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/;
 
 function requestedThrough(item: HumanAttentionPage["items"][number]): string {
   const gate = item.gate;
@@ -31,7 +31,7 @@ function requestedThrough(item: HumanAttentionPage["items"][number]): string {
 function locationWorkFilter(): string | undefined {
   if (typeof window === "undefined") return undefined;
   const value = new URLSearchParams(window.location.search).get("work_item_id");
-  return value && UUID_PATTERN.test(value) ? value : undefined;
+  return value && validUuid(value) ? value : undefined;
 }
 
 export default function HumanAttentionList({
@@ -52,6 +52,9 @@ export default function HumanAttentionList({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [reload, setReload] = useState(0);
+  const [resolutionStatus, setResolutionStatus] = useState("");
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const pendingResolvedGateId = useRef<string | null>(null);
   const cursor = cursorStack[pageIndex] ?? null;
 
   useEffect(() => {
@@ -63,6 +66,8 @@ export default function HumanAttentionList({
     setPageIndex(0);
     setPage(null);
     setLoadError("");
+    setResolutionStatus("");
+    pendingResolvedGateId.current = null;
   }, [project?.id, workItemId]);
 
   useEffect(() => {
@@ -83,27 +88,45 @@ export default function HumanAttentionList({
       signal: controller.signal
     }).then((value) => {
       if (controller.signal.aborted) return;
-      setPage(decodeHumanAttentionPage(value, project.id, {
+      const nextPage = decodeHumanAttentionPage(value, project.id, {
         workItemId,
         limit: ATTENTION_PAGE_SIZE
-      }));
+      });
+      if (!nextPage.items.length && nextPage.total > 0 && pageIndex > 0) {
+        setPageIndex((value) => Math.max(0, value - 1));
+        return;
+      }
+      setPage(nextPage);
+      const resolvedGateId = pendingResolvedGateId.current;
+      if (
+        resolvedGateId
+        && !nextPage.items.some((item) => item.gate.id === resolvedGateId)
+      ) {
+        pendingResolvedGateId.current = null;
+        setResolutionStatus(nextPage.total === 0
+          ? "Answer recorded. No unresolved questions remain."
+          : `Answer recorded. ${nextPage.total} unresolved question${nextPage.total === 1 ? " remains" : "s remain"}.`);
+        titleRef.current?.focus();
+      }
     }).catch((cause) => {
       if (!controller.signal.aborted) setLoadError(errorMessage(cause));
     }).finally(() => {
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [cursor, project?.id, reload, workItemId]);
+  }, [cursor, pageIndex, project?.id, refreshSignal, reload, workItemId]);
 
-  useEffect(() => {
+  function refreshHead(): void {
     setCursorStack([null]);
     setPageIndex(0);
+    setPage(null);
+    setResolutionStatus("");
+    pendingResolvedGateId.current = null;
     setReload((value) => value + 1);
-  }, [refreshSignal]);
+  }
 
-  function resolved(): void {
-    setCursorStack([null]);
-    setPageIndex(0);
+  function resolved(gateId: string): void {
+    pendingResolvedGateId.current = gateId;
     setReload((value) => value + 1);
     onResolved();
   }
@@ -114,9 +137,10 @@ export default function HumanAttentionList({
 
   return <section className="attention-list" aria-labelledby="attention-list-title">
     <div className="attention-list-heading">
-      <div><span className="section-label">EXPLICIT HUMAN QUESTIONS</span><h2 id="attention-list-title">{page ? `${page.total} waiting` : "Needs attention"}</h2></div>
-      <button type="button" className="button button-secondary" disabled={loading} onClick={() => setReload((value) => value + 1)}>Refresh queue</button>
+      <div><span className="section-label">EXPLICIT HUMAN QUESTIONS</span><h2 ref={titleRef} id="attention-list-title" tabIndex={-1}>{page ? `${page.total} waiting` : "Needs attention"}</h2></div>
+      <button type="button" className="button button-secondary" disabled={loading} onClick={refreshHead}>Refresh queue</button>
     </div>
+    {resolutionStatus && <p className="attention-resolution-status" role="status" aria-live="polite">{resolutionStatus}</p>}
     {workItemId && <div className="attention-filter" role="status">
       <span>Filtered to work item <span className="mono">{workItemId}</span></span>
       <a href="/attention" className="text-link">Show every question</a>
@@ -138,7 +162,7 @@ export default function HumanAttentionList({
         <div><dt>Requested</dt><dd><time dateTime={item.gate.created_at}>{formatDateTime(item.gate.created_at)}</time></dd></div>
       </dl>
       <button type="button" className="button button-secondary" onClick={() => onOpen(item.summary)}>Open work context</button>
-      <HumanGateResolution gate={item.gate} onResolved={resolved} />
+      <HumanGateResolution gate={item.gate} onResolved={() => resolved(item.gate.id)} />
     </article>)}</div> : null}
     {page && page.total > 0 && <nav className="pagination attention-pagination" aria-label="Human attention pages">
       <span>Page {pageIndex + 1} · {page.items.length} shown · {page.total} currently unresolved</span>

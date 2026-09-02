@@ -21,6 +21,7 @@ from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.orm import Session
 
+from mnemonic_api.database import database_sqlstate
 from mnemonic_api.errors import (
     client_operation_conflict,
     client_operation_secret_echo,
@@ -525,10 +526,6 @@ def _restore_receipt_timeouts(database: Session) -> None:
     database.execute(text("SET LOCAL statement_timeout TO DEFAULT"))
 
 
-def _database_sqlstate(error: DBAPIError) -> str | None:
-    return cast(str | None, getattr(error.orig, "sqlstate", None))
-
-
 def _rollback(database: Session) -> None:
     try:
         database.rollback()
@@ -555,9 +552,25 @@ def _render_registered_response(
     stored_snapshot: bool = False,
 ) -> tuple[APIModel, dict[str, Any], JSONResponse]:
     try:
+        provided_computed: dict[str, Any] = {}
+        validation_value = value
+        if isinstance(value, dict):
+            computed_names = spec.response_model.model_computed_fields.keys()
+            provided_computed = {
+                key: value[key] for key in computed_names if key in value
+            }
+            validation_value = {
+                key: item for key, item in value.items() if key not in computed_names
+            }
         if stored_snapshot:
+            if not isinstance(value, dict):
+                raise TypeError("Stored response must be a JSON object")
+            # Computed response fields are part of the canonical stored snapshot but
+            # are deliberately not accepted as model input under extra="forbid".
+            # Remove only the model-declared computed fields, then regenerate and
+            # compare the complete body below so missing or tampered values fail closed.
             encoded = json.dumps(
-                value,
+                validation_value,
                 ensure_ascii=False,
                 allow_nan=False,
                 sort_keys=True,
@@ -565,10 +578,12 @@ def _render_registered_response(
             )
             typed = spec.response_model.model_validate_json(encoded, strict=True)
         else:
-            typed = spec.response_model.model_validate(value)
+            typed = spec.response_model.model_validate(validation_value)
         body = typed.model_dump(mode="json")
         if not isinstance(body, dict):
             raise TypeError("Registered response must serialize to a JSON object")
+        if any(body.get(key) != item for key, item in provided_computed.items()):
+            raise ValueError("Computed response fields are not canonical")
         if stored_snapshot and body != value:
             raise ValueError("Stored response is not the canonical registered JSON")
         response = JSONResponse(status_code=spec.status_code, content=body)
@@ -857,11 +872,7 @@ def _response_matches_operation(
             and result.requested_by_session_id == request.requested_by_session_id
             and result.requested_by_model == request.requested_by_model
             and result.status == "unresolved"
-            and revision.work_version == result.requested_work_version
-            and revision.context_checkpoint_id
-            == result.requested_context_checkpoint_id
-            and revision.relationship_event_count
-            == result.requested_relationship_event_count
+            and revision == result.requested_context_revision
             and not result.work_changed_since_request
             and not result.context_checkpoint_changed_since_request
             and not result.relationships_changed_since_request
@@ -885,22 +896,10 @@ def _response_matches_operation(
             or result.resolved_by_model != request.resolved_by_model
             or resolved_revision is None
             or result.current_context_revision != resolved_revision
-            or result.context_change_acknowledged
-            is not request.acknowledge_context_change
-            or result.context_changed_at_resolution
-            is not request.acknowledge_context_change
+            or request.reviewed_context_revision != resolved_revision
         ):
             return False
-        if request.acknowledge_context_change:
-            return request.reviewed_context_revision == resolved_revision
-        return (
-            request.reviewed_context_revision is None
-            and resolved_revision.work_version == result.requested_work_version
-            and resolved_revision.context_checkpoint_id
-            == result.requested_context_checkpoint_id
-            and resolved_revision.relationship_event_count
-            == result.requested_relationship_event_count
-        )
+        return True
     return False
 
 
@@ -977,7 +976,7 @@ def reserve_client_operation(
     except SQLAlchemyTimeoutError:
         _raise_unavailable(database)
     except DBAPIError as exc:
-        if _database_sqlstate(exc) in {"55P03", "57014"}:
+        if database_sqlstate(exc) in {"55P03", "57014"}:
             _raise_unavailable(database)
         raise
 

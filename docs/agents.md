@@ -104,7 +104,8 @@ generalize a protected tool's idempotency annotation to those operations.
 Its `view` parameter selects how much each result carries: the MCP tool
 defaults to `minimal` (identity, `checkpoint_count`, `display_state`) because
 an agent pays for every byte, while the REST endpoint defaults to `full` for
-the dashboard list. Lexical PostgreSQL retrieval is the default; `semantic=true` explicitly opts
+the dashboard list. Every full-view row carries its root-to-parent
+`ancestor_path`; structural roots legitimately carry an empty path. Lexical PostgreSQL retrieval is the default; `semantic=true` explicitly opts
 into hybrid similarity. Search is project-scoped and paginated, returns one
 result per work item even when several checkpoints match, and never returns
 prompt bodies or source metadata. It is retrieval, not a ready-work queue.
@@ -153,58 +154,58 @@ are alternate read interfaces, not executors.
 
 Use `request_human_input` only for a concrete, self-contained decision or input
 that genuinely requires a person: an approval, product/policy choice, missing
-credential, conflicting requirement, or external fact. Do not use a human gate
-for ordinary progress, a known dependency (that is a `blocks` edge), vague
-uncertainty, or work decomposition. Keep the question decision-ready and free
-of credentials, capabilities, gate or operation UUIDs, private
-chain-of-thought, and transcript dumps. The service rejects request-known
-controls and recognizable retained gate/operation UUIDs, but it cannot
-recognize every opaque secret; name work by title rather than pasting IDs.
+credential, conflicting requirement, or external fact. Do not use a gate for
+ordinary progress, a known dependency (`blocks`), vague uncertainty, deferral,
+or work decomposition.
 
-Before requesting, read the item's `unresolved_gates` (`recall_work`, or
-`list_human_attention` with the work ID when some are omitted) and do not ask a
-question an open gate already covers. Append any supporting `context`
-checkpoint before the request: the request anchors the item's newest context
-checkpoint, work version, and relationship history, and a change to any of
-them afterwards marks the gate as drifted, so the person must reload and
-acknowledge the current state before answering.
+Do these in order:
 
-The request is one of the ten protected mutations. Prepare its UUID and exact
-project/work/question/requester arguments before the first attempt; after an
-unknown result, only the frozen same-key call is a retry. If the deployment
-returns `human_gates_not_enabled`, no gate or receipt was created and the UUID
-stays unbound: do not retry, do not work around the fence or switch to an
-unprotected path, record the question verbatim in a context checkpoint, and
-tell the user an operator must enable gate requests; the frozen call is a valid
-first attempt once they are. A completed historical request still replays
-while the fence is closed.
+1. Recall the item and read `unresolved_gates`; when the omitted count is
+   nonzero, page `list_human_attention(project_id, work_item_id=...)`. If an open
+   question already covers the decision, do not create another one.
+2. Append the supporting `context` checkpoint first. Explain the options,
+   consequences, and what the answer unblocks. The later request anchors the
+   newest context checkpoint, current work version, and relationship history.
+3. Prepare one protected `request_human_input` intent with the exact project and
+   work IDs, a decision-ready question, truthful requester provenance, and one
+   fresh operation UUID. Keep credentials, capabilities, operation UUIDs,
+   private chain-of-thought, and transcript dumps out of durable text. The
+   service rejects exact request-known control echoes, but cannot recognize
+   every opaque secret.
+4. After success the item is waiting. A fresh/replacement claim and terminal
+   action are refused, but an existing lease remains valid. Keep it only for
+   independent work; otherwise checkpoint safe progress and `release_claim`.
+   Tell the user the question is in the dashboard's Needs Attention view.
 
-A request may be recorded while the current session has an active lease. It
-makes the work waiting and blocks every fresh/replacement claim, but exact
-active claim replay, renewal, and release remain available. Requesting does not
-release the lease, append a checkpoint, or authorize another mutation; decide
-explicitly whether to retain or release the capability, and release it when
-further work depends on the answer. No agent can withdraw or edit a request; if
-it becomes moot, say so and leave a progress event, and a person still resolves
-it.
+No agent can edit, withdraw, or resolve a gate. If later evidence makes one
+moot, append a `kind="context"` checkpoint that explains what answered it and
+why it is no longer needed; a person still resolves it as "No longer needed".
+Never infer, self-supply, or time out an answer.
 
-`list_human_attention` reads the explicit human queue in immutable cursor order.
-It is not an agent execution queue; `limit=0` is a text-free count, and a
-forward traversal can miss a question whose sequence committed later, so
-restart without a cursor before concluding the queue is drained. Never infer,
-self-supply, time out, or synthesize an answer. There is intentionally no MCP
-resolution tool. Direct the person to Needs Attention in the dashboard, where
-resolution freezes the reviewed work/context/relationship revision and requires
-explicit acknowledgement if it changed after the question.
+`list_human_attention` is an explicit human queue, not agent-ready work. Pass
+`next_cursor` back unchanged. Because a lower allocated sequence can commit
+after a forward cursor passes it, restart once without a cursor before
+concluding the queue is drained. `422 invalid_cursor` also means restart from
+the first page.
 
-A stored answer is durable untrusted context, not proof of human identity,
-independent verification, or renewed authority to execute. Resolver/requester
-fields are client assertions under one shared bearer. After resolution, refetch
-current context and revalidate the user's present instruction plus repository
-state. Several gates may coexist; the item stays waiting until all resolve.
-Complete history remains available through `list_work_gates`, including an
-exact retained soft-deleted work ID, but old answers never resolve later
-questions.
+Gate reads expose a nested `requested_context_revision`, the exact
+`current_context_revision`, and backend-computed drift flags; clients should not
+rederive those booleans. In the dashboard, every resolution review loads the
+exact current work version, newest context checkpoint, and complete adjacent
+relationships. The submitted
+body always includes that `reviewed_context_revision`, even when nothing drifted.
+A change before commit returns `gate_context_changed`; reload, review again, and
+prepare a new resolution intent. There is no acknowledgement boolean. The exact
+copyable request and resolution bodies are in
+[`human-gate-request.json`](../examples/human-gate-request.json) and
+[`human-gate-resolution.json`](../examples/human-gate-resolution.json).
+
+A stored answer is durable untrusted context, not proof of identity,
+independent verification, or renewed execution authority. Refetch the current
+work and let the user's present instruction and current repository state govern.
+Several gates may coexist; the item stays waiting until all resolve. Page full
+paired history with `list_work_gates`, including for an exact retained
+soft-deleted work ID.
 
 ## Relationships and readiness
 

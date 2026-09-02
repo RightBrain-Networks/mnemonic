@@ -5,9 +5,13 @@ import {
   decodeHumanGate,
   decodeHumanGatePage,
   humanAttentionSearchParams,
+  humanGateCurrentDriftMessage,
   humanGateChangedLabels,
   humanGateHistorySearchParams,
+  humanGateOmissionSentence,
   humanGatePath,
+  humanGateProjectionKey,
+  humanGateResolutionStatus,
   hasCompleteRelationshipReview,
   sameHumanGateRevision
 } from "../lib/human-gates.ts";
@@ -44,9 +48,7 @@ function gate(overrides = {}) {
     requested_by_client: "claude-code",
     requested_by_session_id: "session-1",
     requested_by_model: "model-1",
-    requested_work_version: 2,
-    requested_context_checkpoint_id: checkpoint,
-    requested_relationship_event_count: 3,
+    requested_context_revision: revision(),
     created_at: createdAt,
     status: "unresolved",
     current_context_revision: revision(),
@@ -61,7 +63,6 @@ function gate(overrides = {}) {
     resolved_by_model: null,
     resolved_context_revision: null,
     context_changed_at_resolution: null,
-    context_change_acknowledged: null,
     ...overrides
   };
 }
@@ -76,7 +77,6 @@ function resolvedGate(overrides = {}) {
     resolved_by_model: null,
     resolved_context_revision: revision(),
     context_changed_at_resolution: false,
-    context_change_acknowledged: false,
     ...overrides
   });
 }
@@ -165,40 +165,94 @@ test("strict gate decoding preserves literal text and enforces scope and nullabi
   assert.throws(() => decodeHumanGate(gate({ created_at: "2026-02-30T12:00:00Z" })), /invalid human gate/);
 });
 
-test("current and resolved drift booleans must match their exact revision tuples", () => {
+test("nested revisions and server drift facts are structurally guarded without re-derivation", () => {
   const current = revision({
     work_version: 4,
     context_checkpoint_id: nextCheckpoint,
     relationship_event_count: 8
   });
-  const drifted = gate({
+  const serverProjection = gate({
     current_context_revision: current,
     work_changed_since_request: true,
-    context_checkpoint_changed_since_request: true,
+    context_checkpoint_changed_since_request: false,
     relationships_changed_since_request: true,
-    context_changed_since_request: true
+    context_changed_since_request: false
   });
-  assert.deepEqual(humanGateChangedLabels(decodeHumanGate(drifted)), [
-    "work fields", "current context checkpoint", "relationships"
+  const decoded = decodeHumanGate(serverProjection);
+  assert.deepEqual(humanGateChangedLabels(decoded), [
+    "work fields", "relationships"
   ]);
-  assert.throws(() => decodeHumanGate({ ...drifted, relationships_changed_since_request: false }), /incoherent human gate/);
+  assert.equal(decoded.context_changed_since_request, false);
+  assert.notEqual(
+    humanGateProjectionKey(decoded),
+    humanGateProjectionKey(decodeHumanGate(gate({
+      ...serverProjection,
+      relationships_changed_since_request: false
+    })))
+  );
+  assert.throws(() => decodeHumanGate(gate({
+    requested_context_revision: { ...revision(), extra: true }
+  })), /invalid human-gate revision/);
+  assert.throws(() => decodeHumanGate(gate({
+    context_changed_since_request: "yes"
+  })), /invalid human gate/);
 
   const resolved = decodeHumanGate(resolvedGate({
     current_context_revision: current,
     work_changed_since_request: true,
-    context_checkpoint_changed_since_request: true,
+    context_checkpoint_changed_since_request: false,
     relationships_changed_since_request: true,
-    context_changed_since_request: true,
-    resolved_context_revision: current,
-    context_changed_at_resolution: true,
-    context_change_acknowledged: true
-  }));
-  assert.equal(sameHumanGateRevision(resolved.current_context_revision, resolved.resolved_context_revision), true);
-  assert.throws(() => decodeHumanGate(resolvedGate({
+    context_changed_since_request: false,
     resolved_context_revision: revision({ work_version: 3 }),
-    context_changed_at_resolution: false,
-    context_change_acknowledged: false
-  })), /incoherent resolved/);
+    context_changed_at_resolution: false
+  }));
+  assert.equal(
+    sameHumanGateRevision(resolved.current_context_revision, resolved.resolved_context_revision),
+    false
+  );
+});
+
+test("only unresolved gates present current drift as an actionable warning", () => {
+  const current = revision({ work_version: 4 });
+  const drift = {
+    current_context_revision: current,
+    work_changed_since_request: true,
+    context_changed_since_request: true
+  };
+  assert.equal(
+    humanGateCurrentDriftMessage(decodeHumanGate(gate(drift))),
+    "Current drift: work fields."
+  );
+  assert.equal(
+    humanGateCurrentDriftMessage(decodeHumanGate(resolvedGate(drift))),
+    null
+  );
+});
+
+test("bounded-recall omission sentences handle singular, plural, and empty slices", () => {
+  assert.equal(
+    humanGateOmissionSentence("unresolved", 1),
+    "1 additional unresolved question is omitted from bounded recall. Use the filtered attention queue."
+  );
+  assert.equal(
+    humanGateOmissionSentence("unresolved", 2),
+    "2 additional unresolved questions are omitted from bounded recall. Use the filtered attention queue."
+  );
+  assert.equal(
+    humanGateOmissionSentence("resolved", 1),
+    "1 older resolved decision is omitted from bounded recall."
+  );
+  assert.equal(
+    humanGateOmissionSentence("resolved", 2),
+    "2 older resolved decisions are omitted from bounded recall."
+  );
+  assert.equal(humanGateOmissionSentence("resolved", 0), null);
+});
+
+test("the durable answer status reports the remaining unresolved queue", () => {
+  assert.equal(humanGateResolutionStatus(0), "Answer recorded. No unresolved questions remain.");
+  assert.equal(humanGateResolutionStatus(1), "Answer recorded. 1 unresolved question remains.");
+  assert.equal(humanGateResolutionStatus(2), "Answer recorded. 2 unresolved questions remain.");
 });
 
 test("attention pages are scope coherent and limit zero transmits no gate text", () => {

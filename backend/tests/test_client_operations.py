@@ -161,7 +161,6 @@ def canonical_vector_cases():
         resolution="Use the reviewed branch boundary.",
         resolved_by_client="dashboard",
         resolved_by_session_id="phase-7-human",
-        acknowledge_context_change=True,
         reviewed_context_revision={
             "work_version": 9,
             "context_checkpoint_id": CHECKPOINT_ID,
@@ -335,7 +334,6 @@ def canonical_vector_cases():
                 "resolved_by_client": "dashboard",
                 "resolved_by_session_id": "phase-7-human",
                 "resolved_by_model": None,
-                "acknowledge_context_change": True,
                 "reviewed_context_revision": {
                     "work_version": 9,
                     "context_checkpoint_id": str(CHECKPOINT_ID),
@@ -358,7 +356,7 @@ CANONICAL_DIGESTS = {
     "remove_relationship": "dd9ade0a4af557a223f23ddb660f8bef4a02aa4ff635a034bf44dc2b7263e59e",
     "release_claim": "c126a78e24676588e683387709035ecbedde7b6d2f6d1799bf2e36f71678fb8e",
     "request_human_input": "ca768c0d25c3abe9b966af1612c0f102418b748f1a795135594223ee8749a114",
-    "resolve_human_input": "a5e13004a92f7cdcedacae759f7e5fdfaa182155ce96c60805b39ea641aa8c14",
+    "resolve_human_input": "34371216cc7e87183d1a96cffd20ccc0da4b1cb17074e5074eeacd351419e4fb",
 }
 
 
@@ -453,9 +451,11 @@ def response_vector_cases():
         "requested_by_client": "pytest",
         "requested_by_session_id": "phase-7-unit",
         "requested_by_model": "test-model",
-        "requested_work_version": 2,
-        "requested_context_checkpoint_id": str(CHECKPOINT_ID),
-        "requested_relationship_event_count": 0,
+        "requested_context_revision": {
+            "work_version": 2,
+            "context_checkpoint_id": str(CHECKPOINT_ID),
+            "relationship_event_count": 0,
+        },
         "created_at": created_at,
         "status": "unresolved",
         "current_context_revision": {
@@ -474,7 +474,6 @@ def response_vector_cases():
         "resolved_by_model": None,
         "resolved_context_revision": None,
         "context_changed_at_resolution": None,
-        "context_change_acknowledged": None,
     }
     resolved_gate = {
         **unresolved_gate,
@@ -498,7 +497,6 @@ def response_vector_cases():
             "relationship_event_count": 4,
         },
         "context_changed_at_resolution": True,
-        "context_change_acknowledged": True,
     }
     return [
         (
@@ -573,8 +571,8 @@ RESPONSE_V1_DIGESTS = {
     "delete_work": "5a15f8bd7a23ac3b5a0545914e60a6e3e2f3306327fb28e1386074292690a5e9",
     "remove_relationship": "e71f2ae31da622edb038d3ea5e83da22fd88397c63e463de420a60aa60a8e7d4",
     "release_claim": "a12ffef2c559e02d33d223cafd7f0fea6456f55a53ed21b3ae04abe39eb674f2",
-    "request_human_input": "5fd0713522e63f9341aa05d51cd48a967e027f47a2f8e07a54c290ee59ad0edd",
-    "resolve_human_input": "826b80a22f1fee30d9b9b8f034ab25305a4a6b14b64a8f64d056530cf678d6fd",
+    "request_human_input": "41185134969745dd81cf4b6b97c29843bbf2f5649ed09bc078e73ab30f8e96be",
+    "resolve_human_input": "ffef30d660f61f41ec9beb75031afd2b95ef716d8e113c89f72942fc7525fb55",
 }
 
 
@@ -632,6 +630,31 @@ def test_every_registered_operation_has_a_frozen_response_v1_vector(
     assert response.status_code == spec.status_code
     assert json.loads(response.body) == expected_body
     assert hashlib.sha256(canonical).hexdigest() == RESPONSE_V1_DIGESTS[kind]
+
+
+def test_gate_response_replay_regenerates_computed_fields_and_refuses_tampering():
+    spec = operation_spec("request_human_input")
+    source = dict(response_vector_cases()[-2][1])
+    _, canonical, _ = _render_registered_response(spec, source)
+
+    typed, replayed, _ = _render_registered_response(
+        spec,
+        canonical,
+        stored_snapshot=True,
+    )
+
+    assert typed.context_changed_since_request is False
+    assert replayed == canonical
+
+    tampered = {**canonical, "context_changed_since_request": True}
+    with pytest.raises(ApplicationError) as captured:
+        _render_registered_response(spec, tampered, stored_snapshot=True)
+    assert captured.value.detail["code"] == "client_operation_unavailable"
+
+    unknown = {**canonical, "unknown_projection": False}
+    with pytest.raises(ApplicationError) as captured:
+        _render_registered_response(spec, unknown, stored_snapshot=True)
+    assert captured.value.detail["code"] == "client_operation_unavailable"
 
 
 def test_registry_is_closed_and_non_capability_bearing():
@@ -721,6 +744,11 @@ def test_exactly_covered_request_models_accept_the_optional_uuid():
             resolution="Use the reviewed boundary.",
             resolved_by_client="dashboard",
             resolved_by_session_id="phase-7-human",
+            reviewed_context_revision={
+                "work_version": 1,
+                "context_checkpoint_id": CHECKPOINT_ID,
+                "relationship_event_count": 0,
+            },
             client_operation_id=operation_id,
         ),
     ]

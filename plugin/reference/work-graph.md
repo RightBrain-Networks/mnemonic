@@ -62,8 +62,8 @@ selects it for work.
 
 Only `parent-child` defines the human structural forest, and it is the only edge
 that has presentation consequences: it feeds every `ancestor_path` (root to
-parent, filled by `search_work(view="full")` for a nonblank query and by every
-`list_human_attention` row), the dashboard's collapsed root and child views and
+parent, filled by every `search_work(view="full")` and
+`list_human_attention` row), the dashboard's collapsed root and child views,
 their branch counts, and `list_ready_work`'s `parent_work_item_id` filter. Each
 item has at most one parent, and the forest is acyclic. Sub-work saved without
 an incoming `parent-child` edge appears as an unrelated root.
@@ -108,17 +108,14 @@ it, pass up to ten `initial_relationships` to `create_work`. Each entry's
 `direction` is relative to the new item and names `other_work_item_id`. An
 initial `discovered-from` edge must be `outgoing` and must cite a checkpoint on
 its originating target. These atomic edges inherit creator provenance from the
-initial checkpoint and are part of the one immutable `create_work` argument
-object retained with that call's `client_operation_id`: never retry the create
-under the same UUID with a reordered, added, or removed relationship.
+initial checkpoint and are part of the immutable `create_work` intent. Prepare
+and retry that intent under the canonical rules in authority-and-provenance.md;
+reordering, adding, or removing an edge is a changed intent.
 
 For a fact connecting existing work, use `add_relationship` with the exact
 source, target, type, and real acting client/session provenance; removal with
 `remove_relationship` requires the real acting actor fields. Each add or remove
-is its own protected intent under the rules in
-[authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
-An add or remove replay returns the original `created`/`removed` result even if
-the edge later changed, and a new UUID with the same edge is a new intent that
-may bind a natural no-op; read the graph again for current state. Do not delete
+is its own protected intent under the same shared rules; a replay returns the
+original `created`/`removed` result, so read the graph again for current state. Do not delete
 descriptive provenance merely because a blocker became `done`, and never put
 operation-control data into relationship context or history.

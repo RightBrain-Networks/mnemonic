@@ -82,13 +82,14 @@ that locks and revalidates before already-authorized execution.
   readiness and fresh/replacement claimability. Existing leases survive either
   later fact; exact active claim replay, renewal, and release remain available.
 - A gate request freezes the work version, newest context-checkpoint ID, and
-  relationship-event count; the gate and exact `human_attention_requested` event
+  relationship-event count as a nested `requested_context_revision`; the gate and exact `human_attention_requested` event
   commit atomically. Resolution is one immutable transition with an exact
-  `human_attention_resolved` event and a reviewed current revision. Stable
-  request-known controls are rejected before receipt reservation; replay and
-  conflict return before a genuinely new execution checks currently retained
-  gate/operation UUIDs and rolls back a rejected reservation. This finite lookup
-  is not a universal secret detector or a dependency of permanent replay.
+  `human_attention_resolved` event and an exact current revision reviewed on every
+  resolution. Stable
+  request-known credentials and operation controls are rejected before receipt
+  reservation; replay and conflict return before a genuinely new execution.
+  Public gate IDs are not credentials, and there is no database-wide retained-UUID
+  content scan. This exact-match check is not a universal secret detector.
 - An unresolved gate rejects completion, terminal transitions, and deletion at
   both the service and PostgreSQL layers. Identity edits, deferral/Pending
   restoration, checkpoints, progress, and relationship changes remain possible.
@@ -299,14 +300,18 @@ The request schema recursively rejects case-insensitive `gate_id` and
 metadata model remains permissive enough to read preserved historical rows.
 Lease and work triggers prevent a stale application from inserting/replacing a
 lease or committing terminal/delete state while a gate is unresolved; same-
-generation renewal/release remains possible. Downgrade takes writer locks and
-succeeds only before any gate, gate event, or gate-operation receipt exists.
+generation renewal/release remains possible.
 
-The API setting `MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED` defaults false and is
-checked only on genuinely new requests after receipt replay. This permits a
-coordinated mixed-deployment cutover: all enforcement, reads, and resolution are
-active at migration head while supported clients are upgraded before request
-creation is enabled.
+`0015_gate_review_fixes` changes canonical checkpoint and relationship creation
+defaults to `clock_timestamp()` so a transaction that waited on a lock cannot
+backdate its context behind the gate it creates. It drops the redundant
+persisted `context_change_acknowledged` and
+`context_changed_at_resolution` fields, rewrites the gate completeness triggers
+around the reviewed revision, and preserves all existing gate, event, and
+receipt rows. The read model still computes current drift flags and the nullable
+resolution-drift convenience field from retained revision anchors. Migration 0015
+deliberately has no downgrade: deployments fix forward or restore a complete
+chosen archive with an explicit data-loss boundary.
 
 ## Idempotent mutation execution
 
@@ -397,10 +402,10 @@ scaffolding. Root totals count qualifying roots, direct-child totals count
 qualifying branch children, and the presentation counts remain unfiltered
 facts about the complete branch. The service computes the page, total,
 aggregates, filter flags, and database-time lease state in one PostgreSQL
-statement rather than a Python walk or per-branch query.
+statement rather than a Python walk or per-branch query. It disables JIT for that transaction, pages before computing member facts, and applies a five-second statement timeout translated to typed `hierarchy_timeout`.
 
-A nonblank query uses flat search and returns a bounded root-to-parent breadcrumb
-plus `ancestor_path_truncated` on the direct `WorkSummary` hit. Planned children
+Every flat full-view search/browse row returns a bounded root-to-parent breadcrumb
+plus `ancestor_path_truncated`; a structural root legitimately has an empty path. Planned children
 and `discovered-from` work have distinct presentation labels; discovered work
 without that parent relationship remains a top-level root. The renderer applies
 explicit cycle and depth fallbacks instead of silently hiding corrupt or
@@ -426,6 +431,8 @@ human answer may be inferred from search similarity or checkpoint prose.
 
 The per-work event identity is not a durable project activity cursor. The gate
 attention cursor is purpose-built from immutable request sequence and identity;
+because allocation can precede commit, complete consumers restart from the head
+once before declaring the queue drained;
 it does not create a general `get_activity`, notification broker, SSE/webhook
 feed, or passive lease-expiry event.
 

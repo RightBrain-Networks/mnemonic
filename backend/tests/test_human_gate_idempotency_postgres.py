@@ -44,7 +44,6 @@ class GateCase:
 
 @pytest.fixture
 def gate_api(api: TestClient) -> TestClient:
-    api.app.state.settings.human_gate_requests_enabled = True
     return api
 
 
@@ -64,13 +63,13 @@ def request_body(operation_id: UUID | None = None) -> dict[str, Any]:
     return body
 
 
-def resolution_body(operation_id: UUID) -> dict[str, Any]:
+def resolution_body(operation_id: UUID, revision: dict[str, Any]) -> dict[str, Any]:
     return {
         "resolution": "Use the one transactionally retained decision.",
         "resolved_by_client": "dashboard",
         "resolved_by_session_id": "phase78-idempotency-human",
         "resolved_by_model": "human-ui",
-        "acknowledge_context_change": False,
+        "reviewed_context_revision": revision,
         "client_operation_id": str(operation_id),
     }
 
@@ -109,7 +108,7 @@ def make_case(
         work_item_id,
         gate_id,
         f"{gates_path}/{gate_id}/resolve",
-        resolution_body(operation_id),
+        resolution_body(operation_id, requested.json()["current_context_revision"]),
     )
 
 

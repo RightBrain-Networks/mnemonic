@@ -4,6 +4,11 @@ import { useEffect, useId, useState } from "react";
 import WorkItemCard from "@/components/work-item-card";
 import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import { api, errorMessage, workItemPath } from "@/lib/api";
+import {
+  discoveryLabel,
+  hierarchyBranchTotals,
+  hierarchyOverlapNote
+} from "@/lib/hierarchy-presentation";
 import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
 import { childSearchParams } from "@/lib/work-item-search";
 import { hierarchyGuardReason } from "@/lib/work-relationships";
@@ -36,10 +41,6 @@ type BranchProps = Actions & {
   overrideFilters: boolean;
 };
 
-function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
-  return `${count} ${count === 1 ? singular : pluralForm}`;
-}
-
 function naturalList(values: string[]): string {
   if (values.length < 2) return values[0] ?? "current";
   if (values.length === 2) return `${values[0]} and ${values[1]}`;
@@ -48,30 +49,17 @@ function naturalList(values: string[]): string {
 
 function HierarchyPresentation({ item, depth }: { item: HierarchySummary; depth: number }) {
   const facts = item.presentation;
-  const discoveryLabel = facts.is_discovered_work
-    ? depth === 0
-      ? "Discovered work · ungrouped"
-      : facts.discovered_from_parent
-        ? "Discovered sub-work"
-        : "Discovered elsewhere · grouped here"
-    : depth > 0
-      ? "Planned child"
-      : null;
+  const origin = discoveryLabel(facts, depth);
+  const totals = hierarchyBranchTotals(facts);
   return <div className="hierarchy-presentation">
-    {discoveryLabel && <span className="hierarchy-origin">{discoveryLabel}</span>}
-    <div
-      className="hierarchy-aggregate-strip"
-      aria-label={`Branch totals: ${plural(facts.direct_child_count, "direct child", "direct children")}; ${plural(facts.descendant_count, "descendant")}; ${plural(facts.blocked_descendant_count, "blocked descendant")}; ${plural(facts.active_descendant_count, "active descendant")}; ${plural(facts.completed_descendant_count, "completed descendant")}; ${plural(facts.discovered_descendant_count, "discovered descendant")}; ${plural(facts.branch_unresolved_human_gate_count, "unresolved human question")}. Operational groups can overlap.`}
-      title="Blocked, active, completed, and discovered populations are independent branch facts and do not sum to all descendants."
-    >
-      <span>{plural(facts.direct_child_count, "child", "children")}</span>
-      <span>{plural(facts.descendant_count, "descendant")}</span>
-      {facts.blocked_descendant_count > 0 && <span>{facts.blocked_descendant_count} blocked</span>}
-      {facts.active_descendant_count > 0 && <span>{facts.active_descendant_count} active</span>}
-      {facts.completed_descendant_count > 0 && <span>{facts.completed_descendant_count} completed</span>}
-      {facts.discovered_descendant_count > 0 && <span>{facts.discovered_descendant_count} discovered</span>}
-      {facts.branch_unresolved_human_gate_count > 0 && <span className="hierarchy-attention-count">{plural(facts.branch_unresolved_human_gate_count, "question")} need attention</span>}
-    </div>
+    {origin && <span className="hierarchy-origin">{origin}</span>}
+    <ul className="hierarchy-aggregate-strip" aria-label="Branch totals">
+      {totals.map((total) => <li
+        className={total.needsAttention ? "hierarchy-attention-count" : undefined}
+        key={total.key}
+      >{total.label}</li>)}
+    </ul>
+    <small className="hierarchy-overlap-note">{hierarchyOverlapNote}</small>
   </div>;
 }
 
@@ -137,6 +125,7 @@ function HierarchyBranch(props: BranchProps) {
     snapshotSignal: refreshKey,
     enabled: expanded && offset === 0
   });
+  const focusChildrenRegion = () => childMotionRef.current?.focus();
 
   useEffect(() => {
     if (!item.self_matches_filter && item.has_matching_descendants) setExpanded(true);
@@ -230,23 +219,35 @@ function HierarchyBranch(props: BranchProps) {
         />
       </div>
     </div>
-    {expanded && canExpand && <div ref={childMotionRef} id={regionId} className="hierarchy-children">
+    {expanded && canExpand && <div
+      ref={childMotionRef}
+      id={regionId}
+      className="hierarchy-children"
+      tabIndex={-1}
+    >
       {!item.has_matching_descendants && !allDescendants ? <div className="hierarchy-hidden-children" role="note">
         <span>The {naturalList(activeFilterCategories)} filter{activeFilterCategories.length === 1 ? "" : "s"} {activeFilterCategories.length === 1 ? "hides" : "hide"} this branch’s children.</span>
         <button type="button" className="text-link" onClick={() => {
           setShowAllDescendants(true);
           setOffset(0);
+          focusChildrenRegion();
         }}>Show all descendants</button>
         <small>This branch only: lifecycle, source, and tag predicates will all be cleared.</small>
       </div> : !page && !loadError ? <div className="hierarchy-loading" role="status">Loading children…</div> :
         loadError && !page ? <div className="hierarchy-error" role="alert">
           <span>{loadError}</span>
-          <button type="button" className="text-link" onClick={() => setRetry((value) => value + 1)}>Try again</button>
+          <button type="button" className="text-link" onClick={() => {
+            setRetry((value) => value + 1);
+            focusChildrenRegion();
+          }}>Try again</button>
         </div> :
         <>
           {loadError && <div className="hierarchy-error" role="alert">
             <span>{loadError}</span>
-            <button type="button" className="text-link" onClick={() => setRetry((value) => value + 1)}>Try again</button>
+            <button type="button" className="text-link" onClick={() => {
+              setRetry((value) => value + 1);
+              focusChildrenRegion();
+            }}>Try again</button>
           </div>}
           {page?.items.map((child) => <HierarchyBranch
             {...props}

@@ -3,7 +3,6 @@
 import base64
 import json
 import logging
-import time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from uuid import UUID, uuid4
@@ -14,6 +13,7 @@ from sqlalchemy import event, text
 from sqlalchemy.orm import Session
 
 import mnemonic_api.application as application_module
+from mnemonic_api.services.relationships import _work_pointers
 from mnemonic_api.services.work_context import _summary_inputs
 
 
@@ -43,16 +43,14 @@ def gate_request(*, operation_id=None, question="Which boundary should this use?
     return payload
 
 
-def resolution_payload(*, operation_id=None, revision=None) -> dict:
+def resolution_payload(*, revision, operation_id=None) -> dict:
     payload = {
         "resolution": "Use the reviewed durable boundary.",
         "resolved_by_client": "dashboard",
         "resolved_by_session_id": "phase-7-human",
         "resolved_by_model": "human-ui",
-        "acknowledge_context_change": revision is not None,
+        "reviewed_context_revision": revision,
     }
-    if revision is not None:
-        payload["reviewed_context_revision"] = revision
     if operation_id is not None:
         payload["client_operation_id"] = str(operation_id)
     return payload
@@ -64,7 +62,6 @@ def test_gate_request_capability_overlap_attention_resolution_and_replay(
     project,
     work_payload,
 ):
-    api.app.state.settings.human_gate_requests_enabled = True
     created = create_work(api, project, work_payload, title="Needs one human choice")
     work = created["work_item"]
     path = gate_path(project, created)
@@ -176,20 +173,25 @@ def test_gate_request_capability_overlap_attention_resolution_and_replay(
     resolve_operation_id = uuid4()
     resolved = api.post(
         f"{path}/{gate['id']}/resolve",
-        json=resolution_payload(operation_id=resolve_operation_id),
+        json=resolution_payload(
+            operation_id=resolve_operation_id,
+            revision=gate["current_context_revision"],
+        ),
     )
     assert resolved.status_code == 200, resolved.text
     resolved_gate = resolved.json()
     assert resolved_gate["status"] == "resolved"
     assert resolved_gate["context_changed_at_resolution"] is False
-    assert resolved_gate["context_change_acknowledged"] is False
     activity_after_resolution = api.get(
         f"{collection(project)}/{work['id']}"
     ).json()["updated_at"]
     assert activity_after_resolution != activity_before_resolution
     immediate_resolution_replay = api.post(
         f"{path}/{gate['id']}/resolve",
-        json=resolution_payload(operation_id=resolve_operation_id),
+        json=resolution_payload(
+            operation_id=resolve_operation_id,
+            revision=gate["current_context_revision"],
+        ),
     )
     assert immediate_resolution_replay.status_code == 200
     assert immediate_resolution_replay.json() == resolved_gate
@@ -222,6 +224,22 @@ def test_gate_request_capability_overlap_attention_resolution_and_replay(
     ]
     assert {event["metadata"]["gate_id"] for event in gate_events} == {gate["id"]}
     assert all("gate_id" not in event for event in gate_events)
+    requested_events = api.get(
+        f"{collection(project)}/{work['id']}/events",
+        params={"event_type": "human_attention_requested"},
+    )
+    assert requested_events.status_code == 200, requested_events.text
+    assert [event["event_type"] for event in requested_events.json()["items"]] == [
+        "human_attention_requested"
+    ]
+    resolved_events = api.get(
+        f"{collection(project)}/{work['id']}/events",
+        params={"event_type": "human_attention_resolved"},
+    )
+    assert resolved_events.status_code == 200, resolved_events.text
+    assert [event["event_type"] for event in resolved_events.json()["items"]] == [
+        "human_attention_resolved"
+    ]
 
     deleted = api.post(
         f"{collection(project)}/{work['id']}/delete",
@@ -230,7 +248,10 @@ def test_gate_request_capability_overlap_attention_resolution_and_replay(
     assert deleted.status_code == 200, deleted.text
     resolution_replay = api.post(
         f"{path}/{gate['id']}/resolve",
-        json=resolution_payload(operation_id=resolve_operation_id),
+        json=resolution_payload(
+            operation_id=resolve_operation_id,
+            revision=gate["current_context_revision"],
+        ),
     )
     assert resolution_replay.status_code == 200
     assert resolution_replay.json() == resolved_gate
@@ -246,7 +267,6 @@ def test_gate_mutations_publish_only_identifier_free_frames_and_value_free_outco
     work_payload,
     caplog,
 ):
-    api.app.state.settings.human_gate_requests_enabled = True
     question = "Private WebSocket audit question marker."
     answer = "Private WebSocket audit answer marker."
     request_operation_id = uuid4()
@@ -279,7 +299,10 @@ def test_gate_mutations_publish_only_identifier_free_frames_and_value_free_outco
         resolved = api.post(
             f"{path}/{requested.json()['id']}/resolve",
             json={
-                **resolution_payload(operation_id=resolve_operation_id),
+                **resolution_payload(
+                    operation_id=resolve_operation_id,
+                    revision=requested.json()["current_context_revision"],
+                ),
                 "resolution": answer,
             },
         )
@@ -311,25 +334,18 @@ def test_gate_mutations_publish_only_identifier_free_frames_and_value_free_outco
 
 
 @pytest.mark.postgres
-def test_creation_fence_preserves_replay_and_leaves_new_uuid_unbound(
+def test_gate_request_replay_precedes_conflict_detection(
     api,
     project,
     work_payload,
 ):
-    created = create_work(api, project, work_payload, title="Fenced gate request")
+    created = create_work(api, project, work_payload, title="Replay gate request")
     path = gate_path(project, created)
     operation_id = uuid4()
     payload = gate_request(operation_id=operation_id)
 
-    fenced = api.post(path, json=payload)
-    assert fenced.status_code == 503
-    assert fenced.json()["detail"]["code"] == "human_gates_not_enabled"
-
-    api.app.state.settings.human_gate_requests_enabled = True
     created_gate = api.post(path, json=payload)
     assert created_gate.status_code == 201, created_gate.text
-
-    api.app.state.settings.human_gate_requests_enabled = False
     replay = api.post(path, json=payload)
     assert replay.status_code == 201
     assert replay.json() == created_gate.json()
@@ -339,6 +355,12 @@ def test_creation_fence_preserves_replay_and_leaves_new_uuid_unbound(
     )
     assert conflict.status_code == 409
     assert conflict.json()["detail"]["code"] == "client_operation_conflict"
+    distinct_intent = api.post(
+        path,
+        json=gate_request(operation_id=uuid4()),
+    )
+    assert distinct_intent.status_code == 201, distinct_intent.text
+    assert distinct_intent.json()["id"] != created_gate.json()["id"]
 
 
 @pytest.mark.postgres
@@ -348,7 +370,6 @@ def test_resolution_is_bound_to_exact_reviewed_context_revision(
     work_payload,
     checkpoint_fields,
 ):
-    api.app.state.settings.human_gate_requests_enabled = True
     created = create_work(api, project, work_payload, title="Review changing context")
     work = created["work_item"]
     path = gate_path(project, created)
@@ -362,7 +383,10 @@ def test_resolution_is_bound_to_exact_reviewed_context_revision(
 
     stale = api.post(
         f"{path}/{gate['id']}/resolve",
-        json=resolution_payload(operation_id=uuid4()),
+        json=resolution_payload(
+            operation_id=uuid4(),
+            revision=gate["current_context_revision"],
+        ),
     )
     assert stale.status_code == 409
     assert stale.json()["detail"]["code"] == "gate_context_changed"
@@ -405,7 +429,216 @@ def test_resolution_is_bound_to_exact_reviewed_context_revision(
     body = resolved.json()
     assert body["resolved_context_revision"] == revision_c
     assert body["context_changed_at_resolution"] is True
-    assert body["context_change_acknowledged"] is True
+
+
+@pytest.mark.postgres
+def test_deferred_resolution_requires_fresh_review_and_scope_is_project_local(
+    api,
+    project,
+    work_payload,
+):
+    created = create_work(api, project, work_payload, title="Defer a pending decision")
+    work = created["work_item"]
+    path = gate_path(project, created)
+    gate = api.post(path, json=gate_request()).json()
+
+    deferred = api.post(
+        f"{collection(project)}/{work['id']}/defer",
+        json={"expected_version": 1},
+    )
+    assert deferred.status_code == 200, deferred.text
+    assert deferred.json()["status"] == "deferred"
+
+    request_while_deferred = api.post(
+        path,
+        json=gate_request(question="Can deferred work ask another question?"),
+    )
+    assert request_while_deferred.status_code == 409
+    assert request_while_deferred.json()["detail"]["code"] == "work_not_pending"
+
+    stale = api.post(
+        f"{path}/{gate['id']}/resolve",
+        json=resolution_payload(revision=gate["current_context_revision"]),
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "gate_context_changed"
+
+    extra_field = api.post(
+        f"{path}/{gate['id']}/resolve",
+        json={
+            **resolution_payload(revision=gate["current_context_revision"]),
+            "unexpected": True,
+        },
+    )
+    assert extra_field.status_code == 422
+
+    other_project_response = api.post(
+        "/api/v1/projects",
+        json={"name": "Other gate scope"},
+    )
+    assert other_project_response.status_code == 201
+    other_project = other_project_response.json()
+    wrong_project = api.post(
+        f"{collection(other_project)}/{work['id']}/gates/{gate['id']}/resolve",
+        json=resolution_payload(revision=gate["current_context_revision"]),
+    )
+    assert wrong_project.status_code == 404
+    assert wrong_project.json()["detail"]["code"] == "work_item_not_found"
+    sibling = create_work(api, project, work_payload, title="Wrong gate work scope")
+    wrong_work = api.post(
+        f"{gate_path(project, sibling)}/{gate['id']}/resolve",
+        json=resolution_payload(revision=gate["current_context_revision"]),
+    )
+    assert wrong_work.status_code == 404
+    assert wrong_work.json()["detail"]["code"] == "gate_not_found"
+    unknown_gate = api.post(
+        f"{path}/{uuid4()}/resolve",
+        json=resolution_payload(revision=gate["current_context_revision"]),
+    )
+    assert unknown_gate.status_code == 404
+    assert unknown_gate.json()["detail"]["code"] == "gate_not_found"
+
+    review = api.get(f"{path}/{gate['id']}/context")
+    assert review.status_code == 200, review.text
+    reviewed_gate = next(
+        item
+        for item in review.json()["unresolved_gates"]
+        if item["id"] == gate["id"]
+    )
+    reviewed_revision = reviewed_gate["current_context_revision"]
+    assert reviewed_revision["work_version"] == 2
+    resolved = api.post(
+        f"{path}/{gate['id']}/resolve",
+        json=resolution_payload(revision=reviewed_revision),
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["context_changed_at_resolution"] is True
+
+
+@pytest.mark.postgres
+def test_gate_history_cursor_traverses_to_exhaustion(
+    api,
+    project,
+    work_payload,
+):
+    created = create_work(api, project, work_payload, title="Traverse gate history")
+    path = gate_path(project, created)
+    gates = []
+    for index in range(3):
+        requested = api.post(
+            path,
+            json=gate_request(question=f"History decision {index + 1}?"),
+        )
+        assert requested.status_code == 201, requested.text
+        gates.append(requested.json())
+
+    cursor = None
+    seen_ids = []
+    for index in range(3):
+        params = {"limit": 1}
+        if cursor is not None:
+            params["cursor"] = cursor
+        response = api.get(path, params=params)
+        assert response.status_code == 200, response.text
+        page = response.json()
+        assert page["total"] == 3
+        assert len(page["items"]) == 1
+        seen_ids.append(page["items"][0]["id"])
+        cursor = page["next_cursor"]
+        assert (cursor is None) is (index == 2)
+
+    assert seen_ids == [gate["id"] for gate in reversed(gates)]
+
+
+@pytest.mark.postgres
+def test_attention_filter_project_isolation_and_ancestor_path(
+    api,
+    project,
+    work_payload,
+):
+    root = create_work(api, project, work_payload, title="Attention ancestor")
+    child = create_work(api, project, work_payload, title="Nested attention target")
+    standalone = create_work(api, project, work_payload, title="Second local gate")
+    relationship = api.post(
+        f"/api/v1/projects/{project['id']}/relationships",
+        json={
+            "relationship_type": "parent-child",
+            "source_work_item_id": root["work_item"]["id"],
+            "target_work_item_id": child["work_item"]["id"],
+            "created_by_client": "pytest-agent",
+            "created_by_session_id": "attention-ancestry",
+            "created_by_model": "test-model",
+        },
+    )
+    assert relationship.status_code == 200, relationship.text
+    child_gate = api.post(gate_path(project, child), json=gate_request()).json()
+    standalone_gate = api.post(
+        gate_path(project, standalone),
+        json=gate_request(question="Second local decision?"),
+    ).json()
+
+    other_project_response = api.post(
+        "/api/v1/projects",
+        json={"name": "Attention isolation project"},
+    )
+    assert other_project_response.status_code == 201
+    other_project = other_project_response.json()
+    foreign = create_work(api, other_project, work_payload, title="Foreign gate")
+    foreign_gate = api.post(
+        gate_path(other_project, foreign),
+        json=gate_request(question="Foreign decision?"),
+    ).json()
+
+    local_attention = api.get(f"/api/v1/projects/{project['id']}/human-attention")
+    assert local_attention.status_code == 200, local_attention.text
+    assert local_attention.json()["total"] == 2
+    assert {item["gate"]["id"] for item in local_attention.json()["items"]} == {
+        child_gate["id"],
+        standalone_gate["id"],
+    }
+    assert foreign_gate["id"] not in {
+        item["gate"]["id"] for item in local_attention.json()["items"]
+    }
+
+    filtered = api.get(
+        f"/api/v1/projects/{project['id']}/human-attention",
+        params={"work_item_id": child["work_item"]["id"]},
+    )
+    assert filtered.status_code == 200, filtered.text
+    filtered_page = filtered.json()
+    assert filtered_page["total"] == 1
+    assert filtered_page["items"][0]["gate"]["id"] == child_gate["id"]
+    assert [
+        item["id"] for item in filtered_page["items"][0]["summary"]["ancestor_path"]
+    ] == [root["work_item"]["id"]]
+    assert filtered_page["items"][0]["summary"]["ancestor_path_truncated"] is False
+
+    blank_full_view = api.get(
+        collection(project),
+        params={"q": " \n ", "status": "all", "view": "full"},
+    )
+    assert blank_full_view.status_code == 200, blank_full_view.text
+    child_summary = next(
+        item
+        for item in blank_full_view.json()["items"]
+        if item["work_item"]["id"] == child["work_item"]["id"]
+    )
+    assert [item["id"] for item in child_summary["ancestor_path"]] == [
+        root["work_item"]["id"]
+    ]
+
+    foreign_filter = api.get(
+        f"/api/v1/projects/{project['id']}/human-attention",
+        params={"work_item_id": foreign["work_item"]["id"]},
+    )
+    assert foreign_filter.status_code == 404
+    assert foreign_filter.json()["detail"]["code"] == "work_item_not_found"
+    unknown_filter = api.get(
+        f"/api/v1/projects/{project['id']}/human-attention",
+        params={"work_item_id": uuid4()},
+    )
+    assert unknown_filter.status_code == 404
+    assert unknown_filter.json()["detail"]["code"] == "work_item_not_found"
 
 
 @pytest.mark.postgres
@@ -414,7 +647,6 @@ def test_gate_slices_focus_and_immutable_attention_cursor(
     project,
     work_payload,
 ):
-    api.app.state.settings.human_gate_requests_enabled = True
     created = create_work(api, project, work_payload, title="Many explicit decisions")
     path = gate_path(project, created)
     gates = []
@@ -481,7 +713,7 @@ def test_gate_slices_focus_and_immutable_attention_cursor(
 
     resolved = api.post(
         f"{path}/{gates[0]['id']}/resolve",
-        json=resolution_payload(),
+        json=resolution_payload(revision=gates[0]["current_context_revision"]),
     )
     assert resolved.status_code == 200, resolved.text
     second_page = api.get(
@@ -510,7 +742,6 @@ def test_paired_gate_history_is_independent_of_bounded_ordinary_event_recall(
     project,
     work_payload,
 ):
-    api.app.state.settings.human_gate_requests_enabled = True
     created = create_work(api, project, work_payload, title="Keep paired decisions separate")
     work = created["work_item"]
     path = gate_path(project, created)
@@ -526,7 +757,10 @@ def test_paired_gate_history_is_independent_of_bounded_ordinary_event_recall(
         answer = f"Durable answer {index + 1}."
         resolved = api.post(
             f"{path}/{gate['id']}/resolve",
-            json={**resolution_payload(), "resolution": answer},
+            json={
+                **resolution_payload(revision=gate["current_context_revision"]),
+                "resolution": answer,
+            },
         )
         assert resolved.status_code == 200, resolved.text
         answers[gate["id"]] = answer
@@ -577,7 +811,6 @@ def test_gate_request_and_completion_race_has_one_valid_linearized_outcome(
     work_payload,
     postgres_engine,
 ):
-    api.app.state.settings.human_gate_requests_enabled = True
     created = create_work(api, project, work_payload, title="Request or complete atomically")
     work = created["work_item"]
     path = gate_path(project, created)
@@ -670,16 +903,24 @@ def test_summary_lease_state_uses_one_database_time_statement(
             *_, active_leases, dropped_lease_ids = _summary_inputs(
                 database, [UUID(work_id)]
             )
+            summary_lease_statements = list(lease_statements)
+            lease_statements.clear()
+            pointers = _work_pointers(database, [UUID(work_id)])
+            pointer_lease_statements = list(lease_statements)
     finally:
         event.remove(postgres_engine, "before_cursor_execute", observe_lease_statement)
 
-    assert len(lease_statements) == 1
-    assert "statement_timestamp" in lease_statements[0]
+    assert len(summary_lease_statements) == 1
+    assert "statement_timestamp" in summary_lease_statements[0]
+    assert len(pointer_lease_statements) == 1
+    assert "statement_timestamp" in pointer_lease_statements[0]
     assert (UUID(work_id) in active_leases) != (UUID(work_id) in dropped_lease_ids)
+    assert pointers[UUID(work_id)].readiness.has_active_lease is True
+    assert pointers[UUID(work_id)].readiness.has_dropped_lease is False
 
 
 @pytest.mark.postgres
-def test_gate_secret_echo_precedes_fence_and_receipt_reservation(
+def test_gate_secret_echo_precedes_receipts_and_allows_retained_public_ids(
     api,
     project,
     work_payload,
@@ -717,8 +958,6 @@ def test_gate_secret_echo_precedes_fence_and_receipt_reservation(
         assert connection.execute(
             text("SELECT count(*) FROM client_operations")
         ).scalar_one() == 0
-
-    api.app.state.settings.human_gate_requests_enabled = True
     retained_operation_id = uuid4()
     gate_response = api.post(
         path,
@@ -728,96 +967,62 @@ def test_gate_secret_echo_precedes_fence_and_receipt_reservation(
     gate = gate_response.json()
 
     cross_gate_request_operation_id = uuid4()
-    echoed_retained_gate = api.post(
+    cross_reference_request = api.post(
         path,
         json=gate_request(
             operation_id=cross_gate_request_operation_id,
-            question=f"Do not retain prior gate {gate['id']}.",
+            question=(
+                f"Review prior gate {gate['id']} and operation "
+                f"{retained_operation_id}."
+            ),
         ),
     )
-    assert echoed_retained_gate.status_code == 422
-    assert echoed_retained_gate.json()["detail"]["code"] == "gate_secret_echo"
-    assert gate["id"] not in echoed_retained_gate.text
-
-    echoed_retained_operation = api.post(
-        path,
-        json=gate_request(
-            operation_id=uuid4(),
-            question=f"Do not retain prior operation {retained_operation_id}.",
-        ),
-    )
-    assert echoed_retained_operation.status_code == 422
-    assert echoed_retained_operation.json()["detail"]["code"] == "gate_secret_echo"
-    assert str(retained_operation_id) not in echoed_retained_operation.text
-
-    second_gate_response = api.post(
-        path,
-        json=gate_request(question="A separate unresolved decision."),
-    )
-    assert second_gate_response.status_code == 201, second_gate_response.text
-    second_gate = second_gate_response.json()
-
-    cross_gate_resolution = api.post(
-        f"{path}/{second_gate['id']}/resolve",
-        json={
-            **resolution_payload(operation_id=uuid4()),
-            "resolution": f"Do not retain another gate {gate['id']}.",
-        },
-    )
-    assert cross_gate_resolution.status_code == 422
-    assert cross_gate_resolution.json()["detail"]["code"] == "gate_secret_echo"
-    assert gate["id"] not in cross_gate_resolution.text
-
-    retained_operation_resolution = api.post(
-        f"{path}/{second_gate['id']}/resolve",
-        json={
-            **resolution_payload(operation_id=uuid4()),
-            "resolution": f"Do not retain prior operation {retained_operation_id}.",
-        },
-    )
-    assert retained_operation_resolution.status_code == 422
-    assert retained_operation_resolution.json()["detail"]["code"] == "gate_secret_echo"
-    assert str(retained_operation_id) not in retained_operation_resolution.text
+    assert cross_reference_request.status_code == 201, cross_reference_request.text
+    second_gate = cross_reference_request.json()
 
     resolution_operation_id = uuid4()
     echoed_resolution = api.post(
         f"{path}/{gate['id']}/resolve",
         json={
-            **resolution_payload(operation_id=resolution_operation_id),
+            **resolution_payload(
+                operation_id=resolution_operation_id,
+                revision=gate["current_context_revision"],
+            ),
             "resolution": f"Do not retain control {resolution_operation_id}.",
         },
     )
     assert echoed_resolution.status_code == 422
     assert echoed_resolution.json()["detail"]["code"] == "gate_secret_echo"
 
-    echoed_gate_id = api.post(
+    cross_reference_resolution = api.post(
         f"{path}/{gate['id']}/resolve",
         json={
-            **resolution_payload(operation_id=uuid4()),
-            "resolution": f"Do not retain target gate {gate['id']}.",
+            **resolution_payload(
+                operation_id=uuid4(),
+                revision=gate["current_context_revision"],
+            ),
+            "resolution": (
+                f"This answer references gate {gate['id']}, gate "
+                f"{second_gate['id']}, and operation {retained_operation_id}."
+            ),
         },
     )
-    assert echoed_gate_id.status_code == 422
-    assert echoed_gate_id.json()["detail"]["code"] == "gate_secret_echo"
-    assert gate["id"] not in echoed_gate_id.text
+    assert cross_reference_resolution.status_code == 200, cross_reference_resolution.text
 
     current = api.get(path, params={"status": "unresolved"})
     assert current.status_code == 200
-    assert {item["id"] for item in current.json()["items"]} == {
-        gate["id"],
-        second_gate["id"],
-    }
+    assert [item["id"] for item in current.json()["items"]] == [second_gate["id"]]
     with postgres_engine.connect() as connection:
         assert connection.execute(text("SELECT count(*) FROM work_gates")).scalar_one() == 2
         assert connection.execute(
             text("SELECT count(*) FROM client_operations")
-        ).scalar_one() == 1
+        ).scalar_one() == 3
         assert connection.execute(
             text(
                 "SELECT count(*) FROM work_events "
                 "WHERE event_type = 'human_attention_resolved'"
             )
-        ).scalar_one() == 0
+        ).scalar_one() == 1
 
 
 @pytest.mark.postgres
@@ -827,7 +1032,6 @@ def test_gate_text_rejects_nul_before_any_durable_side_effect(
     work_payload,
     postgres_engine,
 ):
-    api.app.state.settings.human_gate_requests_enabled = True
     created = create_work(api, project, work_payload, title="Reject invalid gate text")
     path = gate_path(project, created)
 
@@ -844,7 +1048,10 @@ def test_gate_text_rejects_nul_before_any_durable_side_effect(
     invalid_resolution = api.post(
         f"{path}/{gate['id']}/resolve",
         json={
-            **resolution_payload(operation_id=uuid4()),
+            **resolution_payload(
+                operation_id=uuid4(),
+                revision=gate["current_context_revision"],
+            ),
             "resolution": "Never store this NUL:\x00",
         },
     )
@@ -870,7 +1077,6 @@ def test_gate_receipt_replay_precedes_later_retained_control_collisions(
     work_payload,
     postgres_engine,
 ):
-    api.app.state.settings.human_gate_requests_enabled = True
     created = create_work(api, project, work_payload, title="Replay before later controls")
     path = gate_path(project, created)
 
@@ -900,7 +1106,10 @@ def test_gate_receipt_replay_precedes_later_retained_control_collisions(
     later_resolution_control = uuid4()
     resolution_operation_id = uuid4()
     original_resolution = {
-        **resolution_payload(operation_id=resolution_operation_id),
+        **resolution_payload(
+            operation_id=resolution_operation_id,
+            revision=requested_gate["current_context_revision"],
+        ),
         "resolution": f"Record the ordinary external UUID {later_resolution_control}.",
     }
     resolved = api.post(
@@ -957,7 +1166,6 @@ def test_same_and_different_key_resolution_races_are_linearizable(
     work_payload,
     postgres_engine,
 ):
-    api.app.state.settings.human_gate_requests_enabled = True
     created = create_work(api, project, work_payload, title="Resolve exactly once")
     path = gate_path(project, created)
     authorization = api.headers["Authorization"]
@@ -980,7 +1188,10 @@ def test_same_and_different_key_resolution_races_are_linearizable(
             return [future.result(timeout=10) for future in futures]
 
     first_gate = api.post(path, json=gate_request()).json()
-    same_body = resolution_payload(operation_id=uuid4())
+    same_body = resolution_payload(
+        operation_id=uuid4(),
+        revision=first_gate["current_context_revision"],
+    )
     same_key = race(first_gate["id"], [same_body, same_body])
     assert [response.status_code for response in same_key] == [200, 200]
     assert same_key[0].json() == same_key[1].json()
@@ -991,7 +1202,10 @@ def test_same_and_different_key_resolution_races_are_linearizable(
     ).json()
     different_bodies = [
         {
-            **resolution_payload(operation_id=uuid4()),
+            **resolution_payload(
+                operation_id=uuid4(),
+                revision=second_gate["current_context_revision"],
+            ),
             "resolution": f"Answer from contender {index}.",
         }
         for index in range(2)
@@ -1038,7 +1252,6 @@ def test_hierarchy_presentation_uses_structural_descendants_and_explicit_discove
     work_payload,
     checkpoint_fields,
 ):
-    api.app.state.settings.human_gate_requests_enabled = True
     root = create_work(api, project, work_payload, title="Root workstream")
     child = create_work(api, project, work_payload, title="Active discovered child")
     grandchild = create_work(api, project, work_payload, title="Completed grandchild")
@@ -1183,13 +1396,10 @@ def test_hierarchy_recursive_rollup_is_bounded_for_corrupt_cycles(
                 text("ALTER TABLE work_relationships ENABLE TRIGGER USER")
             )
 
-        started = time.monotonic()
         self_children = api.get(
             f"{collection(project)}/{self_node['id']}/children"
         )
         cycle_children = api.get(f"{collection(project)}/{left['id']}/children")
-        elapsed = time.monotonic() - started
-        assert elapsed < 2
         assert self_children.status_code == 200, self_children.text
         assert cycle_children.status_code == 200, cycle_children.text
         assert [

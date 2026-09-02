@@ -4,24 +4,29 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, literal_column, select, text
 from sqlalchemy.orm import Session
 
 from mnemonic_api.models import Checkpoint, WorkItem, WorkLease
 from mnemonic_api.schemas import (
     CheckpointPointer,
     CheckpointRead,
-    HumanGateRead,
+    HumanGateContextRevision,
     LeasePublic,
     WorkContext,
     WorkEventRead,
+    WorkIdentityPointer,
     WorkItemPointer,
     WorkItemRead,
     WorkSummary,
     WorkSummaryMinimal,
 )
-from mnemonic_api.services.gates import unresolved_gate_counts
-from mnemonic_api.services.readiness import readiness, unresolved_blocker_counts
+from mnemonic_api.services.readiness import (
+    readiness,
+    readiness_inputs,
+    unresolved_blocker_count_clause,
+    unresolved_gate_count_clause,
+)
 
 
 def checkpoint_read(checkpoint: Checkpoint | dict[str, Any]) -> CheckpointRead:
@@ -42,8 +47,9 @@ def _summary_inputs(
     set[UUID],
 ]:
     """Counts and lease facts used by bounded work-summary pages."""
-    blocker_counts = unresolved_blocker_counts(database, ids)
-    gate_counts = unresolved_gate_counts(database, ids)
+    blocker_counts, gate_counts, active_leases, dropped_lease_ids = readiness_inputs(
+        database, ids
+    )
     counts = dict(
         database.execute(
             select(Checkpoint.work_item_id, func.count())
@@ -51,22 +57,6 @@ def _summary_inputs(
             .group_by(Checkpoint.work_item_id)
         ).all()
     )
-    lease_rows = database.execute(
-        select(
-            WorkLease,
-            (WorkLease.expires_at > func.statement_timestamp()).label("is_active"),
-        ).where(WorkLease.work_item_id.in_(ids))
-    ).all()
-    active_leases = {
-        lease.work_item_id: lease
-        for lease, is_active in lease_rows
-        if is_active
-    }
-    dropped_lease_ids = {
-        lease.work_item_id
-        for lease, is_active in lease_rows
-        if not is_active
-    }
     return counts, blocker_counts, gate_counts, active_leases, dropped_lease_ids
 
 
@@ -143,10 +133,38 @@ def assemble_work_context(
     focus_gate_id: UUID | None = None,
 ) -> WorkContext:
     """Read all bounded context components from one READ COMMITTED statement."""
+    dialect = database.get_bind().dialect
+
+    def sql(expression) -> str:
+        return str(
+            expression.compile(
+                dialect=dialect,
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+
+    focal_blocker_count_sql = sql(
+        unresolved_blocker_count_clause(
+            literal_column("w.id"),
+            literal_column("w.project_id"),
+        )
+    )
+    focal_gate_count_sql = sql(
+        unresolved_gate_count_clause(literal_column("w.id"))
+    )
+    counterpart_blocker_count_sql = sql(
+        unresolved_blocker_count_clause(
+            literal_column("counterpart.id"),
+            literal_column("counterpart.project_id"),
+        )
+    )
+    counterpart_gate_count_sql = sql(
+        unresolved_gate_count_clause(literal_column("counterpart.id"))
+    )
     row = (
         database.execute(
             text(
-                """
+                f"""
             WITH selected_work AS (
                 SELECT *
                 FROM work_items
@@ -192,67 +210,7 @@ def assemble_work_context(
                 LIMIT :recent_limit
             ),
             gate_rows AS MATERIALIZED (
-                SELECT
-                    gate.*,
-                    jsonb_build_object(
-                        'id', gate.id,
-                        'project_id', gate.project_id,
-                        'work_item_id', gate.work_item_id,
-                        'gate_type', gate.gate_type,
-                        'question', gate.question,
-                        'requested_by_client', gate.requested_by_client,
-                        'requested_by_session_id', gate.requested_by_session_id,
-                        'requested_by_model', gate.requested_by_model,
-                        'requested_work_version', gate.requested_work_version,
-                        'requested_context_checkpoint_id',
-                            gate.requested_context_checkpoint_id,
-                        'requested_relationship_event_count',
-                            gate.requested_relationship_event_count,
-                        'created_at', gate.created_at,
-                        'status', CASE
-                            WHEN gate.resolved_at IS NULL THEN 'unresolved'
-                            ELSE 'resolved'
-                        END,
-                        'current_context_revision', jsonb_build_object(
-                            'work_version', w.version,
-                            'context_checkpoint_id', w.current_checkpoint_id,
-                            'relationship_event_count',
-                                w.current_relationship_event_count
-                        ),
-                        'work_changed_since_request',
-                            w.version <> gate.requested_work_version,
-                        'context_checkpoint_changed_since_request',
-                            w.current_checkpoint_id
-                                <> gate.requested_context_checkpoint_id,
-                        'relationships_changed_since_request',
-                            w.current_relationship_event_count
-                                <> gate.requested_relationship_event_count,
-                        'context_changed_since_request',
-                            w.version <> gate.requested_work_version
-                            OR w.current_checkpoint_id
-                                <> gate.requested_context_checkpoint_id
-                            OR w.current_relationship_event_count
-                                <> gate.requested_relationship_event_count,
-                        'resolved_at', gate.resolved_at,
-                        'resolution', gate.resolution,
-                        'resolved_by_client', gate.resolved_by_client,
-                        'resolved_by_session_id', gate.resolved_by_session_id,
-                        'resolved_by_model', gate.resolved_by_model,
-                        'resolved_context_revision', CASE
-                            WHEN gate.resolved_at IS NULL THEN NULL
-                            ELSE jsonb_build_object(
-                                'work_version', gate.resolved_work_version,
-                                'context_checkpoint_id',
-                                    gate.resolved_context_checkpoint_id,
-                                'relationship_event_count',
-                                    gate.resolved_relationship_event_count
-                            )
-                        END,
-                        'context_changed_at_resolution',
-                            gate.context_changed_at_resolution,
-                        'context_change_acknowledged',
-                            gate.context_change_acknowledged
-                    ) AS gate_json
+                SELECT gate.*
                 FROM chosen AS w
                 JOIN work_gates AS gate
                   ON gate.project_id = w.project_id
@@ -341,22 +299,8 @@ def assemble_work_context(
                             'expires_at', counterpart_lease.expires_at
                         )
                     END AS counterpart_active_lease,
-                    (
-                        SELECT count(*)
-                        FROM work_relationships AS blocker_edge
-                        JOIN work_items AS blocker_source
-                          ON blocker_source.id = blocker_edge.source_work_item_id
-                        WHERE blocker_edge.relationship_type = 'blocks'
-                          AND blocker_edge.project_id = relationship.project_id
-                          AND blocker_edge.target_work_item_id = counterpart.id
-                          AND blocker_source.status <> 'done'
-                    ) AS counterpart_blocker_count,
-                    (
-                        SELECT count(*)
-                        FROM work_gates AS counterpart_gate
-                        WHERE counterpart_gate.work_item_id = counterpart.id
-                          AND counterpart_gate.resolved_at IS NULL
-                    ) AS counterpart_gate_count,
+                    ({counterpart_blocker_count_sql}) AS counterpart_blocker_count,
+                    ({counterpart_gate_count_sql}) AS counterpart_gate_count,
                     EXISTS (
                         SELECT 1
                         FROM work_leases AS dropped_counterpart_lease
@@ -397,34 +341,13 @@ def assemble_work_context(
                             'title', adjacent.counterpart_title,
                             'status', adjacent.counterpart_status,
                             'readiness', jsonb_build_object(
-                                'lifecycle_status', adjacent.counterpart_status,
-                                'is_terminal', adjacent.counterpart_status IN (
-                                    'done', 'wont-do', 'promoted'
-                                ),
-                                'has_active_lease',
-                                    adjacent.counterpart_active_lease IS NOT NULL,
                                 'has_dropped_lease',
                                     adjacent.counterpart_has_dropped_lease,
                                 'active_lease', adjacent.counterpart_active_lease,
                                 'unresolved_blocker_count',
                                     adjacent.counterpart_blocker_count,
-                                'is_blocked', adjacent.counterpart_blocker_count > 0,
                                 'unresolved_gate_count',
-                                    adjacent.counterpart_gate_count,
-                                'is_gated', adjacent.counterpart_gate_count > 0,
-                                'is_ready', adjacent.counterpart_status = 'pending'
-                                    AND adjacent.counterpart_active_lease IS NULL
-                                    AND adjacent.counterpart_blocker_count = 0
-                                    AND adjacent.counterpart_gate_count = 0,
-                                'display_state', CASE
-                                    WHEN adjacent.counterpart_status <> 'pending'
-                                        THEN adjacent.counterpart_status
-                                    WHEN adjacent.counterpart_gate_count > 0 THEN 'waiting'
-                                    WHEN adjacent.counterpart_blocker_count > 0 THEN 'blocked'
-                                    WHEN adjacent.counterpart_active_lease IS NOT NULL THEN 'active'
-                                    WHEN adjacent.counterpart_has_dropped_lease THEN 'dropped'
-                                    ELSE 'pending'
-                                END
+                                    adjacent.counterpart_gate_count
                             )
                         )
                     ) AS edge_json
@@ -437,6 +360,11 @@ def assemble_work_context(
                     - 'current_checkpoint_id'
                     - 'current_relationship_event_count'
                     AS work_item,
+                jsonb_build_object(
+                    'work_version', w.version,
+                    'context_checkpoint_id', w.current_checkpoint_id,
+                    'relationship_event_count', w.current_relationship_event_count
+                ) AS current_context_revision,
                 to_jsonb(initial_checkpoint) - 'search_vector' AS initial_checkpoint,
                 to_jsonb(current_checkpoint) - 'search_vector' AS current_checkpoint,
                 COALESCE(
@@ -470,30 +398,17 @@ def assemble_work_context(
                     WHERE dropped_lease.work_item_id = w.id
                       AND dropped_lease.expires_at <= database_time.now
                 ) AS has_dropped_lease,
-                (
-                    SELECT count(*)
-                    FROM work_relationships AS blocker_edge
-                    JOIN work_items AS blocker_source
-                      ON blocker_source.id = blocker_edge.source_work_item_id
-                    WHERE blocker_edge.relationship_type = 'blocks'
-                      AND blocker_edge.project_id = w.project_id
-                      AND blocker_edge.target_work_item_id = w.id
-                      AND blocker_source.status <> 'done'
-                ) AS unresolved_blocker_count,
-                (
-                    SELECT count(*)
-                    FROM gate_rows AS unresolved_gate_count
-                    WHERE unresolved_gate_count.resolved_at IS NULL
-                ) AS unresolved_gate_total,
+                ({focal_blocker_count_sql}) AS unresolved_blocker_count,
+                ({focal_gate_count_sql}) AS unresolved_gate_total,
                 COALESCE(
                     (
                         SELECT jsonb_agg(
-                            bounded.gate_json
+                            bounded.gate_row
                             ORDER BY bounded.attention_sequence
                         )
                         FROM (
                             SELECT
-                                unresolved_gate.gate_json,
+                                to_jsonb(unresolved_gate) AS gate_row,
                                 unresolved_gate.attention_sequence
                             FROM gate_rows AS unresolved_gate
                             WHERE unresolved_gate.resolved_at IS NULL
@@ -528,12 +443,12 @@ def assemble_work_context(
                 COALESCE(
                     (
                         SELECT jsonb_agg(
-                            bounded.gate_json
+                            bounded.gate_row
                             ORDER BY bounded.resolved_at DESC, bounded.id DESC
                         )
                         FROM (
                             SELECT
-                                resolved_gate.gate_json,
+                                to_jsonb(resolved_gate) AS gate_row,
                                 resolved_gate.resolved_at,
                                 resolved_gate.id
                             FROM gate_rows AS resolved_gate
@@ -665,11 +580,17 @@ def assemble_work_context(
     current = CheckpointRead.model_validate(row["current_checkpoint"])
     recent = [CheckpointRead.model_validate(item) for item in row["recent_checkpoints"]]
     recent_events = [WorkEventRead.model_validate(item) for item in row["recent_events"]]
+    from mnemonic_api.services.gates import human_gate_read
+
+    current_revision = HumanGateContextRevision.model_validate(
+        row["current_context_revision"]
+    )
     unresolved_gates = [
-        HumanGateRead.model_validate(item) for item in row["unresolved_gates"]
+        human_gate_read(item, current_revision) for item in row["unresolved_gates"]
     ]
     recent_resolved_gates = [
-        HumanGateRead.model_validate(item) for item in row["recent_resolved_gates"]
+        human_gate_read(item, current_revision)
+        for item in row["recent_resolved_gates"]
     ]
     unresolved_gate_total = int(row["unresolved_gate_total"])
     resolved_gate_total = int(row["resolved_gate_total"])
@@ -678,6 +599,31 @@ def assemble_work_context(
     active_lease = (
         LeasePublic.model_validate(row["active_lease"]) if row["active_lease"] is not None else None
     )
+    relationship_groups = (
+        row["incoming_relationships"],
+        row["outgoing_relationships"],
+        row["undirected_relationships"],
+    )
+    for relationships in relationship_groups:
+        for edge in relationships:
+            counterpart = edge["counterpart"]
+            counterpart_inputs = counterpart["readiness"]
+            counterpart_lease = counterpart_inputs["active_lease"]
+            counterpart["readiness"] = readiness(
+                WorkIdentityPointer.model_validate(
+                    {
+                        "id": counterpart["id"],
+                        "title": counterpart["title"],
+                        "status": counterpart["status"],
+                    }
+                ),
+                LeasePublic.model_validate(counterpart_lease)
+                if counterpart_lease is not None
+                else None,
+                int(counterpart_inputs["unresolved_blocker_count"]),
+                bool(counterpart_inputs["has_dropped_lease"]),
+                int(counterpart_inputs["unresolved_gate_count"]),
+            )
     blocker_count = int(row["unresolved_blocker_count"])
     materialized_ids = {initial.id, current.id, *(item.id for item in recent)}
     total = int(row["checkpoint_total"])

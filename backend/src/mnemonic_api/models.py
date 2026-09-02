@@ -263,7 +263,9 @@ class Checkpoint(Base):
     )
     migration_origin: Mapped[str | None] = mapped_column(String(40))
     legacy_record_id: Mapped[UUID | None] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
     search_vector: Mapped[str] = mapped_column(
         TSVECTOR,
         Computed(
@@ -431,7 +433,10 @@ class WorkRelationship(Base):
     created_by_client: Mapped[str] = mapped_column(String(80))
     created_by_session_id: Mapped[str] = mapped_column(String(200))
     created_by_model: Mapped[str | None] = mapped_column(String(120))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
+
 
 class WorkGate(Base):
     """An immutable human question with one optional immutable resolution."""
@@ -460,17 +465,13 @@ class WorkGate(Base):
             "AND resolved_by_client IS NULL AND resolved_by_session_id IS NULL "
             "AND resolved_by_model IS NULL AND resolved_work_version IS NULL "
             "AND resolved_context_checkpoint_id IS NULL "
-            "AND resolved_relationship_event_count IS NULL "
-            "AND context_changed_at_resolution IS NULL "
-            "AND context_change_acknowledged IS NULL) OR "
+            "AND resolved_relationship_event_count IS NULL) OR "
             "(resolved_at IS NOT NULL AND resolution IS NOT NULL "
             "AND resolved_by_client IS NOT NULL "
             "AND resolved_by_session_id IS NOT NULL "
             "AND resolved_work_version IS NOT NULL "
             "AND resolved_context_checkpoint_id IS NOT NULL "
-            "AND resolved_relationship_event_count IS NOT NULL "
-            "AND context_changed_at_resolution IS NOT NULL "
-            "AND context_change_acknowledged IS NOT NULL)",
+            "AND resolved_relationship_event_count IS NOT NULL)",
             name="resolution_state_valid",
         ),
         CheckConstraint(
@@ -503,21 +504,6 @@ class WorkGate(Base):
         CheckConstraint(
             "resolved_at IS NULL OR resolved_at >= created_at",
             name="timestamp_order",
-        ),
-        CheckConstraint(
-            "context_changed_at_resolution IS NULL OR "
-            "context_changed_at_resolution = ("
-            "resolved_work_version IS DISTINCT FROM requested_work_version OR "
-            "resolved_context_checkpoint_id IS DISTINCT FROM "
-            "requested_context_checkpoint_id OR "
-            "resolved_relationship_event_count IS DISTINCT FROM "
-            "requested_relationship_event_count)",
-            name="resolution_drift_coherent",
-        ),
-        CheckConstraint(
-            "context_change_acknowledged IS NULL OR "
-            "context_change_acknowledged = context_changed_at_resolution",
-            name="context_acknowledgement_coherent",
         ),
         ForeignKeyConstraint(
             ["project_id", "work_item_id"],
@@ -601,8 +587,6 @@ class WorkGate(Base):
     resolved_work_version: Mapped[int | None] = mapped_column(Integer)
     resolved_context_checkpoint_id: Mapped[UUID | None] = mapped_column()
     resolved_relationship_event_count: Mapped[int | None] = mapped_column(BigInteger)
-    context_changed_at_resolution: Mapped[bool | None] = mapped_column(Boolean)
-    context_change_acknowledged: Mapped[bool | None] = mapped_column(Boolean)
 
 
 class WorkEvent(Base):

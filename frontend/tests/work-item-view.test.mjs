@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { editableLifecycleStatuses, migrationWarning, normalizedTags, readinessAfterWorkSave } from "../lib/work-item-view.ts";
+import {
+  editableLifecycleStatuses,
+  migrationWarning,
+  normalizedTags,
+  readinessAfterWorkSave,
+  terminalActionDisabled,
+  terminalActionGateExplanation
+} from "../lib/work-item-view.ts";
 
 test("legacy snapshots receive an explicit provenance limitation warning", () => {
   const warning = migrationWarning("legacy-handoff-snapshot");
@@ -88,4 +95,40 @@ test("lifecycle choices are restricted by the persisted status", () => {
   assert.deepEqual(editableLifecycleStatuses("done"), ["done", "pending"]);
   assert.deepEqual(editableLifecycleStatuses("wont-do"), ["wont-do", "pending"]);
   assert.deepEqual(editableLifecycleStatuses("promoted"), ["promoted", "pending"]);
+});
+
+test("terminal actions share the gate guard and a count-specific visible explanation", () => {
+  const readiness = {
+    lifecycle_status: "pending",
+    is_terminal: false,
+    has_active_lease: false,
+    has_dropped_lease: false,
+    active_lease: null,
+    unresolved_blocker_count: 0,
+    is_blocked: false,
+    unresolved_gate_count: 0,
+    is_gated: false,
+    is_ready: true,
+    display_state: "pending"
+  };
+  assert.equal(terminalActionDisabled(readiness), false);
+  assert.equal(terminalActionDisabled(readiness, true), true);
+  assert.equal(terminalActionGateExplanation(readiness, "deletion"), null);
+
+  const oneGate = {
+    ...readiness,
+    unresolved_gate_count: 1,
+    is_gated: true,
+    is_ready: false,
+    display_state: "waiting"
+  };
+  assert.equal(terminalActionDisabled(oneGate), true);
+  assert.equal(
+    terminalActionGateExplanation(oneGate, "completion"),
+    "1 unresolved human question blocks completion."
+  );
+  assert.equal(
+    terminalActionGateExplanation({ ...oneGate, unresolved_gate_count: 2 }, "deletion"),
+    "2 unresolved human questions block deletion."
+  );
 });

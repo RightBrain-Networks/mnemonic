@@ -25,7 +25,6 @@ from mnemonic_mcp.api import UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME, MnemonicAPI
 from mnemonic_mcp.models import (
     ClaimAndRecall,
     ClaimReceipt,
-    HierarchyPresentation,
     HumanGateRead,
     ReadyWorkPage,
     WorkEventRead,
@@ -310,6 +309,16 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
         "list_work_gates": "old resolution never grants current authority",
     }.items():
         assert required in described[name].lower(), name
+
+    for required in (
+        "check the item's unresolved gates first",
+        "supporting context checkpoint before requesting",
+        "cannot withdraw a gate",
+    ):
+        assert required in described["request_human_input"].lower()
+    assert (
+        "restart once from the first page" in described["list_human_attention"].lower()
+    )
 
     # parent-child is the only edge the hierarchy reads; measured 2026-09-01 on a
     # 59-item project: 12 discovered-from, 0 parent-child, every ancestor_path empty.
@@ -745,9 +754,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "requested_by_client",
         "requested_by_session_id",
         "requested_by_model",
-        "requested_work_version",
-        "requested_context_checkpoint_id",
-        "requested_relationship_event_count",
+        "requested_context_revision",
         "created_at",
         "status",
         "current_context_revision",
@@ -762,7 +769,6 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "resolved_by_model",
         "resolved_context_revision",
         "context_changed_at_resolution",
-        "context_change_acknowledged",
     }
 
     attention_input = tools["list_human_attention"].inputSchema
@@ -1388,7 +1394,7 @@ async def test_ready_work_rejects_an_accidental_full_upstream_projection(
 
 @pytest.mark.parametrize(
     ("status", "display_state"),
-    [("done", "done"), ("pending", "blocked")],
+    [("done", "done"), ("pending", "blocked"), ("pending", "waiting")],
 )
 async def test_ready_work_rejects_non_ready_upstream_items(
     settings, work_item, status, display_state
@@ -1528,6 +1534,33 @@ async def test_gate_request_unknown_outcomes_are_one_attempt_and_value_free(
     assert len(requests) == 1
 
 
+
+@pytest.mark.parametrize("response_kind", ["drifted", "resolved"])
+async def test_gate_request_rejects_model_valid_anchor_or_status_mismatch(
+    settings, human_gate, resolved_human_gate, response_kind
+):
+    response = json.loads(json.dumps(human_gate))
+    if response_kind == "drifted":
+        response["current_context_revision"]["work_version"] = 4
+        response["work_changed_since_request"] = True
+        response["context_changed_since_request"] = True
+    else:
+        response = resolved_human_gate
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(201, json=response)
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(
+            "request_human_input", protected_tool_arguments()["request_human_input"]
+        )
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME in str(caught.value)
+    assert human_gate["question"] not in str(caught.value)
+    assert len(calls) == 1
+
+
 async def test_gate_reads_use_exact_cursor_queries_and_enforce_scope(
     settings, work_summary, human_gate, resolved_human_gate
 ):
@@ -1627,20 +1660,32 @@ async def test_gate_read_scope_or_filter_mismatch_is_rejected_without_values(
             "display_state": "waiting",
         },
     }
-    wrong_project_gate = {**human_gate, "project_id": OTHER_WORK_ID}
+    other_gate = {
+        **human_gate,
+        "project_id": OTHER_WORK_ID,
+        "work_item_id": OTHER_WORK_ID,
+    }
+    other_summary = {
+        **gated_summary,
+        "work_item": {
+            **gated_summary["work_item"],
+            "project_id": OTHER_WORK_ID,
+            "id": OTHER_WORK_ID,
+        },
+    }
 
     def attention_handler(request):
         return httpx.Response(
             200,
             json={
-                "items": [{"gate": wrong_project_gate, "summary": gated_summary}],
+                "items": [{"gate": other_gate, "summary": other_summary}],
                 "total": 1,
                 "limit": 30,
                 "next_cursor": None,
             },
         )
 
-    with pytest.raises(ToolError, match="unexpected response") as caught:
+    with pytest.raises(ToolError, match="incoherent human-gate data") as caught:
         await adapter(settings, attention_handler).call_tool(
             "list_human_attention", {"project_id": PROJECT_ID}
         )
@@ -1651,7 +1696,7 @@ async def test_gate_read_scope_or_filter_mismatch_is_rejected_without_values(
         return httpx.Response(
             200,
             json={
-                "items": [human_gate],
+                "items": [other_gate],
                 "total": 1,
                 "limit": 30,
                 "next_cursor": None,
@@ -1664,7 +1709,6 @@ async def test_gate_read_scope_or_filter_mismatch_is_rejected_without_values(
             {
                 "project_id": PROJECT_ID,
                 "work_item_id": WORK_ID,
-                "status": "resolved",
             },
         )
     assert human_gate["question"] not in str(caught.value)
@@ -1706,60 +1750,27 @@ async def test_attention_count_mode_is_text_free_and_rejects_a_cursor(
     assert len(calls) == 1
 
 
-def test_human_gate_models_enforce_revision_state_and_hierarchy_coherence(
+def test_human_gate_models_enforce_types_and_resolution_nullability(
     human_gate, resolved_human_gate
 ):
     assert HumanGateRead.model_validate(human_gate).status == "unresolved"
     assert HumanGateRead.model_validate(resolved_human_gate).status == "resolved"
 
+    invalid_revision = json.loads(json.dumps(human_gate))
+    invalid_revision["requested_context_revision"]["work_version"] = "3"
     with pytest.raises(ValueError):
-        HumanGateRead.model_validate(
-            {**human_gate, "requested_work_version": "3"}
-        )
+        HumanGateRead.model_validate(invalid_revision)
     with pytest.raises(ValueError):
         HumanGateRead.model_validate(
             {**human_gate, "work_changed_since_request": "false"}
         )
-    with pytest.raises(ValueError):
-        HumanGateRead.model_validate(
-            {**human_gate, "work_changed_since_request": True}
-        )
-    with pytest.raises(ValueError):
-        HumanGateRead.model_validate(
-            {
-                **resolved_human_gate,
-                "context_change_acknowledged": True,
-            }
-        )
+    backend_computed_drift = {**human_gate, "work_changed_since_request": True}
+    assert HumanGateRead.model_validate(backend_computed_drift).work_changed_since_request is True
     with pytest.raises(ValueError):
         HumanGateRead.model_validate(
             {**human_gate, "resolution": "An impossible unresolved answer."}
         )
 
-    valid_presentation = {
-        "direct_child_count": 2,
-        "descendant_count": 4,
-        "blocked_descendant_count": 1,
-        "active_descendant_count": 1,
-        "completed_descendant_count": 1,
-        "discovered_descendant_count": 2,
-        "branch_unresolved_human_gate_count": 3,
-        "is_discovered_work": True,
-        "discovered_from_parent": False,
-        "next_active_descendant_lease_expires_at": EXPIRES_AT,
-    }
-    assert HierarchyPresentation.model_validate(valid_presentation).descendant_count == 4
-    with pytest.raises(ValueError):
-        HierarchyPresentation.model_validate(
-            {**valid_presentation, "blocked_descendant_count": 5}
-        )
-    with pytest.raises(ValueError):
-        HierarchyPresentation.model_validate(
-            {
-                **valid_presentation,
-                "active_descendant_count": 0,
-            }
-        )
 
 
 def test_gate_event_models_preserve_legacy_wire_and_validate_typed_metadata(
@@ -2931,6 +2942,40 @@ async def test_search_defaults_to_the_minimal_view_and_can_opt_up(settings, work
     assert seen == ["minimal", "full"]
 
 
+
+async def test_httpx_debug_logs_never_include_query_or_cursor_values(settings, caplog):
+    query_marker = "private-search-query-marker"
+    cursor_marker = "private-gate-cursor-marker"
+
+    def handler(request):
+        if request.url.path.endswith("/work-items"):
+            return httpx.Response(
+                200,
+                json={"items": [], "total": 0, "limit": 30, "offset": 0},
+            )
+        return httpx.Response(
+            200,
+            json={"items": [], "total": 0, "limit": 30, "next_cursor": None},
+        )
+
+    caplog.set_level("DEBUG")
+    server = adapter(settings, handler)
+    await server.call_tool(
+        "search_work", {"project_id": PROJECT_ID, "q": query_marker}
+    )
+    await server.call_tool(
+        "list_work_gates",
+        {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "cursor": cursor_marker,
+        },
+    )
+
+    assert query_marker not in caplog.text
+    assert cursor_marker not in caplog.text
+
+
 async def test_semantic_search_unavailable_suggests_lexical_fallback(settings):
     def handler(request):
         assert request.url.params["semantic"] == "true"
@@ -3039,15 +3084,12 @@ async def test_delete_passes_version_and_conflict_is_not_retried(settings):
         ("work_not_pending", "not pending"),
         ("work_blocked", "unresolved blocker"),
         ("work_gated", "unresolved human input"),
-        ("gate_already_resolved", "already resolved"),
-        ("gate_context_changed", "human must reload"),
         ("invalid_status_transition", "lifecycle transition is not allowed"),
         ("lease_expired", "claim has expired"),
         ("lease_token_mismatch", "does not match"),
         ("claim_request_expired", "new claim_request_id"),
         ("relationship_cycle", "create a cycle"),
         ("relationship_context_invalid", "originating target work item"),
-        ("relationship_exists", "already exists"),
         ("parent_already_set", "already has a parent"),
         ("active_relationships", "relationships before deleting"),
     ],
@@ -3081,36 +3123,11 @@ async def test_typed_application_errors_are_actionable_and_sanitized(
     assert API_KEY not in str(caught.value)
 
 
-async def test_gate_fence_and_secret_errors_are_value_free_and_single_attempt(
+async def test_gate_secret_errors_are_value_free_and_single_attempt(
     settings, human_gate
 ):
     private_marker = "private-human-gate-diagnostic"
     calls = []
-
-    def fenced_handler(request):
-        calls.append(request)
-        return httpx.Response(
-            503,
-            json={
-                "detail": {
-                    "code": "human_gates_not_enabled",
-                    "message": f"{private_marker} {human_gate['question']}",
-                    "context": {"question": human_gate["question"]},
-                }
-            },
-        )
-
-    with pytest.raises(ToolError) as caught:
-        await adapter(settings, fenced_handler).call_tool(
-            "request_human_input", protected_tool_arguments()["request_human_input"]
-        )
-    assert "temporarily disabled" in str(caught.value)
-    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME not in str(caught.value)
-    assert private_marker not in str(caught.value)
-    assert human_gate["question"] not in str(caught.value)
-    assert len(calls) == 1
-
-    calls.clear()
 
     def secret_handler(request):
         calls.append(request)
@@ -3126,7 +3143,7 @@ async def test_gate_fence_and_secret_errors_are_value_free_and_single_attempt(
         )
 
     with pytest.raises(
-        ToolError, match="request-known or retained gate/operation control"
+        ToolError, match="request-known credential or operation control"
     ) as caught:
         await adapter(settings, secret_handler).call_tool(
             "request_human_input", protected_tool_arguments()["request_human_input"]
@@ -3136,7 +3153,7 @@ async def test_gate_fence_and_secret_errors_are_value_free_and_single_attempt(
     assert len(calls) == 1
 
 
-async def test_gate_cursor_and_not_found_errors_are_scoped_and_sanitized(settings):
+async def test_gate_cursor_errors_are_scoped_and_sanitized(settings):
     private_marker = "private-gate-scope-diagnostic"
 
     def cursor_handler(request):
@@ -3161,26 +3178,6 @@ async def test_gate_cursor_and_not_found_errors_are_scoped_and_sanitized(setting
             },
         )
     assert private_marker not in str(caught.value)
-
-    def missing_handler(request):
-        return httpx.Response(
-            404,
-            json={
-                "detail": {
-                    "code": "gate_not_found",
-                    "message": private_marker,
-                    "context": {"gate_id": GATE_ID},
-                }
-            },
-        )
-
-    with pytest.raises(ToolError, match="Human gate not found") as caught:
-        await adapter(settings, missing_handler).call_tool(
-            "list_work_gates",
-            {"project_id": PROJECT_ID, "work_item_id": WORK_ID},
-        )
-    assert private_marker not in str(caught.value)
-    assert GATE_ID not in str(caught.value)
 
 
 async def test_lease_held_reports_only_allowlisted_holder_and_expiry(settings):

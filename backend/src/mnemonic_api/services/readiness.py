@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import and_, false, func, literal_column, select, text, true
+from sqlalchemy import and_, false, func, literal, literal_column, select, text, true
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -16,13 +16,15 @@ from mnemonic_api.schemas import (
     Readiness,
     ReadyWorkListQuery,
     ReadyWorkPage,
+    WorkIdentityPointer,
+    WorkItemPointer,
     WorkItemRead,
     WorkSummaryMinimal,
 )
 
 
 def readiness(
-    work_item: WorkItem | WorkItemRead,
+    work_item: WorkItem | WorkItemRead | WorkItemPointer | WorkIdentityPointer,
     active_lease: WorkLease | LeasePublic | None = None,
     unresolved_blocker_count: int = 0,
     has_dropped_lease: bool = False,
@@ -102,22 +104,105 @@ def unresolved_blocker_count(database: Session, work_item_id: UUID) -> int:
     return unresolved_blocker_counts(database, [work_item_id]).get(work_item_id, 0)
 
 
+def unresolved_gate_counts(
+    database: Session, work_item_ids: Sequence[UUID]
+) -> dict[UUID, int]:
+    if not work_item_ids:
+        return {}
+    rows = database.execute(
+        select(WorkGate.work_item_id, func.count())
+        .where(
+            WorkGate.work_item_id.in_(set(work_item_ids)),
+            WorkGate.resolved_at.is_(None),
+        )
+        .group_by(WorkGate.work_item_id)
+    )
+    return {work_item_id: int(count) for work_item_id, count in rows}
+
+
+def readiness_inputs(
+    database: Session, work_item_ids: Sequence[UUID]
+) -> tuple[dict[UUID, int], dict[UUID, int], dict[UUID, WorkLease], set[UUID]]:
+    """Read blocker, gate, and lease facts with one timestamp per lease snapshot."""
+    blocker_counts = unresolved_blocker_counts(database, work_item_ids)
+    gate_counts = unresolved_gate_counts(database, work_item_ids)
+    lease_rows = database.execute(
+        select(
+            WorkLease,
+            (WorkLease.expires_at > func.statement_timestamp()).label("is_active"),
+        ).where(WorkLease.work_item_id.in_(work_item_ids))
+    ).all()
+    active_leases = {
+        lease.work_item_id: lease for lease, is_active in lease_rows if is_active
+    }
+    dropped_lease_ids = {
+        lease.work_item_id for lease, is_active in lease_rows if not is_active
+    }
+    return blocker_counts, gate_counts, active_leases, dropped_lease_ids
+
+
 def require_unblocked(database: Session, work_item_id: UUID) -> None:
     if unresolved_blocker_count(database, work_item_id):
         raise conflict("work_blocked", "This work item has an unresolved blocker.")
 
 
+def unresolved_blocker_count_clause(
+    work_item_id: ColumnElement[UUID],
+    work_item_project_id: ColumnElement[UUID],
+    *,
+    correlate_from=None,
+) -> ColumnElement[int]:
+    """Canonical direct unresolved-blocker count for composable SQL projections."""
+    blocker_edge = WorkRelationship.__table__.alias("readiness_blocker_edge")
+    blocker_source = WorkItem.__table__.alias("readiness_blocker_source")
+    lookup = (
+        select(func.count())
+        .select_from(
+            blocker_edge.join(
+                blocker_source,
+                and_(
+                    blocker_source.c.project_id == blocker_edge.c.project_id,
+                    blocker_source.c.id == blocker_edge.c.source_work_item_id,
+                ),
+            )
+        )
+        .where(
+            blocker_edge.c.project_id == work_item_project_id,
+            blocker_edge.c.relationship_type == "blocks",
+            blocker_edge.c.target_work_item_id == work_item_id,
+            blocker_source.c.status != "done",
+        )
+    )
+    if correlate_from is not None:
+        lookup = lookup.correlate(correlate_from)
+    return lookup.scalar_subquery()
+
+
+def unresolved_gate_count_clause(
+    work_item_id: ColumnElement[UUID],
+    *,
+    correlate_from=None,
+) -> ColumnElement[int]:
+    """Canonical unresolved human-gate count for composable SQL projections."""
+    gate = WorkGate.__table__.alias("readiness_gate")
+    lookup = select(func.count()).select_from(gate).where(
+        gate.c.work_item_id == work_item_id,
+        gate.c.resolved_at.is_(None),
+    )
+    if correlate_from is not None:
+        lookup = lookup.correlate(correlate_from)
+    return lookup.scalar_subquery()
+
+
 def gate_eligibility_clause(work_item_id: ColumnElement[UUID]) -> ColumnElement[bool]:
     """Canonical indexed unresolved-gate predicate shared by ready and fresh claim."""
-    gate_lookup = (
-        select(WorkGate.id)
-        .where(
-            WorkGate.work_item_id == work_item_id,
-            WorkGate.resolved_at.is_(None),
-        )
-        .limit(1)
-    )
-    return ~gate_lookup.exists()
+    return unresolved_gate_count_clause(work_item_id) == 0
+
+
+def require_no_unresolved_gates(database: Session, work_item_id: UUID) -> None:
+    eligible = database.scalar(select(gate_eligibility_clause(literal(work_item_id))))
+    if not eligible:
+        raise work_gated()
 
 
 @dataclass(frozen=True)
@@ -149,27 +234,11 @@ def eligibility_clauses(
     correlate_from=None,
 ) -> EligibilityClauses:
     """Build readiness facts from composable work columns at one database time."""
-    blocker_edge = WorkRelationship.__table__.alias("eligibility_blocker_edge")
-    blocker_source = WorkItem.__table__.alias("eligibility_blocker_source")
     retained_lease = WorkLease.__table__.alias("eligibility_retained_lease")
-    blocker_lookup = (
-        select(true())
-        .select_from(
-            blocker_edge.join(
-                blocker_source,
-                and_(
-                    blocker_source.c.project_id == blocker_edge.c.project_id,
-                    blocker_source.c.id == blocker_edge.c.source_work_item_id,
-                ),
-            )
-        )
-        .where(
-            blocker_edge.c.project_id == work_item_project_id,
-            blocker_edge.c.relationship_type == "blocks",
-            blocker_edge.c.target_work_item_id == work_item_id,
-            blocker_source.c.status != "done",
-        )
-        .limit(1)
+    blocker_count = unresolved_blocker_count_clause(
+        work_item_id,
+        work_item_project_id,
+        correlate_from=correlate_from,
     )
     lease_lookup = (
         select(true())
@@ -181,11 +250,10 @@ def eligibility_clauses(
         .limit(1)
     )
     if correlate_from is not None:
-        blocker_lookup = blocker_lookup.correlate(correlate_from)
         lease_lookup = lease_lookup.correlate(correlate_from)
     return EligibilityClauses(
         is_pending=work_item_status == "pending",
-        has_unresolved_blocker=func.coalesce(blocker_lookup.scalar_subquery(), false()),
+        has_unresolved_blocker=blocker_count > 0,
         has_active_lease=func.coalesce(lease_lookup.scalar_subquery(), false()),
         gate_eligible=gate_eligibility_clause(work_item_id),
     )

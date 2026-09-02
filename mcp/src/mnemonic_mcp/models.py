@@ -586,9 +586,7 @@ class HumanGateRead(CanonicalResponse):
     requested_by_client: RetainedClientName
     requested_by_session_id: RetainedSessionID
     requested_by_model: RetainedModelName | None
-    requested_work_version: StrictInt = Field(ge=1)
-    requested_context_checkpoint_id: UUID
-    requested_relationship_event_count: StrictInt = Field(ge=0)
+    requested_context_revision: HumanGateContextRevision
     created_at: UTCDateTime
     status: HumanGateStatus
     current_context_revision: HumanGateContextRevision
@@ -603,30 +601,9 @@ class HumanGateRead(CanonicalResponse):
     resolved_by_model: RetainedModelName | None
     resolved_context_revision: HumanGateContextRevision | None
     context_changed_at_resolution: StrictBool | None
-    context_change_acknowledged: StrictBool | None
 
     @model_validator(mode="after")
     def enforce_gate_contract(self) -> Self:
-        current = self.current_context_revision
-        work_changed = current.work_version != self.requested_work_version
-        checkpoint_changed = (
-            current.context_checkpoint_id != self.requested_context_checkpoint_id
-        )
-        relationships_changed = (
-            current.relationship_event_count
-            != self.requested_relationship_event_count
-        )
-        if self.work_changed_since_request != work_changed:
-            raise ValueError("Current work drift does not match the request anchor.")
-        if self.context_checkpoint_changed_since_request != checkpoint_changed:
-            raise ValueError("Current checkpoint drift does not match the request anchor.")
-        if self.relationships_changed_since_request != relationships_changed:
-            raise ValueError("Current relationship drift does not match the request anchor.")
-        if self.context_changed_since_request != (
-            work_changed or checkpoint_changed or relationships_changed
-        ):
-            raise ValueError("Aggregate context drift must be the OR of its components.")
-
         resolution_required = (
             self.resolved_at,
             self.resolution,
@@ -634,7 +611,6 @@ class HumanGateRead(CanonicalResponse):
             self.resolved_by_session_id,
             self.resolved_context_revision,
             self.context_changed_at_resolution,
-            self.context_change_acknowledged,
         )
         if self.status == "unresolved":
             if any(value is not None for value in (*resolution_required, self.resolved_by_model)):
@@ -645,20 +621,6 @@ class HumanGateRead(CanonicalResponse):
             raise ValueError("Resolved gates require complete resolution fields.")
         if self.resolved_at is not None and self.resolved_at < self.created_at:
             raise ValueError("Gate resolution cannot predate its request.")
-
-        resolved = self.resolved_context_revision
-        if resolved is None:  # pragma: no cover - guarded above for type narrowing
-            raise ValueError("Resolved gates require a context revision.")
-        resolved_drift = (
-            resolved.work_version != self.requested_work_version
-            or resolved.context_checkpoint_id != self.requested_context_checkpoint_id
-            or resolved.relationship_event_count
-            != self.requested_relationship_event_count
-        )
-        if self.context_changed_at_resolution != resolved_drift:
-            raise ValueError("Resolution drift does not match the accepted revision.")
-        if self.context_change_acknowledged != resolved_drift:
-            raise ValueError("Context acknowledgement must exactly match resolution drift.")
         return self
 
 
@@ -709,42 +671,6 @@ class HumanGatePage(CanonicalResponse):
         if len(self.items) > self.limit or len(self.items) > self.total:
             raise ValueError("Human-gate page bounds are inconsistent.")
         return self
-
-
-class HierarchyPresentation(CanonicalResponse):
-    direct_child_count: StrictInt = Field(ge=0)
-    descendant_count: StrictInt = Field(ge=0)
-    blocked_descendant_count: StrictInt = Field(ge=0)
-    active_descendant_count: StrictInt = Field(ge=0)
-    completed_descendant_count: StrictInt = Field(ge=0)
-    discovered_descendant_count: StrictInt = Field(ge=0)
-    branch_unresolved_human_gate_count: StrictInt = Field(ge=0)
-    is_discovered_work: StrictBool
-    discovered_from_parent: StrictBool
-    next_active_descendant_lease_expires_at: UTCDateTime | None
-
-    @model_validator(mode="after")
-    def enforce_hierarchy_bounds(self) -> Self:
-        for count in (
-            self.blocked_descendant_count,
-            self.active_descendant_count,
-            self.completed_descendant_count,
-            self.discovered_descendant_count,
-        ):
-            if count > self.descendant_count:
-                raise ValueError("Descendant category counts cannot exceed descendants.")
-        if (self.active_descendant_count == 0) != (
-            self.next_active_descendant_lease_expires_at is None
-        ):
-            raise ValueError("Active-descendant expiry must match the active count.")
-        return self
-
-
-class HierarchySummary(CanonicalResponse):
-    summary: WorkSummary
-    self_matches_filter: bool
-    has_matching_descendants: bool
-    presentation: HierarchyPresentation
 
 
 class WorkItemPointer(CanonicalResponse):
@@ -820,9 +746,9 @@ class WorkEventRead(CanonicalResponse):
     work_item_id: UUID
     event_type: EventType
     actor_kind: ActorKind
-    actor_client: str | None = Field(default=None, max_length=80)
-    actor_session_id: str | None = Field(default=None, max_length=200)
-    actor_model: str | None = Field(default=None, max_length=120)
+    actor_client: str | None = Field(max_length=80)
+    actor_session_id: str | None = Field(max_length=200)
+    actor_model: str | None = Field(max_length=120)
     body: str | None
     checkpoint_id: UUID | None
     lease_generation_id: UUID | None

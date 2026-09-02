@@ -35,6 +35,66 @@ class ReadinessCase:
 
 CASES = (
     ReadinessCase(
+        name="pending-no-gate-no-blocker-no-lease",
+        lifecycle="pending",
+        blocker="none",
+        lease="none",
+        unresolved_gates=0,
+        resolved_gates=0,
+        expected_terminal=False,
+        expected_active_lease=False,
+        expected_dropped_lease=False,
+        expected_blocker_count=0,
+        expected_gate_count=0,
+        expected_ready=True,
+        expected_display_state="pending",
+    ),
+    ReadinessCase(
+        name="pending-two-unresolved-gates-no-blocker-no-lease",
+        lifecycle="pending",
+        blocker="none",
+        lease="none",
+        unresolved_gates=2,
+        resolved_gates=0,
+        expected_terminal=False,
+        expected_active_lease=False,
+        expected_dropped_lease=False,
+        expected_blocker_count=0,
+        expected_gate_count=2,
+        expected_ready=False,
+        expected_display_state="waiting",
+    ),
+    ReadinessCase(
+        name="pending-unresolved-gates-blocker-active-lease",
+        lifecycle="pending",
+        blocker="unresolved",
+        lease="active",
+        unresolved_gates=2,
+        resolved_gates=0,
+        expected_terminal=False,
+        expected_active_lease=True,
+        expected_dropped_lease=False,
+        expected_blocker_count=1,
+        expected_gate_count=2,
+        expected_ready=False,
+        expected_display_state="waiting",
+    ),
+    ReadinessCase(
+        name="pending-no-gate-no-blocker-expired-lease",
+        lifecycle="pending",
+        blocker="none",
+        lease="expired",
+        unresolved_gates=0,
+        resolved_gates=0,
+        expected_terminal=False,
+        expected_active_lease=False,
+        expected_dropped_lease=True,
+        expected_blocker_count=0,
+        expected_gate_count=0,
+        expected_ready=True,
+        expected_display_state="dropped",
+    ),
+    ReadinessCase(
         name="pending-resolved-gate-resolved-blocker-no-lease",
         lifecycle="pending",
         blocker="resolved",
@@ -215,13 +275,13 @@ def gate_request(question: str) -> dict:
     }
 
 
-def gate_resolution(answer: str) -> dict:
+def gate_resolution(answer: str, revision: dict) -> dict:
     return {
         "resolution": answer,
         "resolved_by_client": "dashboard",
         "resolved_by_session_id": "readiness-matrix-human",
         "resolved_by_model": None,
-        "acknowledge_context_change": False,
+        "reviewed_context_revision": revision,
     }
 
 
@@ -317,7 +377,6 @@ def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
     postgres_engine,
     case: ReadinessCase,
 ):
-    api.app.state.settings.human_gate_requests_enabled = True
     unique = uuid4().hex[:10]
     tag = f"readiness-{unique}"
     target_created = create_work(
@@ -395,7 +454,10 @@ def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
         gate = requested.json()
         resolved = api.post(
             f"{gates_path}/{gate['id']}/resolve",
-            json=gate_resolution(f"Resolved matrix answer {index} for {unique}."),
+            json=gate_resolution(
+                f"Resolved matrix answer {index} for {unique}.",
+                gate["current_context_revision"],
+            ),
         )
         assert resolved.status_code == 200, resolved.text
         assert resolved.json()["status"] == "resolved"
@@ -477,6 +539,18 @@ def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
     assert full_summary["checkpoint_count"] == 1
     assert full_summary["readiness"] == expected
 
+    hierarchy = api.get(
+        collection(project),
+        params={"status": "all", "tag": tag, "view": "roots"},
+    )
+    assert hierarchy.status_code == 200, hierarchy.text
+    hierarchy_page = hierarchy.json()
+    assert hierarchy_page["total"] == 1
+    assert len(hierarchy_page["items"]) == 1
+    hierarchy_summary = hierarchy_page["items"][0]["summary"]
+    assert hierarchy_summary["work_item"]["id"] == target["id"]
+    assert hierarchy_summary["readiness"] == expected
+
     ready = api.get(
         f"/api/v1/projects/{project['id']}/ready-work",
         params={"tag": tag},
@@ -557,7 +631,6 @@ def test_overlapping_gate_blocker_and_active_lease_errors_have_stable_precedence
     project,
     work_payload,
 ):
-    api.app.state.settings.human_gate_requests_enabled = True
     unique = uuid4().hex[:10]
     target = create_work(
         api,
@@ -669,7 +742,10 @@ def test_overlapping_gate_blocker_and_active_lease_errors_have_stable_precedence
 
     resolved = api.post(
         f"{target_path}/gates/{gate['id']}/resolve",
-        json=gate_resolution(f"Reviewed overlapping conflict {unique}."),
+        json=gate_resolution(
+            f"Reviewed overlapping conflict {unique}.",
+            gate["current_context_revision"],
+        ),
     )
     assert resolved.status_code == 200, resolved.text
     assert resolved.json()["status"] == "resolved"

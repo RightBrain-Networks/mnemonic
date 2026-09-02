@@ -6,11 +6,11 @@
 
 The project is a Docker Compose stack that combines a durable backend (*PostgreSQL*) and a RESTful API (*FastAPI*). The API has two consumers: a human-facing, web browser-based dashboard (*Next.js*) and a LLM-facing MCP server. The MCP server ships with preconfigured agent skills so your agent can automatically discover how to interact with `mnemonic`. It designed for a single, local (human) user and supports multiple, concurrent development projects.
 
-It does not modify Claude's memory subsystem. While Claude Code is the first client; the API, metadata, and MCP interface do not depend on a particular LLM provider.
+It does not modify any client's memory subsystem. Claude Code is the first client, but the API, metadata, and MCP interface do not depend on one LLM provider.
 
 ## Is `mnemonic` right for your project?
 
-- You build with Claude Code (*support for additional platforms coming soon*).
+- You build with Claude Code or another MCP client such as OpenCode.
 
 - Important FYIs and follow-up tasks are getting overlooked because they're buried under verbose LLM output.
 
@@ -24,7 +24,7 @@ It does not modify Claude's memory subsystem. While Claude Code is the first cli
 
 The included agent skills encourage the LLM to default to using `mnemonic` to save hand-off prompts and self-discovered follow-up tasks. Markdown docs and your bug/issue tracker are reserved for durable human-facing information. Claude's "suggested task chips" are explicitly discouraged here since they live only in the ephemeral client and are easily lost.
 
-Upon discovering something worth remembering, your agent will first search `mnemonic` for related work items, using a hybrid keyword matching and semantic search (embeddings). If it doesn't find any results, it opens a new work item in a "pending" state.
+Upon discovering something worth remembering, your agent will first search `mnemonic` for related work items, using PostgreSQL keyword matching by default and opt-in semantic search (embeddings). If it doesn't find any results, it opens a new work item in a "pending" state.
 
 The human (you, presumably) then click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh Claude Code session. Claude will then retrieve the work item and validate the stated premises. If the facts check-out, it requests a "work lease" of 15 minutes and then gets to work. The lease is periodically renewed until the task is complete and the work item is marked as "done".
 
@@ -39,6 +39,9 @@ python scripts/setup.py
 docker compose up --build -d --wait
 ```
 
+`sh ./up_mnemonic.sh` starts the stack with the TLS allowlists from
+`compose.tls.yaml`.
+
 On macOS/Linux the Python command may be `python3`. Alternatively, copy `.env.example` to `.env` and supply two different random secrets yourself: a URL-safe PostgreSQL password and an API key of at least 32 characters. The
 example deliberately contains no usable credentials. Never commit `.env`.
 
@@ -51,8 +54,6 @@ Open `mnemonic`. Create your first project using the project selector, then conn
 | MCP Streamable HTTP    | `MNEMONIC_MCP_PORT` | `http://127.0.0.1:8001/mcp`                       |
 
 Those addresses are defaults, not fixed values. Each port is set in `.env`, so change one there if it collides with something already running on the host, and substitute your own value wherever this README shows a port. With `uv` installed, `uv run --project mcp python scripts/check-stack.py` resolves all three from `.env` and performs the read-only live-stack checks. See [`docs/development.md`](docs/development.md) before opting into its write path.
-
-New human-gate requests are disabled by default through `MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED=false`. Keep that fence closed while upgrading an existing stack; attention/history reads and direct REST/dashboard resolution of existing gates remain available. Follow the coordinated cutover in [`docs/operations.md`](docs/operations.md) before setting it to `true` and recreating the API container.
 
 The four application services run alongside a small backup container. PostgreSQL has no published port. Dashboard, REST, and MCP ports bind to loopback only. For LAN access through your existing nginx TLS proxy, use the
 [nginx configuration and setup guide](deploy/nginx/README.md).
@@ -69,12 +70,12 @@ Registering the endpoint does not connect it to a running session. Claude Code l
 
 In PowerShell, the URL and header expressions are `"http://127.0.0.1:$env:MNEMONIC_MCP_PORT/mcp"` and
 `"Authorization: Bearer $env:MNEMONIC_API_KEY"`; PowerShell has no `:-` default, so set the port variable explicitly there. Do not paste the real key into tracked project configuration. Configuration examples, including a Docker stdio
-alternative and OpenCode, live in [`examples/`](examples/); they show the default ports and need the same substitution if yours differ. [`work.json`](examples/work.json) is the canonical example.
+alternative and OpenCode, live in [`examples/`](examples/); they show the default ports and need the same substitution if yours differ. [`work.json`](examples/work.json) is the canonical work body. Copyable Phase 7-8 workflows are [`discovered-work.json`](examples/discovered-work.json), [`human-gate-request.json`](examples/human-gate-request.json), and [`human-gate-resolution.json`](examples/human-gate-resolution.json).
 
 The three skills ship as a Claude Code plugin. Register this repository as a marketplace once, then enable the plugin in any project that should have them:
 
 ```bash
-claude plugin marketplace add /srv/mnemonic
+claude plugin marketplace add /path/to/mnemonic
 claude plugin install mnemonic@mnemonic
 ```
 
@@ -83,7 +84,7 @@ To make it automatic for everyone who clones a consuming repository, commit this
 ```json
 {
   "extraKnownMarketplaces": {
-    "mnemonic": { "source": { "source": "directory", "path": "/srv/mnemonic" } }
+    "mnemonic": { "source": { "source": "directory", "path": "/path/to/mnemonic" } }
   },
   "enabledPlugins": { "mnemonic@mnemonic": true }
 }
@@ -93,7 +94,7 @@ Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemon
 reachable remotely.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current plugin is version `0.6.0`. It provides:
+not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current plugin is version `0.6.1`. It provides:
 
 - **`mnemonic-save`** searches for existing work, creates a durable objective
   with its initial checkpoint and explicit atomic links, appends corrective
@@ -169,7 +170,7 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   and natural no-ops do not fabricate duplicates.
 - Provides first-class human gates with exact question/answer history, asserted
   requester/resolver provenance, immutable request and resolution revisions,
-  drift acknowledgement, a cursor-paged Needs Attention queue, per-work history,
+  drift flags and a required reviewed revision, a cursor-paged Needs Attention queue, per-work history,
   and bounded gate slices in recall. Unresolved gates block fresh claims,
   completion, terminal transitions, and deletion without revoking exact active
   claim replay, renewal, release, checkpoints, or progress. Resolution is a

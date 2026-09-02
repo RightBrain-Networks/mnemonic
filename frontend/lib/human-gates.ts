@@ -11,13 +11,21 @@ import type {
   Readiness,
   WorkIdentityPointer,
   WorkContext,
-  WorkItem,
   WorkStatus,
   WorkSummary
 } from "@/lib/types";
-
-const UUID_PATTERN = /^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/;
-const UTC_DATE_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/;
+import {
+  boundedText,
+  decodeWorkItem,
+  exactKeys,
+  finiteInteger,
+  nullableBoundedText,
+  objectValue,
+  sameUuid,
+  validUtcDateTime,
+  validUuid,
+  type JsonObject
+} from "./wire-guards.ts";
 const WORK_STATUSES = new Set<WorkStatus>([
   "pending", "deferred", "done", "wont-do", "promoted"
 ]);
@@ -31,95 +39,55 @@ const DISPLAY_STATES = new Set([
 const GATE_FIELDS = [
   "id", "project_id", "work_item_id", "gate_type", "question",
   "requested_by_client", "requested_by_session_id", "requested_by_model",
-  "requested_work_version", "requested_context_checkpoint_id",
-  "requested_relationship_event_count", "created_at", "status",
+  "requested_context_revision", "created_at", "status",
   "current_context_revision", "work_changed_since_request",
   "context_checkpoint_changed_since_request", "relationships_changed_since_request",
   "context_changed_since_request", "resolved_at", "resolution", "resolved_by_client",
   "resolved_by_session_id", "resolved_by_model", "resolved_context_revision",
-  "context_changed_at_resolution", "context_change_acknowledged"
+  "context_changed_at_resolution"
 ] as const;
+const REVISION_FIELDS = [
+  "work_version", "context_checkpoint_id", "relationship_event_count"
+] as const;
+const CHECKPOINT_POINTER_FIELDS = [
+  "id", "work_item_id", "kind", "source_client", "source_session_id", "source_model",
+  "repository_branch", "verified_against", "tags", "migration_origin", "legacy_record_id",
+  "created_at"
+] as const;
+const LEASE_FIELDS = [
+  "holder_client", "holder_session_id", "acquired_at", "renewed_at", "expires_at"
+] as const;
+const READINESS_FIELDS = [
+  "lifecycle_status", "is_terminal", "has_active_lease", "has_dropped_lease",
+  "active_lease", "unresolved_blocker_count", "is_blocked", "unresolved_gate_count",
+  "is_gated", "is_ready", "display_state"
+] as const;
+const ANCESTOR_FIELDS = ["id", "title", "status"] as const;
+const WORK_SUMMARY_FIELDS = [
+  "work_item", "checkpoint_count", "ancestor_path", "ancestor_path_truncated",
+  "current_context", "readiness"
+] as const;
+const CURSOR_PAGE_FIELDS = ["items", "total", "limit", "next_cursor"] as const;
+const HUMAN_ATTENTION_ITEM_FIELDS = ["gate", "summary"] as const;
 
-type JsonObject = Record<string, unknown>;
-
-function objectValue(value: unknown): JsonObject | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null
-    ? value as JsonObject
-    : null;
-}
-
-function exactKeys(value: JsonObject, keys: readonly string[]): boolean {
-  const actual = Object.keys(value);
-  const expected = new Set(keys);
-  return actual.length === expected.size && actual.every((key) => expected.has(key));
-}
-
-function validUuid(value: unknown): value is string {
-  return typeof value === "string" && UUID_PATTERN.test(value);
-}
-
-function sameUuid(left: unknown, right: unknown): boolean {
-  return validUuid(left) && validUuid(right) && left.toLowerCase() === right.toLowerCase();
-}
-
-function finiteInteger(value: unknown, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): value is number {
-  return Number.isSafeInteger(value) && Number(value) >= minimum && Number(value) <= maximum;
-}
-
-function validUnicode(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
-      index += 1;
-    } else if (code >= 0xdc00 && code <= 0xdfff) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function boundedText(value: unknown, maximum: number): value is string {
-  return typeof value === "string"
-    && validUnicode(value)
-    && !value.includes("\0")
-    && value.trim().length > 0
-    && Array.from(value).length <= maximum;
-}
-
-function nullableBoundedText(value: unknown, maximum: number): value is string | null {
-  return value === null || boundedText(value, maximum);
-}
-
-function validUtcDateTime(value: unknown): value is string {
-  if (typeof value !== "string") return false;
-  const match = UTC_DATE_TIME_PATTERN.exec(value);
-  if (!match) return false;
-  const [, yearText, monthText, dayText, hourText, minuteText, secondText] = match;
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-  const second = Number(secondText);
-  if (year < 1 || month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) {
-    return false;
-  }
-  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-  const days = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  return day >= 1 && day <= days[month - 1]!;
-}
+export const HUMAN_GATE_DECODER_FIELDS = {
+  GATE_FIELDS,
+  decodeAncestor: ANCESTOR_FIELDS,
+  decodeCheckpointPointer: CHECKPOINT_POINTER_FIELDS,
+  "decodeCursorPage:attention": CURSOR_PAGE_FIELDS,
+  "decodeCursorPage:gates": CURSOR_PAGE_FIELDS,
+  "decodeHumanAttentionPage:item": HUMAN_ATTENTION_ITEM_FIELDS,
+  decodeLease: LEASE_FIELDS,
+  decodeReadiness: READINESS_FIELDS,
+  decodeRevision: REVISION_FIELDS,
+  decodeWorkSummary: WORK_SUMMARY_FIELDS
+} as const;
 
 function decodeRevision(value: unknown): HumanGateContextRevision {
   const revision = objectValue(value);
   if (
     !revision
-    || !exactKeys(revision, [
-      "work_version", "context_checkpoint_id", "relationship_event_count"
-    ])
+    || !exactKeys(revision, REVISION_FIELDS)
     || !finiteInteger(revision.work_version, 1)
     || !validUuid(revision.context_checkpoint_id)
     || !finiteInteger(revision.relationship_event_count)
@@ -136,18 +104,19 @@ export function sameHumanGateRevision(
     && sameUuid(left.context_checkpoint_id, right.context_checkpoint_id);
 }
 
-function revisionDiffers(
-  gate: Pick<HumanGateRead,
-    | "requested_work_version"
-    | "requested_context_checkpoint_id"
-    | "requested_relationship_event_count">,
-  revision: HumanGateContextRevision
-): [boolean, boolean, boolean] {
+export function humanGateProjectionKey(gate: HumanGateRead): string {
   return [
-    gate.requested_work_version !== revision.work_version,
-    !sameUuid(gate.requested_context_checkpoint_id, revision.context_checkpoint_id),
-    gate.requested_relationship_event_count !== revision.relationship_event_count
-  ];
+    gate.requested_context_revision.work_version,
+    gate.requested_context_revision.context_checkpoint_id.toLowerCase(),
+    gate.requested_context_revision.relationship_event_count,
+    gate.current_context_revision.work_version,
+    gate.current_context_revision.context_checkpoint_id.toLowerCase(),
+    gate.current_context_revision.relationship_event_count,
+    gate.work_changed_since_request ? 1 : 0,
+    gate.context_checkpoint_changed_since_request ? 1 : 0,
+    gate.relationships_changed_since_request ? 1 : 0,
+    gate.context_changed_since_request ? 1 : 0
+  ].join(":");
 }
 
 export function decodeHumanGate(
@@ -166,9 +135,6 @@ export function decodeHumanGate(
     || !boundedText(gate.requested_by_client, 80)
     || !boundedText(gate.requested_by_session_id, 200)
     || !nullableBoundedText(gate.requested_by_model, 120)
-    || !finiteInteger(gate.requested_work_version, 1)
-    || !validUuid(gate.requested_context_checkpoint_id)
-    || !finiteInteger(gate.requested_relationship_event_count)
     || !validUtcDateTime(gate.created_at)
     || (gate.status !== "unresolved" && gate.status !== "resolved")
     || typeof gate.work_changed_since_request !== "boolean"
@@ -181,19 +147,8 @@ export function decodeHumanGate(
     || expected?.status !== undefined && gate.status !== expected.status
   ) throw new Error("Mnemonic returned an invalid human gate.");
 
-  const current = decodeRevision(gate.current_context_revision);
-  const [workChanged, checkpointChanged, relationshipsChanged] = revisionDiffers(
-    gate as unknown as HumanGateRead,
-    current
-  );
-  if (
-    gate.work_changed_since_request !== workChanged
-    || gate.context_checkpoint_changed_since_request !== checkpointChanged
-    || gate.relationships_changed_since_request !== relationshipsChanged
-    || gate.context_changed_since_request !== (
-      workChanged || checkpointChanged || relationshipsChanged
-    )
-  ) throw new Error("Mnemonic returned an incoherent human gate.");
+  decodeRevision(gate.requested_context_revision);
+  decodeRevision(gate.current_context_revision);
 
   if (gate.status === "unresolved") {
     if (
@@ -204,7 +159,6 @@ export function decodeHumanGate(
       || gate.resolved_by_model !== null
       || gate.resolved_context_revision !== null
       || gate.context_changed_at_resolution !== null
-      || gate.context_change_acknowledged !== null
     ) throw new Error("Mnemonic returned an incoherent unresolved human gate.");
   } else {
     if (
@@ -214,52 +168,20 @@ export function decodeHumanGate(
       || !boundedText(gate.resolved_by_session_id, 200)
       || !nullableBoundedText(gate.resolved_by_model, 120)
       || typeof gate.context_changed_at_resolution !== "boolean"
-      || typeof gate.context_change_acknowledged !== "boolean"
     ) throw new Error("Mnemonic returned an incoherent resolved human gate.");
-    const resolved = decodeRevision(gate.resolved_context_revision);
-    const resolvedChanges = revisionDiffers(gate as unknown as HumanGateRead, resolved);
-    const changedAtResolution = resolvedChanges.some(Boolean);
-    if (
-      gate.context_changed_at_resolution !== changedAtResolution
-      || gate.context_change_acknowledged !== changedAtResolution
-      || Date.parse(gate.resolved_at) < Date.parse(String(gate.created_at))
-    ) throw new Error("Mnemonic returned an incoherent resolved human gate.");
+    decodeRevision(gate.resolved_context_revision);
+    if (Date.parse(gate.resolved_at) < Date.parse(String(gate.created_at))) {
+      throw new Error("Mnemonic returned an incoherent resolved human gate.");
+    }
   }
   return gate as unknown as HumanGateRead;
-}
-
-function decodeWorkItem(value: unknown, projectId: string): WorkItem {
-  const item = objectValue(value);
-  if (
-    !item
-    || !exactKeys(item, [
-      "id", "project_id", "title", "summary", "status", "priority",
-      "initial_checkpoint_id", "version", "created_at", "updated_at"
-    ])
-    || !validUuid(item.id)
-    || !sameUuid(item.project_id, projectId)
-    || !boundedText(item.title, 200)
-    || !boundedText(item.summary, 1_000)
-    || typeof item.status !== "string"
-    || !WORK_STATUSES.has(item.status as WorkStatus)
-    || !finiteInteger(item.priority, 0, 100)
-    || !validUuid(item.initial_checkpoint_id)
-    || !finiteInteger(item.version, 1)
-    || !validUtcDateTime(item.created_at)
-    || !validUtcDateTime(item.updated_at)
-  ) throw new Error("Mnemonic returned an invalid attention work summary.");
-  return item as unknown as WorkItem;
 }
 
 function decodeCheckpointPointer(value: unknown, workItemId: string): CheckpointPointer {
   const checkpoint = objectValue(value);
   if (
     !checkpoint
-    || !exactKeys(checkpoint, [
-      "id", "work_item_id", "kind", "source_client", "source_session_id", "source_model",
-      "repository_branch", "verified_against", "tags", "migration_origin", "legacy_record_id",
-      "created_at"
-    ])
+    || !exactKeys(checkpoint, CHECKPOINT_POINTER_FIELDS)
     || !validUuid(checkpoint.id)
     || !sameUuid(checkpoint.work_item_id, workItemId)
     || !["context", "progress", "completion"].includes(String(checkpoint.kind))
@@ -286,9 +208,7 @@ function decodeLease(value: unknown): LeasePublic | null {
   const lease = objectValue(value);
   if (
     !lease
-    || !exactKeys(lease, [
-      "holder_client", "holder_session_id", "acquired_at", "renewed_at", "expires_at"
-    ])
+    || !exactKeys(lease, LEASE_FIELDS)
     || !boundedText(lease.holder_client, 80)
     || !boundedText(lease.holder_session_id, 200)
     || !validUtcDateTime(lease.acquired_at)
@@ -302,11 +222,7 @@ function decodeReadiness(value: unknown, status: WorkStatus): Readiness {
   const readiness = objectValue(value);
   if (
     !readiness
-    || !exactKeys(readiness, [
-      "lifecycle_status", "is_terminal", "has_active_lease", "has_dropped_lease",
-      "active_lease", "unresolved_blocker_count", "is_blocked", "unresolved_gate_count",
-      "is_gated", "is_ready", "display_state"
-    ])
+    || !exactKeys(readiness, READINESS_FIELDS)
     || readiness.lifecycle_status !== status
     || typeof readiness.is_terminal !== "boolean"
     || typeof readiness.has_active_lease !== "boolean"
@@ -351,7 +267,7 @@ function decodeAncestor(value: unknown): WorkIdentityPointer {
   const ancestor = objectValue(value);
   if (
     !ancestor
-    || !exactKeys(ancestor, ["id", "title", "status"])
+    || !exactKeys(ancestor, ANCESTOR_FIELDS)
     || !validUuid(ancestor.id)
     || !boundedText(ancestor.title, 200)
     || typeof ancestor.status !== "string"
@@ -364,12 +280,14 @@ export function decodeWorkSummary(value: unknown, projectId: string): WorkSummar
   const summary = objectValue(value);
   if (
     !summary
-    || !exactKeys(summary, [
-      "work_item", "checkpoint_count", "ancestor_path", "ancestor_path_truncated",
-      "current_context", "readiness"
-    ])
+    || !exactKeys(summary, WORK_SUMMARY_FIELDS)
   ) throw new Error("Mnemonic returned an invalid attention work summary.");
-  const workItem = decodeWorkItem(summary.work_item, projectId);
+  const workItem = decodeWorkItem(
+    summary.work_item,
+    projectId,
+    undefined,
+    "Mnemonic returned an invalid attention work summary."
+  );
   if (
     !finiteInteger(summary.checkpoint_count, 1)
     || !Array.isArray(summary.ancestor_path)
@@ -398,7 +316,7 @@ function decodeCursorPage(
   const page = objectValue(value);
   if (
     !page
-    || !exactKeys(page, ["items", "total", "limit", "next_cursor"])
+    || !exactKeys(page, CURSOR_PAGE_FIELDS)
     || !Array.isArray(page.items)
     || !finiteInteger(page.total)
     || !finiteInteger(page.limit, 0, 100)
@@ -426,7 +344,7 @@ export function decodeHumanAttentionPage(
   }
   const decoded = decodeCursorPage(value, (itemValue) => {
     const item = objectValue(itemValue);
-    if (!item || !exactKeys(item, ["gate", "summary"])) {
+    if (!item || !exactKeys(item, HUMAN_ATTENTION_ITEM_FIELDS)) {
       throw new Error("Mnemonic returned an invalid human-attention item.");
     }
     const gate = decodeHumanGate(item.gate, {
@@ -576,4 +494,25 @@ export function humanGateChangedLabels(gate: HumanGateRead): string[] {
     ...(gate.context_checkpoint_changed_since_request ? ["current context checkpoint"] : []),
     ...(gate.relationships_changed_since_request ? ["relationships"] : [])
   ];
+}
+
+export function humanGateCurrentDriftMessage(gate: HumanGateRead): string | null {
+  if (gate.status !== "unresolved" || !gate.context_changed_since_request) return null;
+  return `Current drift: ${humanGateChangedLabels(gate).join(", ")}.`;
+}
+
+export function humanGateOmissionSentence(
+  kind: "unresolved" | "resolved",
+  count: number
+): string | null {
+  if (count <= 0) return null;
+  if (kind === "unresolved") {
+    return `${count} additional unresolved question${count === 1 ? " is" : "s are"} omitted from bounded recall. Use the filtered attention queue.`;
+  }
+  return `${count} older resolved decision${count === 1 ? " is" : "s are"} omitted from bounded recall.`;
+}
+
+export function humanGateResolutionStatus(remaining: number): string {
+  if (remaining === 0) return "Answer recorded. No unresolved questions remain.";
+  return `Answer recorded. ${remaining} unresolved question${remaining === 1 ? " remains" : "s remain"}.`;
 }

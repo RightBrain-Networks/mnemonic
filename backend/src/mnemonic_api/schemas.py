@@ -17,6 +17,7 @@ from pydantic import (
     RootModel,
     StrictInt,
     StringConstraints,
+    computed_field,
     field_serializer,
     field_validator,
     model_serializer,
@@ -544,19 +545,10 @@ class HumanGateResolutionCreate(APIModel):
     resolved_by_client: ClientName
     resolved_by_session_id: SessionID
     resolved_by_model: ModelName | None = None
-    acknowledge_context_change: bool = False
-    reviewed_context_revision: HumanGateContextRevision | None = None
+    reviewed_context_revision: HumanGateContextRevision
     client_operation_id: UUID | None = Field(
         default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
     )
-
-    @model_validator(mode="after")
-    def reviewed_revision_requires_acknowledgement(self) -> Self:
-        if not self.acknowledge_context_change and self.reviewed_context_revision is not None:
-            raise ValueError(
-                "reviewed_context_revision requires acknowledge_context_change=true"
-            )
-        return self
 
 
 class HumanGateRead(APIModel):
@@ -568,41 +560,61 @@ class HumanGateRead(APIModel):
     requested_by_client: str
     requested_by_session_id: str
     requested_by_model: str | None
-    requested_work_version: Annotated[StrictInt, Field(ge=1)]
-    requested_context_checkpoint_id: UUID
-    requested_relationship_event_count: Annotated[StrictInt, Field(ge=0)]
+    requested_context_revision: HumanGateContextRevision
     created_at: datetime
     status: Literal["unresolved", "resolved"]
     current_context_revision: HumanGateContextRevision
-    work_changed_since_request: bool
-    context_checkpoint_changed_since_request: bool
-    relationships_changed_since_request: bool
-    context_changed_since_request: bool
     resolved_at: datetime | None
     resolution: str | None
     resolved_by_client: str | None
     resolved_by_session_id: str | None
     resolved_by_model: str | None
     resolved_context_revision: HumanGateContextRevision | None
-    context_changed_at_resolution: bool | None
-    context_change_acknowledged: bool | None
+
+    @computed_field(return_type=bool)
+    @property
+    def work_changed_since_request(self) -> bool:
+        return (
+            self.current_context_revision.work_version
+            != self.requested_context_revision.work_version
+        )
+
+    @computed_field(return_type=bool)
+    @property
+    def context_checkpoint_changed_since_request(self) -> bool:
+        return (
+            self.current_context_revision.context_checkpoint_id
+            != self.requested_context_revision.context_checkpoint_id
+        )
+
+    @computed_field(return_type=bool)
+    @property
+    def relationships_changed_since_request(self) -> bool:
+        return (
+            self.current_context_revision.relationship_event_count
+            != self.requested_context_revision.relationship_event_count
+        )
+
+    @computed_field(return_type=bool)
+    @property
+    def context_changed_since_request(self) -> bool:
+        return (
+            self.work_changed_since_request
+            or self.context_checkpoint_changed_since_request
+            or self.relationships_changed_since_request
+        )
+
+    @computed_field(return_type=bool | None)
+    @property
+    def context_changed_at_resolution(self) -> bool | None:
+        if self.resolved_context_revision is None:
+            return None
+        return self.resolved_context_revision != self.requested_context_revision
 
     @model_validator(mode="after")
     def enforce_gate_contract(self) -> Self:
         if self.created_at.tzinfo is None:
             raise ValueError("Gate timestamps must include a UTC offset")
-        current = self.current_context_revision
-        current_drift = (
-            current.work_version != self.requested_work_version,
-            current.context_checkpoint_id != self.requested_context_checkpoint_id,
-            current.relationship_event_count != self.requested_relationship_event_count,
-        )
-        if (
-            self.work_changed_since_request,
-            self.context_checkpoint_changed_since_request,
-            self.relationships_changed_since_request,
-        ) != current_drift or self.context_changed_since_request != any(current_drift):
-            raise ValueError("Gate current revision and drift fields are inconsistent")
 
         required_resolution_values = (
             self.resolved_at,
@@ -610,8 +622,6 @@ class HumanGateRead(APIModel):
             self.resolved_by_client,
             self.resolved_by_session_id,
             self.resolved_context_revision,
-            self.context_changed_at_resolution,
-            self.context_change_acknowledged,
         )
         if self.status == "unresolved":
             if any(
@@ -627,8 +637,6 @@ class HumanGateRead(APIModel):
         assert self.resolved_by_client is not None
         assert self.resolved_by_session_id is not None
         assert self.resolved_context_revision is not None
-        assert self.context_changed_at_resolution is not None
-        assert self.context_change_acknowledged is not None
         if self.resolved_at.tzinfo is None or self.resolved_at < self.created_at:
             raise ValueError("Gate resolution timestamps must be ordered UTC values")
         if (
@@ -637,18 +645,6 @@ class HumanGateRead(APIModel):
             or not self.resolved_by_session_id.strip()
         ):
             raise ValueError("Gate resolution provenance must be nonblank")
-        resolved_drift = (
-            self.resolved_context_revision.work_version != self.requested_work_version
-            or self.resolved_context_revision.context_checkpoint_id
-            != self.requested_context_checkpoint_id
-            or self.resolved_context_revision.relationship_event_count
-            != self.requested_relationship_event_count
-        )
-        if (
-            self.context_changed_at_resolution != resolved_drift
-            or self.context_change_acknowledged != resolved_drift
-        ):
-            raise ValueError("Gate resolved revision and acknowledgement are inconsistent")
         return self
 
     @field_serializer("created_at", "resolved_at")
@@ -731,13 +727,13 @@ class ClaimReceipt(LeasePublic):
 class Readiness(APIModel):
     lifecycle_status: Status
     is_terminal: bool
-    has_active_lease: bool = False
-    has_dropped_lease: bool = False
-    active_lease: LeasePublic | None = None
-    unresolved_blocker_count: int = 0
-    is_blocked: bool = False
-    unresolved_gate_count: int = 0
-    is_gated: bool = False
+    has_active_lease: bool
+    has_dropped_lease: bool
+    active_lease: LeasePublic | None
+    unresolved_blocker_count: int
+    is_blocked: bool
+    unresolved_gate_count: int
+    is_gated: bool
     is_ready: bool
     display_state: Literal[
         "pending",
@@ -1351,12 +1347,12 @@ class WorkContext(APIModel):
         )
     )
     readiness: Readiness
-    unresolved_gates: list[HumanGateRead] = Field(default_factory=list)
-    unresolved_gate_total: int = 0
-    omitted_unresolved_gate_count: int = 0
-    recent_resolved_gates: list[HumanGateRead] = Field(default_factory=list)
-    resolved_gate_total: int = 0
-    omitted_resolved_gate_count: int = 0
+    unresolved_gates: list[HumanGateRead]
+    unresolved_gate_total: int
+    omitted_unresolved_gate_count: int
+    recent_resolved_gates: list[HumanGateRead]
+    resolved_gate_total: int
+    omitted_resolved_gate_count: int
     incoming_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
     outgoing_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
     undirected_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)

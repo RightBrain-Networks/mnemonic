@@ -1,4 +1,123 @@
-const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+import {
+  UUID_PATTERN,
+  boundedText,
+  finiteInteger,
+  nullableBoundedText,
+  objectValue as jsonObject,
+  validBoundedMetadata,
+  validUuid
+} from "./wire-guards.ts";
+
+export interface DefinitiveProxyError {
+  readonly status: 400 | 403 | 404 | 413 | 415 | 422;
+  readonly detail: string;
+}
+
+export const DEFINITIVE_PROXY_ERRORS = {
+  requestBodyRequired: { status: 400, detail: "A request body is required." },
+  jsonObjectRequired: { status: 400, detail: "The request body must be a JSON object." },
+  invalidJson: { status: 400, detail: "The request body is not valid JSON." },
+  forbiddenControlTransport: {
+    status: 400,
+    detail: "Gate and operation control IDs are not accepted in headers or cookies."
+  },
+  nestedClientOperation: {
+    status: 400,
+    detail: "The client operation ID is accepted only at the top level."
+  },
+  unsupportedClientOperation: {
+    status: 400,
+    detail: "The client operation ID is not supported for this route."
+  },
+  invalidClientOperation: {
+    status: 400,
+    detail: "The client operation ID must be a UUID."
+  },
+  unsupportedQuery: { status: 400, detail: "Unsupported or repeated query parameter." },
+  invalidWorkCreation: {
+    status: 400,
+    detail: "The work-creation body does not match the dashboard allowlist."
+  },
+  invalidCheckpoint: {
+    status: 400,
+    detail: "The checkpoint body does not match the dashboard allowlist."
+  },
+  invalidProgressEvent: {
+    status: 400,
+    detail: "The progress-event body does not match the dashboard allowlist."
+  },
+  invalidWorkItemPatch: {
+    status: 400,
+    detail: "The work-item patch does not match the dashboard allowlist."
+  },
+  invalidWorkItemDeferral: {
+    status: 400,
+    detail: "The work-item deferral does not match the dashboard allowlist."
+  },
+  invalidProjectSettingsPatch: {
+    status: 400,
+    detail: "The project-settings patch does not match the dashboard allowlist."
+  },
+  invalidWorkItemDeletion: {
+    status: 400,
+    detail: "The work-item deletion does not match the dashboard allowlist."
+  },
+  invalidRelationshipRemoval: {
+    status: 400,
+    detail: "The relationship-removal body does not match the dashboard allowlist."
+  },
+  invalidRelationshipCreation: {
+    status: 400,
+    detail: "The relationship-creation body does not match the dashboard allowlist."
+  },
+  invalidWorkCompletion: {
+    status: 400,
+    detail: "The work-completion body does not match the dashboard allowlist."
+  },
+  invalidHumanGateResolution: {
+    status: 400,
+    detail: "The human-gate resolution body does not match the dashboard allowlist."
+  },
+  untrustedOrigin: {
+    status: 403,
+    detail: "This dashboard request is not from a trusted origin."
+  },
+  routeNotFound: { status: 404, detail: "Route not found." },
+  bodyTooLarge: { status: 413, detail: "Request body is too large." },
+  jsonContentTypeRequired: { status: 415, detail: "Send a JSON request body." },
+  clientOperationCredentialMatch: {
+    status: 422,
+    detail: "The client operation ID cannot match a request credential."
+  }
+} as const satisfies Readonly<Record<string, DefinitiveProxyError>>;
+
+const UNSUPPORTED_MUTATION_FIELD_PREFIX =
+  "The request body contains an unsupported field: ";
+const definitiveProxyErrorLookup = new Map<number, ReadonlySet<string>>();
+for (const error of Object.values(DEFINITIVE_PROXY_ERRORS)) {
+  const messages = definitiveProxyErrorLookup.get(error.status);
+  definitiveProxyErrorLookup.set(
+    error.status,
+    new Set(messages ? [...messages, error.detail] : [error.detail])
+  );
+}
+
+export function unsupportedMutationFieldError(field: string): DefinitiveProxyError {
+  return {
+    status: 400,
+    detail: UNSUPPORTED_MUTATION_FIELD_PREFIX + field + "."
+  };
+}
+
+export function isDefinitiveProxyError(status: number, detail: string): boolean {
+  return definitiveProxyErrorLookup.get(status)?.has(detail) === true
+    || status === 400
+      && detail.startsWith(UNSUPPORTED_MUTATION_FIELD_PREFIX)
+      && detail.length > UNSUPPORTED_MUTATION_FIELD_PREFIX.length + 1
+      && detail.endsWith(".");
+}
+
+const UUID = UUID_PATTERN.source.slice(1, -1);
 const PROJECT = new RegExp(`^projects/${UUID}$`);
 const PROJECT_SETTINGS = new RegExp(`^projects/${UUID}/settings$`);
 const WORK_ITEMS = new RegExp(`^projects/${UUID}/work-items$`);
@@ -115,81 +234,12 @@ export function forbiddenMutationField(value: unknown): string | null {
   return null;
 }
 
-function jsonObject(value: unknown): Record<string, unknown> | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null
-    ? value as Record<string, unknown>
-    : null;
-}
-
 function allowedKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
   return Object.keys(value).every((key) => allowed.includes(key));
 }
 
-function validUnicode(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
-      index += 1;
-    } else if (code >= 0xdc00 && code <= 0xdfff) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function boundedText(value: unknown, maximum: number): value is string {
-  return typeof value === "string"
-    && validUnicode(value)
-    && !value.includes("\0")
-    && Array.from(value).length >= 1
-    && Array.from(value).length <= maximum
-    && value.trim().length > 0;
-}
-
 function validProgressMetadata(value: unknown): boolean {
-  const stack = new WeakSet<object>();
-  let separatorBytes = 0;
-  const visit = (item: unknown): boolean => {
-    if (item === null || typeof item === "boolean") return true;
-    if (typeof item === "number") return Number.isFinite(item);
-    if (typeof item === "string") return validUnicode(item) && !item.includes("\0");
-    if (typeof item !== "object" || stack.has(item)) return false;
-    stack.add(item);
-    if (Array.isArray(item)) {
-      separatorBytes += Math.max(0, item.length - 1);
-      const valid = item.every(visit);
-      stack.delete(item);
-      return valid;
-    }
-    const object = jsonObject(item);
-    if (!object) {
-      stack.delete(item);
-      return false;
-    }
-    const entries = Object.entries(object);
-    separatorBytes += entries.length ? (2 * entries.length) - 1 : 0;
-    const valid = entries.every(([key, entry]) => (
-      validUnicode(key)
-      && !key.includes("\0")
-      && !RESERVED_METADATA_KEYS.has(key.toLowerCase())
-      && visit(entry)
-    ));
-    stack.delete(item);
-    return valid;
-  };
-
-  if (!jsonObject(value) || !visit(value)) return false;
-  try {
-    const encoded = JSON.stringify(value);
-    return encoded !== undefined
-      && new TextEncoder().encode(encoded).byteLength + separatorBytes <= 16_384;
-  } catch {
-    return false;
-  }
+  return validBoundedMetadata(value, RESERVED_METADATA_KEYS);
 }
 
 function validActor(value: unknown): boolean {
@@ -218,19 +268,6 @@ function validHumanGateRevision(value: unknown): boolean {
   );
 }
 
-
-function finiteInteger(value: unknown, minimum: number, maximum = Number.MAX_SAFE_INTEGER): boolean {
-  return Number.isSafeInteger(value) && Number(value) >= minimum && Number(value) <= maximum;
-}
-
-function nullableBoundedText(value: unknown, maximum: number): boolean {
-  return value === null || boundedText(value, maximum);
-}
-
-function validUuid(value: unknown): value is string {
-  return typeof value === "string"
-    && /^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/.test(value);
-}
 
 function validStringArray(value: unknown, maximumItems: number, maximumLength: number): boolean {
   return Array.isArray(value)
@@ -343,20 +380,20 @@ export function clientOperationMatchesSecret(bodyText: string | undefined, secre
 
 export function invalidMutationBody(path: string, method: string, value: unknown): string | null {
   const body = jsonObject(value);
-  if (!body) return "The request body must be a JSON object.";
+  if (!body) return DEFINITIVE_PROXY_ERRORS.jsonObjectRequired.detail;
   const forbidden = forbiddenMutationField(body);
-  if (forbidden) return `The request body contains an unsupported field: ${forbidden}.`;
+  if (forbidden) return unsupportedMutationFieldError(forbidden).detail;
   if (nestedClientOperationField(body)) {
-    return "The client operation ID is accepted only at the top level.";
+    return DEFINITIVE_PROXY_ERRORS.nestedClientOperation.detail;
   }
   const protectedMutation = coveredMutation(path, method);
   if (!protectedMutation && Object.keys(body).some((key) => (
     key.toLowerCase() === CLIENT_OPERATION_FIELD
   ))) {
-    return "The client operation ID is not supported for this route.";
+    return DEFINITIVE_PROXY_ERRORS.unsupportedClientOperation.detail;
   }
   if (protectedMutation && !validClientOperation(body)) {
-    return "The client operation ID must be a UUID.";
+    return DEFINITIVE_PROXY_ERRORS.invalidClientOperation.detail;
   }
 
   if (WORK_ITEMS.test(path) && method === "POST") {
@@ -371,7 +408,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !["pending", "wont-do", "promoted"].includes(String(body.status))
       || !validCheckpointPayload(body.initial_checkpoint, false)
       || !validInitialRelationships(body.initial_relationships)
-    ) return "The work-creation body does not match the dashboard allowlist.";
+    ) return DEFINITIVE_PROXY_ERRORS.invalidWorkCreation.detail;
   }
   if (CHECKPOINTS.test(path) && method === "POST") {
     if (
@@ -381,7 +418,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
         "source_metadata", CLIENT_OPERATION_FIELD
       ])
       || !validCheckpointPayload(body, true)
-    ) return "The checkpoint body does not match the dashboard allowlist.";
+    ) return DEFINITIVE_PROXY_ERRORS.invalidCheckpoint.detail;
   }
   if (WORK_EVENTS.test(path) && method === "POST") {
     if (
@@ -391,7 +428,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !boundedText(body.body, 4000)
       || !validProgressMetadata(body.metadata)
       || !validActor(body.actor)
-    ) return "The progress-event body does not match the dashboard allowlist.";
+    ) return DEFINITIVE_PROXY_ERRORS.invalidProgressEvent.detail;
   }
   if (WORK_ITEM.test(path) && method === "PATCH") {
     if (
@@ -407,14 +444,14 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || (body.priority !== undefined && !finiteInteger(body.priority, 0, 100))
       || (body.status !== undefined
         && !["pending", "wont-do", "promoted"].includes(String(body.status)))
-    ) return "The work-item patch does not match the dashboard allowlist.";
+    ) return DEFINITIVE_PROXY_ERRORS.invalidWorkItemPatch.detail;
   }
   if (WORK_DEFER.test(path) && method === "POST") {
     if (
       !allowedKeys(body, ["expected_version", "actor", CLIENT_OPERATION_FIELD])
       || !finiteInteger(body.expected_version, 1)
       || !validActor(body.actor)
-    ) return "The work-item deferral does not match the dashboard allowlist.";
+    ) return DEFINITIVE_PROXY_ERRORS.invalidWorkItemDeferral.detail;
   }
   if (PROJECT_SETTINGS.test(path) && method === "PATCH") {
     if (
@@ -422,21 +459,21 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || Object.keys(body).length !== 1
       || (body.recall_pointer_template !== null
         && !boundedText(body.recall_pointer_template, 100000))
-    ) return "The project-settings patch does not match the dashboard allowlist.";
+    ) return DEFINITIVE_PROXY_ERRORS.invalidProjectSettingsPatch.detail;
   }
   if (WORK_DELETE.test(path) && method === "POST") {
     if (
       !allowedKeys(body, ["expected_version", "actor", CLIENT_OPERATION_FIELD])
       || !finiteInteger(body.expected_version, 1)
       || !validActor(body.actor)
-    ) return "The work-item deletion does not match the dashboard allowlist.";
+    ) return DEFINITIVE_PROXY_ERRORS.invalidWorkItemDeletion.detail;
   }
   if (RELATIONSHIP.test(path) && method === "DELETE") {
     if (
       !allowedKeys(body, ["actor", CLIENT_OPERATION_FIELD])
       || Object.keys(body).length !== 2
       || !validActor(body.actor)
-    ) return "The relationship-removal body does not match the dashboard allowlist.";
+    ) return DEFINITIVE_PROXY_ERRORS.invalidRelationshipRemoval.detail;
   }
   if (RELATIONSHIPS.test(path) && method === "POST") {
     if (
@@ -458,31 +495,27 @@ export function invalidMutationBody(path: string, method: string, value: unknown
         || body.context_checkpoint_id === null
         || validUuid(body.context_checkpoint_id))
       || (body.relationship_type === "discovered-from" && !validUuid(body.context_checkpoint_id))
-    ) return "The relationship-creation body does not match the dashboard allowlist.";
+    ) return DEFINITIVE_PROXY_ERRORS.invalidRelationshipCreation.detail;
   }
   if (WORK_COMPLETE.test(path) && method === "POST") {
     if (
       !allowedKeys(body, ["expected_version", "checkpoint", CLIENT_OPERATION_FIELD])
       || !finiteInteger(body.expected_version, 1)
       || !validCheckpointPayload(body.checkpoint, false)
-    ) return "The work-completion body does not match the dashboard allowlist.";
+    ) return DEFINITIVE_PROXY_ERRORS.invalidWorkCompletion.detail;
   }
   if (GATE_RESOLVE.test(path) && method === "POST") {
-    const acknowledged = body.acknowledge_context_change === true;
     if (
       !allowedKeys(body, [
         "resolution", "resolved_by_client", "resolved_by_session_id", "resolved_by_model",
-        "acknowledge_context_change", "reviewed_context_revision", CLIENT_OPERATION_FIELD
+        "reviewed_context_revision", CLIENT_OPERATION_FIELD
       ])
       || !boundedText(body.resolution, 4_000)
       || body.resolved_by_client !== "dashboard"
       || !boundedText(body.resolved_by_session_id, 200)
       || !(body.resolved_by_model === undefined || body.resolved_by_model === null)
-      || typeof body.acknowledge_context_change !== "boolean"
-      || (acknowledged
-        ? !validHumanGateRevision(body.reviewed_context_revision)
-        : body.reviewed_context_revision !== undefined)
-    ) return "The human-gate resolution body does not match the dashboard allowlist.";
+      || !validHumanGateRevision(body.reviewed_context_revision)
+    ) return DEFINITIVE_PROXY_ERRORS.invalidHumanGateResolution.detail;
   }
   return null;
 }

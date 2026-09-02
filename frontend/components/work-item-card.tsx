@@ -1,5 +1,9 @@
 import { formatDate, formatDateTime } from "@/lib/display-time";
 import type { LeasePublic, Readiness, WorkSummary, WorkStatus } from "@/lib/types";
+import {
+  terminalActionDisabled,
+  terminalActionGateExplanation
+} from "@/lib/work-item-view";
 
 const statusLabels: Record<WorkStatus, string> = {
   pending: "Pending",
@@ -90,6 +94,8 @@ export default function WorkItemCard({
 }: Props) {
   const work = summary.work_item;
   const context = summary.current_context;
+  const deleteExplanation = terminalActionGateExplanation(summary.readiness, "deletion");
+  const deleteExplanationId = `delete-gate-explanation-${work.id}`;
   return <article className="work-item-card">
     <div className="card-topline">
       <StatusBadge status={work.status} readiness={summary.readiness} />
@@ -121,7 +127,11 @@ export default function WorkItemCard({
         {context.migration_origin === "legacy-handoff-snapshot" &&
           <span className="migration-chip">Migrated snapshot</span>}
       </div>
-      <div className="card-actions">
+      <div className="card-action-stack">
+        {deleteExplanation && <p className="terminal-action-note" id={deleteExplanationId}>
+          {deleteExplanation}
+        </p>}
+        <div className="card-actions">
         {(work.status === "pending" || work.status === "deferred") && <button
           className="button defer-button"
           type="button"
@@ -142,13 +152,15 @@ export default function WorkItemCard({
           title={summary.readiness.is_gated
             ? "Resolve every human question before deleting this work item."
             : "Delete work item"}
-          disabled={summary.readiness.is_gated}
+          aria-describedby={deleteExplanation ? deleteExplanationId : undefined}
+          disabled={terminalActionDisabled(summary.readiness)}
           onClick={onDelete}
         >⌫</button>
         <span className="action-divider" />
         <button className={`button copy-button ${copied ? "is-copied" : ""}`} type="button" onClick={onCopyPointer}>
           {copied ? "Copied" : "Copy recall pointer"}
         </button>
+        </div>
       </div>
     </div>
   </article>;

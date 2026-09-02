@@ -22,6 +22,7 @@ type HumanGate = {
   id: string;
   status: "unresolved" | "resolved";
   resolution: string | null;
+  current_context_revision: GateRevision;
 };
 
 type LostResponseProbe = {
@@ -38,7 +39,6 @@ type GateRevision = {
 type ResolutionAttempt = {
   client_operation_id: string;
   resolution: string;
-  acknowledge_context_change: boolean;
   reviewed_context_revision: GateRevision;
 };
 
@@ -89,6 +89,54 @@ async function createGate(
   );
   expect(response.status(), await response.text()).toBe(201);
   return await response.json() as HumanGate;
+}
+
+async function resolveGate(
+  client: APIRequestContext,
+  workId: string,
+  gate: HumanGate,
+  resolution: string,
+  sessionId: string
+): Promise<HumanGate> {
+  const response = await client.post(
+    `/api/v1/projects/${state.projectId}/work-items/${workId}/gates/${gate.id}/resolve`,
+    {
+      data: {
+        resolution,
+        resolved_by_client: "playwright-api",
+        resolved_by_session_id: sessionId,
+        resolved_by_model: null,
+        reviewed_context_revision: gate.current_context_revision,
+        client_operation_id: crypto.randomUUID()
+      }
+    }
+  );
+  expect(response.ok(), await response.text()).toBe(true);
+  return await response.json() as HumanGate;
+}
+
+async function appendProgress(
+  client: APIRequestContext,
+  workId: string,
+  body: string,
+  sessionId: string
+): Promise<void> {
+  const response = await client.post(
+    `/api/v1/projects/${state.projectId}/work-items/${workId}/events`,
+    {
+      data: {
+        event_type: "progress",
+        body,
+        metadata: {},
+        actor: {
+          actor_client: "playwright-api",
+          actor_session_id: sessionId,
+          actor_model: null
+        }
+      }
+    }
+  );
+  expect(response.ok(), await response.text()).toBe(true);
 }
 
 async function advanceReviewContext(
@@ -165,10 +213,7 @@ async function hideWork(client: APIRequestContext, workId: string): Promise<void
             resolved_by_client: "playwright-cleanup",
             resolved_by_session_id: "phase78-cleanup",
             resolved_by_model: null,
-            acknowledge_context_change: gate.context_changed_since_request,
-            reviewed_context_revision: gate.context_changed_since_request
-              ? gate.current_context_revision
-              : null,
+            reviewed_context_revision: gate.current_context_revision,
             client_operation_id: crypto.randomUUID()
           }
         }
@@ -254,9 +299,8 @@ test("human questions stay visible and recover one exact durable resolution", as
     const card = page.locator("article.work-item-card").filter({ hasText: title });
     await expect(card).toHaveCount(1);
     const branch = card.locator("xpath=ancestor::div[contains(@class,'hierarchy-node')][1]");
-    await expect(branch.locator(".hierarchy-aggregate-strip")).toHaveAttribute(
-      "aria-label",
-      /1 unresolved human question/
+    await expect(branch.getByRole("list", { name: "Branch totals" })).toContainText(
+      "1 unresolved human question needs attention"
     );
     await expect(card.getByText("Needs attention", { exact: true })).toBeVisible();
 
@@ -331,6 +375,12 @@ test("human questions stay visible and recover one exact durable resolution", as
       status: "resolved",
       resolution: answer
     });
+
+    await page.goto(`/attention?work_item_id=${workId}`);
+    await page.locator("#project-select").selectOption(state.projectId);
+    await expect(page.getByRole("heading", {
+      name: "No explicit human questions are waiting."
+    })).toBeVisible();
 
     const eventsResponse = await client.get(
       `/api/v1/projects/${state.projectId}/work-items/${workId}/events?order=newest&limit=100&offset=0`
@@ -520,7 +570,6 @@ test("a B review rejected at C preserves the answer and requires a fresh intent"
     expect(responses[0]!.body).toContain("gate_context_changed");
     expect(attempts[0]).toMatchObject({
       resolution: answer,
-      acknowledge_context_change: true,
       reviewed_context_revision: {
         work_version: reviewB.workVersion,
         context_checkpoint_id: reviewB.checkpointId,
@@ -560,7 +609,6 @@ test("a B review rejected at C preserves the answer and requires a fresh intent"
     expect(responses[1]!.status).toBe(200);
     expect(attempts[1]).toMatchObject({
       resolution: answer,
-      acknowledge_context_change: true,
       reviewed_context_revision: {
         work_version: currentC.workVersion,
         context_checkpoint_id: currentC.checkpointId,
@@ -578,7 +626,6 @@ test("a B review rejected at C preserves the answer and requires a fresh intent"
       items: Array<HumanGate & {
         resolved_context_revision: GateRevision | null;
         context_changed_at_resolution: boolean | null;
-        context_change_acknowledged: boolean | null;
       }>;
     };
     expect(history.items).toHaveLength(1);
@@ -587,8 +634,7 @@ test("a B review rejected at C preserves the answer and requires a fresh intent"
       status: "resolved",
       resolution: answer,
       resolved_context_revision: attempts[1]!.reviewed_context_revision,
-      context_changed_at_resolution: true,
-      context_change_acknowledged: true
+      context_changed_at_resolution: true
     });
 
     const eventsResponse = await client.get(
@@ -609,6 +655,292 @@ test("a B review rejected at C preserves the answer and requires a fresh intent"
     }
     await hideWork(client, workId);
     await hideWork(client, counterpartId);
+    await client.dispose();
+  }
+});
+
+test("a deep attention cursor and sibling drafts survive refresh and resolution", async ({
+  page
+}, testInfo) => {
+  test.slow();
+  const apiURL = process.env.MNEMONIC_E2E_API_URL;
+  const apiKey = process.env.MNEMONIC_E2E_API_KEY;
+  if (!apiURL || !apiKey) throw new Error("Run this test through the disposable E2E stack.");
+
+  const suffix = `${testInfo.project.name}-${state.runId.slice(0, 8)}-${crypto.randomUUID().slice(0, 8)}`;
+  const title = `Paged human gates ${suffix}`;
+  const sessionId = `phase78-paging-${suffix}`;
+  const questions = Array.from(
+    { length: 53 },
+    (_, index) => `Paged question ${String(index + 1).padStart(2, "0")} ${suffix}`
+  );
+  const firstDraft = `First page-two draft ${suffix}`;
+  const siblingDraft = `Sibling page-two draft ${suffix}`;
+  const client = await request.newContext({
+    baseURL: apiURL,
+    extraHTTPHeaders: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" }
+  });
+  let workId = "";
+  let unrelatedWorkId = "";
+
+  try {
+    const created = await createWork(client, title, `paging-${suffix}`, sessionId);
+    workId = created.work_item.id;
+    const gates: HumanGate[] = [];
+    for (const question of questions) {
+      gates.push(await createGate(client, workId, question, sessionId));
+    }
+    for (const [index, gate] of gates.slice(32).entries()) {
+      await resolveGate(
+        client,
+        workId,
+        gate,
+        `Bounded-history answer ${index + 1} ${suffix}`,
+        `${sessionId}-history`
+      );
+    }
+    const unrelated = await createWork(
+      client,
+      `Unrelated attention invalidation ${suffix}`,
+      `paging-unrelated-${crypto.randomUUID().slice(0, 8)}`,
+      `${sessionId}-unrelated`
+    );
+    unrelatedWorkId = unrelated.work_item.id;
+
+    const cursorRequests: string[] = [];
+    page.on("request", (browserRequest) => {
+      const url = new URL(browserRequest.url());
+      if (
+        url.pathname.endsWith(`/projects/${state.projectId}/human-attention`)
+        && url.searchParams.has("cursor")
+      ) cursorRequests.push(url.toString());
+    });
+
+    let failNextAttentionPage = true;
+    await page.route("**/api/mnemonic/**", async (route) => {
+      const url = new URL(route.request().url());
+      if (
+        failNextAttentionPage
+        && url.pathname.endsWith(`/projects/${state.projectId}/human-attention`)
+        && url.searchParams.get("limit") === "30"
+        && url.searchParams.get("work_item_id") === workId
+      ) {
+        await route.fulfill({
+          status: 502,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: "Injected attention page failure." })
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/attention?work_item_id=${workId}`);
+    await page.locator("#project-select").selectOption(state.projectId);
+    await expect(page.getByText("Live updates", { exact: true })).toBeVisible();
+    const attentionList = page.locator(".attention-list");
+    await expect(attentionList.getByRole("alert")).toContainText(
+      "Injected attention page failure."
+    );
+    failNextAttentionPage = false;
+    await attentionList.getByRole("button", { name: "Try again" }).dispatchEvent("click");
+    const attentionTitle = page.locator("#attention-list-title");
+    await expect(attentionTitle).toHaveText("32 waiting");
+    await page.unroute("**/api/mnemonic/**");
+
+    await attentionList.getByRole("link", { name: "Show every question" }).click();
+    await expect(page).toHaveURL(/\/attention$/);
+    await expect(page.locator(".attention-filter")).toHaveCount(0);
+    await page.goto(`/attention?work_item_id=${workId}`);
+    await page.locator("#project-select").selectOption(state.projectId);
+    await expect(attentionTitle).toHaveText("32 waiting");
+
+    await page.locator("article.attention-card").filter({
+      hasText: questions[0]
+    }).getByRole("button", { name: "Open work context" }).click();
+    const detail = page.getByRole("dialog", { name: "Work context" });
+    await expect(detail.getByText(
+      "12 additional unresolved questions are omitted from bounded recall. Use the filtered attention queue.",
+      { exact: true }
+    )).toBeVisible();
+    await expect(detail.getByText(
+      "1 older resolved decision is omitted from bounded recall.",
+      { exact: true }
+    )).toBeVisible();
+    await detail.getByRole("button", {
+      name: "Browse full paired gate history"
+    }).click();
+    const historyContent = detail.locator(".gate-history-content");
+    const historyPager = historyContent.getByRole("navigation", {
+      name: "Human-gate history pages"
+    });
+    await expect(historyPager).toContainText("Page 1 · 53 retained");
+    await expect(historyContent.locator("article.gate-fact")).toHaveCount(30);
+    await historyPager.getByRole("button", { name: "Older" }).click();
+    await expect(historyPager).toContainText("Page 2 · 53 retained");
+    await expect(historyContent.locator("article.gate-fact")).toHaveCount(23);
+    await historyPager.getByRole("button", { name: "Newer" }).click();
+    await expect(historyPager).toContainText("Page 1 · 53 retained");
+    await expect(historyContent.locator("article.gate-fact")).toHaveCount(30);
+    await detail.getByRole("button", { name: "Close dialog" }).click();
+
+    const pager = page.getByRole("navigation", { name: "Human attention pages" });
+    await pager.getByRole("button", { name: "Next" }).click();
+    await expect(pager).toContainText("Page 2 · 2 shown · 32 currently unresolved");
+
+    const firstCard = page.locator("article.attention-card").filter({
+      hasText: questions[30]
+    });
+    const siblingCard = page.locator("article.attention-card").filter({
+      hasText: questions[31]
+    });
+    const firstAnswer = firstCard.getByLabel("Durable answer");
+    const siblingAnswer = siblingCard.getByLabel("Durable answer");
+    await firstAnswer.fill(firstDraft);
+    await siblingAnswer.fill(siblingDraft);
+
+    const requestsBeforeInvalidation = cursorRequests.length;
+    await appendProgress(
+      client,
+      unrelatedWorkId,
+      `Unrelated progress invalidation ${suffix}`,
+      `${sessionId}-unrelated-progress`
+    );
+    await expect.poll(() => cursorRequests.length).toBeGreaterThan(requestsBeforeInvalidation);
+    await expect(pager).toContainText("Page 2 · 2 shown · 32 currently unresolved");
+    await expect(firstAnswer).toHaveValue(firstDraft);
+    await expect(siblingAnswer).toHaveValue(siblingDraft);
+
+    await firstCard.getByRole("button", { name: "Record answer" }).click();
+    await expect(firstCard).toHaveCount(0);
+    await expect(pager).toContainText("Page 2 · 1 shown · 31 currently unresolved");
+    await expect(siblingAnswer).toHaveValue(siblingDraft);
+    await expect(attentionTitle).toBeFocused();
+    await expect(page.getByRole("status").filter({
+      hasText: "Answer recorded. 31 unresolved questions remain."
+    })).toBeVisible();
+
+    await pager.getByRole("button", { name: "Previous" }).click();
+    await expect(pager).toContainText("Page 1 · 30 shown · 31 currently unresolved");
+    await pager.getByRole("button", { name: "Next" }).click();
+    await expect(pager).toContainText("Page 2 · 1 shown · 31 currently unresolved");
+    await expect(siblingCard).toBeVisible();
+    await page.getByRole("button", { name: "Refresh queue" }).click();
+    await expect(pager).toContainText("Page 1 · 30 shown · 31 currently unresolved");
+  } finally {
+    await hideWork(client, workId);
+    await hideWork(client, unrelatedWorkId);
+    await client.dispose();
+  }
+});
+
+test("detail reconciliation preserves sibling gate drafts and restores focus", async ({
+  page
+}, testInfo) => {
+  test.slow();
+  const apiURL = process.env.MNEMONIC_E2E_API_URL;
+  const apiKey = process.env.MNEMONIC_E2E_API_KEY;
+  if (!apiURL || !apiKey) throw new Error("Run this test through the disposable E2E stack.");
+
+  const suffix = `${testInfo.project.name}-${state.runId.slice(0, 8)}-${crypto.randomUUID().slice(0, 8)}`;
+  const title = `Detail gate drafts ${suffix}`;
+  const sessionId = `phase78-detail-${suffix}`;
+  const questions = [
+    `First detail question ${suffix}`,
+    `Second detail question ${suffix}`
+  ];
+  const firstDraft = `First detail answer ${suffix}`;
+  const siblingDraft = `Second detail answer ${suffix}`;
+  const client = await request.newContext({
+    baseURL: apiURL,
+    extraHTTPHeaders: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" }
+  });
+  let workId = "";
+  let unrelatedWorkId = "";
+
+  try {
+    const created = await createWork(client, title, `detail-${suffix}`, sessionId);
+    workId = created.work_item.id;
+    for (const question of questions) {
+      await createGate(client, workId, question, sessionId);
+    }
+    await advanceReviewContext(
+      client,
+      workId,
+      created.work_item.version,
+      `Drifted detail summary ${suffix}`,
+      `Drifted detail context ${suffix}`,
+      `detail-${suffix}`,
+      `${sessionId}-drift`
+    );
+    const unrelated = await createWork(
+      client,
+      `Unrelated detail invalidation ${suffix}`,
+      `detail-unrelated-${crypto.randomUUID().slice(0, 8)}`,
+      `${sessionId}-unrelated`
+    );
+    unrelatedWorkId = unrelated.work_item.id;
+
+    let contextLoads = 0;
+    page.on("request", (browserRequest) => {
+      if (browserRequest.url().includes(`/work-items/${workId}/context?`)) contextLoads += 1;
+    });
+    await page.goto(`/attention?work_item_id=${workId}`);
+    await page.locator("#project-select").selectOption(state.projectId);
+    await expect(page.getByText("Live updates", { exact: true })).toBeVisible();
+    await page.locator("article.attention-card").first()
+      .getByRole("button", { name: "Open work context" }).click();
+
+    const detail = page.getByRole("dialog", { name: "Work context" });
+    const panel = detail.getByRole("region", { name: "Questions and answers" });
+    const firstGate = panel.locator(".gate-with-resolution").filter({ hasText: questions[0] });
+    const siblingGate = panel.locator(".gate-with-resolution").filter({ hasText: questions[1] });
+    const firstAnswer = firstGate.getByLabel("Durable answer");
+    const siblingAnswer = siblingGate.getByLabel("Durable answer");
+    const acknowledgementLabel =
+      "I reviewed this exact current work, context checkpoint, and relationship state.";
+    const firstAcknowledgement = firstGate.getByLabel(acknowledgementLabel);
+    const siblingAcknowledgement = siblingGate.getByLabel(acknowledgementLabel);
+    const deleteButton = detail.getByRole("button", { name: "Delete work item" });
+    await expect(deleteButton).toBeDisabled();
+    await expect(detail.getByText(
+      "2 unresolved human questions block deletion.",
+      { exact: true }
+    )).toBeVisible();
+    await expect(firstAcknowledgement).toBeEnabled();
+    await expect(siblingAcknowledgement).toBeEnabled();
+    await firstAnswer.fill(firstDraft);
+    await siblingAnswer.fill(siblingDraft);
+    await firstAcknowledgement.check();
+    await siblingAcknowledgement.check();
+
+    const loadsBeforeInvalidation = contextLoads;
+    await appendProgress(
+      client,
+      unrelatedWorkId,
+      `Same-revision detail invalidation ${suffix}`,
+      `${sessionId}-unrelated-progress`
+    );
+    await expect.poll(() => contextLoads).toBeGreaterThan(loadsBeforeInvalidation);
+    await expect(firstAnswer).toHaveValue(firstDraft);
+    await expect(siblingAnswer).toHaveValue(siblingDraft);
+    await expect(firstAcknowledgement).toBeChecked();
+    await expect(firstAcknowledgement).toBeEnabled();
+    await expect(siblingAcknowledgement).toBeChecked();
+    await expect(siblingAcknowledgement).toBeEnabled();
+
+    await firstGate.getByRole("button", { name: "Record answer" }).click();
+    await expect(firstGate).toHaveCount(0);
+    await expect(siblingAnswer).toHaveValue(siblingDraft);
+    await expect(siblingAcknowledgement).toBeChecked();
+    await expect(siblingAcknowledgement).toBeEnabled();
+    await expect(panel.getByRole("heading", { name: "Questions and answers" })).toBeFocused();
+    await expect(panel.getByRole("status").filter({
+      hasText: "Answer recorded. 1 unresolved question remains."
+    })).toBeVisible();
+  } finally {
+    await hideWork(client, workId);
+    await hideWork(client, unrelatedWorkId);
     await client.dispose();
   }
 });

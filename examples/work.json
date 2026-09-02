@@ -15,7 +15,7 @@
     "source_metadata": {
       "example_only": true,
       "author_verified": false,
-      "note": "Illustrative canonical Phase 6 body. Use a real client/session ID and actual evidence. Replace the example client_operation_id with one fresh UUID prepared and retained with this exact request before the first attempt; reuse both only to resolve an unknown outcome. initial_relationships is intentionally empty because graph facts require explicit, existing same-project work IDs. For MCP create_work, also supply project_id."
+      "note": "Illustrative canonical Phases 7-8 body. Use a real client/session ID and actual evidence. Replace the example client_operation_id with one fresh UUID prepared and retained with this exact request before the first attempt; reuse both only to resolve an unknown outcome. initial_relationships is intentionally empty because graph facts require explicit, existing same-project work IDs. For MCP create_work, also supply project_id."
     }
   },
   "initial_relationships": [],

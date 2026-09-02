@@ -46,7 +46,7 @@ def empty_phase6_migration_engine() -> Iterator[Engine]:
     try:
         with engine.begin() as connection:
             config.attributes["connection"] = connection
-            command.upgrade(config, "head")
+            command.upgrade(config, "0013_idempotent_mutations")
         yield engine
     finally:
         engine.dispose()
@@ -260,7 +260,7 @@ def test_0013_upgrade_preserves_legacy_metadata_and_empty_downgrade():
             # The progress row leaves an 0010 deferred state trigger queued in
             # this transaction. 0012 must drain it before ALTER TABLE.
             config.attributes["connection"] = connection
-            command.upgrade(config, "head")
+            command.upgrade(config, "0013_idempotent_mutations")
 
         with engine.connect() as connection:
             assert _phase5_function_definition(connection) == phase5_definition
@@ -438,7 +438,7 @@ def test_0013_downgrade_waits_for_winning_writer_then_refuses(
     with engine.connect() as connection:
         assert connection.scalar(
             text("SELECT version_num FROM alembic_version")
-        ) == "0014_human_gates"
+        ) == "0013_idempotent_mutations"
         receipt = connection.execute(
             text(
                 """

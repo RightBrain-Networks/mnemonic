@@ -4,7 +4,8 @@ from datetime import datetime
 from uuid import UUID
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.exc import DBAPIError
 
 pytestmark = pytest.mark.postgres
 
@@ -141,6 +142,7 @@ def resolve_gate(api, project: dict, created: dict, gate: dict) -> None:
             "resolution": "Use the reviewed hierarchy boundary.",
             "resolved_by_client": "dashboard",
             "resolved_by_session_id": "hierarchy-human",
+            "reviewed_context_revision": gate["current_context_revision"],
         },
     )
     assert response.status_code == 200, response.text
@@ -176,13 +178,147 @@ def empty_presentation(*, discovered: bool = False) -> dict:
 
 
 @pytest.mark.postgres
+def test_hierarchy_pages_use_two_local_controls_and_one_data_statement(
+    api,
+    project,
+    work_payload,
+    postgres_engine,
+):
+    root = create_work(
+        api,
+        project,
+        work_payload,
+        title="Counted hierarchy root",
+        tags=["query-count-root"],
+    )
+    create_work(
+        api,
+        project,
+        work_payload,
+        title="Counted hierarchy child",
+        tags=["query-count-child"],
+        parent=root,
+    )
+    cases = (
+        (
+            work_collection(project),
+            {"view": "roots", "status": "all"},
+        ),
+        (
+            f"{work_path(project, root)}/children",
+            {"status": "all"},
+        ),
+        (
+            work_collection(project),
+            {
+                "view": "roots",
+                "status": "all",
+                "tag": "query-count-child",
+            },
+        ),
+    )
+
+    for path, params in cases:
+        statements: list[str] = []
+
+        def observe_statement(
+            _connection,
+            _cursor,
+            statement,
+            _parameters,
+            _context,
+            _executemany,
+            captured=statements,
+        ):
+            captured.append(statement)
+
+        event.listen(postgres_engine, "before_cursor_execute", observe_statement)
+        try:
+            response = api.get(path, params=params)
+        finally:
+            event.remove(
+                postgres_engine,
+                "before_cursor_execute",
+                observe_statement,
+            )
+
+        assert response.status_code == 200, response.text
+        normalized = [" ".join(statement.split()) for statement in statements]
+        assert normalized[:2] == [
+            "SET LOCAL jit = off",
+            "SET LOCAL statement_timeout = '5000ms'",
+        ]
+        assert len(normalized) == 3
+        assert normalized[2].startswith("WITH RECURSIVE")
+        assert "candidate_branches AS MATERIALIZED" in normalized[2]
+
+
+@pytest.mark.postgres
+def test_hierarchy_query_cancellation_returns_typed_timeout_and_recovers(
+    api,
+    project,
+    work_payload,
+    postgres_engine,
+):
+    create_work(api, project, work_payload, title="Forced hierarchy timeout")
+
+    class ForcedQueryCanceled(Exception):
+        sqlstate = "57014"
+
+    def cancel_hierarchy_query(
+        _connection,
+        _cursor,
+        statement,
+        parameters,
+        _context,
+        _executemany,
+    ):
+        if "candidate_branches AS MATERIALIZED" in statement:
+            raise DBAPIError(
+                statement,
+                parameters,
+                ForcedQueryCanceled("forced query cancellation"),
+                connection_invalidated=False,
+            )
+
+    event.listen(postgres_engine, "before_cursor_execute", cancel_hierarchy_query)
+    try:
+        timed_out = api.get(
+            work_collection(project),
+            params={"view": "roots", "status": "all"},
+        )
+    finally:
+        event.remove(
+            postgres_engine,
+            "before_cursor_execute",
+            cancel_hierarchy_query,
+        )
+
+    assert timed_out.status_code == 503
+    assert timed_out.json() == {
+        "detail": {
+            "code": "hierarchy_timeout",
+            "message": (
+                "Hierarchy traversal exceeded its safety limit; narrow the view or "
+                "investigate the graph."
+            ),
+            "context": {},
+        }
+    }
+    recovered = api.get(
+        work_collection(project),
+        params={"view": "roots", "status": "all"},
+    )
+    assert recovered.status_code == 200, recovered.text
+
+
+@pytest.mark.postgres
 def test_rollups_preserve_lifecycle_and_nonexclusive_operational_facts_without_multiplication(
     api,
     project,
     work_payload,
     postgres_engine,
 ):
-    api.app.state.settings.human_gate_requests_enabled = True
     root = create_work(api, project, work_payload, title="Matrix root")
     deferred = create_work(
         api, project, work_payload, title="Deferred descendant", parent=root

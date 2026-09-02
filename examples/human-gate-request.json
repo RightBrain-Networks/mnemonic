@@ -1,0 +1,8 @@
+{
+  "gate_type": "human",
+  "question": "Which rollout policy should this work use? Replace this example with a decision-ready question and never include credentials, capabilities, operation IDs, or private chain-of-thought.",
+  "requested_by_client": "example-only-replace-with-real-client",
+  "requested_by_session_id": "example-only-replace-with-actual-origin-session-id",
+  "requested_by_model": null,
+  "client_operation_id": "00000000-0000-4000-8000-000000000007"
+}

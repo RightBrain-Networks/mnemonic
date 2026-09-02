@@ -34,7 +34,11 @@ from mnemonic_api.schemas import (
     WorkClaimCreate,
     WorkItemPatch,
 )
-from mnemonic_api.services.gates import request_human_gate, resolve_human_gate
+from mnemonic_api.services.gates import (
+    _current_context_revision,
+    request_human_gate,
+    resolve_human_gate,
+)
 from mnemonic_api.services.leases import claim_lease_record
 from mnemonic_api.services.relationships import add_relationship_record
 from mnemonic_api.services.work_events import append_progress_event
@@ -173,7 +177,7 @@ def request_payload(label: str, *, operation_id: UUID | None = None) -> HumanGat
 def resolution_payload(
     label: str,
     *,
-    revision: dict[str, object] | None = None,
+    revision: dict[str, object],
     operation_id: UUID | None = None,
 ) -> HumanGateResolutionCreate:
     return HumanGateResolutionCreate(
@@ -181,7 +185,6 @@ def resolution_payload(
         resolved_by_client="dashboard",
         resolved_by_session_id="phase78-human",
         resolved_by_model="human-ui",
-        acknowledge_context_change=revision is not None,
         reviewed_context_revision=revision,
         client_operation_id=operation_id,
     )
@@ -240,6 +243,9 @@ def resolve_gate(
     revision: dict[str, object] | None = None,
     operation_id: UUID | None = None,
 ) -> object:
+    if revision is None:
+        work_item = require_work_item(database, project_id, work_item_id)
+        revision = _current_context_revision(database, work_item).model_dump(mode="json")
     return resolve_human_gate(
         database,
         project_id,
@@ -364,6 +370,61 @@ def gate_history(api: TestClient, project_id: UUID, work_item_id: UUID) -> list[
     return response.json()["items"]
 
 
+def test_checkpoint_timestamp_is_assigned_after_the_work_lock(
+    api: TestClient,
+    project: dict,
+    work_payload: dict,
+    postgres_engine: Engine,
+) -> None:
+    project_id = UUID(project["id"])
+    created = create_work(api, project_id, work_payload, "checkpoint ordering")
+    work_item_id = UUID(created["work_item"]["id"])
+
+    with held_database(postgres_engine) as (early, connection, _holder_pid):
+        transaction = connection.get_transaction()
+        assert transaction is not None
+        early.scalar(text("SELECT now()"))
+
+        competitor = api.post(
+            f"{collection(project_id)}/{work_item_id}/checkpoints",
+            json=checkpoint_payload(work_payload, "competitor").model_dump(mode="json"),
+        )
+        assert competitor.status_code == 201, competitor.text
+        gate = create_gate(api, project_id, work_item_id, "after-competitor")
+
+        last_committed = checkpoint_work(
+            early,
+            project_id,
+            work_item_id,
+            work_payload,
+            "early-transaction-last-commit",
+        )
+        last_committed_id = str(last_committed.id)
+        transaction.commit()
+
+    history_gate = gate_history(api, project_id, work_item_id)[0]
+    assert history_gate["current_context_revision"]["context_checkpoint_id"] == (
+        last_committed_id
+    )
+    assert history_gate["context_checkpoint_changed_since_request"] is True
+    assert history_gate["context_changed_since_request"] is True
+
+    context = api.get(f"{collection(project_id)}/{work_item_id}/context")
+    assert context.status_code == 200, context.text
+    assert context.json()["current_context"]["id"] == last_committed_id
+
+    stale = api.post(
+        f"{collection(project_id)}/{work_item_id}/gates/{gate['id']}/resolve",
+        json=resolution_payload(
+            "stale-checkpoint-review",
+            revision=gate["current_context_revision"],
+            operation_id=uuid4(),
+        ).model_dump(mode="json"),
+    )
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"]["code"] == "gate_context_changed"
+
+
 @pytest.mark.parametrize("claim_kind", ["fresh", "replacement"])
 @pytest.mark.parametrize("gate_first", [True, False], ids=["gate-first", "claim-first"])
 def test_request_vs_fresh_or_replacement_claim_in_both_orders(
@@ -374,7 +435,6 @@ def test_request_vs_fresh_or_replacement_claim_in_both_orders(
     claim_kind: str,
     gate_first: bool,
 ) -> None:
-    api.app.state.settings.human_gate_requests_enabled = True
     project_id = UUID(project["id"])
     created = create_work(api, project_id, work_payload, f"{claim_kind} claim race")
     work_item_id = UUID(created["work_item"]["id"])
@@ -457,7 +517,6 @@ def test_request_vs_every_terminal_or_delete_path_in_both_orders(
     action: str,
     gate_first: bool,
 ) -> None:
-    api.app.state.settings.human_gate_requests_enabled = True
     project_id = UUID(project["id"])
     created = create_work(api, project_id, work_payload, f"{action} race")
     work_item_id = UUID(created["work_item"]["id"])
@@ -516,7 +575,6 @@ def test_resolution_vs_claim_completion_or_new_gate_in_both_orders(
     action: str,
     resolution_first: bool,
 ) -> None:
-    api.app.state.settings.human_gate_requests_enabled = True
     project_id = UUID(project["id"])
     created = create_work(api, project_id, work_payload, f"resolution {action} race")
     work_item_id = UUID(created["work_item"]["id"])
@@ -597,7 +655,6 @@ def test_gate_request_or_resolution_vs_tokenless_context_and_graph_mutations(
     gate_operation: str,
     gate_first: bool,
 ) -> None:
-    api.app.state.settings.human_gate_requests_enabled = True
     project_id = UUID(project["id"])
     created = create_work(api, project_id, work_payload, f"{gate_operation} {mutation} race")
     work_item_id = UUID(created["work_item"]["id"])
@@ -681,7 +738,6 @@ def test_reviewed_revision_b_is_rejected_after_locked_revision_c_then_fresh_c_su
     work_payload: dict,
     postgres_engine: Engine,
 ) -> None:
-    api.app.state.settings.human_gate_requests_enabled = True
     project_id = UUID(project["id"])
     created = create_work(api, project_id, work_payload, "reviewed B to C")
     work_item_id = UUID(created["work_item"]["id"])
@@ -772,7 +828,6 @@ def test_reviewed_revision_b_is_rejected_after_locked_revision_c_then_fresh_c_su
     )
     assert fresh.status_code == 200, fresh.text
     assert fresh.json()["resolved_context_revision"] == review_c
-    assert fresh.json()["context_change_acknowledged"] is True
     with postgres_engine.connect() as connection:
         assert connection.scalar(
             text(
@@ -789,7 +844,6 @@ def test_unrelated_progress_commits_while_focal_gate_work_is_contended(
     work_payload: dict,
     postgres_engine: Engine,
 ) -> None:
-    api.app.state.settings.human_gate_requests_enabled = True
     project_id = UUID(project["id"])
     focal = create_work(api, project_id, work_payload, "contended focal work")
     unrelated = create_work(api, project_id, work_payload, "independent progress work")

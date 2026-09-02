@@ -697,8 +697,6 @@ def test_context_relationship_projection_is_bounded_unless_gate_review_is_focuse
     assert full_page.status_code == 200
     assert full_page.json()["total"] == 51
     assert len(full_page.json()["items"]) == 51
-
-    api.app.state.settings.human_gate_requests_enabled = True
     gate_response = api.post(
         f"{work_path(project, anchor)}/gates",
         json={

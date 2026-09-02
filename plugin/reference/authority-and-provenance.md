@@ -34,7 +34,7 @@ question already covers the decision, do not ask again. Write any supporting
 `context` checkpoint before the request, not after, because the request anchors
 the item's newest context checkpoint, its work version, and its relationship
 history; a later change to any of them marks the gate as drifted and the person
-must reload and acknowledge the current state before answering. After
+must review the current state before answering. After
 requesting, decide explicitly whether an active lease should be released; the
 request itself releases nothing and appends nothing.
 
@@ -44,9 +44,10 @@ terminal retirement/promotion, and deletion. It does not revoke an
 already-issued capability: exact active claim replay, renewal, release,
 checkpoints, and progress remain recoverable, but recovery is not approval to
 continue. Inspect every unresolved question, stop before work that depends on
-the answer, and release safely when appropriate. No agent can withdraw or edit
-a request; if a question becomes moot, say so to the user and leave a progress
-event, and a person still resolves it.
+the answer, and release safely when appropriate. An agent cannot withdraw or edit
+a request; if a question becomes moot, append a `context` checkpoint explaining
+what answered it and why it is no longer needed, then tell the user that a person
+still resolves it as "No longer needed".
 
 No canonical MCP tool resolves a gate. An agent must never infer an answer from
 stored state, silence, elapsed time, another checkpoint, or its own preference;
@@ -58,20 +59,12 @@ repository state, hazards, and any contemporaneous confirmation requirement
 before acting, and let the user's present instruction govern when it disagrees
 with a recorded answer.
 
-Gate projections expose the exact work/context/relationship revision requested,
-the current revision, and the drift flags between them. A resolution is bound to
-the revision the person reviewed, but later changes can make even that answer
+Gate projections expose a nested `requested_context_revision`, the exact current
+revision, and backend-computed drift flags between them. Treat the flags as
+server-owned projections rather than rederiving them client-side. A resolution
+is bound to `resolved_context_revision`; later changes can make even that answer
 stale. Use `list_work_gates` for complete paired history; never treat omission
 from bounded recall slices as absence.
-
-A deployment may have gate requests disabled or fenced (the operator setting
-`MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED`). That refusal creates no gate and no
-receipt and leaves the operation UUID unbound: do not retry and do not work
-around it. Record the question verbatim in a `context` checkpoint under a
-"Decision needed from a human" heading, tell the user an operator must enable
-gate requests, and keep the frozen call, which is a valid first attempt once
-they are. Reads, existing gates, and dashboard resolution keep working while
-requests are fenced.
 
 ## Provenance must be truthful
 
@@ -90,10 +83,10 @@ prompt and `source_metadata`.
 
 Never store credentials, lease tokens, operation UUIDs, unnecessary transcript
 dumps, private chain-of-thought, or personal information in checkpoints, event
-metadata, human-gate questions, or any answer. The service rejects request-known
-secret echoes and recognizable retained gate/operation UUIDs from human-gate
-fields (name work by title instead of pasting IDs into a question), but it
-cannot recognize every opaque sensitive value.
+metadata, human-gate questions, or any answer. The service rejects exact
+request-known credential and operation-control echoes from human-gate fields, but it cannot recognize every opaque sensitive value.
+Gate IDs are public references, not credentials; still name work by title when
+that makes a question clearer.
 
 Mutation `actor_client`, `actor_session_id`, optional `actor_model`, and gate
 `requested_by_*` fields follow the same truthful-source rule. They are

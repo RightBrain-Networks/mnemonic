@@ -319,27 +319,23 @@ test("human-gate resolution is the only browser gate mutation and binds exact re
     resolved_by_client: "dashboard",
     resolved_by_session_id: "tab-1",
     resolved_by_model: null,
-    acknowledge_context_change: false,
-    client_operation_id: operation
-  };
-  assert.equal(invalidMutationBody(path, "POST", base), null);
-  assert.equal(invalidMutationBody(path, "POST", {
-    ...base,
-    acknowledge_context_change: true,
     reviewed_context_revision: {
       work_version: 3,
       context_checkpoint_id: checkpoint,
       relationship_event_count: 8
-    }
-  }), null);
+    },
+    client_operation_id: operation
+  };
+  assert.equal(invalidMutationBody(path, "POST", base), null);
+  const { reviewed_context_revision: ignored, ...withoutRevision } = base;
 
   for (const invalid of [
     { ...base, resolution: "   " },
     { ...base, resolved_by_client: "agent" },
     { ...base, resolved_by_session_id: "x".repeat(201) },
     { ...base, resolved_by_model: "model" },
-    { ...base, acknowledge_context_change: true },
-    { ...base, reviewed_context_revision: { work_version: 3, context_checkpoint_id: checkpoint, relationship_event_count: 8 } },
+    withoutRevision,
+    { ...base, reviewed_context_revision: { ...base.reviewed_context_revision, work_version: 0 } },
     { ...base, gate_id: gate },
     { ...base, answer_suggestion: "forged" },
     { ...base, client_operation_id: "not-a-uuid" }

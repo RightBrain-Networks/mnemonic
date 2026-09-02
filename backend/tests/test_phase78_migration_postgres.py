@@ -4,16 +4,14 @@ import json
 import os
 import time
 from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from threading import Event
 from uuid import UUID, uuid4
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import Connection, Engine, create_engine, event, text
+from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.schema import CreateSchema, DropSchema
@@ -227,7 +225,6 @@ def _resolve_gate(
     work_item_id: UUID,
     gate_id: UUID,
     checkpoint_id: UUID,
-    changed: bool = False,
     resolution: str = "Use the Tuesday maintenance window.",
 ) -> datetime:
     resolved_at = connection.scalar(text("SELECT clock_timestamp()"))
@@ -242,9 +239,7 @@ def _resolve_gate(
                 resolved_by_model = NULL,
                 resolved_work_version = 1,
                 resolved_context_checkpoint_id = :checkpoint_id,
-                resolved_relationship_event_count = 0,
-                context_changed_at_resolution = :changed,
-                context_change_acknowledged = :changed
+                resolved_relationship_event_count = 0
             WHERE id = :gate_id
             """
         ),
@@ -252,7 +247,6 @@ def _resolve_gate(
             "resolved_at": resolved_at,
             "resolution": resolution,
             "checkpoint_id": checkpoint_id,
-            "changed": changed,
             "gate_id": gate_id,
         },
     )
@@ -336,6 +330,226 @@ def _insert_lease(
     return generation_id
 
 
+@pytest.mark.parametrize(
+    ("case", "match"),
+    (
+        ("gate_type", "ck_work_gates_gate_type_valid"),
+        ("blank_question", "ck_work_gates_question_valid"),
+        ("overlong_question", "ck_work_gates_question_valid"),
+        ("cross_project", "work gate requires visible pending work"),
+        ("cross_work_checkpoint", "work gate request revision does not match retained state"),
+        ("deferred_work", "work gate requires visible pending work"),
+        ("terminal_work", "work gate requires visible pending work"),
+        ("deleted_work", "work gate requires visible pending work"),
+        ("pre_resolved", "work gates must be inserted unresolved"),
+    ),
+)
+def test_gate_insert_guard_refusal_matrix(
+    postgres_engine: Engine,
+    case: str,
+    match: str,
+):
+    """Each row must reach and identify the intended database guard."""
+    with pytest.raises(DBAPIError, match=match):
+        with postgres_engine.begin() as connection:
+            project_id, work_item_id, checkpoint_id, created_at = _seed_work(
+                connection,
+            )
+            insert_project_id = project_id
+            insert_checkpoint_id = checkpoint_id
+            if case in {"cross_project", "cross_work_checkpoint"}:
+                other_project_id, _, other_checkpoint_id, _ = _seed_work(connection)
+                if case == "cross_project":
+                    insert_project_id = other_project_id
+                else:
+                    insert_checkpoint_id = other_checkpoint_id
+            if case == "deferred_work":
+                connection.execute(
+                    text("UPDATE work_items SET status = 'deferred' WHERE id = :work_item_id"),
+                    {"work_item_id": work_item_id},
+                )
+            if case == "terminal_work":
+                connection.execute(
+                    text("UPDATE work_items SET status = 'done' WHERE id = :work_item_id"),
+                    {"work_item_id": work_item_id},
+                )
+            if case == "deleted_work":
+                connection.execute(
+                    text(
+                        "UPDATE work_items SET deleted_at = clock_timestamp() "
+                        "WHERE id = :work_item_id"
+                    ),
+                    {"work_item_id": work_item_id},
+                )
+
+            pre_resolved = case == "pre_resolved"
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO work_gates (
+                        id, project_id, work_item_id, gate_type, question,
+                        requested_by_client, requested_by_session_id, requested_by_model,
+                        requested_work_version, requested_context_checkpoint_id,
+                        requested_relationship_event_count, created_at,
+                        resolved_at, resolution, resolved_by_client,
+                        resolved_by_session_id, resolved_work_version,
+                        resolved_context_checkpoint_id,
+                        resolved_relationship_event_count
+                    ) VALUES (
+                        :gate_id, :project_id, :work_item_id, :gate_type, :question,
+                        'pytest', 'fabricated-request', 'fixture-model',
+                        1, :checkpoint_id, 0, :created_at,
+                        :resolved_at, :resolution, :resolved_by_client,
+                        :resolved_by_session_id, :resolved_work_version,
+                        :resolved_checkpoint_id, :resolved_relationship_count
+                    )
+                    """
+                ),
+                {
+                    "gate_id": uuid4(),
+                    "project_id": insert_project_id,
+                    "work_item_id": work_item_id,
+                    "gate_type": "agent" if case == "gate_type" else "human",
+                    "question": (
+                        "   "
+                        if case == "blank_question"
+                        else "x" * 4001
+                        if case == "overlong_question"
+                        else "Should this fabricated gate be accepted?"
+                    ),
+                    "checkpoint_id": insert_checkpoint_id,
+                    "created_at": created_at,
+                    "resolved_at": created_at if pre_resolved else None,
+                    "resolution": "Already answered." if pre_resolved else None,
+                    "resolved_by_client": "dashboard" if pre_resolved else None,
+                    "resolved_by_session_id": "human-session" if pre_resolved else None,
+                    "resolved_work_version": 1 if pre_resolved else None,
+                    "resolved_checkpoint_id": checkpoint_id if pre_resolved else None,
+                    "resolved_relationship_count": 0 if pre_resolved else None,
+                },
+            )
+
+
+@pytest.mark.parametrize(
+    ("case", "match"),
+    (
+        ("duplicate_request", "uq_work_events_gate_fact"),
+        ("backfill_request", "gate event source fact does not match retained state"),
+        ("legacy_gate_reference", "ck_work_events_gate_reference_valid"),
+        ("resolution_before_gate", "gate resolution event does not match retained state"),
+        ("request_actor_mismatch", "gate request event does not match retained state"),
+        ("request_timestamp_mismatch", "gate request event does not match retained state"),
+    ),
+)
+def test_gate_event_guard_refusal_matrix(
+    postgres_engine: Engine,
+    case: str,
+    match: str,
+):
+    """Gate-event provenance failures cannot be satisfied by a different guard."""
+    question = "Which deployment window should be used?"
+    with postgres_engine.begin() as connection:
+        project_id, work_item_id, checkpoint_id, _ = _seed_work(connection)
+        gate_id, _, created_at = _insert_gate(
+            connection,
+            project_id=project_id,
+            work_item_id=work_item_id,
+            checkpoint_id=checkpoint_id,
+            question=question,
+        )
+
+    event_type = "human_attention_requested"
+    body = question
+    actor_client = "pytest"
+    actor_session_id = "gate-request"
+    actor_model = "fixture-model"
+    metadata = {"gate_id": str(gate_id), "gate_type": "human"}
+    origin = "live"
+    event_created_at = created_at
+    if case == "backfill_request":
+        origin = "backfill"
+    elif case == "legacy_gate_reference":
+        event_type = "progress"
+        body = "Ordinary progress."
+        metadata = {}
+    elif case == "resolution_before_gate":
+        event_type = "human_attention_resolved"
+        body = "Premature answer."
+        actor_client = "dashboard"
+        actor_session_id = "human-session"
+        actor_model = None
+    elif case == "request_actor_mismatch":
+        actor_client = "imposter"
+    elif case == "request_timestamp_mismatch":
+        event_created_at += timedelta(seconds=1)
+
+    with pytest.raises(DBAPIError, match=match):
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO work_events (
+                        project_id, work_item_id, event_type, actor_kind,
+                        actor_client, actor_session_id, actor_model, body,
+                        gate_id, metadata, origin, created_at
+                    ) VALUES (
+                        :project_id, :work_item_id, :event_type, 'client',
+                        :actor_client, :actor_session_id, :actor_model, :body,
+                        :gate_id, CAST(:metadata AS jsonb), :origin, :created_at
+                    )
+                    """
+                ),
+                {
+                    "project_id": project_id,
+                    "work_item_id": work_item_id,
+                    "event_type": event_type,
+                    "actor_client": actor_client,
+                    "actor_session_id": actor_session_id,
+                    "actor_model": actor_model,
+                    "body": body,
+                    "gate_id": gate_id,
+                    "metadata": json.dumps(metadata),
+                    "origin": origin,
+                    "created_at": event_created_at,
+                },
+            )
+
+
+def test_gate_resolution_timestamp_order_guard(postgres_engine: Engine):
+    """Resolution timestamp ordering remains independently CHECK-constrained."""
+    with postgres_engine.begin() as connection:
+        project_id, work_item_id, checkpoint_id, _ = _seed_work(connection)
+        gate_id, _, created_at = _insert_gate(
+            connection,
+            project_id=project_id,
+            work_item_id=work_item_id,
+            checkpoint_id=checkpoint_id,
+        )
+
+    with pytest.raises(DBAPIError, match="ck_work_gates_timestamp_order"):
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    UPDATE work_gates
+                    SET resolved_at = :resolved_at,
+                        resolution = 'Fabricated resolution.',
+                        resolved_by_client = 'dashboard',
+                        resolved_by_session_id = 'human-session',
+                        resolved_work_version = 1,
+                        resolved_context_checkpoint_id = :checkpoint_id,
+                        resolved_relationship_event_count = 0
+                    WHERE id = :gate_id
+                    """
+                ),
+                {
+                    "resolved_at": created_at - timedelta(seconds=1),
+                    "checkpoint_id": checkpoint_id,
+                    "gate_id": gate_id,
+                },
+            )
+
+
 def test_gate_events_are_atomic_and_resolution_is_one_way(postgres_engine: Engine):
     with postgres_engine.begin() as connection:
         project_id, work_item_id, checkpoint_id, _ = _seed_work(connection)
@@ -404,9 +618,7 @@ def test_gate_events_are_atomic_and_resolution_is_one_way(postgres_engine: Engin
                         resolved_by_session_id = 'human-session',
                         resolved_work_version = 1,
                         resolved_context_checkpoint_id = :checkpoint_id,
-                        resolved_relationship_event_count = 0,
-                        context_changed_at_resolution = false,
-                        context_change_acknowledged = false
+                        resolved_relationship_event_count = 0
                     WHERE id = :gate_id
                     """
                 ),
@@ -432,19 +644,32 @@ def test_gate_events_are_atomic_and_resolution_is_one_way(postgres_engine: Engin
             {"gate_id": gate_id},
         ).mappings().one()
         assert gate["resolved_at"] == resolved_at
-        assert gate["context_changed_at_resolution"] is False
-        assert gate["context_change_acknowledged"] is False
+        assert gate["resolved_work_version"] == gate["requested_work_version"]
+        assert (
+            gate["resolved_context_checkpoint_id"]
+            == gate["requested_context_checkpoint_id"]
+        )
+        assert (
+            gate["resolved_relationship_event_count"]
+            == gate["requested_relationship_event_count"]
+        )
         assert connection.scalar(
             text("SELECT count(*) FROM work_events WHERE gate_id = :gate_id"),
             {"gate_id": gate_id},
         ) == 2
 
-    for statement in (
-        "UPDATE work_gates SET resolution = 'Overwrite' WHERE id = :gate_id",
-        "UPDATE work_gates SET resolved_at = NULL WHERE id = :gate_id",
-        "DELETE FROM work_gates WHERE id = :gate_id",
+    for statement, match in (
+        (
+            "UPDATE work_gates SET resolution = 'Overwrite' WHERE id = :gate_id",
+            "mutation is not permitted",
+        ),
+        (
+            "UPDATE work_gates SET resolved_at = NULL WHERE id = :gate_id",
+            "mutation is not permitted",
+        ),
+        ("DELETE FROM work_gates WHERE id = :gate_id", "cannot be deleted"),
     ):
-        with pytest.raises(DBAPIError):
+        with pytest.raises(DBAPIError, match=match):
             with postgres_engine.begin() as connection:
                 connection.execute(text(statement), {"gate_id": gate_id})
 
@@ -547,9 +772,7 @@ def test_gate_revision_and_event_source_guards_reject_fabrication(postgres_engin
                         resolved_by_session_id = 'human-session',
                         resolved_work_version = 2,
                         resolved_context_checkpoint_id = :checkpoint_id,
-                        resolved_relationship_event_count = 0,
-                        context_changed_at_resolution = true,
-                        context_change_acknowledged = true
+                        resolved_relationship_event_count = 0
                     WHERE id = :gate_id
                     """
                 ),
@@ -563,7 +786,7 @@ def test_gate_metadata_keys_are_reserved_for_typed_gate_events(
     with postgres_engine.begin() as connection:
         project_id, work_item_id, _, _ = _seed_work(connection)
 
-    with pytest.raises(DBAPIError):
+    with pytest.raises(DBAPIError, match="ck_work_events_gate_metadata_reserved"):
         with postgres_engine.begin() as connection:
             connection.execute(
                 text(
@@ -749,7 +972,6 @@ def test_resolution_revision_must_use_latest_context_checkpoint(postgres_engine:
             work_item_id=work_item_id,
             gate_id=gate_id,
             checkpoint_id=newer_checkpoint_id,
-            changed=True,
         )
 
     with postgres_engine.connect() as connection:
@@ -759,8 +981,6 @@ def test_resolution_revision_must_use_latest_context_checkpoint(postgres_engine:
         ).mappings().one()
         assert gate["requested_context_checkpoint_id"] == checkpoint_id
         assert gate["resolved_context_checkpoint_id"] == newer_checkpoint_id
-        assert gate["context_changed_at_resolution"] is True
-        assert gate["context_change_acknowledged"] is True
 
 
 def test_client_operation_constraint_accepts_exactly_twelve_kinds(
@@ -805,7 +1025,7 @@ def test_client_operation_constraint_accepts_exactly_twelve_kinds(
                 {"receipt_id": receipt_id},
             )
 
-    with pytest.raises(DBAPIError):
+    with pytest.raises(DBAPIError, match="ck_client_operations_operation_kind_valid"):
         with postgres_engine.begin() as connection:
             connection.execute(
                 text(
@@ -919,6 +1139,178 @@ def _metadata_v1_definition(connection: Connection) -> str:
             """
         )
     )
+
+
+def test_0015_populated_upgrade_preserves_gate_history_and_changes_defaults():
+    raw_url = os.environ.get("TEST_DATABASE_URL")
+    if not raw_url:
+        pytest.skip("Set TEST_DATABASE_URL to run real PostgreSQL integration tests")
+    settings = Settings(database_url=raw_url, api_key="phase-78-migration-key-is-long-enough")
+    url = make_url(settings.database_url.get_secret_value())
+    admin = create_engine(url, hide_parameters=True, connect_args={"connect_timeout": 5})
+    schema = "mnemonic_phase78_0015_" + uuid4().hex
+    with admin.begin() as connection:
+        connection.execute(CreateSchema(schema))
+    engine = create_engine(
+        url.update_query_dict({"options": f"-c search_path={schema} -c timezone=UTC"}),
+        hide_parameters=True,
+        connect_args={"connect_timeout": 5},
+    )
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+
+    try:
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "0014_human_gates")
+
+        with engine.begin() as connection:
+            project_id, work_item_id, checkpoint_id, checkpoint_created_at = _seed_work(
+                connection
+            )
+            gate_id, attention_sequence, gate_created_at = _insert_gate(
+                connection,
+                project_id=project_id,
+                work_item_id=work_item_id,
+                checkpoint_id=checkpoint_id,
+            )
+            resolved_at = connection.scalar(text("SELECT clock_timestamp()"))
+            resolution = "Keep the retained 0014 decision."
+            connection.execute(
+                text(
+                    """
+                    UPDATE work_gates
+                    SET resolved_at = :resolved_at,
+                        resolution = :resolution,
+                        resolved_by_client = 'dashboard',
+                        resolved_by_session_id = 'migration-human',
+                        resolved_work_version = 1,
+                        resolved_context_checkpoint_id = :checkpoint_id,
+                        resolved_relationship_event_count = 0,
+                        context_changed_at_resolution = false,
+                        context_change_acknowledged = false
+                    WHERE id = :gate_id
+                    """
+                ),
+                {
+                    "resolved_at": resolved_at,
+                    "resolution": resolution,
+                    "checkpoint_id": checkpoint_id,
+                    "gate_id": gate_id,
+                },
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO work_events (
+                        project_id, work_item_id, event_type, actor_kind,
+                        actor_client, actor_session_id, body, gate_id,
+                        metadata, origin, created_at
+                    ) VALUES (
+                        :project_id, :work_item_id, 'human_attention_resolved',
+                        'client', 'dashboard', 'migration-human', :resolution,
+                        :gate_id, CAST(:metadata AS jsonb), 'live', :resolved_at
+                    )
+                    """
+                ),
+                {
+                    "project_id": project_id,
+                    "work_item_id": work_item_id,
+                    "resolution": resolution,
+                    "gate_id": gate_id,
+                    "metadata": json.dumps(
+                        {"gate_id": str(gate_id), "gate_type": "human"}
+                    ),
+                    "resolved_at": resolved_at,
+                },
+            )
+
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "0015_gate_review_fixes")
+
+        with engine.connect() as connection:
+            assert connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            ) == "0015_gate_review_fixes"
+            columns = set(
+                connection.execute(
+                    text(
+                        """
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'work_gates'
+                        """
+                    )
+                ).scalars()
+            )
+            assert "context_change_acknowledged" not in columns
+            assert "context_changed_at_resolution" not in columns
+            gate = connection.execute(
+                text(
+                    """
+                    SELECT attention_sequence, created_at, resolved_at, resolution,
+                           resolved_work_version, resolved_context_checkpoint_id,
+                           resolved_relationship_event_count
+                    FROM work_gates
+                    WHERE id = :gate_id
+                    """
+                ),
+                {"gate_id": gate_id},
+            ).mappings().one()
+            assert dict(gate) == {
+                "attention_sequence": attention_sequence,
+                "created_at": gate_created_at,
+                "resolved_at": resolved_at,
+                "resolution": resolution,
+                "resolved_work_version": 1,
+                "resolved_context_checkpoint_id": checkpoint_id,
+                "resolved_relationship_event_count": 0,
+            }
+            assert connection.scalar(
+                text("SELECT created_at FROM checkpoints WHERE id = :checkpoint_id"),
+                {"checkpoint_id": checkpoint_id},
+            ) == checkpoint_created_at
+            assert connection.scalar(
+                text(
+                    "SELECT count(*) FROM work_events "
+                    "WHERE gate_id = :gate_id AND event_type LIKE 'human_attention_%'"
+                ),
+                {"gate_id": gate_id},
+            ) == 2
+            defaults = dict(
+                connection.execute(
+                    text(
+                        """
+                        SELECT table_name, column_default
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND column_name = 'created_at'
+                          AND table_name IN ('checkpoints', 'work_relationships')
+                        """
+                    )
+                ).tuples().all()
+            )
+            assert defaults == {
+                "checkpoints": "clock_timestamp()",
+                "work_relationships": "clock_timestamp()",
+            }
+        with pytest.raises(
+            RuntimeError,
+            match="Downgrade from 0015_gate_review_fixes is unsupported",
+        ):
+            with engine.begin() as connection:
+                config.attributes["connection"] = connection
+                command.downgrade(config, "0014_human_gates")
+        with engine.connect() as connection:
+            assert connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            ) == "0015_gate_review_fixes"
+    finally:
+        engine.dispose()
+        with admin.begin() as connection:
+            connection.execute(DropSchema(schema, cascade=True))
+        admin.dispose()
 
 
 def test_0014_populated_upgrade_preserves_history_and_empty_downgrade():
@@ -1303,212 +1695,3 @@ def test_0014_replays_canonical_phase6_append_event_bytes_after_reupgrade():
         with admin.begin() as connection:
             connection.execute(DropSchema(schema, cascade=True))
         admin.dispose()
-
-
-def test_0014_downgrade_refuses_retained_gate_history(postgres_engine: Engine):
-    with postgres_engine.begin() as connection:
-        project_id, work_item_id, checkpoint_id, _ = _seed_work(connection)
-        _insert_gate(
-            connection,
-            project_id=project_id,
-            work_item_id=work_item_id,
-            checkpoint_id=checkpoint_id,
-        )
-
-    config = Config(str(BACKEND_DIR / "alembic.ini"))
-    with pytest.raises(RuntimeError, match="after gate history or receipts exist"):
-        with postgres_engine.begin() as connection:
-            config.attributes["connection"] = connection
-            command.downgrade(config, "0013_idempotent_mutations")
-
-    with postgres_engine.connect() as connection:
-        assert connection.scalar(
-            text("SELECT version_num FROM alembic_version")
-        ) == "0014_human_gates"
-        assert connection.scalar(text("SELECT count(*) FROM work_gates")) == 1
-
-
-
-def test_0014_downgrade_waits_for_gate_writer_then_refuses(
-    postgres_engine: Engine,
-):
-    with postgres_engine.begin() as connection:
-        project_id, work_item_id, checkpoint_id, _ = _seed_work(connection)
-
-    engine = postgres_engine
-    operation_id = uuid4()
-    downgrade_pid_ready = Event()
-    downgrade_pid: list[int] = []
-
-    def downgrade() -> None:
-        config = Config(str(BACKEND_DIR / "alembic.ini"))
-        with engine.begin() as connection:
-            connection.execute(text("SET LOCAL statement_timeout = '5s'"))
-            downgrade_pid.append(connection.scalar(text("SELECT pg_backend_pid()")))
-            downgrade_pid_ready.set()
-            config.attributes["connection"] = connection
-            command.downgrade(config, "0013_idempotent_mutations")
-
-    writer_connection = engine.connect()
-    writer_transaction = writer_connection.begin()
-    try:
-        writer_pid = writer_connection.scalar(text("SELECT pg_backend_pid()"))
-        relation_oid = writer_connection.scalar(
-            text("SELECT 'client_operations'::regclass::oid")
-        )
-        _complete_gate_request_receipt(
-            writer_connection,
-            project_id=project_id,
-            operation_id=operation_id,
-        )
-        writer_connection.execute(
-            text("SELECT id FROM work_items WHERE id = :work_item_id FOR UPDATE"),
-            {"work_item_id": work_item_id},
-        )
-        gate_id, _, _ = _insert_gate(
-            writer_connection,
-            project_id=project_id,
-            work_item_id=work_item_id,
-            checkpoint_id=checkpoint_id,
-        )
-
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(downgrade)
-            assert downgrade_pid_ready.wait(timeout=2)
-            try:
-                _wait_for_relation_lock(
-                    engine,
-                    waiting_pid=downgrade_pid[0],
-                    blocking_pid=writer_pid,
-                    relation_oid=relation_oid,
-                    mode="AccessExclusiveLock",
-                )
-            finally:
-                writer_transaction.commit()
-
-            with pytest.raises(
-                RuntimeError,
-                match="Cannot downgrade human gates after gate history or receipts exist",
-            ):
-                future.result(timeout=5)
-    finally:
-        if writer_transaction.is_active:
-            writer_transaction.rollback()
-        writer_connection.close()
-
-    with engine.connect() as connection:
-        assert connection.scalar(
-            text("SELECT version_num FROM alembic_version")
-        ) == "0014_human_gates"
-        assert connection.scalar(
-            text("SELECT count(*) FROM work_gates WHERE id = :gate_id"),
-            {"gate_id": gate_id},
-        ) == 1
-        assert connection.scalar(
-            text(
-                "SELECT count(*) FROM client_operations "
-                "WHERE client_operation_id = :operation_id "
-                "AND operation_kind = 'request_human_input' "
-                "AND state = 'completed'"
-            ),
-            {"operation_id": operation_id},
-        ) == 1
-
-
-def test_0014_downgrade_lock_prevents_unkeyed_gate_after_empty_check(
-    postgres_engine: Engine,
-):
-    with postgres_engine.begin() as connection:
-        project_id, work_item_id, checkpoint_id, _ = _seed_work(connection)
-        relation_oid = connection.scalar(text("SELECT 'work_items'::regclass::oid"))
-
-    engine = postgres_engine
-    empty_check_complete = Event()
-    allow_downgrade = Event()
-    downgrade_pid_ready = Event()
-    writer_pid_ready = Event()
-    downgrade_pid: list[int] = []
-    writer_pid: list[int] = []
-
-    def pause_after_empty_check(
-        connection,
-        cursor,
-        statement,
-        parameters,
-        context,
-        executemany,
-    ) -> None:
-        normalized = " ".join(statement.lower().split())
-        if "select exists" not in normalized or "work_gates" not in normalized:
-            return
-        empty_check_complete.set()
-        assert allow_downgrade.wait(timeout=5), (
-            "test did not release the downgrade after its empty-gate check"
-        )
-
-    def downgrade() -> None:
-        config = Config(str(BACKEND_DIR / "alembic.ini"))
-        with engine.begin() as connection:
-            connection.execute(text("SET LOCAL statement_timeout = '5s'"))
-            downgrade_pid.append(connection.scalar(text("SELECT pg_backend_pid()")))
-            downgrade_pid_ready.set()
-            config.attributes["connection"] = connection
-            command.downgrade(config, "0013_idempotent_mutations")
-
-    def write_gate() -> None:
-        with engine.begin() as connection:
-            connection.execute(text("SET LOCAL statement_timeout = '5s'"))
-            writer_pid.append(connection.scalar(text("SELECT pg_backend_pid()")))
-            writer_pid_ready.set()
-            connection.execute(
-                text("SELECT id FROM work_items WHERE id = :work_item_id FOR UPDATE"),
-                {"work_item_id": work_item_id},
-            )
-            _insert_gate(
-                connection,
-                project_id=project_id,
-                work_item_id=work_item_id,
-                checkpoint_id=checkpoint_id,
-            )
-
-    event.listen(engine, "after_cursor_execute", pause_after_empty_check)
-    try:
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            downgrade_future = executor.submit(downgrade)
-            assert downgrade_pid_ready.wait(timeout=2)
-            assert empty_check_complete.wait(timeout=2)
-
-            writer_future = executor.submit(write_gate)
-            assert writer_pid_ready.wait(timeout=2)
-            try:
-                _wait_for_relation_lock(
-                    engine,
-                    waiting_pid=writer_pid[0],
-                    blocking_pid=downgrade_pid[0],
-                    relation_oid=relation_oid,
-                    mode="RowShareLock",
-                )
-            finally:
-                allow_downgrade.set()
-
-            downgrade_future.result(timeout=5)
-            with pytest.raises(DBAPIError) as blocked_writer:
-                writer_future.result(timeout=5)
-            assert getattr(blocked_writer.value.orig, "sqlstate", None) == "42P01"
-    finally:
-        allow_downgrade.set()
-        event.remove(engine, "after_cursor_execute", pause_after_empty_check)
-        with engine.begin() as connection:
-            config = Config(str(BACKEND_DIR / "alembic.ini"))
-            config.attributes["connection"] = connection
-            command.upgrade(config, "0014_human_gates")
-
-    with engine.connect() as connection:
-        assert connection.scalar(
-            text("SELECT version_num FROM alembic_version")
-        ) == "0014_human_gates"
-        assert connection.scalar(text("SELECT count(*) FROM work_gates")) == 0
-        assert connection.scalar(
-            text("SELECT count(*) FROM work_items WHERE id = :work_item_id"),
-            {"work_item_id": work_item_id},
-        ) == 1

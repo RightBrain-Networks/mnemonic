@@ -1,0 +1,35 @@
+{
+  "title": "Illustrative discovered sub-work",
+  "summary": "Example only: save new sub-work with separate structural parentage and discovery provenance.",
+  "priority": 0,
+  "status": "pending",
+  "initial_checkpoint": {
+    "prompt": "This is illustrative agent-authored context, not an owner instruction or permission to execute. Replace every placeholder with truthful current-session provenance and explicit graph facts before saving.",
+    "source_client": "example-only-replace-with-real-client",
+    "source_session_id": "example-only-replace-with-actual-origin-session-id",
+    "source_model": null,
+    "source_session_url": null,
+    "repository_branch": null,
+    "verified_against": null,
+    "tags": ["example", "discovered-work"],
+    "source_metadata": {
+      "example_only": true,
+      "note": "The incoming parent-child edge places this new item under its existing parent. The outgoing discovered-from edge separately cites the existing origin's context checkpoint. Either fact may exist alone; include both only when both are true."
+    }
+  },
+  "initial_relationships": [
+    {
+      "type": "parent-child",
+      "direction": "incoming",
+      "other_work_item_id": "22222222-2222-4222-8222-222222222222",
+      "context_checkpoint_id": null
+    },
+    {
+      "type": "discovered-from",
+      "direction": "outgoing",
+      "other_work_item_id": "33333333-3333-4333-8333-333333333333",
+      "context_checkpoint_id": "44444444-4444-4444-8444-444444444444"
+    }
+  ],
+  "client_operation_id": "00000000-0000-4000-8000-000000000009"
+}

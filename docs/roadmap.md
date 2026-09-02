@@ -662,8 +662,8 @@ labels, inferred blockers, agent-authored approvals, or notification messages.
 
 ## Shipped model
 
-Migration `0014_human_gates` adds immutable project/work-scoped `WorkGate`
-records with:
+Migrations `0014_human_gates` and `0015_gate_review_fixes` provide
+immutable project/work-scoped `WorkGate` records with:
 
 ```text
 id, project_id, work_item_id, gate_type=human, attention_sequence
@@ -671,7 +671,7 @@ question, requested_by_client/session/model, created_at
 requested work/context/relationship revision
 status=unresolved|resolved
 resolution, resolved_by_client/session/model, resolved_at
-resolved reviewed revision and context-change acknowledgement
+resolved reviewed revision
 ```
 
 One gate request and its exact `human_attention_requested` event commit atomically.
@@ -683,25 +683,30 @@ verification.
 
 An unresolved gate makes Pending work `waiting`, removes it from ready
 discovery, rejects fresh/replacement claims, and prevents completion, terminal
-transitions, and deletion. It does not revoke an existing capability: exact
+transitions, and deletion. Deferral remains an independent human hold; resolving
+a gate does not undefer work. It does not revoke an existing capability: exact
 active claim replay, renewal, release, checkpoints, progress, identity edits,
 deferral/Pending restoration, and relationship changes remain possible. Several
 gates may coexist, and every one must resolve before waiting ends.
 
-Resolution uses a frozen three-field context revision: work version, newest
-context checkpoint, and relationship-event count. Any drift must be reviewed
-and acknowledged; another change before commit returns
+Gate reads nest the frozen request anchors under `requested_context_revision`
+and expose backend-computed current and resolution drift booleans. Clients do not
+rederive those convenience values. Resolution always requires a frozen
+three-field reviewed context revision: work version, newest context checkpoint,
+and relationship-event count. Another change
+before commit returns
 `gate_context_changed` and requires a new human review and operation intent. A
 stored answer remains historical context rather than renewed authority to
 execute.
 
 ## Shipped interfaces
 
-- `POST .../gates` requests input; `MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED`
-  defaults false for coordinated cutover. Completed request replay, reads,
-  enforcement, and resolution remain active while fenced.
+- `POST .../gates` requests input after the caller checks existing unresolved
+  gates and writes supporting context first.
 - `GET /projects/{project_id}/human-attention` cursor-pages unresolved gates in
-  immutable request order and supports a text-free exact count.
+  allocated sequence order and supports a text-free exact count. A complete
+  consumer restarts from the head once before declaring the queue drained because
+  sequence allocation can precede commit.
 - `GET .../{work_item_id}/gates` pages complete paired history, including an
   exact retained soft-deleted work ID.
 - `POST .../{gate_id}/resolve` is the direct REST/dashboard human action. MCP
@@ -724,8 +729,9 @@ execute.
 - Questions and answers remain distinguishable, immutable, cursor-pageable
   history and bounded recall context without entering search indexes, logs,
   metrics, browser storage, or data-free invalidation frames.
-- Existing production content is preserved through `0014`; downgrade is allowed
-  only while the new durable surface is provably unused.
+- Existing production content is preserved through `0015`; migration 0015 has no
+  supported downgrade, so recovery requires a forward fix or an explicit
+  whole-archive restore boundary.
 
 ---
 
@@ -767,13 +773,16 @@ The dashboard collapses descendants by default, lazily pages direct children,
 and explains when lifecycle/source/tag filters retain a muted ancestor only to
 reach a matching descendant. Branch presentation counts remain complete,
 unfiltered facts; page and qualifying-root totals follow the selected filter.
-Free-text search remains flat with bounded breadcrumbs. Depth/cycle fallbacks
+Every flat full-view search or browse result has a bounded breadcrumb; roots
+legitimately have an empty path. Depth/cycle fallbacks
 bound damaged graphs, and the earliest active descendant lease expiry schedules
 passive count refresh without a polling scheduler.
 
-The backend computes the page, total, aggregates, match flags, discovery facts,
-and lease-time state in one PostgreSQL statement and one database-time snapshot.
-There is no Python tree walk, per-branch query, or load-all-descendants fallback.
+The backend pages before computing member facts, disables JIT for the hierarchy
+transaction, and computes total, aggregates, match flags, discovery facts, and
+lease-time state in one PostgreSQL statement and database-time snapshot. A
+five-second cancellation returns typed `hierarchy_timeout`. There is no Python
+tree walk, per-branch query, or load-all-descendants fallback.
 
 ## Shipped acceptance criteria
 

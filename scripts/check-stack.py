@@ -460,12 +460,8 @@ async def resolve_synthetic_gates_for_cleanup(
                 "resolved_by_client": SYNTHETIC_CLIENT,
                 "resolved_by_session_id": run_id,
                 "resolved_by_model": None,
-                "acknowledge_context_change": gate["context_changed_since_request"],
+                "reviewed_context_revision": gate["current_context_revision"],
             }
-            if gate["context_changed_since_request"]:
-                arguments["reviewed_context_revision"] = gate[
-                    "current_context_revision"
-                ]
             resolution_arguments = retained_mutation(arguments)
             resolved = await retained_api_mutation(
                 api,
@@ -1457,7 +1453,9 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "resolved_by_client": "dashboard",
                             "resolved_by_session_id": run_id,
                             "resolved_by_model": None,
-                            "acknowledge_context_change": False,
+                            "reviewed_context_revision": requested_gate[
+                                "current_context_revision"
+                            ],
                         }
                     )
                     frozen_resolution = json.dumps(
@@ -1507,8 +1505,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         resolved_gate["id"] == gate_id
                         and resolved_gate["status"] == "resolved"
                         and resolved_gate["resolution"] == SYNTHETIC_GATE_RESOLUTION
-                        and resolved_gate["context_changed_at_resolution"] is False
-                        and resolved_gate["context_change_acknowledged"] is False,
+                        and resolved_gate["context_changed_at_resolution"] is False,
                         "Dashboard gate resolution returned an incoherent result.",
                     )
                     resolved_history = await tool(

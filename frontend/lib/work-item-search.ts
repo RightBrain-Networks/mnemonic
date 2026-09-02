@@ -1,5 +1,44 @@
 import type { StatusFilter, WorkSort } from "@/lib/types";
 
+export const HIERARCHY_FILTER_DEBOUNCE_MS = 300;
+
+export type HierarchyFilterValues = {
+  tag: string;
+  sourceClient: string;
+  sourceSessionId: string;
+};
+
+export type DebounceScheduler = (
+  callback: () => void,
+  delay: number
+) => () => void;
+
+const defaultDebounceScheduler: DebounceScheduler = (callback, delay) => {
+  const timer = setTimeout(callback, delay);
+  return () => clearTimeout(timer);
+};
+
+export function scheduleHierarchyFilterCommit(
+  input: HierarchyFilterValues,
+  current: HierarchyFilterValues,
+  commit: (next: HierarchyFilterValues) => void,
+  schedule: DebounceScheduler = defaultDebounceScheduler
+): () => void {
+  const next = {
+    tag: input.tag.trim(),
+    sourceClient: input.sourceClient.trim(),
+    sourceSessionId: input.sourceSessionId.trim()
+  };
+  return schedule(() => {
+    if (
+      next.tag === current.tag
+      && next.sourceClient === current.sourceClient
+      && next.sourceSessionId === current.sourceSessionId
+    ) return;
+    commit(next);
+  }, HIERARCHY_FILTER_DEBOUNCE_MS);
+}
+
 type WorkSearchOptions = {
   status: StatusFilter;
   sort: WorkSort;

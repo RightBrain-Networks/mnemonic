@@ -22,7 +22,7 @@ def test_plugin_manifest_and_inventory_are_exact():
     )
 
     assert inner["name"] == "mnemonic"
-    assert inner["version"] == "0.6.0"
+    assert inner["version"] == "0.6.1"
     assert "human questions" in inner["description"]
     assert marketplace["plugins"] == [
         {
@@ -44,6 +44,7 @@ def test_every_skill_agrees_on_gate_authority_and_dual_graph_facts():
         content = path.read_text()
         lowered = content.lower()
         assert "request_human_input" in content, name
+        assert "authority-and-provenance.md" in content, name
         assert "parent-child" in content, name
         assert "discovered-from" in content, name
         assert "never infer" in lowered, name
@@ -65,6 +66,10 @@ def test_shared_references_freeze_ten_writes_and_no_agent_resolution():
     assert "No canonical MCP tool resolves a gate" in authority
     assert "request_human_input" in authority
     assert "list_work_gates" in authority
+    assert "No longer needed" in authority
+    assert "cannot withdraw" in authority
+    assert "`requested_context_revision`" in authority
+    assert "backend-computed drift flags" in authority
     assert "resolve_human_input" not in authority
     assert "unresolved human gate" in graph
     assert "Only `parent-child` defines" in graph

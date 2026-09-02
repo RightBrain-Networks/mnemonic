@@ -37,6 +37,11 @@ $env:TEST_DATABASE_URL = 'postgresql+psycopg://mnemonic_test:mnemonic_test_only@
 
 The retained Phase 5 backend coverage verifies:
 
+The cross-version schema reference is pinned separately by
+`backend/tests/test_schema_parity_postgres.py::test_migrated_schema_matches_orm_metadata`,
+which compares migrated columns, types, defaults, every ORM table's non-trigger
+constraints, and indexes with a scratch ORM schema.
+
 - the `0004` expansion and populated `0005` backfill, including exact legacy
   text/provenance parity, preserved IDs, migration markers, and frozen legacy
   tables;
@@ -46,7 +51,7 @@ The retained Phase 5 backend coverage verifies:
   identity, context ownership, one-parent constraint, and lookup indexes;
 - `0009` ready-order/normalized-tag indexes and one-statement ready pages,
   including blocker/lease/filter/order/pagination parity with fresh claims;
-- populated `0009 -> 0010` upgrade/backfill/downgrade, ORM model parity, lease
+- populated `0009 -> 0010` upgrade/backfill/downgrade, schema behavior, lease
   generations/release markers, exact conservative counts/order, actor fallback,
   typed references, metadata checks, source/deferred guards, and immutability;
 - atomic work-plus-initial-checkpoint creation, pointer-only grouped search,
@@ -93,7 +98,7 @@ The Phase 6 additions verify:
 - reservation/finalization rollback, bounded waiter timeouts, concurrent
   same-key execution, mismatch conflicts, and exact replay before current
   work/relationship/lease guards;
-- first execution and historical replay across all ten registered REST operations,
+- first execution and historical replay across all ten REST operations registered at that time,
   including natural true/false no-ops, later edit/reopen/delete/remove/lease
   replacement, and no duplicate work, checkpoints, relationships, leases, or
   domain events;
@@ -105,23 +110,29 @@ The Phase 6 additions verify:
 
 The combined Phases 7–8 additions verify:
 
-- `0014_human_gates` fresh and populated upgrades, exact Phase 1–6 row/function
-  preservation, ORM/DDL parity, gate/event immutability and deferred
-  completeness, fail-closed lease/work triggers, the exact twelve-kind receipt
-  check, guarded empty downgrade, populated refusal, and downgrade/write races;
+- `0014_human_gates -> 0015_gate_review_fixes` fresh and populated upgrades,
+  exact Phase 1–6 row/function preservation, gate/event immutability and
+  deferred completeness, fail-closed lease/work triggers, the exact twelve-kind
+  receipt check, `clock_timestamp()` creation defaults, acknowledgement and
+  persisted resolution-drift column removal, and the explicitly unsupported
+  0015 downgrade;
 - atomic request/resolution and exact receipt replay under commit/response/
-  rendering faults, the disabled-by-default first-execution fence, multiple
-  gates, immutable current/resolved revision anchors, drift acknowledgement,
-  sanitized errors, source-event coherence, and no duplicate durable effect;
+  rendering faults, multiple gates, nested requested/resolved revision anchors,
+  backend-computed drift projections, and the required reviewed revision on
+  every resolution, sanitized errors, source-event coherence, and no duplicate
+  durable effect;
 - waiting readiness/lifecycle matrices, active capability replay/renew/release
   after gating, fresh/replacement claim rejection, completion/terminal/delete
   guards, and deterministic request/resolve races;
-- immutable-cursor attention and gate-history pages, bounded context gate slices
-  with exact omission counts, soft-deleted decision audit, and typed event
-  history; and
+- cursor-paged attention and gate-history pages, plus point-of-use guidance to
+  restart attention traversal from the head before declaring it drained,
+  bounded context gate slices with exact omission counts, soft-deleted decision
+  audit, and typed event history; and
 - one-statement hierarchy pages with exact branch presentation counts,
   subtree-aware filter flags, discovery labels, cycle/depth bounds, pagination,
-  current database-time lease facts, and measured query plans.
+  current database-time lease facts, statement-count guards, and plan-shape
+  assertions. Representative post-correction performance measurement remains a
+  release gate.
 
 For a focused Phases 7–8 iteration, run the real gate/migration/readiness suites;
 the complete `pytest` command above remains the release gate:
@@ -129,6 +140,7 @@ the complete `pytest` command above remains the release gate:
 ```sh
 uv run pytest -q \
   tests/test_phase78_migration_postgres.py \
+  tests/test_schema_parity_postgres.py \
   tests/test_human_gates_postgres.py \
   tests/test_ready_work_postgres.py \
   tests/test_work_items_postgres.py
@@ -186,19 +198,22 @@ creation, claim, claim-and-recall, and renewal retain separate non-idempotent
 contracts.
 
 Phase 7–8 assertions cover exact request arguments and revision projections,
-the disabled-request error, unknown-outcome guidance, cursor-safe
-`list_human_attention` and `list_work_gates`, waiting readiness and bounded gate
-slices in search/ready/context/resource/prompt models, and sanitized gate errors.
-They assert that no MCP resolution tool exists and that tool descriptions tell
-agents not to infer or self-supply an answer. HTTP and stdio expose the same 25
+unknown-outcome guidance, model-valid request coherence injections, reachable
+scope guards, ready-page waiting refusal, cursor-paged `list_human_attention`
+with pinned first-page restart guidance, `list_work_gates`, waiting readiness,
+bounded gate slices in search/ready/context/resource/prompt models, sanitized
+gate errors, OpenAPI property/required-set parity, and value-free DEBUG logging
+for query and cursor markers. They also pin the tool-description rules to check
+open gates and write supporting context first, never withdraw or self-resolve a
+gate, and restart the attention traversal. HTTP and stdio expose the same 25
 names; `get_activity`, `resolve_human_input`, and removed hand-off surfaces
 remain absent.
 
 The MCP package currently does not declare Ruff in its own development group.
 
-The inner plugin manifest is `0.5.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.5.0` install
-plus a sequential `0.4.0 -> 0.5.0` marketplace update. Use an isolated
+The inner plugin manifest is `0.6.1`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.6.1` install
+plus a sequential `0.6.0 -> 0.6.1` marketplace update. Use an isolated
 `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that the cached
 installed skill bytes changed, and a compatibility copy of the old prerelease
 tool schema is not a valid substitute.
@@ -243,14 +258,22 @@ including gate resolution, and reject invalid, nested, query/header/cookie,
 secret-equal, and excluded-route IDs without echoing them. Gate creation, lease
 paths, and token-bearing browser mutations remain denied.
 
-Phase 7–8 tests additionally cover attention count/cursor paging, literal
-question/answer rendering, one-snapshot reviewed revisions, drift rejection and
-new-intent preparation, gate detail/history slices and omission counts, waiting
-terminal-action guards, live convergence, default-collapsed branches, exact
-hierarchy count/discovery labels, filter-hidden explanations, child paging,
-depth/cycle fallbacks, keyboard/ARIA behavior, and passive descendant lease-
-expiry refresh. No gate question, answer, UUID, or frozen body enters browser
-storage.
+Phase 7–8 Node regressions cover literal gate/event decoding, exact reviewed and
+resolved revisions, drift facts, Waiting/readiness and terminal guards,
+attention/history query construction, debounced request-driving filters,
+omission/history presentation, hierarchy population and discovery labels,
+overlap wording, corrupt depth/cycle fallbacks, identifier-free live frames, and
+the passive-expiry scheduler. No gate question, answer, UUID, or frozen body
+enters browser storage.
+
+Playwright renders hostile literal questions and answers, exact ambiguous retry,
+B-to-C drift rejection and fresh intent, attention empty/error recovery,
+filtered and unfiltered attention, nonzero omission messages, attention and
+53-gate history pagination, current-cursor live refetch, and sibling draft/focus
+preservation. Existing browser cases also cover collapsed hierarchy expansion,
+list-based aggregate text, discovery/filter explanations, child paging,
+ancestry, browser-clock-driven lease expiry, and targeted ARIA/focus behavior.
+These checks do not claim an exhaustive keyboard-only traversal audit.
 
 `typecheck` verifies component and API model alignment; the production build
 catches server/client boundary and asset issues. Backend and Playwright suites
@@ -272,8 +295,7 @@ npm run test:e2e:stack
 ```
 
 The wrapper generates a uniquely scoped Compose project, API key, and available
-loopback ports. Its disposable API explicitly enables human-gate requests; the
-production Compose default remains fenced. It builds API and dashboard images,
+loopback ports. It builds API and dashboard images,
 runs PostgreSQL on tmpfs, and exercises both desktop and narrow Chromium
 layouts. On success, failure, or
 interruption it tears down that exact generated project with volumes and orphan
@@ -323,10 +345,8 @@ boundary, server-side key isolation, and the shipped WOFF2 font assets. It does
 not create, gate, edit, relate, claim, append events, resolve, complete, or
 delete records.
 
-Writes require the explicit `--project-id` opt-in and an API with human-gate
-requests enabled. Run this only against a disposable stack: set
-`MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED=true` for its API, while the production
-Compose default remains false. Use a dedicated validation project whose contents
+Writes require the explicit `--project-id` opt-in. Run this only against a
+disposable stack or an explicitly authorized project. Use a dedicated validation project whose contents
 may safely include five synthetic, soft-deleted records:
 
 ```sh
@@ -390,18 +410,18 @@ together:
 2. the full MCP suite in its separate frozen environment, then repository Ruff
    for MCP and `scripts/check-stack.py`;
 3. frontend unit tests, typecheck, production build, and the isolated Playwright
-   stack whose disposable API enables gate requests;
-4. fresh head plus populated `0013_idempotent_mutations -> 0014_human_gates`
-   preservation, exact legacy validator/non-gate event parity, guarded empty
-   downgrade/re-upgrade, populated downgrade refusal/race, and old-backend
-   fail-closed claim/terminal probes;
+   stack;
+4. fresh head plus populated `0014_human_gates -> 0015_gate_review_fixes`
+   preservation, exact legacy validator/non-gate event parity, current timestamp
+   defaults, acknowledgement and persisted resolution-drift column removal, and
+   old-backend fail-closed claim/terminal probes;
 5. backup/restore with resolved and unresolved gates, attention sequence,
    paired events, and exact request/resolution receipt replay without another
    domain effect;
 6. representative hierarchy `EXPLAIN (ANALYZE, BUFFERS)` fixtures proving one
    statement per page with exact branch aggregate/filter behavior;
-7. plugin manifest parsing plus disposable fresh `0.5.0` and sequential
-   `0.4.0 -> 0.5.0` installation;
+7. plugin manifest parsing plus disposable fresh `0.6.1` and sequential
+   `0.6.0 -> 0.6.1` installation;
 8. read-only and authorized writable stack checks against a disposable project,
    including the exact 25-tool/ten-protected contract and gate lifecycle; and
 9. `git diff --check`, repository Markdown link/path validation, schema/tool
@@ -409,9 +429,8 @@ together:
 
 Do not treat a focused suite, PostgreSQL-skipped run, read-only smoke, stale
 Phase 6 validation count, or marketplace refresh by itself as a Phases 7–8
-release result. Do not enable gate requests in a serving pool until backend,
-MCP/plugin, dashboard/proxy, and operational rollback guidance are deployed
-together.
+release result. Deploy backend, MCP/plugin, dashboard/proxy, and the operational guidance as
+one compatible release boundary.
 
 ## Manual Phases 5–8 browser pass
 
@@ -440,8 +459,7 @@ no token appears in browser state or network payloads. Release it through the
 client, verify new claims remain blocked, complete the blocker, and verify
 readiness recovers. Confirm no claim or force-release UI exists.
 
-With the request fence enabled only in the disposable environment, use MCP to
-request human input on claimed work. Confirm `Active`, `Blocked`, and `Waiting`
+Use MCP to request human input on claimed work. Confirm `Active`, `Blocked`, and `Waiting`
 remain independent, waiting wins only the display label, the item leaves ready
 and rejects a fresh claim, and exact active claim replay/renew/release still
 work. Verify Needs Attention count/paging, literal question rendering,
@@ -449,7 +467,7 @@ breadcrumbs, detail and event history, and an inclusive hierarchy gate count.
 Confirm the browser cannot create a gate and MCP exposes no resolution tool.
 
 Resolve through the dashboard. When context has changed, review the focused
-one-snapshot context and submit its exact revision with acknowledgement; mutate
+one-snapshot context and submit its exact required reviewed revision; mutate
 again before submit and confirm `gate_context_changed` forces a new review and
 UUID. Interrupt a resolution response and retry only the frozen body/key.
 Confirm one resolution/event, immediate queue removal, ready recovery only when

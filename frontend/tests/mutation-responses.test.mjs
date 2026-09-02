@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { classifyMutationResponse } from "../lib/mutation-responses.ts";
+import {
+  DEFINITIVE_PROXY_ERRORS,
+  unsupportedMutationFieldError
+} from "../lib/proxy-policy.ts";
 
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
 const work = "7a5dc555-0a6d-4f92-9678-1647524827c8";
@@ -495,6 +499,36 @@ test("new relationship responses must preserve request provenance and context", 
   })).type, "unresolved");
 });
 
+test("every shared definitive proxy rejection is classified without retaining the intent", async () => {
+  const spec = request(
+    "delete_work",
+    "POST",
+    "/projects/" + project + "/work-items/" + work + "/delete",
+    {
+      expected_version: 1,
+      actor: { actor_client: "dashboard", actor_session_id: "tab-1" }
+    }
+  );
+  for (const [name, error] of Object.entries(DEFINITIVE_PROXY_ERRORS)) {
+    const outcome = await classify(spec, error.status, { detail: error.detail });
+    assert.equal(outcome.type, "rejected", name);
+  }
+
+  const unsupported = unsupportedMutationFieldError("gate_id");
+  assert.equal(
+    (await classify(spec, unsupported.status, { detail: unsupported.detail })).type,
+    "rejected"
+  );
+  for (const [status, detail] of [
+    [400, "The request body contains an unsupported field: ."],
+    [400, "The request body contains an unsupported field: gate_id"],
+    [409, unsupported.detail],
+    [400, "Client operation IDs are accepted only in supported JSON request bodies."]
+  ]) {
+    assert.equal((await classify(spec, status, { detail })).type, "unresolved", detail);
+  }
+});
+
 test("finite error envelopes distinguish rejection, safety conflict, and unknown outcome", async () => {
   const spec = request("delete_work", "POST", `/projects/${project}/work-items/${work}/delete`, {
     expected_version: 1,
@@ -520,6 +554,10 @@ test("finite error envelopes distinguish rejection, safety conflict, and unknown
     }
   });
   assert.equal(unavailable.type, "unresolved");
+  assert.equal(
+    unavailable.message,
+    "Mnemonic cannot verify the mutation outcome yet. Retry the same pending action."
+  );
   const unknown = await classify(spec, 409, { detail: { widened: true } });
   assert.equal(unknown.type, "unresolved");
   const unknownCode = await classify(spec, 409, {

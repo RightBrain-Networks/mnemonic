@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine, build_session_factory, get_session
-from mnemonic_api.errors import ApplicationError, conflict, human_gates_not_enabled
+from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.live_sync import LiveSyncHub, mutation_event
 from mnemonic_api.models import Checkpoint, Project, ProjectSettings, WorkItem, WorkLease
 from mnemonic_api.schemas import (
@@ -100,10 +100,10 @@ from mnemonic_api.services.gates import (
     list_human_attention,
     list_work_gates,
     reject_gate_secret_echo,
-    reject_retained_gate_control_echo,
     request_human_gate,
     resolve_human_gate,
 )
+from mnemonic_api.services.hierarchy import ancestor_paths, hierarchy_page
 from mnemonic_api.services.leases import (
     claim_lease_record,
     release_lease_record,
@@ -112,8 +112,6 @@ from mnemonic_api.services.leases import (
 from mnemonic_api.services.readiness import ready_work_page
 from mnemonic_api.services.relationships import (
     add_relationship_record,
-    ancestor_paths,
-    hierarchy_page,
     list_adjacent_relationships,
     relationship_edge,
     remove_relationship_record,
@@ -173,7 +171,7 @@ _PUBLIC_VALIDATION_LOCATION_SEGMENTS = frozenset(
     actor_model metadata gate_id gate_type question resolution
     requested_by_client requested_by_session_id requested_by_model
     resolved_by_client resolved_by_session_id resolved_by_model
-    acknowledge_context_change reviewed_context_revision current_context_revision
+    reviewed_context_revision current_context_revision
     requested_work_version requested_context_checkpoint_id
     requested_relationship_event_count resolved_context_revision
     resolved_work_version resolved_context_checkpoint_id
@@ -747,13 +745,12 @@ def search_work(
             offset=filters.offset,
         )
     summaries = work_summaries(database, work_items)
-    if (filters.q or "").strip():
-        paths, truncated = ancestor_paths(
-            database, project_id, [work_item.id for work_item in work_items]
-        )
-        for summary in summaries:
-            summary.ancestor_path = paths.get(summary.work_item.id, [])
-            summary.ancestor_path_truncated = summary.work_item.id in truncated
+    paths, truncated = ancestor_paths(
+        database, project_id, [work_item.id for work_item in work_items]
+    )
+    for summary in summaries:
+        summary.ancestor_path = paths.get(summary.work_item.id, [])
+        summary.ancestor_path_truncated = summary.work_item.id in truncated
     return Page(
         items=summaries,
         total=total,
@@ -981,14 +978,6 @@ def create_human_gate(
         database.commit()
         _record_successful_operation(request, operation)
         return operation.response
-    try:
-        reject_retained_gate_control_echo(database, operation.domain_payload)
-    except ApplicationError:
-        database.rollback()
-        raise
-    if not request.app.state.settings.human_gate_requests_enabled:
-        database.rollback()
-        raise human_gates_not_enabled()
     result = request_human_gate(
         database,
         project_id,
@@ -1022,7 +1011,6 @@ def resolve_human_gate_route(
         payload,
         known_secret_values=(
             request.app.state.settings.api_key.get_secret_value(),
-            str(gate_id),
         ),
     )
     operation = _reserve_registered_operation(
@@ -1037,11 +1025,6 @@ def resolve_human_gate_route(
         database.commit()
         _record_successful_operation(request, operation)
         return operation.response
-    try:
-        reject_retained_gate_control_echo(database, operation.domain_payload)
-    except ApplicationError:
-        database.rollback()
-        raise
     result = resolve_human_gate(
         database,
         project_id,

@@ -9,6 +9,17 @@ import type {
   WorkEventRead,
   WorkEventType
 } from "@/lib/types";
+import {
+  boundedText,
+  exactKeys,
+  finiteInteger,
+  nullableUuid,
+  objectValue,
+  validBoundedMetadata,
+  validUtcDateTime,
+  validUuid,
+  type JsonObject
+} from "./wire-guards.ts";
 
 export const WORK_EVENT_TYPES = [
   "work_created",
@@ -63,7 +74,7 @@ const REQUIRED_LIVE_ACTOR_TYPES = new Set<WorkEventType>([
   "human_attention_resolved",
   "work_completed"
 ]);
-const EVENT_FIELDS = new Set([
+const EVENT_FIELDS = [
   "id",
   "project_id",
   "work_item_id",
@@ -87,9 +98,20 @@ const EVENT_FIELDS = new Set([
   "metadata",
   "origin",
   "created_at"
-]);
-const UUID_PATTERN = /^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/;
-const UTC_DATE_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/;
+] as const;
+const EVENT_FIELD_SET = new Set<string>(EVENT_FIELDS);
+const EVENT_PAGE_FIELDS = [
+  "items",
+  "total",
+  "limit",
+  "offset",
+  "pre_phase5_history_may_be_incomplete"
+] as const;
+
+export const WORK_EVENT_DECODER_FIELDS = {
+  EVENT_FIELDS,
+  decodeWorkEventPage: EVENT_PAGE_FIELDS
+} as const;
 const EVENT_SECRET_KEYS = new Set([
   "lease_token",
   "claim_request_id",
@@ -100,120 +122,11 @@ const EVENT_SECRET_KEYS = new Set([
 ]);
 
 
-type JsonObject = Record<string, unknown>;
-
-function objectValue(value: unknown): JsonObject | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null
-    ? value as JsonObject
-    : null;
-}
-
-function exactKeys(value: JsonObject, keys: readonly string[]): boolean {
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
-}
-
-function finiteInteger(value: unknown, minimum = 0): value is number {
-  return Number.isSafeInteger(value) && Number(value) >= minimum;
-}
-
 function nullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string";
 }
-function validUnicode(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
-      index += 1;
-    } else if (code >= 0xdc00 && code <= 0xdfff) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function boundedText(value: unknown, maximum: number): value is string {
-  return typeof value === "string"
-    && validUnicode(value)
-    && !value.includes("\0")
-    && Array.from(value).length >= 1
-    && Array.from(value).length <= maximum
-    && value.trim().length > 0;
-}
-
-function validUuid(value: unknown): value is string {
-  return typeof value === "string" && UUID_PATTERN.test(value);
-}
-
-function nullableUuid(value: unknown): value is string | null {
-  return value === null || validUuid(value);
-}
-
-function validUtcDateTime(value: unknown): value is string {
-  if (typeof value !== "string") return false;
-  const match = UTC_DATE_TIME_PATTERN.exec(value);
-  if (!match) return false;
-  const [, yearText, monthText, dayText, hourText, minuteText, secondText] = match;
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-  const second = Number(secondText);
-  if (year < 1 || month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) {
-    return false;
-  }
-  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-  const days = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  return day >= 1 && day <= days[month - 1]!;
-}
-
 function validEventMetadata(value: unknown): value is JsonObject {
-  const stack = new WeakSet<object>();
-  let separatorBytes = 0;
-
-  const visit = (item: unknown): boolean => {
-    if (item === null || typeof item === "boolean") return true;
-    if (typeof item === "number") return Number.isFinite(item);
-    if (typeof item === "string") return validUnicode(item) && !item.includes("\0");
-    if (typeof item !== "object" || stack.has(item)) return false;
-    stack.add(item);
-    if (Array.isArray(item)) {
-      separatorBytes += Math.max(0, item.length - 1);
-      const valid = item.every(visit);
-      stack.delete(item);
-      return valid;
-    }
-    const object = objectValue(item);
-    if (!object) {
-      stack.delete(item);
-      return false;
-    }
-    const entries = Object.entries(object);
-    separatorBytes += entries.length ? (2 * entries.length) - 1 : 0;
-    const valid = entries.every(([key, entry]) => (
-      validUnicode(key)
-      && !key.includes("\0")
-      && !EVENT_SECRET_KEYS.has(key.toLowerCase())
-      && visit(entry)
-    ));
-    stack.delete(item);
-    return valid;
-  };
-
-  if (!objectValue(value) || !visit(value)) return false;
-  try {
-    const encoded = JSON.stringify(value);
-    return encoded !== undefined
-      && new TextEncoder().encode(encoded).byteLength + separatorBytes <= 16_384;
-  } catch {
-    return false;
-  }
+  return validBoundedMetadata(value, EVENT_SECRET_KEYS);
 }
 
 
@@ -479,7 +392,11 @@ function invalidEventResponse(): never {
 
 export function decodeWorkEvent(value: unknown): WorkEventRead {
   const event = objectValue(value);
-  if (!event || Object.keys(event).some((key) => !EVENT_FIELDS.has(key)) || !exactKeys(event, [...EVENT_FIELDS])) {
+  if (
+    !event
+    || Object.keys(event).some((key) => !EVENT_FIELD_SET.has(key))
+    || !exactKeys(event, EVENT_FIELDS)
+  ) {
     return invalidEventResponse();
   }
   if (
@@ -555,13 +472,7 @@ export function decodeWorkEventPage(
   const page = objectValue(value);
   if (
     !page
-    || !exactKeys(page, [
-      "items",
-      "total",
-      "limit",
-      "offset",
-      "pre_phase5_history_may_be_incomplete"
-    ])
+    || !exactKeys(page, EVENT_PAGE_FIELDS)
     || !Array.isArray(page.items)
     || !finiteInteger(page.total)
     || !finiteInteger(page.limit, 1)

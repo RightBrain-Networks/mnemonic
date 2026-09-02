@@ -317,9 +317,7 @@ export interface HumanGateRead {
   requested_by_client: string;
   requested_by_session_id: string;
   requested_by_model: string | null;
-  requested_work_version: number;
-  requested_context_checkpoint_id: string;
-  requested_relationship_event_count: number;
+  requested_context_revision: HumanGateContextRevision;
   created_at: string;
   status: HumanGateStatus;
   current_context_revision: HumanGateContextRevision;
@@ -334,7 +332,6 @@ export interface HumanGateRead {
   resolved_by_model: string | null;
   resolved_context_revision: HumanGateContextRevision | null;
   context_changed_at_resolution: boolean | null;
-  context_change_acknowledged: boolean | null;
 }
 
 export interface HumanAttentionItem {
@@ -357,8 +354,7 @@ export interface HumanGateResolutionInput extends ClientOperationInput {
   resolved_by_client: "dashboard";
   resolved_by_session_id: string;
   resolved_by_model?: null;
-  acknowledge_context_change: boolean;
-  reviewed_context_revision?: HumanGateContextRevision;
+  reviewed_context_revision: HumanGateContextRevision;
 }
 
 export interface WorkContext {

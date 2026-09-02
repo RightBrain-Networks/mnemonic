@@ -1,0 +1,12 @@
+{
+  "resolution": "Use the staged rollout policy. Replace this example with the person's exact answer and never include secrets.",
+  "resolved_by_client": "mnemonic-dashboard",
+  "resolved_by_session_id": "example-only-replace-with-actual-dashboard-session-id",
+  "resolved_by_model": null,
+  "reviewed_context_revision": {
+    "work_version": 3,
+    "context_checkpoint_id": "11111111-1111-4111-8111-111111111111",
+    "relationship_event_count": 2
+  },
+  "client_operation_id": "00000000-0000-4000-8000-000000000008"
+}

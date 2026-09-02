@@ -4,261 +4,149 @@
 
 `python scripts/setup.py` creates two independent random secrets in `.env`,
 refuses to overwrite an existing file, and never prints secrets. Keep that file
-private. On Unix it is created with mode 0600; on Windows keep the checkout
-under an account-private directory and use filesystem access controls.
+private. On Unix it is created with mode 0600; on Windows use account-private
+filesystem access controls.
 
-For a host-managed nginx TLS proxy, use
+The published addresses default to `127.0.0.1:3000` (dashboard), `:8000` (API),
+and `:8001` (MCP). Change the corresponding port values in `.env`. If the web
+port changes, update `MNEMONIC_DASHBOARD_ORIGINS` with each exact browser origin
+and recreate both API and web; both the server proxy and data-free live-sync
+socket enforce that list.
+
+For host-managed TLS, use
 [`deploy/nginx/mnemonic.conf`](../deploy/nginx/mnemonic.conf) and its
-[installation guide](../deploy/nginx/README.md). The optional `compose.tls.yaml`
-adds the exact HTTPS host/origin without changing the local-only defaults.
+[installation guide](../deploy/nginx/README.md). `compose.tls.yaml` adds the
+chosen HTTPS host/origin without changing the loopback defaults.
 
-The published addresses are `127.0.0.1:3000` (dashboard), `:8000` (API), and
-`:8001` (MCP). Change the three port variables in `.env` if needed. When changing
-the web port, also change `MNEMONIC_DASHBOARD_ORIGINS` to list its exact origins,
-such as `http://localhost:3100,http://127.0.0.1:3100`. Both the web service’s
-HTTP proxy and the API’s data-free WebSocket endpoint consume this allowlist;
-recreate both services after changing it. Browser live sync reconnects
-automatically after a temporary interruption.
+Important API settings are:
 
-`MNEMONIC_LEASE_TTL_SECONDS` controls every server-issued work lease. It
-defaults to 900 seconds and startup rejects values outside 60 through 3600.
-Clients cannot choose an expiry or request an unlimited claim. Changing the
-setting affects later acquisitions and renewals; it does not rewrite retained
-lease rows.
+- `MNEMONIC_LEASE_TTL_SECONDS`, default 900, accepted range 60 through 3600.
+  It affects later claims and renewals, not existing lease rows.
+- `MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS`, default 10, accepted range 1
+  through 10. A wait timeout returns `client_operation_unavailable`; only an
+  exact retry of the privately retained intent is safe.
+- `MNEMONIC_EMBEDDING_CACHE`, the model-cache path used by semantic search.
+- `MNEMONIC_DASHBOARD_ORIGINS`, a comma-separated exact-origin allowlist.
 
-`MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS` bounds how long a protected mutation
-waits for another transaction using the same project/operation UUID. It defaults
-to 10 seconds and startup rejects values outside 1 through 10. A timeout returns
-sanitized `client_operation_unavailable`; it must never fall through to a
-second domain execution. Lower values fail ambiguous concurrent retries sooner,
-while higher values occupy a database connection longer.
-
-`MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED` defaults to `false`. It fences only
-genuinely new human-gate requests; exact completed request replay, attention and
-history reads, readiness/lifecycle enforcement, and direct REST/dashboard
-resolution remain active. Keep it false through the coordinated Phase 7–8
-cutover, then set it consistently across the gate-aware API pool and recreate
-the API service. Turning it false later is an incident brake, not a way to hide
-or discard existing gates.
-
-Never set browser-public environment variables containing credentials. The
-dashboard's API key is a server-only setting. The database password must be
-URL-safe because it is interpolated into the API connection URL.
-
-Changing `POSTGRES_PASSWORD` after initialization does not change the password
-inside an existing PostgreSQL volume. Rotate the database role password through
-PostgreSQL first, then update `.env` and recreate services. To rotate the API key,
-change `.env`, recreate API/MCP/web, and update connected clients.
+Never put credentials in browser-public environment variables. The dashboard's
+API key is server-only. The PostgreSQL password must be URL-safe because it is
+interpolated into a connection URL. Changing `POSTGRES_PASSWORD` after volume
+initialization does not rotate the database role: change it in PostgreSQL first,
+then update `.env` and recreate services. To rotate the API key, update `.env`,
+recreate API/MCP/web, and update every connected client.
 
 ## Semantic search
 
-Semantic search is opt-in; ordinary dashboard and MCP searches continue using the
-existing PostgreSQL lexical path. A nonblank semantic query runs
-`BAAI/bge-small-en-v1.5` inside the API container and can fill stale rows in the
-derived `work_item_embeddings` table in batches of 16, so its first request
-after new or changed work items or checkpoints can take longer than later
-requests.
+Semantic search is opt-in. Ordinary dashboard and MCP queries use PostgreSQL
+lexical search. A nonblank semantic query runs `BAAI/bge-small-en-v1.5` inside
+the API container and lazily refreshes derived `work_item_embeddings` rows in
+batches of 16, so a first query after canonical content changes may take longer.
 
-The image build downloads model artifacts into `/app/.embedding-cache`; image
-builds therefore need network access. The running image sets Hugging Face offline
-mode and will not download a missing model or send prompt/query text to a hosted
-model API.
+The image build downloads model artifacts into `/app/.embedding-cache`; runtime
+uses offline mode and never sends prompt or query text to a hosted model API.
+Embedding rows are derived cache: canonical work and checkpoints are sufficient
+to rebuild them. On `semantic_unavailable`, turn semantic mode off and continue
+with lexical search.
 
-Each derived row carries the embedding configuration and a content digest. A
-mismatch is rebuilt lazily. The bounded embedding source combines work title and
-summary, initial context, and recent checkpoint text. The rows can be present in
-a backup, but canonical work/checkpoint rows are sufficient to regenerate them.
-If semantic retrieval returns 503, turn it off to keep using the independent
-lexical path.
+## Upgrading the single-host Compose stack
 
-## Phase 1 cutover
+Mnemonic has one API container, and that container is the only schema migrator.
+It runs `alembic upgrade head` before it becomes ready. There is no mixed API
+pool or routing cutover. Upgrade the schema, API, MCP, dashboard, and plugin as
+one release boundary; do not deliberately restart an older writer against a
+newer contract.
 
-The Phase 1 migration is a maintenance-window cutover, not a rolling migration.
-The API runs Alembic before serving, and `0005_work_graph_backfill` copies
-legacy rows while writers are quiesced. Before deploying that image:
+1. Confirm the current stack is healthy, then take and validate a fresh custom
+   dump while it is still serving:
 
-1. stop API, MCP, and dashboard writers;
-2. create a fresh custom-format backup and verify it with `pg_restore --list`;
-3. record hand-off/comment counts by project and lifecycle;
-4. rehearse `0003_handoff_comments -> 0005_work_graph_backfill` against an
-   isolated restored database;
-5. deploy API, MCP, and dashboard images as one compatible stack.
+   ```sh
+   docker compose ps
+   docker compose exec backup sh /opt/mnemonic/backup.sh once
+   docker compose logs --tail=20 backup
+   ```
 
-The Phase 1 runtime head retains the legacy tables read-only for an observation
-window. Canonical endpoints use
-`work_items`/`checkpoints`; there is no dual-write path. Do not drop the
-legacy tables until migrated counts and representative exact values have been
-audited, a post-upgrade backup has passed an isolated restore drill, and the
-operator explicitly accepts the rollback boundary.
+   Copy the completed dump to a different device or backed-up location. A dump
+   on the same disk as the PostgreSQL volume is not a disaster-recovery copy.
+2. Quiesce every writer. Stop the bundled entry points and stop any direct REST
+   clients before proceeding:
 
-Before any new canonical write, an old image may be usable only if that exact
-rollback has been rehearsed. After new work or checkpoint writes, old code
-cannot see them; safe rollback requires restoring the pre-cutover backup. An
-Alembic downgrade cannot losslessly collapse multiple checkpoints into one
-mutable legacy row.
+   ```sh
+   docker compose stop web mcp api
+   ```
 
-## Phase 2 contract and lease deployment
+3. Optionally run migration as a separate visible step. API startup repeats it
+   as a no-op:
 
-Phase 2 follows the Phase 1 observation window. Before deploying it, confirm
-the canonical stack passed its parity audit and restore drill, take and verify a
-fresh custom-format backup, and obtain the explicit operator go/no-go to cross
-the contract boundary. `0006_work_graph_contract` drops the frozen legacy
-tables and unused ORM metadata. This contract step is forward-only
-operationally: rollback after it is database restore, not Alembic downgrade.
+   ```sh
+   docker compose run --rm api alembic upgrade head
+   ```
 
-`0007_work_leases` then adds the optional lease table and expiry index. Deploy
-API, MCP, and dashboard images together so token-aware terminal mutations,
-claim tools, safe readiness projection, and browser denial agree. Validate one
-claim/replay/renew/completion flow after migration. A normal backup includes any
-retained lease rows, but an expired restored lease is not ownership and cannot
-strand work.
+4. Build and start the whole compatible stack. Do not recreate API alone while
+   web or MCP retain connections to the old container:
 
-Lease tokens are capabilities inside the existing single-user bearer-key trust
-boundary. They may appear only in claim/renew receipts and JSON request bodies.
-Keep MCP client tool traces private; never copy tokens into checkpoint text,
-URLs, tickets, chat, metrics, or logs. The dashboard intentionally cannot claim,
-renew, release, receive, or forward a token.
+   ```sh
+   docker compose up --build -d --wait
+   docker compose ps
+   docker compose logs --tail=100 api
+   ```
 
-Expired lease rows may remain indefinitely and are replaced atomically by a
-new request. There is no cleanup worker or force-release UI. For diagnostics,
-inspect only work ID, holder fields, and lease timestamps; avoid selecting or
-logging `lease_token`. TTL expiry is the abandoned-session recovery path.
+5. Verify the release artifact before reopening any external writer. The schema
+   parity check is
+   `backend/tests/test_schema_parity_postgres.py::test_migrated_schema_matches_orm_metadata`;
+   it compares columns, types, defaults, every ORM table's non-trigger
+   constraints, and indexes with an independently built ORM schema. The
+   committed OpenAPI snapshot and its strict consumer tests must also pass.
+6. Run the live read-only path check from the MCP environment:
 
-## Phase 3 graph deployment
+   ```sh
+   uv run --project mcp python scripts/check-stack.py
+   ```
 
-`0008_work_relationships` adds the project-local typed graph after the lease
-schema. Deploy API, MCP, and dashboard images together so relationship shapes,
-readiness, hierarchy, browser proxy rules, and the four MCP graph tools agree.
-The migration creates no inferred edges: existing work initially has no graph
-facts, and its readiness continues to derive from lifecycle and lease state.
+   Supplying `--project-id` authorizes synthetic writes and immutable history in
+   that project. Use it only for a disposable or explicitly approved project,
+   optionally with a different `--other-project-id` for isolation coverage.
 
-Relationship mutations serialize briefly on the project row and lock endpoint
-work in UUID order. That favors correct cycle/parent checks over maximum write
-parallelism; monitor unusually long graph-write latency, but do not bypass the
-API with direct edge updates. There is no graph repair worker or scheduler.
+Application rollback means redeploying a compatible fixed image while leaving
+the database at head. Prefer a forward fix. Migration `0015_gate_review_fixes`
+has no supported Alembic downgrade path, so no later revision can downgrade
+past it. Once 0015 has been applied, the only data rollback boundary is a complete restore of a chosen
+pre-upgrade archive, explicitly accepting loss of every later write. Never
+truncate receipts, edit events, resolve/delete gates, or disable constraints to
+force an application or schema rollback.
 
-After migration, exercise an idempotent add/get/list/remove flow, an unresolved
-blocker that rejects a new claim, removal or completion that restores readiness,
-an attempted block or parent cycle that returns sanitized `relationship_cycle`,
-atomic child/discovery creation with context evidence, subtree-aware root/child
-browse, and relationship-protected deletion. Inspect errors only through their
-sanitized codes; checkpoint context and relationship provenance can be private.
+A restore rehearsal for this release should cover unresolved and resolved gates,
+attention sequence state, paired gate events, request/resolution receipts, and
+same-key replay without a new durable effect. An older archive can migrate
+forward, but it cannot recover graph, event, receipt, or gate facts created after
+that archive.
 
-A pre-Phase-3 backup can still be restored into an isolated database and then
-migrated forward: `0008` creates an empty relationship table because the older
-archive contains no graph facts. Do not infer or reconstruct edges from prompt
-text. A Phase 3 backup is required to restore relationships that existed.
+## Durable runtime invariants
 
-## Phase 4 ready-work deployment
+### Leases
 
-`0009_ready_work_indexes` is an additive index migration for the ready-work
-query. Deploy the Phase 4 API and MCP images together so the exact readiness
-predicate, filters, pointer-only response, and claim-side recheck agree. The
-gate seam was intentionally vacuous at this historical revision. Migration
-`0014_human_gates` now supplies the explicit schema and shared gate predicate;
-do not emulate it with labels or client-only filtering.
+Lease tokens are capabilities inside the shared bearer-key trust boundary. They
+belong only in claim/renew responses and JSON mutation bodies. Never copy them
+into checkpoints, events, URLs, chat, tickets, metrics, logs, or screenshots.
+The browser cannot claim, renew, release, receive, or forward a token. Expired
+lease rows are deliberately retained until a later acquisition replaces them;
+TTL expiry is abandoned-session recovery, not an operator force-release task.
 
-After migration, verify that ready work is visible and Pending, has no unresolved
-incoming `blocks` edge, and has no active lease. Exercise the deterministic
-`priority DESC, created_at ASC, id ASC` order plus tag and direct-parent filters.
-Treat the result as an advisory discovery snapshot: consumers must still call
-`claim_work`, which rechecks eligibility atomically and may reject a stale
-candidate. There is no automatic scheduler or claim-next operation.
+### Immutable work events
 
-## Phase 5 immutable-event cutover and rollback
+Authoritative lifecycle, lease, relationship, checkpoint, gate, and identity
+events commit in the same transaction as their canonical fact. Exact receipt
+replay and natural no-ops do not fabricate another event. Clients may append
+only `progress`; checkpoints remain the resume surface. Events are immutable,
+and a database trigger rejects update/delete. Use only bounded event-type
+labels in telemetry and never record event bodies, actors, projects, or IDs as
+metric labels.
 
-`0010_work_events` is a quiesced cutover, not a rolling migration. It creates the
-append-only event store and backfills historical canonical facts. Any Phase 4
-write accepted after that backfill but before Phase 5 writers take over would
-have no matching authoritative event. For the cutover:
+### Idempotent mutation receipts
 
-1. stop API, MCP, dashboard, and any direct REST writers;
-2. take a fresh custom-format backup, verify its archive, and rehearse restore;
-3. migrate through `0009` and `0010` on an isolated restored database first;
-4. verify migration/model parity, exact backfill counts by event type,
-   representative provenance and partial-history flags, event sequence state,
-   and the database update/delete rejection triggers;
-5. migrate production and deploy API, MCP, and dashboard images as one
-   compatible stack; resume traffic only after the same checks pass.
-
-Do not restart a Phase 4 writer against a database whose `0010` backfill has
-finished. If the deployment fails before any Phase 5 write, keep writers stopped
-and either fix forward or downgrade/restore to the rehearsed pre-cutover state.
-After a Phase 5 write, `0010` downgrade drops the event history, including
-progress events that have no checkpoint equivalent. Prefer a forward fix. If an
-operator accepts a rollback that discards post-cutover writes, first preserve a
-forensic backup, quiesce all writers, then restore the pre-cutover archive as the
-single rollback boundary.
-
-Authoritative lifecycle, lease, relationship, checkpoint, and identity events
-are inserted in the same transaction as their canonical mutation. Exact
-idempotent replays and other no-op outcomes add no event. `append_event` accepts
-only a progress event; a checkpoint remains durable resume evidence and gets its
-own automatic `checkpoint_added` event. Event rows are immutable and ordered per
-work by `created_at`, with the server-assigned ID as the tie-breaker. Their
-actor provenance is client-asserted audit context, not an authentication or
-authorization boundary.
-
-Keep API bearer keys and lease tokens out of event content, metadata, URLs, logs,
-and screenshots. Known request credentials echoed into event input are rejected,
-but arbitrary accepted prose can still contain unknown sensitive material. The
-database trigger rejects event update/delete statements with SQLSTATE `55000`;
-do not bypass the API or disable that protection for routine maintenance.
-
-Event retention follows retained work; there is no physical event purge API.
-If event operations are instrumented, use only bounded event-type labels. Never
-put project names, tag values, actors, event bodies, or unbounded IDs in metric
-labels.
-
-## Phase 6 idempotent-mutation deployment and rollback
-
-`0013_idempotent_mutations` follows
-`0012_pending_deferred_statuses`, which in turn follows
-`0011_project_settings`. The Phase 6 revision is additive for existing
-production content: it creates an empty private receipt table and adds a
-separate `NOT VALID` recursive check that leaves historical progress metadata
-unchanged while enforcing the reserved operation key on new/updated rows. It
-does not rewrite work, checkpoints, relationships, leases, or events.
-
-Use one quiesced schema/application boundary:
-
-1. stop API, MCP, dashboard, and every direct REST writer;
-2. take a fresh custom-format backup, validate its archive, and rehearse an
-   isolated restore through `0013`;
-3. confirm the database is at the expected
-   `0012_pending_deferred_statuses` baseline
-   and no locally created `client_operations` object collides;
-4. migrate production to `0013_idempotent_mutations`;
-5. deploy API, MCP, dashboard, and plugin guidance together;
-6. verify one fresh keyed mutation, its exact replay, a mismatch conflict, a
-   natural no-op replay, and the exact 22-tool catalog before reopening writers.
-
-Do not run an older writer against the new contract during cutover. In
-particular, pre-Phase-6 progress validation cannot translate the new reserved-
-metadata database failure, and older MCP/dashboard clients do not retain the
-required keys. There is no dual-write or compatibility mode.
-
-The ledger reserves before current domain lookup and may wait on a concurrent
-owner. The configured wait is bounded; `client_operation_unavailable` means
-the outcome may be unknown and permits only an exact retry with the retained
-UUID and complete semantic request. `client_operation_conflict` means that
-project/key is already bound differently; do not generate a new key merely to
-bypass it. Application logs intentionally contain only the bounded operation
-kind and outcome classification. Never query, paste, log, or metric-label the
-operation UUID, fingerprint, salt, response JSON, request body, target, actor,
-project, bearer, or lease token.
-
-Completed receipts have no TTL or cleanup task. Do not delete or edit them:
-historical retries can arrive after the domain object changes or disappears.
-The database rejects completed update/delete and rejects a pending row at
-commit. For capacity planning, inspect only aggregate row count and
-table/index/TOAST sizes. Receipt response size makes growth workload-dependent.
-
-Run routine inspection only from a private operator shell and return aggregates,
-never receipt identities, fingerprints, salts, or response JSON. These queries
-show retained volume, invalid committed state, registered contract versions,
-age, index health, and database-wide deadlocks without selecting sensitive
-columns:
+Completed receipts have no TTL or cleanup task. They are private retry state and
+may contain frozen response bodies. Never edit, delete, or truncate them; a
+historical exact retry can arrive after the domain object changes. A committed
+`pending` receipt is an invariant failure. Inspect only aggregates:
 
 ```sql
 SELECT
@@ -271,143 +159,57 @@ FROM client_operations;
 
 SELECT
     operation_kind,
-    date_trunc('day', created_at AT TIME ZONE 'UTC') AS utc_day,
-    count(*) AS completed_receipts
-FROM client_operations
-GROUP BY operation_kind, utc_day
-ORDER BY utc_day, operation_kind;
-
-SELECT
-    operation_kind,
     request_fingerprint_version,
     response_contract_version,
     count(*) AS completed_receipts
 FROM client_operations
 GROUP BY operation_kind, request_fingerprint_version, response_contract_version
 ORDER BY operation_kind, request_fingerprint_version, response_contract_version;
-
-SELECT min(created_at) AS oldest_created_at,
-       max(completed_at) AS newest_completed_at
-FROM client_operations;
-
-SELECT indexrelname, idx_scan, pg_relation_size(indexrelid) AS index_bytes
-FROM pg_stat_user_indexes
-WHERE relname = 'client_operations'
-ORDER BY indexrelname;
-
-SELECT deadlocks, conflicts
-FROM pg_stat_database
-WHERE datname = current_database();
 ```
 
-The committed pending count must be zero. An unexpected contract version,
-invalid/missing unique index, growing deadlock count, or sustained unavailable
-outcomes is an incident. To aggregate only the intentionally redacted
-operation-kind/outcome log fields for a bounded window:
+`client_operation_unavailable` means a protected outcome may be unknown; replay
+only the exact privately retained operation UUID and full request. A
+`client_operation_conflict` on an asserted exact retry is a caller-safety
+incident, not permission to substitute a UUID.
 
-```sh
-docker compose logs --since=24h api |
-  sed -n 's/.*Client operation outcome kind=\([^ ]*\) outcome=\([^ ]*\).*/\1 \2/p' |
-  sort |
-  uniq -c
-```
+### Human gates, deferral, and hierarchy reads
 
-`outcome=unavailable` includes receipt waits and invariant failures; inspect
-private PostgreSQL/application logs to distinguish them without copying queries
-or caller values into tickets or telemetry. Use a privately bound exact scope
-only when running `EXPLAIN (ANALYZE, BUFFERS)` for the unique lookup, and
-retain only the plan shape, timing, and buffer totals.
+An unresolved gate makes Pending work `waiting`, removes it from ready
+discovery, and blocks a fresh/replacement claim, completion, terminal
+transition, and deletion. It does not revoke an existing lease. An agent checks existing unresolved gates, writes the supporting `context`
+checkpoint, and then requests
+one concrete decision; agents cannot resolve, edit, cancel, or withdraw it. If
+later evidence makes the question moot, append a context checkpoint explaining
+why and have a person resolve it as "No longer needed".
 
-If the Phase 6 application must be rolled back after any receipt exists, keep
-the database at `0013`, keep writers quiesced, and fix forward or restore the
-whole pre-cutover backup. An older application is not idempotency-capable. The
-Alembic downgrade takes an exclusive ledger lock and refuses when any row
-exists; it is supported only for an unused, writer-quiesced migration and drops
-only Phase 6 receipt/metadata objects. Never truncate receipts to force a
-downgrade.
+Resolution is a dashboard/direct-REST human action. Every attempt must submit
+`reviewed_context_revision` equal to the exact current work version, newest
+context checkpoint ID, and relationship-event count the person reviewed. Any
+intervening change makes that frozen attempt stale; reload, review, and prepare
+a new operation intent. Resolver fields are asserted provenance under the
+shared bearer, not a signed identity. Gate reads nest the requested three-field
+revision and expose server-computed current and resolution drift flags; clients
+should validate their types and nullability rather than rederive them.
 
-A post-Phase-6 backup is the only backup that preserves replay for keyed
-mutations issued after cutover. Restore the full archive transactionally,
-migrate forward if needed, and keep all writers stopped until exact historical
-replay returns the stored body without changing domain rows, events, or leases.
-A pre-Phase-6 archive can migrate forward safely but cannot recover receipts or
-provide retry safety for operations performed after that archive.
+`deferred` is a persisted human hold, distinct from waiting and blocking. It is
+absent from ready discovery and must not be returned to Pending unless the
+current human instruction explicitly selects it. Resolving a gate does not
+undefer a work item; it only removes the gate's independent readiness fact.
 
-## Phases 7–8 human-oversight deployment and rollback
+Attention pages use opaque `next_cursor` values. Pass the returned value back as
+`cursor`. Sequence allocation precedes transaction commit, so a forward walk
+can miss a lower sequence that commits later. Restart once without a cursor
+before concluding the queue is drained. A malformed, foreign-scope, or
+filter-mismatched cursor returns `422 invalid_cursor`; restart from the first
+page.
 
-`0014_human_gates` follows `0013_idempotent_mutations`. It preserves every
-existing production row and receipt, creates an empty gate table, adds internal
-gate references and constraints to the event store, widens the private receipt
-registry from ten to exactly twelve kinds, and installs database fail-closed
-guards for fresh/replacement claims plus terminal/delete work mutations. The
-hierarchy response also gains strict presentation fields, so this is a
-coordinated backend/MCP/dashboard/plugin cutover without compatibility shims.
+Hierarchy reads have a five-second database statement timeout. A typed
+`503 hierarchy_timeout` means that read was canceled and its transaction rolled
+back; retry with narrower filters or a smaller page. Repeated timeouts are a
+hierarchy performance incident. Do not report them as a general database outage
+or weaken hierarchy constraints.
 
-Before deployment:
-
-1. quiesce API, MCP, dashboard, and direct REST mutation/claim writers;
-2. take a custom-format backup, validate its archive, and restore-test it in an
-   isolated environment;
-3. confirm the live head is exactly `0013_idempotent_mutations`, record canonical
-   table counts/content hashes and the legacy metadata-v1 function definition,
-   and check that no locally invented gate objects or operation kinds collide;
-4. rehearse `0013 -> 0014`, lock duration, hierarchy query plans, and the old-
-   backend fail-closed probes on a production-sized restored copy.
-
-Upgrade and enable in this order:
-
-1. apply `0014_human_gates` transactionally;
-2. deploy the gate-aware API with
-   `MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED=false` while writers remain quiesced;
-3. verify migration/model parity, empty attention/history reads, context and
-   hierarchy shapes, ready/claim behavior, an old append-event receipt replay,
-   and the database claim/terminal/delete guards;
-4. drain every old backend process and connection; record image digests,
-   replicas, routing membership, and zero old active database connections;
-5. deploy the MCP adapter/plugin and dashboard/proxy together. Confirm exactly
-   25 MCP tools, exactly ten protected MCP mutation schemas, no MCP resolution
-   tool, and all current response models;
-6. resume ordinary gate-aware writers and prove new requests still return
-   sanitized `human_gates_not_enabled` while attention/history reads and
-   resolution remain usable;
-7. set the fence to `true` consistently across the gate-aware API pool and
-   recreate it; and
-8. in a disposable validation project, request a synthetic gate, prove waiting
-   and ready/fresh-claim exclusion plus attention/detail/hierarchy visibility,
-   resolve it through the dashboard with exact-retry recovery, and retain only
-   redacted statuses and aggregate counts.
-
-Do not enable requests while any old strict MCP model or backend remains in the
-serving pool. Old clients can reject new readiness/context fields, and an old
-backend can mis-list waiting work. The database rejects its fresh/replacement
-claim and terminal/delete writes, but that is an incident backstop rather than
-a supported mixed mode.
-
-If a problem occurs after gates exist, set the request fence false, keep the
-database at `0014`, and deploy the last known gate-aware backend or fix forward.
-Reads and human resolution continue, so operators can drain the queue safely.
-If no gate-aware binary is safe, quiesce ready/claim/terminal writers and expose
-only reviewed read/repair paths. Never resolve, delete, truncate, or hide gates
-or receipts to force rollback.
-
-A database downgrade is supported only before any gate, gate event, or gate-
-operation receipt exists and while every writer is quiesced. The migration
-holds `ACCESS EXCLUSIVE` locks in the writer-compatible order
-`client_operations`, `work_items`, `work_gates`, `work_events`, then checks
-emptiness. It restores the exact `0013` receipt/event constraints and leaves all
-Phase 1–6 rows plus the legacy metadata validator unchanged. Any nonempty check
-must abort; do not truncate data or bypass the guard. After the first gate or
-receipt, rollback means a forward fix or whole-database restore to an explicitly
-accepted pre-cutover archive, with all post-backup writes lost.
-
-A Phase 7–8 restore drill must include resolved and unresolved gates, the
-attention identity sequence, paired gate events, and request/resolution receipts.
-After isolated restore, verify migration head and invariants, unresolved
-ready/fresh-claim/terminal exclusion, exact attention/history/context/hierarchy
-projections, and same-key request/resolution replay with no new gate, event,
-activity, lifecycle, or receipt effect. A pre-Phase-7 archive can migrate
-forward to an empty gate table but cannot recover later questions, answers,
-events, attention order, or retry outcomes.
+## Monitoring and repair boundaries
 
 ### Identifier-free aggregate monitoring
 
@@ -650,17 +452,15 @@ directory paths, and uses a single transaction for schema replacement and
 archive loading so errors restore the original target. Mnemonic does not use
 non-public application schemas or optional PostgreSQL extensions; the script
 refuses either unexpected layout instead of deleting outside its ownership
-boundary or producing a hybrid restore. The API
-applies any newer migrations, including `0009`, `0010`, `0011`, `0012`,
-`0013`, and `0014`, before becoming ready. Do not expose API, MCP, or dashboard traffic
-until readiness succeeds and
-the restored schema/data checks pass. A restore from before a schema change
-should be rehearsed on an isolated instance first; restore is not a substitute
-for a planned schema downgrade. A pre-Phase-3 archive cannot recover later graph
-facts, a pre-Phase-5 archive cannot recover later event history, and a
-pre-Phase-6 archive cannot recover later client-operation receipts, and a
-pre-Phase-7 archive cannot recover later gates, gate events, attention order, or
-gate-operation receipts.
+boundary or producing a hybrid restore. The API applies every migration newer than the archive through the current head
+before becoming ready. Do not expose API, MCP, or dashboard traffic until
+readiness succeeds and the restored schema/data checks pass. Rehearse a restore
+from before a schema change on an isolated instance first. Restore is not a
+substitute for schema downgrade; downgrade is explicitly unsupported beginning
+with migration 0015. A pre-Phase-3 archive cannot recover later graph facts, a
+pre-Phase-5 archive cannot recover later event history, a pre-Phase-6 archive
+cannot recover later client-operation receipts, and a pre-Phase-7 archive cannot
+recover later gates, gate events, attention order, or gate-operation receipts.
 
 Deletion from the dashboard is a soft delete. No ordinary work/checkpoint/event
 API or MCP read can retrieve a deleted work item. The immutable rows remain
@@ -685,7 +485,11 @@ server proxy validates request hosts and browser origins, but any trusted local
 process can access that dashboard. Do not share a machine account with people
 who should not see its prompts.
 
-The API and HTTP MCP endpoints require bearer authentication. Checkpoint and
+The API and HTTP MCP endpoints require bearer authentication. nginx logs the raw
+`$uri`, so route UUIDs can appear in private access logs; nginx has no
+route-template placeholder. Keep those logs local, access-controlled, and
+rotated. The MCP process sets the `httpx` logger and server log level to WARNING
+so query text, cursors, and URL identifiers are not emitted at INFO. Checkpoint and
 human-gate content is rendered as text, not executable HTML. Gate requester and
 resolver fields are client assertions under the shared bearer; Mnemonic does
 not authenticate a person's identity, sign approvals, or verify answers. The MCP

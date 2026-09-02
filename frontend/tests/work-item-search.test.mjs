@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { childSearchParams, workSearchParams } from "../lib/work-item-search.ts";
+import {
+  HIERARCHY_FILTER_DEBOUNCE_MS,
+  childSearchParams,
+  scheduleHierarchyFilterCommit,
+  workSearchParams
+} from "../lib/work-item-search.ts";
 
 test("work search includes the explicit full view and defaults to lexical retrieval", () => {
   const params = workSearchParams({ status: "pending", sort: "created", limit: 20, offset: 0, query: "database migration" });
@@ -51,4 +56,44 @@ test("ordinary browse pages structural roots and child pages inherit filters", (
     }).toString(),
     "status=all&sort=created&limit=50&offset=0"
   );
+});
+
+test("rapid hierarchy-filter edits produce one request-driving committed key", () => {
+  const tasks = [];
+  const commits = [];
+  const schedule = (callback, delay) => {
+    const task = { callback, delay, cancelled: false };
+    tasks.push(task);
+    return () => { task.cancelled = true; };
+  };
+  const current = { tag: "", sourceClient: "", sourceSessionId: "" };
+  let cancel = scheduleHierarchyFilterCommit({
+    ...current,
+    tag: "r"
+  }, current, (next) => commits.push(next), schedule);
+  cancel();
+  cancel = scheduleHierarchyFilterCommit({
+    ...current,
+    tag: "re"
+  }, current, (next) => commits.push(next), schedule);
+  cancel();
+  scheduleHierarchyFilterCommit({
+    tag: " release ",
+    sourceClient: " playwright-api ",
+    sourceSessionId: " session-7 "
+  }, current, (next) => commits.push(next), schedule);
+
+  for (const task of tasks) {
+    if (!task.cancelled) task.callback();
+  }
+  assert.deepEqual(tasks.map((task) => task.delay), [
+    HIERARCHY_FILTER_DEBOUNCE_MS,
+    HIERARCHY_FILTER_DEBOUNCE_MS,
+    HIERARCHY_FILTER_DEBOUNCE_MS
+  ]);
+  assert.deepEqual(commits, [{
+    tag: "release",
+    sourceClient: "playwright-api",
+    sourceSessionId: "session-7"
+  }]);
 });

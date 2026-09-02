@@ -27,9 +27,7 @@ function response(overrides = {}) {
     requested_by_client: "claude-code",
     requested_by_session_id: "agent-session",
     requested_by_model: "model",
-    requested_work_version: 2,
-    requested_context_checkpoint_id: checkpoint,
-    requested_relationship_event_count: 3,
+    requested_context_revision: revision(),
     created_at: "2026-09-01T12:00:00Z",
     status: "resolved",
     current_context_revision: revision(),
@@ -44,7 +42,6 @@ function response(overrides = {}) {
     resolved_by_model: null,
     resolved_context_revision: revision(),
     context_changed_at_resolution: false,
-    context_change_acknowledged: false,
     ...overrides
   };
 }
@@ -60,7 +57,7 @@ function request(payload = {}) {
       resolved_by_client: "dashboard",
       resolved_by_session_id: "dashboard-tab",
       resolved_by_model: null,
-      acknowledge_context_change: false,
+      reviewed_context_revision: revision(),
       ...payload,
       client_operation_id: operation
     })
@@ -84,10 +81,9 @@ test("resolution success binds path, answer, dashboard provenance, and unchanged
   ]) assert.equal((await classify(request(), 200, poisoned)).type, "unresolved");
 });
 
-test("acknowledged resolution accepts only the exact reviewed and resolved revision", async () => {
+test("reviewed resolution accepts only the exact reviewed and resolved revision", async () => {
   const reviewed = revision({ work_version: 3, relationship_event_count: 4 });
   const spec = request({
-    acknowledge_context_change: true,
     reviewed_context_revision: reviewed
   });
   const value = response({
@@ -97,15 +93,19 @@ test("acknowledged resolution accepts only the exact reviewed and resolved revis
     context_changed_since_request: true,
     resolved_context_revision: reviewed,
     context_changed_at_resolution: true,
-    context_change_acknowledged: true
   });
   assert.equal((await classify(spec, 200, value)).type, "success");
+  assert.equal((await classify(request({
+    reviewed_context_revision: undefined
+  }), 200, response())).type, "unresolved");
+  assert.equal((await classify(request({
+    reviewed_context_revision: { ...reviewed, extra: true }
+  }), 200, value)).type, "unresolved");
   assert.equal((await classify(spec, 200, {
     ...value,
     resolved_context_revision: revision({ work_version: 4, relationship_event_count: 4 })
   })).type, "unresolved");
   assert.equal((await classify(request({
-    acknowledge_context_change: true,
     reviewed_context_revision: revision({ work_version: 4, relationship_event_count: 4 })
   }), 200, value)).type, "unresolved");
 });

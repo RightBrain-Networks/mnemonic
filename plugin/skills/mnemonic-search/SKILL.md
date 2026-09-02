@@ -32,11 +32,9 @@ evidence that the project has no saved work.
 4. `view` defaults to `minimal` (identity, priority, version, activity time,
    checkpoint count, display state). Ask for `view="full"` only when the
    summary, current-context provenance, full readiness, or ancestry is needed.
-   The `ancestor_path` in a full result follows `parent-child` edges only, root
-   to parent, and is filled only for a nonblank `q`: a blank-query browse
-   returns an empty path regardless of hierarchy, so use a query, or
-   `list_relationships` with `relationship_type="parent-child"`, when ancestry
-   matters. Discovery edges never appear in it.
+   Every full result carries `ancestor_path`, which follows `parent-child` edges
+   only, root to parent; a structural root legitimately has an empty path.
+   Discovery edges never appear in it.
 5. Present pointers only: title, work-item ID, project, lifecycle and readiness,
    checkpoint count, and relevant age. Do not fetch every checkpoint, event, or
    question body into unrelated work.
@@ -59,7 +57,7 @@ evidence that the project has no saved work.
 
 8. When the user asks what needs human input, call `list_human_attention` with
    bounded cursor pages. It returns one row per unresolved gate in immutable
-   request order, each with its question, requester provenance, the item's
+   allocated-sequence order, each with its question, requester provenance, the item's
    current readiness, and its `parent-child` ancestor path; priority is display
    context, not queue order. Pass an exact `work_item_id` to focus one item.
    `limit=0` without a cursor returns only the exact count. Pass `next_cursor`

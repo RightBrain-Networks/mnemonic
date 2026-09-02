@@ -150,7 +150,7 @@ export default function WorkItemList({
           <span className="result-count" role="status">{loading || query.trim() !== searchedQuery ? "Finding work…" : results ? searchedQuery ? `${results.total} work item${results.total === 1 ? "" : "s"}` : `${results.total} root branch${results.total === 1 ? "" : "es"}` : ""}</span>
         </div>
       </div>
-      <div className="hierarchy-filter-fields" aria-label="Filter hierarchy by checkpoint provenance">
+      <div className="hierarchy-filter-fields" role="group" aria-label="Filter hierarchy by checkpoint provenance">
         <label>Tag<input value={tag} maxLength={50} placeholder="Exact tag" onChange={(event) => onTag(event.target.value)} /></label>
         <label>Source client<input value={sourceClient} maxLength={80} placeholder="Exact client" onChange={(event) => onSourceClient(event.target.value)} /></label>
         <label>Source session<input value={sourceSessionId} maxLength={200} placeholder="Exact session" onChange={(event) => onSourceSessionId(event.target.value)} /></label>

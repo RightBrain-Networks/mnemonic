@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
-import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
@@ -19,11 +18,9 @@ from mnemonic_api.errors import (
     gate_context_changed,
     gate_not_found,
     gate_secret_echo,
-    work_gated,
 )
 from mnemonic_api.models import (
     Checkpoint,
-    ClientOperation,
     WorkEvent,
     WorkGate,
     WorkItem,
@@ -39,6 +36,7 @@ from mnemonic_api.schemas import (
     HumanGateRequestCreate,
     HumanGateResolutionCreate,
 )
+from mnemonic_api.services.hierarchy import ancestor_paths
 from mnemonic_api.services.work_events import (
     database_now,
     stage_human_attention_requested,
@@ -54,9 +52,6 @@ _RELATIONSHIP_EVENT_TYPES = (
 _CURSOR_VERSION = 1
 _CURSOR_MAX_BYTES = 2048
 _CURSOR_MAX_SEQUENCE = 2**63 - 1
-_UUID_CANDIDATE_PATTERN = re.compile(
-    r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}"
-)
 
 
 def _begin_coherent_read(database: Session) -> None:
@@ -193,62 +188,11 @@ def reject_gate_secret_echo(
         raise gate_secret_echo()
 
 
-def reject_retained_gate_control_echo(
-    database: Session,
-    payload: HumanGateRequestCreate | HumanGateResolutionCreate,
-) -> None:
-    """Reject currently retained control IDs only for a genuinely new execution."""
-    candidates = {
-        UUID(match.group(0))
-        for value in _durable_gate_text_values(payload)
-        for match in _UUID_CANDIDATE_PATTERN.finditer(value)
-    }
-    if not candidates:
-        return
-    retained_gate_id = database.scalar(
-        select(WorkGate.id).where(WorkGate.id.in_(candidates)).limit(1)
-    )
-    retained_operation_id = database.scalar(
-        select(ClientOperation.client_operation_id)
-        .where(ClientOperation.client_operation_id.in_(candidates))
-        .limit(1)
-    )
-    if retained_gate_id is not None or retained_operation_id is not None:
-        raise gate_secret_echo()
-
-
 def _current_context_revision(
     database: Session,
     work_item: WorkItem,
 ) -> HumanGateContextRevision:
-    checkpoint_id = database.scalar(
-        select(Checkpoint.id)
-        .where(
-            Checkpoint.work_item_id == work_item.id,
-            Checkpoint.kind == "context",
-        )
-        .order_by(Checkpoint.created_at.desc(), Checkpoint.id.desc())
-        .limit(1)
-    )
-    if checkpoint_id is None:
-        raise ApplicationError(
-            503,
-            "gate_revision_unavailable",
-            "The current work revision is unavailable.",
-        )
-    relationship_event_count = database.scalar(
-        select(func.count())
-        .select_from(WorkEvent)
-        .where(
-            WorkEvent.work_item_id == work_item.id,
-            WorkEvent.event_type.in_(_RELATIONSHIP_EVENT_TYPES),
-        )
-    )
-    return HumanGateContextRevision(
-        work_version=work_item.version,
-        context_checkpoint_id=checkpoint_id,
-        relationship_event_count=int(relationship_event_count or 0),
-    )
+    return _current_context_revisions(database, [work_item.id])[work_item.id]
 
 
 def _current_context_revisions(
@@ -303,87 +247,49 @@ def _current_context_revisions(
 
 
 def human_gate_read(
-    gate: WorkGate,
+    gate: WorkGate | Mapping[str, Any],
     current_revision: HumanGateContextRevision,
 ) -> HumanGateRead:
-    work_changed = current_revision.work_version != gate.requested_work_version
-    checkpoint_changed = (
-        current_revision.context_checkpoint_id
-        != gate.requested_context_checkpoint_id
+    def value(name: str) -> Any:
+        if isinstance(gate, Mapping):
+            return gate[name]
+        return getattr(gate, name)
+
+    requested_revision = HumanGateContextRevision(
+        work_version=value("requested_work_version"),
+        context_checkpoint_id=value("requested_context_checkpoint_id"),
+        relationship_event_count=value("requested_relationship_event_count"),
     )
-    relationships_changed = (
-        current_revision.relationship_event_count
-        != gate.requested_relationship_event_count
-    )
+    resolved_at = value("resolved_at")
     resolved_revision = (
         HumanGateContextRevision(
-            work_version=gate.resolved_work_version,
-            context_checkpoint_id=gate.resolved_context_checkpoint_id,
-            relationship_event_count=gate.resolved_relationship_event_count,
+            work_version=value("resolved_work_version"),
+            context_checkpoint_id=value("resolved_context_checkpoint_id"),
+            relationship_event_count=value("resolved_relationship_event_count"),
         )
-        if gate.resolved_at is not None
+        if resolved_at is not None
         else None
     )
     return HumanGateRead(
-        id=gate.id,
-        project_id=gate.project_id,
-        work_item_id=gate.work_item_id,
-        gate_type=gate.gate_type,
-        question=gate.question,
-        requested_by_client=gate.requested_by_client,
-        requested_by_session_id=gate.requested_by_session_id,
-        requested_by_model=gate.requested_by_model,
-        requested_work_version=gate.requested_work_version,
-        requested_context_checkpoint_id=gate.requested_context_checkpoint_id,
-        requested_relationship_event_count=gate.requested_relationship_event_count,
-        created_at=gate.created_at,
-        status="resolved" if gate.resolved_at is not None else "unresolved",
+        id=value("id"),
+        project_id=value("project_id"),
+        work_item_id=value("work_item_id"),
+        gate_type=value("gate_type"),
+        question=value("question"),
+        requested_by_client=value("requested_by_client"),
+        requested_by_session_id=value("requested_by_session_id"),
+        requested_by_model=value("requested_by_model"),
+        requested_context_revision=requested_revision,
+        created_at=value("created_at"),
+        status="resolved" if resolved_at is not None else "unresolved",
         current_context_revision=current_revision,
-        work_changed_since_request=work_changed,
-        context_checkpoint_changed_since_request=checkpoint_changed,
-        relationships_changed_since_request=relationships_changed,
-        context_changed_since_request=(
-            work_changed or checkpoint_changed or relationships_changed
-        ),
-        resolved_at=gate.resolved_at,
-        resolution=gate.resolution,
-        resolved_by_client=gate.resolved_by_client,
-        resolved_by_session_id=gate.resolved_by_session_id,
-        resolved_by_model=gate.resolved_by_model,
+        resolved_at=resolved_at,
+        resolution=value("resolution"),
+        resolved_by_client=value("resolved_by_client"),
+        resolved_by_session_id=value("resolved_by_session_id"),
+        resolved_by_model=value("resolved_by_model"),
         resolved_context_revision=resolved_revision,
-        context_changed_at_resolution=gate.context_changed_at_resolution,
-        context_change_acknowledged=gate.context_change_acknowledged,
     )
-
-
-def unresolved_gate_counts(
-    database: Session,
-    work_item_ids: Sequence[UUID],
-) -> dict[UUID, int]:
-    if not work_item_ids:
-        return {}
-    rows = database.execute(
-        select(WorkGate.work_item_id, func.count())
-        .where(
-            WorkGate.work_item_id.in_(set(work_item_ids)),
-            WorkGate.resolved_at.is_(None),
-        )
-        .group_by(WorkGate.work_item_id)
-    )
-    return {work_item_id: int(count) for work_item_id, count in rows}
-
-
-def require_no_unresolved_gates(database: Session, work_item_id: UUID) -> None:
-    unresolved = database.scalar(
-        select(WorkGate.id)
-        .where(
-            WorkGate.work_item_id == work_item_id,
-            WorkGate.resolved_at.is_(None),
-        )
-        .limit(1)
-    )
-    if unresolved is not None:
-        raise work_gated()
 
 
 def request_human_gate(
@@ -460,22 +366,7 @@ def resolve_human_gate(
     if gate.resolved_at is not None:
         raise gate_already_resolved()
     revision = _current_context_revision(database, work_item)
-    request_revision = HumanGateContextRevision(
-        work_version=gate.requested_work_version,
-        context_checkpoint_id=gate.requested_context_checkpoint_id,
-        relationship_event_count=gate.requested_relationship_event_count,
-    )
-    changed = revision != request_revision
-    if changed:
-        if (
-            not payload.acknowledge_context_change
-            or payload.reviewed_context_revision != revision
-        ):
-            raise gate_context_changed()
-    elif (
-        payload.acknowledge_context_change
-        or payload.reviewed_context_revision is not None
-    ):
+    if payload.reviewed_context_revision != revision:
         raise gate_context_changed()
 
     resolved_at = database_now(database)
@@ -487,8 +378,6 @@ def resolve_human_gate(
     gate.resolved_work_version = revision.work_version
     gate.resolved_context_checkpoint_id = revision.context_checkpoint_id
     gate.resolved_relationship_event_count = revision.relationship_event_count
-    gate.context_changed_at_resolution = changed
-    gate.context_change_acknowledged = changed
     database.flush()
     database.execute(
         update(WorkItem)
@@ -506,7 +395,6 @@ def list_human_attention(
     project_id: UUID,
     filters: HumanAttentionListQuery,
 ) -> HumanAttentionPage:
-    from mnemonic_api.services.relationships import ancestor_paths
     from mnemonic_api.services.work_context import work_summaries
     from mnemonic_api.services.work_items import require_project, require_work_item
 

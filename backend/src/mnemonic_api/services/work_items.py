@@ -15,13 +15,12 @@ from mnemonic_api.schemas import (
     WorkItemCreate,
     WorkItemPatch,
 )
-from mnemonic_api.services.gates import require_no_unresolved_gates
 from mnemonic_api.services.leases import (
     consume_lease_for_terminal_mutation,
     require_no_active_lease,
     validate_optional_lease_token,
 )
-from mnemonic_api.services.readiness import require_unblocked
+from mnemonic_api.services.readiness import require_no_unresolved_gates, require_unblocked
 from mnemonic_api.services.relationships import (
     lock_endpoint_work_items,
     lock_project_graph,

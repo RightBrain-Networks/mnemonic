@@ -1,44 +1,67 @@
 # Mnemonic validation record
 
-## Plugin 0.6.0 skill update and MCP description change — 2026-09-02
+## Plugin 0.6.1 and post-review MCP/docs validation — 2026-09-02
 
-Checks observed while rewriting the three plugin skills and both shared
-references for the Phase 7–8 gate and hierarchy workflow, adding the
-parent-child hierarchy sentences to three MCP tool descriptions, and reordering
-the `request_human_input` guidance (supporting checkpoint before the request).
+This current record covers the integrated post-review corrective checks reported
+by each owning agent. The statements below name only results actually observed;
+unrun release drills remain explicit.
 
-- **The full MCP suite passed 206 tests** in its frozen environment after the
-  changes, including the doctrine test's new required phrases for
-  `add_relationship`, `create_work`, and `search_work`, and the plugin
-  inventory test at manifest `0.6.0`. Repository Ruff passed for the MCP
-  package and its tests.
-- **All three skills passed the skill-creator quick validator** (frontmatter,
-  single `SKILL.md`, name and description present).
-- Backend, frontend, and browser suites were not re-run: no backend, frontend,
-  or schema file changed in this update.
+- **The full backend suite passed 426 tests with seven warnings, and backend
+  Ruff passed.** Alembic reported `0015_gate_review_fixes (head)`. The suite
+  includes
+  `backend/tests/test_schema_parity_postgres.py::test_migrated_schema_matches_orm_metadata`;
+  the committed OpenAPI freshness test also passed.
+- **The full MCP suite passed 208 tests in its frozen environment.** It includes
+  the committed-OpenAPI property/required-set comparison, nested
+  `requested_context_revision`, backend-owned drift-field typing, protected gate
+  request coherence, reachable attention/history scope injections, ready-page
+  waiting refusal, value-free query/cursor logging, and plugin inventory at
+  manifest `0.6.1`. A separate current-schema audit covered all 54 strict MCP
+  response models and found zero property/required-set deltas.
+- **The frontend passed 123 unit tests, TypeScript checking, the production
+  build, and all 44 isolated Playwright executions across desktop and narrow
+  Chromium in 1.6 minutes.** The unit suite includes the committed OpenAPI
+  guard. Corrective regressions directly cover debounced request-driving
+  filters, attention empty/error recovery, Show every question, nonzero
+  unresolved/resolved omission messages, attention and 53-gate history
+  pagination, current-cursor live refetch, and sibling draft/focus preservation.
+- **Repository Ruff passed** for `mcp/src/mnemonic_mcp`, `mcp/tests`, and
+  `scripts/check-stack.py`; the stack checker also compiled. All three skills
+  passed the skill-creator quick validator.
+- **Four copyable JSON bodies passed their live backend request models:** the
+  canonical work body, dual parent/discovery work body, human-gate request, and
+  reviewed-revision resolution. Relative Markdown links across the changed
+  root/docs/plugin files resolved, and `git diff --check` passed.
+- A disposable fresh/sequential Claude plugin cache install was not performed in
+  this corrective run. Manifest `0.6.1` is cache-visible, but the fresh `0.6.1`
+  and `0.6.0 -> 0.6.1` installation drill remains a release gate.
+- No post-correction 12,000-item hierarchy measurement was recorded. The 0014
+  JIT-heavy measurements and budgets retained below are historical baselines,
+  not evidence for the current JIT-disabled, page-first query.
 
-## Phases 7–8 final integrated validation — 2026-09-01
+## Historical Phases 7–8 integrated baseline — 2026-09-01
 
-This is the final combined prerelease release record. Counts below were
-observed against the integrated implementation with every PostgreSQL suite
-enabled. The capacity observations below are evaluated against explicit local
-prerelease release budgets; those budgets are neither production network SLOs
-nor runtime limits.
+This section preserves observations from the pre-remediation revision 0014
+implementation. It is not validation of migration 0015 or the corrected
+hierarchy query shape. Fence, downgrade, schema, and performance claims in this
+historical section are superseded by the current corrective record above.
 
 - **The full backend suite passed 396 tests against PostgreSQL 17 with three
   warnings, and backend Ruff passed.** The suite includes the `0013 -> 0014`
   migration, gate persistence/service/receipt behavior, readiness and lifecycle
   enforcement, attention/history/context reads, event coherence, and hierarchy
-  presentation. The focused Phase 6/7–8 migration batch passed 11 tests, and
-  the separate migration/ORM parity check passed one test.
+  presentation. The focused Phase 6/7–8 migration batch passed 11 tests. That
+  revision did not contain an ORM/migration parity test; the corrective record
+  above names the regression that now enforces it.
 - **The full MCP suite passed 206 tests, and repository Ruff passed for MCP.**
-  Its current contract is exactly 25 tools and exactly ten protected writes;
-  `request_human_input`, `list_human_attention`, and `list_work_gates` are
+  That revision's contract had exactly 25 tools and exactly ten protected writes;
+  `request_human_input`, `list_human_attention`, and `list_work_gates` were
   present, while no MCP resolution tool exists.
 - **The frontend passed 107 unit tests, TypeScript checking, and the production
-  build.** This covers the ten browser mutation intents, gate review/resolution
-  helpers and proxy policy, attention/detail behavior, and hierarchy response
-  handling at the unit/type/build layers.
+  build.** Those pre-remediation unit tests exercised the ten browser mutation
+  intents, gate decoders/revision helpers, proxy policy, and hierarchy query and
+  guard helpers; they did not render the attention/detail components. Current
+  interactive evidence is recorded above.
 - **Plugin manifest and disposable installation checks passed.** Both a fresh
   `0.5.0` install and sequential `0.4.0 -> 0.5.0` update resolved the shipped
   skill/reference bytes without a compatibility copy.
@@ -47,7 +70,8 @@ nor runtime limits.
   a B-to-C work/checkpoint/relationship drift rejection while the outer queue
   projection remains stale at B, branch-local all-descendant filtering, and
   collapsed passive-expiry refresh. The disposable E2E API enabled human-gate
-  requests explicitly; production Compose remains fenced by default.
+  requests explicitly. That historical request fence was removed by the
+  post-review corrective release.
 - **The isolated production-shaped five-service stack passed its read-only and
   authorized writable checks.** The checker exercised one lost gate-request
   response, waiting/readiness/claim exclusion, exact dashboard resolution
@@ -62,12 +86,13 @@ nor runtime limits.
   PostgreSQL logs contained no identifier, gate text, answer, bearer, operation
   field, claim-request field, or lease-token field from the audit set.
 
-### Cold-review release-gate evidence — 2026-09-01
+### Historical pre-remediation release evidence — 2026-09-01
 
 The following checks used synthetic data in the isolated PostgreSQL 17 test
 service. Every temporary database and schema was dropped after the measurement;
-no application or production data was read. These are observed pre-release
-capacity points, not production SLOs or enforced input/graph-size limits.
+no application or production data was read. These are historical observations
+for revision 0014, not current release gates, production SLOs, or enforced
+input/graph-size limits.
 
 #### Locked downgrade and writer race
 
@@ -245,7 +270,7 @@ scheduler to about 0.923 retry callbacks per minute after its first boundary
 callback. The dashboard refreshes its list, attention total, and open context;
 each expanded hierarchy branch schedules from its returned earliest child
 boundary. Rate therefore scales with mounted views/expanded branches and has
-no server-global enforced maximum. The full 38-execution Playwright result
+no server-global enforced maximum. The full 40-execution Playwright result
 above includes the active-lease browser expiry path. These observations are
 behavior and rate evidence, not a browser/network latency SLO.
 
@@ -256,11 +281,13 @@ pagination and 1.48 ms child expansion before full-branch presentation facts
 existed. The Phase 7-8 fixture deliberately increased the project sixfold,
 required every returned row and aggregate to share one statement snapshot, and
 added gates, discovery, blockers, lease overlap, depth 50, and deep-only
-qualification. Using that historical baseline and the production-shaped
-measurements above, the following conservative local release budgets were fixed
-before final acceptance. They are regression gates for the named PostgreSQL
-17.10 fixtures and five-second statement timeout, not promises for arbitrary
-hardware, graph size, focal degree, or network latency.
+qualification. Using that historical baseline and the production-shaped measurements
+above,
+the following local budgets were accepted for the old revision 0014 query
+shape. The corrected implementation disables JIT and pages before enriching
+member facts. No post-correction 12,000-item measurement is recorded here, so
+this table is not a current release gate or a promise for arbitrary hardware,
+graph size, focal degree, or network latency.
 
 | Capacity case | Local prerelease budget | Observed worst named value | Result |
 | --- | --- | ---: | --- |
@@ -274,11 +301,10 @@ hardware, graph size, focal degree, or network latency.
 | Passive 500-child expiry correction | first post-boundary read <= 250 ms and advances exact count/boundary | 113.398 ms | pass |
 | 100-gate archive growth and restore | archive growth <= 128 KiB; dump and restore each <= 1 s | 63,649 bytes; 143.949 / 184.033 ms | pass |
 
-The root budget intentionally exposes JIT as the current optimization target:
-the measured root statements spend roughly one second compiling, while the
-recursive traversal itself is about 15.6 ms. Crossing a budget is a release
-investigation, not permission to add a cache, counter table, closure table, or
-index without representative plan evidence.
+The historical root result exposed JIT as its dominant cost: the measured root
+statements spent roughly one second compiling, while recursive traversal was
+about 15.6 ms. The current JIT-disabled, page-first query requires fresh
+representative measurements before a release budget can be claimed.
 
 #### Extracted Phase 6 process against revision 0014
 

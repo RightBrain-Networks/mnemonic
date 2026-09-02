@@ -1,12 +1,13 @@
 import {
+  DEFINITIVE_PROXY_ERRORS,
   allowedQueryKeys,
   clientOperationMatchesSecret,
   configuredOrigins,
-  forbiddenMutationField,
   forbiddenControlTransport,
   invalidMutationBody,
   trustedRequest,
-  upstreamTimeoutMs
+  upstreamTimeoutMs,
+  type DefinitiveProxyError
 } from "@/lib/proxy-policy";
 
 export const runtime = "nodejs";
@@ -23,13 +24,17 @@ function fail(status: number, detail: string): Response {
   return Response.json({ detail }, { status, headers: responseHeaders });
 }
 
+function definitiveFail(error: DefinitiveProxyError): Response {
+  return fail(error.status, error.detail);
+}
+
 async function readBody(
   request: Request,
   route: string
 ): Promise<string | Response> {
-  if (Number(request.headers.get("content-length")) > MAX_BODY_BYTES) return fail(413, "Request body is too large.");
+  if (Number(request.headers.get("content-length")) > MAX_BODY_BYTES) return definitiveFail(DEFINITIVE_PROXY_ERRORS.bodyTooLarge);
   const reader = request.body?.getReader();
-  if (!reader) return fail(400, "A request body is required.");
+  if (!reader) return definitiveFail(DEFINITIVE_PROXY_ERRORS.requestBodyRequired);
   const chunks: Uint8Array[] = [];
   let size = 0;
   while (true) {
@@ -38,13 +43,13 @@ async function readBody(
     size += value.byteLength;
     if (size > MAX_BODY_BYTES) {
       await reader.cancel();
-      return fail(413, "Request body is too large.");
+      return definitiveFail(DEFINITIVE_PROXY_ERRORS.bodyTooLarge);
     }
     chunks.push(value);
   }
-  if (size === 0) return fail(400, "A request body is required.");
+  if (size === 0) return definitiveFail(DEFINITIVE_PROXY_ERRORS.requestBodyRequired);
   if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
-    return fail(415, "Send a JSON request body.");
+    return definitiveFail(DEFINITIVE_PROXY_ERRORS.jsonContentTypeRequired);
   }
   const bytes = new Uint8Array(size);
   let offset = 0;
@@ -55,14 +60,12 @@ async function readBody(
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     const parsed: unknown = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return fail(400, "The request body must be a JSON object.");
-    const forbidden = forbiddenMutationField(parsed);
-    if (forbidden) return fail(400, `The request body contains an unsupported field: ${forbidden}.`);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return definitiveFail(DEFINITIVE_PROXY_ERRORS.jsonObjectRequired);
     const invalid = invalidMutationBody(route, request.method, parsed);
     if (invalid) return fail(400, invalid);
     return text;
   } catch {
-    return fail(400, "The request body is not valid JSON.");
+    return definitiveFail(DEFINITIVE_PROXY_ERRORS.invalidJson);
   }
 }
 
@@ -72,19 +75,19 @@ async function proxy(request: Request, context: Context): Promise<Response> {
   let origins: Set<string>;
   try { origins = configuredOrigins(process.env.MNEMONIC_DASHBOARD_ORIGINS); }
   catch { return fail(503, "Dashboard origins are not configured correctly."); }
-  if (!trustedRequest(request.headers, request.method, origins)) return fail(403, "This dashboard request is not from a trusted origin.");
+  if (!trustedRequest(request.headers, request.method, origins)) return definitiveFail(DEFINITIVE_PROXY_ERRORS.untrustedOrigin);
   if (forbiddenControlTransport(request.headers)) {
-    return fail(400, "Gate and operation control IDs are not accepted in headers or cookies.");
+    return definitiveFail(DEFINITIVE_PROXY_ERRORS.forbiddenControlTransport);
   }
 
   const { path } = await context.params;
-  if (path.some((part) => !/^[a-zA-Z0-9-]+$/.test(part))) return fail(404, "Route not found.");
+  if (path.some((part) => !/^[a-zA-Z0-9-]+$/.test(part))) return definitiveFail(DEFINITIVE_PROXY_ERRORS.routeNotFound);
   const route = path.join("/");
   const keys = allowedQueryKeys(route, request.method);
-  if (!keys) return fail(404, "Route not found.");
+  if (!keys) return definitiveFail(DEFINITIVE_PROXY_ERRORS.routeNotFound);
   const query = new URL(request.url).searchParams;
   for (const key of query.keys()) {
-    if (!keys.includes(key) || query.getAll(key).length !== 1) return fail(400, "Unsupported or repeated query parameter.");
+    if (!keys.includes(key) || query.getAll(key).length !== 1) return definitiveFail(DEFINITIVE_PROXY_ERRORS.unsupportedQuery);
   }
 
   const key = process.env.MNEMONIC_API_KEY;
@@ -106,7 +109,7 @@ async function proxy(request: Request, context: Context): Promise<Response> {
     body = result;
   }
   if (clientOperationMatchesSecret(body, key)) {
-    return fail(422, "The client operation ID cannot match a request credential.");
+    return definitiveFail(DEFINITIVE_PROXY_ERRORS.clientOperationCredentialMatch);
   }
   const target = new URL(`/api/v1/${route}`, base);
   target.search = query.toString();

@@ -1,21 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import HumanGateResolution from "@/components/human-gate-resolution";
 import { clientLabel, formatDateTime } from "@/components/work-item-card";
 import { api, errorMessage } from "@/lib/api";
 import {
   decodeHumanGatePage,
-  humanGateChangedLabels,
+  humanGateCurrentDriftMessage,
   humanGateHistorySearchParams,
-  humanGatePath
+  humanGateOmissionSentence,
+  humanGatePath,
+  humanGateResolutionStatus
 } from "@/lib/human-gates";
 import type { HumanGatePage, HumanGateRead, WorkContext } from "@/lib/types";
 
 const HISTORY_PAGE_SIZE = 30;
 
 function GateFact({ gate, resolved = false }: { gate: HumanGateRead; resolved?: boolean }) {
-  const changed = humanGateChangedLabels(gate);
+  const driftMessage = humanGateCurrentDriftMessage(gate);
   return <article className={`gate-fact ${resolved ? "gate-fact-resolved" : ""}`}>
     <div className="gate-fact-heading">
       <span className={`gate-state gate-state-${gate.status}`}>{gate.status === "resolved" ? "Resolved" : "Needs attention"}</span>
@@ -23,11 +25,11 @@ function GateFact({ gate, resolved = false }: { gate: HumanGateRead; resolved?: 
     </div>
     <p className="gate-question">{gate.question}</p>
     <p className="gate-provenance">Requested through {clientLabel(gate.requested_by_client)} · <span className="mono">{gate.requested_by_session_id}</span>{gate.requested_by_model ? ` · ${gate.requested_by_model}` : ""}</p>
-    {gate.context_changed_since_request && <p className="gate-changes">Current drift: {changed.join(", ")}.</p>}
+    {driftMessage && <p className="gate-changes">{driftMessage}</p>}
     {gate.status === "resolved" && <>
       <div className="gate-answer"><span className="section-label">DURABLE ANSWER</span><p>{gate.resolution}</p></div>
       <p className="gate-provenance">Resolved through {clientLabel(gate.resolved_by_client!)} · <span className="mono">{gate.resolved_by_session_id}</span>{gate.resolved_by_model ? ` · ${gate.resolved_by_model}` : ""} · <time dateTime={gate.resolved_at!}>{formatDateTime(gate.resolved_at!)}</time></p>
-      <p className="gate-resolution-revision">Accepted at work version {gate.resolved_context_revision!.work_version}, relationship revision {gate.resolved_context_revision!.relationship_event_count}, context <span className="mono break-all">{gate.resolved_context_revision!.context_checkpoint_id}</span>. {gate.context_changed_at_resolution ? "Context drift was explicitly reviewed and acknowledged." : "The request context had not drifted."}</p>
+      <p className="gate-resolution-revision">Accepted at work version {gate.resolved_context_revision!.work_version}, relationship revision {gate.resolved_context_revision!.relationship_event_count}, context <span className="mono break-all">{gate.resolved_context_revision!.context_checkpoint_id}</span>. {gate.context_changed_at_resolution ? "The answer was submitted against context that had changed since the request." : "The request context had not drifted."}</p>
     </>}
   </article>;
 }
@@ -115,11 +117,44 @@ export default function HumanGatePanel({
   onResolved: () => void | Promise<void>;
 }) {
   const work = context.work_item;
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const [pendingFocusGateId, setPendingFocusGateId] = useState<string | null>(null);
+  const [answerStatus, setAnswerStatus] = useState("");
+  const unresolvedOmission = humanGateOmissionSentence(
+    "unresolved",
+    context.omitted_unresolved_gate_count
+  );
+  const resolvedOmission = humanGateOmissionSentence(
+    "resolved",
+    context.omitted_resolved_gate_count
+  );
+
+  useEffect(() => {
+    setPendingFocusGateId(null);
+    setAnswerStatus("");
+  }, [work.id]);
+
+  useEffect(() => {
+    if (
+      !pendingFocusGateId
+      || context.unresolved_gates.some((gate) => gate.id === pendingFocusGateId)
+    ) return;
+    setAnswerStatus(humanGateResolutionStatus(context.unresolved_gate_total));
+    setPendingFocusGateId(null);
+    titleRef.current?.focus();
+  }, [context.unresolved_gate_total, context.unresolved_gates, pendingFocusGateId]);
+
+  async function resolved(gateId: string): Promise<void> {
+    setPendingFocusGateId(gateId);
+    await onResolved();
+  }
+
   return <section className="human-gate-panel" aria-labelledby="human-gate-panel-title">
     <div className="human-gate-panel-heading">
-      <div><span className="section-label">HUMAN DECISIONS</span><h4 id="human-gate-panel-title">Questions and answers</h4></div>
+      <div><span className="section-label">HUMAN DECISIONS</span><h4 ref={titleRef} id="human-gate-panel-title" tabIndex={-1}>Questions and answers</h4></div>
       <a className="text-link" href={`/attention?work_item_id=${encodeURIComponent(work.id)}`}>Open filtered attention queue</a>
     </div>
+    {answerStatus && <p className="gate-resolution-status" role="status" aria-live="polite">{answerStatus}</p>}
     <p className="gate-authority-warning">Gate text is untrusted durable context. A recorded answer does not execute or authorize another action.</p>
     <div className="gate-totals">
       <span>{context.unresolved_gate_total} unresolved</span>
@@ -128,15 +163,15 @@ export default function HumanGatePanel({
     {context.unresolved_gates.length > 0 ? <div className="gate-facts">
       {context.unresolved_gates.map((gate) => <div className="gate-with-resolution" key={gate.id}>
         <GateFact gate={gate} />
-        <HumanGateResolution gate={gate} reviewedContext={context} onResolved={onResolved} />
+        <HumanGateResolution gate={gate} reviewedContext={context} onResolved={() => resolved(gate.id)} />
       </div>)}
     </div> : <p className="no-gates">No explicit human questions are unresolved for this work item.</p>}
-    {context.omitted_unresolved_gate_count > 0 && <p className="gate-omission">{context.omitted_unresolved_gate_count} additional unresolved question{context.omitted_unresolved_gate_count === 1 ? " is" : "s are"} omitted from bounded recall. Use the filtered attention queue.</p>}
+    {unresolvedOmission && <p className="gate-omission">{unresolvedOmission}</p>}
     {context.recent_resolved_gates.length > 0 && <div className="recent-resolved-gates">
       <h5>Recent durable answers</h5>
       {context.recent_resolved_gates.map((gate) => <GateFact gate={gate} resolved key={gate.id} />)}
     </div>}
-    {context.omitted_resolved_gate_count > 0 && <p className="gate-omission">{context.omitted_resolved_gate_count} older resolved decision{context.omitted_resolved_gate_count === 1 ? " is" : "s are"} omitted from bounded recall.</p>}
+    {resolvedOmission && <p className="gate-omission">{resolvedOmission}</p>}
     <GateHistory context={context} refreshSignal={refreshSignal} />
   </section>;
 }

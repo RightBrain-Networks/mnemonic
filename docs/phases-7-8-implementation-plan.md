@@ -1,6 +1,6 @@
 # Mnemonic Phases 7–8 — Human Gates and Hierarchical Presentation Implementation Plan
 
-**Status:** Implemented and validated as one release on 2026-09-01
+**Status:** Historical implementation plan, amended after the 2026-09-02 review
 
 **Scope:** Roadmap Phase 7, “First-class Human Gates,” and Phase 8, “Hierarchical Human
 Presentation,” delivered as one release
@@ -15,6 +15,48 @@ with Phase 6 migration head `0013_idempotent_mutations`
 **Planning origin:** this document was the code-free implementation contract. Implementation was
 separately authorized, completed, and validated; the final evidence is recorded in
 docs/validation.md.
+
+## Post-review amendment — 2026-09-02
+
+The original plan below is retained as a record of the design that produced the
+Phase 7–8 implementation. The corrective review changed several owner decisions;
+the following contract supersedes conflicting fence, retry, resolution, cursor,
+migration, performance, and rollout language later in this document. Current
+operator and client behavior is specified in `docs/operations.md` and
+`docs/api-contract.md`.
+
+- Migration head `0015_gate_review_fixes` preserves existing rows, uses
+  `clock_timestamp()` for concurrent checkpoint and relationship ordering, and
+  removes persisted `context_change_acknowledged` and
+  `context_changed_at_resolution`. Migration 0015 has no supported
+  downgrade; recover by fixing forward or restoring a complete pre-upgrade
+  archive, never by editing gate, event, or receipt history.
+- Human-gate creation has no runtime request fence. Request idempotency validates
+  request-known operation controls only; it does not scan retained UUIDs or treat
+  a returned gate ID as a secret. Before asking, inspect existing unresolved
+  gates, write the supporting context checkpoint, and then request the gate. An
+  agent cannot withdraw a gate; if it becomes moot, record why and let a human
+  resolve it in the dashboard as no longer needed.
+- Gate reads expose a nested `requested_context_revision` plus backend-computed
+  current and resolution drift flags; clients do not rederive those convenience
+  values. Every resolution supplies `reviewed_context_revision`, even without
+  drift. The reviewed work version, checkpoint ID, and relationship-event count
+  are the single explicit
+  review precondition; there is no separate acknowledgement boolean. Deferral is
+  an independent human hold and neither resolves nor prevents resolving a gate.
+- Attention cursors exclude already-seen sequence keys, but insertion sequence is
+  not commit order. A lower sequence that commits after a later cursor was read
+  appears only after restarting without a cursor. Callers must make that head
+  restart before concluding the Needs Attention queue is drained.
+- Hierarchy reads disable PostgreSQL JIT, select the requested page before
+  enriching its rows, and return typed `503 hierarchy_timeout` guidance on the
+  statement-timeout boundary. Every item in a `view=full` page has an
+  `ancestor_path`, including blank-query browsing. Earlier hierarchy timings in
+  `docs/validation.md` are historical baselines, not current release evidence.
+- The supported deployment is the repository single-host Compose stack: stop its
+  writers, back up, migrate once, rebuild, verify schema/model parity with
+  `backend/tests/test_schema_parity_postgres.py::test_migrated_schema_matches_orm_metadata`,
+  and then reopen traffic. The corrective plugin release is `0.6.1`.
 
 ## 1. Outcome
 

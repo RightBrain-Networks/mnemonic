@@ -60,3 +60,22 @@ export function readinessAfterWorkSave(
     display_state: nextStatus
   };
 }
+
+export type TerminalAction = "completion" | "deletion";
+
+export function terminalActionDisabled(
+  readiness: Readiness,
+  mutationBlocked = false
+): boolean {
+  return mutationBlocked || readiness.is_gated;
+}
+
+export function terminalActionGateExplanation(
+  readiness: Readiness,
+  action: TerminalAction
+): string | null {
+  if (!readiness.is_gated) return null;
+  const count = readiness.unresolved_gate_count;
+  const questions = `${count} unresolved human question${count === 1 ? "" : "s"}`;
+  return `${questions} ${count === 1 ? "blocks" : "block"} ${action}.`;
+}
