@@ -6,11 +6,11 @@ import hashlib
 import hmac
 import json
 import secrets
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from time import monotonic
 from types import MappingProxyType
-from typing import Any, Literal, cast
+from typing import Any, Literal, NoReturn, cast
 from uuid import UUID
 
 from fastapi.responses import JSONResponse
@@ -102,6 +102,8 @@ FORBIDDEN_RESPONSE_FIELD_NAMES = frozenset(
         "secret",
     }
 )
+# The only top-level request fields that may carry control data.
+_DESIGNATED_REQUEST_FIELDS = frozenset({"client_operation_id", "lease_token"})
 
 
 @dataclass(frozen=True)
@@ -439,78 +441,64 @@ def reject_client_operation_secret_echo(
         known_values.add(lease_value)
         if operation_value == lease_value or lease_value in external_values:
             raise client_operation_secret_echo()
-
-    dumped = payload.model_dump(mode="json")
-
-    def is_operation_id(value: object) -> bool:
-        if isinstance(value, UUID):
-            return value == operation_id
-        if not isinstance(value, str):
-            return False
-        try:
-            return UUID(value) == operation_id
-        except (AttributeError, ValueError):
-            return False
-
-    def contains_echo(value: object, path: tuple[str, ...] = ()) -> bool:
-        if isinstance(value, list):
-            return any(contains_echo(item, path) for item in value)
-        if isinstance(value, dict):
-            for key, item in value.items():
-                child_path = (*path, key)
-                if len(child_path) == 1 and key in {
-                    "client_operation_id",
-                    "lease_token",
-                }:
-                    continue
-                if key in known_values or is_operation_id(key):
-                    return True
-                if key.casefold() in FORBIDDEN_RESPONSE_FIELD_NAMES:
-                    return True
-                if contains_echo(item, child_path):
-                    return True
-            return False
-        return is_operation_id(value) or (
-            isinstance(value, str) and value in known_values
-        )
-
-    if contains_echo(dumped):
+    if _contains_control_echo(
+        payload.model_dump(mode="json"),
+        known_values,
+        operation_id,
+        designated_fields=_DESIGNATED_REQUEST_FIELDS,
+    ):
         raise client_operation_secret_echo()
     return frozenset(known_values)
 
 
-def _contains_exact_response_value(
-    value: object,
-    forbidden_values: frozenset[str],
-    operation_id: UUID | None = None,
-) -> bool:
-    def is_operation_id(candidate: object) -> bool:
-        if operation_id is None:
-            return False
-        if isinstance(candidate, UUID):
-            return candidate == operation_id
-        if not isinstance(candidate, str):
-            return False
-        try:
-            return UUID(candidate) == operation_id
-        except (AttributeError, ValueError):
-            return False
+def _spells_operation_id(candidate: object, operation_id: UUID | None) -> bool:
+    """Whether ``candidate`` is the operation UUID in any of its spellings."""
+    if operation_id is None:
+        return False
+    if isinstance(candidate, UUID):
+        return candidate == operation_id
+    if not isinstance(candidate, str):
+        return False
+    try:
+        return UUID(candidate) == operation_id
+    except (AttributeError, ValueError):
+        return False
 
+
+def _contains_control_echo(
+    value: object,
+    known_values: Collection[str],
+    operation_id: UUID | None,
+    *,
+    designated_fields: frozenset[str] = frozenset(),
+) -> bool:
+    """Walk one JSON tree for an exact known value, operation UUID, or reserved key.
+
+    ``designated_fields`` names the keys of ``value`` itself that legitimately
+    carry control data (a request's own ``client_operation_id`` and
+    ``lease_token``); those keys and their contents are skipped. Keys of nested
+    objects are never designated.
+    """
     if isinstance(value, list):
         return any(
-            _contains_exact_response_value(item, forbidden_values, operation_id)
+            _contains_control_echo(
+                item, known_values, operation_id, designated_fields=designated_fields
+            )
             for item in value
         )
     if isinstance(value, dict):
         return any(
-            key in forbidden_values
-            or is_operation_id(key)
-            or key.casefold() in FORBIDDEN_RESPONSE_FIELD_NAMES
-            or _contains_exact_response_value(item, forbidden_values, operation_id)
+            key not in designated_fields
+            and (
+                key in known_values
+                or _spells_operation_id(key, operation_id)
+                or key.casefold() in FORBIDDEN_RESPONSE_FIELD_NAMES
+                or _contains_control_echo(item, known_values, operation_id)
+            )
             for key, item in value.items()
         )
-    return is_operation_id(value) or (
-        isinstance(value, str) and value in forbidden_values
+    return _spells_operation_id(value, operation_id) or (
+        isinstance(value, str) and value in known_values
     )
 
 
@@ -540,7 +528,7 @@ def _remaining_wait_milliseconds(database: Session, deadline: float) -> int:
     return min(remaining, 10_000)
 
 
-def _raise_unavailable(database: Session) -> None:
+def _raise_unavailable(database: Session) -> NoReturn:
     _rollback(database)
     raise client_operation_unavailable()
 
@@ -669,6 +657,334 @@ def _created_relationship_matches_request(
     )
 
 
+# A coherence check receives (project_id, target envelope, request payload,
+# typed response) and answers whether that response could have come from
+# executing that request.
+type ResponseMatcher = Callable[[UUID, Mapping[str, str], APIModel, APIModel], bool]
+
+
+def _expected_initial_relationships(
+    request: WorkItemCreate,
+    work_item_id: UUID,
+) -> dict[tuple[str, UUID, UUID], InitialRelationshipCreate]:
+    expected: dict[tuple[str, UUID, UUID], InitialRelationshipCreate] = {}
+    for relationship in sorted(request.initial_relationships, key=_initial_relationship_order):
+        if relationship.direction == "outgoing":
+            source, target = work_item_id, relationship.other_work_item_id
+        else:
+            source, target = relationship.other_work_item_id, work_item_id
+        expected.setdefault(
+            _normalized_relationship_identity(relationship.type, source, target),
+            relationship,
+        )
+    return expected
+
+
+def _initial_relationships_match(
+    project_id: UUID,
+    request: WorkItemCreate,
+    result: WorkCreation,
+) -> bool:
+    work = result.work_item
+    expected_relationships = _expected_initial_relationships(request, work.id)
+    actual_relationships: set[tuple[str, UUID, UUID]] = set()
+    for relationship in result.initial_relationships:
+        identity = _normalized_relationship_identity(
+            relationship.relationship_type,
+            relationship.source_work_item_id,
+            relationship.target_work_item_id,
+        )
+        expected = expected_relationships.get(identity)
+        if (
+            relationship.project_id != project_id
+            or work.id
+            not in {
+                relationship.source_work_item_id,
+                relationship.target_work_item_id,
+            }
+            or expected is None
+            or not _created_relationship_matches_request(
+                relationship,
+                created_by_client=request.initial_checkpoint.source_client,
+                created_by_session_id=request.initial_checkpoint.source_session_id,
+                created_by_model=request.initial_checkpoint.source_model,
+                context_checkpoint_id=expected.context_checkpoint_id,
+            )
+        ):
+            return False
+        actual_relationships.add(identity)
+    return (
+        len(actual_relationships) == len(result.initial_relationships)
+        and actual_relationships == set(expected_relationships)
+    )
+
+
+def _create_work_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(WorkCreation, typed)
+    request = cast(WorkItemCreate, payload)
+    work = result.work_item
+    if (
+        work.project_id != project_id
+        or work.version != 1
+        or work.title != request.title
+        or work.summary != request.summary
+        or work.priority != request.priority
+        or work.status != request.status
+        or result.initial_checkpoint.work_item_id != work.id
+        or result.initial_checkpoint.id != work.initial_checkpoint_id
+        or result.initial_checkpoint.kind != "context"
+        or not _checkpoint_matches_payload(
+            result.initial_checkpoint,
+            request.initial_checkpoint,
+        )
+    ):
+        return False
+    return _initial_relationships_match(project_id, request, result)
+
+
+def _add_checkpoint_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(CheckpointRead, typed)
+    request = cast(CheckpointCreate, payload)
+    return (
+        str(result.work_item_id) == target_envelope.get("work_item_id")
+        and result.kind == request.kind
+        and _checkpoint_matches_payload(result, request)
+    )
+
+
+def _append_event_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(WorkEventRead, typed)
+    request = cast(ProgressEventCreate, payload)
+    return (
+        result.project_id == project_id
+        and str(result.work_item_id) == target_envelope.get("work_item_id")
+        and result.event_type == "progress"
+        and result.body == request.body
+        and result.model_dump(mode="json")["metadata"] == request.metadata
+        and result.actor_client == request.actor.actor_client
+        and result.actor_session_id == request.actor.actor_session_id
+        and result.actor_model == request.actor.actor_model
+        and result.origin == "live"
+    )
+
+
+def _add_relationship_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(RelationshipCreationResult, typed)
+    request = cast(RelationshipCreate, payload)
+    expected = _normalized_relationship_identity(
+        request.relationship_type,
+        request.source_work_item_id,
+        request.target_work_item_id,
+    )
+    actual = _normalized_relationship_identity(
+        result.relationship.relationship_type,
+        result.relationship.source_work_item_id,
+        result.relationship.target_work_item_id,
+    )
+    return (
+        result.relationship.project_id == project_id
+        and actual == expected
+        and (
+            not result.created
+            or _created_relationship_matches_request(
+                result.relationship,
+                created_by_client=request.created_by_client,
+                created_by_session_id=request.created_by_session_id,
+                created_by_model=request.created_by_model,
+                context_checkpoint_id=request.context_checkpoint_id,
+            )
+        )
+    )
+
+
+def _update_work_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(WorkItemRead, typed)
+    request = cast(WorkItemPatch, payload)
+    changed_fields = request.model_fields_set - {
+        "expected_version",
+        "lease_token",
+        "actor",
+        "client_operation_id",
+    }
+    return (
+        result.project_id == project_id
+        and str(result.id) == target_envelope.get("work_item_id")
+        and result.version == request.expected_version + 1
+        and all(getattr(result, field) == getattr(request, field) for field in changed_fields)
+    )
+
+
+def _defer_work_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(WorkItemRead, typed)
+    request = cast(WorkDeferralCreate, payload)
+    return (
+        result.project_id == project_id
+        and str(result.id) == target_envelope.get("work_item_id")
+        and result.version == request.expected_version + 1
+        and result.status == "deferred"
+    )
+
+
+def _complete_work_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(WorkCompletionRead, typed)
+    request = cast(WorkCompletionCreate, payload)
+    return (
+        result.work_item.project_id == project_id
+        and str(result.work_item.id) == target_envelope.get("work_item_id")
+        and result.work_item.version == request.expected_version + 1
+        and result.work_item.status == "done"
+        and result.checkpoint.work_item_id == result.work_item.id
+        and result.checkpoint.kind == "completion"
+        and _checkpoint_matches_payload(result.checkpoint, request.checkpoint)
+    )
+
+
+def _delete_work_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(WorkDeletionRead, typed)
+    request = cast(WorkDeletionCreate, payload)
+    return (
+        result.deleted is True
+        and result.project_id == project_id
+        and str(result.work_item_id) == target_envelope.get("work_item_id")
+        and result.version == request.expected_version + 1
+    )
+
+
+def _remove_relationship_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(RelationshipRemovalResult, typed)
+    return (
+        result.project_id == project_id
+        and str(result.relationship_id) == target_envelope.get("relationship_id")
+    )
+
+
+def _release_claim_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(ReleaseResult, typed)
+    return str(result.work_item_id) == target_envelope.get("work_item_id")
+
+
+def _request_human_input_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(HumanGateRead, typed)
+    request = cast(HumanGateRequestCreate, payload)
+    revision = result.current_context_revision
+    return (
+        result.project_id == project_id
+        and str(result.work_item_id) == target_envelope.get("work_item_id")
+        and result.gate_type == request.gate_type
+        and result.question == request.question
+        and result.requested_by_client == request.requested_by_client
+        and result.requested_by_session_id == request.requested_by_session_id
+        and result.requested_by_model == request.requested_by_model
+        and result.status == "unresolved"
+        and revision == result.requested_context_revision
+        and not result.work_changed_since_request
+        and not result.context_checkpoint_changed_since_request
+        and not result.relationships_changed_since_request
+        and not result.context_changed_since_request
+        and result.resolved_at is None
+        and result.resolution is None
+    )
+
+
+def _resolve_human_input_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(HumanGateRead, typed)
+    request = cast(HumanGateResolutionCreate, payload)
+    resolved_revision = result.resolved_context_revision
+    return (
+        result.project_id == project_id
+        and str(result.work_item_id) == target_envelope.get("work_item_id")
+        and str(result.id) == target_envelope.get("gate_id")
+        and result.status == "resolved"
+        and result.resolution == request.resolution
+        and result.resolved_by_client == request.resolved_by_client
+        and result.resolved_by_session_id == request.resolved_by_session_id
+        and result.resolved_by_model == request.resolved_by_model
+        and resolved_revision is not None
+        and result.current_context_revision == resolved_revision
+        and request.reviewed_context_revision == resolved_revision
+    )
+
+
+_RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
+    {
+        "create_work": _create_work_matches,
+        "add_checkpoint": _add_checkpoint_matches,
+        "append_event": _append_event_matches,
+        "add_relationship": _add_relationship_matches,
+        "update_work": _update_work_matches,
+        "defer_work": _defer_work_matches,
+        "complete_work": _complete_work_matches,
+        "delete_work": _delete_work_matches,
+        "remove_relationship": _remove_relationship_matches,
+        "release_claim": _release_claim_matches,
+        "request_human_input": _request_human_input_matches,
+        "resolve_human_input": _resolve_human_input_matches,
+    }
+)
+if set(_RESPONSE_MATCHERS) != set(OPERATION_REGISTRY):  # pragma: no cover - import guard
+    raise RuntimeError("Every registered operation needs a response coherence check")
+
+
 def _response_matches_operation(
     spec: OperationSpec,
     project_id: UUID,
@@ -684,223 +1000,10 @@ def _response_matches_operation(
     )
     if not isinstance(expected_applied, bool) or mutation_applied is not expected_applied:
         return False
-
-    work_item_id = target_envelope.get("work_item_id")
-    relationship_id = target_envelope.get("relationship_id")
-    if spec.kind == "create_work":
-        result = cast(WorkCreation, typed)
-        request = cast(WorkItemCreate, payload)
-        work = result.work_item
-        if (
-            work.project_id != project_id
-            or work.version != 1
-            or work.title != request.title
-            or work.summary != request.summary
-            or work.priority != request.priority
-            or work.status != request.status
-            or result.initial_checkpoint.work_item_id != work.id
-            or result.initial_checkpoint.id != work.initial_checkpoint_id
-            or result.initial_checkpoint.kind != "context"
-            or not _checkpoint_matches_payload(
-                result.initial_checkpoint,
-                request.initial_checkpoint,
-            )
-        ):
-            return False
-        expected_relationships: dict[
-            tuple[str, UUID, UUID],
-            InitialRelationshipCreate,
-        ] = {}
-        for relationship in sorted(
-            request.initial_relationships,
-            key=_initial_relationship_order,
-        ):
-            if relationship.direction == "outgoing":
-                source, target = work.id, relationship.other_work_item_id
-            else:
-                source, target = relationship.other_work_item_id, work.id
-            expected_relationships.setdefault(
-                _normalized_relationship_identity(relationship.type, source, target),
-                relationship,
-            )
-        actual_relationships: set[tuple[str, UUID, UUID]] = set()
-        for relationship in result.initial_relationships:
-            identity = _normalized_relationship_identity(
-                relationship.relationship_type,
-                relationship.source_work_item_id,
-                relationship.target_work_item_id,
-            )
-            expected = expected_relationships.get(identity)
-            if (
-                relationship.project_id != project_id
-                or work.id
-                not in {
-                relationship.source_work_item_id,
-                relationship.target_work_item_id,
-                }
-                or expected is None
-                or not _created_relationship_matches_request(
-                    relationship,
-                    created_by_client=request.initial_checkpoint.source_client,
-                    created_by_session_id=request.initial_checkpoint.source_session_id,
-                    created_by_model=request.initial_checkpoint.source_model,
-                    context_checkpoint_id=expected.context_checkpoint_id,
-                )
-            ):
-                return False
-            actual_relationships.add(identity)
-        return (
-            len(actual_relationships) == len(result.initial_relationships)
-            and actual_relationships == set(expected_relationships)
-        )
-    if spec.kind == "add_checkpoint":
-        result = cast(CheckpointRead, typed)
-        request = cast(CheckpointCreate, payload)
-        return (
-            str(result.work_item_id) == work_item_id
-            and result.kind == request.kind
-            and _checkpoint_matches_payload(result, request)
-        )
-    if spec.kind == "append_event":
-        result = cast(WorkEventRead, typed)
-        request = cast(ProgressEventCreate, payload)
-        return (
-            result.project_id == project_id
-            and str(result.work_item_id) == work_item_id
-            and result.event_type == "progress"
-            and result.body == request.body
-            and result.model_dump(mode="json")["metadata"] == request.metadata
-            and result.actor_client == request.actor.actor_client
-            and result.actor_session_id == request.actor.actor_session_id
-            and result.actor_model == request.actor.actor_model
-            and result.origin == "live"
-        )
-    if spec.kind == "add_relationship":
-        result = cast(RelationshipCreationResult, typed)
-        request = cast(RelationshipCreate, payload)
-        expected = _normalized_relationship_identity(
-            request.relationship_type,
-            request.source_work_item_id,
-            request.target_work_item_id,
-        )
-        actual = _normalized_relationship_identity(
-            result.relationship.relationship_type,
-            result.relationship.source_work_item_id,
-            result.relationship.target_work_item_id,
-        )
-        return (
-            result.relationship.project_id == project_id
-            and actual == expected
-            and (
-                not result.created
-                or _created_relationship_matches_request(
-                    result.relationship,
-                    created_by_client=request.created_by_client,
-                    created_by_session_id=request.created_by_session_id,
-                    created_by_model=request.created_by_model,
-                    context_checkpoint_id=request.context_checkpoint_id,
-                )
-            )
-        )
-    if spec.kind == "update_work":
-        result = cast(WorkItemRead, typed)
-        request = cast(WorkItemPatch, payload)
-        changed_fields = request.model_fields_set - {
-            "expected_version",
-            "lease_token",
-            "actor",
-            "client_operation_id",
-        }
-        return (
-            result.project_id == project_id
-            and str(result.id) == work_item_id
-            and result.version == request.expected_version + 1
-            and all(
-                getattr(result, field) == getattr(request, field)
-                for field in changed_fields
-            )
-        )
-    if spec.kind == "defer_work":
-        result = cast(WorkItemRead, typed)
-        request = cast(WorkDeferralCreate, payload)
-        return (
-            result.project_id == project_id
-            and str(result.id) == work_item_id
-            and result.version == request.expected_version + 1
-            and result.status == "deferred"
-        )
-    if spec.kind == "complete_work":
-        result = cast(WorkCompletionRead, typed)
-        request = cast(WorkCompletionCreate, payload)
-        return (
-            result.work_item.project_id == project_id
-            and str(result.work_item.id) == work_item_id
-            and result.work_item.version == request.expected_version + 1
-            and result.work_item.status == "done"
-            and result.checkpoint.work_item_id == result.work_item.id
-            and result.checkpoint.kind == "completion"
-            and _checkpoint_matches_payload(result.checkpoint, request.checkpoint)
-        )
-    if spec.kind == "delete_work":
-        result = cast(WorkDeletionRead, typed)
-        request = cast(WorkDeletionCreate, payload)
-        return (
-            result.deleted is True
-            and result.project_id == project_id
-            and str(result.work_item_id) == work_item_id
-            and result.version == request.expected_version + 1
-        )
-    if spec.kind == "remove_relationship":
-        result = cast(RelationshipRemovalResult, typed)
-        return (
-            result.project_id == project_id
-            and str(result.relationship_id) == relationship_id
-        )
-    if spec.kind == "release_claim":
-        result = cast(ReleaseResult, typed)
-        return str(result.work_item_id) == work_item_id
-    if spec.kind == "request_human_input":
-        result = cast(HumanGateRead, typed)
-        request = cast(HumanGateRequestCreate, payload)
-        revision = result.current_context_revision
-        return (
-            result.project_id == project_id
-            and str(result.work_item_id) == work_item_id
-            and result.gate_type == request.gate_type
-            and result.question == request.question
-            and result.requested_by_client == request.requested_by_client
-            and result.requested_by_session_id == request.requested_by_session_id
-            and result.requested_by_model == request.requested_by_model
-            and result.status == "unresolved"
-            and revision == result.requested_context_revision
-            and not result.work_changed_since_request
-            and not result.context_checkpoint_changed_since_request
-            and not result.relationships_changed_since_request
-            and not result.context_changed_since_request
-            and result.resolved_at is None
-            and result.resolution is None
-        )
-    if spec.kind == "resolve_human_input":
-        result = cast(HumanGateRead, typed)
-        request = cast(HumanGateResolutionCreate, payload)
-        resolved_revision = result.resolved_context_revision
-        gate_id = target_envelope.get("gate_id")
-        if (
-            result.project_id != project_id
-            or str(result.work_item_id) != work_item_id
-            or str(result.id) != gate_id
-            or result.status != "resolved"
-            or result.resolution != request.resolution
-            or result.resolved_by_client != request.resolved_by_client
-            or result.resolved_by_session_id != request.resolved_by_session_id
-            or result.resolved_by_model != request.resolved_by_model
-            or resolved_revision is None
-            or result.current_context_revision != resolved_revision
-            or request.reviewed_context_revision != resolved_revision
-        ):
-            return False
-        return True
-    return False
+    matcher = _RESPONSE_MATCHERS.get(spec.kind)
+    if matcher is None:
+        return False
+    return matcher(project_id, target_envelope, payload, typed)
 
 
 def reserve_client_operation(
@@ -909,7 +1012,8 @@ def reserve_client_operation(
     *,
     wait_seconds: int,
 ) -> ReservationOutcome:
-    if prepared.identity is None:
+    identity = prepared.identity
+    if identity is None:
         return UnprotectedOperation(
             spec=prepared.spec,
             project_id=prepared.project_id,
@@ -922,9 +1026,42 @@ def reserve_client_operation(
         _raise_unavailable(database)
 
     salt = secrets.token_bytes(FINGERPRINT_SALT_BYTES)
-    fingerprint = request_fingerprint(salt, canonical)
-    identity = prepared.identity
-    deadline = monotonic() + wait_seconds
+    receipt = _insert_or_fetch_receipt(
+        database,
+        prepared.spec,
+        identity,
+        salt=salt,
+        fingerprint=request_fingerprint(salt, canonical),
+        deadline=monotonic() + wait_seconds,
+    )
+    if isinstance(receipt, int):
+        return ReservedOperation(
+            spec=prepared.spec,
+            receipt_id=receipt,
+            client_operation_id=identity.client_operation_id,
+            project_id=prepared.project_id,
+            target_envelope=prepared.target_envelope,
+            domain_payload=prepared.domain_payload,
+            forbidden_response_values=prepared.forbidden_response_values,
+        )
+    _require_same_request(database, prepared.spec, receipt, canonical)
+    return _replay_completed_receipt(database, prepared, identity, receipt)
+
+
+def _insert_or_fetch_receipt(
+    database: Session,
+    spec: OperationSpec,
+    identity: OperationIdentity,
+    *,
+    salt: bytes,
+    fingerprint: bytes,
+    deadline: float,
+) -> int | ClientOperation:
+    """Reserve the key, or read the receipt that already holds it.
+
+    Returns the new receipt id when this request won the reservation, otherwise
+    the existing row. Both statements share one absolute wait budget.
+    """
     try:
         # Session checkout is lazy. It is part of the same absolute budget as
         # the unique-index conflict wait, not a separate QueuePool allowance.
@@ -938,11 +1075,11 @@ def reserve_client_operation(
             .values(
                 project_id=identity.project_id,
                 client_operation_id=identity.client_operation_id,
-                operation_kind=prepared.spec.kind,
-                request_fingerprint_version=prepared.spec.request_fingerprint_version,
+                operation_kind=spec.kind,
+                request_fingerprint_version=spec.request_fingerprint_version,
                 request_fingerprint_salt=salt,
                 request_fingerprint=fingerprint,
-                response_contract_version=prepared.spec.response_contract_version,
+                response_contract_version=spec.response_contract_version,
                 state="pending",
             )
             .on_conflict_do_nothing(constraint="uq_client_operations_scope")
@@ -950,15 +1087,7 @@ def reserve_client_operation(
         ).scalar_one_or_none()
         if receipt_id is not None:
             _restore_receipt_timeouts(database)
-            return ReservedOperation(
-                spec=prepared.spec,
-                receipt_id=receipt_id,
-                client_operation_id=identity.client_operation_id,
-                project_id=prepared.project_id,
-                target_envelope=prepared.target_envelope,
-                domain_payload=prepared.domain_payload,
-                forbidden_response_values=prepared.forbidden_response_values,
-            )
+            return receipt_id
 
         # The conflict INSERT may have consumed almost the entire budget. Do
         # not grant the visibility read a fresh full timeout.
@@ -982,15 +1111,24 @@ def reserve_client_operation(
 
     if receipt is None:
         _raise_unavailable(database)
-    if receipt.operation_kind != prepared.spec.kind:
+    return receipt
+
+
+def _require_same_request(
+    database: Session,
+    spec: OperationSpec,
+    receipt: ClientOperation,
+    canonical: bytes,
+) -> None:
+    """Conflict when the receipt belongs to another request; unavailable when malformed."""
+    if receipt.operation_kind != spec.kind:
         _rollback(database)
         raise client_operation_conflict()
-    if receipt.request_fingerprint_version != prepared.spec.request_fingerprint_version:
+    if receipt.request_fingerprint_version != spec.request_fingerprint_version:
         _rollback(database)
         raise client_operation_conflict()
     if (
-        receipt.response_contract_version
-        != prepared.spec.response_contract_version
+        receipt.response_contract_version != spec.response_contract_version
         or len(receipt.request_fingerprint_salt) != FINGERPRINT_SALT_BYTES
         or len(receipt.request_fingerprint) != FINGERPRINT_BYTES
     ):
@@ -999,25 +1137,35 @@ def reserve_client_operation(
     if not hmac.compare_digest(candidate, receipt.request_fingerprint):
         _rollback(database)
         raise client_operation_conflict()
+
+
+def _replay_completed_receipt(
+    database: Session,
+    prepared: PreparedOperation,
+    identity: OperationIdentity,
+    receipt: ClientOperation,
+) -> ReplayedOperation:
+    response_body = receipt.response_body
+    mutation_applied = receipt.mutation_applied
     if (
         receipt.state != "completed"
         or receipt.response_status != prepared.spec.status_code
-        or not isinstance(receipt.response_body, dict)
-        or not isinstance(receipt.mutation_applied, bool)
+        or not isinstance(response_body, dict)
+        or not isinstance(mutation_applied, bool)
     ):
         _raise_unavailable(database)
     try:
         typed, body, response = _render_registered_response(
             prepared.spec,
-            receipt.response_body,
+            response_body,
             stored_snapshot=True,
         )
     except Exception:
         _raise_unavailable(database)
-    if _contains_exact_response_value(
+    if _contains_control_echo(
         body,
         prepared.forbidden_response_values,
-        prepared.identity.client_operation_id,
+        identity.client_operation_id,
     ):
         _raise_unavailable(database)
     if not _response_matches_operation(
@@ -1026,7 +1174,7 @@ def reserve_client_operation(
         prepared.target_envelope,
         prepared.domain_payload,
         typed,
-        receipt.mutation_applied,
+        mutation_applied,
     ):
         _raise_unavailable(database)
     return ReplayedOperation(
@@ -1034,7 +1182,7 @@ def reserve_client_operation(
         status=prepared.spec.status_code,
         typed_body=typed,
         response=response,
-        mutation_applied=receipt.mutation_applied,
+        mutation_applied=mutation_applied,
     )
 
 
@@ -1054,7 +1202,7 @@ def complete_client_operation(
         )
     except Exception:
         _raise_unavailable(database)
-    if _contains_exact_response_value(
+    if _contains_control_echo(
         body,
         operation.forbidden_response_values,
         (

@@ -113,7 +113,9 @@ def _cached_embeddings(
     initial_prompts = dict(
         database.execute(
             select(Checkpoint.id, Checkpoint.prompt).where(Checkpoint.id.in_(initial_ids))
-        ).all()
+        )
+        .tuples()
+        .all()
     )
     later_texts: dict[UUID, str] = {}
     initial_by_work = {

@@ -1,9 +1,9 @@
 from collections.abc import Iterator
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 from fastapi import Depends, Request
 from sqlalchemy import create_engine, event
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import CursorResult, Engine, Result
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -14,6 +14,15 @@ def database_sqlstate(error: DBAPIError) -> str | None:
     """Return a driver SQLSTATE without exposing driver-specific exception types."""
     sqlstate = getattr(error.orig, "sqlstate", None)
     return sqlstate if isinstance(sqlstate, str) else None
+
+
+def rows_affected(result: Result[Any]) -> int:
+    """Row count of an INSERT, UPDATE, or DELETE executed through a Session.
+
+    ``Session.execute`` is typed as returning a plain ``Result``, but a DML
+    statement always yields a ``CursorResult`` at runtime.
+    """
+    return cast(CursorResult[Any], result).rowcount
 
 
 def build_engine(settings: Settings) -> Engine:

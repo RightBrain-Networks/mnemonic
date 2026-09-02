@@ -55,7 +55,9 @@ def _summary_inputs(
             select(Checkpoint.work_item_id, func.count())
             .where(Checkpoint.work_item_id.in_(ids))
             .group_by(Checkpoint.work_item_id)
-        ).all()
+        )
+        .tuples()
+        .all()
     )
     return counts, blocker_counts, gate_counts, active_leases, dropped_lease_ids
 

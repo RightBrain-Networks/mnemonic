@@ -7,6 +7,7 @@ No helper commits; the route owns the one outer transaction boundary.
 
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import NoReturn
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
@@ -23,7 +24,7 @@ from mnemonic_api.services.work_events import (
 
 
 def _database_now(database: Session) -> datetime:
-    return database.scalar(select(func.clock_timestamp()))
+    return database.execute(select(func.clock_timestamp())).scalar_one()
 
 
 def _locked_lease(database: Session, work_item_id: UUID) -> WorkLease | None:
@@ -40,14 +41,14 @@ def _utc(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _token_mismatch() -> None:
+def _token_mismatch() -> NoReturn:
     raise conflict(
         "lease_token_mismatch",
         "A matching lease token is required for this operation.",
     )
 
 
-def _expired() -> None:
+def _expired() -> NoReturn:
     raise conflict("lease_expired", "This work lease has expired.")
 
 

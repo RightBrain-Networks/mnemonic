@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from mnemonic_api.database import rows_affected
 from mnemonic_api.errors import ApplicationError, conflict, not_found
 from mnemonic_api.models import Checkpoint, Project, WorkItem, WorkRelationship
 from mnemonic_api.schemas import (
@@ -203,7 +204,7 @@ def append_checkpoint_record(
         .values(updated_at=func.greatest(WorkItem.updated_at, func.clock_timestamp()))
         .execution_options(synchronize_session=False)
     )
-    if activity_update.rowcount != 1:
+    if rows_affected(activity_update) != 1:
         raise not_found("work_item_not_found", "Work item not found.")
     database.flush()
     stage_checkpoint_added(database, work_item, checkpoint)

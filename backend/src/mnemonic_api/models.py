@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -25,6 +25,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+# The work lifecycle vocabulary. WorkItem's status_valid check constraint is the
+# database guard for the same five values.
+WorkStatus = Literal["pending", "deferred", "done", "wont-do", "promoted"]
 
 
 class Base(DeclarativeBase):
@@ -192,7 +196,9 @@ class WorkItem(Base):
     project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id", ondelete="RESTRICT"))
     title: Mapped[str] = mapped_column(String(200))
     summary: Mapped[str] = mapped_column(String(1000))
-    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    status: Mapped[WorkStatus] = mapped_column(
+        String(20), default="pending", server_default="pending"
+    )
     priority: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
     initial_checkpoint_id: Mapped[UUID] = mapped_column()
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")

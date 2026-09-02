@@ -9,7 +9,7 @@ Backend code, migrations, and tests live under `backend/`; the MCP adapter and t
 - `python scripts/setup.py`: create settings from `.env.example`.
 - `docker compose up --build -d --wait`: build and start the complete stack.
 - `docker compose -f compose.test.yaml up -d --wait`: start the isolated PostgreSQL test database.
-- `cd backend && uv sync --frozen && uv run pytest -q && uv run ruff check . && uv run ty check src/mnemonic_api/application`: test, lint, and type-check the API.
+- `cd backend && uv sync --frozen && uv run pytest -q && uv run ruff check . && uv run ty check src`: test, lint, and type-check the API.
 - `cd mcp && uv sync --frozen && uv run pytest -q`: verify the MCP package.
 - `cd frontend && npm ci && npm test && npm run typecheck && npm run build`: verify the dashboard.
 - `cd frontend && npm run test:e2e:stack`: provision and run the isolated Playwright acceptance stack.
@@ -18,7 +18,7 @@ Use Python 3.13, `uv`, and Node 24. Keep the backend and MCP virtual environment
 
 ## Coding Style & Naming Conventions
 
-Python uses four spaces, type hints, `snake_case`, and `PascalCase` classes. Ruff enforces 100-character lines and E, F, I, UP, B, and C90 (complexity ceiling 10) rules; `ty` type-checks the `mnemonic_api.application` package. TypeScript uses two spaces, strict mode, `camelCase`, and `PascalCase` components. No frontend formatter or linter is configured. Name migrations like `0005_work_graph_backfill.py`.
+Python uses four spaces, type hints, `snake_case`, and `PascalCase` classes. Ruff enforces 100-character lines and E, F, I, UP, B, and C90 (complexity ceiling 10, no per-file exceptions) rules; `ty` type-checks the whole backend `src` tree. TypeScript uses two spaces, strict mode, `camelCase`, and `PascalCase` components. No frontend formatter or linter is configured. Name migrations like `0005_work_graph_backfill.py`.
 
 ## Testing Guidelines
 

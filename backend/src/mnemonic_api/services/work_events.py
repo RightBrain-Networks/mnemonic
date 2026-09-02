@@ -9,6 +9,7 @@ from pydantic import JsonValue
 from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
+from mnemonic_api.database import rows_affected
 from mnemonic_api.errors import ApplicationError, not_found
 from mnemonic_api.models import Checkpoint, WorkEvent, WorkGate, WorkItem, WorkRelationship
 from mnemonic_api.schemas import (
@@ -21,7 +22,7 @@ from mnemonic_api.schemas import (
 
 
 def database_now(database: Session) -> datetime:
-    return database.scalar(select(func.clock_timestamp()))
+    return database.execute(select(func.clock_timestamp())).scalar_one()
 
 
 def utc_iso(value: datetime) -> str:
@@ -322,8 +323,9 @@ def stage_work_released(
     actor: MutationActor | None,
     created_at: datetime,
 ) -> WorkEvent:
+    metadata: dict[str, JsonValue]
     if lease_holder_client.strip() and lease_holder_session_id.strip():
-        metadata: dict[str, JsonValue] = {
+        metadata = {
             "lease_holder_kind": "client",
             "lease_holder_client": lease_holder_client,
             "lease_holder_session_id": lease_holder_session_id,
@@ -453,7 +455,7 @@ def append_progress_event(
         .values(updated_at=func.greatest(WorkItem.updated_at, mutation_time))
         .execution_options(synchronize_session=False)
     )
-    if activity_update.rowcount != 1:
+    if rows_affected(activity_update) != 1:
         raise not_found("work_item_not_found", "Work item not found.")
     event = _event(
         project_id=project_id,

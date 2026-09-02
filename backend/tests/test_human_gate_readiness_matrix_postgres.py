@@ -369,6 +369,56 @@ def counterpart_from_context(context: dict, work_item_id: str) -> dict:
     return matches[0]
 
 
+def request_resolved_gates(api, gates_path: str, count: int, unique: str) -> list[str]:
+    gate_ids = []
+    for index in range(count):
+        requested = api.post(
+            gates_path,
+            json=gate_request(f"Resolved matrix question {index} for {unique}?"),
+        )
+        assert requested.status_code == 201, requested.text
+        gate = requested.json()
+        resolved = api.post(
+            f"{gates_path}/{gate['id']}/resolve",
+            json=gate_resolution(
+                f"Resolved matrix answer {index} for {unique}.",
+                gate["current_context_revision"],
+            ),
+        )
+        assert resolved.status_code == 200, resolved.text
+        assert resolved.json()["status"] == "resolved"
+        gate_ids.append(gate["id"])
+    return gate_ids
+
+
+def request_unresolved_gates(api, gates_path: str, count: int, unique: str) -> list[str]:
+    gate_ids = []
+    for index in range(count):
+        requested = api.post(
+            gates_path,
+            json=gate_request(f"Unresolved matrix question {index} for {unique}?"),
+        )
+        assert requested.status_code == 201, requested.text
+        assert requested.json()["status"] == "unresolved"
+        gate_ids.append(requested.json()["id"])
+    return gate_ids
+
+
+def apply_lifecycle(api, target_path: str, lifecycle: str) -> None:
+    """Move freshly created work (version 1) into the case's lifecycle status."""
+    if lifecycle == "deferred":
+        deferred = api.post(f"{target_path}/defer", json={"expected_version": 1})
+        assert deferred.status_code == 200, deferred.text
+        assert deferred.json()["status"] == "deferred"
+    elif lifecycle == "wont-do":
+        retired = api.patch(
+            target_path,
+            json={"expected_version": 1, "status": "wont-do"},
+        )
+        assert retired.status_code == 200, retired.text
+        assert retired.json()["status"] == "wont-do"
+
+
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
 def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
     api,
@@ -444,46 +494,11 @@ def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
         expire_lease(postgres_engine, target["id"])
 
     gates_path = f"{target_path}/gates"
-    resolved_gate_ids = []
-    for index in range(case.resolved_gates):
-        requested = api.post(
-            gates_path,
-            json=gate_request(f"Resolved matrix question {index} for {unique}?"),
-        )
-        assert requested.status_code == 201, requested.text
-        gate = requested.json()
-        resolved = api.post(
-            f"{gates_path}/{gate['id']}/resolve",
-            json=gate_resolution(
-                f"Resolved matrix answer {index} for {unique}.",
-                gate["current_context_revision"],
-            ),
-        )
-        assert resolved.status_code == 200, resolved.text
-        assert resolved.json()["status"] == "resolved"
-        resolved_gate_ids.append(gate["id"])
-
-    unresolved_gate_ids = []
-    for index in range(case.unresolved_gates):
-        requested = api.post(
-            gates_path,
-            json=gate_request(f"Unresolved matrix question {index} for {unique}?"),
-        )
-        assert requested.status_code == 201, requested.text
-        assert requested.json()["status"] == "unresolved"
-        unresolved_gate_ids.append(requested.json()["id"])
-
-    if case.lifecycle == "deferred":
-        deferred = api.post(f"{target_path}/defer", json={"expected_version": 1})
-        assert deferred.status_code == 200, deferred.text
-        assert deferred.json()["status"] == "deferred"
-    elif case.lifecycle == "wont-do":
-        retired = api.patch(
-            target_path,
-            json={"expected_version": 1, "status": "wont-do"},
-        )
-        assert retired.status_code == 200, retired.text
-        assert retired.json()["status"] == "wont-do"
+    resolved_gate_ids = request_resolved_gates(api, gates_path, case.resolved_gates, unique)
+    unresolved_gate_ids = request_unresolved_gates(
+        api, gates_path, case.unresolved_gates, unique
+    )
+    apply_lifecycle(api, target_path, case.lifecycle)
 
     expected = expected_readiness(case, receipt)
     context_response = api.get(f"{target_path}/context")

@@ -1,5 +1,39 @@
 # Mnemonic validation record
 
+## Complexity ceiling and type-check gate widening — 2026-09-02
+
+This record covers removing the `C901` per-file exceptions from
+`backend/pyproject.toml` and widening `ty` from `src/mnemonic_api/application`
+to the whole backend `src` tree. Only observed results are stated.
+
+- **The full backend suite passed 426 tests with seven warnings** against the
+  disposable PostgreSQL 17 container, both as a baseline before the change and
+  again after it. That includes the committed OpenAPI freshness test:
+  `docs/openapi.json` is byte-identical to the regenerated document, so the
+  REST contract did not change. The 93 client-operation unit tests, including
+  the frozen canonical/digest and response-v1 vectors, and the validation
+  suite also passed in isolation.
+- **Backend Ruff passed with the `C901` ceiling of 10 and no
+  `per-file-ignores`.** `enforce_event_contract` fell from 47 to 2 by
+  delegating to actor, origin, body, reference, relationship-projection, and
+  metadata-family checks, the largest of which scores 7;
+  `_response_matches_operation` from 20 to 3 through one coherence function per
+  operation kind in a table checked against the registry at import;
+  `reject_client_operation_secret_echo` from 18 to 6 by sharing one echo walker
+  with the response check; `reserve_client_operation` from 16 to 4 by
+  separating the receipt round trip, the same-request check, and the
+  completed-receipt replay; and the readiness matrix test from 11 to 7. The
+  highest remaining score across `src` and `tests` is 10.
+- **`ty 0.0.77` reported zero diagnostics for `uv run ty check src`,** down
+  from 34. The fixes are annotations and typing-only call forms: `NoReturn` on
+  the raising helpers, `Result.tuples()` ahead of `dict()`, `scalar_one()` for
+  `clock_timestamp()`, a `rows_affected` helper for DML row counts, a declared
+  `dict[str, JsonValue]` for released-lease metadata, and `WorkItem.status`
+  typed with the same five-value `Literal` its check constraint guards. The
+  schema parity test confirms the ORM metadata did not change.
+- The MCP and dashboard suites were not rerun. Neither imports the backend
+  package, and their shared input, the OpenAPI snapshot, did not change.
+
 ## Application package decomposition — 2026-09-02
 
 This record covers the split of `backend/src/mnemonic_api/application.py` into

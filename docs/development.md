@@ -27,14 +27,12 @@ uv sync --frozen
 export TEST_DATABASE_URL=postgresql+psycopg://mnemonic_test:mnemonic_test_only@127.0.0.1:55432/mnemonic_test
 uv run pytest -q
 uv run ruff check .
-uv run ty check src/mnemonic_api/application
+uv run ty check src
 ```
 
-Ruff also enforces a McCabe complexity ceiling of 10 (`C901`); the
-`per-file-ignores` in `backend/pyproject.toml` name the two service modules and
-the test tree that predate the rule. `ty` is scoped to the
-`mnemonic_api.application` package, which must stay free of diagnostics; the
-older service modules still carry pre-existing diagnostics and are not gated.
+Ruff also enforces a McCabe complexity ceiling of 10 (`C901`) over the source
+and test trees with no per-file exceptions. `ty` covers the whole backend `src`
+tree, which must stay free of diagnostics.
 
 In PowerShell, replace the export with:
 

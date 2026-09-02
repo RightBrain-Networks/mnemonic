@@ -1068,6 +1068,100 @@ def _event_metadata_payload(metadata: WorkEventMetadata) -> dict[str, JsonValue]
     return metadata.model_dump(mode="json")
 
 
+# Event families. Each set names the event types one contract rule applies to.
+_LIVE_CLIENT_EVENTS = frozenset(
+    {
+        "work_created",
+        "work_claimed",
+        "checkpoint_added",
+        "progress",
+        "dependency_added",
+        "relationship_added",
+        "work_completed",
+        "human_attention_requested",
+        "human_attention_resolved",
+    }
+)
+_BACKFILL_EVENTS = frozenset(
+    {
+        "work_created",
+        "work_claimed",
+        "checkpoint_added",
+        "dependency_added",
+        "relationship_added",
+        "work_completed",
+        "work_deleted",
+    }
+)
+_GATE_EVENTS = frozenset({"human_attention_requested", "human_attention_resolved"})
+_TEXT_EVENTS = frozenset({"progress", *_GATE_EVENTS})
+_CHECKPOINT_EVENTS = frozenset({"work_created", "checkpoint_added", "work_completed"})
+_LEASE_EVENTS = frozenset({"work_claimed", "work_released"})
+_LIFECYCLE_EVENTS = frozenset({"work_status_changed", "work_reopened"})
+_RELATIONSHIP_EVENTS = frozenset(
+    {
+        "dependency_added",
+        "dependency_removed",
+        "relationship_added",
+        "relationship_removed",
+    }
+)
+
+# Metadata shapes keyed by (event type, origin): live events carry the typed
+# snapshot, while backfilled history keeps only what the legacy tables recorded.
+_ORIGIN_METADATA_TYPES: dict[tuple[str, str], type[WorkEventMetadata]] = {
+    ("work_created", "live"): WorkCreatedLiveMetadata,
+    ("work_created", "backfill"): EmptyEventMetadata,
+    ("work_claimed", "live"): WorkClaimedLiveMetadata,
+    ("work_claimed", "backfill"): WorkClaimedBackfillMetadata,
+    ("work_completed", "live"): WorkCompletedLiveMetadata,
+    ("work_completed", "backfill"): EmptyEventMetadata,
+}
+# Metadata shapes that depend on the event type alone.
+_PLAIN_METADATA_TYPES: dict[str, type[WorkEventMetadata]] = {
+    "checkpoint_added": CheckpointAddedMetadata,
+    "progress": ProgressEventMetadata,
+    "human_attention_requested": HumanGateEventMetadata,
+    "human_attention_resolved": HumanGateEventMetadata,
+    "work_deleted": WorkDeletedMetadata,
+}
+
+
+def _work_updated_metadata(payload: dict[str, JsonValue]) -> WorkUpdatedMetadata:
+    parsed = WorkUpdatedMetadata.model_validate(payload)
+    status_change = parsed.changes.status
+    if status_change is not None and status_change.before != status_change.after:
+        raise ValueError("Ordinary work updates cannot change status")
+    return parsed
+
+
+def _lifecycle_metadata(event_type: str, payload: dict[str, JsonValue]) -> WorkStatusMetadata:
+    parsed = WorkStatusMetadata.model_validate(payload)
+    status_change = parsed.changes.status
+    if status_change is None:
+        raise ValueError("Lifecycle events require a typed status change")
+    if (status_change.before, status_change.after) != (parsed.from_status, parsed.to_status):
+        raise ValueError("Lifecycle event status metadata is inconsistent")
+    if event_type == "work_status_changed" and (
+        parsed.from_status not in {"open", "pending"}
+        or parsed.to_status not in {"deferred", "wont-do", "promoted"}
+    ):
+        raise ValueError("Status-change events must leave pending work")
+    if event_type == "work_reopened" and (
+        parsed.to_status not in {"open", "pending"} or parsed.from_status in {"open", "pending"}
+    ):
+        raise ValueError("Reopen events must return held or terminal work to pending")
+    return parsed
+
+
+def _work_released_metadata(
+    payload: dict[str, JsonValue],
+) -> WorkReleasedClientMetadata | WorkReleasedUnattributedMetadata:
+    if payload.get("lease_holder_kind") == "client":
+        return WorkReleasedClientMetadata.model_validate(payload)
+    return WorkReleasedUnattributedMetadata.model_validate(payload)
+
+
 class WorkEventRead(APIModel):
     id: int
     project_id: UUID
@@ -1097,79 +1191,56 @@ class WorkEventRead(APIModel):
     def enforce_event_contract(self) -> Self:
         if self.created_at.tzinfo is None:
             raise ValueError("Event timestamps must include a UTC offset")
+        self._require_actor_provenance()
+        self._require_origin_rules()
+        self._require_body_rules()
+        self._require_reference_columns()
+        self._require_relationship_projection()
+        self.metadata = self._typed_metadata()
+        return self
 
+    def _require_actor_provenance(self) -> None:
         actor_values = (self.actor_client, self.actor_session_id, self.actor_model)
-        if self.actor_kind == "client":
-            if self.actor_client is None or self.actor_session_id is None:
-                raise ValueError("Client events require client and session provenance")
-            if not self.actor_client.strip() or not self.actor_session_id.strip():
-                raise ValueError("Client event provenance must be nonblank")
-            if self.actor_model is not None and not self.actor_model.strip():
-                raise ValueError("Client event model provenance must be nonblank")
-        elif any(value is not None for value in actor_values):
-            raise ValueError("Unattributed events cannot contain actor provenance")
+        if self.actor_kind != "client":
+            if any(value is not None for value in actor_values):
+                raise ValueError("Unattributed events cannot contain actor provenance")
+            return
+        if self.actor_client is None or self.actor_session_id is None:
+            raise ValueError("Client events require client and session provenance")
+        if not self.actor_client.strip() or not self.actor_session_id.strip():
+            raise ValueError("Client event provenance must be nonblank")
+        if self.actor_model is not None and not self.actor_model.strip():
+            raise ValueError("Client event model provenance must be nonblank")
 
-        live_client_events = {
-            "work_created",
-            "work_claimed",
-            "checkpoint_added",
-            "progress",
-            "dependency_added",
-            "relationship_added",
-            "work_completed",
-            "human_attention_requested",
-            "human_attention_resolved",
-        }
-        if (
-            self.origin == "live"
-            and self.event_type in live_client_events
-            and self.actor_kind != "client"
-        ):
-            raise ValueError("This live event requires client provenance")
-
-        backfill_allowed = {
-            "work_created",
-            "work_claimed",
-            "checkpoint_added",
-            "dependency_added",
-            "relationship_added",
-            "work_completed",
-            "work_deleted",
-        }
-        if self.origin == "backfill" and self.event_type not in backfill_allowed:
+    def _require_origin_rules(self) -> None:
+        if self.origin == "live":
+            if self.event_type in _LIVE_CLIENT_EVENTS and self.actor_kind != "client":
+                raise ValueError("This live event requires client provenance")
+            return
+        if self.event_type not in _BACKFILL_EVENTS:
             raise ValueError("This event type cannot be backfilled")
-        if (
-            self.origin == "backfill"
-            and self.event_type == "work_deleted"
-            and self.actor_kind != "unattributed"
-        ):
+        if self.event_type == "work_deleted" and self.actor_kind != "unattributed":
             raise ValueError("Backfilled deletion events must be unattributed")
 
-        gate_events = {"human_attention_requested", "human_attention_resolved"}
-        if self.event_type in {"progress", *gate_events}:
-            if self.origin != "live" or self.body is None:
-                raise ValueError("Text events require a live body")
-            if not 1 <= len(self.body) <= 4000 or not self.body.strip() or "\x00" in self.body:
-                raise ValueError("Text event bodies must be bounded nonblank text")
-        elif self.body is not None:
-            raise ValueError("Server-reserved event types cannot contain a body")
+    def _require_body_rules(self) -> None:
+        if self.event_type not in _TEXT_EVENTS:
+            if self.body is not None:
+                raise ValueError("Server-reserved event types cannot contain a body")
+            return
+        if self.origin != "live" or self.body is None:
+            raise ValueError("Text events require a live body")
+        if not 1 <= len(self.body) <= 4000 or not self.body.strip() or "\x00" in self.body:
+            raise ValueError("Text event bodies must be bounded nonblank text")
 
-        checkpoint_events = {"work_created", "checkpoint_added", "work_completed"}
-        if (self.checkpoint_id is not None) != (self.event_type in checkpoint_events):
+    def _require_reference_columns(self) -> None:
+        if (self.checkpoint_id is not None) != (self.event_type in _CHECKPOINT_EVENTS):
             raise ValueError("Checkpoint event references do not match the event type")
-
-        lease_events = {"work_claimed", "work_released"}
-        if (self.lease_generation_id is not None) != (self.event_type in lease_events):
+        if (self.lease_generation_id is not None) != (self.event_type in _LEASE_EVENTS):
             raise ValueError("Lease generation references do not match the event type")
         if (self.lease_release_id is not None) != (self.event_type == "work_released"):
             raise ValueError("Lease release references do not match the event type")
 
-        relationship_events = {
-            "dependency_added",
-            "dependency_removed",
-            "relationship_added",
-            "relationship_removed",
-        }
+    def _require_relationship_projection(self) -> None:
         relationship_values = (
             self.relationship_id,
             self.relationship_source_work_item_id,
@@ -1177,133 +1248,88 @@ class WorkEventRead(APIModel):
             self.relationship_direction,
             self.counterpart_work_item_id,
         )
-        if self.event_type in relationship_events:
-            if any(value is None for value in relationship_values):
-                raise ValueError("Relationship events require the complete endpoint projection")
-            source_work_item_id = self.relationship_source_work_item_id
-            target_work_item_id = self.relationship_target_work_item_id
-            counterpart_work_item_id = self.counterpart_work_item_id
-            assert source_work_item_id is not None
-            assert target_work_item_id is not None
-            assert counterpart_work_item_id is not None
-            if source_work_item_id == target_work_item_id:
-                raise ValueError("Relationship endpoints must be distinct")
-            if self.work_item_id not in {source_work_item_id, target_work_item_id}:
-                raise ValueError("Relationship event work item must be an endpoint")
-            expected_counterpart = (
-                target_work_item_id
-                if self.work_item_id == source_work_item_id
-                else source_work_item_id
-            )
-            if counterpart_work_item_id != expected_counterpart:
-                raise ValueError("Relationship event counterpart is inconsistent")
-            context_pair = (
-                self.relationship_context_checkpoint_work_item_id,
-                self.relationship_context_checkpoint_id,
-            )
-            if (context_pair[0] is None) != (context_pair[1] is None):
-                raise ValueError("Relationship context references must be paired")
-            if context_pair[0] is not None and context_pair[0] not in {
-                source_work_item_id,
-                target_work_item_id,
-            }:
-                raise ValueError("Relationship context owner must be an endpoint")
-        elif any(
-            value is not None
-            for value in (
-                *relationship_values,
-                self.relationship_context_checkpoint_work_item_id,
-                self.relationship_context_checkpoint_id,
-            )
-        ):
-            raise ValueError("Non-relationship events cannot contain relationship references")
+        context_values = (
+            self.relationship_context_checkpoint_work_item_id,
+            self.relationship_context_checkpoint_id,
+        )
+        if self.event_type not in _RELATIONSHIP_EVENTS:
+            if any(value is not None for value in (*relationship_values, *context_values)):
+                raise ValueError("Non-relationship events cannot contain relationship references")
+            return
+        if any(value is None for value in relationship_values):
+            raise ValueError("Relationship events require the complete endpoint projection")
+        source_work_item_id, target_work_item_id = self._relationship_endpoints()
+        if source_work_item_id == target_work_item_id:
+            raise ValueError("Relationship endpoints must be distinct")
+        if self.work_item_id not in {source_work_item_id, target_work_item_id}:
+            raise ValueError("Relationship event work item must be an endpoint")
+        expected_counterpart = (
+            target_work_item_id if self.work_item_id == source_work_item_id else source_work_item_id
+        )
+        if self.counterpart_work_item_id != expected_counterpart:
+            raise ValueError("Relationship event counterpart is inconsistent")
+        self._require_relationship_context(source_work_item_id, target_work_item_id)
 
+    def _require_relationship_context(
+        self, source_work_item_id: UUID, target_work_item_id: UUID
+    ) -> None:
+        context_owner = self.relationship_context_checkpoint_work_item_id
+        if (context_owner is None) != (self.relationship_context_checkpoint_id is None):
+            raise ValueError("Relationship context references must be paired")
+        if context_owner is not None and context_owner not in {
+            source_work_item_id,
+            target_work_item_id,
+        }:
+            raise ValueError("Relationship context owner must be an endpoint")
+
+    def _relationship_endpoints(self) -> tuple[UUID, UUID]:
+        source_work_item_id = self.relationship_source_work_item_id
+        target_work_item_id = self.relationship_target_work_item_id
+        assert source_work_item_id is not None
+        assert target_work_item_id is not None
+        return source_work_item_id, target_work_item_id
+
+    def _typed_metadata(self) -> WorkEventMetadata:
         payload = _event_metadata_payload(self.metadata)
-        parsed: WorkEventMetadata
-        if self.event_type == "work_created":
-            metadata_type = WorkCreatedLiveMetadata if self.origin == "live" else EmptyEventMetadata
-            parsed = metadata_type.model_validate(payload)
-        elif self.event_type == "work_updated":
-            parsed = WorkUpdatedMetadata.model_validate(payload)
-            status_change = parsed.changes.status
-            if status_change is not None and status_change.before != status_change.after:
-                raise ValueError("Ordinary work updates cannot change status")
-        elif self.event_type in {"work_status_changed", "work_reopened"}:
-            parsed = WorkStatusMetadata.model_validate(payload)
-            status_change = parsed.changes.status
-            if status_change is None:
-                raise ValueError("Lifecycle events require a typed status change")
-            if (status_change.before, status_change.after) != (
-                parsed.from_status,
-                parsed.to_status,
-            ):
-                raise ValueError("Lifecycle event status metadata is inconsistent")
-            if self.event_type == "work_status_changed" and (
-                parsed.from_status not in {"open", "pending"}
-                or parsed.to_status not in {"deferred", "wont-do", "promoted"}
-            ):
-                raise ValueError("Status-change events must leave pending work")
-            if self.event_type == "work_reopened" and (
-                parsed.to_status not in {"open", "pending"}
-                or parsed.from_status in {"open", "pending"}
-            ):
-                raise ValueError("Reopen events must return held or terminal work to pending")
-        elif self.event_type == "work_claimed":
-            metadata_type = (
-                WorkClaimedLiveMetadata if self.origin == "live" else WorkClaimedBackfillMetadata
-            )
-            parsed = metadata_type.model_validate(payload)
-        elif self.event_type == "work_released":
-            holder_kind = payload.get("lease_holder_kind")
-            metadata_type = (
-                WorkReleasedClientMetadata
-                if holder_kind == "client"
-                else WorkReleasedUnattributedMetadata
-            )
-            parsed = metadata_type.model_validate(payload)
-        elif self.event_type == "checkpoint_added":
-            parsed = CheckpointAddedMetadata.model_validate(payload)
-        elif self.event_type == "progress":
-            parsed = ProgressEventMetadata.model_validate(payload)
-        elif self.event_type in gate_events:
-            parsed = HumanGateEventMetadata.model_validate(payload)
-        elif self.event_type in relationship_events:
-            parsed = RelationshipEventMetadata.model_validate(payload)
-            is_dependency = self.event_type.startswith("dependency_")
-            if is_dependency != (parsed.relationship_type == "blocks"):
-                raise ValueError("Relationship event family does not match its type")
-            source_work_item_id = self.relationship_source_work_item_id
-            target_work_item_id = self.relationship_target_work_item_id
-            assert source_work_item_id is not None
-            assert target_work_item_id is not None
-            if parsed.relationship_type == "related":
-                if self.relationship_direction != "undirected":
-                    raise ValueError("Related events must be projected as undirected")
-                if source_work_item_id >= target_work_item_id:
-                    raise ValueError("Related event endpoints must be normalized")
-            else:
-                expected_direction = (
-                    "incoming" if self.work_item_id == target_work_item_id else "outgoing"
-                )
-                if self.relationship_direction != expected_direction:
-                    raise ValueError("Directed relationship event direction is inconsistent")
-            if parsed.relationship_type == "discovered-from" and (
-                self.relationship_context_checkpoint_id is None
-                or self.relationship_context_checkpoint_work_item_id != target_work_item_id
-            ):
-                raise ValueError("Discovered-from events require target-owned context")
-        elif self.event_type == "work_completed":
-            metadata_type = (
-                WorkCompletedLiveMetadata if self.origin == "live" else EmptyEventMetadata
-            )
-            parsed = metadata_type.model_validate(payload)
-        elif self.event_type == "work_deleted":
-            parsed = WorkDeletedMetadata.model_validate(payload)
-        else:  # pragma: no cover - EventType keeps this exhaustive
+        origin_shape = _ORIGIN_METADATA_TYPES.get((self.event_type, self.origin))
+        if origin_shape is not None:
+            return origin_shape.model_validate(payload)
+        if self.event_type == "work_updated":
+            return _work_updated_metadata(payload)
+        if self.event_type in _LIFECYCLE_EVENTS:
+            return _lifecycle_metadata(self.event_type, payload)
+        if self.event_type == "work_released":
+            return _work_released_metadata(payload)
+        if self.event_type in _RELATIONSHIP_EVENTS:
+            return self._relationship_metadata(payload)
+        plain_shape = _PLAIN_METADATA_TYPES.get(self.event_type)
+        if plain_shape is None:  # pragma: no cover - EventType keeps this exhaustive
             raise ValueError("Unknown event type")
+        return plain_shape.model_validate(payload)
 
-        self.metadata = parsed
-        return self
+    def _relationship_metadata(self, payload: dict[str, JsonValue]) -> RelationshipEventMetadata:
+        parsed = RelationshipEventMetadata.model_validate(payload)
+        is_dependency = self.event_type.startswith("dependency_")
+        if is_dependency != (parsed.relationship_type == "blocks"):
+            raise ValueError("Relationship event family does not match its type")
+        source_work_item_id, target_work_item_id = self._relationship_endpoints()
+        if parsed.relationship_type == "related":
+            if self.relationship_direction != "undirected":
+                raise ValueError("Related events must be projected as undirected")
+            if source_work_item_id >= target_work_item_id:
+                raise ValueError("Related event endpoints must be normalized")
+        else:
+            expected_direction = (
+                "incoming" if self.work_item_id == target_work_item_id else "outgoing"
+            )
+            if self.relationship_direction != expected_direction:
+                raise ValueError("Directed relationship event direction is inconsistent")
+        if parsed.relationship_type == "discovered-from" and (
+            self.relationship_context_checkpoint_id is None
+            or self.relationship_context_checkpoint_work_item_id != target_work_item_id
+        ):
+            raise ValueError("Discovered-from events require target-owned context")
+        return parsed
 
     @field_serializer("created_at")
     def utc_time(self, value: datetime) -> str:
