@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from mnemonic_api.application import _public_validation_errors
+from mnemonic_api.application.validation import public_validation_errors
 from mnemonic_api.config import Settings
 from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.main import create_app
@@ -270,7 +270,7 @@ def test_project_settings_patch_is_exact_nullable_and_bounded():
 
 
 def test_project_settings_validation_location_is_public():
-    assert _public_validation_errors(
+    assert public_validation_errors(
         [
             {
                 "type": "value_error",
@@ -805,7 +805,7 @@ def test_validation_error_sanitizer_allowlists_locations_and_drops_raw_content()
     root_value = "root-private-content-123"
     nested_key = "NESTED_PRIVATE_KEY_456"
     nested_value = "nested-private-content-456"
-    errors = _public_validation_errors(
+    errors = public_validation_errors(
         [
             {
                 "type": "extra_forbidden",

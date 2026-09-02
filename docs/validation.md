@@ -1,5 +1,24 @@
 # Mnemonic validation record
 
+## Application package decomposition — 2026-09-02
+
+This record covers the split of `backend/src/mnemonic_api/application.py` into
+the `mnemonic_api.application` package. Only observed results are stated.
+
+- **The full backend suite passed 426 tests with seven warnings** against the
+  disposable PostgreSQL container. That includes the committed OpenAPI
+  freshness test: `docs/openapi.json` is byte-identical to the regenerated
+  document, so the REST contract did not change.
+- **Backend Ruff passed with the new `C901` complexity ceiling of 10.** The
+  highest-scoring function in the package scores 5. The pre-existing exceptions
+  named in `backend/pyproject.toml` (`schemas.py`,
+  `services/client_operations.py`, and `tests/`) were left as they were.
+- **`ty 0.0.77` reported zero diagnostics** for `src/mnemonic_api/application`
+  and `src/mnemonic_api/database.py`. An unscoped run over `src` still reports
+  the pre-existing diagnostics in the service modules; those are not gated.
+- The MCP and dashboard suites were not rerun. Neither imports the backend
+  package, and their shared input, the OpenAPI snapshot, did not change.
+
 ## Plugin 0.6.1 and post-review MCP/docs validation — 2026-09-02
 
 This current record covers the integrated post-review corrective checks reported

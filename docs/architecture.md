@@ -170,6 +170,18 @@ registry is the only path that can canonicalize, reserve, validate a stored
 response, or complete a receipt. Routes translate typed application errors into
 a stable sanitized `detail.code` envelope.
 
+The FastAPI service is the `mnemonic_api.application` package, and `create_app`
+only assembles it. `middleware` fixes what wraps every request and in which
+order: the bearer check before routing, then outcome logging and the live-sync
+broadcast after the response. `auth`, `guards`, and `validation` hold the
+boundary rules for credentials, capability transports, and sanitized validation
+errors. `mutations` holds the one lifecycle every receipt-protected write shares
+(reserve, replay or execute, complete, commit, trace), so a route contributes
+only its domain work. `handlers` renders the two failure classes that escape
+routes. `routes/` has one module per concept: `projects`, `work_search`,
+`work_items`, `history` (checkpoints and events), `relationships`,
+`human_gates`, `leases`, `dashboard_sync`, and `health`.
+
 The MCP service is a typed HTTP adapter. Its ten protected mutation tools
 require the caller to prepare and retain one operation UUID plus the complete
 arguments; the adapter sends only one HTTP attempt. Its other tools use work,

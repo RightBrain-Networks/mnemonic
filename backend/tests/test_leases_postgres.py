@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-import mnemonic_api.application as application_module
+import mnemonic_api.application.routes.leases as leases_module
 from mnemonic_api.models import WorkLease
 from mnemonic_api.services.leases import claim_receipt
 
@@ -612,7 +612,7 @@ def test_claim_and_recall_rolls_back_lease_when_context_assembly_fails(
     def fail_context(*_args, **_kwargs):
         raise RuntimeError("synthetic context failure")
 
-    monkeypatch.setattr(application_module, "assemble_work_context", fail_context)
+    monkeypatch.setattr(leases_module, "assemble_work_context", fail_context)
     with pytest.raises(RuntimeError, match="synthetic context failure"):
         api.post(
             f"{endpoint}/claim-and-recall",

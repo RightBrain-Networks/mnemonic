@@ -1,6 +1,7 @@
 from collections.abc import Iterator
+from typing import Annotated
 
-from fastapi import Request
+from fastapi import Depends, Request
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError
@@ -48,3 +49,7 @@ def get_session(request: Request) -> Iterator[Session]:
     # A failed request closes and rolls back its uncommitted transaction.
     with request.app.state.session_factory() as session:
         yield session
+
+
+# Route parameter type for the request-scoped session above.
+Database = Annotated[Session, Depends(get_session)]

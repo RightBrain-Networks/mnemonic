@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event, text
 from sqlalchemy.orm import Session
 
-import mnemonic_api.application as application_module
+import mnemonic_api.application.middleware as middleware_module
 from mnemonic_api.services.relationships import _work_pointers
 from mnemonic_api.services.work_context import _summary_inputs
 
@@ -271,8 +271,8 @@ def test_gate_mutations_publish_only_identifier_free_frames_and_value_free_outco
     answer = "Private WebSocket audit answer marker."
     request_operation_id = uuid4()
     resolve_operation_id = uuid4()
-    application_module.logger.disabled = False
-    caplog.set_level(logging.INFO, logger="mnemonic_api.application")
+    middleware_module.logger.disabled = False
+    caplog.set_level(logging.INFO, logger="mnemonic_api.application.middleware")
 
     with api.websocket_connect(
         "/api/v1/sync", headers={"origin": "http://localhost:3000"}

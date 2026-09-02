@@ -10,7 +10,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-import mnemonic_api.application as application_module
+import mnemonic_api.application.middleware as middleware_module
+import mnemonic_api.application.mutations as mutations_module
+from mnemonic_api.application.mutations import MutationTrace, record_mutation_trace
 from mnemonic_api.config import Settings
 from mnemonic_api.errors import client_operation_unavailable
 from mnemonic_api.main import create_app
@@ -39,7 +41,8 @@ def test_successful_mutation_publication_honors_explicit_domain_outcome(
     @app.post(path)
     def phase6_test_route(request: Request) -> dict[str, bool]:
         if isinstance(decision, bool):
-            request.state.mnemonic_mutation_applied = decision
+            trace = MutationTrace("create_work", mutation_applied=decision)
+            record_mutation_trace(request, trace)
         return {"ok": True}
 
     publications = []
@@ -80,10 +83,10 @@ def test_completion_invariant_failure_logs_one_bounded_unavailable_outcome(
         raise client_operation_unavailable()
 
     monkeypatch.setattr(
-        application_module, "complete_client_operation", fail_completion
+        mutations_module, "complete_client_operation", fail_completion
     )
-    application_module.logger.disabled = False
-    caplog.set_level(logging.INFO, logger="mnemonic_api.application")
+    middleware_module.logger.disabled = False
+    caplog.set_level(logging.INFO, logger="mnemonic_api.application.middleware")
 
     response = api.post(
         f"/api/v1/projects/{project['id']}/work-items",
@@ -117,8 +120,8 @@ def test_commit_failure_logs_one_bounded_unavailable_outcome(
         raise SQLAlchemyError("private commit failure")
 
     monkeypatch.setattr(Session, "commit", fail_commit)
-    application_module.logger.disabled = False
-    caplog.set_level(logging.INFO, logger="mnemonic_api.application")
+    middleware_module.logger.disabled = False
+    caplog.set_level(logging.INFO, logger="mnemonic_api.application.middleware")
 
     response = api.post(
         f"/api/v1/projects/{project['id']}/work-items",
@@ -154,8 +157,8 @@ def test_publish_failure_after_commit_heals_on_exact_replay(
             raise RuntimeError("synthetic post-commit publication failure")
 
     api.app.state.live_sync_hub.publish = fail_once
-    application_module.logger.disabled = False
-    caplog.set_level(logging.INFO, logger="mnemonic_api.application")
+    middleware_module.logger.disabled = False
+    caplog.set_level(logging.INFO, logger="mnemonic_api.application.middleware")
     path = f"/api/v1/projects/{project['id']}/work-items"
     payload = {**work_payload, "client_operation_id": operation_id}
 

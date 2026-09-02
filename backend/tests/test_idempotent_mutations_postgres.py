@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event, text
 
-import mnemonic_api.application as application_module
+import mnemonic_api.application.middleware as middleware_module
 
 
 def work_collection(project: dict) -> str:
@@ -935,8 +935,8 @@ def test_defer_postcommit_response_loss_recovers_by_exact_replay(
             raise RuntimeError("synthetic lost defer response")
 
     monkeypatch.setattr(api.app.state.live_sync_hub, "publish", fail_once)
-    application_module.logger.disabled = False
-    caplog.set_level(logging.INFO, logger="mnemonic_api.application")
+    middleware_module.logger.disabled = False
+    caplog.set_level(logging.INFO, logger="mnemonic_api.application.middleware")
     caplog.clear()
     with pytest.raises(RuntimeError, match="synthetic lost defer response"):
         api.post(f"{endpoint}/defer", json=body)

@@ -17,7 +17,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-import mnemonic_api.application as application_module
+import mnemonic_api.application.mutations as mutations_module
 import mnemonic_api.services.client_operations as client_operations_module
 from mnemonic_api.schemas import HumanGateRequestCreate, HumanGateResolutionCreate
 from mnemonic_api.services.client_operations import (
@@ -364,7 +364,7 @@ def test_gate_mutation_fault_rolls_back_domain_activity_event_and_receipt(
         )
         expected_code = "client_operation_unavailable"
     elif fault == "receipt_completion":
-        original_complete = application_module.complete_client_operation
+        original_complete = mutations_module.complete_client_operation
 
         def miss_pending_receipt(
             database: Session,
@@ -383,7 +383,7 @@ def test_gate_mutation_fault_rolls_back_domain_activity_event_and_receipt(
             )
 
         monkeypatch.setattr(
-            application_module,
+            mutations_module,
             "complete_client_operation",
             miss_pending_receipt,
         )
