@@ -21,38 +21,66 @@ class LocalAccessMiddleware:
             await self.app(scope, receive, send)
             return
         headers = Headers(scope=scope)
-        if len(headers.getlist("host")) != 1 or headers["host"] not in self.settings.allowed_hosts:
-            await JSONResponse({"detail": "Untrusted host."}, status_code=421)(scope, receive, send)
+
+        rejection = self._host_or_origin_rejection(headers)
+        if rejection is not None:
+            await rejection(scope, receive, send)
             return
-        origins = headers.getlist("origin")
-        if len(origins) > 1 or (origins and origins[0] not in self.settings.allowed_origins):
-            await JSONResponse({"detail": "Untrusted origin."}, status_code=403)(scope, receive, send)
-            return
-        if scope["path"] == "/healthz" and scope["method"] in {"GET", "HEAD"}:
+        if self._is_health_check(scope):
             await self.app(scope, receive, send)
             return
+
+        rejection = self._authorization_rejection(headers)
+        if rejection is not None:
+            await rejection(scope, receive, send)
+            return
+        rejection = self._content_length_rejection(headers)
+        if rejection is not None:
+            await rejection(scope, receive, send)
+            return
+
+        await self._dispatch_bounded_body(scope, receive, send)
+
+    def _host_or_origin_rejection(self, headers: Headers) -> JSONResponse | None:
+        if len(headers.getlist("host")) != 1 or headers["host"] not in self.settings.allowed_hosts:
+            return JSONResponse({"detail": "Untrusted host."}, status_code=421)
+        origins = headers.getlist("origin")
+        if len(origins) > 1 or (origins and origins[0] not in self.settings.allowed_origins):
+            return JSONResponse({"detail": "Untrusted origin."}, status_code=403)
+        return None
+
+    @staticmethod
+    def _is_health_check(scope: Scope) -> bool:
+        return scope["path"] == "/healthz" and scope["method"] in {"GET", "HEAD"}
+
+    def _authorization_rejection(self, headers: Headers) -> JSONResponse | None:
         credentials = headers.getlist("authorization")
         scheme, _, token = (credentials[0] if len(credentials) == 1 else "").partition(" ")
         if scheme.lower() != "bearer" or not secrets.compare_digest(
             token.encode("utf-8"), self.settings.api_key.encode("utf-8")
         ):
-            await JSONResponse(
+            return JSONResponse(
                 {"detail": "A valid bearer API key is required."},
                 status_code=401,
                 headers={"WWW-Authenticate": 'Bearer realm="Mnemonic"'},
-            )(scope, receive, send)
-            return
+            )
+        return None
 
-        # Bound the authenticated body too: a malformed/compromised client must
-        # not fill memory before the SDK can parse its JSON-RPC envelope.
+    @staticmethod
+    def _content_length_rejection(headers: Headers) -> JSONResponse | None:
         try:
             size_hint = int(headers.get("content-length", "0"))
         except ValueError:
-            await JSONResponse({"detail": "Invalid content length."}, status_code=400)(scope, receive, send)
-            return
+            return JSONResponse({"detail": "Invalid content length."}, status_code=400)
         if size_hint < 0 or size_hint > MAX_REQUEST_BYTES:
-            await JSONResponse({"detail": "Request body is too large."}, status_code=413)(scope, receive, send)
-            return
+            return JSONResponse({"detail": "Request body is too large."}, status_code=413)
+        return None
+
+    async def _dispatch_bounded_body(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        # Bound the authenticated body too: a malformed/compromised client must
+        # not fill memory before the SDK can parse its JSON-RPC envelope.
         body = bytearray()
         while True:
             message = await receive()
@@ -60,7 +88,9 @@ class LocalAccessMiddleware:
                 return
             body.extend(message.get("body", b""))
             if len(body) > MAX_REQUEST_BYTES:
-                await JSONResponse({"detail": "Request body is too large."}, status_code=413)(scope, receive, send)
+                await JSONResponse({"detail": "Request body is too large."}, status_code=413)(
+                    scope, receive, send
+                )
                 return
             if not message.get("more_body", False):
                 break

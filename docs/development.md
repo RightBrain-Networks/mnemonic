@@ -8,6 +8,40 @@ dashboard uses `package-lock.json` and `npm ci`.
 Use Python 3.13, uv, and Node 24 for native development. Docker-only users do
 not need these tools to run Mnemonic.
 
+## Contribution workflow and CI
+
+Mnemonic uses trunk-based development: `main` is the only long-lived branch.
+Create a short-lived topic branch from current `main`, open a pull request
+targeting `main`, update it promptly when the trunk advances, and delete it
+after merge. Do not use long-lived development, integration, or release
+branches, and do not commit directly to `main`.
+
+Install the repository's local secret-scanning hook from the repository root:
+
+```sh
+uv tool install pre-commit
+pre-commit install --install-hooks
+pre-commit run --all-files
+```
+
+The hook runs Gitleaks 8.29.1 against staged changes and blocks the commit when
+it detects a secret. Do not bypass it with `--no-verify`. The independent
+`.github/workflows/ci.yml` scan checks pull requests and pushes to `main` from a
+full-history checkout. Trusted runs use the licensed action and read the license
+only from the `GITLEAKS_LICENSE` GitHub Actions secret. Fork and Dependabot pull
+requests instead use the digest-pinned Gitleaks container, so untrusted runs
+remain blocking without receiving the organization secret. Ensure the
+organization secret's repository access policy includes this public repository.
+
+CI also runs Ruff, `ty`, the complete PostgreSQL-backed API tests, MCP tests,
+and the dashboard's unit, type, and production-build checks. Ruff applies
+McCabe `C901` with a maximum complexity of 10 throughout both Python packages,
+with no exclusions. Configure the GitHub ruleset
+for `main` to require pull requests and the stable `Required checks` status,
+and to reject force pushes and branch deletion. That aggregate status fails
+unless Gitleaks, Ruff, `ty`, backend tests, MCP tests, and frontend checks all
+succeed.
+
 ## Phases 5–8 backend verification
 
 The database suite needs a real PostgreSQL instance because the system depends
@@ -185,6 +219,8 @@ Run from `mcp`:
 ```sh
 uv sync --frozen
 uv run pytest -q
+uv run ruff check .
+uv run ty check src/mnemonic_mcp
 ```
 
 The MCP suite verifies the exact 25-tool canonical catalog, strict unknown-field
@@ -213,8 +249,6 @@ open gates and write supporting context first, never withdraw or self-resolve a
 gate, and restart the attention traversal. HTTP and stdio expose the same 25
 names; `get_activity`, `resolve_human_input`, and removed hand-off surfaces
 remain absent.
-
-The MCP package currently does not declare Ruff in its own development group.
 
 The inner plugin manifest is `0.6.1`. Before release, parse the marketplace
 and inner plugin manifests, then exercise a disposable fresh `0.6.1` install

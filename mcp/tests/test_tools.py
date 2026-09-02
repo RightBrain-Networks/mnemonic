@@ -467,6 +467,23 @@ async def test_tool_catalog_schemas_and_annotations(settings):
             False,
         )
 
+
+async def test_tool_catalog_operation_and_claim_schemas(settings):
+    server = build_server(settings)
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    protected = {
+        "create_work",
+        "add_checkpoint",
+        "append_event",
+        "add_relationship",
+        "update_work",
+        "complete_work",
+        "delete_work",
+        "remove_relationship",
+        "release_claim",
+        "request_human_input",
+    }
+
     for name, tool in tools.items():
         properties = tool.inputSchema["properties"]
         if name in protected:
@@ -540,6 +557,11 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         assert token_schema["maxLength"] == 200
         assert token_schema["format"] == "password"
         assert token_schema["writeOnly"] is True
+
+
+async def test_tool_catalog_mutation_and_relationship_schemas(settings):
+    server = build_server(settings)
+    tools = {tool.name: tool for tool in await server.list_tools()}
 
     for name in ("update_work", "delete_work", "release_claim", "remove_relationship"):
         required = set(tools[name].inputSchema["required"])
@@ -657,6 +679,11 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "promoted",
         "all",
     ]
+
+
+async def test_tool_catalog_ready_event_and_gate_schemas(settings):
+    server = build_server(settings)
+    tools = {tool.name: tool for tool in await server.list_tools()}
 
     ready_input = tools["list_ready_work"].inputSchema
     assert set(ready_input["properties"]) == {

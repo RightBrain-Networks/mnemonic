@@ -3,7 +3,7 @@
 import json
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, TypeVar
+from typing import Any, NoReturn, TypeVar
 
 import httpx
 from mcp.server.fastmcp.exceptions import ToolError
@@ -154,6 +154,211 @@ def _application_error_message(code: str, context: dict[str, object]) -> str | N
     return _APPLICATION_ERRORS[code]
 
 
+def _raise_request_error(method: str, path: str, *, idempotent_mutation: bool) -> NoReturn:
+    if method not in {"POST", "PATCH", "DELETE"}:
+        raise ToolError(
+            "Mnemonic API is unavailable. Check service health and try again."
+        ) from None
+    if idempotent_mutation:
+        raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME) from None
+    if _is_claim_operation(method, path):
+        raise ToolError(_UNKNOWN_CLAIM_OUTCOME) from None
+    raise ToolError(
+        "Mnemonic API is unavailable; the write outcome is unknown. "
+        "Search or recall before retrying to avoid duplicate or conflicting changes."
+    ) from None
+
+
+def _raise_server_uncertainty(
+    response: httpx.Response,
+    method: str,
+    path: str,
+    *,
+    idempotent_mutation: bool,
+) -> None:
+    if response.status_code < 500:
+        return
+    if idempotent_mutation:
+        raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
+    if _is_claim_operation(method, path):
+        raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
+
+
+def _raise_application_error_response(
+    response: httpx.Response,
+    application_error: tuple[str, dict[str, object]] | None,
+    *,
+    idempotent_mutation: bool,
+) -> None:
+    if application_error is None or 200 <= response.status_code < 300:
+        return
+    error_code, error_context = application_error
+    if idempotent_mutation and error_code == "client_operation_unavailable":
+        raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
+    if idempotent_mutation and error_code == "client_operation_conflict":
+        raise ToolError(_CLIENT_OPERATION_CONFLICT)
+    message = _application_error_message(error_code, error_context)
+    if message is not None:
+        raise ToolError(message)
+    raise ToolError(
+        "Mnemonic could not complete this operation. Recall the current work state "
+        "before retrying."
+    )
+
+
+def _validation_error_pairs(response: httpx.Response) -> list[tuple[object, object]]:
+    try:
+        detail = response.json().get("detail", [])
+    except (RecursionError, TypeError, ValueError, AttributeError):
+        return []
+    if not isinstance(detail, list):
+        return []
+    return [
+        (error.get("loc"), error.get("type")) for error in detail if isinstance(error, dict)
+    ]
+
+
+def _raise_remaining_response_error(
+    response: httpx.Response,
+    method: str,
+    path: str,
+    *,
+    semantic_read: bool,
+    idempotent_mutation: bool,
+) -> None:
+    if response.status_code == 422:
+        pairs = _validation_error_pairs(response)
+        raise ToolError(validation_error_message(*validation_details(pairs)))
+    if response.status_code == 503 and semantic_read:
+        raise ToolError("Mnemonic semantic search is unavailable. Retry with semantic disabled.")
+    if 200 <= response.status_code < 300:
+        return
+    if idempotent_mutation:
+        raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
+    if _is_claim_operation(method, path):
+        raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
+    raise ToolError(
+        "Mnemonic API could not complete this request. Check service health before retrying."
+    )
+
+
+def _raise_for_response_error(
+    response: httpx.Response,
+    method: str,
+    path: str,
+    *,
+    semantic_read: bool,
+    idempotent_mutation: bool,
+) -> None:
+    if response.status_code in {401, 403}:
+        raise ToolError(
+            "Mnemonic API authentication failed. Check the services' API-key configuration."
+        )
+    if response.status_code == 404:
+        raise ToolError(_not_found_message(response))
+    application_error = _application_error(response)
+    _raise_server_uncertainty(
+        response,
+        method,
+        path,
+        idempotent_mutation=idempotent_mutation,
+    )
+    _raise_application_error_response(
+        response,
+        application_error,
+        idempotent_mutation=idempotent_mutation,
+    )
+    _raise_remaining_response_error(
+        response,
+        method,
+        path,
+        semantic_read=semantic_read,
+        idempotent_mutation=idempotent_mutation,
+    )
+
+
+def _validate_expected_status(
+    response: httpx.Response,
+    *,
+    idempotent_mutation: bool,
+    expected_status_code: int | None,
+) -> None:
+    if (
+        idempotent_mutation
+        and expected_status_code is not None
+        and response.status_code != expected_status_code
+    ):
+        raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
+
+
+def _validated_response_body[ModelT: BaseModel](
+    response: httpx.Response,
+    response_model: type[ModelT],
+    *,
+    idempotent_mutation: bool,
+    response_validator: ResponseValidator | None,
+) -> ModelT:
+    wire_response = response.json()
+    if not idempotent_mutation:
+        return response_model.model_validate(wire_response)
+    # A completed receipt is a frozen wire snapshot. Do not let Pydantic
+    # coerce values, synthesize defaults, or silently normalize a malformed
+    # success into something that looks authoritative to the caller.
+    encoded_response = json.dumps(
+        wire_response,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    )
+    parsed = response_model.model_validate_json(encoded_response, strict=True)
+    if parsed.model_dump(mode="json") != wire_response:
+        raise ValueError("non-canonical idempotent mutation response")
+    if response_validator is not None and not response_validator(parsed):
+        raise ValueError("incoherent idempotent mutation response")
+    return parsed
+
+
+def _raise_unexpected_response(
+    method: str,
+    path: str,
+    *,
+    idempotent_mutation: bool,
+) -> NoReturn:
+    if idempotent_mutation:
+        raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME) from None
+    if _is_claim_operation(method, path):
+        raise ToolError(_UNKNOWN_CLAIM_OUTCOME) from None
+    raise ToolError(
+        "Mnemonic API returned an unexpected response. Check the service versions."
+    ) from None
+
+
+def _parse_success_response[ModelT: BaseModel](
+    response: httpx.Response,
+    response_model: type[ModelT] | None,
+    method: str,
+    path: str,
+    *,
+    idempotent_mutation: bool,
+    response_validator: ResponseValidator | None,
+) -> ModelT | None:
+    if response_model is None:
+        if response.status_code != 204:
+            raise ToolError(
+                "Mnemonic API returned an unexpected response. Check the service versions."
+            )
+        return None
+    try:
+        return _validated_response_body(
+            response,
+            response_model,
+            idempotent_mutation=idempotent_mutation,
+            response_validator=response_validator,
+        )
+    except (RecursionError, TypeError, ValueError, ValidationError):
+        _raise_unexpected_response(method, path, idempotent_mutation=idempotent_mutation)
+
+
 class MnemonicAPI:
     def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None):
         self.settings = settings
@@ -187,106 +392,25 @@ class MnemonicAPI:
             ) as client:
                 response = await client.request(method, path, params=params, json=payload)
         except httpx.RequestError:
-            if method in {"POST", "PATCH", "DELETE"}:
-                if idempotent_mutation:
-                    raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME) from None
-                if _is_claim_operation(method, path):
-                    raise ToolError(_UNKNOWN_CLAIM_OUTCOME) from None
-                raise ToolError(
-                    "Mnemonic API is unavailable; the write outcome is unknown. "
-                    "Search or recall before retrying to avoid duplicate or conflicting changes."
-                ) from None
-            raise ToolError(
-                "Mnemonic API is unavailable. Check service health and try again."
-            ) from None
+            _raise_request_error(method, path, idempotent_mutation=idempotent_mutation)
 
-        if response.status_code in {401, 403}:
-            raise ToolError(
-                "Mnemonic API authentication failed. Check the services' API-key configuration."
-            )
-        if response.status_code == 404:
-            raise ToolError(_not_found_message(response))
-
-        application_error = _application_error(response)
-        if response.status_code >= 500:
-            if idempotent_mutation:
-                raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
-            if _is_claim_operation(method, path):
-                raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
-
-        if application_error is not None and not 200 <= response.status_code < 300:
-            error_code, error_context = application_error
-            if idempotent_mutation and error_code == "client_operation_unavailable":
-                raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
-            if idempotent_mutation and error_code == "client_operation_conflict":
-                raise ToolError(_CLIENT_OPERATION_CONFLICT)
-            message = _application_error_message(error_code, error_context)
-            if message is not None:
-                raise ToolError(message)
-            raise ToolError(
-                "Mnemonic could not complete this operation. Recall the current work state "
-                "before retrying."
-            )
-
-        if response.status_code == 422:
-            pairs: list[tuple[object, object]] = []
-            try:
-                detail = response.json().get("detail", [])
-                if isinstance(detail, list):
-                    pairs = [
-                        (error.get("loc"), error.get("type"))
-                        for error in detail
-                        if isinstance(error, dict)
-                    ]
-            except (RecursionError, TypeError, ValueError, AttributeError):
-                pass
-            raise ToolError(validation_error_message(*validation_details(pairs)))
-        if response.status_code == 503 and semantic_read:
-            raise ToolError("Mnemonic semantic search is unavailable. Retry with semantic disabled.")
-        if not 200 <= response.status_code < 300:
-            if idempotent_mutation:
-                raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
-            if _is_claim_operation(method, path):
-                raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
-            raise ToolError(
-                "Mnemonic API could not complete this request. Check service health before retrying."
-            )
-        if (
-            idempotent_mutation
-            and expected_status_code is not None
-            and response.status_code != expected_status_code
-        ):
-            raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
-        if response_model is None:
-            if response.status_code != 204:
-                raise ToolError(
-                    "Mnemonic API returned an unexpected response. Check the service versions."
-                )
-            return None
-        try:
-            wire_response = response.json()
-            if idempotent_mutation:
-                # A completed receipt is a frozen wire snapshot. Do not let Pydantic
-                # coerce values, synthesize defaults, or silently normalize a malformed
-                # success into something that looks authoritative to the caller.
-                encoded_response = json.dumps(
-                    wire_response,
-                    ensure_ascii=False,
-                    allow_nan=False,
-                    separators=(",", ":"),
-                )
-                parsed = response_model.model_validate_json(encoded_response, strict=True)
-                if parsed.model_dump(mode="json") != wire_response:
-                    raise ValueError("non-canonical idempotent mutation response")
-                if response_validator is not None and not response_validator(parsed):
-                    raise ValueError("incoherent idempotent mutation response")
-                return parsed
-            return response_model.model_validate(wire_response)
-        except (RecursionError, TypeError, ValueError, ValidationError):
-            if idempotent_mutation:
-                raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME) from None
-            if _is_claim_operation(method, path):
-                raise ToolError(_UNKNOWN_CLAIM_OUTCOME) from None
-            raise ToolError(
-                "Mnemonic API returned an unexpected response. Check the service versions."
-            ) from None
+        _raise_for_response_error(
+            response,
+            method,
+            path,
+            semantic_read=semantic_read,
+            idempotent_mutation=idempotent_mutation,
+        )
+        _validate_expected_status(
+            response,
+            idempotent_mutation=idempotent_mutation,
+            expected_status_code=expected_status_code,
+        )
+        return _parse_success_response(
+            response,
+            response_model,
+            method,
+            path,
+            idempotent_mutation=idempotent_mutation,
+            response_validator=response_validator,
+        )
