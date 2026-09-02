@@ -311,6 +311,15 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
     }.items():
         assert required in described[name].lower(), name
 
+    # parent-child is the only edge the hierarchy reads; measured 2026-09-01 on a
+    # 59-item project: 12 discovered-from, 0 parent-child, every ancestor_path empty.
+    for name, required in {
+        "add_relationship": "its source is the parent",
+        "create_work": "incoming parent-child",
+        "search_work": "parent-child edges only",
+    }.items():
+        assert required in described[name], name
+
     protected = {
         "create_work",
         "add_checkpoint",
