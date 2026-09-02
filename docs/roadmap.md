@@ -606,9 +606,11 @@ or any lease-token path.
 `create_project`, REST-only `update_project`, `claim_work`,
 `claim_and_recall`, and `renew_claim` remain outside the generic ledger. Claims
 keep their separate `claim_request_id` replay only while the identical lease is
-active; renewal remains a new time-relative intent. Gate creation and
-verification submission remain future enrollment work because their Phase 7
-and Phase 11 domain contracts do not yet exist.
+active; renewal remains a new time-relative intent. At the Phase 6 release,
+gate creation and verification submission remained future enrollment work
+because their Phase 7 and Phase 11 domain contracts did not yet exist. Phase 7
+has since enrolled gate creation; verification submission remains deferred to
+Phase 11.
 
 ## Recovery contract
 
@@ -650,127 +652,139 @@ no safe-retry claim after that private state disappears.
 
 # Phase 7 - First-class Human Gates
 
+**Status: Shipped with Phase 8.**
+
 ## Objective
 
-Create a deliberately small queue of questions or decisions that truly require human attention.
+Create a deliberately small, explicit queue of questions and decisions that
+truly require human attention. Human gates are durable work-graph facts, not
+labels, inferred blockers, agent-authored approvals, or notification messages.
 
-Do not represent these as arbitrary labels.
+## Shipped model
 
-## Proposed Model
-
-```text
-Gate
-  id
-  work_item_id
-  type
-  question
-  requested_by_client
-  requested_by_session
-  created_at
-  resolved_at
-  resolution
-```
-
-Start with:
+Migration `0014_human_gates` adds immutable project/work-scoped `WorkGate`
+records with:
 
 ```text
-type = human
+id, project_id, work_item_id, gate_type=human, attention_sequence
+question, requested_by_client/session/model, created_at
+requested work/context/relationship revision
+status=unresolved|resolved
+resolution, resolved_by_client/session/model, resolved_at
+resolved reviewed revision and context-change acknowledgement
 ```
 
-## Typical Uses
+One gate request and its exact `human_attention_requested` event commit atomically.
+The only update is one unresolved-to-resolved transition with an exact
+`human_attention_resolved` event; questions, provenance, anchors, answers, and both
+events are immutable. Requester/resolver provenance is asserted under the
+single-user bearer boundary, not authenticated identity or independent
+verification.
 
-- architectural decision required,
-- ambiguous product behavior,
-- destructive action requires approval,
-- credentials unavailable,
-- conflicting requirements,
-- external information needed,
-- policy decision required.
+An unresolved gate makes Pending work `waiting`, removes it from ready
+discovery, rejects fresh/replacement claims, and prevents completion, terminal
+transitions, and deletion. It does not revoke an existing capability: exact
+active claim replay, renewal, release, checkpoints, progress, identity edits,
+deferral/Pending restoration, and relationship changes remain possible. Several
+gates may coexist, and every one must resolve before waiting ends.
 
-## Human Interface
+Resolution uses a frozen three-field context revision: work version, newest
+context checkpoint, and relationship-event count. Any drift must be reviewed
+and acknowledged; another change before commit returns
+`gate_context_changed` and requires a new human review and operation intent. A
+stored answer remains historical context rather than renewed authority to
+execute.
 
-Provide a dedicated:
+## Shipped interfaces
 
-```text
-Needs Attention
-```
+- `POST .../gates` requests input; `MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED`
+  defaults false for coordinated cutover. Completed request replay, reads,
+  enforcement, and resolution remain active while fenced.
+- `GET /projects/{project_id}/human-attention` cursor-pages unresolved gates in
+  immutable request order and supports a text-free exact count.
+- `GET .../{work_item_id}/gates` pages complete paired history, including an
+  exact retained soft-deleted work ID.
+- `POST .../{gate_id}/resolve` is the direct REST/dashboard human action. MCP
+  deliberately exposes no resolution tool.
+- Bounded recall carries unresolved and recent-resolved slices with exact totals
+  and omitted counts; gate request/resolution also appear in event history.
+- The MCP catalog adds `request_human_input`, `list_human_attention`, and
+  `list_work_gates`, reaching exactly 25 tools and ten protected MCP writes.
+- The permanent receipt registry reaches exactly twelve REST operations; gate
+  resolution becomes the dashboard's tenth frozen mutation.
 
-view.
+## Shipped acceptance criteria
 
-This should be the primary place where humans interact with the large underlying agent work graph.
-
-## Future Gate Types
-
-Potential later extensions:
-
-```text
-human
-timer
-ci
-external-event
-other-work-item
-```
-
-Do not implement these until human gates prove useful.
-
-## Acceptance Criteria
-
-- Agents can explicitly request human input.
-- Gated work leaves the ready queue.
-- Humans can resolve the gate with a durable answer.
-- The answer becomes part of the work history and recall context.
-- Human attention requests are clearly distinguishable from ordinary agent-generated work.
+- Agents can request concrete human input with exact-retry recovery but cannot
+  infer, self-supply, or submit the answer through MCP.
+- Gated work leaves ready discovery and fails fresh claim/terminal/delete paths
+  closed without breaking an already-issued capability's recovery/release.
+- Humans see one dedicated Needs Attention queue and resolve against the exact
+  reviewed current revision through the dashboard.
+- Questions and answers remain distinguishable, immutable, cursor-pageable
+  history and bounded recall context without entering search indexes, logs,
+  metrics, browser storage, or data-free invalidation frames.
+- Existing production content is preserved through `0014`; downgrade is allowed
+  only while the new durable surface is provably unused.
 
 ---
 
 # Phase 8 - Hierarchical Human Presentation
 
+**Status: Shipped with Phase 7.**
+
 ## Objective
 
-Prevent Mnemonic itself from developing the same noise problem that motivated moving away from GitHub Issues.
+Prevent Mnemonic itself from recreating issue-tracker noise. Agents retain the
+complete graph, while humans see collapsed workstreams with exact branch facts
+and progressive disclosure.
 
-## Example
+## Shipped presentation
 
-Instead of showing:
-
-```text
-WORK-100 Refactor transaction import
-WORK-101 Add missing boundary test
-WORK-102 Handle malformed date
-WORK-103 Split importer interface
-WORK-104 Investigate duplicate imports
-```
-
-show:
+Root and child pages keep the existing parent-child graph and add one-statement
+`HierarchyPresentation` data:
 
 ```text
-WORK-100 Refactor transaction import
-         4 descendants
-         1 blocked
-         2 completed
+direct_child_count
+descendant_count
+blocked_descendant_count
+active_descendant_count
+completed_descendant_count
+discovered_descendant_count
+branch_unresolved_human_gate_count
+is_discovered_work
+discovered_from_parent
+next_active_descendant_lease_expires_at
 ```
 
-The underlying graph remains fully visible to agents.
+Descendant state counts are intentionally independent: one item may be active,
+blocked, and waiting. Descendant counts are strict, while the branch gate count
+is inclusive of the displayed node. Discovery labels distinguish planned
+`parent-child` decomposition, discovery from the displayed parent, discovery
+from elsewhere, and ungrouped discovered roots.
 
-Humans get progressive disclosure.
+The dashboard collapses descendants by default, lazily pages direct children,
+and explains when lifecycle/source/tag filters retain a muted ancestor only to
+reach a matching descendant. Branch presentation counts remain complete,
+unfiltered facts; page and qualifying-root totals follow the selected filter.
+Free-text search remains flat with bounded breadcrumbs. Depth/cycle fallbacks
+bound damaged graphs, and the earliest active descendant lease expiry schedules
+passive count refresh without a polling scheduler.
 
-## UI Capabilities
+The backend computes the page, total, aggregates, match flags, discovery facts,
+and lease-time state in one PostgreSQL statement and one database-time snapshot.
+There is no Python tree walk, per-branch query, or load-all-descendants fallback.
 
-- Collapse descendants by default.
-- Show counts of:
-  - children,
-  - blocked descendants,
-  - active descendants,
-  - completed descendants,
-  - human gates.
-- Allow drilling into a subtree.
-- Distinguish `discovered-from` work from planned child decomposition.
+## Shipped acceptance criteria
 
-## Acceptance Criteria
-
-- Agent-generated sub-work does not automatically clutter the top-level dashboard.
-- A human can expand any workstream to inspect underlying detail.
-- Agents continue to receive the complete graph.
+- Agent-generated descendants are collapsed out of the default human root view.
+- A human can expand any workstream and distinguish planned from discovered
+  work without losing complete branch counts.
+- Needs Attention, work detail, event/gate history, context, hierarchy, and the
+  sidebar count converge through the existing data-free invalidation channel.
+- Agents continue to receive complete explicit graph adjacency through canonical
+  relationship tools; presentation aggregates do not become authority or an
+  execution queue.
 
 ---
 
@@ -1149,9 +1163,12 @@ get_activity
 
 ```text
 request_human_input
-resolve_human_input
 list_human_attention
+list_work_gates
 ```
+
+Human resolution is intentionally a direct REST/dashboard action, not an MCP
+tool an agent could self-invoke.
 
 ## Verification
 
@@ -1215,10 +1232,12 @@ This creates a robust audit and recovery model.
 
 ## Milestone 4 - Human Oversight
 
-1. Add human gates.
-2. Add `Needs Attention` dashboard.
-3. Add hierarchical/collapsed workstream UI.
-4. Keep agent-generated descendants out of the default top-level human view.
+**Shipped together in Phases 7–8.**
+
+1. Human gates with immutable request/answer history and drift-aware review.
+2. A dedicated `Needs Attention` dashboard and text-free sidebar count.
+3. Hierarchical, collapsed workstreams with exact one-statement branch facts.
+4. Agent-generated descendants kept out of the default top-level human view.
 
 This directly addresses the original GitHub Issues noise problem.
 

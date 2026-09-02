@@ -28,6 +28,7 @@ from mnemonic_api.schemas import (
     WorkItemListQuery,
     WorkPointer,
 )
+from mnemonic_api.services.gates import unresolved_gate_counts
 from mnemonic_api.services.readiness import (
     readiness,
     unresolved_blocker_counts,
@@ -35,6 +36,7 @@ from mnemonic_api.services.readiness import (
 from mnemonic_api.services.work_events import database_now, source_actor, stage_relationship_events
 
 CYCLE_TYPES = frozenset({"blocks", "parent-child"})
+HIERARCHY_STATEMENT_TIMEOUT_MS = 5_000
 
 
 def lock_project_graph(database: Session, project_id: UUID) -> Project:
@@ -406,6 +408,7 @@ def _work_pointers(database: Session, work_item_ids: Sequence[UUID]) -> dict[UUI
         )
     )
     blocker_counts = unresolved_blocker_counts(database, work_item_ids)
+    gate_counts = unresolved_gate_counts(database, work_item_ids)
     return {
         work_item.id: WorkPointer(
             id=work_item.id,
@@ -416,6 +419,7 @@ def _work_pointers(database: Session, work_item_ids: Sequence[UUID]) -> dict[UUI
                 active_leases.get(work_item.id),
                 blocker_counts.get(work_item.id, 0),
                 work_item.id in dropped_lease_ids,
+                gate_counts.get(work_item.id, 0),
             ),
         )
         for work_item in work_items
@@ -521,7 +525,7 @@ def _hierarchy_match_sql(
             "candidate.status = 'pending' AND EXISTS ("
             "SELECT 1 FROM work_leases AS filter_lease "
             "WHERE filter_lease.work_item_id = candidate.id "
-            "AND filter_lease.expires_at > clock_timestamp()"
+            "AND filter_lease.expires_at > database_time.now"
             ")"
         )
     elif filters.status == "dropped":
@@ -529,7 +533,7 @@ def _hierarchy_match_sql(
             "candidate.status = 'pending' AND EXISTS ("
             "SELECT 1 FROM work_leases AS filter_lease "
             "WHERE filter_lease.work_item_id = candidate.id "
-            "AND filter_lease.expires_at <= clock_timestamp()"
+            "AND filter_lease.expires_at <= database_time.now"
             ")"
         )
     elif filters.status == "pending":
@@ -577,12 +581,16 @@ def hierarchy_page(
     *,
     parent_work_item_id: UUID | None = None,
 ) -> tuple[list[HierarchySummary], int]:
-    """Return qualifying roots/direct branches with any-depth filter metadata."""
-    from mnemonic_api.services.work_context import work_summaries
-    from mnemonic_api.services.work_items import require_project, require_work_item
-
+    """Return one coherent hierarchy page and full-branch presentation snapshot."""
+    # The recursive page itself remains one data statement and one snapshot. This
+    # transaction-local control statement only bounds damage from a corrupt or
+    # unexpectedly pathological graph; the session rollback restores the default.
+    database.execute(
+        text(
+            f"SET LOCAL statement_timeout = '{HIERARCHY_STATEMENT_TIMEOUT_MS}ms'"
+        )
+    )
     if parent_work_item_id is None:
-        require_project(database, project_id)
         candidate_sql = """
             SELECT root.id
             FROM work_items AS root
@@ -597,7 +605,6 @@ def hierarchy_page(
               )
         """
     else:
-        require_work_item(database, project_id, parent_work_item_id)
         candidate_sql = """
             SELECT child.id
             FROM work_relationships AS child_edge
@@ -616,75 +623,396 @@ def hierarchy_page(
         "priority": "root.priority DESC, root.updated_at DESC, root.id DESC",
     }[filters.sort]
     page_ordering = {
-        "updated": "paged.updated_at DESC, paged.root_id DESC",
-        "created": "paged.created_at DESC, paged.root_id DESC",
-        "priority": "paged.priority DESC, paged.updated_at DESC, paged.root_id DESC",
+        "updated": "page_rows.updated_at DESC, page_rows.id DESC",
+        "created": "page_rows.created_at DESC, page_rows.id DESC",
+        "priority": (
+            "page_rows.priority DESC, page_rows.updated_at DESC, page_rows.id DESC"
+        ),
     }[filters.sort]
     match_sql, match_parameters = _hierarchy_match_sql(filters)
     row = (
         database.execute(
             text(
                 f"""
-            WITH RECURSIVE candidate_roots AS (
+            WITH RECURSIVE
+            database_time AS MATERIALIZED (
+                SELECT clock_timestamp() AS now
+            ),
+            scope AS MATERIALIZED (
+                SELECT
+                    EXISTS (
+                        SELECT 1 FROM projects WHERE id = :project_id
+                    ) AS project_exists,
+                    CASE
+                        WHEN CAST(:parent_work_item_id AS uuid) IS NULL THEN true
+                        ELSE EXISTS (
+                            SELECT 1
+                            FROM work_items
+                            WHERE project_id = :project_id
+                              AND id = CAST(:parent_work_item_id AS uuid)
+                              AND deleted_at IS NULL
+                        )
+                    END AS parent_exists
+            ),
+            candidate_branches AS MATERIALIZED (
                 {candidate_sql}
             ),
-            subtree(root_id, work_item_id) AS (
-                SELECT id, id
-                FROM candidate_roots
-                UNION
-                SELECT subtree.root_id, child_edge.target_work_item_id
+            subtree(branch_id, member_id, visited_path) AS (
+                SELECT
+                    candidate.id,
+                    candidate.id,
+                    ARRAY[candidate.id]::uuid[]
+                FROM candidate_branches AS candidate
+                UNION ALL
+                SELECT
+                    subtree.branch_id,
+                    child_edge.target_work_item_id,
+                    subtree.visited_path || child_edge.target_work_item_id
                 FROM subtree
                 JOIN work_relationships AS child_edge
                   ON child_edge.project_id = :project_id
                  AND child_edge.relationship_type = 'parent-child'
-                 AND child_edge.source_work_item_id = subtree.work_item_id
+                 AND child_edge.source_work_item_id = subtree.member_id
                 JOIN work_items AS visible_child
-                  ON visible_child.id = child_edge.target_work_item_id
+                  ON visible_child.project_id = :project_id
+                 AND visible_child.id = child_edge.target_work_item_id
                  AND visible_child.deleted_at IS NULL
+                WHERE NOT child_edge.target_work_item_id = ANY(subtree.visited_path)
             ),
-            matches AS (
+            matches AS MATERIALIZED (
                 SELECT candidate.id
                 FROM work_items AS candidate
+                CROSS JOIN database_time
                 WHERE candidate.project_id = :project_id
                   AND {match_sql}
             ),
-            qualifying AS (
+            member_facts AS MATERIALIZED (
                 SELECT
-                    subtree.root_id,
+                    subtree.branch_id,
+                    subtree.member_id,
+                    cardinality(subtree.visited_path) - 1 AS depth,
+                    member.status,
+                    (
+                        member.status = 'pending'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM work_relationships AS blocker_edge
+                            JOIN work_items AS blocker_source
+                              ON blocker_source.project_id = blocker_edge.project_id
+                             AND blocker_source.id =
+                                blocker_edge.source_work_item_id
+                            WHERE blocker_edge.project_id = :project_id
+                              AND blocker_edge.relationship_type = 'blocks'
+                              AND blocker_edge.target_work_item_id = member.id
+                              AND blocker_source.status <> 'done'
+                        )
+                    ) AS is_blocked,
+                    (
+                        member.status = 'pending'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM work_leases AS active_member_lease
+                            WHERE active_member_lease.work_item_id = member.id
+                              AND active_member_lease.expires_at > database_time.now
+                        )
+                    ) AS is_active,
+                    member.status = 'done' AS is_completed,
+                    EXISTS (
+                        SELECT 1
+                        FROM work_relationships AS discovery_edge
+                        WHERE discovery_edge.project_id = :project_id
+                          AND discovery_edge.relationship_type = 'discovered-from'
+                          AND discovery_edge.source_work_item_id = member.id
+                    ) AS is_discovered,
+                    (
+                        SELECT count(*)
+                        FROM work_gates AS member_gate
+                        WHERE member_gate.work_item_id = member.id
+                          AND member_gate.resolved_at IS NULL
+                    ) AS unresolved_gate_count,
+                    (
+                        SELECT active_member_lease.expires_at
+                        FROM work_leases AS active_member_lease
+                        WHERE active_member_lease.work_item_id = member.id
+                          AND active_member_lease.expires_at > database_time.now
+                        LIMIT 1
+                    ) AS active_lease_expires_at,
+                    matches.id IS NOT NULL AS matches_filter
+                FROM subtree
+                JOIN work_items AS member
+                  ON member.project_id = :project_id
+                 AND member.id = subtree.member_id
+                 AND member.deleted_at IS NULL
+                CROSS JOIN database_time
+                LEFT JOIN matches ON matches.id = subtree.member_id
+            ),
+            branch_aggregates AS MATERIALIZED (
+                SELECT
+                    facts.branch_id,
                     bool_or(
-                        subtree.work_item_id = subtree.root_id
-                        AND matches.id IS NOT NULL
+                        facts.member_id = facts.branch_id
+                        AND facts.matches_filter
                     ) AS self_matches_filter,
                     bool_or(
-                        subtree.work_item_id <> subtree.root_id
-                        AND matches.id IS NOT NULL
-                    ) AS has_matching_descendants
-                FROM subtree
-                LEFT JOIN matches ON matches.id = subtree.work_item_id
-                GROUP BY subtree.root_id
-                HAVING bool_or(matches.id IS NOT NULL)
+                        facts.member_id <> facts.branch_id
+                        AND facts.matches_filter
+                    ) AS has_matching_descendants,
+                    count(*) FILTER (WHERE facts.depth = 1) AS direct_child_count,
+                    count(*) FILTER (WHERE facts.depth > 0) AS descendant_count,
+                    count(*) FILTER (
+                        WHERE facts.depth > 0 AND facts.is_blocked
+                    ) AS blocked_descendant_count,
+                    count(*) FILTER (
+                        WHERE facts.depth > 0 AND facts.is_active
+                    ) AS active_descendant_count,
+                    count(*) FILTER (
+                        WHERE facts.depth > 0 AND facts.is_completed
+                    ) AS completed_descendant_count,
+                    count(*) FILTER (
+                        WHERE facts.depth > 0 AND facts.is_discovered
+                    ) AS discovered_descendant_count,
+                    sum(facts.unresolved_gate_count)
+                        AS branch_unresolved_human_gate_count,
+                    bool_or(
+                        facts.member_id = facts.branch_id
+                        AND facts.is_discovered
+                    ) AS is_discovered_work,
+                    min(facts.active_lease_expires_at) FILTER (
+                        WHERE facts.depth > 0 AND facts.is_active
+                    ) AS next_active_descendant_lease_expires_at
+                FROM member_facts AS facts
+                GROUP BY facts.branch_id
             ),
-            paged AS (
-                SELECT qualifying.*, root.updated_at, root.created_at, root.priority
+            qualifying AS MATERIALIZED (
+                SELECT
+                    aggregate.*,
+                    EXISTS (
+                        SELECT 1
+                        FROM work_relationships AS parent_edge
+                        JOIN work_relationships AS discovery_edge
+                          ON discovery_edge.project_id = parent_edge.project_id
+                         AND discovery_edge.relationship_type = 'discovered-from'
+                         AND discovery_edge.source_work_item_id =
+                            parent_edge.target_work_item_id
+                         AND discovery_edge.target_work_item_id =
+                            parent_edge.source_work_item_id
+                        WHERE parent_edge.project_id = :project_id
+                          AND parent_edge.relationship_type = 'parent-child'
+                          AND parent_edge.target_work_item_id = aggregate.branch_id
+                    ) AS discovered_from_parent
+                FROM branch_aggregates AS aggregate
+                WHERE aggregate.self_matches_filter
+                   OR aggregate.has_matching_descendants
+            ),
+            paged AS MATERIALIZED (
+                SELECT qualifying.*
                 FROM qualifying
-                JOIN work_items AS root ON root.id = qualifying.root_id
+                JOIN work_items AS root ON root.id = qualifying.branch_id
                 ORDER BY {root_ordering}
                 LIMIT :limit OFFSET :offset
+            ),
+            page_rows AS MATERIALIZED (
+                SELECT
+                    root.*,
+                    paged.self_matches_filter,
+                    paged.has_matching_descendants,
+                    paged.direct_child_count,
+                    paged.descendant_count,
+                    paged.blocked_descendant_count,
+                    paged.active_descendant_count,
+                    paged.completed_descendant_count,
+                    paged.discovered_descendant_count,
+                    paged.branch_unresolved_human_gate_count,
+                    paged.is_discovered_work,
+                    paged.discovered_from_parent,
+                    paged.next_active_descendant_lease_expires_at,
+                    current_checkpoint.id AS current_checkpoint_id,
+                    current_checkpoint.kind AS current_checkpoint_kind,
+                    current_checkpoint.source_client AS current_source_client,
+                    current_checkpoint.source_session_id AS current_source_session_id,
+                    current_checkpoint.source_model AS current_source_model,
+                    current_checkpoint.repository_branch AS current_repository_branch,
+                    current_checkpoint.verified_against AS current_verified_against,
+                    current_checkpoint.tags AS current_tags,
+                    current_checkpoint.migration_origin AS current_migration_origin,
+                    current_checkpoint.legacy_record_id AS current_legacy_record_id,
+                    current_checkpoint.created_at AS current_checkpoint_created_at,
+                    (
+                        SELECT count(*)
+                        FROM checkpoints AS checkpoint_count
+                        WHERE checkpoint_count.work_item_id = root.id
+                    ) AS checkpoint_count,
+                    (
+                        SELECT count(*)
+                        FROM work_relationships AS blocker_edge
+                        JOIN work_items AS blocker_source
+                          ON blocker_source.project_id = blocker_edge.project_id
+                         AND blocker_source.id = blocker_edge.source_work_item_id
+                        WHERE blocker_edge.project_id = :project_id
+                          AND blocker_edge.relationship_type = 'blocks'
+                          AND blocker_edge.target_work_item_id = root.id
+                          AND blocker_source.status <> 'done'
+                    ) AS unresolved_blocker_count,
+                    (
+                        SELECT count(*)
+                        FROM work_gates AS root_gate
+                        WHERE root_gate.work_item_id = root.id
+                          AND root_gate.resolved_at IS NULL
+                    ) AS unresolved_gate_count,
+                    EXISTS (
+                        SELECT 1
+                        FROM work_leases AS dropped_lease
+                        WHERE dropped_lease.work_item_id = root.id
+                          AND dropped_lease.expires_at <= database_time.now
+                    ) AS has_dropped_lease,
+                    active_lease.holder_client AS active_holder_client,
+                    active_lease.holder_session_id AS active_holder_session_id,
+                    active_lease.acquired_at AS active_acquired_at,
+                    active_lease.renewed_at AS active_renewed_at,
+                    active_lease.expires_at AS active_expires_at
+                FROM paged
+                JOIN work_items AS root ON root.id = paged.branch_id
+                CROSS JOIN database_time
+                JOIN LATERAL (
+                    SELECT checkpoint.*
+                    FROM checkpoints AS checkpoint
+                    WHERE checkpoint.work_item_id = root.id
+                      AND checkpoint.kind = 'context'
+                    ORDER BY checkpoint.created_at DESC, checkpoint.id DESC
+                    LIMIT 1
+                ) AS current_checkpoint ON true
+                LEFT JOIN work_leases AS active_lease
+                  ON active_lease.work_item_id = root.id
+                 AND active_lease.expires_at > database_time.now
             )
             SELECT
+                (SELECT project_exists FROM scope) AS project_exists,
+                (SELECT parent_exists FROM scope) AS parent_exists,
                 COALESCE(
                     jsonb_agg(
                         jsonb_build_object(
-                            'work_item_id', paged.root_id,
-                            'self_matches_filter', paged.self_matches_filter,
-                            'has_matching_descendants', paged.has_matching_descendants
+                            'summary', jsonb_build_object(
+                                'work_item', jsonb_build_object(
+                                    'id', page_rows.id,
+                                    'project_id', page_rows.project_id,
+                                    'title', page_rows.title,
+                                    'summary', page_rows.summary,
+                                    'status', page_rows.status,
+                                    'priority', page_rows.priority,
+                                    'initial_checkpoint_id',
+                                        page_rows.initial_checkpoint_id,
+                                    'version', page_rows.version,
+                                    'created_at', page_rows.created_at,
+                                    'updated_at', page_rows.updated_at
+                                ),
+                                'checkpoint_count', page_rows.checkpoint_count,
+                                'ancestor_path', '[]'::jsonb,
+                                'ancestor_path_truncated', false,
+                                'current_context', jsonb_build_object(
+                                    'id', page_rows.current_checkpoint_id,
+                                    'work_item_id', page_rows.id,
+                                    'kind', page_rows.current_checkpoint_kind,
+                                    'source_client', page_rows.current_source_client,
+                                    'source_session_id',
+                                        page_rows.current_source_session_id,
+                                    'source_model', page_rows.current_source_model,
+                                    'repository_branch',
+                                        page_rows.current_repository_branch,
+                                    'verified_against',
+                                        page_rows.current_verified_against,
+                                    'tags', page_rows.current_tags,
+                                    'migration_origin',
+                                        page_rows.current_migration_origin,
+                                    'legacy_record_id',
+                                        page_rows.current_legacy_record_id,
+                                    'created_at',
+                                        page_rows.current_checkpoint_created_at
+                                ),
+                                'readiness', jsonb_build_object(
+                                    'lifecycle_status', page_rows.status,
+                                    'is_terminal', page_rows.status IN (
+                                        'done', 'wont-do', 'promoted'
+                                    ),
+                                    'has_active_lease',
+                                        page_rows.active_expires_at IS NOT NULL,
+                                    'has_dropped_lease',
+                                        page_rows.has_dropped_lease,
+                                    'active_lease', CASE
+                                        WHEN page_rows.active_expires_at IS NULL THEN NULL
+                                        ELSE jsonb_build_object(
+                                            'holder_client',
+                                                page_rows.active_holder_client,
+                                            'holder_session_id',
+                                                page_rows.active_holder_session_id,
+                                            'acquired_at',
+                                                page_rows.active_acquired_at,
+                                            'renewed_at',
+                                                page_rows.active_renewed_at,
+                                            'expires_at',
+                                                page_rows.active_expires_at
+                                        )
+                                    END,
+                                    'unresolved_blocker_count',
+                                        page_rows.unresolved_blocker_count,
+                                    'is_blocked',
+                                        page_rows.unresolved_blocker_count > 0,
+                                    'unresolved_gate_count',
+                                        page_rows.unresolved_gate_count,
+                                    'is_gated',
+                                        page_rows.unresolved_gate_count > 0,
+                                    'is_ready',
+                                        page_rows.status = 'pending'
+                                        AND page_rows.active_expires_at IS NULL
+                                        AND page_rows.unresolved_blocker_count = 0
+                                        AND page_rows.unresolved_gate_count = 0,
+                                    'display_state', CASE
+                                        WHEN page_rows.status <> 'pending'
+                                            THEN page_rows.status
+                                        WHEN page_rows.unresolved_gate_count > 0
+                                            THEN 'waiting'
+                                        WHEN page_rows.unresolved_blocker_count > 0
+                                            THEN 'blocked'
+                                        WHEN page_rows.active_expires_at IS NOT NULL
+                                            THEN 'active'
+                                        WHEN page_rows.has_dropped_lease
+                                            THEN 'dropped'
+                                        ELSE 'pending'
+                                    END
+                                )
+                            ),
+                            'self_matches_filter',
+                                page_rows.self_matches_filter,
+                            'has_matching_descendants',
+                                page_rows.has_matching_descendants,
+                            'presentation', jsonb_build_object(
+                                'direct_child_count',
+                                    page_rows.direct_child_count,
+                                'descendant_count',
+                                    page_rows.descendant_count,
+                                'blocked_descendant_count',
+                                    page_rows.blocked_descendant_count,
+                                'active_descendant_count',
+                                    page_rows.active_descendant_count,
+                                'completed_descendant_count',
+                                    page_rows.completed_descendant_count,
+                                'discovered_descendant_count',
+                                    page_rows.discovered_descendant_count,
+                                'branch_unresolved_human_gate_count',
+                                    page_rows.branch_unresolved_human_gate_count,
+                                'is_discovered_work',
+                                    page_rows.is_discovered_work,
+                                'discovered_from_parent',
+                                    page_rows.discovered_from_parent,
+                                'next_active_descendant_lease_expires_at',
+                                    page_rows.next_active_descendant_lease_expires_at
+                            )
                         )
                         ORDER BY {page_ordering}
-                    ),
+                    ) FILTER (WHERE page_rows.id IS NOT NULL),
                     '[]'::jsonb
                 ) AS items,
                 (SELECT count(*) FROM qualifying) AS total
-            FROM paged
+            FROM page_rows
             """
             ),
             {
@@ -698,23 +1026,12 @@ def hierarchy_page(
         .mappings()
         .one()
     )
-    item_rows = list(row["items"])
-    ids = [UUID(str(item["work_item_id"])) for item in item_rows]
-    work_by_id = {
-        work_item.id: work_item
-        for work_item in database.scalars(select(WorkItem).where(WorkItem.id.in_(ids)))
-    }
-    summaries = {
-        summary.work_item.id: summary
-        for summary in work_summaries(database, [work_by_id[work_item_id] for work_item_id in ids])
-    }
+    if not row["project_exists"]:
+        raise not_found("project_not_found", "Project not found.")
+    if not row["parent_exists"]:
+        raise not_found("work_item_not_found", "Work item not found in this project.")
     return [
-        HierarchySummary(
-            summary=summaries[UUID(str(item["work_item_id"]))],
-            self_matches_filter=bool(item["self_matches_filter"]),
-            has_matching_descendants=bool(item["has_matching_descendants"]),
-        )
-        for item in item_rows
+        HierarchySummary.model_validate(item) for item in row["items"]
     ], int(row["total"])
 
 

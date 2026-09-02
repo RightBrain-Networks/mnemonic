@@ -27,6 +27,25 @@ _APPLICATION_ERRORS = {
     ),
     "work_not_pending": "This work item is not pending and cannot perform that operation.",
     "work_blocked": "This work item has an unresolved blocker.",
+    "work_gated": (
+        "This work item has unresolved human input. Inspect its current context or the human "
+        "attention queue; do not bypass the gate with another claim or terminal mutation."
+    ),
+    "gate_already_resolved": (
+        "This human gate is already resolved. Read current gate history rather than overwriting it."
+    ),
+    "gate_context_changed": (
+        "The work context changed after the human question was requested. A human must reload "
+        "and review the current work context before submitting a new resolution intent."
+    ),
+    "human_gates_not_enabled": (
+        "New human-gate requests are temporarily disabled during the coordinated service cutover."
+    ),
+    "invalid_cursor": "That page cursor is invalid for this project, work item, or filter.",
+    "gate_secret_echo": (
+        "Mnemonic rejected the human-gate request because request-known or retained gate/operation "
+        "control material appeared in durable content. Remove it and create a genuinely corrected intent."
+    ),
     "lease_held": "This work item has an active claim.",
     "lease_expired": "This work claim has expired. Recall the work state before retrying.",
     "lease_token_mismatch": "The work claim does not match the current active claim.",
@@ -86,9 +105,14 @@ _NOT_FOUND_MESSAGES = {
     "relationship_not_found": (
         "Relationship not found in this project. Use list_relationships to see current edges."
     ),
+    "gate_not_found": (
+        "Human gate not found on this work item. Refresh current context or use list_work_gates "
+        "for the exact project and work item; do not guess another scope."
+    ),
 }
 _UNKNOWN_NOT_FOUND = (
-    "The requested project, work item, checkpoint, or relationship was not found in this project."
+    "The requested project, work item, checkpoint, relationship, or human gate was not found "
+    "in this project."
 )
 
 
@@ -203,13 +227,19 @@ class MnemonicAPI:
         if response.status_code == 404:
             raise ToolError(_not_found_message(response))
 
+        application_error = _application_error(response)
+        if (
+            response.status_code >= 500
+            and application_error is not None
+            and application_error[0] == "human_gates_not_enabled"
+        ):
+            raise ToolError(_APPLICATION_ERRORS["human_gates_not_enabled"])
         if response.status_code >= 500:
             if idempotent_mutation:
                 raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
             if _is_claim_operation(method, path):
                 raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
 
-        application_error = _application_error(response)
         if application_error is not None and not 200 <= response.status_code < 300:
             error_code, error_context = application_error
             if idempotent_mutation and error_code == "client_operation_unavailable":

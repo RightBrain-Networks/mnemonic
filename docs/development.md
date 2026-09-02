@@ -8,7 +8,7 @@ dashboard uses `package-lock.json` and `npm ci`.
 Use Python 3.13, uv, and Node 24 for native development. Docker-only users do
 not need these tools to run Mnemonic.
 
-## Phase 5/6 backend verification
+## Phases 5–8 backend verification
 
 The database suite needs a real PostgreSQL instance because the system depends
 on PostgreSQL search, row locking, database time, receipt reservation/waiting,
@@ -103,6 +103,37 @@ The Phase 6 additions verify:
 - outcome-aware live invalidation: applied originals and applied replays publish
   a data-free refresh hint, while no-ops and failures do not.
 
+The combined Phases 7–8 additions verify:
+
+- `0014_human_gates` fresh and populated upgrades, exact Phase 1–6 row/function
+  preservation, ORM/DDL parity, gate/event immutability and deferred
+  completeness, fail-closed lease/work triggers, the exact twelve-kind receipt
+  check, guarded empty downgrade, populated refusal, and downgrade/write races;
+- atomic request/resolution and exact receipt replay under commit/response/
+  rendering faults, the disabled-by-default first-execution fence, multiple
+  gates, immutable current/resolved revision anchors, drift acknowledgement,
+  sanitized errors, source-event coherence, and no duplicate durable effect;
+- waiting readiness/lifecycle matrices, active capability replay/renew/release
+  after gating, fresh/replacement claim rejection, completion/terminal/delete
+  guards, and deterministic request/resolve races;
+- immutable-cursor attention and gate-history pages, bounded context gate slices
+  with exact omission counts, soft-deleted decision audit, and typed event
+  history; and
+- one-statement hierarchy pages with exact branch presentation counts,
+  subtree-aware filter flags, discovery labels, cycle/depth bounds, pagination,
+  current database-time lease facts, and measured query plans.
+
+For a focused Phases 7–8 iteration, run the real gate/migration/readiness suites;
+the complete `pytest` command above remains the release gate:
+
+```sh
+uv run pytest -q \
+  tests/test_phase78_migration_postgres.py \
+  tests/test_human_gates_postgres.py \
+  tests/test_ready_work_postgres.py \
+  tests/test_work_items_postgres.py
+```
+
 For a focused Phase 6 iteration, run the receipt suites explicitly; the complete
 `pytest` command above remains the release gate:
 
@@ -122,7 +153,7 @@ do not contact a model service.
 Without `TEST_DATABASE_URL`, PostgreSQL tests explicitly skip. Such a run still
 checks pure validation helpers but is not proof of migration, transaction,
 trigger, concurrency, receipt replay, or PostgreSQL retrieval behavior. Any
-skipped PostgreSQL-marked test makes the Phase 6 release gate incomplete.
+skipped PostgreSQL-marked test makes the Phases 7–8 release gate incomplete.
 
 Stop the disposable database afterward from the repository root:
 
@@ -130,7 +161,7 @@ Stop the disposable database afterward from the repository root:
 docker compose -f compose.test.yaml down
 ```
 
-## Phase 5/6 MCP verification
+## Phases 5–8 MCP verification
 
 Run from `mcp`:
 
@@ -139,40 +170,35 @@ uv sync --frozen
 uv run pytest -q
 ```
 
-The MCP suite verifies the exact 22-tool canonical catalog, nested checkpoint
-request bodies, strict response shapes, pointer-only search, bounded recall,
-deterministic checkpoint pagination, versioned update/completion/delete
-receipts, atomic initial-relationship serialization, relationship add/get/list/
-remove tools, and the `resume_work` prompt and work-item resource. It also
-exercises claim/replay/renew/release body serialization and annotations, token
-redaction, claim-specific unknown-outcome recovery, pointer-only counterparts,
-typed graph errors, strict unknown-field rejection, and sanitized local
-validation across direct, Streamable HTTP, and real stdio transports.
+The MCP suite verifies the exact 25-tool canonical catalog, strict unknown-field
+rejection, nested checkpoint request bodies, pointer-only search/ready results,
+bounded recall, deterministic checkpoint/event pagination, versioned mutation
+receipts, typed graph and lease behavior, the `resume_work` prompt, and the
+work-item resource across direct, Streamable HTTP, and real stdio transports.
 
-Phase 6 assertions keep the catalog at 22 while requiring a valid
-`client_operation_id` on exactly `create_work`, `add_checkpoint`,
-`append_event`, `add_relationship`, `update_work`, `complete_work`,
-`delete_work`, `remove_relationship`, and `release_claim`. They verify exact
-forwarding, truthful `idempotentHint` values, local rejection on excluded tools,
-one outbound attempt, strict response decoding, and redacted guidance for
-unknown outcomes, lost key/arguments, unavailable receipts, definite secret
-rejection, and key conflicts. `create_project`, `claim_work`,
-`claim_and_recall`, and `renew_claim` keep separate non-idempotent annotations
-and recovery rules. The REST boundary, project scoping, host/origin/key
-checks, and body limits are covered with an HTTP mock and need no live database.
+Exactly ten mutation tools require a canonical `client_operation_id` and
+advertise truthful idempotency: `create_work`, `add_checkpoint`, `append_event`,
+`add_relationship`, `update_work`, `complete_work`, `delete_work`,
+`remove_relationship`, `release_claim`, and `request_human_input`. Tests prove
+exact one-attempt forwarding, strict coherent response decoding, sanitized
+same-key recovery guidance, and local rejection on excluded tools. Project
+creation, claim, claim-and-recall, and renewal retain separate non-idempotent
+contracts.
 
-Phase 4/5 cases cover strict pointer-only `list_ready_work`, exact ready/event
-filters and REST serialization, discriminated event metadata, bounded recall/
-resource/prompt events, required canonical actor envelopes, the progress-only
-append boundary, value-free validation, and capability suppression. HTTP and
-stdio both assert the same 22 names;
-`get_activity` and removed hand-off surfaces remain absent.
+Phase 7–8 assertions cover exact request arguments and revision projections,
+the disabled-request error, unknown-outcome guidance, cursor-safe
+`list_human_attention` and `list_work_gates`, waiting readiness and bounded gate
+slices in search/ready/context/resource/prompt models, and sanitized gate errors.
+They assert that no MCP resolution tool exists and that tool descriptions tell
+agents not to infer or self-supply an answer. HTTP and stdio expose the same 25
+names; `get_activity`, `resolve_human_input`, and removed hand-off surfaces
+remain absent.
 
 The MCP package currently does not declare Ruff in its own development group.
 
-The inner plugin manifest is `0.4.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.4.0` install
-plus a sequential `0.3.0 -> 0.4.0` marketplace update. Use an isolated
+The inner plugin manifest is `0.5.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.5.0` install
+plus a sequential `0.4.0 -> 0.5.0` marketplace update. Use an isolated
 `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that the cached
 installed skill bytes changed, and a compatibility copy of the old prerelease
 tool schema is not a valid substitute.
@@ -184,7 +210,7 @@ repository root over the MCP and live-check code:
 uv run --project backend ruff check mcp/src/mnemonic_mcp mcp/tests scripts/check-stack.py
 ```
 
-## Phase 5/6 dashboard verification
+## Phases 5–8 dashboard verification
 
 Run from `frontend`:
 
@@ -207,15 +233,24 @@ invalidation, actor request construction, progress composer errors, pagination/
 filtering, and the partial-history notice at desktop and narrow viewports. The
 ready endpoint remains intentionally proxy-denied.
 
-Phase 6 mutation tests cover all nine browser writes, one UUID and exact frozen
-serialized body per intent, in-flight coalescing, same-document recovery after
-component unmount, exact manual retry after ambiguous outcomes, and a
-non-discardable safety state for key conflicts. Strict per-operation decoders
-require the expected status, exact shape, and path/result coherence before
-clearing recovery. Proxy-policy tests admit the top-level UUID only on those
-nine routes and reject invalid, nested, query/header/cookie, secret-equal, and
-excluded-route IDs without echoing them. Lease paths and token-bearing browser
-mutations remain denied.
+Mutation tests cover all ten browser writes, one UUID and exact frozen serialized
+body per intent, in-flight coalescing, same-document recovery after component or
+view unmount, exact manual retry after ambiguous outcomes, and a non-discardable
+safety state for key conflicts. Strict per-operation decoders require the
+expected status, exact shape, and path/result coherence before clearing
+recovery. Proxy-policy tests admit the top-level UUID only on those ten routes,
+including gate resolution, and reject invalid, nested, query/header/cookie,
+secret-equal, and excluded-route IDs without echoing them. Gate creation, lease
+paths, and token-bearing browser mutations remain denied.
+
+Phase 7–8 tests additionally cover attention count/cursor paging, literal
+question/answer rendering, one-snapshot reviewed revisions, drift rejection and
+new-intent preparation, gate detail/history slices and omission counts, waiting
+terminal-action guards, live convergence, default-collapsed branches, exact
+hierarchy count/discovery labels, filter-hidden explanations, child paging,
+depth/cycle fallbacks, keyboard/ARIA behavior, and passive descendant lease-
+expiry refresh. No gate question, answer, UUID, or frozen body enters browser
+storage.
 
 `typecheck` verifies component and API model alignment; the production build
 catches server/client boundary and asset issues. Backend and Playwright suites
@@ -237,8 +272,10 @@ npm run test:e2e:stack
 ```
 
 The wrapper generates a uniquely scoped Compose project, API key, and available
-loopback ports. It builds API and dashboard images, runs PostgreSQL on tmpfs,
-and exercises both desktop and narrow Chromium layouts. On success, failure, or
+loopback ports. Its disposable API explicitly enables human-gate requests; the
+production Compose default remains fenced. It builds API and dashboard images,
+runs PostgreSQL on tmpfs, and exercises both desktop and narrow Chromium
+layouts. On success, failure, or
 interruption it tears down that exact generated project with volumes and orphan
 containers included; it never targets the working application stack. The
 scoped teardown shape is:
@@ -279,41 +316,46 @@ Run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 22-tool Phase
-6 MCP catalog, the exact nine protected schemas and annotations, REST-backed
-project listing, the dashboard proxy's host/origin boundary, server-side key
-isolation, and the shipped WOFF2 font assets. It does not create, edit, relate,
-claim, append events, complete, or delete records.
+Read-only mode verifies REST/MCP health, authentication, the exact 25-tool
+catalog, the exact ten protected schemas and annotations, the absence of an MCP
+resolution tool, REST-backed project listing, the dashboard proxy's host/origin
+boundary, server-side key isolation, and the shipped WOFF2 font assets. It does
+not create, gate, edit, relate, claim, append events, resolve, complete, or
+delete records.
 
-Writes require the explicit `--project-id` opt-in. Use a dedicated validation
-project whose contents may safely include five synthetic, soft-deleted records:
+Writes require the explicit `--project-id` opt-in and an API with human-gate
+requests enabled. Run this only against a disposable stack: set
+`MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED=true` for its API, while the production
+Compose default remains false. Use a dedicated validation project whose contents
+may safely include five synthetic, soft-deleted records:
 
 ```sh
 uv run --project mcp python scripts/check-stack.py --project-id YOUR_TEST_PROJECT_UUID
 ```
 
-The write path performs the canonical Phase 6 lifecycle:
+The write path performs the combined canonical lifecycle:
 
 1. prepares and retains one UUID plus exact arguments for every protected call,
-   deliberately discards the first create result, and recovers the original
-   IDs through the exact same-key replay without duplicate events;
-2. proves pointer-only search, initial-context de-duplication, bounded recall,
-   and the `resume_work` prompt;
-3. rejects bearer- and lease-token echoes without persisting or returning their
-   values, then appends and exactly replays progress before adding a distinct
-   immutable checkpoint;
-4. edits through the proxy, claims through MCP, and proves exact claim replay
-   does not extend expiry or duplicate the authoritative event;
-5. exercises blocker and lease exclusions through `list_ready_work`, including
-   blocked claim rejection and readiness recovery after release/removal;
-6. proves same-key relationship/release/removal replays and separately proves a
-   new-key natural no-op permanently replays its original `false` result;
-7. reopens terminal work and verifies the exact ready-work ordering contract;
-8. creates a child/discovered item with both relationships atomically and
-   verifies direct-parent ready filtering;
-9. completes and reopens work, removes relationships, verifies the immutable
-   event timeline, then soft-deletes all five synthetic records and confirms
-   canonical reads return `404`.
+   deliberately discards the first create result, and recovers the original IDs
+   through exact same-key replay without duplicate events;
+2. proves pointer-only search, bounded recall, resource/prompt behavior, and
+   request-known credential/capability rejection;
+3. claims one candidate, discards a completed `request_human_input` response,
+   and recovers the same unresolved gate through exact MCP replay;
+4. proves active-plus-waiting context, text-free attention count, attention and
+   gate-history reads, hierarchy gate aggregate, ready/fresh-claim exclusion,
+   and preserved active claim replay/renew/release;
+5. resolves through the dashboard proxy, repeats the frozen UUID/body, and
+   proves byte-equivalent historical result plus attention/history/context/
+   event/readiness convergence with no MCP resolution tool;
+6. exercises blocker and lease exclusions, exact relationship/release/removal
+   replays, natural false no-op replay, and deterministic ready ordering;
+7. creates a child/discovered item with both relationships atomically and
+   verifies direct-parent ready filtering plus hierarchy branch presentation;
+8. completes/reopens work, verifies immutable event history, removes graph
+   edges, resolves any interrupted run-owned gate during cleanup, then
+   soft-deletes all five synthetic records and confirms ordinary reads return
+   `404`.
 
 The checker prints its synthetic run UUID before its first write. Retain that
 line until cleanup succeeds. If the process is interrupted, recover only that
@@ -338,32 +380,40 @@ Add `--other-project-id` to prove the new ID cannot be read through a second
 project. Do not pass either project option without authorization to write in the
 named project. Prefer a disposable full stack for automated write-path checks.
 
-## Phase 6 release gate
+## Phases 7–8 release gate
 
-A Phase 6 release is incomplete until all of these checks pass together:
+The combined human-oversight release is incomplete until all of these pass
+together:
 
-1. the full backend suite against the isolated PostgreSQL service with no
-   database skips, followed by backend Ruff;
-2. the full MCP suite in its separate frozen environment, followed by the
-   repository-level Ruff command for MCP and `scripts/check-stack.py`;
+1. the full backend suite against isolated PostgreSQL with no database skips,
+   then backend Ruff;
+2. the full MCP suite in its separate frozen environment, then repository Ruff
+   for MCP and `scripts/check-stack.py`;
 3. frontend unit tests, typecheck, production build, and the isolated Playwright
-   stack;
-4. fresh migration to head, populated
-   `0011_project_settings -> 0012_pending_deferred_statuses ->
-   0013_idempotent_mutations` upgrade, guarded
-   empty-ledger downgrade/re-upgrade,
-   completed-ledger downgrade refusal, and backup/restore followed by exact
-   replay without new domain effects;
-5. plugin manifest parsing plus disposable fresh `0.4.0` and sequential
-   `0.3.0 -> 0.4.0` install validation;
-6. the read-only running-stack check and the authorized write check against a
-   disposable project; and
-7. `git diff --check` plus repository documentation link/path validation.
+   stack whose disposable API enables gate requests;
+4. fresh head plus populated `0013_idempotent_mutations -> 0014_human_gates`
+   preservation, exact legacy validator/non-gate event parity, guarded empty
+   downgrade/re-upgrade, populated downgrade refusal/race, and old-backend
+   fail-closed claim/terminal probes;
+5. backup/restore with resolved and unresolved gates, attention sequence,
+   paired events, and exact request/resolution receipt replay without another
+   domain effect;
+6. representative hierarchy `EXPLAIN (ANALYZE, BUFFERS)` fixtures proving one
+   statement per page with exact branch aggregate/filter behavior;
+7. plugin manifest parsing plus disposable fresh `0.5.0` and sequential
+   `0.4.0 -> 0.5.0` installation;
+8. read-only and authorized writable stack checks against a disposable project,
+   including the exact 25-tool/ten-protected contract and gate lifecycle; and
+9. `git diff --check`, repository Markdown link/path validation, schema/tool
+   snapshots, and cold adversarial review.
 
-Do not treat a focused test selection, a PostgreSQL-skipped run, a read-only
-smoke pass, or a marketplace refresh by itself as the Phase 6 release result.
+Do not treat a focused suite, PostgreSQL-skipped run, read-only smoke, stale
+Phase 6 validation count, or marketplace refresh by itself as a Phases 7–8
+release result. Do not enable gate requests in a serving pool until backend,
+MCP/plugin, dashboard/proxy, and operational rollback guidance are deployed
+together.
 
-## Manual Phase 5/6 browser pass
+## Manual Phases 5–8 browser pass
 
 Exercise project empty state and switching, root browsing, lazy child expansion,
 subtree-aware filters, flat-search breadcrumbs, Pending/Active/Dropped/Deferred
@@ -389,6 +439,27 @@ distinct; the retained lease remains visible through safe holder/timestamps but
 no token appears in browser state or network payloads. Release it through the
 client, verify new claims remain blocked, complete the blocker, and verify
 readiness recovers. Confirm no claim or force-release UI exists.
+
+With the request fence enabled only in the disposable environment, use MCP to
+request human input on claimed work. Confirm `Active`, `Blocked`, and `Waiting`
+remain independent, waiting wins only the display label, the item leaves ready
+and rejects a fresh claim, and exact active claim replay/renew/release still
+work. Verify Needs Attention count/paging, literal question rendering,
+breadcrumbs, detail and event history, and an inclusive hierarchy gate count.
+Confirm the browser cannot create a gate and MCP exposes no resolution tool.
+
+Resolve through the dashboard. When context has changed, review the focused
+one-snapshot context and submit its exact revision with acknowledgement; mutate
+again before submit and confirm `gate_context_changed` forces a new review and
+UUID. Interrupt a resolution response and retry only the frozen body/key.
+Confirm one resolution/event, immediate queue removal, ready recovery only when
+lease/blocker/lifecycle also permit it, retained paired history, and no gate
+text or mutation material in browser storage or data-free live frames.
+
+Expand planned and discovered branches and verify collapsed-by-default display,
+direct/descendant and blocked/active/completed/discovered counts, discovery
+labels, gate counts, filter-hidden explanations, child paging, defensive
+cycle/depth fallbacks, and passive refresh when a descendant lease expires.
 
 With a nonblank search, Semantic starts disabled. Enabling it performs a hybrid
 request; disabling it restores lexical retrieval. Repeat the enabled query once

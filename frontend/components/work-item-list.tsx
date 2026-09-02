@@ -50,6 +50,9 @@ type Props = {
   semantic: boolean;
   status: StatusFilter;
   sort: WorkSort;
+  tag: string;
+  sourceClient: string;
+  sourceSessionId: string;
   results: Page<WorkSummary | HierarchySummary> | null;
   loading: boolean;
   error: string;
@@ -62,6 +65,9 @@ type Props = {
   onToggleSemantic: () => void;
   onStatus: (status: StatusFilter) => void;
   onSort: (sort: WorkSort) => void;
+  onTag: (value: string) => void;
+  onSourceClient: (value: string) => void;
+  onSourceSessionId: (value: string) => void;
   onRetry: () => void;
   onClearFilters: () => void;
   onCreate: () => void;
@@ -80,6 +86,9 @@ export default function WorkItemList({
   semantic,
   status,
   sort,
+  tag,
+  sourceClient,
+  sourceSessionId,
   results,
   loading,
   error,
@@ -92,6 +101,9 @@ export default function WorkItemList({
   onToggleSemantic,
   onStatus,
   onSort,
+  onTag,
+  onSourceClient,
+  onSourceSessionId,
   onRetry,
   onClearFilters,
   onCreate,
@@ -138,6 +150,11 @@ export default function WorkItemList({
           <span className="result-count" role="status">{loading || query.trim() !== searchedQuery ? "Finding work…" : results ? searchedQuery ? `${results.total} work item${results.total === 1 ? "" : "s"}` : `${results.total} root branch${results.total === 1 ? "" : "es"}` : ""}</span>
         </div>
       </div>
+      <div className="hierarchy-filter-fields" aria-label="Filter hierarchy by checkpoint provenance">
+        <label>Tag<input value={tag} maxLength={50} placeholder="Exact tag" onChange={(event) => onTag(event.target.value)} /></label>
+        <label>Source client<input value={sourceClient} maxLength={80} placeholder="Exact client" onChange={(event) => onSourceClient(event.target.value)} /></label>
+        <label>Source session<input value={sourceSessionId} maxLength={200} placeholder="Exact session" onChange={(event) => onSourceSessionId(event.target.value)} /></label>
+      </div>
     </section>
 
     {error && results && <div className="error-notice background-list-error" role="alert"><p>{error}</p><button className="button button-secondary" type="button" onClick={onRetry}>Try again</button></div>}
@@ -149,6 +166,9 @@ export default function WorkItemList({
             items={hierarchyResults}
             status={status}
             sort={sort}
+            tag={tag}
+            sourceClient={sourceClient}
+            sourceSessionId={sourceSessionId}
             refreshKey={refreshKey}
             viewKey={viewKey}
             motionRevision={results.items}

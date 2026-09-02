@@ -31,6 +31,13 @@ class Settings(BaseSettings):
             "client_operation_wait_seconds",
         ),
     )
+    human_gate_requests_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED",
+            "human_gate_requests_enabled",
+        ),
+    )
 
     @field_validator("api_key")
     @classmethod

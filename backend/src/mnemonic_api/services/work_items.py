@@ -15,6 +15,7 @@ from mnemonic_api.schemas import (
     WorkItemCreate,
     WorkItemPatch,
 )
+from mnemonic_api.services.gates import require_no_unresolved_gates
 from mnemonic_api.services.leases import (
     consume_lease_for_terminal_mutation,
     require_no_active_lease,
@@ -235,9 +236,11 @@ def update_work_record(database: Session, work_item: WorkItem, payload: WorkItem
                 "That lifecycle transition is not allowed.",
             )
     terminal_transition = (
-        requested_status in {"wont-do", "promoted"} and requested_status != work_item.status
+        requested_status in {"done", "wont-do", "promoted"}
+        and requested_status != work_item.status
     )
     if terminal_transition:
+        require_no_unresolved_gates(database, work_item.id)
         consume_lease_for_terminal_mutation(database, work_item.id, payload.lease_token)
     else:
         validate_optional_lease_token(database, work_item.id, payload.lease_token, lock=True)
@@ -301,6 +304,7 @@ def complete_work_record(
         raise conflict("work_not_pending", "Only pending work can be completed.")
     require_version(work_item, expected_version)
     require_unblocked(database, work_item.id)
+    require_no_unresolved_gates(database, work_item.id)
     consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
     mutation_time = database_now(database)
     checkpoint = _checkpoint(work_item.id, payload, kind="completion")
@@ -328,6 +332,7 @@ def delete_work_record(
 ) -> None:
     require_version(work_item, expected_version)
     require_no_relationships(database, work_item.project_id, work_item.id)
+    require_no_unresolved_gates(database, work_item.id)
     consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
     mutation_time = database_now(database)
     work_item.deleted_at = mutation_time

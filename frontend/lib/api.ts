@@ -18,6 +18,7 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "actor_client",
   "actor_model",
   "actor_session_id",
+  "acknowledge_context_change",
   "body",
   "checkpoint",
   "client_operation_id",
@@ -28,6 +29,8 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "description",
   "direction",
   "event_type",
+  "gate_id",
+  "gate_type",
   "expected_version",
   "id",
   "initial_checkpoint",
@@ -46,6 +49,12 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "recent_limit",
   "relationship_id",
   "relationship_type",
+  "relationship_event_count",
+  "resolution",
+  "resolved_by_client",
+  "resolved_by_model",
+  "resolved_by_session_id",
+  "reviewed_context_revision",
   "repository_branch",
   "repository_url",
   "semantic",
@@ -65,7 +74,8 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "type",
   "verified_against",
   "view",
-  "work_item_id"
+  "work_item_id",
+  "work_version"
 ]);
 
 function safeValidationLocation(value: unknown): string {

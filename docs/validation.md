@@ -1,5 +1,305 @@
 # Mnemonic validation record
 
+## Phases 7–8 final integrated validation — 2026-09-01
+
+This is the final combined prerelease release record. Counts below were
+observed against the integrated implementation with every PostgreSQL suite
+enabled. The capacity observations below are evaluated against explicit local
+prerelease release budgets; those budgets are neither production network SLOs
+nor runtime limits.
+
+- **The full backend suite passed 396 tests against PostgreSQL 17 with three
+  warnings, and backend Ruff passed.** The suite includes the `0013 -> 0014`
+  migration, gate persistence/service/receipt behavior, readiness and lifecycle
+  enforcement, attention/history/context reads, event coherence, and hierarchy
+  presentation. The focused Phase 6/7–8 migration batch passed 11 tests, and
+  the separate migration/ORM parity check passed one test.
+- **The full MCP suite passed 206 tests, and repository Ruff passed for MCP.**
+  Its current contract is exactly 25 tools and exactly ten protected writes;
+  `request_human_input`, `list_human_attention`, and `list_work_gates` are
+  present, while no MCP resolution tool exists.
+- **The frontend passed 107 unit tests, TypeScript checking, and the production
+  build.** This covers the ten browser mutation intents, gate review/resolution
+  helpers and proxy policy, attention/detail behavior, and hierarchy response
+  handling at the unit/type/build layers.
+- **Plugin manifest and disposable installation checks passed.** Both a fresh
+  `0.5.0` install and sequential `0.4.0 -> 0.5.0` update resolved the shipped
+  skill/reference bytes without a compatibility copy.
+- **The complete isolated Playwright stack passed 40 executions across desktop
+  and narrow Chromium.** This includes committed-response-loss/exact replay,
+  a B-to-C work/checkpoint/relationship drift rejection while the outer queue
+  projection remains stale at B, branch-local all-descendant filtering, and
+  collapsed passive-expiry refresh. The disposable E2E API enabled human-gate
+  requests explicitly; production Compose remains fenced by default.
+- **The isolated production-shaped five-service stack passed its read-only and
+  authorized writable checks.** The checker exercised one lost gate-request
+  response, waiting/readiness/claim exclusion, exact dashboard resolution
+  replay and one activity advance, 25 later ordinary events without paired
+  decision eviction, exact planned/discovered hierarchy aggregates, project
+  isolation, and cleanup. Post-cleanup PostgreSQL state was revision 0014,
+  five of five synthetic work items hidden, one of one gate resolved, exactly
+  two gate events and two completed gate receipts, no pending receipts, and no
+  visible unresolved gate. A 143-entry custom archive contained gates, their
+  attention sequence, events, and receipts. Across 54 dynamic gate/operation
+  identifiers and 41,339 log characters, the API, MCP, web, backup, and
+  PostgreSQL logs contained no identifier, gate text, answer, bearer, operation
+  field, claim-request field, or lease-token field from the audit set.
+
+### Cold-review release-gate evidence — 2026-09-01
+
+The following checks used synthetic data in the isolated PostgreSQL 17 test
+service. Every temporary database and schema was dropped after the measurement;
+no application or production data was read. These are observed pre-release
+capacity points, not production SLOs or enforced input/graph-size limits.
+
+#### Locked downgrade and writer race
+
+- The focused command
+  `TEST_DATABASE_URL=<isolated PostgreSQL URL> uv run pytest -q
+  tests/test_phase78_migration_postgres.py` passed **11 tests in 1.78 seconds**
+  with one upstream Starlette warning. Backend Ruff also passed. Two new
+  deterministic tests exercise the migration's actual PostgreSQL locks rather
+  than timing assumptions.
+- A new canonical Phase 6 replay regression builds a typed append-event
+  response and its real salted request fingerprint at revision
+  `0013_idempotent_mutations`, completes the receipt through the same
+  pending-to-completed database contract, and establishes the byte baseline
+  through the actual REST event route. The response remained byte-identical
+  after `0013 -> 0014` and again after downgrade/re-upgrade; both passes left
+  exactly two work events, one receipt, no gates, and the work activity
+  timestamp unchanged.
+
+- In the writer-first order, a keyed request transaction reserved and completed
+  its receipt, locked the focal work, and inserted the gate and request event.
+  Downgrade was observed waiting for `ACCESS EXCLUSIVE` on
+  `client_operations`; after the writer committed, downgrade refused, left the
+  database at `0014_human_gates`, and retained both the gate and completed
+  receipt.
+- In the downgrade-first order, the migration was paused after its empty-data
+  check while holding all four required `ACCESS EXCLUSIVE` locks. An unkeyed
+  gate writer was observed waiting for `ROW SHARE` on `work_items`; downgrade
+  completed to `0013_idempotent_mutations`, the writer then failed with SQLSTATE
+  `42P01` instead of committing into a dropped schema, and re-upgrade restored
+  `0014_human_gates`. The pre-existing work remained and the gate table was
+  empty. Neither order deadlocked or lost a committed gate/receipt.
+
+#### Custom backup, isolated restore, and exact replay
+
+- A disposable source database was migrated from empty state to
+  `0014_human_gates`. Through the real REST service it created one work item and
+  **100 keyed gates**, resolved 99, and retained one unresolved gate. The
+  fixture therefore contained 199 gate events and 199 completed gate-operation
+  receipts, with no pending receipt. One resolved gate used the maximum
+  4,000-character question and resolution plus maximum-length provenance.
+- A PostgreSQL 17 custom archive was taken and its catalog explicitly checked
+  for `work_gates`, the attention identity-sequence state, `work_events`, and
+  `client_operations`. Restoring it into a separate empty database preserved
+  the full source digest, revision, 100/99/1 gate counts, maximum attention
+  sequence and sequence value of 100, all seven gate-table indexes, and all six
+  cross-table guard triggers.
+- With new gate creation disabled in the restored application, exact receipt
+  replays of a resolved gate request, its resolution, and the still-unresolved
+  request returned byte-identical response bodies. The complete redacted
+  durable digest and counts were unchanged. Ready-work total remained zero,
+  text-free attention total remained one, and a fresh claim returned
+  `409 work_gated`.
+- The archive grew from **136,195 bytes to 199,844 bytes** for this fixture,
+  an observed increase of 63,649 bytes. The populated archive took 143.949 ms
+  to write and 184.033 ms to restore. Allocated relation growth was 163,840
+  bytes for gates, 221,184 for events, and 458,752 for receipts. The maximum-
+  text gate plus its two events and two receipts occupied 34,154 row bytes:
+  9,002 gate, 9,264 events, and 15,888 receipts.
+- In-process API plus local PostgreSQL request latency across 100 gates was
+  p50 **16.824 ms**, p95 **25.997 ms**, and p99 **37.633 ms**. Resolution
+  latency across 99 gates was p50 **17.487 ms**, p95 **20.318 ms**, and p99
+  **28.449 ms**. These figures include validation, persistence, response-model
+  rendering, and local transport; they do not establish a network deployment
+  latency budget.
+
+#### Representative hierarchy plans
+
+A random schema migrated to `0014_human_gates` held 12,000 work items and
+12,000 checkpoints: 120 roots, 11,880 parent-child edges, maximum depth 50,
+50-child broad branches, 321 discovery edges, 223 blockers, 282 active and 283
+expired leases, and 393 gates split 197 unresolved/196 resolved. A deep-only
+tag forced qualification through a deep descendant. Each production service
+case received one warm-up and seven timed calls; its exact captured SQL then ran
+under PostgreSQL 17.10 with `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` and the
+production five-second statement timeout.
+
+| Hierarchy case | Returned / total | Service p50 / p95 | Plan / execution | Shared hits | Recursive rows |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Root first page | 20 / 120 | 1062.382 / 1072.874 ms | 2.043 / 1064.345 ms | 72,267 | 12,000 |
+| Root later page, offset 100 | 20 / 120 | 1073.723 / 1100.170 ms | 1.759 / 1071.097 ms | 72,267 | 12,000 |
+| Root deep-tag filter | 1 / 1 | 1143.205 / 1162.721 ms | 1.889 / 1111.282 ms | 71,669 | 12,000 |
+| Broad child first page | 20 / 50 | 86.911 / 88.450 ms | 3.542 / 90.604 ms | 3,482 | 99 |
+| Broad child later page, offset 40 | 10 / 50 | 84.275 / 88.174 ms | 1.703 / 84.037 ms | 3,323 | 99 |
+| Deep child tag filter | 1 / 1 | 19.843 / 25.311 ms | 1.843 / 15.995 ms | 3,134 | 99 |
+
+All hierarchy plans had zero shared reads/writes and zero temporary blocks;
+sorts stayed in 25–55 KB. They used the unresolved-gate, checkpoint, lease,
+work-item, and relationship indexes, with expected sequential scans for
+full-project root aggregation. Recursive traversal itself took about
+15.6 ms. PostgreSQL JIT consumed roughly 994–1,040 ms of root execution and
+67–73 ms of broad-child execution, while the selective deep-child plan did not
+trigger JIT. This identifies JIT configuration/query cost, not a missing index,
+as the first measured optimization target. No case timed out, spilled, or
+returned duplicate rows.
+
+#### High-degree focused human review
+
+A second random schema migrated to head created 501 work items, 500 current
+`related` edges and their canonical events, and one unresolved human gate. An
+ordinary context response reported all 500 in `relationship_counts` but returned
+its normal 50-edge slice: 58,704 response bytes with p50/p95 16.280/17.155 ms.
+The valid focused-gate review returned **all 500 edges** in one statement:
+485,206 bytes with p50/p95 51.224/51.994 ms. The exact focused SQL received one
+EXPLAIN warm-up and three measured `ANALYZE, BUFFERS` runs; median planning was
+2.512 ms, median execution 37.820 ms, and the final plan used 16,138 shared
+buffer hits with zero reads, writes, dirtied blocks, temporary blocks, or JIT.
+It stayed within the five-second statement timeout.
+
+The focused review deliberately has no enforced edge-count maximum, because it
+must return every relationship fact bound to the unresolved gate review. The
+500-edge fixture is therefore an observed capacity point, not a cap or proof
+for arbitrarily high degree; response size and latency grow with focal degree.
+
+#### Ready-work, fresh-claim, and attention density
+
+A third random schema on PostgreSQL 17.10 held 5,000 Pending work items,
+1,000 unresolved gates (20 percent density), 500 active leases, 500 retained
+expired leases, and 100 work items having both an active lease and a gate.
+The expected ready union was therefore 3,600 items. The fixture was vacuum-
+analyzed before measurement and every connection used the production
+five-second statement timeout. In-process REST timings below used one warm-up
+and seven measured calls per page. Exact SQL captured from each endpoint then
+received one EXPLAIN warm-up and three measured
+`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` bundles.
+
+| Read case | Items / total | Service p50 / p95 | Plan / execution | Shared hits | Response bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ready first page | 50 / 3,600 | 33.289 / 34.545 ms | 0.549 / 28.277 ms | 34,035 | 11,296 |
+| Ready later page, offset 3,500 | 50 / 3,600 | 33.021 / 33.907 ms | 0.515 / 28.014 ms | 34,036 | 11,299 |
+| Attention first page | 50 / 1,000 | 28.063 / 36.747 ms | 1.875 / 5.448 ms | 2,442 | 118,329 |
+| Attention after sequence 500 | 50 / 1,000 | 28.759 / 37.800 ms | 1.785 / 5.010 ms | 2,420 | 109,018 |
+
+The ready bundle contained two statements and used 15.408/15.146 ms of JIT in
+the first/later final measured runs. The attention bundle contained eleven
+statements and used no JIT. All four final bundles had zero shared reads,
+writes, or dirtied blocks and zero temporary reads or writes. The later
+attention cursor was obtained by traversing ten 50-item pages, rather than by
+inventing a sequence token.
+
+Fresh-claim behavior was then sampled on 100 distinct gated targets and 100
+distinct otherwise eligible targets. Every gated request returned
+`409 work_gated`; every eligible request returned 200 and acquired its lease.
+Gated service latency was p50 **10.550 ms** and p95 **15.871 ms**; eligible
+latency was p50 **11.839 ms** and p95 **16.507 ms**. Each captured request had
+four read statements. After one warm-up and across three measured EXPLAIN
+bundles, gated median planning/execution was 0.587/0.212 ms and eligible was
+0.476/0.184 ms. Both final bundles used 20 shared hits with zero shared reads,
+writes, dirtied or temporary blocks and no JIT. To avoid duplicating durable
+effects, EXPLAIN replay covered only the captured `SELECT`/`WITH` statements;
+the successful lease/event DML is evidenced by the 100 real service calls, not
+re-executed under EXPLAIN.
+
+These are small local samples and observed capacity points. In particular,
+seven-call p95 values are descriptive only; they are not production network
+SLOs.
+
+#### Passive active-descendant lease expiry
+
+The same production-shaped schema added one 500-child branch with 100 active
+descendant leases. One lease expired three seconds after the initial read and
+the other 99 expired fifteen minutes later. The first hierarchy response took
+109.070 ms, reported 100 active descendants, and returned the earliest boundary.
+A read started 100.077 ms after that boundary; seven post-boundary reads were
+p50 **108.456 ms** and p95 **113.398 ms**, reported 99 active descendants, and
+advanced the returned boundary to the later expiry. Time passage performed zero
+database writes and no server background polling; the corrected count appeared
+on the next read.
+
+The authoritative browser scheduler command
+`node --test tests/lease-refresh.test.mjs` passed **5/5 tests in 71.435 ms**.
+Under fake time it selects the earliest valid displayed expiry, fires exactly
+at that boundary, retries an unchanged already-due boundary every 65 seconds,
+and stops after cancellation. That bounds a persistently stale mounted
+scheduler to about 0.923 retry callbacks per minute after its first boundary
+callback. The dashboard refreshes its list, attention total, and open context;
+each expanded hierarchy branch schedules from its returned earliest child
+boundary. Rate therefore scales with mounted views/expanded branches and has
+no server-global enforced maximum. The full 38-execution Playwright result
+above includes the active-lease browser expiry path. These observations are
+behavior and rate evidence, not a browser/network latency SLO.
+
+#### Prerelease capacity acceptance budgets
+
+The Phase 3 hierarchy baseline used 2,000 work items and reported 12.28 ms root
+pagination and 1.48 ms child expansion before full-branch presentation facts
+existed. The Phase 7-8 fixture deliberately increased the project sixfold,
+required every returned row and aggregate to share one statement snapshot, and
+added gates, discovery, blockers, lease overlap, depth 50, and deep-only
+qualification. Using that historical baseline and the production-shaped
+measurements above, the following conservative local release budgets were fixed
+before final acceptance. They are regression gates for the named PostgreSQL
+17.10 fixtures and five-second statement timeout, not promises for arbitrary
+hardware, graph size, focal degree, or network latency.
+
+| Capacity case | Local prerelease budget | Observed worst named value | Result |
+| --- | --- | ---: | --- |
+| Gate request/resolution, 100-gate fixture | p95 <= 50 ms and p99 <= 100 ms | 25.997 / 37.633 ms | pass |
+| Maximum-text gate plus two events/receipts | <= 64 KiB row bytes | 34,154 bytes | pass |
+| Ready and attention first/later pages, 5,000 work / 20% gate density | p95 <= 100 ms, no temporary spill | 37.800 ms, zero temp blocks | pass |
+| Fresh gated/eligible claims | p95 <= 50 ms with exact 409/200 outcomes | 16.507 ms | pass |
+| 12,000-work hierarchy root pages/deep filter | p95 <= 1.5 s, one statement, no spill, under timeout | 1.163 s, zero temp blocks | pass |
+| Broad/deep hierarchy child pages | p95 <= 150 ms, no spill | 88.450 / 25.311 ms | pass |
+| Focused 500-edge human review | service p95 <= 100 ms, SQL execution <= 75 ms, no spill | 51.994 / 37.820 ms | pass |
+| Passive 500-child expiry correction | first post-boundary read <= 250 ms and advances exact count/boundary | 113.398 ms | pass |
+| 100-gate archive growth and restore | archive growth <= 128 KiB; dump and restore each <= 1 s | 63,649 bytes; 143.949 / 184.033 ms | pass |
+
+The root budget intentionally exposes JIT as the current optimization target:
+the measured root statements spend roughly one second compiling, while the
+recursive traversal itself is about 15.6 ms. Crossing a budget is a release
+investigation, not permission to add a cache, counter table, closure table, or
+index without representative plan evidence.
+
+#### Extracted Phase 6 process against revision 0014
+
+No historical Phase 6 container image was available or run. A safe disposable
+source/process drill instead archived immutable commit
+`7f2a3215853873d19cdffe5c7b096bce4e4403d0`, verified that its backend source
+had no `work_gates` or human-gate references, and launched that extracted
+source in a separate operating-system Python process using the locked backend
+environment. Its TestClient targeted a random PostgreSQL 17.10 schema already
+at `0014_human_gates` with a five-second statement timeout.
+
+The gate-aware service created two gated Pending targets: one without a lease
+and one with a retained expired lease. Its ready total was zero. The old process
+stale-listed both as ready, proving the documented read hazard, but its fresh
+claim, expired-lease replacement claim, completion, and deletion attempts each
+returned `503 database_unavailable`. After all attempts, the schema remained
+at `0014_human_gates` with two gates, two gate events, zero lease rows for the
+fresh target, the one original expired lease still retained, both work items
+Pending at version 1 and undeleted, and their two original checkpoints. Thus
+the database backstops failed closed without a partial domain change.
+
+This was a real separate old-source application process, but not a historical
+container-image/package/startup drill. Coordinated image inventory, routing
+drain, and zero old database connections remain mandatory at deployment; this
+source-level evidence does not replace them.
+
+The final root validation also passed backend and MCP Ruff, frontend typecheck
+and production build, production Compose rendering, checker compile/lint,
+repository whitespace checks, and relative Markdown-link validation. A fresh
+adversarial review of the implementation and the added gate-idempotency,
+readiness/lifecycle, hierarchy, writable-stack, and browser evidence found no
+remaining blocker or high-severity issue. The ready/claim, attention,
+hierarchy, focused-context, passive-expiry, backup/restore, and old-process
+observations above cover the accepted plan's prerelease capacity and
+compatibility gates without creating production SLOs. Historical Phase 6
+counts below remain accurate for that release and are not rewritten as current
+Phases 7-8 totals.
+
 ## Sidebar artwork and edge SVG serving — 2026-09-01
 
 Checks observed while replacing the sidebar's drawn page stack with the robot

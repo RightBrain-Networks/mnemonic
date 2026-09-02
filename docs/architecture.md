@@ -1,6 +1,6 @@
-# Mnemonic Phase 6 architecture
+# Mnemonic Phases 7–8 architecture
 
-This architecture describes the implementation through Phase 6. The longer-term
+This architecture describes the implementation through Phases 7–8. The longer-term
 direction and the boundaries of later phases are in [`roadmap.md`](roadmap.md).
 
 ## Product model
@@ -19,7 +19,10 @@ flowchart LR
     WorkItem --> Progress[Progress checkpoint]
     WorkItem --> Completion[Completion checkpoint]
     WorkItem --> Event[Immutable event timeline]
+    WorkItem --> Gate[Immutable human gate]
+    Gate -. unresolved .-> Attention[Needs Attention queue]
     WorkItem -. derived snapshot .-> Ready[Ready-work query]
+    WorkItem -. branch snapshot .-> Presentation[Hierarchy presentation]
     WorkItem -. optional and expiring .-> Lease[Work lease]
     WorkItem --> Graph[Typed relationships]
     Graph --> Blocks[blocks]
@@ -46,18 +49,20 @@ The live `WorkItem` lifecycle values are `pending`, `deferred`, `done`,
 Historical `WorkEvent` snapshots may retain legacy `open`, while new events use
 Pending/Deferred values. Pending means no session has started or work remains
 incomplete; Deferred is an intentional human-controlled hold outside the agent queue.
-`active`, `dropped`, and `blocked` are derived facts. Active means an unexpired
-lease exists; Dropped means the retained lease expired unexpectedly. Pending,
-visible work is ready only when it has neither an unexpired lease nor an
-unresolved incoming `blocks` edge. Only a blocker whose source is `done` is
-resolved; `wont-do` and `promoted` do not imply completion. A work item can be
-active and blocked simultaneously because adding a blocker does not revoke an
-existing lease. Completion is the only operation that can set `done`, and it
+`active`, `dropped`, `blocked`, and `waiting` are derived facts. Active means an
+unexpired lease exists; Dropped means the retained lease expired unexpectedly;
+Waiting means at least one unresolved human gate exists. Pending, visible work
+is ready only when it has no unexpired lease, unresolved incoming `blocks` edge,
+or unresolved human gate. Only a blocker whose source is `done` is resolved;
+`wont-do` and `promoted` do not imply completion. A work item can be active,
+blocked, and waiting simultaneously because later facts do not revoke an
+existing lease. Waiting has display precedence, but the independent flags
+remain authoritative. Completion is the only operation that can set `done`, and it
 atomically appends a completion checkpoint. Reopening leaves that historical
 completion checkpoint intact.
 
-Ready discovery runs the same nonrecursive blocker/lease predicate used by a
-fresh claim and returns only compact pointers. Its order is `priority DESC,
+Ready discovery runs the same nonrecursive blocker/lease/gate predicate used by
+a fresh or replacement claim and returns only compact pointers. Its order is `priority DESC,
 created_at ASC, id ASC`; tag and direct-parent filters do not change
 eligibility. A page is one statement snapshot, not a reservation. Concurrent
 changes can shift offset pages, and `claim_and_recall` remains the authority
@@ -73,8 +78,20 @@ that locks and revalidates before already-authorized execution.
   rejected, and each child has at most one parent.
 - Graph mutations serialize on the project row and then lock endpoint work in
   UUID order so concurrent cycle checks cannot both commit reciprocal edges.
-- Only unresolved incoming `blocks` edges affect readiness and claimability.
-  Existing leases survive later blockers; new claim attempts are rejected.
+- Only unresolved incoming `blocks` edges and unresolved human gates affect
+  readiness and fresh/replacement claimability. Existing leases survive either
+  later fact; exact active claim replay, renewal, and release remain available.
+- A gate request freezes the work version, newest context-checkpoint ID, and
+  relationship-event count; the gate and exact `human_attention_requested` event
+  commit atomically. Resolution is one immutable transition with an exact
+  `human_attention_resolved` event and a reviewed current revision. Stable
+  request-known controls are rejected before receipt reservation; replay and
+  conflict return before a genuinely new execution checks currently retained
+  gate/operation UUIDs and rolls back a rejected reservation. This finite lookup
+  is not a universal secret detector or a dependency of permanent replay.
+- An unresolved gate rejects completion, terminal transitions, and deletion at
+  both the service and PostgreSQL layers. Identity edits, deferral/Pending
+  restoration, checkpoints, progress, and relationship changes remain possible.
 - A work mutation and every authoritative event it proves share one transaction.
   Claim/relationship replay, absent removal/release, and renewal emit nothing.
 - A protected mutation's project-scoped receipt, domain changes, and events
@@ -97,7 +114,8 @@ that locks and revalidates before already-authorized execution.
   but accepted opaque text may still contain sensitive material the service
   cannot recognize and returns exactly to authorized history readers.
 - Work with any relationship cannot be soft-deleted until its edges are
-  removed. Relationship context is supporting historical evidence; it never
+  removed, and work with any unresolved gate cannot be soft-deleted or moved
+  terminal. Relationship context is supporting historical evidence; it never
   grants authority to follow or execute the linked work.
 - Checkpoint text and provenance never change. The database rejects direct
   checkpoint `UPDATE` and `DELETE` statements as well as the API exposing no
@@ -118,7 +136,8 @@ that locks and revalidates before already-authorized execution.
 - Completion, retirement, promotion, and deletion require the matching token
   when an active lease exists and remove that lease in the same transaction.
 - Soft-deleted work and all of its checkpoints disappear from ordinary reads
-  and searches.
+  and searches. Its immutable gate history remains readable only through an
+  exact project/work ID for retained audit and receipt replay.
 - Every lookup is project-scoped. A work or checkpoint UUID under the wrong
   project returns 404.
 - Stored prompt text and metadata are untrusted historical context. Reading or
@@ -126,7 +145,7 @@ that locks and revalidates before already-authorized execution.
 - PostgreSQL and the FastAPI service are the sole persistence and transaction
   authority. The MCP adapter never connects to the database.
 - `client_operation_id` is private control data. It is accepted only at the
-  top level of the ten enrolled REST request bodies, never persisted in domain
+  top level of the twelve enrolled REST request bodies, never persisted in domain
   models/events or returned through public read surfaces.
 
 ## Services and trust boundaries
@@ -142,19 +161,22 @@ flowchart LR
 
 FastAPI owns validation, lifecycle transitions, project isolation, search,
 the reusable readiness predicate/query, relationship invariants, immutable
-event construction/listing, bounded context, hierarchy queries, idempotency
+event and human-gate construction/listing, attention cursors, bounded context,
+hierarchy presentation queries, idempotency
 receipt reservation/replay, and commits. Service functions receive one
 SQLAlchemy session; reusable helpers do not commit. The closed operation
 registry is the only path that can canonicalize, reserve, validate a stored
 response, or complete a receipt. Routes translate typed application errors into
 a stable sanitized `detail.code` envelope.
 
-The MCP service is a typed HTTP adapter. Its nine protected mutation tools
+The MCP service is a typed HTTP adapter. Its ten protected mutation tools
 require the caller to prepare and retain one operation UUID plus the complete
 arguments; the adapter sends only one HTTP attempt. Its other tools use work,
-checkpoint, lease, and relationship terminology. The dashboard calls only an
-exact same-origin proxy allowlist, including event list/progress append and
-actor-bearing work or relationship writes. A dashboard-lifetime in-memory
+checkpoint, lease, relationship, and human-gate terminology. Its exact 25-tool
+catalog includes request, attention, and gate-history operations but deliberately
+no resolution tool. The dashboard calls only an exact same-origin proxy
+allowlist, including attention/history reads, gate resolution, event
+list/progress append, and actor-bearing work or relationship writes. A dashboard-lifetime in-memory
 registry owns frozen protected intents, blocks overlapping conflicts while an
 outcome is unresolved, and never writes those bodies or UUIDs to browser
 storage. Its API key is server-only. Every lease-capability route
@@ -164,6 +186,9 @@ browser mutation body containing `lease_token` is rejected rather than forwarded
 All published ports bind to loopback by default. The shared bearer key protects
 REST and MCP, while the dashboard remains a trusted-local single-user surface.
 Remote exposure still requires HTTPS and a separate authentication boundary.
+Requester and resolver provenance is asserted under that shared bearer; it is
+not authenticated human identity, an approval signature, or independent
+verification of an answer.
 
 ## Persistence and migration
 
@@ -256,15 +281,44 @@ metadata remains readable and unchanged, while every new or updated progress
 row must satisfy the Phase 6 reservation. The Phase 5 metadata-v1 validator is
 not rewritten.
 
+`0014_human_gates` creates `work_gates` with project/work scope, immutable
+request and resolution provenance, request/current/resolved revision anchors,
+and an identity-backed attention sequence. It adds the internal nullable
+gate reference to `work_events`, typed request/resolution metadata, exact-event
+uniqueness, and source-fact checks. Deferred completeness triggers require an
+unresolved gate plus request event at commit and require the single resolution
+transition plus resolution event together. Gate/event updates, unresolution,
+and deletion fail closed.
+
+The migration widens the private receipt registry to exactly twelve kinds and
+preserves every existing work, event, metadata value, and completed receipt. A
+separate `NOT VALID` check reserves top-level gate metadata on new non-gate
+events without retroactively invalidating historically legal progress metadata.
+The request schema recursively rejects case-insensitive `gate_id` and
+`gate_type` progress metadata before receipt reservation, while the response
+metadata model remains permissive enough to read preserved historical rows.
+Lease and work triggers prevent a stale application from inserting/replacing a
+lease or committing terminal/delete state while a gate is unresolved; same-
+generation renewal/release remains possible. Downgrade takes writer locks and
+succeeds only before any gate, gate event, or gate-operation receipt exists.
+
+The API setting `MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED` defaults false and is
+checked only on genuinely new requests after receipt replay. This permits a
+coordinated mixed-deployment cutover: all enforcement, reads, and resolution are
+active at migration head while supported clients are upgraded before request
+creation is enabled.
+
 ## Idempotent mutation execution
 
-The ten enrolled REST operations are create work, add checkpoint, append event,
-add relationship, update, defer, complete, delete, remove relationship, and
-release claim. Direct REST makes the operation UUID optional. Canonical MCP
-requires it for its nine mutation tools; defer remains a human dashboard action
-and is not an MCP tool. The browser keys its nine non-capability mutations.
-Project administration, claim, claim-and-recall, and renewal are explicitly
-excluded.
+The twelve enrolled REST operations are create work, add checkpoint, append
+event, add relationship, update, defer, complete, delete, remove relationship,
+release claim, request human input, and resolve human input. Direct REST makes
+the operation UUID optional. Canonical MCP requires it for ten tools: the
+previous nine plus gate request; defer and gate resolution remain human control
+plane actions without MCP tools. The browser keys its ten non-capability
+mutations: the previous nine plus resolution, while gate creation and release
+remain proxy-denied. Project administration, claim, claim-and-recall, and
+renewal are explicitly excluded.
 
 For a keyed request the service validates secrets and canonicalizes the entire
 semantic envelope before any domain lookup. Defaults and nulls are explicit,
@@ -276,7 +330,9 @@ waiter validates and returns the stored response. Timeout or an unverifiable
 receipt fails closed. Fresh execution then uses the pre-existing domain lock
 order and completes the receipt before the route's sole commit.
 
-Live synchronization carries no receipt identity or body. A first execution
+Live synchronization carries only `{type, revision, scope}` control fields;
+there is no project, work, gate, receipt, count, or content identifier in a
+frame. The dashboard conservatively refreshes its selected scope. A first execution
 publishes only when it applied domain work; a natural no-op publishes nothing.
 An exact replay republishes the data-free invalidation only when the stored
 `mutation_applied` was true, healing a browser that lost the first response.
@@ -293,15 +349,22 @@ the single materialized initial body. It also returns ten recent events by
 default, chronologically, with a maximum of 20. Checkpoint and event totals,
 omission counts, and the backfill-based partial-history flag describe the whole
 history independently of the returned slice. Full history requires explicit
-checkpoint or event pagination.
+checkpoint or event pagination. Context also includes bounded unresolved and
+recent-resolved gate slices with exact totals/omitted counts; focused human
+review can require a named unresolved gate in the one-snapshot response, while
+complete paired decisions use cursor-paged gate history.
 
 Ordinary recall and search return only the safe active-lease projection: holder
 client/session and acquisition, renewal, and expiry timestamps. The request ID
 and token are excluded. `claim_and_recall` acquires or replays a claim and
 assembles the same bounded context before one commit. Recall includes immediate
 incoming, outgoing, and undirected relationships with counts and pointer-only
-counterparts; it never recursively injects the graph. Context assembly is one
-SQL statement so a `READ COMMITTED` request does not mix multiple snapshots.
+counterparts; it never recursively injects the graph. Ordinary recall caps each
+relationship direction at 50. The exact nested review route for a valid unresolved gate deliberately
+materializes every adjacent edge in that same statement so the dashboard can
+fail closed unless the human review is complete; its payload and counterpart
+projection cost scale with focal degree. Context assembly is one SQL statement
+so a `READ COMMITTED` request does not mix multiple snapshots.
 
 Search returns one compact `WorkSummary` per work item, even when several
 checkpoints match. It never includes prompt bodies or source metadata. Title and
@@ -316,39 +379,58 @@ digest changes after either a work identity edit or checkpoint append. Hybrid
 search preserves the established candidate-total semantics and never becomes a
 work scheduler.
 
-## Hierarchical browse
+## Hierarchical human presentation
 
-The hierarchy REST views apply subtree-aware lifecycle/source/tag filters. A
-root or direct branch is retained when it or any descendant matches; nonmatching
-ancestors are navigation scaffolding. The dashboard consumes root pages and
-lazily fetched children with its exposed lifecycle filter. Root totals count
-roots, and expanding a child never changes root
-pagination. A nonblank query instead uses flat search and returns a bounded
-root-to-parent breadcrumb plus `ancestor_path_truncated` on the direct
-`WorkSummary` hit. Root/child pages expose direct-match and matching-descendant
-flags rather than a truncation field. The renderer applies explicit cycle and
-depth fallbacks instead of silently hiding corrupt or unexpectedly deep
-branches.
+Root and child hierarchy pages are a human presentation over the unchanged
+project-local graph. The dashboard collapses descendants by default and lazily
+loads direct children, while each `HierarchySummary` carries one-statement
+branch aggregates: direct children; strict descendants; blocked, active,
+completed, and discovered descendants; inclusive unresolved human gates;
+discovery labels for the current node; and the earliest active descendant lease
+expiry. Counts are independent rather than mutually exclusive, so one
+descendant may be active, blocked, and gated.
 
-## Deliberate Phase 6 limits
+Lifecycle/source/tag filters are subtree-aware. A root or direct branch is
+retained when it or any descendant matches; `self_matches_filter` and
+`has_matching_descendants` explain when a muted ancestor is only navigation
+scaffolding. Root totals count qualifying roots, direct-child totals count
+qualifying branch children, and the presentation counts remain unfiltered
+facts about the complete branch. The service computes the page, total,
+aggregates, filter flags, and database-time lease state in one PostgreSQL
+statement rather than a Python walk or per-branch query.
+
+A nonblank query uses flat search and returns a bounded root-to-parent breadcrumb
+plus `ancestor_path_truncated` on the direct `WorkSummary` hit. Planned children
+and `discovered-from` work have distinct presentation labels; discovered work
+without that parent relationship remains a top-level root. The renderer applies
+explicit cycle and depth fallbacks instead of silently hiding corrupt or
+unexpectedly deep branches, and schedules passive refresh from the earliest
+visible descendant lease expiry.
+
+## Deliberate Phases 7–8 limits
 
 Ready discovery is not automatic scheduling and there is no
-`claim_next_ready_work`. Phase 6 adds idempotency only to its closed
-ten-operation REST registry; nine of those operations are MCP tools. It does
-not cover project administration, claim, claim-and-recall, or time-anchored
-renewal. It also does not add human gates,
-duplicate merging, aggregate descendant counts, repository freshness
-verification, resource reservation, or automatic execution.
-`duplicate-of`, `related`, `parent-child`, and `discovered-from` remain
-descriptive; only `blocks` changes readiness. No relationship may be inferred
-from search similarity or checkpoint prose.
+`claim_next_ready_work`. The receipt ledger still excludes project
+administration, claim, claim-and-recall, and time-anchored renewal. Human gates
+support only the `human` type: no timers, CI/external-event gates, automatic
+expiry, escalation, notification delivery, authenticated approval signatures,
+or agent-facing resolution operation exists. A stored question/answer is
+untrusted context under a shared bearer, not verified human identity or renewed
+execution authority.
 
-The per-work event identity is not a durable project activity cursor. There is
-no `get_activity`, notification broker, SSE/webhook feed, or passive lease
-expiry event; those require later reliable producers and cursor semantics.
+The release does not add duplicate merging, repository freshness verification,
+resource reservation, or automatic execution. `duplicate-of`, `related`,
+`parent-child`, and `discovered-from` remain descriptive; only `blocks` and
+unresolved gates change readiness, for different reasons. No relationship or
+human answer may be inferred from search similarity or checkpoint prose.
+
+The per-work event identity is not a durable project activity cursor. The gate
+attention cursor is purpose-built from immutable request sequence and identity;
+it does not create a general `get_activity`, notification broker, SSE/webhook
+feed, or passive lease-expiry event.
 
 Backups include canonical work, checkpoints, leases, relationships, immutable
-events and their sequence, durable client-operation receipts, and migration
-state. Operators must still copy
+events and their sequence, human gates and attention sequence, durable
+client-operation receipts, and migration state. Operators must still copy
 backups off-machine and rehearse restores; a persistent Docker volume is not a
 backup.

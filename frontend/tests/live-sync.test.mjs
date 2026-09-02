@@ -2,13 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   connectLiveSync,
-  invalidatesOpenWork,
   liveSyncUrl,
   parseLiveSyncMessage
 } from "../lib/live-sync.ts";
-
-const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
-const work = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 
 class FakeSocket {
   listeners = new Map();
@@ -42,7 +38,7 @@ test("live sync uses the dashboard origin and matching WebSocket security", () =
   assert.throws(() => liveSyncUrl({ protocol: "file:", host: "" }));
 });
 
-test("live sync accepts only the documented data-free message contract", () => {
+test("live sync accepts only exact identifier-free control messages", () => {
   assert.deepEqual(
     parseLiveSyncMessage(JSON.stringify({ type: "ready", revision: 7 })),
     { type: "ready", revision: 7 }
@@ -51,61 +47,25 @@ test("live sync accepts only the documented data-free message contract", () => {
     parseLiveSyncMessage(JSON.stringify({
       type: "invalidate",
       revision: 8,
-      scope: "work-items",
-      project_id: project,
-      work_item_id: work
+      scope: "work-items"
     })),
     {
       type: "invalidate",
       revision: 8,
-      scope: "work-items",
-      project_id: project,
-      work_item_id: work
+      scope: "work-items"
     }
   );
   for (const invalid of [
     "not json",
     JSON.stringify([]),
     JSON.stringify({ type: "ready", revision: -1 }),
-    JSON.stringify({ type: "invalidate", revision: 1, scope: "work-items", project_id: null, work_item_id: work }),
-    JSON.stringify({ type: "invalidate", revision: 1, scope: "projects", project_id: project, work_item_id: work }),
-    JSON.stringify({ type: "invalidate", revision: 1, scope: "projects", project_id: "not-a-uuid", work_item_id: null })
+    JSON.stringify({ type: "ready", revision: 1, project_id: "forbidden" }),
+    JSON.stringify({ type: "invalidate", revision: 1, scope: "work-items", project_id: "forbidden" }),
+    JSON.stringify({ type: "invalidate", revision: 1, scope: "projects", work_item_id: "forbidden" }),
+    JSON.stringify({ type: "invalidate", revision: 1, scope: "unknown" })
   ]) {
     assert.equal(parseLiveSyncMessage(invalid), null);
   }
-});
-
-test("project-wide work invalidations refresh an open work context", () => {
-  const otherProject = "a90aab72-cde8-459a-ac72-bf052c47ade7";
-  const otherWork = "f563ce11-bb0b-490f-a10c-cb5d38df0607";
-  assert.equal(invalidatesOpenWork({
-    type: "invalidate",
-    revision: 1,
-    scope: "work-items",
-    project_id: project,
-    work_item_id: null
-  }, project, work), true);
-  assert.equal(invalidatesOpenWork({
-    type: "invalidate",
-    revision: 2,
-    scope: "work-items",
-    project_id: project,
-    work_item_id: work
-  }, project, work), true);
-  assert.equal(invalidatesOpenWork({
-    type: "invalidate",
-    revision: 3,
-    scope: "work-items",
-    project_id: project,
-    work_item_id: otherWork
-  }, project, work), false);
-  assert.equal(invalidatesOpenWork({
-    type: "invalidate",
-    revision: 4,
-    scope: "work-items",
-    project_id: otherProject,
-    work_item_id: null
-  }, project, work), false);
 });
 
 test("live sync reconnects and reports connection state", async () => {

@@ -15,22 +15,27 @@ Every directed edge reads source → target:
 | `A duplicate-of B` | B is the canonical counterpart. |
 | `A related B` | Symmetric; returned as undirected adjacency. |
 
-## Only `blocks` changes readiness
+## Blockers and human gates are separate readiness facts
 
 An item is blocked only by an **incoming `blocks` edge whose source is not
 `done`**. `wont-do` and `promoted` blockers stay unresolved. `parent-child`,
 `discovered-from`, `duplicate-of`, and `related` are descriptive and never make
-work ready or blocked.
+work ready or blocked. An unresolved human gate is a separate explicit fact: it
+makes Pending work `waiting`, excludes it from ready discovery, and prevents a
+fresh or replacement claim. It is never inferred from an edge, status, checkpoint,
+or progress text.
 
-Blocking does not cancel an existing lease, so `has_active_lease` and
-`is_blocked` can both be true.
+Blocking or gating does not cancel an existing lease, so `has_active_lease`,
+`is_blocked`, and `is_gated` can all be true. Human display precedence is
+non-Pending lifecycle, then waiting, blocked, active, dropped, and pending; the
+independent flags remain authoritative.
 
 
 ## Ready discovery is advisory; claim is authoritative
 
 `list_ready_work` returns visible `pending` work with no unresolved incoming
-blocker and no active retained lease at one database-time snapshot. Future
-gates will extend the same predicate. Its exact order is priority descending,
+blocker, no unresolved human gate, and no active retained lease at one
+database-time snapshot. Its exact order is priority descending,
 creation time ascending, then ID ascending. Filters are deliberately small:
 inclusive minimum priority, exact normalized checkpoint tag, or one direct
 project-local parent. Ready results are bounded minimal pointers, never
@@ -40,10 +45,11 @@ A ready row is not a reservation, lease, instruction, or grant of execution
 authority. Concurrent changes can shift offset pages and invalidate a choice.
 After selecting one item whose execution the user already authorized, call
 `claim_and_recall`. Every fresh acquisition atomically rechecks lifecycle,
-blockers, lease time, and future gates. An identical still-active claim request
-replays its original receipt even if a blocker was added after acquisition;
-this recovers the existing capability and does not make newly blocked work safe
-to continue.
+blockers, lease time, and unresolved human gates. An identical still-active claim
+request replays its original receipt even if a blocker or gate was added after
+acquisition. This recovers the existing capability; it does not make blocked or
+waiting work safe to continue. Inspect the returned question, stop dependent work,
+and release when appropriate.
 
 Pending work has not started or remains incomplete. Active and Dropped are
 derived lease states: Active has a live lease, while Dropped retains an expired
@@ -51,6 +57,19 @@ lease so an unexpectedly terminated session remains visible. Deferred is a
 persisted, intentional human hold and never appears in ready discovery. Do not
 return Deferred work to Pending unless the current human instruction explicitly
 selects it for work.
+## Structural parentage and discovery are independent
+
+Only `parent-child` defines the human structural forest. `A discovered-from B`
+records that A was discovered while working from B-owned context; it never makes B
+A's parent. Mnemonic does not infer either fact from wording, search similarity,
+adjacency, checkpoint prose, or filesystem location. A discovered item with no
+structural parent remains an ungrouped root.
+
+The dashboard collapses structural roots and derives branch counts strictly through
+visible `parent-child` descendants. Discovery labels come only from explicit
+`discovered-from` edges. These human presentation choices never remove full graph
+facts from agent recall or relationship tools.
+
 ## Never infer an edge
 
 Record only a fact the current authorized task or the user established.
@@ -66,6 +85,13 @@ records stay pointer-only: never walk the graph recursively, and never pull a
 counterpart's checkpoint bodies into the current task.
 
 ## Creating edges
+
+When newly discovered work is also structural sub-work of the current durable
+objective, record both facts atomically: `parent parent-child child` and
+`child discovered-from origin`. When the child is the new item, these are an incoming
+`parent-child` initial relationship to the existing parent and an outgoing
+`discovered-from` relationship to the origin with an origin-owned context checkpoint.
+Either edge may legitimately exist without the other; never fabricate the missing fact.
 
 For a new work item whose decomposition or discovery links must succeed with
 it, pass up to ten `initial_relationships` to `create_work`. Each entry's

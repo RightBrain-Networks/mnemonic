@@ -335,6 +335,8 @@ def test_active_and_dropped_filters_derive_pending_lease_state(
         "active_lease": None,
         "unresolved_blocker_count": 0,
         "is_blocked": False,
+        "unresolved_gate_count": 0,
+        "is_gated": False,
         "is_ready": True,
         "display_state": "dropped",
     }

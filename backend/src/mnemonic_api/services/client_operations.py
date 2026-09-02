@@ -31,6 +31,9 @@ from mnemonic_api.schemas import (
     APIModel,
     CheckpointCreate,
     CheckpointRead,
+    HumanGateRead,
+    HumanGateRequestCreate,
+    HumanGateResolutionCreate,
     InitialRelationshipCreate,
     LeaseReleaseCreate,
     ProgressEventCreate,
@@ -63,6 +66,8 @@ type OperationKind = Literal[
     "delete_work",
     "remove_relationship",
     "release_claim",
+    "request_human_input",
+    "resolve_human_input",
 ]
 REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
     "create_work",
@@ -75,6 +80,8 @@ REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
     "delete_work",
     "remove_relationship",
     "release_claim",
+    "request_human_input",
+    "resolve_human_input",
 )
 
 REQUEST_FINGERPRINT_VERSION = 1
@@ -196,6 +203,21 @@ _REGISTRY: dict[OperationKind, OperationSpec] = {
         200,
         "work_item_id",
         mutation_applied_field="released",
+    ),
+    "request_human_input": _spec(
+        "request_human_input",
+        HumanGateRequestCreate,
+        HumanGateRead,
+        201,
+        "work_item_id",
+    ),
+    "resolve_human_input": _spec(
+        "resolve_human_input",
+        HumanGateResolutionCreate,
+        HumanGateRead,
+        200,
+        "work_item_id",
+        "gate_id",
     ),
 }
 OPERATION_REGISTRY: Mapping[OperationKind, OperationSpec] = MappingProxyType(_REGISTRY)
@@ -822,6 +844,63 @@ def _response_matches_operation(
     if spec.kind == "release_claim":
         result = cast(ReleaseResult, typed)
         return str(result.work_item_id) == work_item_id
+    if spec.kind == "request_human_input":
+        result = cast(HumanGateRead, typed)
+        request = cast(HumanGateRequestCreate, payload)
+        revision = result.current_context_revision
+        return (
+            result.project_id == project_id
+            and str(result.work_item_id) == work_item_id
+            and result.gate_type == request.gate_type
+            and result.question == request.question
+            and result.requested_by_client == request.requested_by_client
+            and result.requested_by_session_id == request.requested_by_session_id
+            and result.requested_by_model == request.requested_by_model
+            and result.status == "unresolved"
+            and revision.work_version == result.requested_work_version
+            and revision.context_checkpoint_id
+            == result.requested_context_checkpoint_id
+            and revision.relationship_event_count
+            == result.requested_relationship_event_count
+            and not result.work_changed_since_request
+            and not result.context_checkpoint_changed_since_request
+            and not result.relationships_changed_since_request
+            and not result.context_changed_since_request
+            and result.resolved_at is None
+            and result.resolution is None
+        )
+    if spec.kind == "resolve_human_input":
+        result = cast(HumanGateRead, typed)
+        request = cast(HumanGateResolutionCreate, payload)
+        resolved_revision = result.resolved_context_revision
+        gate_id = target_envelope.get("gate_id")
+        if (
+            result.project_id != project_id
+            or str(result.work_item_id) != work_item_id
+            or str(result.id) != gate_id
+            or result.status != "resolved"
+            or result.resolution != request.resolution
+            or result.resolved_by_client != request.resolved_by_client
+            or result.resolved_by_session_id != request.resolved_by_session_id
+            or result.resolved_by_model != request.resolved_by_model
+            or resolved_revision is None
+            or result.current_context_revision != resolved_revision
+            or result.context_change_acknowledged
+            is not request.acknowledge_context_change
+            or result.context_changed_at_resolution
+            is not request.acknowledge_context_change
+        ):
+            return False
+        if request.acknowledge_context_change:
+            return request.reviewed_context_revision == resolved_revision
+        return (
+            request.reviewed_context_revision is None
+            and resolved_revision.work_version == result.requested_work_version
+            and resolved_revision.context_checkpoint_id
+            == result.requested_context_checkpoint_id
+            and resolved_revision.relationship_event_count
+            == result.requested_relationship_event_count
+        )
     return False
 
 

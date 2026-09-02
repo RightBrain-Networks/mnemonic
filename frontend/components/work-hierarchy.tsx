@@ -26,11 +26,54 @@ type BranchProps = Actions & {
   item: HierarchySummary;
   status: StatusFilter;
   sort: WorkSort;
+  tag: string;
+  sourceClient: string;
+  sourceSessionId: string;
   refreshKey: number;
   viewKey: string;
   depth: number;
   visited: ReadonlySet<string>;
+  overrideFilters: boolean;
 };
+
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+function naturalList(values: string[]): string {
+  if (values.length < 2) return values[0] ?? "current";
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+}
+
+function HierarchyPresentation({ item, depth }: { item: HierarchySummary; depth: number }) {
+  const facts = item.presentation;
+  const discoveryLabel = facts.is_discovered_work
+    ? depth === 0
+      ? "Discovered work · ungrouped"
+      : facts.discovered_from_parent
+        ? "Discovered sub-work"
+        : "Discovered elsewhere · grouped here"
+    : depth > 0
+      ? "Planned child"
+      : null;
+  return <div className="hierarchy-presentation">
+    {discoveryLabel && <span className="hierarchy-origin">{discoveryLabel}</span>}
+    <div
+      className="hierarchy-aggregate-strip"
+      aria-label={`Branch totals: ${plural(facts.direct_child_count, "direct child", "direct children")}; ${plural(facts.descendant_count, "descendant")}; ${plural(facts.blocked_descendant_count, "blocked descendant")}; ${plural(facts.active_descendant_count, "active descendant")}; ${plural(facts.completed_descendant_count, "completed descendant")}; ${plural(facts.discovered_descendant_count, "discovered descendant")}; ${plural(facts.branch_unresolved_human_gate_count, "unresolved human question")}. Operational groups can overlap.`}
+      title="Blocked, active, completed, and discovered populations are independent branch facts and do not sum to all descendants."
+    >
+      <span>{plural(facts.direct_child_count, "child", "children")}</span>
+      <span>{plural(facts.descendant_count, "descendant")}</span>
+      {facts.blocked_descendant_count > 0 && <span>{facts.blocked_descendant_count} blocked</span>}
+      {facts.active_descendant_count > 0 && <span>{facts.active_descendant_count} active</span>}
+      {facts.completed_descendant_count > 0 && <span>{facts.completed_descendant_count} completed</span>}
+      {facts.discovered_descendant_count > 0 && <span>{facts.discovered_descendant_count} discovered</span>}
+      {facts.branch_unresolved_human_gate_count > 0 && <span className="hierarchy-attention-count">{plural(facts.branch_unresolved_human_gate_count, "question")} need attention</span>}
+    </div>
+  </div>;
+}
 
 function GuardedBranch({
   item,
@@ -69,12 +112,22 @@ function HierarchyBranch(props: BranchProps) {
     message: string;
   } | null>(null);
   const [retry, setRetry] = useState(0);
+  const [showAllDescendants, setShowAllDescendants] = useState(false);
   const guardReason = hierarchyGuardReason(id, visited, depth);
-  const childViewKey = `${props.viewKey}:children:${id}:${status}:${sort}:${offset}`;
+  const allDescendants = props.overrideFilters || showAllDescendants;
+  const activeFilterCategories = [
+    ...(status !== "all" ? ["lifecycle"] : []),
+    ...(props.sourceClient.trim() || props.sourceSessionId.trim() ? ["source"] : []),
+    ...(props.tag.trim() ? ["tag"] : [])
+  ];
+  const childViewKey = `${props.viewKey}:children:${id}:${allDescendants ? "all" : status}:${sort}:${offset}`;
   const page = loadedPage?.viewKey === childViewKey ? loadedPage.value : null;
   const loadError = loadFailure?.viewKey === childViewKey ? loadFailure.message : "";
   const nextChildLeaseExpiry = earliestLeaseExpiry(
-    page?.items.map((child) => child.summary.readiness.active_lease?.expires_at) ?? []
+    page?.items.flatMap((child) => [
+      child.summary.readiness.active_lease?.expires_at,
+      child.presentation.next_active_descendant_lease_expires_at
+    ]) ?? []
   );
   const childMotionRef = useWorkItemMotion<HTMLDivElement>({
     itemIds: page?.items.map((child) => child.summary.work_item.id) ?? [],
@@ -90,10 +143,23 @@ function HierarchyBranch(props: BranchProps) {
   }, [item.has_matching_descendants, item.self_matches_filter]);
 
   useEffect(() => {
-    if (guardReason || !expanded || !item.has_matching_descendants) return;
+    setShowAllDescendants(false);
+    setOffset(0);
+  }, [props.viewKey, status]);
+
+  useEffect(() => {
+    if (guardReason || !expanded || (!item.has_matching_descendants && !allDescendants)) return;
     const controller = new AbortController();
     const requestedViewKey = childViewKey;
-    const params = childSearchParams({ status, sort, limit: CHILD_PAGE_SIZE, offset });
+    const params = childSearchParams({
+      status: allDescendants ? "all" : status,
+      sort,
+      limit: CHILD_PAGE_SIZE,
+      offset,
+      tag: allDescendants ? undefined : props.tag,
+      sourceClient: allDescendants ? undefined : props.sourceClient,
+      sourceSessionId: allDescendants ? undefined : props.sourceSessionId
+    });
     setLoading(true);
     setLoadFailure(null);
     api<Page<HierarchySummary>>(
@@ -114,7 +180,7 @@ function HierarchyBranch(props: BranchProps) {
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [childViewKey, expanded, guardReason, id, item.has_matching_descendants, offset, refreshKey, sort, status, summary.work_item.project_id, retry]);
+  }, [allDescendants, childViewKey, expanded, guardReason, id, item.has_matching_descendants, offset, refreshKey, sort, status, summary.work_item.project_id, retry]);
 
   useEffect(() => {
     if (!nextChildLeaseExpiry) return;
@@ -133,7 +199,7 @@ function HierarchyBranch(props: BranchProps) {
 
   const descendants = new Set(visited);
   descendants.add(id);
-  const canExpand = item.has_matching_descendants;
+  const canExpand = item.presentation.direct_child_count > 0;
 
   return <div
     className={`hierarchy-node ${item.self_matches_filter ? "" : "hierarchy-scaffold"}`}
@@ -151,6 +217,7 @@ function HierarchyBranch(props: BranchProps) {
       ><span aria-hidden="true">›</span></button> : <span className="hierarchy-toggle-spacer" />}
       <div className="hierarchy-card">
         {!item.self_matches_filter && <span className="scaffold-label">Ancestor · does not match this filter</span>}
+        <HierarchyPresentation item={item} depth={depth} />
         <WorkItemCard
           summary={summary}
           copied={props.copiedKey === `${id}:pointer`}
@@ -164,7 +231,14 @@ function HierarchyBranch(props: BranchProps) {
       </div>
     </div>
     {expanded && canExpand && <div ref={childMotionRef} id={regionId} className="hierarchy-children">
-      {!page && !loadError ? <div className="hierarchy-loading" role="status">Loading children…</div> :
+      {!item.has_matching_descendants && !allDescendants ? <div className="hierarchy-hidden-children" role="note">
+        <span>The {naturalList(activeFilterCategories)} filter{activeFilterCategories.length === 1 ? "" : "s"} {activeFilterCategories.length === 1 ? "hides" : "hide"} this branch’s children.</span>
+        <button type="button" className="text-link" onClick={() => {
+          setShowAllDescendants(true);
+          setOffset(0);
+        }}>Show all descendants</button>
+        <small>This branch only: lifecycle, source, and tag predicates will all be cleared.</small>
+      </div> : !page && !loadError ? <div className="hierarchy-loading" role="status">Loading children…</div> :
         loadError && !page ? <div className="hierarchy-error" role="alert">
           <span>{loadError}</span>
           <button type="button" className="text-link" onClick={() => setRetry((value) => value + 1)}>Try again</button>
@@ -180,8 +254,10 @@ function HierarchyBranch(props: BranchProps) {
             item={child}
             depth={depth + 1}
             visited={descendants}
+            overrideFilters={allDescendants}
           />)}
         </>}
+      {showAllDescendants && <p className="hierarchy-filter-override" role="status">Branch override active: showing all descendants with lifecycle, source, and tag filters cleared.</p>}
       {page && page.total > CHILD_PAGE_SIZE && <nav className="child-pagination" aria-label={`Children of ${summary.work_item.title}`}>
         <span>{offset + 1}–{Math.min(offset + page.items.length, page.total)} of {page.total}</span>
         <div>
@@ -205,6 +281,9 @@ export default function WorkHierarchy({
   items: HierarchySummary[];
   status: StatusFilter;
   sort: WorkSort;
+  tag: string;
+  sourceClient: string;
+  sourceSessionId: string;
   refreshKey: number;
   viewKey: string;
   motionRevision: unknown;
@@ -228,6 +307,7 @@ export default function WorkHierarchy({
       viewKey={viewKey}
       depth={0}
       visited={new Set()}
+      overrideFilters={false}
     />)}
   </section>;
 }

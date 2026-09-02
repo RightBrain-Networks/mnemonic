@@ -297,4 +297,4 @@ def test_future_gate_seam_composes_with_ready_list_and_fresh_claim(
         },
     )
     assert claim.status_code == 409
-    assert claim.json()["detail"]["code"] == "work_not_eligible"
+    assert claim.json()["detail"]["code"] == "work_gated"

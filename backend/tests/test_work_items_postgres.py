@@ -56,16 +56,16 @@ def test_successful_mutation_publishes_live_sync_invalidation(api, project, work
             "type": "invalidate",
             "revision": revision + 1,
             "scope": "work-items",
-            "project_id": project["id"],
-            "work_item_id": None,
         }
         api.patch(
             item_path(project, work_item),
             json={"expected_version": 1, "title": "Changed through another client"},
         )
-        changed = websocket.receive_json()
-        assert changed["revision"] == revision + 2
-        assert changed["work_item_id"] == work_item["id"]
+        assert websocket.receive_json() == {
+            "type": "invalidate",
+            "revision": revision + 2,
+            "scope": "work-items",
+        }
         conflict = api.patch(
             item_path(project, work_item),
             json={"expected_version": 1, "title": "Stale overwrite"},
@@ -115,6 +115,8 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
         "active_lease": None,
         "unresolved_blocker_count": 0,
         "is_blocked": False,
+        "unresolved_gate_count": 0,
+        "is_gated": False,
         "is_ready": True,
         "display_state": "pending",
     }

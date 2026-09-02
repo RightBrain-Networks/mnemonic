@@ -13,23 +13,34 @@ const WORK_COMPLETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/complete$
 const WORK_DEFER = new RegExp(`^projects/${UUID}/work-items/${UUID}/defer$`);
 const WORK_DELETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/delete$`);
 const WORK_EVENTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/events$`);
+const HUMAN_ATTENTION = new RegExp(`^projects/${UUID}/human-attention$`);
+const WORK_GATES = new RegExp(`^projects/${UUID}/work-items/${UUID}/gates$`);
+const GATE_CONTEXT = new RegExp(`^projects/${UUID}/work-items/${UUID}/gates/${UUID}/context$`);
+const GATE_RESOLVE = new RegExp(`^projects/${UUID}/work-items/${UUID}/gates/${UUID}/resolve$`);
 const LEASE_CAPABILITY = new RegExp(`^projects/${UUID}/work-items/${UUID}/(?:claim|claim-and-recall|renew-claim|release-claim)$`);
-const EVENT_SECRET_KEYS = new Set([
+const RESERVED_METADATA_KEYS = new Set([
   "lease_token",
   "claim_request_id",
   "client_operation_id",
   "api_key",
   "authorization",
   "cookie",
-  "secret"
+  "secret",
+  "gate_id",
+  "gate_type"
 ]);
 const CLIENT_OPERATION_FIELD = "client_operation_id";
-const CLIENT_OPERATION_HEADERS = new Set([
+const FORBIDDEN_CONTROL_TRANSPORT_NAMES = new Set([
   "client_operation_id",
   "client-operation-id",
   "idempotency-key",
   "x-idempotency-key",
-  "x-client-operation-id"
+  "x-client-operation-id",
+  "gate_id",
+  "gate-id",
+  "human-gate-id",
+  "x-gate-id",
+  "x-human-gate-id"
 ]);
 
 
@@ -53,7 +64,9 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     if (method === "GET") return ["order", "limit", "offset"];
     if (method === "POST") return [];
   }
-  if (WORK_CONTEXT.test(path) && method === "GET") return ["recent_limit", "recent_event_limit"];
+  if (WORK_CONTEXT.test(path) && method === "GET") {
+    return ["recent_limit", "recent_event_limit"];
+  }
   if (WORK_CHILDREN.test(path) && method === "GET") {
     return ["status", "sort", "tag", "source_client", "source_session_id", "limit", "offset"];
   }
@@ -66,6 +79,14 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     if (method === "GET") return ["order", "event_type", "limit", "offset"];
     if (method === "POST") return [];
   }
+  if (HUMAN_ATTENTION.test(path) && method === "GET") {
+    return ["work_item_id", "limit", "cursor"];
+  }
+  if (WORK_GATES.test(path) && method === "GET") return ["status", "limit", "cursor"];
+  if (GATE_CONTEXT.test(path) && method === "GET") {
+    return ["recent_limit", "recent_event_limit"];
+  }
+  if (GATE_RESOLVE.test(path) && method === "POST") return [];
   if (WORK_COMPLETE.test(path) && method === "POST") return [];
   if (WORK_DEFER.test(path) && method === "POST") return [];
   if (WORK_DELETE.test(path) && method === "POST") return [];
@@ -82,7 +103,12 @@ export function forbiddenMutationField(value: unknown): string | null {
   }
   if (!value || typeof value !== "object") return null;
   for (const [key, entry] of Object.entries(value)) {
-    if (key === "lease_token") return key;
+    const normalizedKey = key.toLowerCase();
+    if (
+      normalizedKey === "lease_token"
+      || normalizedKey === "gate_id"
+      || normalizedKey === "gate_type"
+    ) return key;
     const forbidden = forbiddenMutationField(entry);
     if (forbidden) return forbidden;
   }
@@ -149,7 +175,7 @@ function validProgressMetadata(value: unknown): boolean {
     const valid = entries.every(([key, entry]) => (
       validUnicode(key)
       && !key.includes("\0")
-      && !EVENT_SECRET_KEYS.has(key.toLowerCase())
+      && !RESERVED_METADATA_KEYS.has(key.toLowerCase())
       && visit(entry)
     ));
     stack.delete(item);
@@ -176,6 +202,20 @@ function validActor(value: unknown): boolean {
     && (actor.actor_model === undefined
       || actor.actor_model === null
       || boundedText(actor.actor_model, 120));
+}
+
+function validHumanGateRevision(value: unknown): boolean {
+  const revision = jsonObject(value);
+  return Boolean(
+    revision
+    && allowedKeys(revision, [
+      "work_version", "context_checkpoint_id", "relationship_event_count"
+    ])
+    && Object.keys(revision).length === 3
+    && finiteInteger(revision.work_version, 1)
+    && validUuid(revision.context_checkpoint_id)
+    && finiteInteger(revision.relationship_event_count, 0)
+  );
 }
 
 
@@ -251,7 +291,8 @@ function coveredMutation(path: string, method: string): boolean {
     || method === "POST" && WORK_COMPLETE.test(path)
     || method === "POST" && WORK_DEFER.test(path)
     || method === "POST" && WORK_DELETE.test(path)
-    || method === "DELETE" && RELATIONSHIP.test(path);
+    || method === "DELETE" && RELATIONSHIP.test(path)
+    || method === "POST" && GATE_RESOLVE.test(path);
 }
 
 function validClientOperation(body: Record<string, unknown>): boolean {
@@ -279,13 +320,13 @@ function validInitialRelationships(value: unknown): boolean {
   });
 }
 
-export function forbiddenOperationTransport(headers: Headers): string | null {
+export function forbiddenControlTransport(headers: Headers): string | null {
   for (const [key] of headers) {
-    if (CLIENT_OPERATION_HEADERS.has(key.toLowerCase())) return "header";
+    if (FORBIDDEN_CONTROL_TRANSPORT_NAMES.has(key.toLowerCase())) return "header";
   }
   const cookie = headers.get("cookie");
   if (cookie?.split(";").some((entry) => (
-    CLIENT_OPERATION_HEADERS.has(entry.split("=", 1)[0]?.trim().toLowerCase() ?? "")
+    FORBIDDEN_CONTROL_TRANSPORT_NAMES.has(entry.split("=", 1)[0]?.trim().toLowerCase() ?? "")
   ))) return "cookie";
   return null;
 }
@@ -425,6 +466,23 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !finiteInteger(body.expected_version, 1)
       || !validCheckpointPayload(body.checkpoint, false)
     ) return "The work-completion body does not match the dashboard allowlist.";
+  }
+  if (GATE_RESOLVE.test(path) && method === "POST") {
+    const acknowledged = body.acknowledge_context_change === true;
+    if (
+      !allowedKeys(body, [
+        "resolution", "resolved_by_client", "resolved_by_session_id", "resolved_by_model",
+        "acknowledge_context_change", "reviewed_context_revision", CLIENT_OPERATION_FIELD
+      ])
+      || !boundedText(body.resolution, 4_000)
+      || body.resolved_by_client !== "dashboard"
+      || !boundedText(body.resolved_by_session_id, 200)
+      || !(body.resolved_by_model === undefined || body.resolved_by_model === null)
+      || typeof body.acknowledge_context_change !== "boolean"
+      || (acknowledged
+        ? !validHumanGateRevision(body.reviewed_context_revision)
+        : body.reviewed_context_revision !== undefined)
+    ) return "The human-gate resolution body does not match the dashboard allowlist.";
   }
   return null;
 }

@@ -14,6 +14,8 @@ LEASE_TOKEN = "lease-" + "t" * 43
 OTHER_WORK_ID = "17956493-a5bc-49ae-a099-ead952f2dec8"
 OTHER_CHECKPOINT_ID = "0663bc2f-42de-487a-b1d0-d3f8dbffbc0c"
 RELATIONSHIP_ID = "6ba44356-d44d-4515-b502-653642fe723f"
+GATE_ID = "42680ba3-5f32-4f30-a9e5-f1737bc5b574"
+RESOLVED_GATE_ID = "cc84386f-681c-40e4-b51a-54a0ddd2fe6a"
 
 PRIVATE_PROMPT_MARKER = "private-prompt-marker"
 PRIVATE_METADATA_MARKER = "private-metadata-marker"
@@ -157,6 +159,8 @@ def readiness():
         "active_lease": None,
         "unresolved_blocker_count": 0,
         "is_blocked": False,
+        "unresolved_gate_count": 0,
+        "is_gated": False,
         "is_ready": True,
         "display_state": "pending",
     }
@@ -222,6 +226,12 @@ def work_context(work_item, checkpoint, readiness):
         "recent_checkpoints": [],
         "checkpoint_total": 1,
         "omitted_checkpoint_count": 0,
+        "unresolved_gates": [],
+        "unresolved_gate_total": 0,
+        "omitted_unresolved_gate_count": 0,
+        "recent_resolved_gates": [],
+        "resolved_gate_total": 0,
+        "omitted_resolved_gate_count": 0,
         "recent_events": [],
         "event_total": 0,
         "omitted_event_count": 0,
@@ -231,6 +241,59 @@ def work_context(work_item, checkpoint, readiness):
         "outgoing_relationships": [],
         "undirected_relationships": [],
         "relationship_counts": {"incoming": 0, "outgoing": 0, "undirected": 0, "total": 0},
+    }
+
+
+@pytest.fixture
+def human_gate():
+    return {
+        "id": GATE_ID,
+        "project_id": PROJECT_ID,
+        "work_item_id": WORK_ID,
+        "gate_type": "human",
+        "question": "Which rollout policy should this work use?",
+        "requested_by_client": "claude-code",
+        "requested_by_session_id": "phase-7-session",
+        "requested_by_model": "test-model",
+        "requested_work_version": 3,
+        "requested_context_checkpoint_id": CHECKPOINT_ID,
+        "requested_relationship_event_count": 0,
+        "created_at": NOW,
+        "status": "unresolved",
+        "current_context_revision": {
+            "work_version": 3,
+            "context_checkpoint_id": CHECKPOINT_ID,
+            "relationship_event_count": 0,
+        },
+        "work_changed_since_request": False,
+        "context_checkpoint_changed_since_request": False,
+        "relationships_changed_since_request": False,
+        "context_changed_since_request": False,
+        "resolved_at": None,
+        "resolution": None,
+        "resolved_by_client": None,
+        "resolved_by_session_id": None,
+        "resolved_by_model": None,
+        "resolved_context_revision": None,
+        "context_changed_at_resolution": None,
+        "context_change_acknowledged": None,
+    }
+
+
+@pytest.fixture
+def resolved_human_gate(human_gate):
+    return {
+        **human_gate,
+        "id": RESOLVED_GATE_ID,
+        "status": "resolved",
+        "resolved_at": NOW,
+        "resolution": "Use the staged rollout policy.",
+        "resolved_by_client": "dashboard",
+        "resolved_by_session_id": "dashboard-session",
+        "resolved_by_model": None,
+        "resolved_context_revision": human_gate["current_context_revision"],
+        "context_changed_at_resolution": False,
+        "context_change_acknowledged": False,
     }
 
 

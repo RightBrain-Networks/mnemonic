@@ -1,0 +1,71 @@
+import json
+import re
+from pathlib import Path
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+PLUGIN_ROOT = REPOSITORY_ROOT / "plugin"
+SKILL_FILES = {
+    "mnemonic-save": PLUGIN_ROOT / "skills" / "mnemonic-save" / "SKILL.md",
+    "mnemonic-search": PLUGIN_ROOT / "skills" / "mnemonic-search" / "SKILL.md",
+    "mnemonic-recall": PLUGIN_ROOT / "skills" / "mnemonic-recall" / "SKILL.md",
+}
+REFERENCE_FILES = {
+    "authority-and-provenance.md",
+    "work-graph.md",
+}
+
+
+def test_plugin_050_manifest_and_inventory_are_exact():
+    inner = json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text())
+    marketplace = json.loads(
+        (REPOSITORY_ROOT / ".claude-plugin" / "marketplace.json").read_text()
+    )
+
+    assert inner["name"] == "mnemonic"
+    assert inner["version"] == "0.5.0"
+    assert "human questions" in inner["description"]
+    assert marketplace["plugins"] == [
+        {
+            "name": "mnemonic",
+            "source": "./plugin",
+            "description": inner["description"],
+        }
+    ]
+    assert {path.parent.name for path in (PLUGIN_ROOT / "skills").glob("*/SKILL.md")} == (
+        set(SKILL_FILES)
+    )
+    assert {path.name for path in (PLUGIN_ROOT / "reference").glob("*.md")} == (
+        REFERENCE_FILES
+    )
+
+
+def test_every_skill_agrees_on_gate_authority_and_dual_graph_facts():
+    for name, path in SKILL_FILES.items():
+        content = path.read_text()
+        lowered = content.lower()
+        assert "request_human_input" in content, name
+        assert "parent-child" in content, name
+        assert "discovered-from" in content, name
+        assert "never infer" in lowered, name
+        assert "dashboard" in lowered, name
+        assert "execution authority" in lowered or "automatic execution" in lowered, name
+        assert "resolve_human_input" not in content, name
+
+        for relative in re.findall(
+            r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\)]+)", content
+        ):
+            assert (PLUGIN_ROOT / relative).is_file(), (name, relative)
+
+
+def test_shared_references_freeze_ten_writes_and_no_agent_resolution():
+    authority = (PLUGIN_ROOT / "reference" / "authority-and-provenance.md").read_text()
+    graph = (PLUGIN_ROOT / "reference" / "work-graph.md").read_text()
+
+    assert "These ten canonical mutations" in authority
+    assert "No canonical MCP tool resolves a gate" in authority
+    assert "request_human_input" in authority
+    assert "list_work_gates" in authority
+    assert "resolve_human_input" not in authority
+    assert "unresolved human gate" in graph
+    assert "Only `parent-child` defines" in graph
+    assert "record both facts atomically" in graph

@@ -23,6 +23,8 @@ export const WORK_EVENT_TYPES = [
   "dependency_removed",
   "relationship_added",
   "relationship_removed",
+  "human_attention_requested",
+  "human_attention_resolved",
   "work_completed",
   "work_deleted"
 ] as const satisfies readonly WorkEventType[];
@@ -57,6 +59,8 @@ const REQUIRED_LIVE_ACTOR_TYPES = new Set<WorkEventType>([
   "progress",
   "dependency_added",
   "relationship_added",
+  "human_attention_requested",
+  "human_attention_resolved",
   "work_completed"
 ]);
 const EVENT_FIELDS = new Set([
@@ -324,6 +328,15 @@ function validMetadata(eventType: WorkEventType, origin: "live" | "backfill", va
       ? metadata.relationship_type === "blocks"
       : metadata.relationship_type !== "blocks";
   }
+  if (
+    eventType === "human_attention_requested"
+    || eventType === "human_attention_resolved"
+  ) {
+    return origin === "live"
+      && exactKeys(metadata, ["gate_id", "gate_type"])
+      && validUuid(metadata.gate_id)
+      && metadata.gate_type === "human";
+  }
   if (eventType === "work_completed") {
     return origin === "backfill"
       ? exactKeys(metadata, [])
@@ -349,7 +362,11 @@ function validReferences(event: JsonObject): boolean {
   const contextPairMatches = (event.relationship_context_checkpoint_work_item_id === null)
     === (event.relationship_context_checkpoint_id === null);
   if (!contextPairMatches) return false;
-  if (eventType === "progress") {
+  if (
+    eventType === "progress"
+    || eventType === "human_attention_requested"
+    || eventType === "human_attention_resolved"
+  ) {
     if (!boundedText(event.body, 4000)) return false;
   } else if (event.body !== null) {
     return false;
@@ -626,6 +643,8 @@ export function workEventTitle(eventType: WorkEventType): string {
     dependency_removed: "Removed dependency",
     relationship_added: "Added relationship",
     relationship_removed: "Removed relationship",
+    human_attention_requested: "Requested human attention",
+    human_attention_resolved: "Resolved human attention",
     work_completed: "Completed work",
     work_deleted: "Deleted work"
   }[eventType];
@@ -711,6 +730,10 @@ export function workEventDescription(event: WorkEventRead, counterpartTitle?: st
     case "relationship_added":
     case "relationship_removed":
       return relationshipEventDescription(event, counterpartTitle);
+    case "human_attention_requested":
+      return "Requested an explicit human decision. The question remains paired with its durable gate record.";
+    case "human_attention_resolved":
+      return "Recorded a human-facing answer. The answer does not execute or authorize another action.";
     case "work_completed":
       return "Completed work with an immutable completion checkpoint.";
     case "work_deleted":
@@ -725,5 +748,7 @@ export function workEventActorLabel(event: WorkEventRead): string {
 }
 
 export function safeEventBody(event: WorkEventRead): string | null {
-  return event.event_type === "progress" ? event.body : null;
+  return [
+    "progress", "human_attention_requested", "human_attention_resolved"
+  ].includes(event.event_type) ? event.body : null;
 }

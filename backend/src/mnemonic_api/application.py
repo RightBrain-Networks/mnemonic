@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine, build_session_factory, get_session
-from mnemonic_api.errors import ApplicationError, conflict
+from mnemonic_api.errors import ApplicationError, conflict, human_gates_not_enabled
 from mnemonic_api.live_sync import LiveSyncHub, mutation_event
 from mnemonic_api.models import Checkpoint, Project, ProjectSettings, WorkItem, WorkLease
 from mnemonic_api.schemas import (
@@ -41,6 +41,13 @@ from mnemonic_api.schemas import (
     ClaimAndRecall,
     ClaimReceipt,
     HierarchySummary,
+    HumanAttentionListQuery,
+    HumanAttentionPage,
+    HumanGateListQuery,
+    HumanGatePage,
+    HumanGateRead,
+    HumanGateRequestCreate,
+    HumanGateResolutionCreate,
     LeaseReleaseCreate,
     LeaseTokenCreate,
     Page,
@@ -88,6 +95,14 @@ from mnemonic_api.services.client_operations import (
     complete_client_operation,
     prepare_client_operation,
     reserve_client_operation,
+)
+from mnemonic_api.services.gates import (
+    list_human_attention,
+    list_work_gates,
+    reject_gate_secret_echo,
+    reject_retained_gate_control_echo,
+    request_human_gate,
+    resolve_human_gate,
 )
 from mnemonic_api.services.leases import (
     claim_lease_record,
@@ -155,7 +170,16 @@ _PUBLIC_VALIDATION_LOCATION_SEGMENTS = frozenset(
     target_work_item_id other_work_item_id context_checkpoint_id created_by_client
     created_by_session_id created_by_model holder_client holder_session_id
     claim_request_id client_operation_id lease_token actor actor_client actor_session_id
-    actor_model metadata
+    actor_model metadata gate_id gate_type question resolution
+    requested_by_client requested_by_session_id requested_by_model
+    resolved_by_client resolved_by_session_id resolved_by_model
+    acknowledge_context_change reviewed_context_revision current_context_revision
+    requested_work_version requested_context_checkpoint_id
+    requested_relationship_event_count resolved_context_revision
+    resolved_work_version resolved_context_checkpoint_id
+    resolved_relationship_event_count relationship_event_count work_version cursor
+    focus_gate_id
+    work_item_id
     recall_pointer_template
     """.split()
 )
@@ -905,6 +929,138 @@ def list_checkpoints(
 
 
 @router.get(
+    "/projects/{project_id}/human-attention",
+    response_model=HumanAttentionPage,
+)
+def get_human_attention(
+    project_id: UUID,
+    filters: Annotated[HumanAttentionListQuery, Query()],
+    database: Database,
+) -> HumanAttentionPage:
+    return list_human_attention(database, project_id, filters)
+
+
+@router.get(
+    "/projects/{project_id}/work-items/{work_item_id}/gates",
+    response_model=HumanGatePage,
+)
+def get_work_gates(
+    project_id: UUID,
+    work_item_id: UUID,
+    filters: Annotated[HumanGateListQuery, Query()],
+    database: Database,
+) -> HumanGatePage:
+    return list_work_gates(database, project_id, work_item_id, filters)
+
+
+@router.post(
+    "/projects/{project_id}/work-items/{work_item_id}/gates",
+    response_model=HumanGateRead,
+    status_code=201,
+)
+def create_human_gate(
+    project_id: UUID,
+    work_item_id: UUID,
+    payload: HumanGateRequestCreate,
+    request: Request,
+    database: Database,
+) -> JSONResponse:
+    reject_gate_secret_echo(
+        payload,
+        known_secret_values=(request.app.state.settings.api_key.get_secret_value(),),
+    )
+    operation = _reserve_registered_operation(
+        "request_human_input",
+        project_id,
+        {"work_item_id": work_item_id},
+        payload,
+        request,
+        database,
+    )
+    if isinstance(operation, ReplayedOperation):
+        database.commit()
+        _record_successful_operation(request, operation)
+        return operation.response
+    try:
+        reject_retained_gate_control_echo(database, operation.domain_payload)
+    except ApplicationError:
+        database.rollback()
+        raise
+    if not request.app.state.settings.human_gate_requests_enabled:
+        database.rollback()
+        raise human_gates_not_enabled()
+    result = request_human_gate(
+        database,
+        project_id,
+        work_item_id,
+        operation.domain_payload,
+    )
+    completed = complete_client_operation(
+        database,
+        operation,
+        result,
+        mutation_applied=True,
+    )
+    database.commit()
+    _record_successful_operation(request, completed)
+    return completed.response
+
+
+@router.post(
+    "/projects/{project_id}/work-items/{work_item_id}/gates/{gate_id}/resolve",
+    response_model=HumanGateRead,
+)
+def resolve_human_gate_route(
+    project_id: UUID,
+    work_item_id: UUID,
+    gate_id: UUID,
+    payload: HumanGateResolutionCreate,
+    request: Request,
+    database: Database,
+) -> JSONResponse:
+    reject_gate_secret_echo(
+        payload,
+        known_secret_values=(
+            request.app.state.settings.api_key.get_secret_value(),
+            str(gate_id),
+        ),
+    )
+    operation = _reserve_registered_operation(
+        "resolve_human_input",
+        project_id,
+        {"work_item_id": work_item_id, "gate_id": gate_id},
+        payload,
+        request,
+        database,
+    )
+    if isinstance(operation, ReplayedOperation):
+        database.commit()
+        _record_successful_operation(request, operation)
+        return operation.response
+    try:
+        reject_retained_gate_control_echo(database, operation.domain_payload)
+    except ApplicationError:
+        database.rollback()
+        raise
+    result = resolve_human_gate(
+        database,
+        project_id,
+        work_item_id,
+        gate_id,
+        operation.domain_payload,
+    )
+    completed = complete_client_operation(
+        database,
+        operation,
+        result,
+        mutation_applied=True,
+    )
+    database.commit()
+    _record_successful_operation(request, completed)
+    return completed.response
+
+
+@router.get(
     "/projects/{project_id}/work-items/{work_item_id}/events",
     response_model=WorkEventPage,
 )
@@ -985,7 +1141,7 @@ def add_checkpoint(
         database,
         project_id,
         work_item_id,
-        lock=domain_payload.lease_token is not None,
+        lock=True,
     )
     checkpoint = append_checkpoint_record(database, work_item, domain_payload)
     database.refresh(checkpoint)
@@ -1013,6 +1169,27 @@ def recall_work(
         work_item_id,
         filters.recent_limit,
         filters.recent_event_limit,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/work-items/{work_item_id}/gates/{gate_id}/context",
+    response_model=WorkContext,
+)
+def review_human_gate_context(
+    project_id: UUID,
+    work_item_id: UUID,
+    gate_id: UUID,
+    filters: Annotated[WorkContextQuery, Query()],
+    database: Database,
+) -> WorkContext:
+    return assemble_work_context(
+        database,
+        project_id,
+        work_item_id,
+        filters.recent_limit,
+        filters.recent_event_limit,
+        focus_gate_id=gate_id,
     )
 
 

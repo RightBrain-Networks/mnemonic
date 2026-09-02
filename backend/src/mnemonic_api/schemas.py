@@ -179,6 +179,16 @@ def event_metadata_is_safe(value: dict[str, JsonValue]) -> dict[str, JsonValue]:
 
 
 EventMetadata = Annotated[dict[str, JsonValue], AfterValidator(event_metadata_is_safe)]
+GateText = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=4000),
+    AfterValidator(nonblank),
+]
+GateCursor = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=4096),
+    AfterValidator(nonblank),
+]
 CLIENT_OPERATION_ID_DESCRIPTION = (
     "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with "
     "the exact same operation and semantic arguments after an unknown outcome."
@@ -188,8 +198,9 @@ CLIENT_OPERATION_ID_DESCRIPTION = (
 def progress_request_metadata_is_safe(
     value: dict[str, JsonValue],
 ) -> dict[str, JsonValue]:
-    """Apply the Phase 6 request-only reserved-key rule without changing event history."""
+    """Apply request-only reserved-key rules without changing readable event history."""
     event_metadata_is_safe(value)
+    reserved_keys = {"client_operation_id", "gate_id", "gate_type"}
 
     def validate(item: JsonValue) -> None:
         if isinstance(item, list):
@@ -197,8 +208,8 @@ def progress_request_metadata_is_safe(
                 validate(child)
         elif isinstance(item, dict):
             for key, child in item.items():
-                if key.casefold() == "client_operation_id":
-                    raise ValueError("Progress metadata contains a reserved client operation key")
+                if key.casefold() in reserved_keys:
+                    raise ValueError("Progress metadata contains a reserved control key")
                 validate(child)
 
     validate(value)
@@ -232,6 +243,8 @@ EventType = Literal[
     "relationship_removed",
     "work_completed",
     "work_deleted",
+    "human_attention_requested",
+    "human_attention_resolved",
 ]
 ProjectName = Annotated[
     str,
@@ -509,6 +522,142 @@ class RelationshipRemovalCreate(APIModel):
         return self
 
 
+class HumanGateRequestCreate(APIModel):
+    gate_type: Literal["human"] = "human"
+    question: GateText
+    requested_by_client: ClientName
+    requested_by_session_id: SessionID
+    requested_by_model: ModelName | None = None
+    client_operation_id: UUID | None = Field(
+        default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
+    )
+
+
+class HumanGateContextRevision(APIModel):
+    work_version: Annotated[StrictInt, Field(ge=1)]
+    context_checkpoint_id: UUID
+    relationship_event_count: Annotated[StrictInt, Field(ge=0)]
+
+
+class HumanGateResolutionCreate(APIModel):
+    resolution: GateText
+    resolved_by_client: ClientName
+    resolved_by_session_id: SessionID
+    resolved_by_model: ModelName | None = None
+    acknowledge_context_change: bool = False
+    reviewed_context_revision: HumanGateContextRevision | None = None
+    client_operation_id: UUID | None = Field(
+        default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
+    )
+
+    @model_validator(mode="after")
+    def reviewed_revision_requires_acknowledgement(self) -> Self:
+        if not self.acknowledge_context_change and self.reviewed_context_revision is not None:
+            raise ValueError(
+                "reviewed_context_revision requires acknowledge_context_change=true"
+            )
+        return self
+
+
+class HumanGateRead(APIModel):
+    id: UUID
+    project_id: UUID
+    work_item_id: UUID
+    gate_type: Literal["human"]
+    question: str
+    requested_by_client: str
+    requested_by_session_id: str
+    requested_by_model: str | None
+    requested_work_version: Annotated[StrictInt, Field(ge=1)]
+    requested_context_checkpoint_id: UUID
+    requested_relationship_event_count: Annotated[StrictInt, Field(ge=0)]
+    created_at: datetime
+    status: Literal["unresolved", "resolved"]
+    current_context_revision: HumanGateContextRevision
+    work_changed_since_request: bool
+    context_checkpoint_changed_since_request: bool
+    relationships_changed_since_request: bool
+    context_changed_since_request: bool
+    resolved_at: datetime | None
+    resolution: str | None
+    resolved_by_client: str | None
+    resolved_by_session_id: str | None
+    resolved_by_model: str | None
+    resolved_context_revision: HumanGateContextRevision | None
+    context_changed_at_resolution: bool | None
+    context_change_acknowledged: bool | None
+
+    @model_validator(mode="after")
+    def enforce_gate_contract(self) -> Self:
+        if self.created_at.tzinfo is None:
+            raise ValueError("Gate timestamps must include a UTC offset")
+        current = self.current_context_revision
+        current_drift = (
+            current.work_version != self.requested_work_version,
+            current.context_checkpoint_id != self.requested_context_checkpoint_id,
+            current.relationship_event_count != self.requested_relationship_event_count,
+        )
+        if (
+            self.work_changed_since_request,
+            self.context_checkpoint_changed_since_request,
+            self.relationships_changed_since_request,
+        ) != current_drift or self.context_changed_since_request != any(current_drift):
+            raise ValueError("Gate current revision and drift fields are inconsistent")
+
+        required_resolution_values = (
+            self.resolved_at,
+            self.resolution,
+            self.resolved_by_client,
+            self.resolved_by_session_id,
+            self.resolved_context_revision,
+            self.context_changed_at_resolution,
+            self.context_change_acknowledged,
+        )
+        if self.status == "unresolved":
+            if any(
+                value is not None
+                for value in (*required_resolution_values, self.resolved_by_model)
+            ):
+                raise ValueError("Unresolved gates cannot contain resolution fields")
+            return self
+        if any(value is None for value in required_resolution_values):
+            raise ValueError("Resolved gates require complete resolution fields")
+        assert self.resolved_at is not None
+        assert self.resolution is not None
+        assert self.resolved_by_client is not None
+        assert self.resolved_by_session_id is not None
+        assert self.resolved_context_revision is not None
+        assert self.context_changed_at_resolution is not None
+        assert self.context_change_acknowledged is not None
+        if self.resolved_at.tzinfo is None or self.resolved_at < self.created_at:
+            raise ValueError("Gate resolution timestamps must be ordered UTC values")
+        if (
+            not self.resolution.strip()
+            or not self.resolved_by_client.strip()
+            or not self.resolved_by_session_id.strip()
+        ):
+            raise ValueError("Gate resolution provenance must be nonblank")
+        resolved_drift = (
+            self.resolved_context_revision.work_version != self.requested_work_version
+            or self.resolved_context_revision.context_checkpoint_id
+            != self.requested_context_checkpoint_id
+            or self.resolved_context_revision.relationship_event_count
+            != self.requested_relationship_event_count
+        )
+        if (
+            self.context_changed_at_resolution != resolved_drift
+            or self.context_change_acknowledged != resolved_drift
+        ):
+            raise ValueError("Gate resolved revision and acknowledgement are inconsistent")
+        return self
+
+    @field_serializer("created_at", "resolved_at")
+    def utc_gate_time(self, value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 class WorkItemRead(Timestamps):
     id: UUID
     project_id: UUID
@@ -587,9 +736,19 @@ class Readiness(APIModel):
     active_lease: LeasePublic | None = None
     unresolved_blocker_count: int = 0
     is_blocked: bool = False
+    unresolved_gate_count: int = 0
+    is_gated: bool = False
     is_ready: bool
     display_state: Literal[
-        "pending", "active", "dropped", "blocked", "deferred", "done", "wont-do", "promoted"
+        "pending",
+        "active",
+        "dropped",
+        "blocked",
+        "waiting",
+        "deferred",
+        "done",
+        "wont-do",
+        "promoted",
     ]
 
 
@@ -661,7 +820,15 @@ class WorkSummaryMinimal(APIModel):
     work_item: WorkItemPointer
     checkpoint_count: int
     display_state: Literal[
-        "pending", "active", "dropped", "blocked", "deferred", "done", "wont-do", "promoted"
+        "pending",
+        "active",
+        "dropped",
+        "blocked",
+        "waiting",
+        "deferred",
+        "done",
+        "wont-do",
+        "promoted",
     ] = Field(
         description="readiness.display_state; request view=full for the whole readiness object."
     )
@@ -683,10 +850,49 @@ class WorkSummary(APIModel):
     readiness: Readiness
 
 
+class HumanAttentionItem(APIModel):
+    gate: HumanGateRead
+    summary: WorkSummary
+
+
+class HumanAttentionPage(APIModel):
+    items: list[HumanAttentionItem]
+    total: int
+    limit: int
+    next_cursor: str | None
+
+
+class HumanGatePage(APIModel):
+    items: list[HumanGateRead]
+    total: int
+    limit: int
+    next_cursor: str | None
+
+
+class HierarchyPresentation(APIModel):
+    direct_child_count: int
+    descendant_count: int
+    blocked_descendant_count: int
+    active_descendant_count: int
+    completed_descendant_count: int
+    discovered_descendant_count: int
+    branch_unresolved_human_gate_count: int
+    is_discovered_work: bool
+    discovered_from_parent: bool
+    next_active_descendant_lease_expires_at: datetime | None
+
+    @field_serializer("next_active_descendant_lease_expires_at")
+    def utc_expiry(self, value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 class HierarchySummary(APIModel):
     summary: WorkSummary
     self_matches_filter: bool
     has_matching_descendants: bool
+    presentation: HierarchyPresentation
 
 
 class WorkCreation(APIModel):
@@ -822,6 +1028,11 @@ class RelationshipEventMetadata(APIModel):
     relationship_type: RelationshipType
 
 
+class HumanGateEventMetadata(APIModel):
+    gate_id: UUID
+    gate_type: Literal["human"]
+
+
 class WorkCompletedLiveMetadata(APIModel):
     from_status: Literal["open", "pending"]
     to_status: Literal["done"]
@@ -848,6 +1059,7 @@ WorkEventMetadata = (
     | WorkReleasedUnattributedMetadata
     | CheckpointAddedMetadata
     | RelationshipEventMetadata
+    | HumanGateEventMetadata
     | WorkCompletedLiveMetadata
     | WorkDeletedMetadata
     | ProgressEventMetadata
@@ -909,6 +1121,8 @@ class WorkEventRead(APIModel):
             "dependency_added",
             "relationship_added",
             "work_completed",
+            "human_attention_requested",
+            "human_attention_resolved",
         }
         if (
             self.origin == "live"
@@ -935,11 +1149,12 @@ class WorkEventRead(APIModel):
         ):
             raise ValueError("Backfilled deletion events must be unattributed")
 
-        if self.event_type == "progress":
+        gate_events = {"human_attention_requested", "human_attention_resolved"}
+        if self.event_type in {"progress", *gate_events}:
             if self.origin != "live" or self.body is None:
-                raise ValueError("Progress events require a live body")
+                raise ValueError("Text events require a live body")
             if not 1 <= len(self.body) <= 4000 or not self.body.strip() or "\x00" in self.body:
-                raise ValueError("Progress event bodies must be bounded nonblank text")
+                raise ValueError("Text event bodies must be bounded nonblank text")
         elif self.body is not None:
             raise ValueError("Server-reserved event types cannot contain a body")
 
@@ -1054,6 +1269,8 @@ class WorkEventRead(APIModel):
             parsed = CheckpointAddedMetadata.model_validate(payload)
         elif self.event_type == "progress":
             parsed = ProgressEventMetadata.model_validate(payload)
+        elif self.event_type in gate_events:
+            parsed = HumanGateEventMetadata.model_validate(payload)
         elif self.event_type in relationship_events:
             parsed = RelationshipEventMetadata.model_validate(payload)
             is_dependency = self.event_type.startswith("dependency_")
@@ -1134,6 +1351,12 @@ class WorkContext(APIModel):
         )
     )
     readiness: Readiness
+    unresolved_gates: list[HumanGateRead] = Field(default_factory=list)
+    unresolved_gate_total: int = 0
+    omitted_unresolved_gate_count: int = 0
+    recent_resolved_gates: list[HumanGateRead] = Field(default_factory=list)
+    resolved_gate_total: int = 0
+    omitted_resolved_gate_count: int = 0
     incoming_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
     outgoing_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
     undirected_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
@@ -1257,3 +1480,21 @@ class WorkEventListQuery(APIModel):
 class WorkContextQuery(APIModel):
     recent_limit: int = Field(default=5, ge=0, le=20)
     recent_event_limit: int = Field(default=10, ge=0, le=20)
+
+
+class HumanAttentionListQuery(APIModel):
+    work_item_id: UUID | None = None
+    limit: int = Field(default=30, ge=0, le=100)
+    cursor: GateCursor | None = None
+
+    @model_validator(mode="after")
+    def count_mode_has_no_cursor(self) -> Self:
+        if self.limit == 0 and self.cursor is not None:
+            raise ValueError("limit=0 does not accept a cursor")
+        return self
+
+
+class HumanGateListQuery(APIModel):
+    status: Literal["all", "unresolved", "resolved"] = "all"
+    limit: int = Field(default=30, ge=1, le=100)
+    cursor: GateCursor | None = None

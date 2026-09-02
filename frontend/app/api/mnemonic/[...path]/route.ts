@@ -3,7 +3,7 @@ import {
   clientOperationMatchesSecret,
   configuredOrigins,
   forbiddenMutationField,
-  forbiddenOperationTransport,
+  forbiddenControlTransport,
   invalidMutationBody,
   trustedRequest,
   upstreamTimeoutMs
@@ -73,8 +73,8 @@ async function proxy(request: Request, context: Context): Promise<Response> {
   try { origins = configuredOrigins(process.env.MNEMONIC_DASHBOARD_ORIGINS); }
   catch { return fail(503, "Dashboard origins are not configured correctly."); }
   if (!trustedRequest(request.headers, request.method, origins)) return fail(403, "This dashboard request is not from a trusted origin.");
-  if (forbiddenOperationTransport(request.headers)) {
-    return fail(400, "Client operation IDs are accepted only in supported JSON request bodies.");
+  if (forbiddenControlTransport(request.headers)) {
+    return fail(400, "Gate and operation control IDs are not accepted in headers or cookies.");
   }
 
   const { path } = await context.params;

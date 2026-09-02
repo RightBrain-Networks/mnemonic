@@ -60,6 +60,9 @@ CANONICAL_TOOL_NAMES = {
     "update_work",
     "complete_work",
     "delete_work",
+    "request_human_input",
+    "list_human_attention",
+    "list_work_gates",
 }
 PROTECTED_TOOL_NAMES = {
     "create_work",
@@ -71,6 +74,7 @@ PROTECTED_TOOL_NAMES = {
     "delete_work",
     "remove_relationship",
     "release_claim",
+    "request_human_input",
 }
 UNPROTECTED_MUTATION_TOOL_NAMES = {
     "create_project",
@@ -92,7 +96,7 @@ DESTRUCTIVE_TOOL_NAMES = {
 def assert_serialized_tool_contract(tools: list[dict[str, object]]) -> None:
     """Assert the exact schema and annotation contract after transport serialization."""
     by_name = {tool["name"]: tool for tool in tools}
-    assert len(PROTECTED_TOOL_NAMES) == 9
+    assert len(PROTECTED_TOOL_NAMES) == 10
     assert set(by_name) == CANONICAL_TOOL_NAMES
 
     annotation_fields = {
@@ -157,7 +161,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
         listed_tools = listed.json()["result"]["tools"]
-        assert len(listed_tools) == 22
+        assert len(listed_tools) == 25
         assert_serialized_tool_contract(listed_tools)
         assert all(
             tool["inputSchema"].get("additionalProperties") is False
@@ -419,7 +423,7 @@ async def test_stdio_transport_handshake_and_catalog():
             initialized = await session.initialize()
             assert initialized.serverInfo.name == "Mnemonic"
             result = await session.list_tools()
-            assert len(result.tools) == 22
+            assert len(result.tools) == 25
             assert all(tool.outputSchema is not None for tool in result.tools)
             assert all(
                 tool.inputSchema.get("additionalProperties") is False

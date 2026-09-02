@@ -418,9 +418,7 @@ test("activity pagination, refresh recovery, replay, and proxy denials stay cohe
     sendSync!(JSON.stringify({
       type: "invalidate",
       revision: 1,
-      scope: "work-items",
-      project_id: state.projectId,
-      work_item_id: workId
+      scope: "work-items"
     }));
     await expect(activity.locator("article.work-event").filter({ hasText: liveResetBody })).toHaveCount(1);
     await expect(activity.locator(".event-pagination")).toContainText("1–20 of 27");
@@ -449,9 +447,7 @@ test("activity pagination, refresh recovery, replay, and proxy denials stay cohe
     sendSync!(JSON.stringify({
       type: "invalidate",
       revision: 2,
-      scope: "work-items",
-      project_id: state.projectId,
-      work_item_id: workId
+      scope: "work-items"
     }));
     await expect(activity.getByRole("alert")).toContainText("Forced event refresh failure.");
     await expect(activity.locator(".event-list")).toHaveCount(0);

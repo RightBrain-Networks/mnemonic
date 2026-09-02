@@ -86,3 +86,45 @@ def client_operation_secret_echo() -> ApplicationError:
         "client_operation_secret_echo",
         "Client operation or capability data cannot appear in public content fields.",
     )
+
+
+
+def gate_not_found() -> ApplicationError:
+    return not_found("gate_not_found", "Human gate not found in this work item.")
+
+
+def work_gated() -> ApplicationError:
+    return conflict(
+        "work_gated",
+        "This work item has unresolved human input. Review and resolve every gate first.",
+    )
+
+
+def gate_already_resolved() -> ApplicationError:
+    return conflict(
+        "gate_already_resolved",
+        "This human gate is already resolved and cannot be overwritten.",
+    )
+
+
+def gate_context_changed() -> ApplicationError:
+    return conflict(
+        "gate_context_changed",
+        "The work context changed. Reload and review the current revision before resolving.",
+    )
+
+
+def gate_secret_echo() -> ApplicationError:
+    return ApplicationError(
+        422,
+        "gate_secret_echo",
+        "Credential or control data cannot appear in durable human-gate fields.",
+    )
+
+
+def human_gates_not_enabled() -> ApplicationError:
+    return ApplicationError(
+        503,
+        "human_gates_not_enabled",
+        "New human-gate requests are not enabled for this deployment.",
+    )

@@ -26,7 +26,7 @@ Upon discovering something worth remembering, your agent will first search `mnem
 
 The human (you, presumably) then click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh Claude Code session. Claude will then retrieve the work item and validate the stated premises. If the facts check-out, it requests a "work lease" of 15 minutes and then gets to work. The lease is periodically renewed until the task is complete and the work item is marked as "done".
 
-The "human-required" copy-and-paste step is deliberate. It allows you to balance your weekly Claude quota or API usage between your normal development work and working through the `mnemonic` backlog.
+The "human-required" copy-and-paste step is deliberate. It allows you to balance your weekly Claude quota or API usage between your normal development work and working through the `mnemonic` backlog. When an agent reaches a concrete decision only a person can make, it can open a durable human gate. The work moves to **Needs Attention**, leaves ready discovery, and returns only after a person records an answer in the dashboard.
 
 ## Run it
 
@@ -49,6 +49,8 @@ Open `mnemonic`. Create your first project using the project selector, then conn
 | MCP Streamable HTTP    | `MNEMONIC_MCP_PORT` | `http://127.0.0.1:8001/mcp`                       |
 
 Those addresses are defaults, not fixed values. Each port is set in `.env`, so change one there if it collides with something already running on the host, and substitute your own value wherever this README shows a port. With `uv` installed, `uv run --project mcp python scripts/check-stack.py` resolves all three from `.env` and performs the read-only live-stack checks. See [`docs/development.md`](docs/development.md) before opting into its write path.
+
+New human-gate requests are disabled by default through `MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED=false`. Keep that fence closed while upgrading an existing stack; attention/history reads and direct REST/dashboard resolution of existing gates remain available. Follow the coordinated cutover in [`docs/operations.md`](docs/operations.md) before setting it to `true` and recreating the API container.
 
 The four application services run alongside a small backup container. PostgreSQL has no published port. Dashboard, REST, and MCP ports bind to loopback only. For LAN access through your existing nginx TLS proxy, use the
 [nginx configuration and setup guide](deploy/nginx/README.md).
@@ -89,19 +91,21 @@ Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemon
 reachable remotely.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current plugin is version `0.4.0`. It provides:
+not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current plugin is version `0.5.0`. It provides:
 
 - **`mnemonic-save`** searches for existing work, creates a durable objective
-  with its initial checkpoint and explicit atomic links, or appends corrective
-  resume context to an existing one; concise historical progress uses an event.
+  with its initial checkpoint and explicit atomic links, appends corrective
+  resume context, records concise progress events, and requests a human gate
+  only for a concrete decision a person must make.
 - **`mnemonic-search`** finds compact work-item leads within the chosen project,
-  normally restricted to pending work, and separately lists priority-ordered ready
-  candidates without treating search as a queue.
+  normally restricted to pending work, separately lists priority-ordered ready
+  candidates, and inspects the human-attention queue without treating either read as authority.
 - **`mnemonic-recall`** loads bounded current context, pages older checkpoints
   or events when needed, atomically claims already-authorized execution, renews
   or releases that expiring lease, inspects immediate typed relationships,
-  records concise progress events, and saves an atomic completion checkpoint
-  when the work is complete.
+  records concise progress events, inspects complete paired gate history when
+  bounded context omits an older decision, and saves an atomic completion
+  checkpoint when the work is complete.
 
 Invoke `/mnemonic-save`, `/mnemonic-search`, or `/mnemonic-recall`, or ask Claude in natural language. The skills require the connected `mnemonic` MCP server. You can copy the selected project's ID from the dashboard, or use
 `list_projects`. Session IDs are opaque text (often UUIDs), not integers, and refer to the originating LLM conversation, not the MCP transport session. 
@@ -148,20 +152,29 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   eligibility. `done` resolves a blocker; `wont-do` and `promoted` do not.
   Active work may become blocked without revoking its existing lease.
 - Exposes dedicated `ready-work` REST and `list_ready_work` MCP reads. Ready
-  items are pending, visible, unblocked, and unleased at one database-time
-  snapshot, ordered by priority descending, then creation time and UUID. The
+  items are pending, visible, unblocked, unleased, and have no unresolved human
+  gate at one database-time snapshot, ordered by priority descending, then
+  creation time and UUID. The
   compact result is advisory: `claim_and_recall` revalidates before execution.
 - Stores append-only, actor-attributed work events for creation, work changes,
-  claims/releases, checkpoints, relationships, completion/reopen, deletion, and
-  explicit concise progress. Authoritative events commit with the mutation they
-  describe; canonical idempotent replays and natural no-ops do not fabricate
-  duplicates.
-- Makes retries safe for ten project-scoped REST mutations with caller-generated
-  `client_operation_id` values and durable typed success receipts. Canonical
-  MCP tools require the UUID for nine of them; the dashboard retains frozen
-  same-tab requests for its nine non-capability mutations, including deferral;
-  direct REST may omit it and remain unprotected. An exact retry returns the
-  original result without repeating domain or event work.
+  claims/releases, checkpoints, relationships, completion/reopen, deletion,
+  explicit concise progress, and human-gate requests/resolutions. Authoritative
+  events commit with the mutation they describe; canonical idempotent replays
+  and natural no-ops do not fabricate duplicates.
+- Provides first-class human gates with exact question/answer history, asserted
+  requester/resolver provenance, immutable request and resolution revisions,
+  drift acknowledgement, a cursor-paged Needs Attention queue, per-work history,
+  and bounded gate slices in recall. Unresolved gates block fresh claims,
+  completion, terminal transitions, and deletion without revoking exact active
+  claim replay, renewal, release, checkpoints, or progress. Resolution is a
+  direct REST/dashboard human action; MCP intentionally has no resolve tool.
+- Makes retries safe for twelve project-scoped REST mutations with caller-generated
+  `client_operation_id` values and durable typed success receipts. Exactly ten
+  of the 25 canonical MCP tools require the UUID, including `request_human_input`;
+  the dashboard retains frozen same-document requests for its ten non-capability
+  mutations, including deferral and gate resolution. Direct REST may omit the
+  UUID and remain retry-unprotected. An exact retry returns the original result
+  without repeating domain or event work.
 - Keeps checkpoints and events separate. A checkpoint is substantial resume
   context; a progress event is a short historical fact. Recall includes at most
   20 recent events, while the dashboard pages the complete per-work Activity
@@ -173,8 +186,11 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 - Creates a new objective, initial checkpoint, and up to ten explicit typed
   relationships atomically. A `discovered-from` link must cite a
   checkpoint on the originating target work item.
-- Browses collapsible structural roots and lazily loaded children in the
-  dashboard. Subtree-aware filters keep matching descendants visible beneath
+- Browses collapsed structural roots and lazily loaded children in the
+  dashboard. Every branch summary includes direct-child and descendant totals,
+  blocked/active/completed/discovered descendant counts, unresolved gate count,
+  discovery labels, and the next active descendant lease expiry. Subtree-aware
+  lifecycle/source/tag filters keep matching descendants reachable beneath
   muted ancestors, while free-text search returns direct hits with bounded
   ancestor breadcrumbs.
 - Requires the matching lease token for completion, retirement, promotion, or
@@ -184,8 +200,9 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 
 It does **not** automatically execute checkpoints, grant authority by claiming,
 create GitHub issues, inject memory hooks, infer missing session IDs, schedule
-or claim the next ready item, infer relationships from semantic similarity,
-merge duplicates, or reserve repository resources. Mnemonic is deliberately
+or claim the next ready item, infer or self-resolve human answers, infer
+relationships from semantic similarity, merge duplicates, or reserve repository
+resources. Mnemonic is deliberately
 LLM-centric: checkpoints and relationship context record an agent's claims
 rather than server-verified proof. Context quality and freshness remain agent
 workflow obligations; storing a commit ID is not proof the service verified

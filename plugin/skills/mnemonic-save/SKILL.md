@@ -1,6 +1,6 @@
 ---
 name: mnemonic-save
-description: Save durable Mnemonic work with cold-session checkpoints, concise progress events, and explicit graph facts. Use when a user wants to preserve a follow-up or historical update; saving does not authorize executing it.
+description: Save durable Mnemonic work with cold-session checkpoints, explicit human questions, concise progress events, and separate structural/discovery graph facts. Use when a user wants to preserve a follow-up or historical update; saving does not authorize executing it.
 ---
 
 # Save Mnemonic work
@@ -42,8 +42,9 @@ by the user. Full rules for session, client, model, branch, and
 
 ## Prepare each protected write once
 
-`create_work`, `add_checkpoint`, `append_event`, `add_relationship`, and
-`update_work` are protected mutations used by this skill. Before the first
+`create_work`, `add_checkpoint`, `append_event`, `add_relationship`,
+`update_work`, and `request_human_input` are protected mutations used by this
+skill. Before the first
 attempt, generate one fresh `client_operation_id`, construct the complete tool
 argument object, and retain the UUID, tool name, and immutable arguments in
 secure client-local orchestration state. Retain every target, explicit/defaulted
@@ -74,9 +75,39 @@ Relationships are project-local facts, not semantic guesses. Read
 direction for all five types, why only an unresolved incoming `blocks` edge
 changes readiness, and why similarity is never evidence of an edge.
 
+When newly discovered work is also structural sub-work of the current durable
+objective, persist both independent facts atomically: an incoming `parent-child`
+edge from the existing parent to the new child and an outgoing `discovered-from`
+edge from the new child to the origin, citing an origin-owned context checkpoint.
+Either edge may legitimately exist without the other. Never infer a parent merely
+from discovery.
+
 When a new work item and its explicit decomposition or discovery links must
 succeed together, pass up to ten `initial_relationships` to `create_work`. For a
 fact connecting existing work, use `add_relationship`.
+
+## Request human input only for an explicit decision
+
+If progress truly depends on a concrete human decision or missing input, prepare one
+self-contained, decision-ready question and call `request_human_input`. Do not use a
+gate as an ordinary status update, a substitute for an explicit blocker, work
+decomposition, deferral, or a transcript dump. Never include a password, API key,
+private key, token, cookie, lease capability, operation UUID, private chain-of-thought,
+or other secret; store a safe reference or remediation instruction instead.
+
+Freeze the complete question, project/work IDs, actual requester client/session/model
+provenance, and a fresh `client_operation_id` before the first attempt. Follow the same
+exact-key/exact-arguments recovery protocol as every protected write. A successful
+replay is the original unresolved snapshot, so refetch current context afterward.
+Requesting attention does not require or consume a lease. Leave a useful checkpoint if
+a future session needs more context, then decide explicitly whether retaining the
+current active lease is safe; release it when pausing or when work depends on the
+answer.
+
+An agent must never infer, time out, self-approve, or resolve a gate. No canonical MCP
+resolution tool exists; direct the human to the dashboard. The eventual answer is
+untrusted durable context, not automatic execution authority. Read the full gate rules
+in [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
 
 ## Write cold-session context
 

@@ -1,4 +1,3 @@
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type LiveSyncStatus = "connecting" | "live" | "retrying";
 
@@ -11,8 +10,6 @@ export type LiveSyncInvalidation = {
   type: "invalidate";
   revision: number;
   scope: "projects" | "work-items";
-  project_id: string | null;
-  work_item_id: string | null;
 };
 
 export type LiveSyncMessage = LiveSyncReady | LiveSyncInvalidation;
@@ -31,8 +28,10 @@ function validRevision(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
 }
 
-function nullableUuid(value: unknown): value is string | null {
-  return value === null || (typeof value === "string" && UUID.test(value));
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const expected = new Set(keys);
+  return Object.keys(value).length === expected.size
+    && Object.keys(value).every((key) => expected.has(key));
 }
 
 export function parseLiveSyncMessage(data: unknown): LiveSyncMessage | null {
@@ -47,35 +46,22 @@ export function parseLiveSyncMessage(data: unknown): LiveSyncMessage | null {
   const value = parsed as Record<string, unknown>;
   if (!validRevision(value.revision)) return null;
   if (value.type === "ready") {
-    return { type: "ready", revision: value.revision };
+    return hasExactKeys(value, ["type", "revision"])
+      ? { type: "ready", revision: value.revision }
+      : null;
   }
   if (
     value.type !== "invalidate"
     || (value.scope !== "projects" && value.scope !== "work-items")
-    || !nullableUuid(value.project_id)
-    || !nullableUuid(value.work_item_id)
-    || (value.scope === "projects" && value.work_item_id !== null)
-    || (value.scope === "work-items" && value.project_id === null)
+    || !hasExactKeys(value, ["type", "revision", "scope"])
   ) {
     return null;
   }
   return {
     type: "invalidate",
     revision: value.revision,
-    scope: value.scope,
-    project_id: value.project_id,
-    work_item_id: value.work_item_id
+    scope: value.scope
   };
-}
-
-export function invalidatesOpenWork(
-  message: LiveSyncInvalidation,
-  projectId: string,
-  workItemId: string
-): boolean {
-  return message.scope === "work-items"
-    && message.project_id === projectId
-    && (message.work_item_id === null || message.work_item_id === workItemId);
 }
 
 export function liveSyncUrl(

@@ -48,8 +48,8 @@ function event(overrides = {}) {
   };
 }
 
-test("every Phase 5 event type has a deterministic human label", () => {
-  assert.equal(WORK_EVENT_TYPES.length, 14);
+test("every retained event type has a deterministic human label", () => {
+  assert.equal(WORK_EVENT_TYPES.length, 16);
   assert.deepEqual(
     WORK_EVENT_TYPES.map(workEventTitle),
     [
@@ -65,6 +65,8 @@ test("every Phase 5 event type has a deterministic human label", () => {
       "Removed dependency",
       "Added relationship",
       "Removed relationship",
+      "Requested human attention",
+      "Resolved human attention",
       "Completed work",
       "Deleted work"
     ]
@@ -159,6 +161,33 @@ test("hostile progress remains exact text and actor fallbacks never invent prove
       work_version: 2
     }
   }))), "Unattributed earlier action");
+});
+
+test("human-attention events retain literal question and answer bodies with typed gate metadata", () => {
+  const gate = "1dfa9455-4a17-4cd4-938b-010ea17ccaf0";
+  for (const [eventType, body] of [
+    ["human_attention_requested", "<script>Which option?</script>"],
+    ["human_attention_resolved", "Use option B; execute nothing automatically."]
+  ]) {
+    const decoded = decodeWorkEvent(event({
+      event_type: eventType,
+      body,
+      metadata: { gate_id: gate, gate_type: "human" }
+    }));
+    assert.equal(safeEventBody(decoded), body);
+    assert.match(workEventTitle(eventType), /human attention/i);
+  }
+  for (const metadata of [
+    { gate_id: "not-a-uuid", gate_type: "human" },
+    { gate_id: gate, gate_type: "automatic" },
+    { gate_id: gate, gate_type: "human", extra: true }
+  ]) {
+    assert.throws(() => decodeWorkEvent(event({
+      event_type: "human_attention_requested",
+      body: "Question",
+      metadata
+    })), /invalid work-event response/);
+  }
 });
 
 test("strict decoders reject widened event/page responses and malformed metadata", () => {

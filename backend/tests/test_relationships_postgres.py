@@ -658,7 +658,7 @@ def test_nonblocking_relationship_types_preserve_readiness(api, project, work_pa
     }
 
 
-def test_context_relationship_projection_is_bounded_with_exact_counts(
+def test_context_relationship_projection_is_bounded_unless_gate_review_is_focused(
     api, project, work_payload
 ):
     anchor = create_work(api, project, work_payload, "High degree anchor")["work_item"]
@@ -697,6 +697,24 @@ def test_context_relationship_projection_is_bounded_with_exact_counts(
     assert full_page.status_code == 200
     assert full_page.json()["total"] == 51
     assert len(full_page.json()["items"]) == 51
+
+    api.app.state.settings.human_gate_requests_enabled = True
+    gate_response = api.post(
+        f"{work_path(project, anchor)}/gates",
+        json={
+            "question": "Review every current relationship before answering.",
+            "requested_by_client": "pytest-agent",
+            "requested_by_session_id": "complete-relationship-review",
+        },
+    )
+    assert gate_response.status_code == 201, gate_response.text
+    focused = api.get(
+        f"{work_path(project, anchor)}/gates/{gate_response.json()['id']}/context"
+    )
+    assert focused.status_code == 200, focused.text
+    focused_body = focused.json()
+    assert focused_body["relationship_counts"] == body["relationship_counts"]
+    assert len(focused_body["undirected_relationships"]) == 51
 
 
 def test_relationship_model_parity_and_indexes(postgres_engine):

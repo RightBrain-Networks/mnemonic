@@ -33,6 +33,14 @@ sanitized `client_operation_unavailable`; it must never fall through to a
 second domain execution. Lower values fail ambiguous concurrent retries sooner,
 while higher values occupy a database connection longer.
 
+`MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED` defaults to `false`. It fences only
+genuinely new human-gate requests; exact completed request replay, attention and
+history reads, readiness/lifecycle enforcement, and direct REST/dashboard
+resolution remain active. Keep it false through the coordinated Phase 7–8
+cutover, then set it consistently across the gate-aware API pool and recreate
+the API service. Turning it false later is an incident brake, not a way to hide
+or discard existing gates.
+
 Never set browser-public environment variables containing credentials. The
 dashboard's API key is a server-only setting. The database password must be
 URL-safe because it is interpolated into the API connection URL.
@@ -146,8 +154,9 @@ text. A Phase 3 backup is required to restore relationships that existed.
 `0009_ready_work_indexes` is an additive index migration for the ready-work
 query. Deploy the Phase 4 API and MCP images together so the exact readiness
 predicate, filters, pointer-only response, and claim-side recheck agree. The
-current gate seam is intentionally vacuous; do not add a hidden gate condition
-until a later schema and contract introduce one explicitly.
+gate seam was intentionally vacuous at this historical revision. Migration
+`0014_human_gates` now supplies the explicit schema and shared gate predicate;
+do not emulate it with labels or client-only filtering.
 
 After migration, verify that ready work is visible and Pending, has no unresolved
 incoming `blocks` edge, and has no active lease. Exercise the deterministic
@@ -324,6 +333,265 @@ replay returns the stored body without changing domain rows, events, or leases.
 A pre-Phase-6 archive can migrate forward safely but cannot recover receipts or
 provide retry safety for operations performed after that archive.
 
+## Phases 7–8 human-oversight deployment and rollback
+
+`0014_human_gates` follows `0013_idempotent_mutations`. It preserves every
+existing production row and receipt, creates an empty gate table, adds internal
+gate references and constraints to the event store, widens the private receipt
+registry from ten to exactly twelve kinds, and installs database fail-closed
+guards for fresh/replacement claims plus terminal/delete work mutations. The
+hierarchy response also gains strict presentation fields, so this is a
+coordinated backend/MCP/dashboard/plugin cutover without compatibility shims.
+
+Before deployment:
+
+1. quiesce API, MCP, dashboard, and direct REST mutation/claim writers;
+2. take a custom-format backup, validate its archive, and restore-test it in an
+   isolated environment;
+3. confirm the live head is exactly `0013_idempotent_mutations`, record canonical
+   table counts/content hashes and the legacy metadata-v1 function definition,
+   and check that no locally invented gate objects or operation kinds collide;
+4. rehearse `0013 -> 0014`, lock duration, hierarchy query plans, and the old-
+   backend fail-closed probes on a production-sized restored copy.
+
+Upgrade and enable in this order:
+
+1. apply `0014_human_gates` transactionally;
+2. deploy the gate-aware API with
+   `MNEMONIC_HUMAN_GATE_REQUESTS_ENABLED=false` while writers remain quiesced;
+3. verify migration/model parity, empty attention/history reads, context and
+   hierarchy shapes, ready/claim behavior, an old append-event receipt replay,
+   and the database claim/terminal/delete guards;
+4. drain every old backend process and connection; record image digests,
+   replicas, routing membership, and zero old active database connections;
+5. deploy the MCP adapter/plugin and dashboard/proxy together. Confirm exactly
+   25 MCP tools, exactly ten protected MCP mutation schemas, no MCP resolution
+   tool, and all current response models;
+6. resume ordinary gate-aware writers and prove new requests still return
+   sanitized `human_gates_not_enabled` while attention/history reads and
+   resolution remain usable;
+7. set the fence to `true` consistently across the gate-aware API pool and
+   recreate it; and
+8. in a disposable validation project, request a synthetic gate, prove waiting
+   and ready/fresh-claim exclusion plus attention/detail/hierarchy visibility,
+   resolve it through the dashboard with exact-retry recovery, and retain only
+   redacted statuses and aggregate counts.
+
+Do not enable requests while any old strict MCP model or backend remains in the
+serving pool. Old clients can reject new readiness/context fields, and an old
+backend can mis-list waiting work. The database rejects its fresh/replacement
+claim and terminal/delete writes, but that is an incident backstop rather than
+a supported mixed mode.
+
+If a problem occurs after gates exist, set the request fence false, keep the
+database at `0014`, and deploy the last known gate-aware backend or fix forward.
+Reads and human resolution continue, so operators can drain the queue safely.
+If no gate-aware binary is safe, quiesce ready/claim/terminal writers and expose
+only reviewed read/repair paths. Never resolve, delete, truncate, or hide gates
+or receipts to force rollback.
+
+A database downgrade is supported only before any gate, gate event, or gate-
+operation receipt exists and while every writer is quiesced. The migration
+holds `ACCESS EXCLUSIVE` locks in the writer-compatible order
+`client_operations`, `work_items`, `work_gates`, `work_events`, then checks
+emptiness. It restores the exact `0013` receipt/event constraints and leaves all
+Phase 1–6 rows plus the legacy metadata validator unchanged. Any nonempty check
+must abort; do not truncate data or bypass the guard. After the first gate or
+receipt, rollback means a forward fix or whole-database restore to an explicitly
+accepted pre-cutover archive, with all post-backup writes lost.
+
+A Phase 7–8 restore drill must include resolved and unresolved gates, the
+attention identity sequence, paired gate events, and request/resolution receipts.
+After isolated restore, verify migration head and invariants, unresolved
+ready/fresh-claim/terminal exclusion, exact attention/history/context/hierarchy
+projections, and same-key request/resolution replay with no new gate, event,
+activity, lifecycle, or receipt effect. A pre-Phase-7 archive can migrate
+forward to an empty gate table but cannot recover later questions, answers,
+events, attention order, or retry outcomes.
+
+### Identifier-free aggregate monitoring
+
+Run these checks only from a private operator shell and retain aggregates, not
+query output containing application rows. The examples deliberately have no
+project grouping and return no gate/work/operation ID, question, resolution,
+actor/session value, response JSON, fingerprint, or salt.
+
+The first query reports queue pressure and age without identifying a project or
+gate. The second reports daily request/resolution flow. Alert on sustained queue
+growth or oldest-age growth according to the deployment's own observed baseline;
+Mnemonic does not ship a universal queue-age SLO.
+
+```sql
+SELECT
+    count(*) AS unresolved_gates,
+    date_trunc(
+        'minute',
+        clock_timestamp() - min(created_at)
+    ) AS oldest_unresolved_age
+FROM work_gates
+WHERE resolved_at IS NULL;
+
+WITH transitions AS (
+    SELECT
+        date_trunc('day', created_at AT TIME ZONE 'UTC') AS utc_day,
+        'requested'::text AS transition
+    FROM work_gates
+    UNION ALL
+    SELECT
+        date_trunc('day', resolved_at AT TIME ZONE 'UTC') AS utc_day,
+        'resolved'::text AS transition
+    FROM work_gates
+    WHERE resolved_at IS NOT NULL
+)
+SELECT
+    utc_day,
+    count(*) FILTER (WHERE transition = 'requested') AS requests,
+    count(*) FILTER (WHERE transition = 'resolved') AS resolutions
+FROM transitions
+GROUP BY utc_day
+ORDER BY utc_day;
+```
+
+This retained-source-fact audit must return zero. It checks request/resolution
+event cardinality for every gate and also counts any orphan event carrying an
+internal gate reference. Row checks plus the insert/source-fact triggers enforce
+the remaining state, text, provenance, timestamp, and metadata coherence.
+
+```sql
+WITH gate_event_counts AS (
+    SELECT
+        gate.id,
+        gate.resolved_at,
+        count(event.id) FILTER (
+            WHERE event.event_type = 'human_attention_requested'
+        ) AS request_events,
+        count(event.id) FILTER (
+            WHERE event.event_type = 'human_attention_resolved'
+        ) AS resolution_events
+    FROM work_gates AS gate
+    LEFT JOIN work_events AS event
+      ON event.gate_id = gate.id
+     AND event.work_item_id = gate.work_item_id
+    GROUP BY gate.id, gate.resolved_at
+),
+orphan_events AS (
+    SELECT count(*) AS count
+    FROM work_events AS event
+    LEFT JOIN work_gates AS gate
+      ON gate.id = event.gate_id
+     AND gate.work_item_id = event.work_item_id
+    WHERE event.gate_id IS NOT NULL
+      AND gate.id IS NULL
+)
+SELECT
+    count(*) FILTER (
+        WHERE request_events <> 1
+           OR resolution_events <>
+              CASE WHEN resolved_at IS NULL THEN 0 ELSE 1 END
+    ) + (SELECT count FROM orphan_events) AS invariant_violations
+FROM gate_event_counts;
+```
+
+Use only the bounded `operation_kind` and finite
+`executed|replayed|no_op|conflict|unavailable` outcome labels for live
+gate-operation rates. This 24-hour example returns counts from which the
+collector can derive a rate; it never retains the rest of the log line.
+
+```sh
+docker compose logs --since=24h api |
+  sed -n 's/.*Client operation outcome kind=\([^ ]*\) outcome=\([^ ]*\).*/\1 \2/p' |
+  awk '$1 == "request_human_input" || $1 == "resolve_human_input"' |
+  sort |
+  uniq -c
+```
+
+The durable counterpart below groups only the two gate-operation receipt kinds
+by day, bounded status/state, and applied/no-op outcome. A nonzero committed
+pending count remains an invariant failure; conflicts and unavailable attempts
+appear only in the bounded logs because they do not create completed receipts.
+
+```sql
+SELECT
+    operation_kind,
+    date_trunc('day', completed_at AT TIME ZONE 'UTC') AS utc_day,
+    state,
+    response_status,
+    mutation_applied,
+    count(*) AS receipts
+FROM client_operations
+WHERE operation_kind IN ('request_human_input', 'resolve_human_input')
+GROUP BY operation_kind, utc_day, state, response_status, mutation_applied
+ORDER BY utc_day, operation_kind, response_status, mutation_applied;
+```
+
+Track physical growth alongside row counts. Event and receipt relation sizes
+also include older non-gate facts, so do not mislabel their bytes as gate-only
+storage.
+
+```sql
+SELECT
+    (SELECT count(*) FROM work_gates) AS gate_rows,
+    (SELECT count(*) FROM work_events
+      WHERE gate_id IS NOT NULL) AS gate_event_rows,
+    (SELECT count(*) FROM client_operations
+      WHERE operation_kind IN (
+          'request_human_input', 'resolve_human_input'
+      )) AS gate_receipt_rows,
+    pg_total_relation_size('work_gates') AS gate_relation_bytes,
+    pg_total_relation_size('work_events') AS event_relation_bytes,
+    pg_total_relation_size('client_operations') AS receipt_relation_bytes;
+```
+
+Mnemonic does not install `pg_stat_statements`. Observe hierarchy latency and
+timeout rate at the API/reverse-proxy layer only with a templated route name,
+finite `view` label, status, and duration bucket; never use the raw URL or
+query string because both can contain IDs or search text. For a slow-query
+investigation, capture the parameterized hierarchy SQL privately, run
+`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` on an isolated current restore, and
+retain only planning/execution time plus shared/local/temp block totals. Discard
+the plan document and bound values.
+
+The built-in PostgreSQL aggregates below provide database-wide buffer/temp/
+deadlock deltas and identifier-free current lock-wait signals. They are not
+hierarchy attribution; correlate a delta with the templated endpoint metrics
+before escalating. A growing deadlock count, unexpected temporary-byte growth,
+five-second hierarchy statement timeouts, or sustained lock waits is an
+incident, not a reason to disable constraints or edit gates directly.
+
+```sql
+SELECT
+    stats_reset,
+    blks_read,
+    blks_hit,
+    temp_files,
+    temp_bytes,
+    deadlocks
+FROM pg_stat_database
+WHERE datname = current_database();
+
+SELECT
+    coalesce(activity.wait_event_type, 'none') AS wait_event_type,
+    coalesce(activity.wait_event, 'none') AS wait_event,
+    locks.mode,
+    count(*) AS waiting_locks
+FROM pg_stat_activity AS activity
+JOIN pg_locks AS locks USING (pid)
+WHERE activity.datname = current_database()
+  AND NOT locks.granted
+GROUP BY activity.wait_event_type, activity.wait_event, locks.mode
+ORDER BY wait_event_type, wait_event, locks.mode;
+```
+
+There is intentionally no manual SQL resolve, delete, rebind, unlock, gate
+repair, or receipt purge. A nonzero invariant audit or corrupt gate/event pair
+requires a reviewed forward migration or whole-database restore.
+
+Gate questions and answers are private application content. Never include them,
+actor/session values, operation UUIDs, reviewed revision bodies, or response
+hashes in logs, metric labels, stack-check output, screenshots, or tickets.
+Request/resolver provenance is asserted under the shared bearer and is not an
+authenticated approval signature.
+
 ## Backups
 
 The backup container starts after the API has migrated the database and become
@@ -340,8 +608,9 @@ docker compose logs --tail=20 backup
 
 Files appear under `MNEMONIC_BACKUP_DIR` (`./backups` by default). They include
 canonical work, immutable checkpoint text and provenance, retained leases, typed
-relationships, immutable work events and their sequence, private durable
-client-operation receipts, and migration state; treat them as private. Receipt
+relationships, immutable work events and their sequence, human gates and their
+attention identity sequence, private durable client-operation receipts, and
+migration state; treat them as private. Receipt
 rows include stored successful response bodies and salted fingerprints, so they
 receive the same confidentiality and integrity protection as canonical content.
 The backup service never deletes earlier dumps. Set a
@@ -353,9 +622,10 @@ An archive listing check is not a restore drill. Periodically restore a dump
 into an isolated PostgreSQL instance and verify representative projects, work
 items, checkpoint history, exact relationship source/target/context/provenance,
 derived readiness, event count/max ID/content checksum and sequence ownership,
-all event indexes plus the immutability function and triggers, receipt
-count/uniqueness/state plus all three receipt guards, exact replay of a
-representative historical success, and the expected `alembic_version`. Keep
+all event and gate indexes plus immutability/completeness/fail-closed triggers,
+attention sequence state, receipt count/uniqueness/state plus its guards, exact
+replay of representative ordinary and gate successes, and the expected
+`alembic_version`. Keep
 the PostgreSQL major version compatible with the dump
 tools.
 
@@ -382,18 +652,22 @@ non-public application schemas or optional PostgreSQL extensions; the script
 refuses either unexpected layout instead of deleting outside its ownership
 boundary or producing a hybrid restore. The API
 applies any newer migrations, including `0009`, `0010`, `0011`, `0012`,
-and `0013`, before becoming ready. Do not expose API, MCP, or dashboard traffic
+`0013`, and `0014`, before becoming ready. Do not expose API, MCP, or dashboard traffic
 until readiness succeeds and
 the restored schema/data checks pass. A restore from before a schema change
 should be rehearsed on an isolated instance first; restore is not a substitute
 for a planned schema downgrade. A pre-Phase-3 archive cannot recover later graph
 facts, a pre-Phase-5 archive cannot recover later event history, and a
-pre-Phase-6 archive cannot recover later client-operation receipts.
+pre-Phase-6 archive cannot recover later client-operation receipts, and a
+pre-Phase-7 archive cannot recover later gates, gate events, attention order, or
+gate-operation receipts.
 
-Deletion from the dashboard is a soft delete. No ordinary API or MCP read can
-retrieve a deleted work item, its checkpoints, or its event history. The
-immutable rows remain retained; there is no physical purge endpoint. The
-application refuses deletion while any relationship remains.
+Deletion from the dashboard is a soft delete. No ordinary work/checkpoint/event
+API or MCP read can retrieve a deleted work item. The immutable rows remain
+retained; there is no physical purge endpoint. The application refuses deletion
+while any relationship or unresolved gate remains. After every gate resolves,
+the exact project/work gate-history route intentionally retains the paired
+question/answer audit even after soft deletion.
 
 There is no supported in-place undelete or trash-management UI. Do not clear
 `work_items.deleted_at` manually: Phase 5 retains one immutable `work_deleted`
@@ -411,9 +685,12 @@ server proxy validates request hosts and browser origins, but any trusted local
 process can access that dashboard. Do not share a machine account with people
 who should not see its prompts.
 
-The API and HTTP MCP endpoints require bearer authentication. Checkpoint content
-is rendered as text, not executable HTML. The MCP adapter does not follow URLs
-from stored context and never connects to the database directly.
+The API and HTTP MCP endpoints require bearer authentication. Checkpoint and
+human-gate content is rendered as text, not executable HTML. Gate requester and
+resolver fields are client assertions under the shared bearer; Mnemonic does
+not authenticate a person's identity, sign approvals, or verify answers. The MCP
+adapter does not follow URLs from stored context, exposes no resolution tool,
+and never connects to the database directly.
 
 Do not expose these ports directly to the internet. A remote deployment needs
 HTTPS, a real authentication boundary for the dashboard, explicit allowed

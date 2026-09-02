@@ -2,7 +2,7 @@
 
 Run with the MCP project's Python environment. Checks are read-only unless a
 project is explicitly authorized with --project-id. The write check creates a
-small, uniquely marked Phase 6 work graph, exercises ready discovery and its
+small, uniquely marked Phases 7–8 work graph, exercises human gates, ready discovery, and its
 canonical event lifecycle, then removes the graph and soft-deletes every
 synthetic item it created. Immutable events remain attached to those hidden
 items. Never authorize writes against a project without permission.
@@ -14,14 +14,16 @@ import argparse
 import asyncio
 import json
 import os
+from builtins import BaseExceptionGroup
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
-from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from pydantic import AnyUrl
+
+from mcp import ClientSession
 
 CANONICAL_TOOLS = {
     "list_projects",
@@ -33,6 +35,9 @@ CANONICAL_TOOLS = {
     "add_checkpoint",
     "list_checkpoints",
     "recall_work",
+    "request_human_input",
+    "list_human_attention",
+    "list_work_gates",
     "update_work",
     "complete_work",
     "delete_work",
@@ -57,6 +62,7 @@ PROTECTED_MUTATION_TOOLS = {
     "delete_work",
     "remove_relationship",
     "release_claim",
+    "request_human_input",
 }
 EXCLUDED_MUTATION_TOOLS = {
     "create_project",
@@ -72,6 +78,8 @@ DESTRUCTIVE_TOOLS = {
     "remove_relationship",
 }
 SYNTHETIC_CLIENT = "mnemonic-stack-check"
+SYNTHETIC_GATE_QUESTION = "Choose the synthetic validation decision for this disposable work item."
+SYNTHETIC_GATE_RESOLUTION = "Approve the synthetic validation path for this disposable work item."
 
 
 def require(condition: bool, message: str) -> None:
@@ -108,7 +116,7 @@ async def tool(
 
 
 def synthetic_summary(marker: str) -> str:
-    return f"Synthetic Phase 6 integration check {marker}"
+    return f"Synthetic Phases 7–8 integration check {marker}"
 
 
 def mutation_actor(run_id: str) -> dict[str, str]:
@@ -421,6 +429,61 @@ def require_synthetic_relationship(
     )
 
 
+async def resolve_synthetic_gates_for_cleanup(
+    api: httpx.AsyncClient,
+    project_id: str,
+    work_item_id: str,
+    run_id: str,
+) -> None:
+    """Resolve only this run's gates so interrupted synthetic work can be deleted."""
+    path = f"projects/{project_id}/work-items/{work_item_id}/gates"
+    cursor: str | None = None
+    while True:
+        params: dict[str, object] = {"status": "unresolved", "limit": 100}
+        if cursor is not None:
+            params["cursor"] = cursor
+        response = await api.get(path, params=params)
+        require(
+            response.status_code == 200,
+            "Could not inspect synthetic human gates for cleanup.",
+        )
+        page = response.json()
+        for gate in page["items"]:
+            if (
+                gate.get("question") != SYNTHETIC_GATE_QUESTION
+                or gate.get("requested_by_client") != SYNTHETIC_CLIENT
+                or gate.get("requested_by_session_id") != run_id
+            ):
+                continue
+            arguments: dict[str, Any] = {
+                "resolution": SYNTHETIC_GATE_RESOLUTION,
+                "resolved_by_client": SYNTHETIC_CLIENT,
+                "resolved_by_session_id": run_id,
+                "resolved_by_model": None,
+                "acknowledge_context_change": gate["context_changed_since_request"],
+            }
+            if gate["context_changed_since_request"]:
+                arguments["reviewed_context_revision"] = gate[
+                    "current_context_revision"
+                ]
+            resolution_arguments = retained_mutation(arguments)
+            resolved = await retained_api_mutation(
+                api,
+                "POST",
+                path + f"/{gate['id']}/resolve",
+                resolution_arguments,
+            )
+            require(
+                resolved.status_code == 200
+                and resolved.json().get("id") == gate["id"]
+                and resolved.json().get("status") == "resolved",
+                "Synthetic human-gate cleanup failed.",
+            )
+        cursor = page.get("next_cursor")
+        if cursor is None:
+            break
+
+
 async def cleanup_synthetic_work(
     api: httpx.AsyncClient,
     project_id: str,
@@ -476,6 +539,9 @@ async def cleanup_synthetic_work(
         )
 
     for work_item_id in sorted(work_item_ids, reverse=True):
+        await resolve_synthetic_gates_for_cleanup(
+            api, project_id, work_item_id, run_id
+        )
         path = f"projects/{project_id}/work-items/{work_item_id}"
         remaining = await api.get(path)
         if remaining.status_code == 404:
@@ -642,9 +708,9 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 catalog = await session.list_tools()
                 tools_by_name = {entry.name: entry for entry in catalog.tools}
                 require(
-                    len(catalog.tools) == 22
-                    and len(tools_by_name) == 22
-                    and len(PROTECTED_MUTATION_TOOLS) == 9
+                    len(catalog.tools) == 25
+                    and len(tools_by_name) == 25
+                    and len(PROTECTED_MUTATION_TOOLS) == 10
                     and set(tools_by_name) == CANONICAL_TOOLS,
                     "Unexpected MCP tool catalog.",
                 )
@@ -685,13 +751,13 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         )
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: real MCP initialization, 22-tool catalog, exact nine protected "
+                    "PASS: real MCP initialization, 25-tool catalog, exact ten protected "
                     "mutation schemas/annotations, and REST-backed project listing"
                 )
                 if not args.project_id:
                     print(
                         "Read-only checks complete. Supply --project-id to explicitly authorize "
-                        "one disposable Phase 6 ready/event lifecycle."
+                        "one disposable Phases 7–8 human-gate/ready/event lifecycle."
                     )
                     return
 
@@ -1188,6 +1254,357 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "work_item_id": ready_id,
                     }
                     await require_event_types(session, ready_identity, ["work_created"])
+
+                    ready_claim_request_id = str(uuid4())
+                    claim_request_ids[ready_id] = ready_claim_request_id
+                    ready_receipt = await tool(
+                        session,
+                        "claim_work",
+                        {
+                            **ready_identity,
+                            "holder_client": SYNTHETIC_CLIENT,
+                            "holder_session_id": run_id,
+                            "claim_request_id": ready_claim_request_id,
+                        },
+                    )
+                    ready_lease_token = ready_receipt["lease_token"]
+                    lease_tokens[ready_id] = ready_lease_token
+                    gate_request_arguments = retained_mutation(
+                        {
+                            **ready_identity,
+                            "question": SYNTHETIC_GATE_QUESTION,
+                            "requested_by_client": SYNTHETIC_CLIENT,
+                            "requested_by_session_id": run_id,
+                            "requested_by_model": None,
+                        }
+                    )
+                    await lose_protected_tool_response(
+                        args.mcp_url,
+                        auth,
+                        "request_human_input",
+                        gate_request_arguments,
+                    )
+                    requested_gate = await protected_tool(
+                        session,
+                        "request_human_input",
+                        gate_request_arguments,
+                    )
+                    gate_id = requested_gate["id"]
+                    require(
+                        requested_gate["project_id"] == project_id
+                        and requested_gate["work_item_id"] == ready_id
+                        and requested_gate["status"] == "unresolved"
+                        and requested_gate["gate_type"] == "human"
+                        and requested_gate["question"] == SYNTHETIC_GATE_QUESTION
+                        and requested_gate["context_changed_since_request"] is False,
+                        "Human-gate request/replay returned an incoherent result.",
+                    )
+
+                    gated_context = await tool(session, "recall_work", ready_identity)
+                    require(
+                        gated_context["readiness"]["is_gated"] is True
+                        and gated_context["readiness"]["has_active_lease"] is True
+                        and gated_context["readiness"]["display_state"] == "waiting"
+                        and gated_context["unresolved_gate_total"] == 1
+                        and gated_context["unresolved_gates"][0]["id"] == gate_id,
+                        "Bounded context did not expose active-plus-waiting state.",
+                    )
+                    attention = await tool(
+                        session,
+                        "list_human_attention",
+                        {
+                            "project_id": project_id,
+                            "work_item_id": ready_id,
+                            "limit": 100,
+                        },
+                    )
+                    require(
+                        attention["total"] == 1
+                        and len(attention["items"]) == 1
+                        and attention["items"][0]["gate"]["id"] == gate_id
+                        and attention["items"][0]["summary"]["readiness"][
+                            "display_state"
+                        ]
+                        == "waiting",
+                        "Human-attention paging did not return the synthetic gate.",
+                    )
+                    count_only_attention = await tool(
+                        session,
+                        "list_human_attention",
+                        {
+                            "project_id": project_id,
+                            "work_item_id": ready_id,
+                            "limit": 0,
+                        },
+                    )
+                    require(
+                        count_only_attention["total"] == 1
+                        and count_only_attention["items"] == []
+                        and count_only_attention["next_cursor"] is None,
+                        "Human-attention count mode returned text or a wrong total.",
+                    )
+                    gate_history = await tool(
+                        session,
+                        "list_work_gates",
+                        {**ready_identity, "status": "all", "limit": 100},
+                    )
+                    require(
+                        gate_history["total"] == 1
+                        and gate_history["items"][0] == requested_gate,
+                        "Human-gate history did not match the requested gate.",
+                    )
+                    roots_while_waiting = await api.get(
+                        f"projects/{project_id}/work-items",
+                        params={
+                            "view": "roots",
+                            "status": "all",
+                            "source_client": SYNTHETIC_CLIENT,
+                            "source_session_id": run_id,
+                            "limit": 100,
+                            "offset": 0,
+                        },
+                    )
+                    require(
+                        roots_while_waiting.status_code == 200,
+                        "Hierarchy browse failed while work was waiting.",
+                    )
+                    ready_branch = next(
+                        (
+                            item
+                            for item in roots_while_waiting.json()["items"]
+                            if item["summary"]["work_item"]["id"] == ready_id
+                        ),
+                        None,
+                    )
+                    require(
+                        ready_branch is not None
+                        and ready_branch["presentation"][
+                            "branch_unresolved_human_gate_count"
+                        ]
+                        == 1
+                        and ready_branch["summary"]["readiness"]["is_gated"] is True,
+                        "Hierarchy presentation omitted the waiting branch count.",
+                    )
+
+                    ready_claim_replay = await tool(
+                        session,
+                        "claim_work",
+                        {
+                            **ready_identity,
+                            "holder_client": SYNTHETIC_CLIENT,
+                            "holder_session_id": run_id,
+                            "claim_request_id": ready_claim_request_id,
+                        },
+                    )
+                    ready_renewal = await tool(
+                        session,
+                        "renew_claim",
+                        {**ready_identity, "lease_token": ready_lease_token},
+                    )
+                    require(
+                        ready_claim_replay == ready_receipt
+                        and ready_renewal["lease_token"] == ready_lease_token,
+                        "Gating revoked active claim replay or renewal.",
+                    )
+                    ready_release_arguments = retained_mutation(
+                        {
+                            **ready_identity,
+                            "lease_token": ready_lease_token,
+                            **mutation_actor(run_id),
+                        }
+                    )
+                    ready_released = await protected_tool(
+                        session,
+                        "release_claim",
+                        ready_release_arguments,
+                    )
+                    require(
+                        ready_released["released"] is True,
+                        "Releasing gated synthetic work failed.",
+                    )
+                    lease_tokens.pop(ready_id, None)
+                    claim_request_ids.pop(ready_id, None)
+                    gated_ready_page = await tool(
+                        session,
+                        "list_ready_work",
+                        {"project_id": project_id, "tag": run_tag, "limit": 100},
+                    )
+                    require(
+                        ready_id not in ready_ids(gated_ready_page),
+                        "Released waiting work re-entered ready discovery.",
+                    )
+                    gated_claim = await api.post(
+                        f"projects/{project_id}/work-items/{ready_id}/claim",
+                        json={
+                            "holder_client": SYNTHETIC_CLIENT,
+                            "holder_session_id": run_id,
+                            "claim_request_id": str(uuid4()),
+                        },
+                    )
+                    require(
+                        gated_claim.status_code == 409
+                        and typed_error_code(gated_claim) == "work_gated",
+                        "Fresh claim did not fail closed on waiting work.",
+                    )
+
+                    resolve_path = (
+                        f"projects/{project_id}/work-items/{ready_id}/gates/"
+                        f"{gate_id}/resolve"
+                    )
+                    resolution_arguments = retained_mutation(
+                        {
+                            "resolution": SYNTHETIC_GATE_RESOLUTION,
+                            "resolved_by_client": "dashboard",
+                            "resolved_by_session_id": run_id,
+                            "resolved_by_model": None,
+                            "acknowledge_context_change": False,
+                        }
+                    )
+                    frozen_resolution = json.dumps(
+                        resolution_arguments, sort_keys=True, separators=(",", ":")
+                    )
+                    work_before_resolution = await tool(
+                        session, "get_work", ready_identity
+                    )
+                    resolved_response = await public.post(
+                        proxy + resolve_path,
+                        headers={"Origin": args.web_url.rstrip("/")},
+                        json=resolution_arguments,
+                    )
+                    work_after_resolution = await tool(
+                        session, "get_work", ready_identity
+                    )
+                    replayed_resolution = await public.post(
+                        proxy + resolve_path,
+                        headers={"Origin": args.web_url.rstrip("/")},
+                        json=resolution_arguments,
+                    )
+                    work_after_resolution_replay = await tool(
+                        session, "get_work", ready_identity
+                    )
+                    require(
+                        json.dumps(
+                            resolution_arguments,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                        == frozen_resolution
+                        and resolved_response.status_code == 200
+                        and replayed_resolution.status_code == 200
+                        and replayed_resolution.json() == resolved_response.json()
+                        and work_after_resolution["updated_at"]
+                        != work_before_resolution["updated_at"]
+                        and work_after_resolution["version"]
+                        == work_before_resolution["version"]
+                        and work_after_resolution_replay["updated_at"]
+                        == work_after_resolution["updated_at"]
+                        and work_after_resolution_replay["version"]
+                        == work_after_resolution["version"],
+                        "Dashboard gate resolution did not replay its frozen result.",
+                    )
+                    resolved_gate = resolved_response.json()
+                    require(
+                        resolved_gate["id"] == gate_id
+                        and resolved_gate["status"] == "resolved"
+                        and resolved_gate["resolution"] == SYNTHETIC_GATE_RESOLUTION
+                        and resolved_gate["context_changed_at_resolution"] is False
+                        and resolved_gate["context_change_acknowledged"] is False,
+                        "Dashboard gate resolution returned an incoherent result.",
+                    )
+                    resolved_history = await tool(
+                        session,
+                        "list_work_gates",
+                        {**ready_identity, "status": "all", "limit": 100},
+                    )
+                    empty_attention = await tool(
+                        session,
+                        "list_human_attention",
+                        {
+                            "project_id": project_id,
+                            "work_item_id": ready_id,
+                            "limit": 0,
+                        },
+                    )
+                    resolved_context = await tool(
+                        session, "recall_work", ready_identity
+                    )
+                    restored_ready_page = await tool(
+                        session,
+                        "list_ready_work",
+                        {"project_id": project_id, "tag": run_tag, "limit": 100},
+                    )
+                    require(
+                        resolved_history["total"] == 1
+                        and resolved_history["items"][0] == resolved_gate
+                        and empty_attention["total"] == 0
+                        and resolved_context["unresolved_gate_total"] == 0
+                        and resolved_context["resolved_gate_total"] == 1
+                        and resolved_context["recent_resolved_gates"][0]["id"]
+                        == gate_id
+                        and ready_id in ready_ids(restored_ready_page),
+                        "Resolution did not converge history, attention, context, and ready state.",
+                    )
+                    await require_event_types(
+                        session,
+                        ready_identity,
+                        [
+                            "work_created",
+                            "work_claimed",
+                            "human_attention_requested",
+                            "work_released",
+                            "human_attention_resolved",
+                        ],
+                    )
+                    unrelated_event_ids: list[str] = []
+                    for event_index in range(25):
+                        unrelated_event = await protected_tool(
+                            session,
+                            "append_event",
+                            retained_mutation(
+                                {
+                                    **ready_identity,
+                                    "body": (
+                                        "Synthetic unrelated recall-pressure event "
+                                        f"{event_index + 1}."
+                                    ),
+                                    "metadata": {
+                                        "synthetic_check": True,
+                                        "sequence": event_index + 1,
+                                    },
+                                    **mutation_actor(run_id),
+                                }
+                            ),
+                        )
+                        unrelated_event_ids.append(unrelated_event["id"])
+                    pressure_context = await tool(
+                        session,
+                        "recall_work",
+                        {**ready_identity, "recent_event_limit": 20},
+                    )
+                    pressure_history = await tool(
+                        session,
+                        "list_work_gates",
+                        {**ready_identity, "status": "all", "limit": 100},
+                    )
+                    require(
+                        pressure_context["event_total"] == 30
+                        and pressure_context["omitted_event_count"] == 10
+                        and len(pressure_context["recent_events"]) == 20
+                        and all(
+                            event["event_type"] == "progress"
+                            for event in pressure_context["recent_events"]
+                        )
+                        and [
+                            event["id"] for event in pressure_context["recent_events"]
+                        ]
+                        == unrelated_event_ids[-20:]
+                        and pressure_context["resolved_gate_total"] == 1
+                        and pressure_context["omitted_resolved_gate_count"] == 0
+                        and pressure_context["recent_resolved_gates"] == [resolved_gate]
+                        and pressure_history["total"] == 1
+                        and pressure_history["items"] == [resolved_gate],
+                        "Ordinary event pressure evicted or changed paired gate history.",
+                    )
 
                     terminal_create_arguments = retained_mutation(
                         {
@@ -1814,6 +2231,41 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         work_item_id in root_ids and child_id not in root_ids,
                         "Root hierarchy browse did not separate the child from its parent.",
                     )
+                    root_branch = next(
+                        item
+                        for item in roots.json()["items"]
+                        if item["summary"]["work_item"]["id"] == work_item_id
+                    )
+                    child_branch = children.json()["items"][0]
+                    require(
+                        root_branch["presentation"]
+                        == {
+                            "direct_child_count": 1,
+                            "descendant_count": 1,
+                            "blocked_descendant_count": 0,
+                            "active_descendant_count": 0,
+                            "completed_descendant_count": 0,
+                            "discovered_descendant_count": 1,
+                            "branch_unresolved_human_gate_count": 0,
+                            "is_discovered_work": False,
+                            "discovered_from_parent": False,
+                            "next_active_descendant_lease_expires_at": None,
+                        }
+                        and child_branch["presentation"]
+                        == {
+                            "direct_child_count": 0,
+                            "descendant_count": 0,
+                            "blocked_descendant_count": 0,
+                            "active_descendant_count": 0,
+                            "completed_descendant_count": 0,
+                            "discovered_descendant_count": 0,
+                            "branch_unresolved_human_gate_count": 0,
+                            "is_discovered_work": True,
+                            "discovered_from_parent": True,
+                            "next_active_descendant_lease_expires_at": None,
+                        },
+                        "Hierarchy browse returned incorrect root or discovery aggregates.",
+                    )
                     rejected_root_query = await api.get(
                         f"projects/{project_id}/work-items",
                         params={"view": "roots", "q": child_marker},
@@ -2064,7 +2516,9 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     print(
                         "PASS: canonical create/search/recall/checkpoints/events, resource/prompt, "
                         "dashboard edit, typed stale conflict, claim/replay/renew/release, "
-                        "pointer and capability isolation, exact ready discovery and reappearance, "
+                        "pointer and capability isolation, human-gate request/resolution replay, "
+                        "single activity advance, attention/history/context convergence under "
+                        "ordinary-event pressure, waiting readiness and exact hierarchy counts, "
                         "event replay/no-op behavior, atomic child/discovery, hierarchy browse, "
                         "leased completion/reopen, graph removal and soft deletion"
                     )
@@ -2100,7 +2554,7 @@ def main() -> None:
         "--project-id",
         type=project_uuid,
         help=(
-            "Explicitly authorizes one synthetic Phase 6 ready/event lifecycle and cleanup "
+            "Explicitly authorizes one synthetic Phases 7–8 human-gate/ready/event lifecycle and cleanup "
             "inside this project"
         ),
     )

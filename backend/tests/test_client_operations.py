@@ -15,6 +15,8 @@ from mnemonic_api.errors import ApplicationError
 from mnemonic_api.schemas import (
     CheckpointCreate,
     EventMetadata,
+    HumanGateRequestCreate,
+    HumanGateResolutionCreate,
     LeaseReleaseCreate,
     LeaseTokenCreate,
     MutationActor,
@@ -51,6 +53,7 @@ PROJECT_ID = UUID("10000000-0000-0000-0000-000000000001")
 WORK_ID = UUID("20000000-0000-0000-0000-000000000001")
 OTHER_WORK_ID = UUID("20000000-0000-0000-0000-000000000002")
 CHECKPOINT_ID = UUID("30000000-0000-0000-0000-000000000001")
+GATE_ID = UUID("35000000-0000-0000-0000-000000000001")
 OPERATION_ID = UUID("40000000-0000-0000-0000-000000000001")
 OPERATION_ID_SPELLINGS = (
     str(OPERATION_ID).upper(),
@@ -145,6 +148,25 @@ def canonical_vector_cases():
     release_request = LeaseReleaseCreate(
         lease_token="lease-capability",
         actor=MutationActor(**actor()),
+        client_operation_id=OPERATION_ID,
+    )
+    gate_request = HumanGateRequestCreate(
+        question="Choose the durable release boundary.\r\n",
+        requested_by_client="pytest",
+        requested_by_session_id="phase-7-unit",
+        requested_by_model="test-model",
+        client_operation_id=OPERATION_ID,
+    )
+    gate_resolution = HumanGateResolutionCreate(
+        resolution="Use the reviewed branch boundary.",
+        resolved_by_client="dashboard",
+        resolved_by_session_id="phase-7-human",
+        acknowledge_context_change=True,
+        reviewed_context_revision={
+            "work_version": 9,
+            "context_checkpoint_id": CHECKPOINT_ID,
+            "relationship_event_count": 4,
+        },
         client_operation_id=OPERATION_ID,
     )
 
@@ -292,6 +314,35 @@ def canonical_vector_cases():
             release_request,
             {"lease_token": "lease-capability", "actor": actor_fields},
         ),
+        (
+            "request_human_input",
+            {"work_item_id": WORK_ID},
+            gate_request,
+            {
+                "gate_type": "human",
+                "question": "Choose the durable release boundary.\r\n",
+                "requested_by_client": "pytest",
+                "requested_by_session_id": "phase-7-unit",
+                "requested_by_model": "test-model",
+            },
+        ),
+        (
+            "resolve_human_input",
+            {"work_item_id": WORK_ID, "gate_id": GATE_ID},
+            gate_resolution,
+            {
+                "resolution": "Use the reviewed branch boundary.",
+                "resolved_by_client": "dashboard",
+                "resolved_by_session_id": "phase-7-human",
+                "resolved_by_model": None,
+                "acknowledge_context_change": True,
+                "reviewed_context_revision": {
+                    "work_version": 9,
+                    "context_checkpoint_id": str(CHECKPOINT_ID),
+                    "relationship_event_count": 4,
+                },
+            },
+        ),
     ]
 
 
@@ -306,6 +357,8 @@ CANONICAL_DIGESTS = {
     "delete_work": "a7a4bdbc1b8351e50f8b449bf7d6b911381bc51625a2ffa9947cd4acb0762bd0",
     "remove_relationship": "dd9ade0a4af557a223f23ddb660f8bef4a02aa4ff635a034bf44dc2b7263e59e",
     "release_claim": "c126a78e24676588e683387709035ecbedde7b6d2f6d1799bf2e36f71678fb8e",
+    "request_human_input": "ca768c0d25c3abe9b966af1612c0f102418b748f1a795135594223ee8749a114",
+    "resolve_human_input": "a5e13004a92f7cdcedacae759f7e5fdfaa182155ce96c60805b39ea641aa8c14",
 }
 
 
@@ -391,6 +444,62 @@ def response_vector_cases():
         "version": 3,
     }
     deletion_response = {"deleted": True, **deletion_input}
+    unresolved_gate = {
+        "id": str(GATE_ID),
+        "project_id": str(PROJECT_ID),
+        "work_item_id": str(WORK_ID),
+        "gate_type": "human",
+        "question": "Choose the durable release boundary.",
+        "requested_by_client": "pytest",
+        "requested_by_session_id": "phase-7-unit",
+        "requested_by_model": "test-model",
+        "requested_work_version": 2,
+        "requested_context_checkpoint_id": str(CHECKPOINT_ID),
+        "requested_relationship_event_count": 0,
+        "created_at": created_at,
+        "status": "unresolved",
+        "current_context_revision": {
+            "work_version": 2,
+            "context_checkpoint_id": str(CHECKPOINT_ID),
+            "relationship_event_count": 0,
+        },
+        "work_changed_since_request": False,
+        "context_checkpoint_changed_since_request": False,
+        "relationships_changed_since_request": False,
+        "context_changed_since_request": False,
+        "resolved_at": None,
+        "resolution": None,
+        "resolved_by_client": None,
+        "resolved_by_session_id": None,
+        "resolved_by_model": None,
+        "resolved_context_revision": None,
+        "context_changed_at_resolution": None,
+        "context_change_acknowledged": None,
+    }
+    resolved_gate = {
+        **unresolved_gate,
+        "status": "resolved",
+        "current_context_revision": {
+            "work_version": 3,
+            "context_checkpoint_id": str(CHECKPOINT_ID),
+            "relationship_event_count": 4,
+        },
+        "work_changed_since_request": True,
+        "relationships_changed_since_request": True,
+        "context_changed_since_request": True,
+        "resolved_at": updated_at,
+        "resolution": "Use the reviewed branch boundary.",
+        "resolved_by_client": "dashboard",
+        "resolved_by_session_id": "phase-7-human",
+        "resolved_by_model": None,
+        "resolved_context_revision": {
+            "work_version": 3,
+            "context_checkpoint_id": str(CHECKPOINT_ID),
+            "relationship_event_count": 4,
+        },
+        "context_changed_at_resolution": True,
+        "context_change_acknowledged": True,
+    }
     return [
         (
             "create_work",
@@ -448,6 +557,8 @@ def response_vector_cases():
             {"work_item_id": str(WORK_ID), "released": False},
             {"work_item_id": str(WORK_ID), "released": False},
         ),
+        ("request_human_input", unresolved_gate, unresolved_gate),
+        ("resolve_human_input", resolved_gate, resolved_gate),
     ]
 
 
@@ -462,6 +573,8 @@ RESPONSE_V1_DIGESTS = {
     "delete_work": "5a15f8bd7a23ac3b5a0545914e60a6e3e2f3306327fb28e1386074292690a5e9",
     "remove_relationship": "e71f2ae31da622edb038d3ea5e83da22fd88397c63e463de420a60aa60a8e7d4",
     "release_claim": "a12ffef2c559e02d33d223cafd7f0fea6456f55a53ed21b3ae04abe39eb674f2",
+    "request_human_input": "5fd0713522e63f9341aa05d51cd48a967e027f47a2f8e07a54c290ee59ad0edd",
+    "resolve_human_input": "826b80a22f1fee30d9b9b8f034ab25305a4a6b14b64a8f64d056530cf678d6fd",
 }
 
 
@@ -523,7 +636,7 @@ def test_every_registered_operation_has_a_frozen_response_v1_vector(
 
 def test_registry_is_closed_and_non_capability_bearing():
     assert tuple(OPERATION_REGISTRY) == REGISTERED_OPERATION_KINDS
-    assert len(OPERATION_REGISTRY) == 10
+    assert len(OPERATION_REGISTRY) == 12
     assert {
         spec.request_model.__name__ for spec in OPERATION_REGISTRY.values()
     } == {
@@ -537,6 +650,8 @@ def test_registry_is_closed_and_non_capability_bearing():
         "WorkDeletionCreate",
         "RelationshipRemovalCreate",
         "LeaseReleaseCreate",
+        "HumanGateRequestCreate",
+        "HumanGateResolutionCreate",
     }
     for kind, spec in OPERATION_REGISTRY.items():
         assert spec.kind == kind
@@ -594,6 +709,18 @@ def test_exactly_covered_request_models_accept_the_optional_uuid():
         LeaseReleaseCreate(
             lease_token="capability",
             actor=MutationActor(**actor()),
+            client_operation_id=operation_id,
+        ),
+        HumanGateRequestCreate(
+            question="Choose a boundary.",
+            requested_by_client="pytest",
+            requested_by_session_id="phase-7-unit",
+            client_operation_id=operation_id,
+        ),
+        HumanGateResolutionCreate(
+            resolution="Use the reviewed boundary.",
+            resolved_by_client="dashboard",
+            resolved_by_session_id="phase-7-human",
             client_operation_id=operation_id,
         ),
     ]

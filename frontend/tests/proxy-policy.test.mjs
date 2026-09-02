@@ -5,7 +5,7 @@ import {
   clientOperationMatchesSecret,
   configuredOrigins,
   forbiddenMutationField,
-  forbiddenOperationTransport,
+  forbiddenControlTransport,
   invalidMutationBody,
   trustedRequest,
   upstreamTimeoutMs
@@ -16,6 +16,8 @@ const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
 const other = "f1cf3691-7d28-4716-94a9-4867b341a685";
 const work = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const operation = "91b9168a-37d1-4a6a-aa1f-bb538b65cb55";
+const gate = "1dfa9455-4a17-4cd4-938b-010ea17ccaf0";
+const checkpoint = "26a3a437-0af3-405a-ab82-7932d17869e0";
 const headers = (overrides = {}) => new Headers({ host: "localhost:3000", ...overrides });
 
 test("ordinary same-origin browser reads work without an Origin header", () => {
@@ -81,6 +83,13 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/complete`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/defer`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/delete`, "POST"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/human-attention`, "GET"), ["work_item_id", "limit", "cursor"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/gates`, "GET"), ["status", "limit", "cursor"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/gates/${gate}/context`, "GET"), ["recent_limit", "recent_event_limit"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/gates/${gate}/resolve`, "POST"), []);
+  assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/gates`, "POST"), null);
+  assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/gates/${gate}`, "PATCH"), null);
+  assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/gates/${gate}`, "DELETE"), null);
   for (const path of ["sync", "healthz", "readyz", "docs", "openapi.json", "projects/../docs", "projects/%2e%2e/docs", "projects/not-a-uuid", `projects/${project}/unknown-collection`, "https://attacker.example", "//attacker.example"]) {
     assert.equal(allowedQueryKeys(path, "GET"), null);
   }
@@ -215,6 +224,8 @@ test("Phase 5 progress proxy validation enforces recursive metadata and text bou
   ]) {
     assert.match(invalid({ metadata }), /allowlist/);
   }
+  assert.match(invalid({ metadata: { nested: [{ gate_id: gate }] } }), /gate_id/);
+  assert.match(invalid({ metadata: { nested: [{ GaTe_TyPe: "human" }] } }), /GaTe_TyPe/);
   assert.equal(invalid({
     body: "<script>kept as inert text</script>",
     metadata: { nested: ["safe", { count: 2 }] }
@@ -301,7 +312,45 @@ test("Phase 6 proxy accepts the operation UUID on all nine dashboard mutation bo
   }
 });
 
-test("Phase 6 proxy rejects operation IDs in nested, excluded, header, cookie, and secret positions", () => {
+test("human-gate resolution is the only browser gate mutation and binds exact reviewed context", () => {
+  const path = `projects/${project}/work-items/${work}/gates/${gate}/resolve`;
+  const base = {
+    resolution: "Proceed only after checking current policy.",
+    resolved_by_client: "dashboard",
+    resolved_by_session_id: "tab-1",
+    resolved_by_model: null,
+    acknowledge_context_change: false,
+    client_operation_id: operation
+  };
+  assert.equal(invalidMutationBody(path, "POST", base), null);
+  assert.equal(invalidMutationBody(path, "POST", {
+    ...base,
+    acknowledge_context_change: true,
+    reviewed_context_revision: {
+      work_version: 3,
+      context_checkpoint_id: checkpoint,
+      relationship_event_count: 8
+    }
+  }), null);
+
+  for (const invalid of [
+    { ...base, resolution: "   " },
+    { ...base, resolved_by_client: "agent" },
+    { ...base, resolved_by_session_id: "x".repeat(201) },
+    { ...base, resolved_by_model: "model" },
+    { ...base, acknowledge_context_change: true },
+    { ...base, reviewed_context_revision: { work_version: 3, context_checkpoint_id: checkpoint, relationship_event_count: 8 } },
+    { ...base, gate_id: gate },
+    { ...base, answer_suggestion: "forged" },
+    { ...base, client_operation_id: "not-a-uuid" }
+  ]) assert.ok(invalidMutationBody(path, "POST", invalid));
+
+  assert.equal(forbiddenMutationField({ nested: { gate_id: gate } }), "gate_id");
+  assert.equal(forbiddenMutationField({ nested: { Gate_ID: gate } }), "Gate_ID");
+  assert.equal(forbiddenMutationField({ nested: { GaTe_TyPe: "human" } }), "GaTe_TyPe");
+});
+
+test("proxy rejects gate and operation IDs in excluded transport locations", () => {
   const actor = { actor_client: "dashboard", actor_session_id: "tab-1" };
   assert.match(invalidMutationBody("projects", "POST", {
     name: "Project",
@@ -339,25 +388,32 @@ test("Phase 6 proxy rejects operation IDs in nested, excluded, header, cookie, a
   assert.equal(protectedQueryKeys.includes("client_operation_id"), false);
 
   assert.equal(
-    forbiddenOperationTransport(new Headers({ client_operation_id: operation })),
+    forbiddenControlTransport(new Headers({ client_operation_id: operation })),
     "header"
   );
-  assert.equal(forbiddenOperationTransport(new Headers({ "Idempotency-Key": operation })), "header");
-  assert.equal(forbiddenOperationTransport(new Headers({ "X-Client-Operation-Id": operation })), "header");
+  assert.equal(forbiddenControlTransport(new Headers({ "Idempotency-Key": operation })), "header");
+  assert.equal(forbiddenControlTransport(new Headers({ "X-Client-Operation-Id": operation })), "header");
+  assert.equal(forbiddenControlTransport(new Headers({ "Gate-Id": gate })), "header");
+  assert.equal(forbiddenControlTransport(new Headers({ "X-Gate-Id": gate })), "header");
   for (const name of [
     "client_operation_id",
     "client-operation-id",
     "idempotency-key",
     "x-idempotency-key",
-    "x-client-operation-id"
+    "x-client-operation-id",
+    "gate_id",
+    "gate-id",
+    "human-gate-id",
+    "x-gate-id",
+    "x-human-gate-id"
   ]) {
     assert.equal(
-      forbiddenOperationTransport(new Headers({ cookie: `theme=dark; ${name}=${operation}` })),
+      forbiddenControlTransport(new Headers({ cookie: `theme=dark; ${name}=${operation}` })),
       "cookie",
       name
     );
   }
-  assert.equal(forbiddenOperationTransport(new Headers({ cookie: "theme=dark" })), null);
+  assert.equal(forbiddenControlTransport(new Headers({ cookie: "theme=dark" })), null);
   assert.equal(clientOperationMatchesSecret(
     JSON.stringify({ client_operation_id: operation }),
     operation

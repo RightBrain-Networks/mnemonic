@@ -27,4 +27,28 @@ test("ordinary browse pages structural roots and child pages inherit filters", (
   assert.equal(childSearchParams({ status: "promoted", sort: "created", limit: 50, offset: 100 }).toString(), "status=promoted&sort=created&limit=50&offset=100");
   assert.equal(childSearchParams({ status: "dropped", sort: "updated", limit: 50, offset: 0 }).toString(), "status=dropped&sort=updated&limit=50&offset=0");
   assert.equal(childSearchParams({ status: "deferred", sort: "updated", limit: 50, offset: 0 }).toString(), "status=deferred&sort=updated&limit=50&offset=0");
+  assert.equal(
+    childSearchParams({
+      status: "done",
+      sort: "created",
+      limit: 50,
+      offset: 0,
+      tag: " release ",
+      sourceClient: " claude-code ",
+      sourceSessionId: " session-7 "
+    }).toString(),
+    "status=done&sort=created&limit=50&offset=0&tag=release&source_client=claude-code&source_session_id=session-7"
+  );
+  assert.equal(
+    childSearchParams({
+      status: "all",
+      sort: "created",
+      limit: 50,
+      offset: 0,
+      tag: " ",
+      sourceClient: "",
+      sourceSessionId: "\n"
+    }).toString(),
+    "status=all&sort=created&limit=50&offset=0"
+  );
 });

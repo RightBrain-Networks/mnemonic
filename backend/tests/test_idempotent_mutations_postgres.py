@@ -255,6 +255,40 @@ def test_keyed_checkpoint_metadata_reserved_names_never_reach_history_or_receipt
         } == baseline
 
 
+def test_keyed_progress_gate_metadata_is_rejected_before_receipt_reservation(
+    api,
+    project,
+    work_payload,
+    postgres_engine,
+):
+    work = create_unkeyed(api, project, work_payload, "Reserved gate metadata target")
+    endpoint = work_path(project, work)
+    baseline = {
+        table: table_count(postgres_engine, table)
+        for table in ("work_items", "work_events", "client_operations")
+    }
+
+    for metadata in (
+        {"gate_id": str(uuid4())},
+        {"nested": [{"GaTe_TyPe": "human"}]},
+    ):
+        response = api.post(
+            f"{endpoint}/events",
+            json={
+                "event_type": "progress",
+                "body": "This must not reserve or append.",
+                "metadata": metadata,
+                "actor": actor("reserved-gate-metadata"),
+                "client_operation_id": str(uuid4()),
+            },
+        )
+        assert response.status_code == 422, response.text
+        assert {
+            table: table_count(postgres_engine, table)
+            for table in baseline
+        } == baseline
+
+
 def test_case_varied_operation_uuid_cannot_enter_history_or_receipts(
     api,
     project,

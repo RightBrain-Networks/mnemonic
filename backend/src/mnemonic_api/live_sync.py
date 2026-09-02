@@ -17,16 +17,12 @@ MUTATION_METHODS = frozenset({"POST", "PATCH", "DELETE"})
 @dataclass(frozen=True, slots=True)
 class MutationEvent:
     scope: Literal["projects", "work-items"]
-    project_id: str | None = None
-    work_item_id: str | None = None
 
-    def message(self, revision: int) -> dict[str, str | int | None]:
+    def message(self, revision: int) -> dict[str, str | int]:
         return {
             "type": "invalidate",
             "revision": revision,
             "scope": self.scope,
-            "project_id": self.project_id,
-            "work_item_id": self.work_item_id,
         }
 
 
@@ -42,21 +38,17 @@ def mutation_event(method: str, path: str) -> MutationEvent | None:
         return MutationEvent("projects") if method == "POST" else None
     if not UUID_PATTERN.fullmatch(remaining[0]):
         return None
-    project_id = remaining[0].lower()
     if len(remaining) == 1:
-        return MutationEvent("projects", project_id=project_id) if method == "PATCH" else None
+        return MutationEvent("projects") if method == "PATCH" else None
     if remaining[1:] == ["settings"]:
-        return MutationEvent("projects", project_id=project_id) if method == "PATCH" else None
+        return MutationEvent("projects") if method == "PATCH" else None
     if remaining[1] == "relationships":
-        return MutationEvent("work-items", project_id=project_id)
+        return MutationEvent("work-items")
     if remaining[1] != "work-items":
         return None
-    work_item_id = None
-    if len(remaining) >= 3 and UUID_PATTERN.fullmatch(remaining[2]):
-        work_item_id = remaining[2].lower()
-    return MutationEvent(
-        "work-items", project_id=project_id, work_item_id=work_item_id
-    )
+    if len(remaining) >= 3 and not UUID_PATTERN.fullmatch(remaining[2]):
+        return None
+    return MutationEvent("work-items")
 
 
 class LiveSyncHub:

@@ -12,6 +12,8 @@ from pydantic import (
     Field,
     JsonValue,
     RootModel,
+    StrictBool,
+    StrictInt,
     model_serializer,
     model_validator,
 )
@@ -29,8 +31,18 @@ AppendCheckpointKind = Literal["context", "progress"]
 CheckpointOrder = Literal["oldest", "newest"]
 MigrationOrigin = Literal["legacy-handoff-snapshot", "legacy-comment"]
 DisplayState = Literal[
-    "pending", "active", "dropped", "blocked", "deferred", "done", "wont-do", "promoted"
+    "pending",
+    "active",
+    "dropped",
+    "blocked",
+    "waiting",
+    "deferred",
+    "done",
+    "wont-do",
+    "promoted",
 ]
+HumanGateStatus = Literal["unresolved", "resolved"]
+HumanGateHistoryStatus = Literal["all", "unresolved", "resolved"]
 RelationshipType = Literal[
     "blocks",
     "parent-child",
@@ -59,6 +71,8 @@ EventType = Literal[
     "relationship_removed",
     "work_completed",
     "work_deleted",
+    "human_attention_requested",
+    "human_attention_resolved",
 ]
 
 _HISTORICAL_RESERVED_METADATA_KEYS = frozenset(
@@ -72,7 +86,9 @@ _HISTORICAL_RESERVED_METADATA_KEYS = frozenset(
     }
 )
 _REQUEST_RESERVED_METADATA_KEYS = _HISTORICAL_RESERVED_METADATA_KEYS | {
-    "client_operation_id"
+    "client_operation_id",
+    "gate_id",
+    "gate_type",
 }
 
 
@@ -170,6 +186,21 @@ RetainedClientName = Annotated[
 RetainedSessionID = Annotated[
     str,
     Field(min_length=1, max_length=200),
+    AfterValidator(_validated_event_text),
+]
+RetainedModelName = Annotated[
+    str,
+    Field(min_length=1, max_length=120),
+    AfterValidator(_validated_event_text),
+]
+HumanGateText = Annotated[
+    str,
+    Field(min_length=1, max_length=4000),
+    AfterValidator(_validated_event_text),
+]
+OpaqueCursor = Annotated[
+    str,
+    Field(min_length=1, max_length=4096),
     AfterValidator(_validated_event_text),
 ]
 
@@ -275,6 +306,11 @@ class RelationshipEventMetadata(CanonicalResponse):
     relationship_type: RelationshipType
 
 
+class HumanGateEventMetadata(CanonicalResponse):
+    gate_id: UUID
+    gate_type: Literal["human"]
+
+
 class WorkCompletedLiveMetadata(CanonicalResponse):
     from_status: Literal["open", "pending"]
     to_status: Literal["done"]
@@ -301,6 +337,7 @@ WorkEventMetadata = (
     | WorkReleasedUnattributedMetadata
     | CheckpointAddedMetadata
     | RelationshipEventMetadata
+    | HumanGateEventMetadata
     | WorkCompletedLiveMetadata
     | WorkDeletedMetadata
     | ProgressEventMetadata
@@ -392,14 +429,54 @@ class LeasePublic(CanonicalResponse):
 
 class Readiness(CanonicalResponse):
     lifecycle_status: Status
-    is_terminal: bool
-    has_active_lease: bool
-    has_dropped_lease: bool
+    is_terminal: StrictBool
+    has_active_lease: StrictBool
+    has_dropped_lease: StrictBool
     active_lease: LeasePublic | None
-    unresolved_blocker_count: int
-    is_blocked: bool
-    is_ready: bool
+    unresolved_blocker_count: StrictInt = Field(ge=0)
+    is_blocked: StrictBool
+    unresolved_gate_count: StrictInt = Field(ge=0)
+    is_gated: StrictBool
+    is_ready: StrictBool
     display_state: DisplayState
+
+    @model_validator(mode="after")
+    def enforce_readiness_contract(self) -> Self:
+        if self.is_terminal != (self.lifecycle_status in {"done", "wont-do", "promoted"}):
+            raise ValueError("Terminal readiness must match lifecycle status.")
+        if self.has_active_lease != (self.active_lease is not None):
+            raise ValueError("Active lease readiness must match its public projection.")
+        if self.has_active_lease and self.has_dropped_lease:
+            raise ValueError("A retained lease cannot be active and dropped simultaneously.")
+        if self.is_blocked != (self.unresolved_blocker_count > 0):
+            raise ValueError("Blocked readiness must match its unresolved count.")
+        if self.is_gated != (self.unresolved_gate_count > 0):
+            raise ValueError("Gated readiness must match its unresolved count.")
+
+        expected_ready = (
+            self.lifecycle_status == "pending"
+            and not self.has_active_lease
+            and self.unresolved_blocker_count == 0
+            and self.unresolved_gate_count == 0
+        )
+        if self.is_ready != expected_ready:
+            raise ValueError("Ready state must match lifecycle, lease, blocker, and gate facts.")
+
+        if self.lifecycle_status != "pending":
+            expected_display: DisplayState = self.lifecycle_status
+        elif self.is_gated:
+            expected_display = "waiting"
+        elif self.is_blocked:
+            expected_display = "blocked"
+        elif self.has_active_lease:
+            expected_display = "active"
+        elif self.has_dropped_lease:
+            expected_display = "dropped"
+        else:
+            expected_display = "pending"
+        if self.display_state != expected_display:
+            raise ValueError("Display state must follow the canonical precedence.")
+        return self
 
 
 class WorkItemRead(CanonicalResponse):
@@ -492,6 +569,182 @@ class WorkSummary(CanonicalResponse):
     ancestor_path_truncated: bool = False
     current_context: CheckpointPointer
     readiness: Readiness
+
+
+class HumanGateContextRevision(CanonicalResponse):
+    work_version: StrictInt = Field(ge=1)
+    context_checkpoint_id: UUID
+    relationship_event_count: StrictInt = Field(ge=0)
+
+
+class HumanGateRead(CanonicalResponse):
+    id: UUID
+    project_id: UUID
+    work_item_id: UUID
+    gate_type: Literal["human"]
+    question: HumanGateText
+    requested_by_client: RetainedClientName
+    requested_by_session_id: RetainedSessionID
+    requested_by_model: RetainedModelName | None
+    requested_work_version: StrictInt = Field(ge=1)
+    requested_context_checkpoint_id: UUID
+    requested_relationship_event_count: StrictInt = Field(ge=0)
+    created_at: UTCDateTime
+    status: HumanGateStatus
+    current_context_revision: HumanGateContextRevision
+    work_changed_since_request: StrictBool
+    context_checkpoint_changed_since_request: StrictBool
+    relationships_changed_since_request: StrictBool
+    context_changed_since_request: StrictBool
+    resolved_at: UTCDateTime | None
+    resolution: HumanGateText | None
+    resolved_by_client: RetainedClientName | None
+    resolved_by_session_id: RetainedSessionID | None
+    resolved_by_model: RetainedModelName | None
+    resolved_context_revision: HumanGateContextRevision | None
+    context_changed_at_resolution: StrictBool | None
+    context_change_acknowledged: StrictBool | None
+
+    @model_validator(mode="after")
+    def enforce_gate_contract(self) -> Self:
+        current = self.current_context_revision
+        work_changed = current.work_version != self.requested_work_version
+        checkpoint_changed = (
+            current.context_checkpoint_id != self.requested_context_checkpoint_id
+        )
+        relationships_changed = (
+            current.relationship_event_count
+            != self.requested_relationship_event_count
+        )
+        if self.work_changed_since_request != work_changed:
+            raise ValueError("Current work drift does not match the request anchor.")
+        if self.context_checkpoint_changed_since_request != checkpoint_changed:
+            raise ValueError("Current checkpoint drift does not match the request anchor.")
+        if self.relationships_changed_since_request != relationships_changed:
+            raise ValueError("Current relationship drift does not match the request anchor.")
+        if self.context_changed_since_request != (
+            work_changed or checkpoint_changed or relationships_changed
+        ):
+            raise ValueError("Aggregate context drift must be the OR of its components.")
+
+        resolution_required = (
+            self.resolved_at,
+            self.resolution,
+            self.resolved_by_client,
+            self.resolved_by_session_id,
+            self.resolved_context_revision,
+            self.context_changed_at_resolution,
+            self.context_change_acknowledged,
+        )
+        if self.status == "unresolved":
+            if any(value is not None for value in (*resolution_required, self.resolved_by_model)):
+                raise ValueError("Unresolved gates cannot contain resolution fields.")
+            return self
+
+        if any(value is None for value in resolution_required):
+            raise ValueError("Resolved gates require complete resolution fields.")
+        if self.resolved_at is not None and self.resolved_at < self.created_at:
+            raise ValueError("Gate resolution cannot predate its request.")
+
+        resolved = self.resolved_context_revision
+        if resolved is None:  # pragma: no cover - guarded above for type narrowing
+            raise ValueError("Resolved gates require a context revision.")
+        resolved_drift = (
+            resolved.work_version != self.requested_work_version
+            or resolved.context_checkpoint_id != self.requested_context_checkpoint_id
+            or resolved.relationship_event_count
+            != self.requested_relationship_event_count
+        )
+        if self.context_changed_at_resolution != resolved_drift:
+            raise ValueError("Resolution drift does not match the accepted revision.")
+        if self.context_change_acknowledged != resolved_drift:
+            raise ValueError("Context acknowledgement must exactly match resolution drift.")
+        return self
+
+
+class HumanAttentionItem(CanonicalResponse):
+    gate: HumanGateRead
+    summary: WorkSummary
+
+    @model_validator(mode="after")
+    def enforce_attention_item_contract(self) -> Self:
+        work_item = self.summary.work_item
+        if (
+            self.gate.status != "unresolved"
+            or self.gate.project_id != work_item.project_id
+            or self.gate.work_item_id != work_item.id
+            or not self.summary.readiness.is_gated
+            or self.summary.readiness.unresolved_gate_count < 1
+            or self.gate.current_context_revision.work_version != work_item.version
+            or self.gate.current_context_revision.context_checkpoint_id
+            != self.summary.current_context.id
+        ):
+            raise ValueError("Human-attention gate and work summary are incoherent.")
+        return self
+
+
+class HumanAttentionPage(CanonicalResponse):
+    items: list[HumanAttentionItem] = Field(max_length=100)
+    total: StrictInt = Field(ge=0)
+    limit: StrictInt = Field(ge=0, le=100)
+    next_cursor: OpaqueCursor | None
+
+    @model_validator(mode="after")
+    def enforce_attention_page_contract(self) -> Self:
+        if len(self.items) > self.limit or len(self.items) > self.total:
+            raise ValueError("Human-attention page bounds are inconsistent.")
+        if self.limit == 0 and (self.items or self.next_cursor is not None):
+            raise ValueError("Count-only attention pages cannot contain items or a cursor.")
+        return self
+
+
+class HumanGatePage(CanonicalResponse):
+    items: list[HumanGateRead] = Field(max_length=100)
+    total: StrictInt = Field(ge=0)
+    limit: StrictInt = Field(ge=1, le=100)
+    next_cursor: OpaqueCursor | None
+
+    @model_validator(mode="after")
+    def enforce_gate_page_contract(self) -> Self:
+        if len(self.items) > self.limit or len(self.items) > self.total:
+            raise ValueError("Human-gate page bounds are inconsistent.")
+        return self
+
+
+class HierarchyPresentation(CanonicalResponse):
+    direct_child_count: StrictInt = Field(ge=0)
+    descendant_count: StrictInt = Field(ge=0)
+    blocked_descendant_count: StrictInt = Field(ge=0)
+    active_descendant_count: StrictInt = Field(ge=0)
+    completed_descendant_count: StrictInt = Field(ge=0)
+    discovered_descendant_count: StrictInt = Field(ge=0)
+    branch_unresolved_human_gate_count: StrictInt = Field(ge=0)
+    is_discovered_work: StrictBool
+    discovered_from_parent: StrictBool
+    next_active_descendant_lease_expires_at: UTCDateTime | None
+
+    @model_validator(mode="after")
+    def enforce_hierarchy_bounds(self) -> Self:
+        for count in (
+            self.blocked_descendant_count,
+            self.active_descendant_count,
+            self.completed_descendant_count,
+            self.discovered_descendant_count,
+        ):
+            if count > self.descendant_count:
+                raise ValueError("Descendant category counts cannot exceed descendants.")
+        if (self.active_descendant_count == 0) != (
+            self.next_active_descendant_lease_expires_at is None
+        ):
+            raise ValueError("Active-descendant expiry must match the active count.")
+        return self
+
+
+class HierarchySummary(CanonicalResponse):
+    summary: WorkSummary
+    self_matches_filter: bool
+    has_matching_descendants: bool
+    presentation: HierarchyPresentation
 
 
 class WorkItemPointer(CanonicalResponse):
@@ -607,6 +860,8 @@ class WorkEventRead(CanonicalResponse):
             "dependency_added",
             "relationship_added",
             "work_completed",
+            "human_attention_requested",
+            "human_attention_resolved",
         }
         if (
             self.origin == "live"
@@ -633,13 +888,18 @@ class WorkEventRead(CanonicalResponse):
         ):
             raise ValueError("Backfilled deletion events must be unattributed.")
 
-        if self.event_type == "progress":
+        body_event_types = {
+            "progress",
+            "human_attention_requested",
+            "human_attention_resolved",
+        }
+        if self.event_type in body_event_types:
             if self.origin != "live" or self.body is None:
-                raise ValueError("Progress events require a live body.")
+                raise ValueError("Body-bearing events require a live body.")
             if not 1 <= len(self.body) <= 4000 or not self.body.strip() or "\x00" in self.body:
-                raise ValueError("Progress event bodies must be bounded nonblank text.")
+                raise ValueError("Event bodies must be bounded nonblank text.")
         elif self.body is not None:
-            raise ValueError("Server-reserved event types cannot contain a body.")
+            raise ValueError("Other server-reserved event types cannot contain a body.")
 
         checkpoint_events = {"work_created", "checkpoint_added", "work_completed"}
         if (self.checkpoint_id is not None) != (self.event_type in checkpoint_events):
@@ -785,6 +1045,11 @@ class WorkEventRead(CanonicalResponse):
             parsed = metadata_type.model_validate(payload)
         elif self.event_type == "work_deleted":
             parsed = WorkDeletedMetadata.model_validate(payload)
+        elif self.event_type in {
+            "human_attention_requested",
+            "human_attention_resolved",
+        }:
+            parsed = HumanGateEventMetadata.model_validate(payload)
         else:  # pragma: no cover - EventType keeps this exhaustive
             raise ValueError("Unknown event type.")
 
@@ -813,6 +1078,12 @@ class WorkContext(CanonicalResponse):
     checkpoint_total: int
     omitted_checkpoint_count: int
     readiness: Readiness
+    unresolved_gates: list[HumanGateRead] = Field(max_length=20)
+    unresolved_gate_total: StrictInt = Field(ge=0)
+    omitted_unresolved_gate_count: StrictInt = Field(ge=0)
+    recent_resolved_gates: list[HumanGateRead] = Field(max_length=20)
+    resolved_gate_total: StrictInt = Field(ge=0)
+    omitted_resolved_gate_count: StrictInt = Field(ge=0)
     recent_events: list[WorkEventRead]
     event_total: int
     omitted_event_count: int
@@ -821,6 +1092,46 @@ class WorkContext(CanonicalResponse):
     outgoing_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
     undirected_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
     relationship_counts: RelationshipCounts = Field(default_factory=RelationshipCounts)
+
+    @model_validator(mode="after")
+    def enforce_gate_recall_contract(self) -> Self:
+        if self.unresolved_gate_total != self.readiness.unresolved_gate_count:
+            raise ValueError("Recall gate totals must match readiness.")
+        if self.omitted_unresolved_gate_count != (
+            self.unresolved_gate_total - len(self.unresolved_gates)
+        ):
+            raise ValueError("Unresolved gate omission count is inconsistent.")
+        if self.omitted_resolved_gate_count != (
+            self.resolved_gate_total - len(self.recent_resolved_gates)
+        ):
+            raise ValueError("Resolved gate omission count is inconsistent.")
+
+        context_checkpoint_id = (
+            self.initial_checkpoint.id
+            if self.current_context_is_initial
+            else self.current_context.id if self.current_context is not None else None
+        )
+        if context_checkpoint_id is None:
+            raise ValueError("Recall must identify one current context checkpoint.")
+
+        seen_gate_ids: set[UUID] = set()
+        for gate in [*self.unresolved_gates, *self.recent_resolved_gates]:
+            if gate.id in seen_gate_ids:
+                raise ValueError("Recall gate slices cannot duplicate a gate.")
+            seen_gate_ids.add(gate.id)
+            if (
+                gate.project_id != self.work_item.project_id
+                or gate.work_item_id != self.work_item.id
+                or gate.current_context_revision.work_version != self.work_item.version
+                or gate.current_context_revision.context_checkpoint_id
+                != context_checkpoint_id
+            ):
+                raise ValueError("Recall gate projection is outside current work context.")
+        if any(gate.status != "unresolved" for gate in self.unresolved_gates):
+            raise ValueError("Unresolved recall slice may contain only unresolved gates.")
+        if any(gate.status != "resolved" for gate in self.recent_resolved_gates):
+            raise ValueError("Resolved recall slice may contain only resolved gates.")
+        return self
 
 
 class ClaimReceipt(CanonicalResponse):

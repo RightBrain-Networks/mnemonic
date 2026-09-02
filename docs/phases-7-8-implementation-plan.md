@@ -1,6 +1,6 @@
 # Mnemonic Phases 7–8 — Human Gates and Hierarchical Presentation Implementation Plan
 
-**Status:** Planned; implementation has not started
+**Status:** Implemented and validated as one release on 2026-09-01
 
 **Scope:** Roadmap Phase 7, “First-class Human Gates,” and Phase 8, “Hierarchical Human
 Presentation,” delivered as one release
@@ -12,8 +12,9 @@ Presentation,” delivered as one release
 **Implementation baseline:** local `main` at commit `aa91181` (`Bound browser mutation recovery`),
 with Phase 6 migration head `0013_idempotent_mutations`
 
-**Planning constraint:** this document defines implementation work only. It does not authorize or
-contain implementation code.
+**Planning origin:** this document was the code-free implementation contract. Implementation was
+separately authorized, completed, and validated; the final evidence is recorded in
+docs/validation.md.
 
 ## 1. Outcome
 
@@ -1002,6 +1003,12 @@ reservation, reject an exact request-known occurrence of:
 - the request's `client_operation_id`; or
 - any other control/capability value actually present in that request.
 
+Completed receipt replay and UUID-conflict handling return before any time-varying lookup. For a
+genuinely new execution only, reject any UUID substring in a durable gate field that matches a
+currently retained gate ID or protected-operation ID, rolling back a new keyed reservation on
+rejection. This finite sink enforcement must not make an exact receipt replay depend on later
+retained state and is not an attempt to classify arbitrary UUID-shaped or opaque text as secret.
+
 Use one sanitized `422 gate_secret_echo` (or the existing client-operation secret error where the
 shared validator requires it), with empty context and no caller value. Identity fields and text are
 all checked. Gate schemas accept no metadata or lease token, so there is no nested control channel.
@@ -1133,7 +1140,7 @@ Add or document:
 | `409 gate_already_resolved` | a new first execution tried to resolve a completed gate | read current context/history; do not overwrite the answer |
 | `409 gate_context_changed` | request anchors drifted, acknowledgement/review revision is missing, or reviewed revision no longer equals locked current state | reload work/context/relationships and submit a new intent containing exactly the returned reviewed revision |
 | `503 human_gates_not_enabled` | gate creation is fenced during combined cutover | do not retry until operations enables the feature |
-| `422 gate_secret_echo` | request-known credential/control data appeared in durable gate fields | remove it and submit a genuinely corrected intent |
+| `422 gate_secret_echo` | request-known or currently retained gate/operation control data appeared in a genuinely new durable gate mutation | remove it and submit a genuinely corrected intent |
 
 All contexts are empty except any already-reviewed nonidentifying count that the standard conflict
 envelope permits; the preferred gate errors reveal no gate ID, question, answer, actor, or operation
@@ -2085,110 +2092,110 @@ Phases 7 and 8 are complete only when every item below is true.
 
 ### Persistence and migration
 
-- [ ] `0014` upgrades fresh and populated `0013` databases without changing prior content or
+- [x] `0014` upgrades fresh and populated `0013` databases without changing prior content or
       fabricating gates/events.
-- [ ] Gate type, scope, text, provenance, request/current/resolved revision anchors, immutable
+- [x] Gate type, scope, text, provenance, request/current/resolved revision anchors, immutable
       sequence, state, drift audit, timestamps, indexes, and FKs are database-enforced.
-- [ ] A gate begins unresolved, resolves exactly once, and cannot be updated/deleted afterward.
-- [ ] Request/resolution events are required, unique, immutable, and exact matches to their source
+- [x] A gate begins unresolved, resolves exactly once, and cannot be updated/deleted afterward.
+- [x] Request/resolution events are required, unique, immutable, and exact matches to their source
       gate.
-- [ ] The legacy metadata-v1 function and non-gate event wire shape are unchanged; every Phase 5/6
+- [x] The legacy metadata-v1 function and non-gate event wire shape are unchanged; every Phase 5/6
       historical event and populated append-event receipt remains readable/replayable byte-for-byte.
-- [ ] The receipt registry/check accept exactly twelve protected REST kinds with unchanged Phase 6
+- [x] The receipt registry/check accept exactly twelve protected REST kinds with unchanged Phase 6
       retention and immutability.
-- [ ] Lease generation/insert and terminal/delete database guards make an old backend fail closed,
+- [x] Lease generation/insert and terminal/delete database guards make an old backend fail closed,
       while same-generation renewal/release remain possible.
-- [ ] Unused downgrade is writer-locked and exact; any gate/event/receipt makes downgrade refuse.
-- [ ] Backup/restore preserves gates, events, readiness exclusion, and exact mutation replay.
+- [x] Unused downgrade is writer-locked and exact; any gate/event/receipt makes downgrade refuse.
+- [x] Backup/restore preserves gates, events, readiness exclusion, and exact mutation replay.
 
 ### Gate semantics and concurrency
 
-- [ ] Request is allowed only on visible Pending work and may coexist with an existing lease.
-- [ ] Ready listing and every fresh/replacement claim exclude unresolved gates through one shared
+- [x] Request is allowed only on visible Pending work and may coexist with an existing lease.
+- [x] Ready listing and every fresh/replacement claim exclude unresolved gates through one shared
       predicate.
-- [ ] Exact active claim replay, renewal, release, checkpoints, and progress remain available as
+- [x] Exact active claim replay, renewal, release, checkpoints, and progress remain available as
       specified.
-- [ ] Completion, every target-terminal transition, and deletion cannot race past an unresolved
+- [x] Completion, every target-terminal transition, and deletion cannot race past an unresolved
       gate; the current Deferred-to-terminal path remains invalid.
-- [ ] Work/version/context/relationship drift is visible; resolution is bound under lock to the
+- [x] Work/version/context/relationship drift is visible; resolution is bound under lock to the
       exact server-returned revision the human reviewed, and that revision/drift acknowledgement is
       permanently recorded.
-- [ ] Resolution changes only the gate, event history, work activity time, and derived readiness;
+- [x] Resolution changes only the gate, event history, work activity time, and derived readiness;
       it changes no work version/lifecycle/lease/relationship/checkpoint.
-- [ ] Same-key concurrency executes once; different-key resolution concurrency has one winner and
+- [x] Same-key concurrency executes once; different-key resolution concurrency has one winner and
       one definite conflict.
-- [ ] Lock-order tests cover gate/claim/lifecycle/graph races without deadlock.
+- [x] Lock-order tests cover gate/claim/lifecycle/graph races without deadlock.
 
 ### API, history, and idempotency
 
-- [ ] The two write routes plus attention and per-work history reads have strict documented
+- [x] The two write routes plus attention and per-work history reads have strict documented
       schemas, scope/filter-bound immutable cursors, the attention text-free count-only mode, and
       stable sanitized errors.
-- [ ] Request/resolution are enrolled in canonical fingerprint/response vectors; request replay
+- [x] Request/resolution are enrolled in canonical fingerprint/response vectors; request replay
       and UUID-conflict detection precede the creation fence, and all replay precedes current domain
       guards.
-- [ ] Replay creates no duplicate gate, event, activity change, version change, or durable/domain
+- [x] Replay creates no duplicate gate, event, activity change, version change, or durable/domain
       side effect; an applied replay may emit at most one optional data-free healing invalidation.
-- [ ] Work events expose two typed gate facts with exact bodies and internal/metadata ID coherence
+- [x] Work events expose two typed gate facts with exact bodies and internal/metadata ID coherence
       without changing legacy event response snapshots.
-- [ ] Work context reports exact unresolved/resolved totals, at most 20 active questions, and at
+- [x] Work context reports exact unresolved/resolved totals, at most 20 active questions, and at
       most 20 paired recent decisions; more than 20 unrelated events cannot evict the category.
-- [ ] Full paired gate history remains cursor-pageable for visible and exact retained deleted work.
-- [ ] Attention pages contain only current unresolved project-local gates in immutable sequence
+- [x] Full paired gate history remains cursor-pageable for visible and exact retained deleted work.
+- [x] Attention pages contain only current unresolved project-local gates in immutable sequence
       order with coherent summaries/ancestry; `limit=0` returns total without gate content.
-- [ ] The explicit allowed/forbidden sink matrix passes: gate content exists in authoritative
+- [x] The explicit allowed/forbidden sink matrix passes: gate content exists in authoritative
       gate/event/authorized-response/necessary-receipt sinks and nowhere forbidden.
 
 ### Hierarchical presentation
 
-- [ ] Blank dashboard browse is root-only and collapsed by default, with the documented filter-
+- [x] Blank dashboard browse is root-only and collapsed by default, with the documented filter-
       scaffolding exception.
-- [ ] Every root/child response carries exact direct/descendant/blocked/active/completed/discovered
+- [x] Every root/child response carries exact direct/descendant/blocked/active/completed/discovered
       and branch-gate counts with the defined inclusive/strict boundaries.
-- [ ] Aggregate counts are independent of current qualification filters and avoid join
+- [x] Aggregate counts are independent of current qualification filters and avoid join
       multiplication.
-- [ ] Discovery labels derive only from explicit discovery edges; no parent is inferred and an
+- [x] Discovery labels derive only from explicit discovery edges; no parent is inferred and an
       ungrouped discovery remains a root.
-- [ ] Children can be paged/drilled into; lifecycle/source/tag filters that hide them identify the
+- [x] Children can be paged/drilled into; lifecycle/source/tag filters that hide them identify the
       cause and offer a branch-local all-descendant override.
-- [ ] Aggregate and row facts share one statement/database-time snapshot.
-- [ ] Visited-path cycle protection, untruncated server rollups, browser depth/accessibility guards,
+- [x] Aggregate and row facts share one statement/database-time snapshot.
+- [x] Visited-path cycle protection, untruncated server rollups, browser depth/accessibility guards,
       and flat-search breadcrumbs remain intact.
-- [ ] Collapsed active-descendant counts refresh after passive lease expiry.
-- [ ] Representative query plans meet recorded budgets with no N+1, closure table, or mutable
+- [x] Collapsed active-descendant counts refresh after passive lease expiry.
+- [x] Representative query plans meet recorded budgets with no N+1, closure table, or mutable
       aggregate cache.
 
 ### Client surfaces
 
-- [ ] MCP catalog is exactly 25; ten protected writes require operation UUIDs and have truthful
+- [x] MCP catalog is exactly 25; ten protected writes require operation UUIDs and have truthful
       annotations; no MCP resolution tool exists.
-- [ ] MCP request/attention/history tools use strict coherent models, one write attempt, safe
+- [x] MCP request/attention/history tools use strict coherent models, one write attempt, safe
       recovery, immutable cursor reads, and explicit human-answer/nonauthority guidance.
-- [ ] Plugin `0.5.0` fresh/sequential installs pass and all skills agree on gates, readiness, and
+- [x] Plugin `0.5.0` fresh/sequential installs pass and all skills agree on gates, readiness, and
       dual parent/discovery facts.
-- [ ] `/attention`, text-free sidebar total, paired gate history/panel, stale-context review, event
+- [x] `/attention`, text-free sidebar total, paired gate history/panel, stale-context review, event
       timeline, and hierarchy aggregate UI work across responsive and accessible paths.
-- [ ] Dashboard resolution uses the existing frozen same-document registry and strict decoder;
+- [x] Dashboard resolution uses the existing frozen same-document registry and strict decoder;
       ambiguity survives unmount/navigation attempts and writes nothing to web storage.
-- [ ] Proxy permits only exact attention/history GET and resolution POST shapes and continues
+- [x] Proxy permits only exact attention/history GET and resolution POST shapes and continues
       denying gate creation plus all lease capabilities.
-- [ ] Live invalidation/refetch converges queue, hierarchy, context, events, and sidebar count.
+- [x] Live invalidation/refetch converges queue, hierarchy, context, events, and sidebar count.
 
 ### Operations and quality gate
 
-- [ ] Deployment docs require disabled creation, recorded old-process drain, coordinated enablement,
+- [x] Deployment docs require disabled creation, recorded old-process drain, coordinated enablement,
       and the gate-aware rollback floor; old-image-on-0014 guard tests and writer-quiescence incident
       procedure pass.
-- [ ] Storage, latency, hierarchy plans, expiry refresh, backup, and restore measurements meet
+- [x] Storage, latency, hierarchy plans, expiry refresh, backup, and restore measurements meet
       recorded budgets.
-- [ ] Backend tests and Ruff pass with PostgreSQL tests unskipped.
-- [ ] MCP tests pass in its separate frozen environment.
-- [ ] Frontend unit tests, typecheck, production build, and isolated Playwright stack pass.
-- [ ] The writable disposable-stack smoke proves request, gating, human resolution, lost-response
+- [x] Backend tests and Ruff pass with PostgreSQL tests unskipped.
+- [x] MCP tests pass in its separate frozen environment.
+- [x] Frontend unit tests, typecheck, production build, and isolated Playwright stack pass.
+- [x] The writable disposable-stack smoke proves request, gating, human resolution, lost-response
       replay, hierarchy aggregation, and no duplicate effect.
-- [ ] API, architecture, operations, agents, validation, roadmap, examples, and plugin documents
+- [x] API, architecture, operations, agents, validation, roadmap, examples, and plugin documents
       agree on shipped coverage, trust limits, and deferred work.
-- [ ] A cold adversarial review finds no unresolved blocker or high-severity planning gap.
+- [x] A cold adversarial review finds no unresolved blocker or high-severity planning gap.
 
 ## 21. Cold adversarial review disposition
 

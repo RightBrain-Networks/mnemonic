@@ -49,34 +49,34 @@ def test_mutation_events_are_scoped_without_record_contents():
     work_item_id = str(uuid4())
 
     assert mutation_event("POST", "/api/v1/projects") == MutationEvent("projects")
-    assert mutation_event("PATCH", f"/api/v1/projects/{project_id}") == MutationEvent(
-        "projects", project_id=project_id
-    )
+    assert mutation_event(
+        "PATCH", f"/api/v1/projects/{project_id}"
+    ) == MutationEvent("projects")
     assert mutation_event(
         "PATCH", f"/api/v1/projects/{project_id}/settings"
-    ) == MutationEvent("projects", project_id=project_id)
+    ) == MutationEvent("projects")
     assert mutation_event(
         "POST", f"/api/v1/projects/{project_id}/work-items"
-    ) == MutationEvent("work-items", project_id=project_id)
+    ) == MutationEvent("work-items")
     assert mutation_event(
         "POST",
         f"/api/v1/projects/{project_id}/work-items/{work_item_id}/checkpoints",
-    ) == MutationEvent(
-        "work-items", project_id=project_id, work_item_id=work_item_id
-    )
+    ) == MutationEvent("work-items")
     assert mutation_event(
         "DELETE", f"/api/v1/projects/{project_id}/relationships/{uuid4()}"
-    ) == MutationEvent("work-items", project_id=project_id)
+    ) == MutationEvent("work-items")
     assert mutation_event(
         "POST", f"/api/v1/projects/{project_id}/work-items/{work_item_id}/delete"
-    ) == MutationEvent(
-        "work-items", project_id=project_id, work_item_id=work_item_id
-    )
+    ) == MutationEvent("work-items")
     assert mutation_event(
         "PATCH", f"/api/v1/projects/{project_id}/work-items/{work_item_id}"
-    ) == MutationEvent(
-        "work-items", project_id=project_id, work_item_id=work_item_id
-    )
+    ) == MutationEvent("work-items")
+
+    assert MutationEvent("work-items").message(9) == {
+        "type": "invalidate",
+        "revision": 9,
+        "scope": "work-items",
+    }
 
     assert mutation_event("GET", "/api/v1/projects") is None
     assert mutation_event("POST", "/healthz") is None

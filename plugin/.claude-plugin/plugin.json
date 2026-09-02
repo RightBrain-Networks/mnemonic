@@ -1,7 +1,7 @@
 {
   "name": "mnemonic",
   "displayName": "Mnemonic",
-  "description": "Save and retrieve durable work, discover ready work, and preserve bounded checkpoint and event history with truthful provenance.",
-  "version": "0.4.0",
+  "description": "Save and retrieve durable work, coordinate explicit human questions, discover ready work, and preserve truthful graph and decision history.",
+  "version": "0.5.0",
   "author": { "name": "Jamie Begin" }
 }

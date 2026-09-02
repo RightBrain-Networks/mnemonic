@@ -9,8 +9,8 @@ from sqlalchemy import and_, false, func, literal_column, select, text, true
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from mnemonic_api.errors import conflict
-from mnemonic_api.models import WorkItem, WorkLease, WorkRelationship
+from mnemonic_api.errors import conflict, work_gated
+from mnemonic_api.models import WorkGate, WorkItem, WorkLease, WorkRelationship
 from mnemonic_api.schemas import (
     LeasePublic,
     Readiness,
@@ -26,14 +26,18 @@ def readiness(
     active_lease: WorkLease | LeasePublic | None = None,
     unresolved_blocker_count: int = 0,
     has_dropped_lease: bool = False,
+    unresolved_gate_count: int = 0,
 ) -> Readiness:
-    """Project lifecycle, blocker, and lease facts with fixed display precedence."""
+    """Project lifecycle, blocker, lease, and gate facts with fixed display precedence."""
     terminal = work_item.status in {"done", "wont-do", "promoted"}
     lease_public = LeasePublic.model_validate(active_lease) if active_lease is not None else None
     has_active_lease = lease_public is not None
     is_blocked = unresolved_blocker_count > 0
+    is_gated = unresolved_gate_count > 0
     if work_item.status != "pending":
         display_state = work_item.status
+    elif is_gated:
+        display_state = "waiting"
     elif is_blocked:
         display_state = "blocked"
     elif has_active_lease:
@@ -50,7 +54,14 @@ def readiness(
         active_lease=lease_public,
         unresolved_blocker_count=unresolved_blocker_count,
         is_blocked=is_blocked,
-        is_ready=work_item.status == "pending" and not has_active_lease and not is_blocked,
+        unresolved_gate_count=unresolved_gate_count,
+        is_gated=is_gated,
+        is_ready=(
+            work_item.status == "pending"
+            and not has_active_lease
+            and not is_blocked
+            and not is_gated
+        ),
         display_state=display_state,
     )
 
@@ -97,9 +108,16 @@ def require_unblocked(database: Session, work_item_id: UUID) -> None:
 
 
 def gate_eligibility_clause(work_item_id: ColumnElement[UUID]) -> ColumnElement[bool]:
-    """Phase 7 extension seam; no gate model exists in Phases 4–5."""
-    del work_item_id
-    return true()
+    """Canonical indexed unresolved-gate predicate shared by ready and fresh claim."""
+    gate_lookup = (
+        select(WorkGate.id)
+        .where(
+            WorkGate.work_item_id == work_item_id,
+            WorkGate.resolved_at.is_(None),
+        )
+        .limit(1)
+    )
+    return ~gate_lookup.exists()
 
 
 @dataclass(frozen=True)
@@ -110,6 +128,10 @@ class EligibilityClauses:
     has_unresolved_blocker: ColumnElement[bool]
     has_active_lease: ColumnElement[bool]
     gate_eligible: ColumnElement[bool]
+
+    @property
+    def has_unresolved_gate(self) -> ColumnElement[bool]:
+        return ~self.gate_eligible
 
     def eligible(self, *, include_active_lease: bool = True) -> ColumnElement[bool]:
         clauses = [self.is_pending, ~self.has_unresolved_blocker, self.gate_eligible]
@@ -184,6 +206,7 @@ def require_fresh_claim_eligible(database: Session, work_item: WorkItem) -> None
             select(
                 clauses.eligible(include_active_lease=False).label("eligible"),
                 clauses.has_unresolved_blocker.label("has_unresolved_blocker"),
+                clauses.has_unresolved_gate.label("has_unresolved_gate"),
             ).where(work_table.c.id == work_item.id)
         )
         .mappings()
@@ -193,6 +216,8 @@ def require_fresh_claim_eligible(database: Session, work_item: WorkItem) -> None
         return
     if row["has_unresolved_blocker"]:
         raise conflict("work_blocked", "This work item has an unresolved blocker.")
+    if row["has_unresolved_gate"]:
+        raise work_gated()
     raise conflict("work_not_eligible", "This work item is not eligible for a fresh claim.")
 
 

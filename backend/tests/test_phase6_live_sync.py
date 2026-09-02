@@ -57,8 +57,12 @@ def test_successful_mutation_publication_honors_explicit_domain_outcome(
     assert response.status_code == 200
     assert len(publications) == expected_publications
     if publications:
-        assert publications[0].project_id == PROJECT_ID
-        assert publications[0].work_item_id == WORK_ITEM_ID
+        assert publications[0].scope == "work-items"
+        assert publications[0].message(1) == {
+            "type": "invalidate",
+            "revision": 1,
+            "scope": "work-items",
+        }
 
 
 @pytest.mark.postgres

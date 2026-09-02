@@ -38,6 +38,12 @@ function referenceRows(event: WorkEventPage["items"][number]): Array<[string, st
   if (event.lease_release_id) rows.push(["Lease release", event.lease_release_id]);
   if (event.relationship_id) rows.push(["Relationship", event.relationship_id]);
   if (event.counterpart_work_item_id) rows.push(["Counterpart work", event.counterpart_work_item_id]);
+  if (
+    (event.event_type === "human_attention_requested"
+      || event.event_type === "human_attention_resolved")
+    && "gate_id" in event.metadata
+    && typeof event.metadata.gate_id === "string"
+  ) rows.push(["Human gate", event.metadata.gate_id]);
   return rows;
 }
 

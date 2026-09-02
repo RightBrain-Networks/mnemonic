@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { CHECKPOINT_PAGE_SIZE } from "@/components/checkpoint-timeline";
 import ProjectSettingsPanel from "@/components/project-settings";
+import HumanAttentionList from "@/components/human-attention-list";
 import WorkItemDetail from "@/components/work-item-detail";
 import WorkItemList, { WORK_PAGE_SIZE } from "@/components/work-item-list";
 import { StatusBadge, formatDate } from "@/components/work-item-card";
@@ -11,6 +12,7 @@ import { draftFromWork, type WorkEditDraft } from "@/components/work-item-editor
 import { api, ApiError, errorMessage, isVersionConflict, workItemPath } from "@/lib/api";
 import { currentContext } from "@/lib/current-context";
 import { dashboardSessionId } from "@/lib/dashboard-session";
+import { decodeHumanAttentionPage, humanAttentionSearchParams } from "@/lib/human-gates";
 import {
   MutationIntentProvider,
   MutationIntentRegistry,
@@ -26,7 +28,7 @@ import {
   dashboardStorageKeys
 } from "@/lib/dashboard-preferences";
 import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
-import { connectLiveSync, invalidatesOpenWork, type LiveSyncStatus } from "@/lib/live-sync";
+import { connectLiveSync, type LiveSyncStatus } from "@/lib/live-sync";
 import {
   isBlockingProjectSettingsLoad,
   isCurrentProjectSettingsLoad
@@ -65,7 +67,8 @@ const mutationLabels: Record<MutationIntentSummary["kind"], string> = {
   defer_work: "Defer work",
   complete_work: "Complete work",
   delete_work: "Delete work",
-  remove_relationship: "Remove relationship"
+  remove_relationship: "Remove relationship",
+  resolve_human_input: "Resolve human question"
 };
 
 const iconPaths = {
@@ -76,6 +79,7 @@ const iconPaths = {
   close: "m6 6 12 12M6 18 18 6",
   library: "M3 3h6v18H3V3Zm10 0h4l4 17-4 1-4-18Z",
   settings: "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7.4-.5 1.6 1-2 3.5-1.8-1a8 8 0 0 1-2.2 1.3V22h-4v-2.2a8 8 0 0 1-2.2-1.3l-1.8 1L5 16l1.6-1a8 8 0 0 1 0-2L5 12l2-3.5 1.8 1A8 8 0 0 1 11 8.2V6h4v2.2a8 8 0 0 1 2.2 1.3l1.8-1 2 3.5-1.6 1a8 8 0 0 1 0 2Z",
+  attention: "M12 3a7 7 0 0 0-7 7v4l-2 3h18l-2-3v-4a7 7 0 0 0-7-7Zm-2 18h4",
   arrow: "M5 12h14m-5-5 5 5-5 5",
   back: "M19 12H5m5-5-5 5 5 5",
   box: "M4 8h16v13H4V8ZM2 3h20v5H2V3Zm7 10h6"
@@ -195,7 +199,7 @@ function summaryWithContext(base: WorkSummary, context: WorkContext): WorkSummar
 
 type ContextLoadResult = "loaded" | "superseded" | "failed";
 
-export default function Dashboard({ view = "library", timeZone }: { view?: "library" | "settings"; timeZone?: string | null; }) {
+export default function Dashboard({ view = "library", timeZone }: { view?: "library" | "attention" | "settings"; timeZone?: string | null; }) {
   setDisplayTimeZone(timeZone);
   const [mutationRegistry] = useState(() => new MutationIntentRegistry());
   const mutationIntents = useMutationIntents(mutationRegistry);
@@ -220,9 +224,14 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [semantic, setSemantic] = useState(false);
   const [status, setStatus] = useState<StatusFilter>("pending");
   const [sort, setSort] = useState<WorkSort>("updated");
+  const [tagFilter, setTagFilter] = useState("");
+  const [sourceClientFilter, setSourceClientFilter] = useState("");
+  const [sourceSessionFilter, setSourceSessionFilter] = useState("");
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [offset, setOffset] = useState(0);
   const [refresh, setRefresh] = useState(0);
+  const [attentionRefresh, setAttentionRefresh] = useState(0);
+  const [attentionCount, setAttentionCount] = useState<number | null>(null);
   const [results, setResults] = useState<Page<WorkSummary | HierarchySummary> | null>(null);
   const [resultsViewKey, setResultsViewKey] = useState("");
   const [listLoading, setListLoading] = useState(false);
@@ -272,7 +281,17 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [notice, setNotice] = useState<{ message: string; error?: boolean } | null>(null);
   const [liveSyncStatus, setLiveSyncStatus] = useState<LiveSyncStatus>("connecting");
   const project = projects.find((item) => item.id === activeId);
-  const listViewKey = JSON.stringify([activeId, status, sort, offset, search, semantic]);
+  const listViewKey = JSON.stringify([
+    activeId,
+    status,
+    sort,
+    offset,
+    search,
+    semantic,
+    tagFilter,
+    sourceClientFilter,
+    sourceSessionFilter
+  ]);
   const visibleResults = resultsViewKey === listViewKey ? results : null;
   const visibleListError = listFailure?.viewKey === listViewKey ? listFailure.message : "";
   const activeIdRef = useRef(activeId);
@@ -281,7 +300,12 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const settingsLoadGeneration = useRef(0);
   const lastContextRefresh = useRef(0);
   const nextLeaseExpiry = earliestLeaseExpiry([
-    ...(visibleResults?.items.map((item) => ("summary" in item ? item.summary : item).readiness.active_lease?.expires_at) ?? []),
+    ...(visibleResults?.items.flatMap((item) => [
+      ("summary" in item ? item.summary : item).readiness.active_lease?.expires_at,
+      "presentation" in item
+        ? item.presentation.next_active_descendant_lease_expires_at
+        : null
+    ]) ?? []),
     context?.readiness.active_lease?.expires_at
   ]);
 
@@ -327,6 +351,25 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     if (!activeId) return;
     try { localStorage.setItem(dashboardStorageKeys.project, activeId); } catch { /* optional */ }
   }, [activeId]);
+
+  useEffect(() => {
+    if (!activeId) {
+      setAttentionCount(null);
+      return;
+    }
+    const controller = new AbortController();
+    const params = humanAttentionSearchParams({ limit: 0 });
+    api<unknown>(`/projects/${encodeURIComponent(activeId)}/human-attention?${params}`, {
+      signal: controller.signal
+    }).then((value) => {
+      if (!controller.signal.aborted) {
+        setAttentionCount(decodeHumanAttentionPage(value, activeId, { limit: 0 }).total);
+      }
+    }).catch(() => {
+      if (!controller.signal.aborted) setAttentionCount(null);
+    });
+    return () => controller.abort();
+  }, [activeId, attentionRefresh]);
 
   useEffect(() => {
     if (!preferencesReady) return;
@@ -410,7 +453,17 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     const requestedViewKey = listViewKey;
     setListLoading(true);
     setListFailure(null);
-    const params = workSearchParams({ status, sort, limit: WORK_PAGE_SIZE, offset, query: search, semantic });
+    const params = workSearchParams({
+      status,
+      sort,
+      limit: WORK_PAGE_SIZE,
+      offset,
+      query: search,
+      semantic,
+      tag: tagFilter,
+      sourceClient: sourceClientFilter,
+      sourceSessionId: sourceSessionFilter
+    });
     api<Page<WorkSummary | HierarchySummary>>(`${workItemPath(activeId)}?${params}`, { signal: controller.signal })
       .then((page) => {
         if (controller.signal.aborted) return;
@@ -428,7 +481,21 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       })
       .finally(() => { if (!controller.signal.aborted) setListLoading(false); });
     return () => controller.abort();
-  }, [activeId, listViewKey, offset, preferencesReady, refresh, search, semantic, sort, status, view]);
+  }, [
+    activeId,
+    listViewKey,
+    offset,
+    preferencesReady,
+    refresh,
+    search,
+    semantic,
+    sort,
+    sourceClientFilter,
+    sourceSessionFilter,
+    status,
+    tagFilter,
+    view
+  ]);
 
   useEffect(() => {
     if (!opened) { setCheckpointPage(null); return; }
@@ -451,7 +518,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   }, [opened, checkpointOffset, checkpointRefresh]);
 
   useEffect(() => {
-    const pending = { projects: false, settings: false, list: false, open: false };
+    const pending = { projects: false, settings: false, list: false, attention: false, open: false };
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
     function flush() {
@@ -459,6 +526,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       if (pending.projects) setProjectsRefresh((value) => value + 1);
       if (pending.settings) setSettingsRefresh((value) => value + 1);
       if (pending.list) setRefresh((value) => value + 1);
+      if (pending.attention) setAttentionRefresh((value) => value + 1);
       if (pending.open) {
         setCheckpointRefresh((value) => value + 1);
         setEventRefresh((value) => value + 1);
@@ -467,6 +535,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       pending.projects = false;
       pending.settings = false;
       pending.list = false;
+      pending.attention = false;
       pending.open = false;
     }
 
@@ -479,21 +548,18 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         pending.projects = true;
         pending.settings = true;
         pending.list = true;
+        pending.attention = true;
         pending.open = true;
         schedule();
         return;
       }
       if (message.scope === "projects") {
         pending.projects = true;
-        if (message.project_id === null || message.project_id === activeIdRef.current) {
-          pending.settings = true;
-        }
+        pending.settings = true;
       } else {
-        if (message.project_id === activeIdRef.current) pending.list = true;
-        const openedWork = openedRef.current?.work_item;
-        if (openedWork && invalidatesOpenWork(message, openedWork.project_id, openedWork.id)) {
-          pending.open = true;
-        }
+        pending.list = true;
+        pending.attention = true;
+        if (openedRef.current) pending.open = true;
       }
       schedule();
     }, setLiveSyncStatus);
@@ -531,6 +597,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     if (!nextLeaseExpiry) return;
     return scheduleLeaseExpiryRefresh(nextLeaseExpiry, () => {
       setRefresh((value) => value + 1);
+      setAttentionRefresh((value) => value + 1);
       if (opened) setContextRefresh((value) => value + 1);
     });
   }, [nextLeaseExpiry, opened?.work_item.id]);
@@ -565,6 +632,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setQuery("");
     setSearch("");
     setSemantic(false);
+    setTagFilter("");
+    setSourceClientFilter("");
+    setSourceSessionFilter("");
     setResults(null);
     setResultsViewKey("");
   }
@@ -983,7 +1053,13 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
             actor
           }
         });
-        setNotice({ message: `“${work.title}” is Pending and available in the work queue.` });
+        setNotice({
+          message: summary.readiness.is_gated
+            ? `“${work.title}” is Pending but still needs human attention, so it remains out of ready discovery.`
+            : summary.readiness.is_blocked
+              ? `“${work.title}” is Pending but still blocked, so it remains out of ready discovery.`
+              : `“${work.title}” is Pending and available in the work queue.`
+        });
       } else {
         await mutationRegistry.execute({
           kind: "defer_work",
@@ -1027,6 +1103,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     try {
       await mutationRegistry.retry(intent.slot);
       setRefresh((value) => value + 1);
+      setAttentionRefresh((value) => value + 1);
       setCheckpointRefresh((value) => value + 1);
       setEventRefresh((value) => value + 1);
       setContextRefresh((value) => value + 1);
@@ -1068,6 +1145,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     } catch (error) {
       const message = errorMessage(error);
       setRefresh((value) => value + 1);
+      setAttentionRefresh((value) => value + 1);
       if (
         error instanceof ApiError
         && openedRef.current
@@ -1193,7 +1271,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   );
 
   return <MutationIntentProvider registry={mutationRegistry}><div className="app-shell">
-    <a className="skip-link" href="#main-content">{view === "settings" ? "Skip to project settings" : "Skip to work items"}</a>
+    <a className="skip-link" href="#main-content">{view === "settings" ? "Skip to project settings" : view === "attention" ? "Skip to human questions" : "Skip to work items"}</a>
     <aside className="sidebar">
       <a href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={(event) => {
         if (!activeProjectMutationBlocked) return;
@@ -1215,6 +1293,11 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           event.preventDefault();
           setNotice({ message: "Resolve pending mutations before leaving this dashboard document.", error: true });
         }}><Icon name="library" /><span>Work library</span><Icon name="arrow" size={15} /></a>
+        <a className={`nav-item ${view === "attention" ? "active" : ""}`} href="/attention" aria-current={view === "attention" ? "page" : undefined} onClick={(event) => {
+          if (!activeProjectMutationBlocked) return;
+          event.preventDefault();
+          setNotice({ message: "Resolve pending mutations before leaving this dashboard document.", error: true });
+        }}><Icon name="attention" /><span>Needs Attention</span>{attentionCount !== null && <span className="attention-nav-count" aria-label={`${attentionCount} unresolved human question${attentionCount === 1 ? "" : "s"}`}>{attentionCount}</span>}<Icon name="arrow" size={15} /></a>
         <a className={`nav-item ${view === "settings" ? "active" : ""}`} href="/settings" aria-current={view === "settings" ? "page" : undefined} onClick={(event) => {
           if (!activeProjectMutationBlocked) return;
           event.preventDefault();
@@ -1226,7 +1309,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     </aside>
 
     <main id="main-content" className="main-content">
-      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view === "settings" && <><span className="breadcrumb-slash">/</span><span>Project settings</span></>}</div><span className="topbar-note"><span className="small-mark">m.</span>Context worth keeping</span></header>
+      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view !== "library" && <><span className="breadcrumb-slash">/</span><span>{view === "settings" ? "Project settings" : "Needs Attention"}</span></>}</div><span className="topbar-note"><span className="small-mark">m.</span>Context worth keeping</span></header>
       <div className="page-content">
         {view === "settings" ? <>
           <section className="page-heading"><div><div className="eyebrow">PROJECT CONFIGURATION</div><h1>Project settings<span>.</span></h1><p>{project ? `Control how Mnemonic hands off work from “${project.name}”.` : "Choose a project, then configure how Mnemonic hands off its work."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setSettingsRefresh((value) => value + 1); }}>Refresh</button><div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
@@ -1242,6 +1325,21 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
               onSaved={handleProjectSettingsSaved}
               onNotice={(message, error) => setNotice({ message, error })}
             />}
+        </> : view === "attention" ? <>
+          <section className="page-heading"><div><div className="eyebrow">EXPLICIT HUMAN OVERSIGHT</div><h1>Needs Attention<span>.</span></h1><p>{project ? `Durable questions waiting in “${project.name}”.` : "Choose a project to review its explicit human questions."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setAttentionRefresh((value) => value + 1); setContextRefresh((value) => value + 1); setEventRefresh((value) => value + 1); }}>Refresh</button><div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
+          {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
+            projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
+            <HumanAttentionList
+              project={project}
+              refreshSignal={attentionRefresh}
+              onOpen={(item) => openWork(item)}
+              onResolved={() => {
+                setAttentionRefresh((value) => value + 1);
+                setRefresh((value) => value + 1);
+                setContextRefresh((value) => value + 1);
+                setEventRefresh((value) => value + 1);
+              }}
+            />}
         </> : <>
           <section className="page-heading"><div><div className="eyebrow">DURABLE WORK FOR TEMPORARY SESSIONS</div><h1>Work library<span>.</span></h1><p>{project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}</p></div><div className="heading-actions"><button className="button button-secondary" type="button" onClick={() => { setProjectsRefresh((value) => value + 1); setRefresh((value) => value + 1); setCheckpointRefresh((value) => value + 1); setEventRefresh((value) => value + 1); setContextRefresh((value) => value + 1); }}>Refresh</button>{project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncStatus === "live" ? "Live updates" : liveSyncStatus === "retrying" ? "Reconnecting…" : "Connecting…"}</div></div></section>
 
@@ -1255,6 +1353,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 semantic={semantic}
                 status={status}
                 sort={sort}
+                tag={tagFilter}
+                sourceClient={sourceClientFilter}
+                sourceSessionId={sourceSessionFilter}
                 results={visibleResults}
                 loading={listLoading || (!visibleResults && !visibleListError)}
                 error={visibleListError}
@@ -1267,8 +1368,11 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 onToggleSemantic={() => { setSemantic((value) => !value); setOffset(0); }}
                 onStatus={(value) => { setStatus(value); setOffset(0); }}
                 onSort={(value) => { setSort(value); setOffset(0); }}
+                onTag={(value) => { setTagFilter(value); setOffset(0); }}
+                onSourceClient={(value) => { setSourceClientFilter(value); setOffset(0); }}
+                onSourceSessionId={(value) => { setSourceSessionFilter(value); setOffset(0); }}
                 onRetry={() => setRefresh((value) => value + 1)}
-                onClearFilters={() => { setQuery(""); setSearch(""); setStatus("pending"); setOffset(0); }}
+                onClearFilters={() => { setQuery(""); setSearch(""); setStatus("pending"); setTagFilter(""); setSourceClientFilter(""); setSourceSessionFilter(""); setOffset(0); }}
                 onCreate={() => setWorkDialog(true)}
                 onOpen={(item) => openWork(item)}
                 onEdit={(item) => openWork(item, true)}
@@ -1379,6 +1483,18 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
               });
             }
             return reconciled;
+          }}
+          onGateResolved={async () => {
+            setAttentionRefresh((value) => value + 1);
+            setRefresh((value) => value + 1);
+            setEventRefresh((value) => value + 1);
+            const reconciled = await reloadOpenContext();
+            if (!reconciled) {
+              setNotice({
+                message: "The answer was recorded, but current work context could not be reloaded. Use Refresh before continuing.",
+                error: true
+              });
+            }
           }}
         /></>}
     </Dialog>}

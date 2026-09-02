@@ -6,10 +6,12 @@ import type {
   RelationshipCreationResult,
   RelationshipEdgeRead,
   RelationshipRemovalResult,
+  HumanGateRead,
   WorkCreation,
   WorkItem,
   WorkStatus
 } from "@/lib/types";
+import { decodeHumanGate, sameHumanGateRevision } from "./human-gates.ts";
 import { decodeWorkEventForWork } from "./work-events.ts";
 import type { WorkEventRead } from "@/lib/types";
 
@@ -22,7 +24,8 @@ export const MUTATION_KINDS = [
   "defer_work",
   "complete_work",
   "delete_work",
-  "remove_relationship"
+  "remove_relationship",
+  "resolve_human_input"
 ] as const;
 
 export type MutationKind = typeof MUTATION_KINDS[number];
@@ -37,6 +40,7 @@ export interface MutationResultByKind {
   complete_work: CompletionResult;
   delete_work: DeletionResult;
   remove_relationship: RelationshipRemovalResult;
+  resolve_human_input: HumanGateRead;
 }
 
 export interface FrozenMutationRequest {
@@ -75,7 +79,8 @@ const EXPECTED_STATUS: Record<MutationKind, number> = {
   defer_work: 200,
   complete_work: 200,
   delete_work: 200,
-  remove_relationship: 200
+  remove_relationship: 200,
+  resolve_human_input: 200
 };
 const AMBIGUOUS_STATUSES = new Set([408, 425, 429, 502, 504]);
 const ERROR_ROOT_KEYS = new Set(["detail"]);
@@ -88,7 +93,8 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "project_not_found",
     "work_item_not_found",
     "checkpoint_not_found",
-    "relationship_not_found"
+    "relationship_not_found",
+    "gate_not_found"
   ])],
   [409, new Set([
     "version_conflict",
@@ -103,9 +109,12 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "relationship_context_required",
     "relationship_context_invalid",
     "relationship_cycle",
-    "active_relationships"
+    "active_relationships",
+    "work_gated",
+    "gate_already_resolved",
+    "gate_context_changed"
   ])],
-  [422, new Set(["event_secret_echo", "client_operation_secret_echo"])]
+  [422, new Set(["event_secret_echo", "client_operation_secret_echo", "gate_secret_echo"])]
 ]);
 const DEFINITIVE_STRING_ERRORS = new Map<number, ReadonlySet<string>>([
   [400, new Set([
@@ -126,6 +135,7 @@ const DEFINITIVE_STRING_ERRORS = new Map<number, ReadonlySet<string>>([
     "The work-completion body does not match the dashboard allowlist.",
     "The work-item deletion does not match the dashboard allowlist.",
     "The relationship-removal body does not match the dashboard allowlist."
+    ,"The human-gate resolution body does not match the dashboard allowlist."
   ])],
   [401, new Set(["Valid bearer authentication is required"])],
   [403, new Set(["This dashboard request is not from a trusted origin."])],
@@ -259,6 +269,18 @@ function parsePath(path: string, suffix: string): { projectId: string; workItemI
     return { projectId: relationshipMatch[1]!, relationshipId: relationshipMatch[2]! };
   }
   return null;
+}
+
+function parseGateResolutionPath(path: string): {
+  projectId: string;
+  workItemId: string;
+  gateId: string;
+} | null {
+  const uuid = UUID_PATTERN.source.slice(1, -1);
+  const match = new RegExp(
+    `^/projects/(${uuid})/work-items/(${uuid})/gates/(${uuid})/resolve$`
+  ).exec(path);
+  return match ? { projectId: match[1]!, workItemId: match[2]!, gateId: match[3]! } : null;
 }
 
 function requestBody(request: FrozenMutationRequest): JsonObject {
@@ -657,6 +679,40 @@ function decodeSuccess<K extends MutationKind>(
       || result.version !== Number(body.expected_version) + 1
     ) throw new Error("Mnemonic returned an invalid mutation response.");
     decoded = result as unknown as DeletionResult;
+  } else if (request.kind === "resolve_human_input") {
+    const path = parseGateResolutionPath(request.path);
+    if (!path || !boundedText(body.resolution, 4_000)) {
+      throw new Error("The frozen mutation request is invalid.");
+    }
+    const gate = decodeHumanGate(value, {
+      projectId: path.projectId,
+      workItemId: path.workItemId,
+      gateId: path.gateId,
+      status: "resolved"
+    });
+    const reviewed = objectValue(body.reviewed_context_revision);
+    const acknowledged = body.acknowledge_context_change === true;
+    if (
+      gate.resolution !== body.resolution
+      || gate.resolved_by_client !== body.resolved_by_client
+      || gate.resolved_by_session_id !== body.resolved_by_session_id
+      || gate.resolved_by_model !== (body.resolved_by_model ?? null)
+      || gate.context_changed_at_resolution !== acknowledged
+      || gate.context_change_acknowledged !== acknowledged
+      || !gate.resolved_context_revision
+      || !sameHumanGateRevision(gate.current_context_revision, gate.resolved_context_revision)
+      || (acknowledged
+        ? !reviewed
+          || !finiteInteger(reviewed.work_version, 1)
+          || !validUuid(reviewed.context_checkpoint_id)
+          || !finiteInteger(reviewed.relationship_event_count)
+          || !sameHumanGateRevision(
+            gate.resolved_context_revision,
+            reviewed as unknown as typeof gate.resolved_context_revision
+          )
+        : reviewed !== null && reviewed !== undefined)
+    ) throw new Error("Mnemonic returned an incoherent human-gate resolution.");
+    decoded = gate;
   } else {
     const path = parsePath(request.path, "");
     const result = objectValue(value);

@@ -8,6 +8,7 @@ from conftest import (
     CLAIM_REQUEST_ID,
     CLIENT_OPERATION_ID,
     EXPIRES_AT,
+    GATE_ID,
     LEASE_TOKEN,
     LOCAL_VALIDATION_CASES,
     OTHER_CHECKPOINT_ID,
@@ -21,7 +22,14 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 
 from mnemonic_mcp.api import UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME, MnemonicAPI
-from mnemonic_mcp.models import ClaimAndRecall, ClaimReceipt, ReadyWorkPage, WorkEventRead
+from mnemonic_mcp.models import (
+    ClaimAndRecall,
+    ClaimReceipt,
+    HierarchyPresentation,
+    HumanGateRead,
+    ReadyWorkPage,
+    WorkEventRead,
+)
 from mnemonic_mcp.server import build_server
 
 ACTOR_ARGUMENTS = {
@@ -48,6 +56,7 @@ PROTECTED_TOOL_NAMES = (
     "delete_work",
     "remove_relationship",
     "release_claim",
+    "request_human_input",
 )
 
 
@@ -127,10 +136,21 @@ def protected_tool_arguments(operation_id: str = CLIENT_OPERATION_ID):
             **actor,
             **operation,
         },
+        "request_human_input": {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "question": "Which rollout policy should this work use?",
+            "requested_by_client": "claude-code",
+            "requested_by_session_id": "phase-7-session",
+            "requested_by_model": "test-model",
+            **operation,
+        },
     }
 
 
-def protected_success_responses(work_item, checkpoint, relationship, progress_event):
+def protected_success_responses(
+    work_item, checkpoint, relationship, progress_event, human_gate
+):
     arguments = protected_tool_arguments()
 
     def checkpoint_response(tool_name: str, kind: str):
@@ -224,6 +244,19 @@ def protected_success_responses(work_item, checkpoint, relationship, progress_ev
             "removed": True,
         },
         "release_claim": {"work_item_id": WORK_ID, "released": True},
+        "request_human_input": {
+            **human_gate,
+            "question": arguments["request_human_input"]["question"],
+            "requested_by_client": arguments["request_human_input"][
+                "requested_by_client"
+            ],
+            "requested_by_session_id": arguments["request_human_input"][
+                "requested_by_session_id"
+            ],
+            "requested_by_model": arguments["request_human_input"][
+                "requested_by_model"
+            ],
+        },
     }
 
 
@@ -272,6 +305,9 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
         "list_relationships": "never traverse the graph recursively",
         "update_work": "no tool here creates an external issue",
         "complete_work": "only when the objective is actually achieved",
+        "request_human_input": "never infer, time out, self-approve, or resolve",
+        "list_human_attention": "human queue, not agent-ready work",
+        "list_work_gates": "old resolution never grants current authority",
     }.items():
         assert required in described[name].lower(), name
 
@@ -285,6 +321,7 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
         "delete_work",
         "remove_relationship",
         "release_claim",
+        "request_human_input",
     }
     for name in protected:
         description = described[name]
@@ -325,6 +362,9 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "update_work",
         "complete_work",
         "delete_work",
+        "request_human_input",
+        "list_human_attention",
+        "list_work_gates",
     }
     assert all(tool.outputSchema for tool in tools.values())
     assert all(
@@ -340,6 +380,8 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "get_relationship",
         "list_relationships",
         "list_work_events",
+        "list_human_attention",
+        "list_work_gates",
     ):
         assert tools[name].annotations.readOnlyHint is True
     for name in (
@@ -352,6 +394,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "release_claim",
         "add_relationship",
         "append_event",
+        "request_human_input",
     ):
         assert tools[name].annotations.readOnlyHint is False
         assert tools[name].annotations.destructiveHint is False
@@ -372,6 +415,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "delete_work",
         "remove_relationship",
         "release_claim",
+        "request_human_input",
     }
     mutating = protected | {
         "create_project",
@@ -385,7 +429,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "delete_work",
         "remove_relationship",
     }
-    assert len(tools) == 22
+    assert len(tools) == 25
     for name in mutating:
         assert tools[name].annotations.idempotentHint is (name in protected)
     for name in tools.keys() - mutating:
@@ -657,6 +701,113 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "omitted_event_count",
         "pre_phase5_history_may_be_incomplete",
     } <= set(context_output)
+
+    request_gate_input = tools["request_human_input"].inputSchema
+    assert set(request_gate_input["required"]) == {
+        "project_id",
+        "work_item_id",
+        "question",
+        "requested_by_client",
+        "requested_by_session_id",
+        "client_operation_id",
+    }
+    assert set(request_gate_input["properties"]) == {
+        "project_id",
+        "work_item_id",
+        "question",
+        "requested_by_client",
+        "requested_by_session_id",
+        "requested_by_model",
+        "client_operation_id",
+    }
+    assert request_gate_input["properties"]["question"]["maxLength"] == 4000
+    assert request_gate_input["properties"]["requested_by_client"]["maxLength"] == 80
+    assert request_gate_input["properties"]["requested_by_session_id"]["maxLength"] == 200
+    assert "gate_type" not in request_gate_input["properties"]
+    assert "lease_token" not in request_gate_input["properties"]
+    request_gate_output = tools["request_human_input"].outputSchema
+    assert request_gate_output["additionalProperties"] is False
+    assert set(request_gate_output["properties"]) == {
+        "id",
+        "project_id",
+        "work_item_id",
+        "gate_type",
+        "question",
+        "requested_by_client",
+        "requested_by_session_id",
+        "requested_by_model",
+        "requested_work_version",
+        "requested_context_checkpoint_id",
+        "requested_relationship_event_count",
+        "created_at",
+        "status",
+        "current_context_revision",
+        "work_changed_since_request",
+        "context_checkpoint_changed_since_request",
+        "relationships_changed_since_request",
+        "context_changed_since_request",
+        "resolved_at",
+        "resolution",
+        "resolved_by_client",
+        "resolved_by_session_id",
+        "resolved_by_model",
+        "resolved_context_revision",
+        "context_changed_at_resolution",
+        "context_change_acknowledged",
+    }
+
+    attention_input = tools["list_human_attention"].inputSchema
+    assert set(attention_input["properties"]) == {
+        "project_id",
+        "work_item_id",
+        "limit",
+        "cursor",
+    }
+    assert attention_input["properties"]["limit"]["default"] == 30
+    assert attention_input["properties"]["limit"]["minimum"] == 0
+    assert attention_input["properties"]["limit"]["maximum"] == 100
+    attention_cursor_schema = next(
+        option
+        for option in attention_input["properties"]["cursor"]["anyOf"]
+        if option.get("type") == "string"
+    )
+    assert attention_cursor_schema["maxLength"] == 4096
+    history_input = tools["list_work_gates"].inputSchema
+    assert set(history_input["properties"]) == {
+        "project_id",
+        "work_item_id",
+        "status",
+        "limit",
+        "cursor",
+    }
+    assert history_input["properties"]["status"]["default"] == "all"
+    assert history_input["properties"]["status"]["enum"] == [
+        "all",
+        "unresolved",
+        "resolved",
+    ]
+    assert history_input["properties"]["limit"]["minimum"] == 1
+    assert history_input["properties"]["limit"]["maximum"] == 100
+    assert tools["list_human_attention"].outputSchema["additionalProperties"] is False
+    assert tools["list_work_gates"].outputSchema["additionalProperties"] is False
+    assert "resolve_human_input" not in tools
+
+    context_output = tools["recall_work"].outputSchema["properties"]
+    assert {
+        "unresolved_gates",
+        "unresolved_gate_total",
+        "omitted_unresolved_gate_count",
+        "recent_resolved_gates",
+        "resolved_gate_total",
+        "omitted_resolved_gate_count",
+    } <= set(context_output)
+    assert "waiting" in json.dumps(tools["search_work"].outputSchema)
+    assert "human_attention_requested" in json.dumps(
+        tools["list_work_events"].outputSchema
+    )
+    assert "human_attention_resolved" in json.dumps(
+        tools["list_work_events"].outputSchema
+    )
 
     work_changes_schema = tools["update_work"].inputSchema["$defs"]["WorkChanges"]
     assert work_changes_schema["additionalProperties"] is False
@@ -1297,6 +1448,339 @@ def test_ready_work_page_allows_empty_page_beyond_total():
     assert page.offset == 500
 
 
+async def test_request_human_input_forwards_one_exact_protected_intent(
+    settings, human_gate
+):
+    question = "  Which rollout policy should this work use?\n"
+    response = {**human_gate, "question": question}
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        assert request.method == "POST"
+        assert request.url.path == (
+            f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/gates"
+        )
+        assert not request.url.params
+        assert json.loads(request.content) == {
+            "client_operation_id": CLIENT_OPERATION_ID,
+            "gate_type": "human",
+            "question": question,
+            "requested_by_client": "claude-code",
+            "requested_by_session_id": "phase-7-session",
+            "requested_by_model": "test-model",
+        }
+        return httpx.Response(201, json=response)
+
+    result = structured(
+        await adapter(settings, handler).call_tool(
+            "request_human_input",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "question": question,
+                "requested_by_client": "claude-code",
+                "requested_by_session_id": "phase-7-session",
+                "requested_by_model": "test-model",
+                "client_operation_id": CLIENT_OPERATION_ID,
+            },
+        )
+    )
+    assert result == response
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("outcome", ["network", "backend", "malformed_success"])
+async def test_gate_request_unknown_outcomes_are_one_attempt_and_value_free(
+    settings, human_gate, outcome
+):
+    requests = []
+    private_marker = "private-gate-transport-detail"
+
+    def handler(request):
+        requests.append(request)
+        if outcome == "network":
+            raise httpx.ReadTimeout(private_marker, request=request)
+        if outcome == "backend":
+            return httpx.Response(500, json={"private": private_marker})
+        return httpx.Response(201, json={"private": private_marker})
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(
+            "request_human_input", protected_tool_arguments()["request_human_input"]
+        )
+    message = str(caught.value)
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME in message
+    assert "same tool" in message
+    assert "every argument unchanged" in message
+    assert private_marker not in message
+    assert human_gate["question"] not in message
+    assert CLIENT_OPERATION_ID not in message
+    assert len(requests) == 1
+
+
+async def test_gate_reads_use_exact_cursor_queries_and_enforce_scope(
+    settings, work_summary, human_gate, resolved_human_gate
+):
+    gated_summary = {
+        **work_summary,
+        "readiness": {
+            **work_summary["readiness"],
+            "unresolved_gate_count": 1,
+            "is_gated": True,
+            "is_ready": False,
+            "display_state": "waiting",
+        },
+    }
+    calls = []
+
+    def handler(request):
+        calls.append((request.method, request.url.path, dict(request.url.params)))
+        if request.url.path.endswith("/human-attention"):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [{"gate": human_gate, "summary": gated_summary}],
+                    "total": 1,
+                    "limit": 12,
+                    "next_cursor": "attention-cursor-v1",
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "items": [resolved_human_gate],
+                "total": 1,
+                "limit": 7,
+                "next_cursor": "history-cursor-v1",
+            },
+        )
+
+    server = adapter(settings, handler)
+    attention = structured(
+        await server.call_tool(
+            "list_human_attention",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "limit": 12,
+                "cursor": "attention-start-v1",
+            },
+        )
+    )
+    history = structured(
+        await server.call_tool(
+            "list_work_gates",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "status": "resolved",
+                "limit": 7,
+                "cursor": "history-start-v1",
+            },
+        )
+    )
+    assert attention["items"][0]["gate"]["status"] == "unresolved"
+    assert attention["items"][0]["summary"]["readiness"]["is_gated"] is True
+    assert history["items"][0]["resolution"] == resolved_human_gate["resolution"]
+    assert calls == [
+        (
+            "GET",
+            f"/api/v1/projects/{PROJECT_ID}/human-attention",
+            {
+                "limit": "12",
+                "work_item_id": WORK_ID,
+                "cursor": "attention-start-v1",
+            },
+        ),
+        (
+            "GET",
+            f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/gates",
+            {
+                "status": "resolved",
+                "limit": "7",
+                "cursor": "history-start-v1",
+            },
+        ),
+    ]
+
+
+async def test_gate_read_scope_or_filter_mismatch_is_rejected_without_values(
+    settings, work_summary, human_gate
+):
+    gated_summary = {
+        **work_summary,
+        "readiness": {
+            **work_summary["readiness"],
+            "unresolved_gate_count": 1,
+            "is_gated": True,
+            "is_ready": False,
+            "display_state": "waiting",
+        },
+    }
+    wrong_project_gate = {**human_gate, "project_id": OTHER_WORK_ID}
+
+    def attention_handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "items": [{"gate": wrong_project_gate, "summary": gated_summary}],
+                "total": 1,
+                "limit": 30,
+                "next_cursor": None,
+            },
+        )
+
+    with pytest.raises(ToolError, match="unexpected response") as caught:
+        await adapter(settings, attention_handler).call_tool(
+            "list_human_attention", {"project_id": PROJECT_ID}
+        )
+    assert human_gate["question"] not in str(caught.value)
+    assert OTHER_WORK_ID not in str(caught.value)
+
+    def history_handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "items": [human_gate],
+                "total": 1,
+                "limit": 30,
+                "next_cursor": None,
+            },
+        )
+
+    with pytest.raises(ToolError, match="incoherent human-gate data") as caught:
+        await adapter(settings, history_handler).call_tool(
+            "list_work_gates",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "status": "resolved",
+            },
+        )
+    assert human_gate["question"] not in str(caught.value)
+    assert GATE_ID not in str(caught.value)
+
+
+async def test_attention_count_mode_is_text_free_and_rejects_a_cursor(
+    settings, human_gate
+):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(
+            200,
+            json={"items": [], "total": 4, "limit": 0, "next_cursor": None},
+        )
+
+    server = adapter(settings, handler)
+    count = structured(
+        await server.call_tool(
+            "list_human_attention", {"project_id": PROJECT_ID, "limit": 0}
+        )
+    )
+    assert count == {"items": [], "total": 4, "limit": 0, "next_cursor": None}
+    assert len(calls) == 1
+    assert dict(calls[0].url.params) == {"limit": "0"}
+    assert human_gate["question"] not in calls[0].url.query.decode()
+
+    with pytest.raises(ToolError, match=r"cursor \(value_error\)"):
+        await server.call_tool(
+            "list_human_attention",
+            {
+                "project_id": PROJECT_ID,
+                "limit": 0,
+                "cursor": "not-allowed-for-count",
+            },
+        )
+    assert len(calls) == 1
+
+
+def test_human_gate_models_enforce_revision_state_and_hierarchy_coherence(
+    human_gate, resolved_human_gate
+):
+    assert HumanGateRead.model_validate(human_gate).status == "unresolved"
+    assert HumanGateRead.model_validate(resolved_human_gate).status == "resolved"
+
+    with pytest.raises(ValueError):
+        HumanGateRead.model_validate(
+            {**human_gate, "requested_work_version": "3"}
+        )
+    with pytest.raises(ValueError):
+        HumanGateRead.model_validate(
+            {**human_gate, "work_changed_since_request": "false"}
+        )
+    with pytest.raises(ValueError):
+        HumanGateRead.model_validate(
+            {**human_gate, "work_changed_since_request": True}
+        )
+    with pytest.raises(ValueError):
+        HumanGateRead.model_validate(
+            {
+                **resolved_human_gate,
+                "context_change_acknowledged": True,
+            }
+        )
+    with pytest.raises(ValueError):
+        HumanGateRead.model_validate(
+            {**human_gate, "resolution": "An impossible unresolved answer."}
+        )
+
+    valid_presentation = {
+        "direct_child_count": 2,
+        "descendant_count": 4,
+        "blocked_descendant_count": 1,
+        "active_descendant_count": 1,
+        "completed_descendant_count": 1,
+        "discovered_descendant_count": 2,
+        "branch_unresolved_human_gate_count": 3,
+        "is_discovered_work": True,
+        "discovered_from_parent": False,
+        "next_active_descendant_lease_expires_at": EXPIRES_AT,
+    }
+    assert HierarchyPresentation.model_validate(valid_presentation).descendant_count == 4
+    with pytest.raises(ValueError):
+        HierarchyPresentation.model_validate(
+            {**valid_presentation, "blocked_descendant_count": 5}
+        )
+    with pytest.raises(ValueError):
+        HierarchyPresentation.model_validate(
+            {
+                **valid_presentation,
+                "active_descendant_count": 0,
+            }
+        )
+
+
+def test_gate_event_models_preserve_legacy_wire_and_validate_typed_metadata(
+    progress_event, human_gate, resolved_human_gate
+):
+    base = {
+        **progress_event,
+        "event_type": "human_attention_requested",
+        "body": human_gate["question"],
+        "metadata": {"gate_id": GATE_ID, "gate_type": "human"},
+    }
+    requested = WorkEventRead.model_validate(base)
+    resolved = WorkEventRead.model_validate(
+        {
+            **base,
+            "event_type": "human_attention_resolved",
+            "body": resolved_human_gate["resolution"],
+        }
+    )
+    serialized = requested.model_dump(mode="json")
+    assert str(requested.metadata.gate_id) == GATE_ID
+    assert resolved.event_type == "human_attention_resolved"
+    assert "gate_id" not in serialized
+    assert serialized["metadata"] == {"gate_id": GATE_ID, "gate_type": "human"}
+    with pytest.raises(ValueError):
+        WorkEventRead.model_validate({**base, "origin": "backfill"})
+    with pytest.raises(ValueError):
+        WorkEventRead.model_validate({**base, "gate_id": GATE_ID})
+
+
 async def test_event_tools_use_exact_rest_contract(settings, progress_event):
     seen: list[str] = []
 
@@ -1812,6 +2296,22 @@ async def test_append_event_validation_and_unknown_outcome_are_value_free(settin
         (
             {
                 "body": "Progress",
+                "metadata": {"gate_id": marker},
+                **ACTOR_ARGUMENTS,
+            },
+            "metadata",
+        ),
+        (
+            {
+                "body": "Progress",
+                "metadata": {"nested": [{"GaTe_TyPe": marker}]},
+                **ACTOR_ARGUMENTS,
+            },
+            "metadata",
+        ),
+        (
+            {
+                "body": "Progress",
                 "metadata": {"nested": [f"{marker}\x00"]},
                 **ACTOR_ARGUMENTS,
             },
@@ -1981,14 +2481,31 @@ async def test_checkpoint_tools_preserve_immutable_context_and_page_history(
 
 
 async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority_warning(
-    settings, work_context
+    settings, work_context, human_gate, resolved_human_gate
 ):
     calls = []
+    gated_context = {
+        **work_context,
+        "omitted_checkpoint_count": 12,
+        "readiness": {
+            **work_context["readiness"],
+            "unresolved_gate_count": 1,
+            "is_gated": True,
+            "is_ready": False,
+            "display_state": "waiting",
+        },
+        "unresolved_gates": [human_gate],
+        "unresolved_gate_total": 1,
+        "omitted_unresolved_gate_count": 0,
+        "recent_resolved_gates": [resolved_human_gate],
+        "resolved_gate_total": 2,
+        "omitted_resolved_gate_count": 1,
+    }
 
     def handler(request):
         calls.append(dict(request.url.params))
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/context"
-        return httpx.Response(200, json={**work_context, "omitted_checkpoint_count": 12})
+        return httpx.Response(200, json=gated_context)
 
     server = adapter(settings, handler)
     recalled = structured(
@@ -2005,6 +2522,12 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
     assert resource_document["work_item"]["id"] == WORK_ID
     assert resource_document["checkpoint_total"] == 1
     assert resource_document["omitted_checkpoint_count"] == 12
+    assert resource_document["unresolved_gate_total"] == 1
+    assert resource_document["resolved_gate_total"] == 2
+    assert resource_document["unresolved_gates"][0]["id"] == GATE_ID
+    assert resource_document["recent_resolved_gates"][0]["resolution"] == (
+        resolved_human_gate["resolution"]
+    )
     assert (
         resource_document["initial_checkpoint"]["prompt"]
         == work_context["initial_checkpoint"]["prompt"]
@@ -2018,6 +2541,9 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
     assert "claim_and_recall" in text
     assert "does not claim the work" in text
     assert "add_checkpoint" in text
+    assert "Never infer, time out, self-approve, or resolve" in text
+    assert human_gate["question"] in text
+    assert resolved_human_gate["resolution"] in text
     assert work_context["initial_checkpoint"]["source_session_id"] in text
     resumed = json.loads(text.split("\n\n", 1)[1])
     assert resumed["work_item"]["id"] == WORK_ID
@@ -2503,6 +3029,9 @@ async def test_delete_passes_version_and_conflict_is_not_retried(settings):
         ("version_conflict", "Version conflict"),
         ("work_not_pending", "not pending"),
         ("work_blocked", "unresolved blocker"),
+        ("work_gated", "unresolved human input"),
+        ("gate_already_resolved", "already resolved"),
+        ("gate_context_changed", "human must reload"),
         ("invalid_status_transition", "lifecycle transition is not allowed"),
         ("lease_expired", "claim has expired"),
         ("lease_token_mismatch", "does not match"),
@@ -2541,6 +3070,108 @@ async def test_typed_application_errors_are_actionable_and_sanitized(
             },
         )
     assert API_KEY not in str(caught.value)
+
+
+async def test_gate_fence_and_secret_errors_are_value_free_and_single_attempt(
+    settings, human_gate
+):
+    private_marker = "private-human-gate-diagnostic"
+    calls = []
+
+    def fenced_handler(request):
+        calls.append(request)
+        return httpx.Response(
+            503,
+            json={
+                "detail": {
+                    "code": "human_gates_not_enabled",
+                    "message": f"{private_marker} {human_gate['question']}",
+                    "context": {"question": human_gate["question"]},
+                }
+            },
+        )
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, fenced_handler).call_tool(
+            "request_human_input", protected_tool_arguments()["request_human_input"]
+        )
+    assert "temporarily disabled" in str(caught.value)
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME not in str(caught.value)
+    assert private_marker not in str(caught.value)
+    assert human_gate["question"] not in str(caught.value)
+    assert len(calls) == 1
+
+    calls.clear()
+
+    def secret_handler(request):
+        calls.append(request)
+        return httpx.Response(
+            422,
+            json={
+                "detail": {
+                    "code": "gate_secret_echo",
+                    "message": private_marker,
+                    "context": {"question": human_gate["question"]},
+                }
+            },
+        )
+
+    with pytest.raises(
+        ToolError, match="request-known or retained gate/operation control"
+    ) as caught:
+        await adapter(settings, secret_handler).call_tool(
+            "request_human_input", protected_tool_arguments()["request_human_input"]
+        )
+    assert private_marker not in str(caught.value)
+    assert human_gate["question"] not in str(caught.value)
+    assert len(calls) == 1
+
+
+async def test_gate_cursor_and_not_found_errors_are_scoped_and_sanitized(settings):
+    private_marker = "private-gate-scope-diagnostic"
+
+    def cursor_handler(request):
+        return httpx.Response(
+            422,
+            json={
+                "detail": {
+                    "code": "invalid_cursor",
+                    "message": private_marker,
+                    "context": {"cursor": private_marker},
+                }
+            },
+        )
+
+    with pytest.raises(ToolError, match="invalid for this project") as caught:
+        await adapter(settings, cursor_handler).call_tool(
+            "list_work_gates",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "cursor": "validly-shaped-but-wrong-scope",
+            },
+        )
+    assert private_marker not in str(caught.value)
+
+    def missing_handler(request):
+        return httpx.Response(
+            404,
+            json={
+                "detail": {
+                    "code": "gate_not_found",
+                    "message": private_marker,
+                    "context": {"gate_id": GATE_ID},
+                }
+            },
+        )
+
+    with pytest.raises(ToolError, match="Human gate not found") as caught:
+        await adapter(settings, missing_handler).call_tool(
+            "list_work_gates",
+            {"project_id": PROJECT_ID, "work_item_id": WORK_ID},
+        )
+    assert private_marker not in str(caught.value)
+    assert GATE_ID not in str(caught.value)
 
 
 async def test_lease_held_reports_only_allowlisted_holder_and_expiry(settings):
@@ -2939,16 +3570,18 @@ async def test_protected_success_responses_are_canonical_and_request_coherent(
     checkpoint,
     relationship,
     progress_event,
+    human_gate,
     tool_name,
 ):
     requests = []
     responses = protected_success_responses(
-        work_item, checkpoint, relationship, progress_event
+        work_item, checkpoint, relationship, progress_event, human_gate
     )
     status_code = 201 if tool_name in {
         "create_work",
         "add_checkpoint",
         "append_event",
+        "request_human_input",
     } else 200
 
     def handler(request):
@@ -2971,13 +3604,14 @@ async def test_protected_noncanonical_success_is_an_unknown_outcome_without_retr
     checkpoint,
     relationship,
     progress_event,
+    human_gate,
     tool_name,
 ):
     requests = []
     response = json.loads(
         json.dumps(
             protected_success_responses(
-                work_item, checkpoint, relationship, progress_event
+                work_item, checkpoint, relationship, progress_event, human_gate
             )[tool_name]
         )
     )
@@ -3001,6 +3635,7 @@ async def test_protected_noncanonical_success_is_an_unknown_outcome_without_retr
         "create_work",
         "add_checkpoint",
         "append_event",
+        "request_human_input",
     } else 200
 
     def handler(request):
@@ -3026,13 +3661,14 @@ async def test_protected_incoherent_success_is_an_unknown_outcome_without_retry(
     checkpoint,
     relationship,
     progress_event,
+    human_gate,
     tool_name,
 ):
     requests = []
     response = json.loads(
         json.dumps(
             protected_success_responses(
-                work_item, checkpoint, relationship, progress_event
+                work_item, checkpoint, relationship, progress_event, human_gate
             )[tool_name]
         )
     )
@@ -3056,6 +3692,7 @@ async def test_protected_incoherent_success_is_an_unknown_outcome_without_retry(
         "create_work",
         "add_checkpoint",
         "append_event",
+        "request_human_input",
     } else 200
 
     def handler(request):
@@ -3110,7 +3747,7 @@ async def test_reverse_related_no_op_accepts_original_edge_provenance(
 
 
 async def test_create_work_accepts_normalized_deduplicated_related_edges(
-    settings, work_item, checkpoint, relationship, progress_event
+    settings, work_item, checkpoint, relationship, progress_event, human_gate
 ):
     arguments = protected_tool_arguments()["create_work"]
     arguments["initial_relationships"] = [
@@ -3126,7 +3763,7 @@ async def test_create_work_accepts_normalized_deduplicated_related_edges(
         },
     ]
     response = protected_success_responses(
-        work_item, checkpoint, relationship, progress_event
+        work_item, checkpoint, relationship, progress_event, human_gate
     )["create_work"]
     response["initial_relationships"] = [
         {

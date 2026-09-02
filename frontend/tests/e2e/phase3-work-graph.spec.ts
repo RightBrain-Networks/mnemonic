@@ -119,11 +119,66 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
       }
     });
     if (!claimed.ok()) throw new Error(`Could not claim child fixture (${claimed.status()}): ${await claimed.text()}`);
+    const collapsedClaim = await client.post(
+      `/api/v1/projects/${state.projectId}/work-items/${collapsedChildId}/claim`,
+      {
+        data: {
+          holder_client: "claude-code",
+          holder_session_id: `collapsed-expiry-${suffix}`,
+          claim_request_id: crypto.randomUUID()
+        }
+      }
+    );
+    if (!collapsedClaim.ok()) {
+      throw new Error(
+        `Could not claim collapsed child fixture (${collapsedClaim.status()}): ${await collapsedClaim.text()}`
+      );
+    }
 
     const childRequests: string[] = [];
     page.on("request", (request) => {
       if (request.url().includes("/children?")) childRequests.push(request.url());
     });
+    let syntheticCollapsedExpiry = "";
+    let collapsedRootSnapshots = 0;
+    await page.route(
+      `**/api/mnemonic/projects/${state.projectId}/work-items?*`,
+      async (route) => {
+        const url = new URL(route.request().url());
+        if (
+          url.searchParams.get("view") !== "roots"
+          || url.searchParams.get("status") !== "pending"
+        ) {
+          await route.continue();
+          return;
+        }
+        const response = await route.fetch();
+        const payload = await response.json() as {
+          items: Array<{
+            summary: { work_item: { id: string } };
+            presentation: {
+              active_descendant_count: number;
+              next_active_descendant_lease_expires_at: string | null;
+            };
+          }>;
+        };
+        const branch = payload.items.find(
+          (item) => item.summary.work_item.id === collapsedRootId
+        );
+        if (branch) {
+          if (!syntheticCollapsedExpiry) {
+            syntheticCollapsedExpiry = new Date(Date.now() + 4_000).toISOString();
+          }
+          const active = Date.now() < Date.parse(syntheticCollapsedExpiry);
+          branch.presentation.active_descendant_count = active ? 1 : 0;
+          branch.presentation.next_active_descendant_lease_expires_at = active
+            ? syntheticCollapsedExpiry
+            : null;
+          collapsedRootSnapshots += 1;
+        }
+        await route.fulfill({ response, json: payload });
+      }
+    );
 
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
@@ -151,10 +206,47 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect(
       page.getByRole("button", { name: `Expand children of ${titles.collapsedRoot}` })
     ).toHaveAttribute("aria-expanded", "false");
+    const collapsedBranch = collapsedRootCard.locator(
+      "xpath=ancestor::div[contains(@class,'hierarchy-node')][1]"
+    );
+    const collapsedAggregates = collapsedBranch.locator(".hierarchy-aggregate-strip");
+    await expect(collapsedAggregates).toHaveAttribute("aria-label", /1 active descendant/);
+    await expect.poll(() => collapsedRootSnapshots, { timeout: 10_000 }).toBeGreaterThan(1);
+    await expect(collapsedAggregates).toHaveAttribute("aria-label", /0 active descendants/);
+    await expect(
+      page.getByRole("button", { name: `Expand children of ${titles.collapsedRoot}` })
+    ).toHaveAttribute("aria-expanded", "false");
     // The Pending filter keeps Active distinct. The Active child is therefore
     // navigation scaffolding and auto-expands to reveal its Pending descendant.
     await expect(grandchildCard).toHaveCount(1);
     await expect(page.locator(".result-count")).toContainText("root branch");
+
+    const rootBranch = rootCard.locator(
+      "xpath=ancestor::div[contains(@class,'hierarchy-node')][1]"
+    );
+    await expect(rootBranch.locator(".hierarchy-aggregate-strip")).toHaveAttribute(
+      "aria-label",
+      /1 direct child; 2 descendants;.*1 active descendant/
+    );
+    await page.getByRole("button", { name: "Won’t do", exact: true }).click();
+    await expect(rootCard).toHaveCount(1);
+    await page.getByRole("button", { name: `Expand children of ${titles.root}` }).click();
+    const hiddenChildren = page.getByRole("note").filter({
+      hasText: "The lifecycle filter hides this branch’s children."
+    });
+    await expect(hiddenChildren).toBeVisible();
+    await hiddenChildren.getByRole("button", { name: "Show all descendants" }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Branch override active" })
+    ).toBeVisible();
+    await expect(childCard).toHaveCount(1);
+    await page.getByRole("button", { name: `Expand children of ${titles.child}` }).click();
+    await expect(grandchildCard).toHaveCount(1);
+    await expect.poll(() => childRequests.some(
+      (url) => url.includes(`/work-items/${rootId}/children?`) && url.includes("status=all")
+    )).toBe(true);
+    await page.getByRole("button", { name: "Pending", exact: true }).click();
+    await expect(grandchildCard).toHaveCount(1);
 
     const childChildrenPath = `/work-items/${childId}/children?`;
     await expect.poll(() => childRequests.some(
@@ -193,8 +285,8 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect(detail.locator(".relationship-preview")).toContainText(`${titles.blocker} blocks ${titles.child}.`);
     await detail.getByRole("button", { name: "Add relationship" }).click();
     await expect(detail.getByRole("heading", { name: "Blocked by", exact: true })).toBeVisible();
-    await expect(detail.locator(".detail-topline > .status-badge")).toHaveText("Active");
-    await expect(detail.locator(".operational-badge.blocked")).toHaveText("Blocked");
+    await expect(detail.locator(".detail-topline > .status-badge")).toHaveText("Blocked");
+    await expect(detail.locator(".operational-badge.active")).toHaveText("Active");
 
     const blockedByHeading = detail.getByRole("heading", { name: "Blocked by", exact: true });
     const blockedByGroup = blockedByHeading.locator("xpath=..");

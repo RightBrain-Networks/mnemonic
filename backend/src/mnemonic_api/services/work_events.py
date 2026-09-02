@@ -10,7 +10,7 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import ApplicationError, not_found
-from mnemonic_api.models import Checkpoint, WorkEvent, WorkItem, WorkRelationship
+from mnemonic_api.models import Checkpoint, WorkEvent, WorkGate, WorkItem, WorkRelationship
 from mnemonic_api.schemas import (
     MutationActor,
     ProgressEventCreate,
@@ -65,6 +65,7 @@ def _event(
     lease_generation_id: UUID | None = None,
     lease_release_id: UUID | None = None,
     relationship: WorkRelationship | None = None,
+    gate_id: UUID | None = None,
 ) -> WorkEvent:
     values: dict[str, Any] = {
         "project_id": project_id,
@@ -75,6 +76,7 @@ def _event(
         "checkpoint_id": checkpoint_id,
         "lease_generation_id": lease_generation_id,
         "lease_release_id": lease_release_id,
+        "gate_id": gate_id,
         "event_metadata": metadata,
         "created_at": created_at,
         "origin": "live",
@@ -90,6 +92,54 @@ def _event(
             relationship_context_checkpoint_id=relationship.context_checkpoint_id,
         )
     return WorkEvent(**values)
+
+
+def stage_human_attention_requested(
+    database: Session,
+    gate: WorkGate,
+) -> WorkEvent:
+    event = _event(
+        project_id=gate.project_id,
+        work_item_id=gate.work_item_id,
+        event_type="human_attention_requested",
+        actor=source_actor(
+            gate.requested_by_client,
+            gate.requested_by_session_id,
+            gate.requested_by_model,
+        ),
+        created_at=gate.created_at,
+        body=gate.question,
+        gate_id=gate.id,
+        metadata={"gate_id": str(gate.id), "gate_type": "human"},
+    )
+    database.add(event)
+    return event
+
+
+def stage_human_attention_resolved(
+    database: Session,
+    gate: WorkGate,
+) -> WorkEvent:
+    assert gate.resolved_at is not None
+    assert gate.resolution is not None
+    assert gate.resolved_by_client is not None
+    assert gate.resolved_by_session_id is not None
+    event = _event(
+        project_id=gate.project_id,
+        work_item_id=gate.work_item_id,
+        event_type="human_attention_resolved",
+        actor=source_actor(
+            gate.resolved_by_client,
+            gate.resolved_by_session_id,
+            gate.resolved_by_model,
+        ),
+        created_at=gate.resolved_at,
+        body=gate.resolution,
+        gate_id=gate.id,
+        metadata={"gate_id": str(gate.id), "gate_type": "human"},
+    )
+    database.add(event)
+    return event
 
 
 def stage_work_created(

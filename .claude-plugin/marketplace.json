@@ -8,7 +8,7 @@
     {
       "name": "mnemonic",
       "source": "./plugin",
-      "description": "Save and retrieve durable work, discover ready work, and preserve bounded checkpoint and event history with truthful provenance."
+      "description": "Save and retrieve durable work, coordinate explicit human questions, discover ready work, and preserve truthful graph and decision history."
     }
   ]
 }

@@ -438,7 +438,7 @@ def test_0013_downgrade_waits_for_winning_writer_then_refuses(
     with engine.connect() as connection:
         assert connection.scalar(
             text("SELECT version_num FROM alembic_version")
-        ) == "0013_idempotent_mutations"
+        ) == "0014_human_gates"
         receipt = connection.execute(
             text(
                 """

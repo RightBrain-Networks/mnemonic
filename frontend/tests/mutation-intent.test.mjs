@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   MutationIntentError,
   MutationIntentRegistry,
+  mutationGateKey,
   mutationWorkKey
 } from "../lib/mutation-intent.ts";
 
@@ -175,6 +176,52 @@ test("prepared intents can be discarded, but dispatched ambiguity blocks interse
     (error) => error instanceof MutationIntentError && error.state === "blocked"
   );
   assert.equal(uuidCount, 2);
+});
+
+test("gate resolution freezes the reviewed revision and conflicts on work plus gate only", () => {
+  const gate = "1dfa9455-4a17-4cd4-938b-010ea17ccaf0";
+  const reviewedCheckpoint = "26a3a437-0af3-405a-ab82-7932d17869e0";
+  const registry = new MutationIntentRegistry(async () => {
+    throw new Error("not dispatched");
+  }, () => operation);
+  const intent = registry.prepare({
+    kind: "resolve_human_input",
+    slot: `gate-resolution:${gate}`,
+    projectId: project,
+    conflictKeys: [mutationWorkKey(project, work), mutationGateKey(project, gate)],
+    method: "POST",
+    path: `/projects/${project}/work-items/${work}/gates/${gate}/resolve`,
+    payload: {
+      resolution: "Exact answer",
+      resolved_by_client: "dashboard",
+      resolved_by_session_id: "tab-1",
+      resolved_by_model: null,
+      acknowledge_context_change: true,
+      reviewed_context_revision: {
+        work_version: 4,
+        context_checkpoint_id: reviewedCheckpoint,
+        relationship_event_count: 7
+      }
+    }
+  });
+  assert.deepEqual(JSON.parse(intent.body), {
+    resolution: "Exact answer",
+    resolved_by_client: "dashboard",
+    resolved_by_session_id: "tab-1",
+    resolved_by_model: null,
+    acknowledge_context_change: true,
+    reviewed_context_revision: {
+      work_version: 4,
+      context_checkpoint_id: reviewedCheckpoint,
+      relationship_event_count: 7
+    },
+    client_operation_id: operation
+  });
+  assert.deepEqual(intent.conflictKeys, [
+    `work:${project}:${work}`,
+    `gate:${project}:${gate}`
+  ]);
+  assert.equal(intent.conflictKeys.some((key) => key.startsWith("project:")), false);
 });
 
 test("exact-key conflict remains a non-discardable safety incident", async () => {

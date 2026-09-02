@@ -19,16 +19,20 @@ function clientLabel(client: string) {
   } as Record<string, string>)[client] ?? client;
 }
 
-type CardStatus = WorkStatus | "active" | "dropped";
+type CardStatus = WorkStatus | "active" | "dropped" | "blocked" | "waiting";
 
 const cardStatusLabels: Record<CardStatus, string> = {
   ...statusLabels,
   active: "Active",
-  dropped: "Dropped"
+  dropped: "Dropped",
+  blocked: "Blocked",
+  waiting: "Needs attention"
 };
 
 function effectiveCardStatus(status: WorkStatus, readiness?: Readiness): CardStatus {
   if (status !== "pending" || !readiness) return status;
+  if (readiness.is_gated) return "waiting";
+  if (readiness.is_blocked) return "blocked";
   if (readiness.has_active_lease) return "active";
   if (readiness.has_dropped_lease) return "dropped";
   return "pending";
@@ -41,7 +45,9 @@ function StatusBadge({ status, readiness }: { status: WorkStatus; readiness?: Re
 
 function OperationalBadge({ readiness }: { readiness: Readiness }) {
   return <>
-    {readiness.is_blocked && <span className="operational-badge blocked">Blocked</span>}
+    {readiness.is_gated && readiness.display_state !== "waiting" && <span className="operational-badge waiting">Needs attention</span>}
+    {readiness.is_blocked && readiness.display_state !== "blocked" && <span className="operational-badge blocked">Blocked</span>}
+    {readiness.has_active_lease && readiness.display_state !== "active" && <span className="operational-badge active">Active</span>}
   </>;
 }
 
@@ -124,12 +130,21 @@ export default function WorkItemCard({
           title={summary.readiness.has_active_lease
             ? "Active work cannot be deferred until its lease is released or expires."
             : work.status === "deferred"
-              ? "Return this work item to the work queue"
+              ? "Move this work item back to Pending; blockers and human gates still apply"
               : "Hold this work item out of the work queue"}
           onClick={onDefer}
         >{deferring ? "Saving…" : work.status === "deferred" ? "Move to Pending" : "Defer"}</button>}
         <button className="icon-button" type="button" aria-label={`Edit ${work.title}`} title="Edit work item" onClick={onEdit}>✎</button>
-        <button className="icon-button danger-hover" type="button" aria-label={`Delete ${work.title}`} title="Delete work item" onClick={onDelete}>⌫</button>
+        <button
+          className="icon-button danger-hover"
+          type="button"
+          aria-label={`Delete ${work.title}`}
+          title={summary.readiness.is_gated
+            ? "Resolve every human question before deleting this work item."
+            : "Delete work item"}
+          disabled={summary.readiness.is_gated}
+          onClick={onDelete}
+        >⌫</button>
         <span className="action-divider" />
         <button className={`button copy-button ${copied ? "is-copied" : ""}`} type="button" onClick={onCopyPointer}>
           {copied ? "Copied" : "Copy recall pointer"}

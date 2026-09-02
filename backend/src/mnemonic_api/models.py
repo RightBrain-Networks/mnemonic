@@ -89,7 +89,8 @@ class ClientOperation(Base):
         CheckConstraint(
             "operation_kind IN ('create_work', 'add_checkpoint', 'append_event', "
             "'add_relationship', 'update_work', 'defer_work', 'complete_work', "
-            "'delete_work', 'remove_relationship', 'release_claim')",
+            "'delete_work', 'remove_relationship', 'release_claim', "
+            "'request_human_input', 'resolve_human_input')",
             name="operation_kind_valid",
         ),
         CheckConstraint(
@@ -432,6 +433,177 @@ class WorkRelationship(Base):
     created_by_model: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+class WorkGate(Base):
+    """An immutable human question with one optional immutable resolution."""
+
+    __tablename__ = "work_gates"
+    __table_args__ = (
+        CheckConstraint("attention_sequence > 0", name="attention_sequence_positive"),
+        CheckConstraint("gate_type = 'human'", name="gate_type_valid"),
+        CheckConstraint(
+            "mnemonic_has_non_whitespace(question) AND length(question) <= 4000",
+            name="question_valid",
+        ),
+        CheckConstraint(
+            "mnemonic_has_non_whitespace(requested_by_client) "
+            "AND mnemonic_has_non_whitespace(requested_by_session_id) "
+            "AND (requested_by_model IS NULL "
+            "OR mnemonic_has_non_whitespace(requested_by_model))",
+            name="requester_valid",
+        ),
+        CheckConstraint(
+            "requested_work_version > 0 AND requested_relationship_event_count >= 0",
+            name="requested_revision_valid",
+        ),
+        CheckConstraint(
+            "(resolved_at IS NULL AND resolution IS NULL "
+            "AND resolved_by_client IS NULL AND resolved_by_session_id IS NULL "
+            "AND resolved_by_model IS NULL AND resolved_work_version IS NULL "
+            "AND resolved_context_checkpoint_id IS NULL "
+            "AND resolved_relationship_event_count IS NULL "
+            "AND context_changed_at_resolution IS NULL "
+            "AND context_change_acknowledged IS NULL) OR "
+            "(resolved_at IS NOT NULL AND resolution IS NOT NULL "
+            "AND resolved_by_client IS NOT NULL "
+            "AND resolved_by_session_id IS NOT NULL "
+            "AND resolved_work_version IS NOT NULL "
+            "AND resolved_context_checkpoint_id IS NOT NULL "
+            "AND resolved_relationship_event_count IS NOT NULL "
+            "AND context_changed_at_resolution IS NOT NULL "
+            "AND context_change_acknowledged IS NOT NULL)",
+            name="resolution_state_valid",
+        ),
+        CheckConstraint(
+            "resolution IS NULL OR "
+            "(mnemonic_has_non_whitespace(resolution) AND length(resolution) <= 4000)",
+            name="resolution_valid",
+        ),
+        CheckConstraint(
+            "resolved_by_client IS NULL OR mnemonic_has_non_whitespace(resolved_by_client)",
+            name="resolver_client_valid",
+        ),
+        CheckConstraint(
+            "resolved_by_session_id IS NULL "
+            "OR mnemonic_has_non_whitespace(resolved_by_session_id)",
+            name="resolver_session_valid",
+        ),
+        CheckConstraint(
+            "resolved_by_model IS NULL OR mnemonic_has_non_whitespace(resolved_by_model)",
+            name="resolver_model_valid",
+        ),
+        CheckConstraint(
+            "resolved_work_version IS NULL OR resolved_work_version > 0",
+            name="resolved_work_version_positive",
+        ),
+        CheckConstraint(
+            "resolved_relationship_event_count IS NULL "
+            "OR resolved_relationship_event_count >= 0",
+            name="resolved_relationship_event_count_nonnegative",
+        ),
+        CheckConstraint(
+            "resolved_at IS NULL OR resolved_at >= created_at",
+            name="timestamp_order",
+        ),
+        CheckConstraint(
+            "context_changed_at_resolution IS NULL OR "
+            "context_changed_at_resolution = ("
+            "resolved_work_version IS DISTINCT FROM requested_work_version OR "
+            "resolved_context_checkpoint_id IS DISTINCT FROM "
+            "requested_context_checkpoint_id OR "
+            "resolved_relationship_event_count IS DISTINCT FROM "
+            "requested_relationship_event_count)",
+            name="resolution_drift_coherent",
+        ),
+        CheckConstraint(
+            "context_change_acknowledged IS NULL OR "
+            "context_change_acknowledged = context_changed_at_resolution",
+            name="context_acknowledgement_coherent",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "work_item_id"],
+            ["work_items.project_id", "work_items.id"],
+            name="fk_work_gates_work_item",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["work_item_id", "requested_context_checkpoint_id"],
+            ["checkpoints.work_item_id", "checkpoints.id"],
+            name="fk_work_gates_requested_context_checkpoint",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["work_item_id", "resolved_context_checkpoint_id"],
+            ["checkpoints.work_item_id", "checkpoints.id"],
+            name="fk_work_gates_resolved_context_checkpoint",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("attention_sequence", name="uq_work_gates_attention_sequence"),
+        UniqueConstraint(
+            "work_item_id",
+            "id",
+            name="uq_work_gates_work_item_id_id",
+        ),
+        Index(
+            "ix_work_gates_project_unresolved",
+            "project_id",
+            "attention_sequence",
+            postgresql_where=text("resolved_at IS NULL"),
+        ),
+        Index(
+            "ix_work_gates_work_unresolved",
+            "work_item_id",
+            "attention_sequence",
+            postgresql_where=text("resolved_at IS NULL"),
+        ),
+        Index(
+            "ix_work_gates_work_timeline",
+            "work_item_id",
+            text("attention_sequence DESC"),
+        ),
+        Index(
+            "ix_work_gates_work_resolved_recent",
+            "work_item_id",
+            text("resolved_at DESC"),
+            text("id DESC"),
+            postgresql_where=text("resolved_at IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        primary_key=True,
+        default=uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    attention_sequence: Mapped[int] = mapped_column(BigInteger, Identity(always=True))
+    project_id: Mapped[UUID] = mapped_column()
+    work_item_id: Mapped[UUID] = mapped_column()
+    gate_type: Mapped[str] = mapped_column(
+        String(16),
+        default="human",
+        server_default="human",
+    )
+    question: Mapped[str] = mapped_column(Text)
+    requested_by_client: Mapped[str] = mapped_column(String(80))
+    requested_by_session_id: Mapped[str] = mapped_column(String(200))
+    requested_by_model: Mapped[str | None] = mapped_column(String(120))
+    requested_work_version: Mapped[int] = mapped_column(Integer)
+    requested_context_checkpoint_id: Mapped[UUID] = mapped_column()
+    requested_relationship_event_count: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.clock_timestamp(),
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolution: Mapped[str | None] = mapped_column(Text)
+    resolved_by_client: Mapped[str | None] = mapped_column(String(80))
+    resolved_by_session_id: Mapped[str | None] = mapped_column(String(200))
+    resolved_by_model: Mapped[str | None] = mapped_column(String(120))
+    resolved_work_version: Mapped[int | None] = mapped_column(Integer)
+    resolved_context_checkpoint_id: Mapped[UUID | None] = mapped_column()
+    resolved_relationship_event_count: Mapped[int | None] = mapped_column(BigInteger)
+    context_changed_at_resolution: Mapped[bool | None] = mapped_column(Boolean)
+    context_change_acknowledged: Mapped[bool | None] = mapped_column(Boolean)
+
 
 class WorkEvent(Base):
     """An immutable, actor-attributed fact in one work item's history."""
@@ -443,7 +615,8 @@ class WorkEvent(Base):
             "'work_reopened', 'work_claimed', 'work_released', 'checkpoint_added', "
             "'progress', 'dependency_added', 'dependency_removed', "
             "'relationship_added', 'relationship_removed', 'work_completed', "
-            "'work_deleted')",
+            "'work_deleted', 'human_attention_requested', "
+            "'human_attention_resolved')",
             name="event_type_valid",
         ),
         CheckConstraint(
@@ -463,16 +636,19 @@ class WorkEvent(Base):
         CheckConstraint(
             "(origin = 'live' AND ("
             "event_type NOT IN ('work_created', 'checkpoint_added', 'work_completed', "
-            "'work_claimed', 'dependency_added', 'relationship_added', 'progress') "
+            "'work_claimed', 'dependency_added', 'relationship_added', 'progress', "
+            "'human_attention_requested', 'human_attention_resolved') "
             "OR actor_kind = 'client')) OR "
             "(origin = 'backfill' AND (event_type <> 'work_deleted' "
             "OR actor_kind = 'unattributed'))",
             name="actor_matrix_valid",
         ),
         CheckConstraint(
-            "(event_type = 'progress' AND body IS NOT NULL "
+            "(event_type IN ('progress', 'human_attention_requested', "
+            "'human_attention_resolved') AND body IS NOT NULL "
             "AND length(body) <= 4000 AND mnemonic_has_non_whitespace(body)) OR "
-            "(event_type <> 'progress' AND body IS NULL)",
+            "(event_type NOT IN ('progress', 'human_attention_requested', "
+            "'human_attention_resolved') AND body IS NULL)",
             name="body_valid",
         ),
         CheckConstraint(
@@ -518,18 +694,35 @@ class WorkEvent(Base):
             "AND relationship_context_checkpoint_id IS NULL)",
             name="relationship_references_valid",
         ),
+        CheckConstraint(
+            "(event_type IN ('human_attention_requested', 'human_attention_resolved') "
+            "AND gate_id IS NOT NULL) OR "
+            "(event_type NOT IN ('human_attention_requested', "
+            "'human_attention_resolved') AND gate_id IS NULL)",
+            name="gate_reference_valid",
+        ),
+        CheckConstraint(
+            "event_type IN ('human_attention_requested', 'human_attention_resolved') "
+            "OR NOT (metadata ? 'gate_id' OR metadata ? 'gate_type')",
+            name="gate_metadata_reserved",
+        ),
         CheckConstraint("metadata_version = 1", name="metadata_version_valid"),
         CheckConstraint(
             "jsonb_typeof(metadata) = 'object' AND octet_length(metadata::text) <= 16384",
             name="metadata_envelope_valid",
         ),
         CheckConstraint(
-            "mnemonic_work_event_metadata_v1_is_valid("
+            "(event_type IN ('human_attention_requested', 'human_attention_resolved') "
+            "AND metadata_version = 1 "
+            "AND metadata = jsonb_build_object('gate_id', gate_id::text, "
+            "'gate_type', 'human')) OR "
+            "(event_type NOT IN ('human_attention_requested', "
+            "'human_attention_resolved') AND mnemonic_work_event_metadata_v2_is_valid("
             "event_type, origin, work_item_id, checkpoint_id, lease_generation_id, "
             "lease_release_id, relationship_id, relationship_source_work_item_id, "
             "relationship_target_work_item_id, "
             "relationship_context_checkpoint_work_item_id, "
-            "relationship_context_checkpoint_id, metadata_version, metadata)",
+            "relationship_context_checkpoint_id, metadata_version, metadata))",
             name="metadata_v1_valid",
         ),
         CheckConstraint(
@@ -578,6 +771,12 @@ class WorkEvent(Base):
             ],
             ["checkpoints.work_item_id", "checkpoints.id"],
             name="fk_work_events_relationship_context_checkpoint",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["work_item_id", "gate_id"],
+            ["work_gates.work_item_id", "work_gates.id"],
+            name="fk_work_events_gate",
             ondelete="RESTRICT",
         ),
         Index(
@@ -634,6 +833,14 @@ class WorkEvent(Base):
             postgresql_where=text("event_type IN ('dependency_removed', 'relationship_removed')"),
         ),
         Index(
+            "uq_work_events_gate_fact",
+            "work_item_id",
+            "gate_id",
+            "event_type",
+            unique=True,
+            postgresql_where=text("gate_id IS NOT NULL"),
+        ),
+        Index(
             "ix_work_events_timeline",
             "project_id",
             "work_item_id",
@@ -667,6 +874,7 @@ class WorkEvent(Base):
     relationship_target_work_item_id: Mapped[UUID | None] = mapped_column()
     relationship_context_checkpoint_work_item_id: Mapped[UUID | None] = mapped_column()
     relationship_context_checkpoint_id: Mapped[UUID | None] = mapped_column()
+    gate_id: Mapped[UUID | None] = mapped_column()
     metadata_version: Mapped[int] = mapped_column(SmallInteger, default=1, server_default="1")
     event_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, default=dict, server_default=text("'{}'::jsonb")

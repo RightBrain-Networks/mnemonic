@@ -110,6 +110,10 @@ export function mutationWorkKey(projectId: string, workItemId: string): string {
   return `work:${projectId.toLowerCase()}:${workItemId.toLowerCase()}`;
 }
 
+export function mutationGateKey(projectId: string, gateId: string): string {
+  return `gate:${projectId.toLowerCase()}:${gateId.toLowerCase()}`;
+}
+
 export function mutationCreateKey(projectId: string): string {
   return `work-create:${projectId.toLowerCase()}`;
 }

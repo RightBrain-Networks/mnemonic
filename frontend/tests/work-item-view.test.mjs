@@ -29,6 +29,8 @@ test("identity edits preserve an active session instead of presenting it as pend
     },
     unresolved_blocker_count: 0,
     is_blocked: false,
+    unresolved_gate_count: 0,
+    is_gated: false,
     is_ready: false,
     display_state: "active"
   };
@@ -44,6 +46,8 @@ test("successful lifecycle transitions clear lease visibility and keep blockers 
     active_lease: null,
     unresolved_blocker_count: 2,
     is_blocked: true,
+    unresolved_gate_count: 0,
+    is_gated: false,
     is_ready: false,
     display_state: "done"
   };
@@ -53,6 +57,28 @@ test("successful lifecycle transitions clear lease visibility and keep blockers 
     is_terminal: false,
     is_ready: false,
     display_state: "blocked"
+  });
+});
+
+test("returning gated work to pending presents waiting and never ready", () => {
+  const gated = {
+    lifecycle_status: "deferred",
+    is_terminal: false,
+    has_active_lease: false,
+    has_dropped_lease: false,
+    active_lease: null,
+    unresolved_blocker_count: 0,
+    is_blocked: false,
+    unresolved_gate_count: 2,
+    is_gated: true,
+    is_ready: false,
+    display_state: "deferred"
+  };
+  assert.deepEqual(readinessAfterWorkSave(gated, "deferred", "pending"), {
+    ...gated,
+    lifecycle_status: "pending",
+    is_ready: false,
+    display_state: "waiting"
   });
 });
 

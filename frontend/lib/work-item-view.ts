@@ -45,8 +45,8 @@ export function readinessAfterWorkSave(
       has_active_lease: false,
       has_dropped_lease: false,
       active_lease: null,
-      is_ready: !readiness.is_blocked,
-      display_state: readiness.is_blocked ? "blocked" : "pending"
+      is_ready: !readiness.is_blocked && !readiness.is_gated,
+      display_state: readiness.is_gated ? "waiting" : readiness.is_blocked ? "blocked" : "pending"
     };
   }
   return {

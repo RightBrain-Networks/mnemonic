@@ -63,8 +63,6 @@ type Invalidation = {
   type: "invalidate";
   revision: number;
   scope: "projects" | "work-items";
-  project_id: string | null;
-  work_item_id: string | null;
 };
 
 async function createFixtureWork(
@@ -231,15 +229,11 @@ function captureInvalidations(page: Page): Invalidation[] {
   return messages;
 }
 
-function invalidationCount(
-  messages: Invalidation[],
-  workItemId: string | null
-): number {
-  return messages.filter((message) => (
-    message.scope === "work-items"
-    && message.project_id === state.projectId
-    && message.work_item_id === workItemId
-  )).length;
+function invalidationCount(messages: Invalidation[]): number {
+  for (const message of messages) {
+    expect(Object.keys(message).sort()).toEqual(["revision", "scope", "type"]);
+  }
+  return messages.filter((message) => message.scope === "work-items").length;
 }
 
 async function openWork(page: Page, title: string): Promise<void> {
@@ -351,7 +345,7 @@ test("a committed work creation recovers its exact result without a duplicate", 
     const serializedStorage = JSON.stringify(stored);
     expect(serializedStorage).not.toContain(retainedOperationId);
     expect(serializedStorage).not.toContain(prompt);
-    await expect.poll(() => invalidationCount(invalidations, null)).toBe(1);
+    await expect.poll(() => invalidationCount(invalidations)).toBe(1);
 
     await page.locator(".mutation-recovery").getByRole("button", {
       name: "Retry exact request"
@@ -360,7 +354,7 @@ test("a committed work creation recovers its exact result without a duplicate", 
     await expect(page.locator(".mutation-recovery")).toHaveCount(0);
     await expect(dialog).toHaveCount(0);
     expectExactReplay(probe);
-    await expect.poll(() => invalidationCount(invalidations, null)).toBe(2);
+    await expect.poll(() => invalidationCount(invalidations)).toBe(2);
 
     const card = page.locator("article.work-item-card").filter({ hasText: title });
     await expect(card).toHaveCount(1);
@@ -516,7 +510,7 @@ test("a malformed committed append retains its editor intent and reconciles newe
     await expect(detail.getByRole("button", { name: "Delete work item" })).toBeDisabled();
     await expect(detail.getByLabel("Checkpoint text")).toBeDisabled();
     await expect(page.locator("#project-select")).toBeDisabled();
-    await expect.poll(() => invalidationCount(invalidations, workId)).toBe(1);
+    await expect.poll(() => invalidationCount(invalidations)).toBe(1);
 
     const current = await getWork(client, workId);
     expect(current).not.toBeNull();
@@ -541,7 +535,7 @@ test("a malformed committed append retains its editor intent and reconciles newe
       }
     );
     expect(newer.ok(), await newer.text()).toBe(true);
-    await expect.poll(() => invalidationCount(invalidations, workId)).toBe(3);
+    await expect.poll(() => invalidationCount(invalidations)).toBe(3);
 
     let rejectContextReload = true;
     await page.route(
@@ -571,7 +565,7 @@ test("a malformed committed append retains its editor intent and reconciles newe
     await expect.poll(() => probe.requests.length).toBe(2);
     await expect(page.locator(".mutation-recovery")).toHaveCount(0);
     expectExactReplay(probe);
-    await expect.poll(() => invalidationCount(invalidations, workId)).toBe(4);
+    await expect.poll(() => invalidationCount(invalidations)).toBe(4);
 
     await expect(page.locator(".toast")).toContainText(
       "current state could not be reloaded"
@@ -802,7 +796,7 @@ test("relationship and deletion recovery preserve true receipts and natural no-o
       removed: false,
       relationship_id: relationshipId
     });
-    await expect.poll(() => invalidationCount(invalidations, null)).toBe(4);
+    await expect.poll(() => invalidationCount(invalidations)).toBe(4);
 
     await detail.getByRole("button", { name: "Close dialog" }).click();
     const deleteProbe = await installCommittedResponseLoss(
@@ -833,7 +827,7 @@ test("relationship and deletion recovery preserve true receipts and natural no-o
     await expect(deleteDialog).toHaveCount(0);
     expectExactReplay(deleteProbe);
     await expect(card).toHaveCount(0);
-    await expect.poll(() => invalidationCount(invalidations, workId)).toBe(2);
+    await expect.poll(() => invalidationCount(invalidations)).toBe(6);
   } finally {
     if (relationshipId) {
       await client.delete(

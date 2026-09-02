@@ -79,8 +79,10 @@ export interface Readiness {
   active_lease: LeasePublic | null;
   unresolved_blocker_count: number;
   is_blocked: boolean;
+  unresolved_gate_count: number;
+  is_gated: boolean;
   is_ready: boolean;
-  display_state: WorkStatus | "active" | "dropped" | "blocked";
+  display_state: WorkStatus | "active" | "dropped" | "blocked" | "waiting";
 }
 
 export interface WorkIdentityPointer {
@@ -102,6 +104,20 @@ export interface HierarchySummary {
   summary: WorkSummary;
   self_matches_filter: boolean;
   has_matching_descendants: boolean;
+  presentation: HierarchyPresentation;
+}
+
+export interface HierarchyPresentation {
+  direct_child_count: number;
+  descendant_count: number;
+  blocked_descendant_count: number;
+  active_descendant_count: number;
+  completed_descendant_count: number;
+  discovered_descendant_count: number;
+  branch_unresolved_human_gate_count: number;
+  is_discovered_work: boolean;
+  discovered_from_parent: boolean;
+  next_active_descendant_lease_expires_at: string | null;
 }
 
 export type RelationshipType =
@@ -136,6 +152,8 @@ export type WorkEventType =
   | "dependency_removed"
   | "relationship_added"
   | "relationship_removed"
+  | "human_attention_requested"
+  | "human_attention_resolved"
   | "work_completed"
   | "work_deleted";
 
@@ -177,6 +195,7 @@ export type WorkEventMetadata =
   | { lease_holder_kind: "unattributed" }
   | { checkpoint_kind: "context" | "progress" }
   | { relationship_type: RelationshipType }
+  | { gate_id: string; gate_type: "human" }
   | { from_status: "open" | "pending"; to_status: "done"; work_version: number }
   | { final_status: EventWorkStatus; final_version: number }
   | Record<string, unknown>;
@@ -281,6 +300,67 @@ export interface RelationshipCounts {
   total: number;
 }
 
+export interface HumanGateContextRevision {
+  work_version: number;
+  context_checkpoint_id: string;
+  relationship_event_count: number;
+}
+
+export type HumanGateStatus = "unresolved" | "resolved";
+
+export interface HumanGateRead {
+  id: string;
+  project_id: string;
+  work_item_id: string;
+  gate_type: "human";
+  question: string;
+  requested_by_client: string;
+  requested_by_session_id: string;
+  requested_by_model: string | null;
+  requested_work_version: number;
+  requested_context_checkpoint_id: string;
+  requested_relationship_event_count: number;
+  created_at: string;
+  status: HumanGateStatus;
+  current_context_revision: HumanGateContextRevision;
+  work_changed_since_request: boolean;
+  context_checkpoint_changed_since_request: boolean;
+  relationships_changed_since_request: boolean;
+  context_changed_since_request: boolean;
+  resolved_at: string | null;
+  resolution: string | null;
+  resolved_by_client: string | null;
+  resolved_by_session_id: string | null;
+  resolved_by_model: string | null;
+  resolved_context_revision: HumanGateContextRevision | null;
+  context_changed_at_resolution: boolean | null;
+  context_change_acknowledged: boolean | null;
+}
+
+export interface HumanAttentionItem {
+  gate: HumanGateRead;
+  summary: WorkSummary;
+}
+
+export interface CursorPage<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  next_cursor: string | null;
+}
+
+export type HumanAttentionPage = CursorPage<HumanAttentionItem>;
+export type HumanGatePage = CursorPage<HumanGateRead>;
+
+export interface HumanGateResolutionInput extends ClientOperationInput {
+  resolution: string;
+  resolved_by_client: "dashboard";
+  resolved_by_session_id: string;
+  resolved_by_model?: null;
+  acknowledge_context_change: boolean;
+  reviewed_context_revision?: HumanGateContextRevision;
+}
+
 export interface WorkContext {
   work_item: WorkItem;
   initial_checkpoint: Checkpoint;
@@ -300,6 +380,12 @@ export interface WorkContext {
   event_total: number;
   omitted_event_count: number;
   pre_phase5_history_may_be_incomplete: boolean;
+  unresolved_gates: HumanGateRead[];
+  unresolved_gate_total: number;
+  omitted_unresolved_gate_count: number;
+  recent_resolved_gates: HumanGateRead[];
+  resolved_gate_total: number;
+  omitted_resolved_gate_count: number;
 }
 
 export interface WorkCreateInput extends ClientOperationInput {
