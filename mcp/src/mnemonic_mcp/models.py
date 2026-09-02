@@ -1202,7 +1202,7 @@ class WorkChanges(BaseModel):
     status: UpdateStatus | None = None
 
     @model_validator(mode="after")
-    def require_changes(self) -> "WorkChanges":
+    def require_changes(self) -> WorkChanges:
         if not self.model_fields_set:
             raise ValueError("Supply at least one editable field in changes.")
         for name in self.model_fields_set:

@@ -16,7 +16,7 @@ Backend code, migrations, and tests live under `backend/`; the MCP adapter and t
 - `cd frontend && npm ci && npm test && npm run typecheck && npm run build`: verify the dashboard.
 - `cd frontend && npm run test:e2e:stack`: provision and run the isolated Playwright acceptance stack.
 
-Use Python 3.13, `uv`, and Node 24. Keep the backend and MCP virtual environments separate.
+Use Python 3.14, `uv`, and Node 24. Keep the backend and MCP virtual environments separate.
 
 ## Coding Style & Naming Conventions
 
@@ -28,24 +28,49 @@ Name Python tests `test_*.py`, Node tests `*.test.mjs`, and Playwright specs `*.
 
 ## Trunk-Based Worktree Workflow
 
-`main` is the only long-lived branch. Start every change from current `main` on a short-lived topic branch, open a pull request back to `main`, and delete the branch after merge. Do not create long-lived development, integration, or release branches, and never develop directly in the primary `main` checkout.
+`main` is the only long-lived branch. Every change must reach `main` through a pull
+request; never commit, merge, cherry-pick, or push changes directly to `main`,
+including in the primary checkout. Treat the primary `main` checkout as read-only
+except for fetching and fast-forwarding it to an already-merged remote `main`. Do
+not create long-lived development, integration, or release branches.
 
-Every session must use a linked worktree and topic branch. From a clean checkout:
+Every session must use a linked worktree and short-lived topic branch created from
+the latest remote `main`. From a clean primary checkout:
 
 ```sh
-git worktree add ../mnemonic-<topic> -b work/<topic> main
+git fetch origin main
+git worktree add ../mnemonic-<topic> -b work/<topic> origin/main
 cd ../mnemonic-<topic>
 ```
 
-Test and commit there. Return to the primary checkout, confirm it is clean and on `main`, then integrate and clean up:
+Test and commit only in the linked worktree. Push the topic branch and open a pull
+request targeting `main`, then monitor its CI:
 
 ```sh
-git merge --ff-only work/<topic>
-git worktree remove ../mnemonic-<topic>
-git branch -d work/<topic>
+git push -u origin work/<topic>
+gh pr create --base main --head work/<topic>
+gh pr checks --watch
 ```
 
-If `main` advanced, rebase the topic branch, retest, then fast-forward. Remove only after the commit is on `main` and the worktree is clean.
+The active GitHub ruleset requires a pull request, linear history, an up-to-date
+branch, and the aggregate `Required checks` status. Do not merge while required CI
+is pending or failing, do not bypass branch protection, and do not use administrator
+overrides. If `origin/main` advances, rebase the topic branch onto it, retest,
+force-push only with `--force-with-lease`, and wait for the rerun checks. Merge only
+through GitHub using an allowed squash or rebase merge after `Required checks`
+succeeds.
+
+After GitHub reports the pull request merged, confirm the linked worktree is clean,
+remove it and its topic branch, then fast-forward the primary checkout to the merged
+remote `main`:
+
+```sh
+git worktree remove ../mnemonic-<topic>
+git branch -D work/<topic>
+git fetch origin main
+git switch main
+git pull --ff-only origin main
+```
 
 ## Versioning
 

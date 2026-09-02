@@ -1,6 +1,6 @@
 FROM ghcr.io/astral-sh/uv:0.8.15 AS uv
 
-FROM python:3.13-slim
+FROM python:3.14-slim
 COPY --from=uv /uv /uvx /bin/
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

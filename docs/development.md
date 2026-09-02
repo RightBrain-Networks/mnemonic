@@ -5,7 +5,7 @@ The Python services are independent packages with separate `pyproject.toml` and
 require different Starlette versions. Docker builds use frozen lockfiles. The
 dashboard uses `package-lock.json` and `npm ci`.
 
-Use Python 3.13, uv, and Node 24 for native development. Docker-only users do
+Use Python 3.14, uv, and Node 24 for native development. Docker-only users do
 not need these tools to run Mnemonic.
 
 ## Contribution workflow and CI
