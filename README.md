@@ -2,7 +2,9 @@
 
 > Lightweight coordination across coding agent sessions -- without littering your repo with random Markdown docs or blowing up your issue tracker.
 
-**`mnemonic`** is a locally-hosted Docker stack that combines a durable backend (*PostgreSQL*) + RESTful API (*FastAPI*). The API has two consumers: a human-facing dashboard (*Next.js*) and a LLM-facing MCP server. The MCP server ships with preconfigured agent skills so your agent can automatically discover how to interact with `mnemonic`.
+**`mnemonic`** is a self-hosted coordination layer for ephemeral LLM coding agents. Its core thesis: agent sessions are temporary and failure-prone, so durable work should live in a *work graph* that survives sessions, rather than in Markdown scratch files, suggested task chips, or an issue tracker flooded with AI-generated tickets.
+
+The project is a locally-hosted Docker stack that combines a durable backend (*PostgreSQL*) and a RESTful API (*FastAPI*). The API has two consumers: a human-facing dashboard (*Next.js*) and a LLM-facing MCP server. The MCP server ships with preconfigured agent skills so your agent can automatically discover how to interact with `mnemonic`.
 
 It does not modify Claude's memory subsystem. While Claude Code is the first client; the API, metadata, and MCP interface do not depend on a particular LLM provider.
 
