@@ -43,6 +43,10 @@ git branch -d work/<topic>
 
 If `main` advanced, rebase the topic branch, retest, then fast-forward. Remove only after the commit is on `main` and the worktree is clean.
 
+## Versioning
+
+Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
+
 ## Commit & Pull Request Guidelines
 
 Use short, specific, sentence-case subjects instead of generic `Updates`. Keep commits scoped. PRs should explain behavior and migration/config impact, link relevant work, list checks run, and include screenshots for visual changes. Never commit `.env`, keys, test output, backups, or database volumes.
