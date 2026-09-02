@@ -32,11 +32,13 @@ The "human-required" copy-and-paste step is deliberate. It allows you to balance
 
 ## Run it
 
-**Copy and paste into your LLM to have it handle this part.**
+### Copy and paste into your LLM to have it handle this part.
 
 ```text
 Install and configure mnemonic for me from https://github.com/RightBrain-Networks/mnemonic. Clone the repository, then follow AGENT-README.md exactly. Use the default local-only Docker Compose configuration unless I state otherwise, preserve any existing data and configuration, connect my MCP-capable LLM client if one is available, and continue until the documented acceptance checks pass or you need a specific decision or credential from me.
 ```
+
+### Or, if you prefer, old school human instructions...
 
 Requirements: Docker with Linux containers and Docker Compose. The optional settings helper uses Python 3.10 or newer; no host Node or Python is needed to run the containers after `.env` is configured.
 
