@@ -7,10 +7,12 @@ Backend code, migrations, and tests live under `backend/`; the MCP adapter and t
 ## Build, Test, and Development Commands
 
 - `python scripts/setup.py`: create settings from `.env.example`.
+- `uv tool install pre-commit && pre-commit install --install-hooks`: install the required local gitleaks commit hook.
+- `pre-commit run --all-files`: run all local pre-commit checks manually.
 - `docker compose up --build -d --wait`: build and start the complete stack.
 - `docker compose -f compose.test.yaml up -d --wait`: start the isolated PostgreSQL test database.
 - `cd backend && uv sync --frozen && uv run pytest -q && uv run ruff check . && uv run ty check src`: test, lint, and type-check the API.
-- `cd mcp && uv sync --frozen && uv run pytest -q`: verify the MCP package.
+- `cd mcp && uv sync --frozen && uv run pytest -q && uv run ruff check . && uv run ty check src/mnemonic_mcp`: verify, lint, and type-check the MCP package.
 - `cd frontend && npm ci && npm test && npm run typecheck && npm run build`: verify the dashboard.
 - `cd frontend && npm run test:e2e:stack`: provision and run the isolated Playwright acceptance stack.
 
@@ -24,9 +26,11 @@ Python uses four spaces, type hints, `snake_case`, and `PascalCase` classes. Ruf
 
 Name Python tests `test_*.py`, Node tests `*.test.mjs`, and Playwright specs `*.spec.ts`. Add regression tests with behavior changes. PostgreSQL-marked tests require `TEST_DATABASE_URL`; a skipped database suite is not full validation.
 
-## Isolated Worktree Workflow
+## Trunk-Based Worktree Workflow
 
-Every session must use a linked worktree and topic branch; never develop in the primary `main` checkout. From a clean checkout:
+`main` is the only long-lived branch. Start every change from current `main` on a short-lived topic branch, open a pull request back to `main`, and delete the branch after merge. Do not create long-lived development, integration, or release branches, and never develop directly in the primary `main` checkout.
+
+Every session must use a linked worktree and topic branch. From a clean checkout:
 
 ```sh
 git worktree add ../mnemonic-<topic> -b work/<topic> main
@@ -49,7 +53,7 @@ Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` 
 
 ## Commit & Pull Request Guidelines
 
-Use short, specific, sentence-case subjects instead of generic `Updates`. Keep commits scoped. PRs should explain behavior and migration/config impact, link relevant work, list checks run, and include screenshots for visual changes. Never commit `.env`, keys, test output, backups, or database volumes.
+Use short, specific, sentence-case subjects instead of generic `Updates`. Keep commits scoped. PRs should target `main`, remain short-lived, and explain behavior and migration/config impact, link relevant work, list checks run, and include screenshots for visual changes. The `Required checks` GitHub Actions status must pass before merge; never bypass the gitleaks hook with `--no-verify`. Never commit `.env`, keys, test output, backups, or database volumes.
 
 `CLAUDE.md` is an intentionally local, ignored operator/client note rather than a
 tracked source of truth. Refresh any local copy when a phase changes the tool

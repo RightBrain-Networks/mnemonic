@@ -1,0 +1,3 @@
+# Synthetic API key in backend test fixtures; keep the exception commit-specific.
+467ee3acf6f39ba0282ee65b1c7860f64f2a26d2:backend/tests/test_human_gate_concurrency_postgres.py:generic-api-key:348
+1a8bb5bf214a85259b5c5d44ccf531c4e44ec600:backend/tests/conftest.py:generic-api-key:20

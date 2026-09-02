@@ -258,7 +258,12 @@ class SanitizedFastMCP(FastMCP[Any]):
 
         # mcp==1.29 creates a dynamic model per tool. Harden only this server's
         # just-registered model, then refresh the schema captured by Tool.
-        tool = self._tool_manager.get_tool(name or fn.__name__)
+        function_name = getattr(fn, "__name__", None)
+        if name is None and not isinstance(function_name, str):
+            raise TypeError("Tool callables must have a name.")
+        tool_name = name if name is not None else function_name
+        assert tool_name is not None
+        tool = self._tool_manager.get_tool(tool_name)
         if tool is None:  # pragma: no cover - registration either returns or raises
             raise RuntimeError("FastMCP did not retain the registered tool.")
         argument_model = tool.fn_metadata.arg_model
