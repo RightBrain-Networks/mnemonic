@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { expect, request, test } from "@playwright/test";
 import { expireLease } from "./database";
 import { statePath, type E2EState } from "./global.setup";
+import { closeDetail, openTab, selectWork, workCard } from "./surface";
 
 let state: E2EState;
 
@@ -164,17 +165,20 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
 
-    const rootCard = page.locator("article.work-item-card").filter({ hasText: titles.root });
-    const childCard = page.locator("article.work-item-card").filter({ hasText: titles.child });
-    const grandchildCard = page.locator("article.work-item-card").filter({ hasText: titles.grandchild });
-    const promotedRootCard = page.locator("article.work-item-card").filter({ hasText: titles.promotedRoot });
-    const promotedChildCard = page.locator("article.work-item-card").filter({ hasText: titles.promotedChild });
-    const doneRootCard = page.locator("article.work-item-card").filter({ hasText: titles.doneRoot });
-    const doneChildCard = page.locator("article.work-item-card").filter({ hasText: titles.doneChild });
-    const collapsedRootCard = page.locator("article.work-item-card").filter({ hasText: titles.collapsedRoot });
-    const collapsedChildCard = page.locator("article.work-item-card").filter({ hasText: titles.collapsedChild });
-    const discoveryRootCard = page.locator("article.work-item-card").filter({ hasText: titles.discoveryRoot });
-    const discoveredChildCard = page.locator("article.work-item-card").filter({ hasText: titles.discoveredChild });
+    const rootCard = workCard(page, titles.root);
+    const childCard = workCard(page, titles.child);
+    const grandchildCard = workCard(page, titles.grandchild);
+    const promotedRootCard = workCard(page, titles.promotedRoot);
+    const promotedChildCard = workCard(page, titles.promotedChild);
+    const doneRootCard = workCard(page, titles.doneRoot);
+    const doneChildCard = workCard(page, titles.doneChild);
+    const collapsedRootCard = workCard(page, titles.collapsedRoot);
+    const collapsedChildCard = workCard(page, titles.collapsedChild);
+    const discoveryRootCard = workCard(page, titles.discoveryRoot);
+    const discoveredChildCard = workCard(page, titles.discoveredChild);
+    // The compact card replaces the per-root aggregate strip with one descendant
+    // chip whose title carries every branch total the strip used to list.
+    const descendantChip = (card: typeof rootCard) => card.locator(".queue-chip", { hasText: /descendant/ });
     await expect(rootCard).toHaveCount(1);
     await expect(rootCard.locator("xpath=ancestor::div[contains(@class,'hierarchy-scaffold')]")).toHaveCount(1);
     await expect(childCard).toHaveCount(1);
@@ -189,14 +193,12 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect(
       page.getByRole("button", { name: `Expand children of ${titles.collapsedRoot}` })
     ).toHaveAttribute("aria-expanded", "false");
-    const collapsedBranch = collapsedRootCard.locator(
-      "xpath=ancestor::div[contains(@class,'hierarchy-node')][1]"
-    );
-    const collapsedAggregates = collapsedBranch.getByRole("list", { name: "Branch totals" });
-    await expect(collapsedAggregates).toContainText("1 active descendant");
+    const collapsedAggregates = descendantChip(collapsedRootCard);
+    await expect(collapsedAggregates).toHaveText("1 descendant");
+    await expect(collapsedAggregates).toHaveAttribute("title", /1 active descendant/);
     await expireLease(state.projectId, collapsedChildId);
     await page.clock.fastForward(61 * 1000);
-    await expect(collapsedAggregates).toContainText("0 active descendants");
+    await expect(collapsedAggregates).toHaveAttribute("title", /0 active descendants/);
     await expect(
       page.getByRole("button", { name: `Expand children of ${titles.collapsedRoot}` })
     ).toHaveAttribute("aria-expanded", "false");
@@ -204,24 +206,30 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     // navigation scaffolding and auto-expands to reveal its Pending descendant.
     await expect(grandchildCard).toHaveCount(1);
     await expect(discoveryRootCard).toHaveCount(1);
-    const discoveryBranch = discoveryRootCard.locator(
-      "xpath=ancestor::div[contains(@class,'hierarchy-node')][1]"
-    );
-    await expect(discoveryBranch.getByRole("list", { name: "Branch totals" })).toContainText(
-      "1 discovered descendant"
-    );
+    const discoveryAggregates = descendantChip(discoveryRootCard);
+    await expect(discoveryAggregates).toHaveText("1 descendant");
+    await expect(discoveryAggregates).toHaveAttribute("title", /1 discovered descendant/);
     await page.getByRole("button", { name: `Expand children of ${titles.discoveryRoot}` }).click();
     await expect(discoveredChildCard).toHaveCount(1);
-    await expect(discoveredChildCard.locator("xpath=ancestor::div[contains(@class,'hierarchy-card')][1]").locator(".hierarchy-origin")).toHaveText("Discovered sub-work");
+    // The discovered child is grouped beneath its discovery origin, and the pane's
+    // Graph tab shows the exact discovered-from edge that grouping was derived from.
+    // The nearest `hierarchy-node*` ancestor of a card is its row, whose sibling holds the
+    // children, so the branch is addressed by the node's own work-item id instead.
+    const discoveryBranch = page.locator(`.hierarchy-node[data-work-item-id="${discoveryRootId}"]`);
+    await expect(
+      discoveryBranch.locator(".hierarchy-children").locator("article.work-item-card").filter({ hasText: titles.discoveredChild })
+    ).toHaveCount(1);
+    const discoveredPane = await selectWork(page, titles.discoveredChild);
+    const discoveredGraph = await openTab(discoveredPane, "Graph");
+    await expect(discoveredGraph.getByRole("region", { name: "Discovered from" })).toContainText(titles.discoveryRoot);
+    await closeDetail(page);
     await expect(page.locator(".result-count")).toContainText("root branch");
 
-    const rootBranch = rootCard.locator(
-      "xpath=ancestor::div[contains(@class,'hierarchy-node')][1]"
-    );
-    const rootAggregates = rootBranch.getByRole("list", { name: "Branch totals" });
-    await expect(rootAggregates).toContainText("1 direct child");
-    await expect(rootAggregates).toContainText("2 descendants");
-    await expect(rootAggregates).toContainText("1 active descendant");
+    const rootAggregates = descendantChip(rootCard);
+    await expect(rootAggregates).toHaveText("2 descendants");
+    await expect(rootAggregates).toHaveAttribute("title", /1 direct child/);
+    await expect(rootAggregates).toHaveAttribute("title", /2 descendants/);
+    await expect(rootAggregates).toHaveAttribute("title", /1 active descendant/);
     await page.getByRole("button", { name: "Won’t do", exact: true }).click();
     await expect(rootCard).toHaveCount(1);
     await page.getByRole("button", { name: `Expand children of ${titles.root}` }).click();
@@ -254,7 +262,11 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     const initialChildRequestCount = childRequests.filter(
       (url) => url.includes(childChildrenPath)
     ).length;
-    const rootPagination = await page.locator(".pagination").innerText();
+    // Collapsing and re-expanding a branch refetches only that branch's children;
+    // the root queue and its settled total stay untouched.
+    const resultCount = page.locator(".result-count");
+    await expect(resultCount).toContainText("root branch");
+    const rootCount = await resultCount.innerText();
     await page.getByRole("button", { name: `Collapse children of ${titles.child}` }).click();
     await expect(grandchildCard).toHaveCount(0);
     await page.getByRole("button", { name: `Expand children of ${titles.child}` }).click();
@@ -262,7 +274,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect.poll(() => childRequests.filter(
       (url) => url.includes(childChildrenPath)
     ).length).toBeGreaterThan(initialChildRequestCount);
-    await expect.poll(() => page.locator(".pagination").innerText()).toBe(rootPagination);
+    await expect.poll(() => resultCount.innerText()).toBe(rootCount);
 
     await page.getByLabel("Search work items").fill(titles.grandchild);
     const searchResult = page.locator(".search-result").filter({ hasText: titles.grandchild });
@@ -273,36 +285,36 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await page.getByRole("button", { name: "Active", exact: true }).click();
     await page.getByLabel("Search work items").fill(titles.child);
     await expect(childCard).toHaveCount(1);
-    await childCard.getByRole("button", { name: titles.child, exact: true }).click();
-    const detail = page.getByRole("dialog", { name: "Work context" });
-    await expect(detail.locator(".detail-topline > .status-badge")).toHaveText("Active");
-    await detail.getByText("Add a relationship", { exact: true }).click();
-    await detail.getByLabel("Find another work item").fill(titles.blocker);
-    await detail.getByRole("option", { name: new RegExp(titles.blocker) }).click();
-    await detail.getByLabel("Relationship type").selectOption("blocks");
-    await detail.getByLabel("Toward this work item").check();
-    await expect(detail.locator(".relationship-preview")).toContainText(`${titles.blocker} blocks ${titles.child}.`);
-    await detail.getByRole("button", { name: "Add relationship" }).click();
-    await expect(detail.getByRole("heading", { name: "Blocked by", exact: true })).toBeVisible();
-    await expect(detail.locator(".detail-topline > .status-badge")).toHaveText("Blocked");
-    await expect(detail.locator(".operational-badge.active")).toHaveText("Active");
+    const detail = await selectWork(page, titles.child);
+    await expect(detail.locator(".detail-identity > .status-badge")).toHaveText("Active");
+    const graph = await openTab(detail, "Graph");
+    await graph.getByText("Add a relationship", { exact: true }).click();
+    await graph.getByLabel("Find another work item").fill(titles.blocker);
+    await graph.getByRole("option", { name: new RegExp(titles.blocker) }).click();
+    await graph.getByLabel("Relationship type").selectOption("blocks");
+    await graph.getByLabel("Toward this work item").check();
+    await expect(graph.locator(".relationship-preview")).toContainText(`${titles.blocker} blocks ${titles.child}.`);
+    await graph.getByRole("button", { name: "Add relationship" }).click();
+    await expect(graph.getByRole("heading", { name: "Blocked by", exact: true })).toBeVisible();
+    await expect(detail.locator(".detail-identity > .status-badge")).toHaveText("Blocked");
+    await expect(detail.locator(".detail-identity .operational-badge.active")).toHaveText("Active");
 
-    const blockedByHeading = detail.getByRole("heading", { name: "Blocked by", exact: true });
+    const blockedByHeading = graph.getByRole("heading", { name: "Blocked by", exact: true });
     const blockedByGroup = blockedByHeading.locator("xpath=..");
     await blockedByGroup.getByRole("button", { name: "Remove" }).click();
-    await expect(detail.getByRole("heading", { name: "Blocked by", exact: true })).toHaveCount(0);
-    await expect(detail.locator(".detail-topline > .status-badge")).toHaveText("Active");
-    await expect(detail.locator(".operational-badge.blocked")).toHaveCount(0);
+    await expect(graph.getByRole("heading", { name: "Blocked by", exact: true })).toHaveCount(0);
+    await expect(detail.locator(".detail-identity > .status-badge")).toHaveText("Active");
+    await expect(detail.locator(".detail-identity .operational-badge.blocked")).toHaveCount(0);
 
     // Relationship reconciliation keeps the editor mounted and its open state intact.
-    await expect(detail.getByText("Add a relationship", { exact: true })).toBeVisible();
-    await detail.getByLabel("Find another work item").fill(titles.secondParent);
-    await detail.getByRole("option", { name: new RegExp(titles.secondParent) }).click();
-    await detail.getByLabel("Relationship type").selectOption("parent-child");
-    await detail.getByLabel("Toward this work item").check();
-    await expect(detail.locator(".relationship-preview")).toContainText(`${titles.secondParent} is the parent of ${titles.child}.`);
-    await detail.getByRole("button", { name: "Add relationship" }).click();
-    await expect(detail.getByRole("alert")).toContainText("already has a parent");
+    await expect(graph.getByText("Add a relationship", { exact: true })).toBeVisible();
+    await graph.getByLabel("Find another work item").fill(titles.secondParent);
+    await graph.getByRole("option", { name: new RegExp(titles.secondParent) }).click();
+    await graph.getByLabel("Relationship type").selectOption("parent-child");
+    await graph.getByLabel("Toward this work item").check();
+    await expect(graph.locator(".relationship-preview")).toContainText(`${titles.secondParent} is the parent of ${titles.child}.`);
+    await graph.getByRole("button", { name: "Add relationship" }).click();
+    await expect(graph.getByRole("alert")).toContainText("already has a parent");
 
     const box = await detail.boundingBox();
     expect(box).not.toBeNull();

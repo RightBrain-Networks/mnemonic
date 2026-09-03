@@ -8,6 +8,7 @@ import {
   type Page
 } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
+import { closeDetail, openTab, workPane } from "./surface";
 
 let state: E2EState;
 
@@ -51,6 +52,14 @@ type WorkContext = {
   };
   duplicate_member_total: number;
   event_total: number;
+};
+
+type HierarchyRootsPage = {
+  items: Array<{
+    summary: { work_item: WorkItem };
+    presentation: { branch_merged_duplicate_count: number };
+  }>;
+  total: number;
 };
 
 type MergeInput = {
@@ -166,6 +175,16 @@ async function getContext(
   return await response.json() as WorkContext;
 }
 
+// The same canonical root page the queue requests for the default hierarchy view.
+async function getHierarchyRoots(client: APIRequestContext): Promise<HierarchyRootsPage> {
+  const response = await client.get(
+    `/api/v1/projects/${state.projectId}/work-items`
+      + "?status=all&sort=updated&view=roots&limit=20&offset=0&duplicate_scope=canonical"
+  );
+  expect(response.ok(), await response.text()).toBe(true);
+  return await response.json() as HierarchyRootsPage;
+}
+
 function mergeInput(
   source: WorkContext,
   destination: WorkContext,
@@ -221,46 +240,56 @@ async function searchFor(page: Page, query: string, workItemId: string): Promise
   return result;
 }
 
-async function openSearchResult(
-  page: Page,
-  query: string,
-  workItemId: string,
-  dialogName: "Work context" | "Duplicate audit" = "Work context"
-): Promise<Locator> {
-  const result = await searchFor(page, query, workItemId);
-  await result.locator("article.work-item-card button.card-title").click();
-  const dialog = page.getByRole("dialog", { name: dialogName });
-  await expect(dialog).toBeVisible();
-  return dialog;
+// Search results are located by exact ID because hostile fixtures deliberately share a
+// title; selecting the compact card opens the record in the detail pane.
+async function openSearchResult(page: Page, work: WorkItem): Promise<Locator> {
+  await closeDetail(page);
+  const result = await searchFor(page, work.id, work.id);
+  await result.locator("article.work-item-card").click();
+  const pane = workPane(page);
+  await expect(pane.locator(".detail-title")).toHaveText(work.title);
+  return pane;
+}
+
+// A duplicate audit is the same pane carrying the permanent audit panel in its header.
+async function duplicateAudit(page: Page): Promise<Locator> {
+  const pane = workPane(page);
+  await expect(pane).toBeVisible();
+  await expect(pane.locator(".duplicate-audit-panel")).toBeVisible();
+  return pane;
 }
 
 async function openMergeReview(
   page: Page,
   sourceDetail: Locator,
   destinationId: string
-): Promise<{ dialog: Locator; destinationButton: Locator }> {
+): Promise<{ panel: Locator; destinationButton: Locator }> {
   await sourceDetail.getByRole("button", { name: /Merge as duplicate/ }).click();
-  const dialog = page.getByRole("dialog", { name: "Merge duplicate work" });
-  await expect(dialog).toBeVisible();
-  const search = dialog.getByLabel("Find a canonical destination");
+  await expect(sourceDetail.getByRole("tab", { name: "Graph" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+  const panel = sourceDetail.getByRole("region", { name: "Merge as duplicate" });
+  await expect(panel).toBeVisible();
+  const search = panel.getByLabel("Find a canonical destination");
   await search.fill(destinationId);
-  const destinationButton = dialog
-    .getByRole("group", { name: "Canonical merge destinations" })
-    .getByRole("button")
+  const destinationButton = panel
+    .getByRole("listbox", { name: "Canonical merge destinations" })
+    .getByRole("option")
     .filter({ hasText: destinationId });
   await expect(destinationButton).toHaveCount(1);
   await destinationButton.focus();
   await expect(destinationButton).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(dialog.locator("[data-direction='source']")).toBeVisible();
-  await expect(dialog.locator("[data-direction='destination']")).toBeVisible();
-  return { dialog, destinationButton };
+  await expect(panel.locator("[data-review-direction='source']")).toBeVisible();
+  await expect(panel.locator("[data-review-direction='destination']")).toBeVisible();
+  return { panel, destinationButton };
 }
 
-async function confirmMerge(dialog: Locator, rationale: string): Promise<void> {
-  await dialog.getByLabel("Merge rationale").fill(rationale);
-  await dialog.getByLabel(/I understand this permanently makes the source immutable/).check();
-  await expect(dialog.getByRole("button", { name: "Permanently merge source" })).toBeEnabled();
+async function confirmMerge(panel: Locator, rationale: string): Promise<void> {
+  await panel.getByLabel("Merge rationale").fill(rationale);
+  await panel.getByLabel(/I have read both exact work contexts/).check();
+  await expect(panel.getByRole("button", { name: "Merge permanently" })).toBeEnabled();
 }
 
 async function installCommittedResponseLoss(
@@ -380,24 +409,27 @@ test("a hostile-title merge preserves direction and recovers one exact durable e
 
   try {
     await openDashboard(page);
-    const detail = await openSearchResult(page, source.id, source.id);
-    const { dialog, destinationButton } = await openMergeReview(
+    const detail = await openSearchResult(page, source);
+    const { panel, destinationButton } = await openMergeReview(
       page,
       detail,
       destination.id
     );
-    const sourcePanel = dialog.locator("[data-direction='source']");
-    const destinationPanel = dialog.locator("[data-direction='destination']");
+    const sourcePanel = panel.locator("[data-review-direction='source']");
+    const destinationPanel = panel.locator("[data-review-direction='destination']");
 
-    expect(await dialog.locator("[data-direction]").evaluateAll((panels) => (
-      panels.map((panel) => panel.getAttribute("data-direction"))
+    expect(await panel.locator("[data-direction]").evaluateAll((panels) => (
+      panels.map((element) => element.getAttribute("data-direction"))
+    ))).toEqual(["source", "destination"]);
+    expect(await panel.locator("[data-review-direction]").evaluateAll((panels) => (
+      panels.map((element) => element.getAttribute("data-review-direction"))
     ))).toEqual(["source", "destination"]);
     await expect(sourcePanel).toHaveAccessibleName(/^SOURCE — BECOMES IMMUTABLE/);
     await expect(destinationPanel).toHaveAccessibleName(/^DESTINATION — REMAINS CANONICAL/);
     await expect(sourcePanel.locator(".merge-full-id")).toHaveText(source.id);
     await expect(destinationPanel.locator(".merge-full-id")).toHaveText(destination.id);
-    for (const panel of [sourcePanel, destinationPanel]) {
-      const title = panel.locator("h3 bdi");
+    for (const reviewPanel of [sourcePanel, destinationPanel]) {
+      const title = reviewPanel.locator("h3 bdi");
       await expect(title).toHaveText(hostileTitle);
       await expect(title).toHaveAttribute("dir", "auto");
       expect(await title.evaluate((element) => getComputedStyle(element).unicodeBidi)).toBe(
@@ -407,17 +439,20 @@ test("a hostile-title merge preserves direction and recovers one exact durable e
 
     await destinationButton.focus();
     await page.keyboard.press("Tab");
-    await expect(dialog.getByLabel("Merge rationale")).toBeFocused();
-    await confirmMerge(dialog, rationale);
+    await expect(panel.getByLabel("Merge rationale")).toBeFocused();
+    await confirmMerge(panel, rationale);
 
     const probe = await installCommittedResponseLoss(page, source.id);
-    await dialog.getByRole("button", { name: "Permanently merge source" }).click();
+    await panel.getByRole("button", { name: "Merge permanently" }).click();
     await expect.poll(() => probe.requests.length).toBe(1);
-    await expect(dialog.locator(".mutation-recovery")).toContainText(
+    await expect(panel.locator(".mutation-recovery")).toContainText(
       "The merge outcome is unknown."
     );
-    await expect(dialog.getByLabel("Find a canonical destination")).toBeDisabled();
-    await expect(dialog.getByRole("button", { name: "Close merge dialog" })).toBeDisabled();
+    await expect(panel.getByLabel("Find a canonical destination")).toBeDisabled();
+    await expect(panel.getByRole("button", { name: "Close merge" })).toBeDisabled();
+    await expect(panel.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    const back = detail.getByRole("button", { name: "Back to work queue" });
+    if (await back.isVisible()) await expect(back).toBeDisabled();
 
     const retainedOperationId = operationId(probe);
     expect(probe.responses[0]!.status).toBe(201);
@@ -451,7 +486,7 @@ test("a hostile-title merge preserves direction and recovers one exact durable e
     expect(committed.canonical.canonical_work_item.id).toBe(destination.id);
     expect(committed.work_item.version).toBe(sourceBefore.work_item.version + 1);
 
-    await dialog.getByRole("button", { name: "Retry exact pending merge" }).click();
+    await panel.getByRole("button", { name: "Retry exact pending merge" }).click();
     await expect.poll(() => probe.requests.length).toBe(2);
     await expect.poll(() => probe.responses.length).toBe(2);
     expectExactReplay(probe);
@@ -462,11 +497,12 @@ test("a hostile-title merge preserves direction and recovers one exact durable e
     expect(replayed.work_item.version).toBe(committed.work_item.version);
     expect(replayed.work_item.updated_at).toBe(committed.work_item.updated_at);
     expect(replayed.event_total).toBe(committed.event_total);
-    const audit = page.getByRole("dialog", { name: "Duplicate audit" });
-    await expect(audit).toBeVisible();
+    const audit = await duplicateAudit(page);
     await expect(audit.locator(".detail-title")).toHaveText(hostileTitle);
-    await expect(audit.locator(".prompt-body")).toHaveText(sourcePrompt);
-    await expect(audit.locator(".prompt-body")).not.toContainText(destinationPrompt);
+    await expect(audit.getByRole("region", { name: "Merge as duplicate" })).toHaveCount(0);
+    const auditContext = await openTab(audit, "Context");
+    await expect(auditContext.locator(".prompt-body")).toHaveText(sourcePrompt);
+    await expect(auditContext.locator(".prompt-body")).not.toContainText(destinationPrompt);
     await expect(audit.locator(".duplicate-direction-grid > div").nth(0)).toContainText(
       destination.id
     );
@@ -477,7 +513,7 @@ test("a hostile-title merge preserves direction and recovers one exact durable e
     await expect(audit.getByRole("button", { name: /Merge as duplicate/ })).toHaveCount(0);
     await expect(page.locator("body")).not.toContainText(retainedOperationId);
 
-    await audit.getByRole("button", { name: "Close dialog" }).click();
+    await closeDetail(page);
     const canonicalResult = await searchFor(page, source.id, destination.id);
     await expect(resultFor(page, source.id)).toHaveCount(0);
     await expect(page.locator(".result-count")).toHaveText("1 work record");
@@ -529,17 +565,12 @@ test("a root with an incoming alias can merge again and regroup every audit unde
 
   try {
     await openDashboard(page);
-    const detail = await openSearchResult(
-      page,
-      intermediateRoot.id,
-      intermediateRoot.id
-    );
-    const { dialog } = await openMergeReview(page, detail, finalRoot.id);
-    await confirmMerge(dialog, `Move the established duplicate group to its final root ${suffix}.`);
-    await dialog.getByRole("button", { name: "Permanently merge source" }).click();
+    const detail = await openSearchResult(page, intermediateRoot);
+    const { panel } = await openMergeReview(page, detail, finalRoot.id);
+    await confirmMerge(panel, `Move the established duplicate group to its final root ${suffix}.`);
+    await panel.getByRole("button", { name: "Merge permanently" }).click();
 
-    let audit = page.getByRole("dialog", { name: "Duplicate audit" });
-    await expect(audit).toBeVisible();
+    let audit = await duplicateAudit(page);
     await expect(audit.locator(".detail-title")).toHaveText(intermediateRoot.title);
     await expect(audit.locator(".duplicate-direction-grid > div").nth(0)).toContainText(
       finalRoot.id
@@ -552,6 +583,12 @@ test("a root with an incoming alias can merge again and regroup every audit unde
     );
 
     await audit.getByRole("button", { name: "View duplicate group" }).click();
+    // Viewing the group clears the selection, so the narrow sheet is gone as well.
+    await expect(page.locator(".work-detail-pane.is-open")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "More filters" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
     const groupStatus = page.locator(".duplicate-group-filter");
     await expect(groupStatus).toContainText("Canonical group");
     await expect(groupStatus).toContainText(finalRoot.id);
@@ -567,12 +604,11 @@ test("a root with an incoming alias can merge again and regroup every audit unde
     await expect(resultFor(page, finalRoot.id).locator(".operational-badge.duplicate"))
       .toHaveCount(0);
 
-    await resultFor(page, firstAlias.id)
-      .locator("article.work-item-card button.card-title")
-      .click();
-    audit = page.getByRole("dialog", { name: "Duplicate audit" });
+    await resultFor(page, firstAlias.id).locator("article.work-item-card").click();
+    audit = await duplicateAudit(page);
     await expect(audit.locator(".detail-title")).toHaveText(firstAlias.title);
-    await expect(audit.locator(".prompt-body")).toHaveText(
+    const aliasContext = await openTab(audit, "Context");
+    await expect(aliasContext.locator(".prompt-body")).toHaveText(
       `First alias-owned checkpoint ${suffix}.`
     );
     await expect(audit.locator(".duplicate-direction-grid > div").nth(0)).toContainText(
@@ -591,7 +627,7 @@ test("a root with an incoming alias can merge again and regroup every audit unde
     await expect(audit.getByRole("button", { name: "Delete work item" })).toHaveCount(0);
     await expect(audit.getByLabel("Checkpoint text")).toHaveCount(0);
 
-    await audit.getByRole("button", { name: "Close dialog" }).click();
+    await closeDetail(page);
     await page.getByText("Canonical only", { exact: true }).click();
     await expect(page.getByRole("radio", { name: "Canonical only" })).toBeChecked();
     await expect(groupStatus).toHaveCount(0);
@@ -603,9 +639,26 @@ test("a root with an incoming alias can merge again and regroup every audit unde
       .toHaveCount(0);
     await expect(page.locator(`.hierarchy-node[data-work-item-id="${intermediateRoot.id}"]`))
       .toHaveCount(0);
-    await expect(rootNode.getByRole("list", { name: "Branch totals" })).toContainText(
-      "2 merged duplicate audit records"
-    );
+
+    // The compact root card carries branch totals only when it has descendants, so the
+    // regrouped audit count is proven from the canonical root's own pane and from the exact
+    // roots page the queue renders.
+    await rootNode.locator(":scope > .hierarchy-node-row article.work-item-card").click();
+    const canonicalRoot = workPane(page);
+    await expect(canonicalRoot.locator(".detail-title")).toHaveText(finalRoot.title);
+    await expect(canonicalRoot.locator(".detail-identity .operational-badge.duplicate"))
+      .toHaveCount(0);
+    await expect(canonicalRoot.locator(".duplicate-audit-panel")).toHaveCount(0);
+    await expect(canonicalRoot.getByRole("button", { name: "Copy canonical ID" })).toBeVisible();
+    const roots = await getHierarchyRoots(client);
+    const rootIds = roots.items.map((item) => item.summary.work_item.id);
+    expect(rootIds).toContain(finalRoot.id);
+    expect(rootIds).not.toContain(firstAlias.id);
+    expect(rootIds).not.toContain(intermediateRoot.id);
+    expect(
+      roots.items.find((item) => item.summary.work_item.id === finalRoot.id)!
+        .presentation.branch_merged_duplicate_count
+    ).toBe(2);
   } finally {
     await client.dispose();
   }
@@ -653,7 +706,7 @@ test("an active source lease disables merge and its capability cannot cross the 
     ]);
     await openDashboard(page);
     await page.getByRole("button", { name: "Active", exact: true }).click();
-    const detail = await openSearchResult(page, source.id, source.id);
+    const detail = await openSearchResult(page, source);
     await expect(detail.getByLabel("Active work lease")).toContainText(holderSession);
     const mergeButton = detail.getByRole("button", { name: /Merge as duplicate/ });
     await expect(mergeButton).toBeDisabled();
@@ -768,8 +821,8 @@ test("a drifted merge review requires explicit refetch and a new operation UUID"
 
   try {
     await openDashboard(page);
-    const detail = await openSearchResult(page, source.id, source.id);
-    const { dialog } = await openMergeReview(page, detail, destination.id);
+    const detail = await openSearchResult(page, source);
+    const { panel } = await openMergeReview(page, detail, destination.id);
     const firstDestinationRevision = (await getContext(
       client,
       destination.id
@@ -794,36 +847,31 @@ test("a drifted merge review requires explicit refetch and a new operation UUID"
     const patchedDestination = await patched.json() as WorkItem;
     expect(patchedDestination.version).toBe(destination.version + 1);
 
-    await confirmMerge(dialog, rationale);
-    await dialog.getByRole("button", { name: "Permanently merge source" }).click();
+    await confirmMerge(panel, rationale);
+    await panel.getByRole("button", { name: "Merge permanently" }).click();
     await expect.poll(() => capturedBodies.length).toBe(1);
-    const staleNotice = dialog.getByRole("alert").filter({
+    const staleNotice = panel.getByRole("alert").filter({
       hasText: "The reviewed source or destination changed."
     });
     await expect(staleNotice).toBeVisible();
-    await expect(dialog.getByLabel(/I understand this permanently makes the source immutable/))
-      .toBeDisabled();
-    await expect(dialog.getByRole("button", { name: "Permanently merge source" }))
-      .toBeDisabled();
-    await expect(dialog.getByLabel("Merge rationale")).toHaveValue(rationale);
+    await expect(panel.getByLabel(/I have read both exact work contexts/)).toBeDisabled();
+    await expect(panel.getByRole("button", { name: "Merge permanently" })).toBeDisabled();
+    await expect(panel.getByLabel("Merge rationale")).toHaveValue(rationale);
     expect(capturedBodies[0]!.reviewed_destination_revision).toEqual(
       firstDestinationRevision
     );
 
     await staleNotice.getByRole("button", { name: "Refetch both contexts" }).click();
-    await expect(dialog.locator("[data-direction='destination']")).toBeVisible();
-    const acknowledgement = dialog.getByLabel(
-      /I understand this permanently makes the source immutable/
-    );
+    await expect(panel.locator("[data-review-direction='destination']")).toBeVisible();
+    const acknowledgement = panel.getByLabel(/I have read both exact work contexts/);
     await expect(acknowledgement).toBeEnabled();
     await expect(acknowledgement).not.toBeChecked();
-    await expect(dialog.getByLabel("Merge rationale")).toHaveValue(rationale);
+    await expect(panel.getByLabel("Merge rationale")).toHaveValue(rationale);
     await acknowledgement.check();
-    await dialog.getByRole("button", { name: "Permanently merge source" }).click();
+    await panel.getByRole("button", { name: "Merge permanently" }).click();
 
     await expect.poll(() => capturedBodies.length).toBe(2);
-    const audit = page.getByRole("dialog", { name: "Duplicate audit" });
-    await expect(audit).toBeVisible();
+    const audit = await duplicateAudit(page);
     await expect(audit.locator(".duplicate-direction-grid > div").nth(1)).toContainText(
       destination.id
     );

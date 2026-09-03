@@ -1,15 +1,10 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import WorkItemCard from "@/components/work-item-card";
+import WorkQueueCard from "@/components/work-queue-card";
 import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import { api, errorMessage, workItemPath } from "@/lib/api";
-import {
-  discoveryLabel,
-  decodeHierarchyPage,
-  hierarchyBranchTotals,
-  hierarchyOverlapNote
-} from "@/lib/hierarchy-presentation";
+import { decodeHierarchyPage } from "@/lib/hierarchy-presentation";
 import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
 import { childSearchParams } from "@/lib/work-item-search";
 import { hierarchyGuardReason } from "@/lib/work-relationships";
@@ -18,13 +13,6 @@ import type { HierarchySummary, Page, StatusFilter, WorkSort, WorkSummary } from
 export const CHILD_PAGE_SIZE = 50;
 
 type Actions = {
-  copiedKey: string | null;
-  deferringId: string | null;
-  onOpen: (summary: WorkSummary) => void;
-  onEdit: (summary: WorkSummary) => void;
-  onDelete: (summary: WorkSummary) => void;
-  onDefer: (summary: WorkSummary) => void;
-  onCopyPointer: (summary: WorkSummary) => void;
   onFlatSearch: (summary: WorkSummary) => void;
 };
 
@@ -46,22 +34,6 @@ function naturalList(values: string[]): string {
   if (values.length < 2) return values[0] ?? "current";
   if (values.length === 2) return `${values[0]} and ${values[1]}`;
   return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
-}
-
-function HierarchyPresentation({ item, depth }: { item: HierarchySummary; depth: number }) {
-  const facts = item.presentation;
-  const origin = discoveryLabel(facts, depth);
-  const totals = hierarchyBranchTotals(facts);
-  return <div className="hierarchy-presentation">
-    {origin && <span className="hierarchy-origin">{origin}</span>}
-    <ul className="hierarchy-aggregate-strip" aria-label="Branch totals">
-      {totals.map((total) => <li
-        className={total.needsAttention ? "hierarchy-attention-count" : undefined}
-        key={total.key}
-      >{total.label}</li>)}
-    </ul>
-    <small className="hierarchy-overlap-note">{hierarchyOverlapNote}</small>
-  </div>;
 }
 
 function GuardedBranch({
@@ -213,17 +185,7 @@ function HierarchyBranch(props: BranchProps) {
       ><span aria-hidden="true">›</span></button> : <span className="hierarchy-toggle-spacer" />}
       <div className="hierarchy-card">
         {!item.self_matches_filter && <span className="scaffold-label">Ancestor · does not match this filter</span>}
-        <HierarchyPresentation item={item} depth={depth} />
-        <WorkItemCard
-          summary={summary}
-          copied={props.copiedKey === `${id}:pointer`}
-          deferring={props.deferringId === id}
-          onOpen={() => props.onOpen(summary)}
-          onEdit={() => props.onEdit(summary)}
-          onDelete={() => props.onDelete(summary)}
-          onDefer={() => props.onDefer(summary)}
-          onCopyPointer={() => props.onCopyPointer(summary)}
-        />
+        <WorkQueueCard summary={summary} presentation={item.presentation} depth={depth} />
       </div>
     </div>
     {expanded && canExpand && <div

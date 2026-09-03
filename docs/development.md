@@ -392,7 +392,10 @@ tests must cover separate bidi-isolated source/destination panels, full UUIDs,
 permanence acknowledgement, source structural/gate/lease blockers, active-lease
 disablement, both frozen review revisions, a two-work-key conflict lock, exact
 ambiguous retry, stale-review replacement, and current-root refetch after
-success. The browser registry remains exactly eleven kinds and admits no lease
+success. Since the two-column work library, that merge review is an inline
+panel at the top of the detail pane's Graph tab rather than a dialog; the same
+destination search, eligibility facts, registry intent, and recovery block apply
+there. The browser registry remains exactly eleven kinds and admits no lease
 token.
 
 Advisory Node tests cover exact request construction and strict response
@@ -409,9 +412,12 @@ B-to-C drift rejection and fresh intent, attention empty/error recovery,
 filtered and unfiltered attention, nonzero omission messages, attention and
 53-gate history pagination, current-cursor live refetch, and sibling draft/focus
 preservation. Existing browser cases also cover collapsed hierarchy expansion,
-list-based aggregate text, discovery/filter explanations, child paging,
-ancestry, browser-clock-driven lease expiry, and targeted ARIA/focus behavior.
-These checks do not claim an exhaustive keyboard-only traversal audit.
+queue-card descendant and needs-attention chips with their branch-total titles,
+discovery/filter explanations, child paging, ancestry, browser-clock-driven
+lease expiry, and targeted ARIA/focus behavior. Gate, event, checkpoint, and
+relationship cases reach their panels through the detail pane's Questions,
+Activity, History, and Graph tabs. These checks do not claim an exhaustive
+keyboard-only traversal audit.
 
 `typecheck` verifies component and API model alignment; the production build
 catches server/client boundary and asset issues. Backend and Playwright suites
@@ -456,6 +462,28 @@ live convergence of both endpoints, explicit suggestion action, exact-title and
 matched-alias candidates, stale draft results, lexical/busy/unavailable states,
 and successful Create anyway throughout. This acceptance run is a release gate;
 unit/type/build success alone does not substitute for it.
+
+The work library is a two-column surface, not a modal. Below the search and
+filter controls, an independently scrolling queue of compact cards fetches the
+next `WORK_PAGE_SIZE` page when a sentinel near its end intersects the
+scrollport, so the result count reports the total while cards append; there
+are no Previous/Next controls. Selecting a card opens the detail pane beside it
+with Context, History, Graph, Questions, and Activity tabs; edit is inline in
+the Context tab, the merge review is an inline panel inside the Graph tab, and
+the selection mirrors into `?work=<id>`. Below 900px the pane becomes a
+full-height sheet with a Back button. Node tests cover the pure queue helpers
+(result-count labels, page merging, loaded offsets, arrow-key selection and
+list-scroll arithmetic, forced More-filters state) and the tab-count helper.
+`tests/e2e/work-library-surface.spec.ts` runs in both the desktop and narrow
+Chromium projects and covers arrow-key selection that scrolls the list rather
+than the window, tab persistence across items, inline edit save and cancel,
+merge inside the Graph tab through the real API, lazy append from 20 to 40 to
+45 seeded cards with the total shown throughout, the More filters toggle and
+provenance auto-open, work-item ID copy, `?work=` restore on reload, and the
+narrow sheet with its Back button. The `tests/e2e/surface.ts` helpers
+(`workPane`, `workCard`, `selectWork`, `closeDetail`, `openTab`) are how every
+other phase spec reaches the pane; the attention view's Open work context
+button navigates to `/?work=<id>` instead of opening a dialog.
 
 For native dashboard development, keep the container API running, stop the
 `web` container, and create an untracked `frontend/.env.local` containing:
@@ -595,21 +623,27 @@ Do not treat a focused suite, PostgreSQL-skipped run, read-only smoke, stale
 Phase 6/8 validation count, or marketplace refresh by itself as a Phase 9
 implementation result. Repository completion requires isolated E2E, full
 pre-commit, and cold adversarial review. It must not be described as deployment
-approval. When operators do deploy, application/API/MCP/dashboard `0.4.0`,
-plugin `0.8.0`, migration 0017, and the operational guidance form one compatible
-final boundary.
+approval. When operators do deploy, application/API/MCP `0.4.0`, dashboard
+`0.5.0`, plugin `0.8.0`, migration 0017, and the operational guidance form one
+compatible final boundary.
 
 ## Manual browser pass through Phase 9
 
 Exercise project empty state and switching, root browsing, lazy child expansion,
 subtree-aware filters, flat-search breadcrumbs, Pending/Active/Dropped/Deferred
 lifecycle filters,
-lexical search and explicit Semantic opt-in, work selection, bounded context,
-grouped pointer-only relationships, checkpoint timeline, immutable activity
-timeline paging, progress-event creation, prompt copy, identity editing,
-checkpoint creation, completion, deletion, and stale-version recovery. At a
-narrow viewport, confirm lists, hierarchy, detail panes, editors, dialogs, long
-IDs, and defensive depth/cycle fallbacks remain usable.
+lexical search and explicit Semantic opt-in, queue selection by click and by
+the arrow keys, lazy queue paging with the total in the result count, bounded
+context in the detail pane, grouped pointer-only relationships in the Graph
+tab, the checkpoint timeline in the History tab, immutable activity timeline
+paging in the Activity tab, progress-event creation, prompt copy, work-item ID
+copy, inline identity editing in the Context tab, checkpoint creation,
+completion, deletion, and stale-version recovery. Confirm the selected tab
+persists across items while edit and merge state reset, and that a reload with
+`?work=<id>` restores the selection. At a narrow viewport, confirm the queue
+scrolls with the page, the pane opens as a full-height sheet with a working
+Back button, the tab bar scrolls horizontally, and hierarchy, editors, dialogs,
+long IDs, and defensive depth/cycle fallbacks remain usable.
 
 Open the valid create dialog and confirm no suggestion request occurs while
 typing. Use **Check existing work** once, inspect canonical and matched-member
@@ -657,9 +691,10 @@ direct/descendant and blocked/active/completed/discovered counts, discovery
 labels, gate counts, filter-hidden explanations, child paging, defensive
 cycle/depth fallbacks, and passive refresh when a descendant lease expires.
 
-In a disposable stack only, review two same-project root contexts and open the
-merge dialog. Confirm separate bidi-isolated source/destination panels, full
-UUIDs, exact direction, both review revisions, rationale, and mandatory
+In a disposable stack only, review two same-project root contexts and use
+**Merge as duplicate…** in the detail pane; the merge panel opens inline at the
+top of the Graph tab. Confirm separate bidi-isolated source/destination panels,
+full UUIDs, exact direction, both review revisions, rationale, and mandatory
 permanence acknowledgement. Exercise source structural and unresolved-gate
 blockers; verify an active source lease disables browser merge without exposing
 a token. Interrupt the response and retry only the frozen two-work-key intent;
@@ -677,12 +712,12 @@ user's project after manual verification.
 
 For the Phase 6 mutation pass, interrupt one of each browser action after
 sending and before accepting its response. Confirm the same-document dashboard
-retains the frozen call across modal closure/component unmount, blocks
-intersecting actions, warns before unloading, and retries the identical method,
-path, UUID, and serialized body. Verify a coherent original or replayed response
-reconciles current state and heals live invalidation, while malformed `2xx`,
-`5xx`, and transport loss remain unresolved and an exact-call key conflict
-remains blocked for investigation. Finally, reload an unresolved document and
-confirm the UI makes no recovery promise: no UUID or body was written to local
-storage, session storage, cookies, a URL, or a header, and a replacement UUID is
-not presented as a safe retry.
+retains the frozen call across pane deselection, dialog closure, and component
+unmount, blocks intersecting actions, warns before unloading, and retries the
+identical method, path, UUID, and serialized body. Verify a coherent original or
+replayed response reconciles current state and heals live invalidation, while
+malformed `2xx`, `5xx`, and transport loss remain unresolved and an exact-call
+key conflict remains blocked for investigation. Finally, reload an unresolved
+document and confirm the UI makes no recovery promise: no UUID or body was
+written to local storage, session storage, cookies, a URL, or a header, and a
+replacement UUID is not presented as a safe retry.

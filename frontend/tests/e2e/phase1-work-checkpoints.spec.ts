@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { expect, request as playwrightRequest, test, type Page } from "@playwright/test";
+import { expect, request as playwrightRequest, test, type Locator, type Page } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
+import { closeDetail, openTab, selectWork, workCard, workPane } from "./surface";
 
 let state: E2EState;
 
@@ -15,8 +16,23 @@ type QueueMotionRecord = {
 
 type QueueMotionState = {
   records: QueueMotionRecord[];
+  // Every window scroll event and every queue-list scroll event, so a live
+  // arrival that nudges either scroller is caught whichever one is active.
   scrollPositions: number[];
+  listScrollPositions: number[];
   order: number;
+};
+
+// The queue scrolls inside its own list on desktop; below 900px the page scrolls.
+type ScrollProbe = {
+  scroller: "list" | "document";
+  y: number;
+  maxScroll: number;
+  viewportHeight: number;
+  listTop: number;
+  listBottom: number;
+  windowY: number;
+  listY: number;
 };
 
 type ExternalWork = {
@@ -72,6 +88,13 @@ async function sampleFadeMidpoint(
   }, direction);
 }
 
+// The Checkpoints value in the pane's facts strip (cards no longer show a count).
+function checkpointFact(pane: Locator): Locator {
+  return pane.locator(".detail-facts")
+    .getByText("Checkpoints", { exact: true })
+    .locator("xpath=following-sibling::dd");
+}
+
 test("external API writes appear through live browser sync", async ({ page }, testInfo) => {
   const testKey = [
     testInfo.project.name,
@@ -89,6 +112,7 @@ test("external API writes appear through live browser sync", async ({ page }, te
     { length: 8 },
     (_, index) => retainedPrefix + " " + (index + 1)
   );
+  const narrowLayout = (page.viewportSize()?.width ?? Number.POSITIVE_INFINITY) <= 900;
   const apiURL = process.env.MNEMONIC_E2E_API_URL;
   const apiKey = process.env.MNEMONIC_E2E_API_KEY;
   if (!apiURL || !apiKey) throw new Error("The disposable E2E API is not configured.");
@@ -133,6 +157,7 @@ test("external API writes appear through live browser sync", async ({ page }, te
       const motionState: QueueMotionState = {
         records: [],
         scrollPositions: [],
+        listScrollPositions: [],
         order: 0
       };
       const testWindow = window as typeof window & {
@@ -153,7 +178,7 @@ test("external API writes appear through live browser sync", async ({ page }, te
           ? this
           : this.querySelector("article.work-item-card");
         const record: QueueMotionRecord = {
-          title: card?.querySelector(".card-title h2")?.textContent?.trim() ?? "",
+          title: card?.querySelector(".queue-card-title")?.textContent?.trim() ?? "",
           keyframes: effect instanceof KeyframeEffect
             ? effect.getKeyframes().map((frame) => ({
               transform: typeof frame.transform === "string" ? frame.transform : null,
@@ -274,32 +299,68 @@ test("external API writes appear through live browser sync", async ({ page }, te
     await expect(retainedCards).toHaveCount(retainedTitles.length, { timeout: 15_000 });
     const retainedHandles = await retainedCards.elementHandles();
 
-    const scroll = await page.locator(".work-list").evaluate(async (list) => {
+    // Scroll partway into the queue through whichever element actually scrolls it:
+    // the list's own scrollTop on desktop, the document on the narrow layout.
+    const scroll = await page.locator(".work-queue-list").evaluate(async (list): Promise<ScrollProbe> => {
+      const motionState = (window as typeof window & {
+        __queueMotionTest?: QueueMotionState;
+      }).__queueMotionTest;
+      if (!motionState) throw new Error("The queue motion observer was not installed.");
       const scrollingElement = document.scrollingElement;
       if (!scrollingElement) throw new Error("The document has no scrolling element.");
-      const listTop = list.getBoundingClientRect().top + window.scrollY;
-      const listBottom = listTop + list.getBoundingClientRect().height;
-      const maxScroll = scrollingElement.scrollHeight - window.innerHeight;
+      const settle = () => new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+      list.addEventListener("scroll", () => {
+        motionState.listScrollPositions.push(list.scrollTop);
+      }, { passive: true });
       document.documentElement.style.scrollBehavior = "auto";
+      const listScrolls = getComputedStyle(list).overflowY === "auto"
+        && list.scrollHeight > list.clientHeight;
+      if (listScrolls) {
+        const maxScroll = list.scrollHeight - list.clientHeight;
+        list.scrollTop = Math.max(
+          1,
+          Math.min(list.clientHeight / 2, maxScroll - list.clientHeight)
+        );
+        await settle();
+        return {
+          scroller: "list",
+          y: list.scrollTop,
+          maxScroll,
+          viewportHeight: list.clientHeight,
+          listTop: 0,
+          listBottom: list.scrollHeight,
+          windowY: window.scrollY,
+          listY: list.scrollTop
+        };
+      }
+      const listRect = list.getBoundingClientRect();
+      const listTop = listRect.top + window.scrollY;
+      const listBottom = listTop + listRect.height;
+      const maxScroll = scrollingElement.scrollHeight - window.innerHeight;
       scrollingElement.scrollTop = Math.max(
         listTop + 1,
         Math.min(listTop + window.innerHeight / 2, maxScroll - window.innerHeight)
       );
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      });
+      await settle();
       return {
+        scroller: "document",
         y: window.scrollY,
+        maxScroll,
+        viewportHeight: window.innerHeight,
         listTop,
         listBottom,
-        maxScroll,
-        viewportHeight: window.innerHeight
+        windowY: window.scrollY,
+        listY: list.scrollTop
       };
     });
+    expect(scroll.scroller).toBe(narrowLayout ? "document" : "list");
     expect(scroll.maxScroll).toBeGreaterThan(0);
     expect(scroll.y).toBeGreaterThan(scroll.listTop);
     expect(scroll.y).toBeLessThan(scroll.listBottom);
     expect(scroll.maxScroll - scroll.y).toBeGreaterThanOrEqual(scroll.viewportHeight);
+    if (scroll.scroller === "list") expect(scroll.windowY).toBe(0);
 
     await page.evaluate(() => {
       const motionState = (window as typeof window & {
@@ -308,6 +369,7 @@ test("external API writes appear through live browser sync", async ({ page }, te
       if (!motionState) throw new Error("The queue motion observer was not installed.");
       motionState.records.splice(0);
       motionState.scrollPositions.splice(0);
+      motionState.listScrollPositions.splice(0);
       motionState.order = 0;
     });
 
@@ -386,10 +448,14 @@ test("external API writes appear through live browser sync", async ({ page }, te
         __queueMotionTest?: QueueMotionState;
       }).__queueMotionTest;
       if (!motionState) throw new Error("The queue motion observer was not installed.");
+      const list = document.querySelector(".work-queue-list");
+      if (!list) throw new Error("The work queue list is not rendered.");
       return {
         records: motionState.records,
         scrollPositions: motionState.scrollPositions,
-        scrollY: window.scrollY
+        listScrollPositions: motionState.listScrollPositions,
+        scrollY: window.scrollY,
+        listScrollTop: list.scrollTop
       };
     });
     const targetFades = animatedTitles.map((targetTitle) => {
@@ -424,8 +490,10 @@ test("external API writes appear through live browser sync", async ({ page }, te
       expect(retainedAnimation!.keyframes.length).toBeGreaterThan(2);
     }
 
-    expect(observed.scrollY).toBe(scroll.y);
-    expect(observed.scrollPositions.every((position) => position === scroll.y)).toBe(true);
+    expect(observed.scrollY).toBe(scroll.windowY);
+    expect(observed.listScrollTop).toBe(scroll.listY);
+    expect(observed.scrollPositions.every((position) => position === scroll.windowY)).toBe(true);
+    expect(observed.listScrollPositions.every((position) => position === scroll.listY)).toBe(true);
 
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.evaluate(() => {
@@ -435,6 +503,7 @@ test("external API writes appear through live browser sync", async ({ page }, te
       if (!motionState) throw new Error("The queue motion observer was not installed.");
       motionState.records.splice(0);
       motionState.scrollPositions.splice(0);
+      motionState.listScrollPositions.splice(0);
     });
     await createExternalWork(reducedMotionTitle, "live-sync-reduced-" + state.runId);
     await expect(page.locator("article.work-item-card").filter({
@@ -445,15 +514,21 @@ test("external API writes appear through live browser sync", async ({ page }, te
         __queueMotionTest?: QueueMotionState;
       }).__queueMotionTest;
       if (!motionState) throw new Error("The queue motion observer was not installed.");
+      const list = document.querySelector(".work-queue-list");
+      if (!list) throw new Error("The work queue list is not rendered.");
       return {
         recordCount: motionState.records.length,
         scrollPositions: motionState.scrollPositions,
-        scrollY: window.scrollY
+        listScrollPositions: motionState.listScrollPositions,
+        scrollY: window.scrollY,
+        listScrollTop: list.scrollTop
       };
     });
     expect(reducedMotion.recordCount).toBe(0);
-    expect(reducedMotion.scrollY).toBe(scroll.y);
-    expect(reducedMotion.scrollPositions.every((position) => position === scroll.y)).toBe(true);
+    expect(reducedMotion.scrollY).toBe(scroll.windowY);
+    expect(reducedMotion.listScrollTop).toBe(scroll.listY);
+    expect(reducedMotion.scrollPositions.every((position) => position === scroll.windowY)).toBe(true);
+    expect(reducedMotion.listScrollPositions.every((position) => position === scroll.listY)).toBe(true);
   } finally {
     await client.dispose();
   }
@@ -479,59 +554,69 @@ test("one work item groups immutable checkpoints through its full dashboard life
   await createDialog.getByLabel("Initial context checkpoint").fill(initial);
   await createDialog.getByRole("button", { name: "Create work and checkpoint" }).click();
 
-  const card = page.locator("article.work-item-card").filter({ hasText: title });
+  const card = workCard(page, title);
   await expect(card).toHaveCount(1);
-  await expect(card).toContainText("1 checkpoint");
-  await card.getByRole("button", { name: title, exact: true }).click();
+  // New work slides into the pane already selected.
+  let pane = workPane(page);
+  await expect(pane.locator(".detail-title")).toHaveText(title);
+  await expect(card).toHaveAttribute("aria-selected", "true");
+  await expect(checkpointFact(pane)).toHaveText("1");
 
-  let detail = page.getByRole("dialog", { name: "Work context" });
-  await expect(detail.locator(".prompt-body")).toHaveText(initial);
-  await expect(detail.locator("article.checkpoint")).toHaveCount(1);
+  await expect(pane.locator(".prompt-body")).toHaveText(initial);
+  let history = await openTab(pane, "History");
+  await expect(history.locator("article.checkpoint")).toHaveCount(1);
 
-  await detail.getByLabel("Checkpoint text").fill(progress);
-  await detail.getByRole("button", { name: "Add checkpoint" }).click();
-  await expect(detail.locator("article.checkpoint")).toHaveCount(2);
+  let context = await openTab(pane, "Context");
+  await context.getByLabel("Checkpoint text").fill(progress);
+  await context.getByRole("button", { name: "Add checkpoint" }).click();
+  history = await openTab(pane, "History");
+  await expect(history.locator("article.checkpoint")).toHaveCount(2);
 
-  await detail.getByLabel("Checkpoint kind").selectOption("context");
-  await detail.getByLabel("Checkpoint text").fill(replacement);
-  await detail.getByRole("button", { name: "Add checkpoint" }).click();
-  await expect(detail.locator(".prompt-body")).toHaveText(replacement);
-  await expect(detail.locator("article.checkpoint")).toHaveCount(3);
-  await expect(detail.locator(".checkpoint textarea, .checkpoint input, .checkpoint button")).toHaveCount(0);
-  await expect(detail.locator("article.checkpoint").filter({ hasText: initial })).toHaveCount(1);
-  await expect(detail.locator("article.checkpoint").filter({ hasText: progress })).toHaveCount(1);
-  await expect(detail.locator("article.checkpoint").filter({ hasText: replacement })).toHaveCount(1);
+  context = await openTab(pane, "Context");
+  await context.getByLabel("Checkpoint kind").selectOption("context");
+  await context.getByLabel("Checkpoint text").fill(replacement);
+  await context.getByRole("button", { name: "Add checkpoint" }).click();
+  await expect(context.locator(".prompt-body")).toHaveText(replacement);
+  history = await openTab(pane, "History");
+  await expect(history.locator("article.checkpoint")).toHaveCount(3);
+  await expect(history.locator(".checkpoint textarea, .checkpoint input, .checkpoint button")).toHaveCount(0);
+  await expect(history.locator("article.checkpoint").filter({ hasText: initial })).toHaveCount(1);
+  await expect(history.locator("article.checkpoint").filter({ hasText: progress })).toHaveCount(1);
+  await expect(history.locator("article.checkpoint").filter({ hasText: replacement })).toHaveCount(1);
+  await expect(checkpointFact(pane)).toHaveText("3");
+  await expect(pane.getByRole("tab", { name: /^History/ })).toContainText("3");
 
-  await detail.getByRole("button", { name: "Close dialog" }).click();
+  await closeDetail(page);
   await expect(card).toHaveCount(1);
-  await expect(card).toContainText("3 checkpoints");
-
   await page.getByLabel("Search work items").fill(title);
   await expect(card).toHaveCount(1);
-  await card.getByRole("button", { name: "Copy recall pointer" }).click();
+  await card.getByRole("button", { name: /Copy recall pointer/ }).click();
   const pointer = await page.evaluate(() => navigator.clipboard.readText());
   expect(pointer).toContain("work_item_id");
   expect(pointer).toContain("recall_work");
 
-  await card.getByRole("button", { name: title, exact: true }).click();
-  detail = page.getByRole("dialog", { name: "Work context" });
-  await detail.getByRole("button", { name: "Edit work item" }).click();
-  const editor = page.getByRole("dialog", { name: "Edit work item" });
-  await editor.getByLabel("Summary").fill("Updated durable objective; checkpoint history remains unchanged.");
-  await editor.getByRole("button", { name: "Save changes" }).click();
-  detail = page.getByRole("dialog", { name: "Work context" });
-  await expect(detail).toContainText("Updated durable objective; checkpoint history remains unchanged.");
+  pane = await selectWork(page, title);
+  await pane.getByRole("button", { name: "Edit work item" }).click();
+  // The label wraps the textarea, so its text includes the current value; match by prefix.
+  await pane.locator(".detail-edit").getByLabel("Summary").fill("Updated durable objective; checkpoint history remains unchanged.");
+  await pane.getByRole("button", { name: "Save changes" }).click();
+  await expect(pane.locator(".detail-summary")).toHaveText("Updated durable objective; checkpoint history remains unchanged.");
+  await expect(pane.getByRole("button", { name: "Save changes" })).toHaveCount(0);
 
-  await detail.getByLabel("Checkpoint text").fill(completion);
-  await detail.getByRole("button", { name: "Complete with summary" }).click();
-  await expect(detail.locator(".status-badge")).toHaveText(/Done/);
-  await expect(detail.locator("article.checkpoint")).toHaveCount(4);
-  await detail.getByRole("button", { name: "Close dialog" }).click();
+  context = await openTab(pane, "Context");
+  await context.getByLabel("Checkpoint text").fill(completion);
+  await context.getByRole("button", { name: "Complete with summary" }).click();
+  await expect(pane.locator(".detail-identity > .status-badge")).toHaveText(/Done/);
+  history = await openTab(pane, "History");
+  await expect(history.locator("article.checkpoint")).toHaveCount(4);
+  await closeDetail(page);
 
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(card).toHaveCount(1);
-  await card.getByRole("button", { name: `Delete ${title}` }).click();
+  pane = await selectWork(page, title);
+  await pane.getByRole("button", { name: "Delete work item" }).click();
   const deleteDialog = page.getByRole("dialog", { name: "Delete this work item?" });
   await deleteDialog.getByRole("button", { name: "Delete work item" }).click();
   await expect(card).toHaveCount(0);
+  await expect(page.locator(".work-detail-pane")).not.toHaveClass(/is-open/);
 });
