@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { OperationalBadge, StatusBadge, formatDate } from "@/components/work-item-card";
 import { api, ApiError, errorMessage, workItemPath } from "@/lib/api";
 import { dashboardSessionId } from "@/lib/dashboard-session";
+import { decodeWorkSearchPage } from "@/lib/duplicate-handling";
 import {
   mutationWorkKey,
   useMutationIntentRegistry,
@@ -22,9 +23,9 @@ import type {
   RelationshipCreateInput,
   RelationshipCreationResult,
   RelationshipDirection,
-  RelationshipRemovalResult,
   RelationshipType,
   WorkContext,
+  WorkSearchHit,
   WorkSummary
 } from "@/lib/types";
 import { workSearchParams } from "@/lib/work-item-search";
@@ -40,6 +41,8 @@ const groupOrder = [
   "Duplicate of",
   "Related"
 ];
+const editableRelationshipTypes = (Object.keys(relationshipTypeLabels) as RelationshipType[])
+  .filter((value) => value !== "duplicate-of");
 
 type Props = {
   context: WorkContext;
@@ -58,7 +61,7 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [searchedQuery, setSearchedQuery] = useState("");
-  const [searchPage, setSearchPage] = useState<Page<WorkSummary> | null>(null);
+  const [searchPage, setSearchPage] = useState<Page<WorkSearchHit> | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [counterpart, setCounterpart] = useState<WorkSummary | null>(null);
@@ -79,10 +82,7 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
     ...context.outgoing_relationships,
     ...context.undirected_relationships
   ];
-  const omittedRelationshipCount = Math.max(
-    0,
-    context.relationship_counts.total - relationships.length
-  );
+  const omittedRelationshipCount = context.omitted_relationship_counts.total;
   const grouped = useMemo(() => {
     const groups = new Map<string, AdjacentRelationshipRead[]>();
     for (const relationship of relationships) {
@@ -118,12 +118,20 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
     });
     setSearching(true);
     setSearchError("");
-    api<Page<WorkSummary>>(`${workItemPath(work.project_id)}?${params}`, {
+    api<unknown>(`${workItemPath(work.project_id)}?${params}`, {
       signal: controller.signal
-    }).then((page) => {
+    }).then((value) => {
+      const page = decodeWorkSearchPage(value, work.project_id, {
+        duplicateScope: "canonical",
+        query: searchedQuery,
+        expectedLimit: 10,
+        expectedOffset: 0
+      });
       if (!controller.signal.aborted) setSearchPage({
         ...page,
-        items: page.items.filter((item) => item.work_item.id !== work.id)
+        items: page.items.filter((item) => (
+          item.summary.work_item.id.toLowerCase() !== work.id.toLowerCase()
+        ))
       });
     }).catch((error) => {
       if (!controller.signal.aborted) setSearchError(errorMessage(error));
@@ -141,7 +149,7 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
     workConflictKey,
     ...(counterpartId ? [mutationWorkKey(work.project_id, counterpartId)] : [])
   ];
-  const mutationBlocked = mutationIntents.some((intent) => (
+  const mutationBlocked = context.canonical.is_duplicate || mutationIntents.some((intent) => (
     intent.state !== "prepared"
     && intent.conflictKeys.some((key) => relationshipConflictKeys.includes(key))
   ));
@@ -298,7 +306,7 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
               <span>Added {formatDate(relationship.relationship.created_at)} by {relationship.relationship.created_by_client}</span>
               {relationship.relationship.context_checkpoint_id && <span className="mono" title={relationship.relationship.context_checkpoint_id}>Context checkpoint {relationship.relationship.context_checkpoint_id}</span>}
             </div>
-            <button type="button" className="button button-secondary relationship-remove" aria-label={`Remove ${relationshipGroup(relationship)} relationship with ${relationship.counterpart.title}`} disabled={saving || Boolean(removingId) || mutationBlocked} onClick={() => void removeRelationship(relationship)}>{removingId === relationship.relationship.id ? "Removing…" : "Remove"}</button>
+            <button type="button" className="button button-secondary relationship-remove" aria-label={`Remove ${relationshipGroup(relationship)} relationship with ${relationship.counterpart.title}`} disabled={saving || Boolean(removingId) || mutationBlocked || relationship.counterpart.readiness.is_duplicate} title={mutationBlocked || relationship.counterpart.readiness.is_duplicate ? "Relationships incident to an immutable duplicate cannot be removed." : undefined} onClick={() => void removeRelationship(relationship)}>{removingId === relationship.relationship.id ? "Removing…" : "Remove"}</button>
           </article>)}</div>
         </section>;
       })}</div>}
@@ -306,7 +314,7 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
       Showing {relationships.length} bounded edges; {omittedRelationshipCount} more are available through paged relationship lookup.
     </p>}
 
-    <details className="relationship-editor" open={editorOpen} onToggle={(event) => {
+    {context.canonical.is_duplicate ? <p className="no-relationships" role="note">Duplicate audit records cannot add or remove relationships.</p> : <details className="relationship-editor" open={editorOpen} onToggle={(event) => {
       if (!event.currentTarget.open && mutationBlocked) {
         event.currentTarget.open = true;
         return;
@@ -315,15 +323,15 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
     }}>
       <summary>Add a relationship</summary>
       <div className="relationship-editor-body">
-        <p className="relationship-semantics">Only an unresolved <strong>blocks</strong> edge changes readiness. Parent/child affects navigation; discovery, duplication, and related edges are descriptive.</p>
+        <p className="relationship-semantics">Only an unresolved <strong>blocks</strong> edge changes readiness. Parent/child affects navigation; discovery and related edges are descriptive. Historical duplicate marks remain audit evidence.</p>
         <label className="field">Find another work item<input type="search" value={query} disabled={mutationBlocked} maxLength={500} placeholder="Search titles, summaries, or checkpoints…" onChange={(event) => { setQuery(event.target.value); setCounterpart(null); }} /></label>
         {searching && <div className="relationship-search-status" role="status">Searching…</div>}
         {searchError && <div className="error-notice" role="alert"><p>{searchError}</p></div>}
         {!searching && searchedQuery && !searchPage?.items.length && !searchError && <p className="relationship-search-status">No other work items match.</p>}
-        {searchPage?.items.length ? <div className="counterpart-results" role="listbox" aria-label="Matching work items">{searchPage.items.map((result) => <button type="button" role="option" disabled={mutationBlocked} aria-selected={counterpart?.work_item.id === result.work_item.id} className={counterpart?.work_item.id === result.work_item.id ? "selected" : ""} key={result.work_item.id} onClick={() => setCounterpart(result)}><span><strong>{result.work_item.title}</strong><span>{result.work_item.summary}</span></span><StatusBadge status={result.work_item.status} readiness={result.readiness} /></button>)}</div> : null}
+        {searchPage?.items.length ? <div className="counterpart-results" role="listbox" aria-label="Matching work items">{searchPage.items.map(({ summary: result }) => <button type="button" role="option" disabled={mutationBlocked} aria-selected={counterpart?.work_item.id === result.work_item.id} className={counterpart?.work_item.id === result.work_item.id ? "selected" : ""} key={result.work_item.id} onClick={() => setCounterpart(result)}><span><strong>{result.work_item.title}</strong><span>{result.work_item.summary}</span></span><StatusBadge status={result.work_item.status} readiness={result.readiness} /></button>)}</div> : null}
 
         {counterpart && <div className="relationship-fields">
-          <label className="field">Relationship type<select value={type} disabled={mutationBlocked} onChange={(event) => setType(event.target.value as RelationshipType)}>{(Object.keys(relationshipTypeLabels) as RelationshipType[]).map((value) => <option value={value} key={value}>{relationshipTypeLabels[value]}</option>)}</select></label>
+          <label className="field">Relationship type<select value={type} disabled={mutationBlocked} onChange={(event) => setType(event.target.value as RelationshipType)}>{editableRelationshipTypes.map((value) => <option value={value} key={value}>{relationshipTypeLabels[value]}</option>)}</select></label>
           {type !== "related" && <fieldset className="relationship-direction"><legend>Direction</legend><label><input type="radio" name="relationship-direction" value="outgoing" checked={direction === "outgoing"} disabled={mutationBlocked} onChange={() => setDirection("outgoing")} /> From this work item</label><label><input type="radio" name="relationship-direction" value="incoming" checked={direction === "incoming"} disabled={mutationBlocked} onChange={() => setDirection("incoming")} /> Toward this work item</label></fieldset>}
           <div className="relationship-preview" role="status"><span>Preview</span><strong>{relationshipPreview(type, direction, work.title, counterpart.work_item.title)}</strong></div>
           <label className="field">{type === "discovered-from" ? "Originating checkpoint" : "Endpoint context checkpoint (optional)"}<select value={checkpointId} required={type === "discovered-from"} disabled={mutationBlocked || checkpointsLoading || Boolean(checkpointError)} onChange={(event) => setCheckpointId(event.target.value)}><option value="">{checkpointsLoading ? "Loading checkpoints…" : type === "discovered-from" ? "Choose a checkpoint…" : "No checkpoint context"}</option>{checkpointChoices.map(({ owner, checkpoint }) => <option key={checkpoint.id} value={checkpoint.id}>{owner} · {checkpoint.kind} · {formatDate(checkpoint.created_at)}</option>)}</select><span className="field-hint">{type === "discovered-from" ? "The checkpoint must belong to the originating target work item." : "Optional context must belong to either endpoint. The newest 100 checkpoints per endpoint are shown."}</span></label>
@@ -331,7 +339,7 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
           <button type="button" className="button button-primary add-relationship-button" disabled={mutationBlocked || saving || Boolean(removingId) || checkpointsLoading || (type === "discovered-from" && !checkpointId)} onClick={() => void addRelationship()}>{saving ? "Adding…" : "Add relationship"}</button>
         </div>}
       </div>
-    </details>
+    </details>}
     {actionError && <div className="error-notice relationship-action-message" role="alert"><p>{actionError}</p></div>}
     {actionNotice && <div className="relationship-notice" role="status">{actionNotice}</div>}
   </section>;

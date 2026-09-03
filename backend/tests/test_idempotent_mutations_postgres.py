@@ -688,7 +688,7 @@ def test_checkpoint_progress_and_update_replay_without_duplicate_history(
     historical = api.patch(endpoint, json=update_body)
     assert historical.status_code == 200
     assert historical.json() == original_update
-    current = api.get(endpoint).json()
+    current = api.get(endpoint).json()["work_item"]
     assert current["version"] == 3
     assert current["priority"] == 77
 
@@ -785,7 +785,7 @@ def test_terminal_and_release_replay_before_disappeared_or_replaced_state(
     completion_replay = api.post(f"{completion_path}/complete", json=completion_body)
     assert completion_replay.status_code == 200
     assert completion_replay.json() == completed.json()
-    assert api.get(completion_path).json()["status"] == "pending"
+    assert api.get(completion_path).json()["work_item"]["status"] == "pending"
 
     deletion_work = create_unkeyed(api, project, work_payload, "Deletion replay")
     deletion_path = work_path(project, deletion_work)
@@ -890,7 +890,7 @@ def test_defer_replay_mismatch_and_domain_failure_are_durable_and_single_apply(
     )
     assert mismatch.status_code == 409
     assert mismatch.json()["detail"]["code"] == "client_operation_conflict"
-    assert api.get(endpoint).json() == first.json()
+    assert api.get(endpoint).json()["work_item"] == first.json()
     assert work_event_count(postgres_engine, work_item["id"]) == 2
     assert table_count(postgres_engine, "client_operations") == 1
 
@@ -913,7 +913,7 @@ def test_defer_replay_mismatch_and_domain_failure_are_durable_and_single_apply(
     rejected = api.post(f"{pending_endpoint}/defer", json=rejected_body)
     assert rejected.status_code == 409
     assert rejected.json()["detail"]["code"] == "lease_held"
-    assert api.get(pending_endpoint).json()["status"] == "pending"
+    assert api.get(pending_endpoint).json()["work_item"]["status"] == "pending"
     assert table_count(postgres_engine, "client_operations") == 1
 
 
@@ -943,13 +943,12 @@ def test_defer_postcommit_response_loss_recovers_by_exact_replay(
 
     current = api.get(endpoint)
     assert current.status_code == 200
-    assert current.json()["status"] == "deferred"
-    assert current.json()["version"] == 2
+    assert current.json()["work_item"]["status"] == "deferred"
+    assert current.json()["work_item"]["version"] == 2
     replay = api.post(f"{endpoint}/defer", json=body)
     assert replay.status_code == 200, replay.text
-    assert replay.json() == current.json()
-    assert len(publications) == 2
-    assert publications[0] == publications[1]
+    assert replay.json() == current.json()["work_item"]
+    assert len(publications) == 1
     outcomes = [
         record.getMessage()
         for record in caplog.records

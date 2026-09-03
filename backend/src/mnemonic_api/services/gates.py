@@ -8,9 +8,10 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, func, select, text, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import Session
 
+from mnemonic_api.database import begin_coherent_read
 from mnemonic_api.errors import (
     ApplicationError,
     conflict,
@@ -52,13 +53,6 @@ _RELATIONSHIP_EVENT_TYPES = (
 _CURSOR_VERSION = 1
 _CURSOR_MAX_BYTES = 2048
 _CURSOR_MAX_SEQUENCE = 2**63 - 1
-
-
-def _begin_coherent_read(database: Session) -> None:
-    """Pin a snapshot for multi-query attention/history projections."""
-    database.execute(
-        text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-    )
 
 
 def _invalid_cursor() -> ApplicationError:
@@ -301,6 +295,9 @@ def request_human_gate(
     from mnemonic_api.services.work_items import require_work_item
 
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
+    from mnemonic_api.services.duplicates import require_canonical_work_item
+
+    require_canonical_work_item(database, work_item)
     if work_item.status != "pending":
         raise conflict("work_not_pending", "Only pending work can request human input.")
     revision = _current_context_revision(database, work_item)
@@ -362,6 +359,9 @@ def resolve_human_gate(
     from mnemonic_api.services.work_items import require_work_item
 
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
+    from mnemonic_api.services.duplicates import require_canonical_work_item
+
+    require_canonical_work_item(database, work_item)
     gate = _locked_gate(database, project_id, work_item_id, gate_id)
     if gate.resolved_at is not None:
         raise gate_already_resolved()
@@ -398,7 +398,10 @@ def list_human_attention(
     from mnemonic_api.services.work_context import work_summaries
     from mnemonic_api.services.work_items import require_project, require_work_item
 
-    _begin_coherent_read(database)
+    begin_coherent_read(database)
+    as_of = database.scalar(select(func.transaction_timestamp()))
+    if as_of is None:
+        raise RuntimeError("Database did not provide a transaction timestamp")
     if filters.work_item_id is None:
         require_project(database, project_id)
     else:
@@ -457,7 +460,7 @@ def list_human_attention(
         )
     )
     summaries = {
-        item.work_item.id: item for item in work_summaries(database, work_items)
+        item.work_item.id: item for item in work_summaries(database, work_items, as_of=as_of)
     }
     paths, truncated = ancestor_paths(database, project_id, work_ids)
     for work_id, summary in summaries.items():
@@ -499,7 +502,7 @@ def list_work_gates(
 ) -> HumanGatePage:
     from mnemonic_api.services.work_items import missing_work_item, require_project
 
-    _begin_coherent_read(database)
+    begin_coherent_read(database)
     require_project(database, project_id)
     work_item = database.scalar(
         select(WorkItem).where(

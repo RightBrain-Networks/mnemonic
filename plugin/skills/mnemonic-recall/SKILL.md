@@ -24,6 +24,15 @@ checkpoint, `current_context` is `null` and `current_context_is_initial` is
 `resume_work` prompt expose the same bounded context; neither executes or claims
 work. If recall fails, do not reconstruct context from a pointer.
 
+Recall also returns `merge_review_revision`, an explicit `canonical` projection, bounded strict
+`duplicate_members`, exact relationship totals and omission counts, and source merge eligibility.
+For a merged duplicate, the selected ID remains a frozen audit record: its lifecycle, checkpoints,
+events, gates, and relationships are source-owned and are never replaced with root context. Do not
+claim, renew, checkpoint, update, complete, delete, add/remove relationships, or otherwise mutate an
+alias. Show its direct destination, canonical path, and full audit ID. If current authority requires
+continuing the root work, deliberately recall `canonical_work_item.id` as a separate exact read;
+never redirect the URL, selected ID, copied ID, or tool arguments silently.
+
 Before beginning execution the user has already authorized, generate a fresh
 opaque `claim_request_id` for this attempt and call
 `claim_and_recall(project_id, work_item_id, holder_client, holder_session_id,
@@ -64,6 +73,9 @@ in
 under "Retain protected mutation intents privately". This includes
 `request_human_input`; claims keep their separate `claim_request_id` rule, and
 `renew_claim` remains time-relative and non-idempotent.
+This includes permanent `merge_work`: follow the `mnemonic-save` skill's exact two-context merge
+review, direction, source reconciliation, and post-replay reread workflow. A duplicate mark or
+similarity result alone never authorizes it.
 
 ## Page what recall omitted
 
@@ -157,7 +169,7 @@ history is immutable. In addition, during recall:
 ## Interpret and maintain graph facts
 
 Recall returns immediate incoming, outgoing, and undirected adjacency plus
-relationship counts. Use `list_relationships` with explicit `direction` and
+relationship counts and exact omitted counts. Use `list_relationships` with explicit `direction` and
 `relationship_type` filters and pagination when the bounded window is
 insufficient, and `get_relationship` for one exact edge.
 [work-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md) defines
@@ -173,6 +185,12 @@ at once. If that happens mid-execution, preserve safe progress, stop work that
 depends on the blocker or the human answer, and release the claim. Do not seek
 a new claim or completion until the blocker is `done` or its edge is removed
 and every human gate is resolved.
+
+An authoritative merge is not an ordinary relationship edit. Its source → destination direction is
+permanent, creates or reuses one supporting duplicate mark, and records immutable `work_merged`
+events on both endpoints. Alias-incident relationships are frozen; never call
+`remove_relationship` to undo or reshape a merge. Read the duplicate section of work-graph.md and
+recall both exact root contexts before any authorized merge.
 
 ## Record progress and close the loop
 

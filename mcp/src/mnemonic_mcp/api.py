@@ -3,7 +3,9 @@
 import json
 from collections.abc import Callable
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, NoReturn, TypeVar
+from uuid import UUID
 
 import httpx
 from mcp.server.fastmcp.exceptions import ToolError
@@ -14,6 +16,16 @@ from .validation import validation_details, validation_error_message
 
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 ResponseValidator = Callable[[BaseModel], bool]
+
+
+class TransportEffect(StrEnum):
+    """Closed retry/uncertainty classification shared with the REST contract."""
+
+    SAFE_READ = "safe_read"
+    RECEIPT_PROTECTED_WRITE = "receipt_protected_write"
+    LEASE_CLAIM = "lease_claim"
+
+
 _APPLICATION_ERRORS = {
     "slug_conflict": "A project with this slug already exists. List projects before creating another.",
     "semantic_unavailable": (
@@ -56,8 +68,38 @@ _APPLICATION_ERRORS = {
         "a persisted field. Remove it; changing an argument makes this a new intent and requires "
         "a new client_operation_id."
     ),
+    "duplicate_merge_required": (
+        "Generic duplicate marks are closed to fresh writes. Review both exact work contexts "
+        "and use merge_work when an authoritative permanent merge is intended."
+    ),
+    "duplicate_self": "A work item cannot be merged into itself.",
+    "work_duplicate": (
+        "This exact work item is a retained duplicate audit record and cannot be mutated."
+    ),
+    "work_already_duplicate": "This merge source is already a retained duplicate.",
+    "duplicate_destination_not_canonical": (
+        "The merge destination is no longer canonical. Recall both exact work items again."
+    ),
+    "duplicate_context_changed": (
+        "A reviewed merge context changed. Recall both exact work items and review them again."
+    ),
+    "duplicate_source_gate_unresolved": (
+        "Resolve the source work item's human gate, including as no longer needed when appropriate, "
+        "then recall both exact work items again."
+    ),
+    "duplicate_structural_relationships": (
+        "Reconcile every source blocks and parent-child relationship before merging."
+    ),
+    "duplicate_depth_exceeded": "That merge would exceed the maximum canonical path depth.",
+    "duplicate_relationship_frozen": (
+        "A relationship retained by an authoritative duplicate merge cannot be removed."
+    ),
+    "duplicate_graph_invalid": (
+        "Mnemonic's canonical duplicate graph is invalid. Stop authority-changing work and "
+        "ask an operator to run the local integrity audit."
+    ),
 }
-_UNKNOWN_CLAIM_OUTCOME = (
+UNKNOWN_CLAIM_OUTCOME = (
     "Mnemonic API could not confirm the response; the claim outcome is unknown. Retry promptly "
     "with the exact same claim_request_id from this call. A new request ID can conflict, and search "
     "or recall cannot recover the lease token."
@@ -104,10 +146,6 @@ def _not_found_message(response: httpx.Response) -> str:
     return _NOT_FOUND_MESSAGES.get(application_error[0], _UNKNOWN_NOT_FOUND)
 
 
-def _is_claim_operation(method: str, path: str) -> bool:
-    return method == "POST" and path.endswith(("/claim", "/claim-and-recall"))
-
-
 def _application_error(response: httpx.Response) -> tuple[str, dict[str, object]] | None:
     try:
         detail = response.json().get("detail")
@@ -139,7 +177,27 @@ def _safe_expiry(value: object) -> str | None:
     return text if parsed.tzinfo is not None else None
 
 
+def _safe_uuid(value: object) -> str | None:
+    text = _safe_context_text(value, max_length=36)
+    if text is None:
+        return None
+    try:
+        parsed = UUID(text)
+    except ValueError:
+        return None
+    canonical = str(parsed)
+    return canonical if text == canonical else None
+
+
 def _application_error_message(code: str, context: dict[str, object]) -> str | None:
+    if code == "work_duplicate":
+        canonical_id = _safe_uuid(context.get("canonical_work_item_id"))
+        if canonical_id is not None:
+            return (
+                _APPLICATION_ERRORS[code]
+                + f" Its canonical work item is {canonical_id}."
+            )
+        return _APPLICATION_ERRORS[code]
     if code != "lease_held":
         return _APPLICATION_ERRORS.get(code)
 
@@ -154,15 +212,15 @@ def _application_error_message(code: str, context: dict[str, object]) -> str | N
     return _APPLICATION_ERRORS[code]
 
 
-def _raise_request_error(method: str, path: str, *, idempotent_mutation: bool) -> NoReturn:
-    if method not in {"POST", "PATCH", "DELETE"}:
+def _raise_request_error(method: str, *, effect: TransportEffect | None) -> NoReturn:
+    if effect == TransportEffect.SAFE_READ or method not in {"POST", "PATCH", "DELETE"}:
         raise ToolError(
             "Mnemonic API is unavailable. Check service health and try again."
         ) from None
-    if idempotent_mutation:
+    if effect == TransportEffect.RECEIPT_PROTECTED_WRITE:
         raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME) from None
-    if _is_claim_operation(method, path):
-        raise ToolError(_UNKNOWN_CLAIM_OUTCOME) from None
+    if effect == TransportEffect.LEASE_CLAIM:
+        raise ToolError(UNKNOWN_CLAIM_OUTCOME) from None
     raise ToolError(
         "Mnemonic API is unavailable; the write outcome is unknown. "
         "Search or recall before retrying to avoid duplicate or conflicting changes."
@@ -171,31 +229,42 @@ def _raise_request_error(method: str, path: str, *, idempotent_mutation: bool) -
 
 def _raise_server_uncertainty(
     response: httpx.Response,
-    method: str,
-    path: str,
     *,
-    idempotent_mutation: bool,
+    application_error: tuple[str, dict[str, object]] | None,
+    effect: TransportEffect | None,
 ) -> None:
     if response.status_code < 500:
         return
-    if idempotent_mutation:
+    if (
+        effect == TransportEffect.RECEIPT_PROTECTED_WRITE
+        and application_error is not None
+        and application_error[0] == "duplicate_graph_invalid"
+    ):
+        return
+    if effect == TransportEffect.RECEIPT_PROTECTED_WRITE:
         raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
-    if _is_claim_operation(method, path):
-        raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
+    if effect == TransportEffect.LEASE_CLAIM:
+        raise ToolError(UNKNOWN_CLAIM_OUTCOME)
 
 
 def _raise_application_error_response(
     response: httpx.Response,
     application_error: tuple[str, dict[str, object]] | None,
     *,
-    idempotent_mutation: bool,
+    effect: TransportEffect | None,
 ) -> None:
     if application_error is None or 200 <= response.status_code < 300:
         return
     error_code, error_context = application_error
-    if idempotent_mutation and error_code == "client_operation_unavailable":
+    if (
+        effect == TransportEffect.RECEIPT_PROTECTED_WRITE
+        and error_code == "client_operation_unavailable"
+    ):
         raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
-    if idempotent_mutation and error_code == "client_operation_conflict":
+    if (
+        effect == TransportEffect.RECEIPT_PROTECTED_WRITE
+        and error_code == "client_operation_conflict"
+    ):
         raise ToolError(_CLIENT_OPERATION_CONFLICT)
     message = _application_error_message(error_code, error_context)
     if message is not None:
@@ -221,10 +290,9 @@ def _validation_error_pairs(response: httpx.Response) -> list[tuple[object, obje
 def _raise_remaining_response_error(
     response: httpx.Response,
     method: str,
-    path: str,
     *,
     semantic_read: bool,
-    idempotent_mutation: bool,
+    effect: TransportEffect | None,
 ) -> None:
     if response.status_code == 422:
         pairs = _validation_error_pairs(response)
@@ -233,10 +301,10 @@ def _raise_remaining_response_error(
         raise ToolError("Mnemonic semantic search is unavailable. Retry with semantic disabled.")
     if 200 <= response.status_code < 300:
         return
-    if idempotent_mutation:
+    if effect == TransportEffect.RECEIPT_PROTECTED_WRITE:
         raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
-    if _is_claim_operation(method, path):
-        raise ToolError(_UNKNOWN_CLAIM_OUTCOME)
+    if effect == TransportEffect.LEASE_CLAIM:
+        raise ToolError(UNKNOWN_CLAIM_OUTCOME)
     raise ToolError(
         "Mnemonic API could not complete this request. Check service health before retrying."
     )
@@ -248,7 +316,7 @@ def _raise_for_response_error(
     path: str,
     *,
     semantic_read: bool,
-    idempotent_mutation: bool,
+    effect: TransportEffect | None,
 ) -> None:
     if response.status_code in {401, 403}:
         raise ToolError(
@@ -259,32 +327,30 @@ def _raise_for_response_error(
     application_error = _application_error(response)
     _raise_server_uncertainty(
         response,
-        method,
-        path,
-        idempotent_mutation=idempotent_mutation,
+        application_error=application_error,
+        effect=effect,
     )
     _raise_application_error_response(
         response,
         application_error,
-        idempotent_mutation=idempotent_mutation,
+        effect=effect,
     )
     _raise_remaining_response_error(
         response,
         method,
-        path,
         semantic_read=semantic_read,
-        idempotent_mutation=idempotent_mutation,
+        effect=effect,
     )
 
 
 def _validate_expected_status(
     response: httpx.Response,
     *,
-    idempotent_mutation: bool,
+    effect: TransportEffect | None,
     expected_status_code: int | None,
 ) -> None:
     if (
-        idempotent_mutation
+        effect == TransportEffect.RECEIPT_PROTECTED_WRITE
         and expected_status_code is not None
         and response.status_code != expected_status_code
     ):
@@ -295,11 +361,11 @@ def _validated_response_body[ModelT: BaseModel](
     response: httpx.Response,
     response_model: type[ModelT],
     *,
-    idempotent_mutation: bool,
+    effect: TransportEffect | None,
     response_validator: ResponseValidator | None,
 ) -> ModelT:
     wire_response = response.json()
-    if not idempotent_mutation:
+    if effect != TransportEffect.RECEIPT_PROTECTED_WRITE:
         return response_model.model_validate(wire_response)
     # A completed receipt is a frozen wire snapshot. Do not let Pydantic
     # coerce values, synthesize defaults, or silently normalize a malformed
@@ -322,12 +388,12 @@ def _raise_unexpected_response(
     method: str,
     path: str,
     *,
-    idempotent_mutation: bool,
+    effect: TransportEffect | None,
 ) -> NoReturn:
-    if idempotent_mutation:
+    if effect == TransportEffect.RECEIPT_PROTECTED_WRITE:
         raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME) from None
-    if _is_claim_operation(method, path):
-        raise ToolError(_UNKNOWN_CLAIM_OUTCOME) from None
+    if effect == TransportEffect.LEASE_CLAIM:
+        raise ToolError(UNKNOWN_CLAIM_OUTCOME) from None
     raise ToolError(
         "Mnemonic API returned an unexpected response. Check the service versions."
     ) from None
@@ -339,7 +405,7 @@ def _parse_success_response[ModelT: BaseModel](
     method: str,
     path: str,
     *,
-    idempotent_mutation: bool,
+    effect: TransportEffect | None,
     response_validator: ResponseValidator | None,
 ) -> ModelT | None:
     if response_model is None:
@@ -352,11 +418,11 @@ def _parse_success_response[ModelT: BaseModel](
         return _validated_response_body(
             response,
             response_model,
-            idempotent_mutation=idempotent_mutation,
+            effect=effect,
             response_validator=response_validator,
         )
     except (RecursionError, TypeError, ValueError, ValidationError):
-        _raise_unexpected_response(method, path, idempotent_mutation=idempotent_mutation)
+        _raise_unexpected_response(method, path, effect=effect)
 
 
 class MnemonicAPI:
@@ -372,7 +438,7 @@ class MnemonicAPI:
         params: dict[str, Any] | None = None,
         payload: dict[str, Any] | None = None,
         response_model: type[ResponseModel] | None = None,
-        idempotent_mutation: bool = False,
+        effect: TransportEffect | None = None,
         expected_status_code: int | None = None,
         response_validator: ResponseValidator | None = None,
     ) -> ResponseModel | None:
@@ -392,18 +458,18 @@ class MnemonicAPI:
             ) as client:
                 response = await client.request(method, path, params=params, json=payload)
         except httpx.RequestError:
-            _raise_request_error(method, path, idempotent_mutation=idempotent_mutation)
+            _raise_request_error(method, effect=effect)
 
         _raise_for_response_error(
             response,
             method,
             path,
             semantic_read=semantic_read,
-            idempotent_mutation=idempotent_mutation,
+            effect=effect,
         )
         _validate_expected_status(
             response,
-            idempotent_mutation=idempotent_mutation,
+            effect=effect,
             expected_status_code=expected_status_code,
         )
         return _parse_success_response(
@@ -411,6 +477,6 @@ class MnemonicAPI:
             response_model,
             method,
             path,
-            idempotent_mutation=idempotent_mutation,
+            effect=effect,
             response_validator=response_validator,
         )

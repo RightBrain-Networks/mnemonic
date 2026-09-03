@@ -142,7 +142,7 @@ def test_commit_failure_logs_one_bounded_unavailable_outcome(
 
 
 @pytest.mark.postgres
-def test_publish_failure_after_commit_heals_on_exact_replay(
+def test_publish_failure_after_commit_heals_without_republishing_on_exact_replay(
     api,
     project,
     work_payload,
@@ -172,8 +172,7 @@ def test_publish_failure_after_commit_heals_on_exact_replay(
     listed = api.get(path)
     assert listed.status_code == 200
     assert listed.json()["total"] == 1
-    assert len(publications) == 2
-    assert publications[0] == publications[1]
+    assert len(publications) == 1
     outcomes = [
         record.getMessage()
         for record in caplog.records

@@ -34,7 +34,8 @@ const DISPLAY_STATES = new Set([
   "active",
   "dropped",
   "blocked",
-  "waiting"
+  "waiting",
+  "duplicate"
 ]);
 const GATE_FIELDS = [
   "id", "project_id", "work_item_id", "gate_type", "question",
@@ -58,7 +59,8 @@ const LEASE_FIELDS = [
   "holder_client", "holder_session_id", "acquired_at", "renewed_at", "expires_at"
 ] as const;
 const READINESS_FIELDS = [
-  "lifecycle_status", "is_terminal", "has_active_lease", "has_dropped_lease",
+  "lifecycle_status", "is_duplicate", "canonical_work_item_id", "is_terminal",
+  "has_active_lease", "has_dropped_lease",
   "active_lease", "unresolved_blocker_count", "is_blocked", "unresolved_gate_count",
   "is_gated", "is_ready", "display_state"
 ] as const;
@@ -177,7 +179,7 @@ export function decodeHumanGate(
   return gate as unknown as HumanGateRead;
 }
 
-function decodeCheckpointPointer(value: unknown, workItemId: string): CheckpointPointer {
+export function decodeCheckpointPointer(value: unknown, workItemId: string): CheckpointPointer {
   const checkpoint = objectValue(value);
   if (
     !checkpoint
@@ -218,12 +220,21 @@ function decodeLease(value: unknown): LeasePublic | null {
   return lease as unknown as LeasePublic;
 }
 
-function decodeReadiness(value: unknown, status: WorkStatus): Readiness {
+export function decodeReadiness(
+  value: unknown,
+  status: WorkStatus,
+  workItemId: string
+): Readiness {
   const readiness = objectValue(value);
   if (
     !readiness
     || !exactKeys(readiness, READINESS_FIELDS)
     || readiness.lifecycle_status !== status
+    || typeof readiness.is_duplicate !== "boolean"
+    || !validUuid(readiness.canonical_work_item_id)
+    || (readiness.is_duplicate
+      ? sameUuid(readiness.canonical_work_item_id, workItemId)
+      : !sameUuid(readiness.canonical_work_item_id, workItemId))
     || typeof readiness.is_terminal !== "boolean"
     || typeof readiness.has_active_lease !== "boolean"
     || typeof readiness.has_dropped_lease !== "boolean"
@@ -238,10 +249,13 @@ function decodeReadiness(value: unknown, status: WorkStatus): Readiness {
   const lease = decodeLease(readiness.active_lease);
   const terminal = ["done", "wont-do", "promoted"].includes(status);
   const ready = status === "pending"
+    && !readiness.is_duplicate
     && lease === null
     && readiness.unresolved_blocker_count === 0
     && readiness.unresolved_gate_count === 0;
-  const displayState = status !== "pending"
+  const displayState = readiness.is_duplicate
+    ? "duplicate"
+    : status !== "pending"
     ? status
     : readiness.unresolved_gate_count > 0
       ? "waiting"
@@ -255,6 +269,7 @@ function decodeReadiness(value: unknown, status: WorkStatus): Readiness {
   if (
     readiness.is_terminal !== terminal
     || readiness.has_active_lease !== (lease !== null)
+    || readiness.has_active_lease && readiness.has_dropped_lease
     || readiness.is_blocked !== (readiness.unresolved_blocker_count > 0)
     || readiness.is_gated !== (readiness.unresolved_gate_count > 0)
     || readiness.is_ready !== ready
@@ -263,7 +278,7 @@ function decodeReadiness(value: unknown, status: WorkStatus): Readiness {
   return { ...readiness, active_lease: lease } as unknown as Readiness;
 }
 
-function decodeAncestor(value: unknown): WorkIdentityPointer {
+export function decodeWorkIdentityPointer(value: unknown): WorkIdentityPointer {
   const ancestor = objectValue(value);
   if (
     !ancestor
@@ -294,7 +309,7 @@ export function decodeWorkSummary(value: unknown, projectId: string): WorkSummar
     || summary.ancestor_path.length > 50
     || typeof summary.ancestor_path_truncated !== "boolean"
   ) throw new Error("Mnemonic returned an invalid attention work summary.");
-  const ancestors = summary.ancestor_path.map(decodeAncestor);
+  const ancestors = summary.ancestor_path.map(decodeWorkIdentityPointer);
   if (new Set(ancestors.map((item) => item.id.toLowerCase())).size !== ancestors.length) {
     throw new Error("Mnemonic returned an invalid attention ancestry path.");
   }
@@ -304,7 +319,7 @@ export function decodeWorkSummary(value: unknown, projectId: string): WorkSummar
     ancestor_path: ancestors,
     ancestor_path_truncated: summary.ancestor_path_truncated,
     current_context: decodeCheckpointPointer(summary.current_context, workItem.id),
-    readiness: decodeReadiness(summary.readiness, workItem.status)
+    readiness: decodeReadiness(summary.readiness, workItem.status, workItem.id)
   };
 }
 
@@ -458,25 +473,32 @@ function coherentReviewRelationship(
 export function hasCompleteRelationshipReview(context: Pick<
   WorkContext,
   "work_item" | "incoming_relationships" | "outgoing_relationships"
-    | "undirected_relationships" | "relationship_counts"
+    | "undirected_relationships" | "relationship_counts" | "omitted_relationship_counts"
 >): boolean {
   const incoming = context.incoming_relationships;
   const outgoing = context.outgoing_relationships;
   const undirected = context.undirected_relationships;
   const counts = context.relationship_counts;
+  const omitted = context.omitted_relationship_counts;
   if (
     !Array.isArray(incoming)
     || !Array.isArray(outgoing)
     || !Array.isArray(undirected)
     || !counts
+    || !omitted
     || !finiteInteger(counts.incoming)
     || !finiteInteger(counts.outgoing)
     || !finiteInteger(counts.undirected)
     || !finiteInteger(counts.total)
-    || counts.incoming !== incoming.length
-    || counts.outgoing !== outgoing.length
-    || counts.undirected !== undirected.length
-    || counts.total !== incoming.length + outgoing.length + undirected.length
+    || !finiteInteger(omitted.incoming)
+    || !finiteInteger(omitted.outgoing)
+    || !finiteInteger(omitted.undirected)
+    || !finiteInteger(omitted.total)
+    || counts.incoming !== incoming.length + omitted.incoming
+    || counts.outgoing !== outgoing.length + omitted.outgoing
+    || counts.undirected !== undirected.length + omitted.undirected
+    || counts.total !== incoming.length + outgoing.length + undirected.length + omitted.total
+    || omitted.total !== omitted.incoming + omitted.outgoing + omitted.undirected
   ) return false;
   const seenIds = new Set<string>();
   return incoming.every((item) => (

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyMutationResponse } from "../lib/mutation-responses.ts";
+import {
+  classifyMutationResponse,
+  MUTATION_KINDS
+} from "../lib/mutation-responses.ts";
 import {
   DEFINITIVE_PROXY_ERRORS,
   unsupportedMutationFieldError
@@ -11,6 +14,8 @@ const work = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const counterpart = "f1cf3691-7d28-4716-94a9-4867b341a685";
 const checkpointId = "1dfa9455-4a17-4cd4-938b-010ea17ccaf0";
 const relationshipId = "26a3a437-0af3-405a-ab82-7932d17869e0";
+const destinationCheckpointId = "11111111-1111-4111-8111-111111111111";
+const mergeId = "22222222-2222-4222-8222-222222222222";
 const operation = "91b9168a-37d1-4a6a-aa1f-bb538b65cb55";
 const createdAt = "2026-09-01T12:00:00Z";
 
@@ -74,7 +79,7 @@ function relationship(overrides = {}) {
   };
 }
 
-function event(metadata = {}) {
+function event(metadata = {}, overrides = {}) {
   return {
     id: 1,
     project_id: project,
@@ -98,7 +103,8 @@ function event(metadata = {}) {
     metadata_version: 1,
     metadata,
     origin: "live",
-    created_at: createdAt
+    created_at: createdAt,
+    ...overrides
   };
 }
 
@@ -213,6 +219,175 @@ test("all nine dashboard mutation response contracts decode with path/result coh
     const outcome = await classify(spec, status, value);
     assert.equal(outcome.type, "success", spec.kind);
   }
+});
+
+test("Core exposes exactly eleven closed browser mutation kinds", () => {
+  assert.deepEqual(MUTATION_KINDS, [
+    "create_work",
+    "add_checkpoint",
+    "append_event",
+    "add_relationship",
+    "update_work",
+    "defer_work",
+    "complete_work",
+    "delete_work",
+    "remove_relationship",
+    "resolve_human_input",
+    "merge_work"
+  ]);
+});
+
+test("merge success binds exact direction, revisions, relationship witness, and paired events", async () => {
+  const rationale = "Same durable objective — retain this text exactly.";
+  const sourceRevision = {
+    work_version: 1,
+    context_checkpoint_id: checkpointId,
+    work_event_count: 1
+  };
+  const destinationRevision = {
+    work_version: 1,
+    context_checkpoint_id: destinationCheckpointId,
+    work_event_count: 1
+  };
+  const spec = request("merge_work", "POST", `/projects/${project}/work-items/${work}/merge`, {
+    destination_work_item_id: counterpart,
+    reviewed_source_revision: sourceRevision,
+    reviewed_destination_revision: destinationRevision,
+    rationale,
+    merged_by_client: "dashboard",
+    merged_by_session_id: "tab-1",
+    merged_by_model: null
+  });
+  const source = workItem({ version: 2 });
+  const destinationWork = workItem({
+    id: counterpart,
+    title: "Canonical destination",
+    summary: "Destination summary",
+    initial_checkpoint_id: destinationCheckpointId,
+    version: 2
+  });
+  const duplicateRelationship = relationship({
+    relationship_type: "duplicate-of",
+    source_work_item_id: work,
+    target_work_item_id: counterpart
+  });
+  const relationshipEvent = (id, workItemId, direction, counterpartId) => event(
+    { relationship_type: "duplicate-of" },
+    {
+      id,
+      work_item_id: workItemId,
+      event_type: "relationship_added",
+      body: null,
+      relationship_id: relationshipId,
+      relationship_source_work_item_id: work,
+      relationship_target_work_item_id: counterpart,
+      relationship_direction: direction,
+      counterpart_work_item_id: counterpartId
+    }
+  );
+  const mergeMetadata = (role) => ({
+    merge_id: mergeId,
+    source_work_item_id: work,
+    destination_work_item_id: counterpart,
+    role,
+    source_work_version: 2,
+    destination_work_version: 2
+  });
+  const mergeEvent = (id, workItemId, role) => event(mergeMetadata(role), {
+    id,
+    work_item_id: workItemId,
+    event_type: "work_merged",
+    body: rationale
+  });
+  const result = {
+    merge: {
+      id: mergeId,
+      merge_sequence: 1,
+      project_id: project,
+      source_work_item_id: work,
+      destination_work_item_id: counterpart,
+      duplicate_relationship_id: relationshipId,
+      reviewed_source_revision: sourceRevision,
+      reviewed_destination_revision: destinationRevision,
+      resulting_source_work_version: 2,
+      resulting_destination_work_version: 2,
+      rationale,
+      merged_by_client: "dashboard",
+      merged_by_session_id: "tab-1",
+      merged_by_model: null,
+      created_at: createdAt
+    },
+    source_work_item: source,
+    destination_work_item: destinationWork,
+    direct_destination: {
+      id: counterpart,
+      title: destinationWork.title,
+      status: destinationWork.status
+    },
+    canonical_work_item: {
+      id: counterpart,
+      title: destinationWork.title,
+      status: destinationWork.status
+    },
+    supporting_relationship_created: true,
+    supporting_relationship: duplicateRelationship,
+    relationship_events: [
+      relationshipEvent(10, work, "outgoing", counterpart),
+      relationshipEvent(11, counterpart, "incoming", work)
+    ],
+    merge_events: [
+      mergeEvent(12, work, "source"),
+      mergeEvent(13, counterpart, "destination")
+    ]
+  };
+
+  const outcome = await classify(spec, 201, result);
+  assert.equal(outcome.type, "success");
+  assert.equal(outcome.value.merge.rationale, rationale);
+  assert.deepEqual(outcome.value.merge_events.map((entry) => entry.metadata.role), [
+    "source", "destination"
+  ]);
+  assert.equal("created_for_duplicate_merge_id" in outcome.value.supporting_relationship, false);
+
+  const poisoned = [
+    (() => { const value = structuredClone(result); value.merge.private_fk = mergeId; return value; })(),
+    (() => { const value = structuredClone(result); value.merge_events.reverse(); return value; })(),
+    (() => { const value = structuredClone(result); value.merge_events[0].metadata.extra = true; return value; })(),
+    (() => { const value = structuredClone(result); value.relationship_events.pop(); return value; })(),
+    (() => { const value = structuredClone(result); value.canonical_work_item.id = work; return value; })(),
+    (() => { const value = structuredClone(result); value.source_work_item.canonical = {}; return value; })(),
+    (() => { const value = structuredClone(result); value.source_work_item.updated_at = "2026-09-01T12:00:01Z"; return value; })(),
+    (() => { const value = structuredClone(result); value.destination_work_item.updated_at = "2026-09-01T12:00:01Z"; return value; })(),
+    (() => { const value = structuredClone(result); value.supporting_relationship.created_by_client = "forged"; return value; })(),
+    (() => { const value = structuredClone(result); value.supporting_relationship.context_checkpoint_id = checkpointId; value.supporting_relationship.context_checkpoint_work_item_id = work; return value; })(),
+    (() => { const value = structuredClone(result); value.supporting_relationship.created_at = "2026-09-01T12:00:00.000001Z"; return value; })(),
+    (() => { const value = structuredClone(result); value.relationship_events[0].relationship_direction = "incoming"; return value; })(),
+    (() => { const value = structuredClone(result); value.merge_events[0].id = value.relationship_events[0].id; return value; })()
+  ];
+  for (const value of poisoned) {
+    assert.equal((await classify(spec, 201, value)).type, "unresolved");
+  }
+});
+
+test("historical generic duplicate relationship receipts keep their original wire shape", async () => {
+  const spec = request("add_relationship", "POST", `/projects/${project}/relationships`, {
+    relationship_type: "duplicate-of",
+    source_work_item_id: work,
+    target_work_item_id: counterpart,
+    created_by_client: "dashboard",
+    created_by_session_id: "tab-1",
+    created_by_model: null
+  });
+  const outcome = await classify(spec, 200, {
+    relationship: relationship({
+      relationship_type: "duplicate-of",
+      source_work_item_id: work,
+      target_work_item_id: counterpart
+    }),
+    created: true
+  });
+  assert.equal(outcome.type, "success");
+  assert.equal(outcome.value.relationship.relationship_type, "duplicate-of");
 });
 
 test("relationship natural no-op accepts the existing edge's original provenance", async () => {

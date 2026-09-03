@@ -171,6 +171,7 @@ def empty_presentation(*, discovered: bool = False) -> dict:
         "completed_descendant_count": 0,
         "discovered_descendant_count": 0,
         "branch_unresolved_human_gate_count": 0,
+        "branch_merged_duplicate_count": 0,
         "is_discovered_work": discovered,
         "discovered_from_parent": False,
         "next_active_descendant_lease_expires_at": None,
@@ -178,7 +179,7 @@ def empty_presentation(*, discovered: bool = False) -> dict:
 
 
 @pytest.mark.postgres
-def test_hierarchy_pages_use_two_local_controls_and_one_data_statement(
+def test_hierarchy_pages_use_one_coherent_aggregate_statement_after_preflight(
     api,
     project,
     work_payload,
@@ -244,13 +245,16 @@ def test_hierarchy_pages_use_two_local_controls_and_one_data_statement(
 
         assert response.status_code == 200, response.text
         normalized = [" ".join(statement.split()) for statement in statements]
-        assert normalized[:2] == [
+        assert normalized[0] == (
+            "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
+        )
+        assert normalized[-3:-1] == [
             "SET LOCAL jit = off",
             "SET LOCAL statement_timeout = '5000ms'",
         ]
-        assert len(normalized) == 3
-        assert normalized[2].startswith("WITH RECURSIVE")
-        assert "candidate_branches AS MATERIALIZED" in normalized[2]
+        assert sum(statement.startswith("WITH RECURSIVE") for statement in normalized) == 1
+        assert normalized[-1].startswith("WITH RECURSIVE")
+        assert "candidate_branches AS MATERIALIZED" in normalized[-1]
 
 
 @pytest.mark.postgres
@@ -417,6 +421,7 @@ def test_rollups_preserve_lifecycle_and_nonexclusive_operational_facts_without_m
         "completed_descendant_count": 1,
         "discovered_descendant_count": 1,
         "branch_unresolved_human_gate_count": 4,
+        "branch_merged_duplicate_count": 0,
         "is_discovered_work": False,
         "discovered_from_parent": False,
         "next_active_descendant_lease_expires_at": active_claim["expires_at"],
@@ -818,7 +823,7 @@ def test_root_and_child_first_and_later_pages_preserve_every_sort(
     ]
 
     for index in (2, 0, 3, 1):
-        current = api.get(work_path(project, roots[index])).json()
+        current = api.get(work_path(project, roots[index])).json()["work_item"]
         response = api.patch(
             work_path(project, roots[index]),
             json={
@@ -828,7 +833,7 @@ def test_root_and_child_first_and_later_pages_preserve_every_sort(
         )
         assert response.status_code == 200, response.text
     for index in (1, 3, 0, 2):
-        current = api.get(work_path(project, children[index])).json()
+        current = api.get(work_path(project, children[index])).json()["work_item"]
         response = api.patch(
             work_path(project, children[index]),
             json={
@@ -838,8 +843,12 @@ def test_root_and_child_first_and_later_pages_preserve_every_sort(
         )
         assert response.status_code == 200, response.text
 
-    root_records = [api.get(work_path(project, item)).json() for item in roots]
-    child_records = [api.get(work_path(project, item)).json() for item in children]
+    root_records = [
+        api.get(work_path(project, item)).json()["work_item"] for item in roots
+    ]
+    child_records = [
+        api.get(work_path(project, item)).json()["work_item"] for item in children
+    ]
     root_entries = assert_two_page_order(
         api,
         work_collection(project),

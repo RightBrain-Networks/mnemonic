@@ -156,7 +156,7 @@ test("a human can defer a pending card and return it to the queue", async ({ pag
       `/api/v1/projects/${state.projectId}/work-items/${workItemId}`
     );
     expect(response.ok()).toBeTruthy();
-    expect((await response.json() as { status: string }).status).toBe("pending");
+    expect((await response.json() as { work_item: { status: string } }).work_item.status).toBe("pending");
   } finally {
     await verification.dispose();
   }

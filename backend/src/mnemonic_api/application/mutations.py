@@ -1,4 +1,4 @@
-"""One lifecycle for the twelve receipt-protected REST mutations.
+"""One lifecycle for the thirteen receipt-protected REST mutations.
 
 Every route that accepts an optional ``client_operation_id`` runs the same
 sequence, so it is written once here and each route contributes only its
@@ -90,6 +90,7 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
     target: Mapping[str, UUID],
     payload: Payload,
     execute: Callable[[Payload], Result],
+    before_commit: Callable[[], None] | None = None,
 ) -> JSONResponse:
     """Run ``execute`` under the lifecycle described in the module docstring.
 
@@ -112,6 +113,8 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
         result,
         mutation_applied=_mutation_applied(operation.spec, result),
     )
+    if before_commit is not None:
+        before_commit()
     database.commit()
     _record_success(trace, completed)
     return completed.response

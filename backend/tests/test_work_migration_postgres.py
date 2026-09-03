@@ -281,7 +281,7 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
         with engine.connect() as connection:
             assert connection.execute(
                 text("SELECT version_num FROM alembic_version")
-            ).scalar_one() == "0015_gate_review_fixes"
+            ).scalar_one() == "0016_duplicate_handling"
             assert connection.execute(text("SELECT to_regclass('handoffs')")).scalar_one() is None
             assert connection.execute(
                 text("SELECT to_regclass('handoff_comments')")
@@ -308,9 +308,10 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
             assert client.get(canonical_base, params={"status": "all"}).json()["total"] == 3
             legacy_tag_match = client.get(canonical_base, params={"tag": "mixedlegacy"})
             assert legacy_tag_match.status_code == 200
-            assert [item["work_item"]["id"] for item in legacy_tag_match.json()["items"]] == [
-                str(open_id)
-            ]
+            assert [
+                item["summary"]["work_item"]["id"]
+                for item in legacy_tag_match.json()["items"]
+            ] == [str(open_id)]
             context = client.get(f"{canonical_base}/{open_id}/context")
             assert context.status_code == 200
             assert context.json()["initial_checkpoint"]["migration_origin"] == (

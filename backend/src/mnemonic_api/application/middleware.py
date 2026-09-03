@@ -53,7 +53,9 @@ async def broadcast_successful_mutations(
         _log_outcome(trace, response.status_code)
     event = mutation_event(request.method, request.url.path)
     succeeded = 200 <= response.status_code < 300
-    changed = trace is None or trace.mutation_applied is not False
+    changed = trace is None or (
+        trace.outcome != "replayed" and trace.mutation_applied is not False
+    )
     if event is not None and succeeded and changed:
         await live_sync_hub_of(request).publish(event)
     return response

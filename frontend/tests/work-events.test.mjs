@@ -11,6 +11,7 @@ import {
   safeEventBody,
   WORK_EVENT_TYPES,
   workEventActorLabel,
+  workEventDescription,
   workEventSearchParams,
   workEventTitle
 } from "../lib/work-events.ts";
@@ -49,7 +50,7 @@ function event(overrides = {}) {
 }
 
 test("every retained event type has a deterministic human label", () => {
-  assert.equal(WORK_EVENT_TYPES.length, 16);
+  assert.equal(WORK_EVENT_TYPES.length, 17);
   assert.deepEqual(
     WORK_EVENT_TYPES.map(workEventTitle),
     [
@@ -67,6 +68,7 @@ test("every retained event type has a deterministic human label", () => {
       "Removed relationship",
       "Requested human attention",
       "Resolved human attention",
+      "Merged duplicate work",
       "Completed work",
       "Deleted work"
     ]
@@ -188,6 +190,54 @@ test("human-attention events retain literal question and answer bodies with type
       metadata
     })), /invalid work-event response/);
   }
+});
+
+test("work_merged is a distinct live decision fact with exact direction metadata", () => {
+  const mergeId = "22222222-2222-4222-8222-222222222222";
+  const rationale = "Same objective; preserve the source history.";
+  const metadata = {
+    merge_id: mergeId,
+    source_work_item_id: work,
+    destination_work_item_id: counterpart,
+    role: "source",
+    source_work_version: 3,
+    destination_work_version: 5
+  };
+  const merged = decodeWorkEvent(event({
+    event_type: "work_merged",
+    body: rationale,
+    metadata
+  }));
+  assert.equal(safeEventBody(merged), rationale);
+  assert.equal(
+    workEventDescription(merged),
+    `Made this work an immutable duplicate of ${counterpart}.`
+  );
+  for (const overrides of [
+    { origin: "backfill" },
+    { body: "   " },
+    { metadata: { ...metadata, extra: true } },
+    { metadata: { ...metadata, role: "destination" } },
+    { relationship_id: mergeId },
+    { actor_kind: "unattributed", actor_client: null, actor_session_id: null }
+  ]) {
+    assert.throws(() => decodeWorkEvent(event({
+      event_type: "work_merged",
+      body: rationale,
+      metadata,
+      ...overrides
+    })), /invalid work-event response/);
+  }
+  const destinationEvent = decodeWorkEvent(event({
+    work_item_id: counterpart,
+    event_type: "work_merged",
+    body: rationale,
+    metadata: { ...metadata, role: "destination" }
+  }));
+  assert.equal(
+    workEventDescription(destinationEvent),
+    `Kept this work canonical when ${work} was merged into it.`
+  );
 });
 
 test("strict decoders reject widened event/page responses and malformed metadata", () => {

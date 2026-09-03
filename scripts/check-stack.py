@@ -2,7 +2,7 @@
 
 Run with the MCP project's Python environment. Checks are read-only unless a
 project is explicitly authorized with --project-id. The write check creates a
-small, uniquely marked Phases 7–8 work graph, exercises human gates, ready discovery, and its
+small, uniquely marked Core work graph, exercises human gates, ready discovery, and its
 canonical event lifecycle, then removes the graph and soft-deletes every
 synthetic item it created. Immutable events remain attached to those hidden
 items. Never authorize writes against a project without permission.
@@ -51,6 +51,7 @@ CANONICAL_TOOLS = {
     "remove_relationship",
     "append_event",
     "list_work_events",
+    "merge_work",
 }
 PROTECTED_MUTATION_TOOLS = {
     "create_work",
@@ -63,6 +64,7 @@ PROTECTED_MUTATION_TOOLS = {
     "remove_relationship",
     "release_claim",
     "request_human_input",
+    "merge_work",
 }
 EXCLUDED_MUTATION_TOOLS = {
     "create_project",
@@ -76,6 +78,7 @@ DESTRUCTIVE_TOOLS = {
     "complete_work",
     "delete_work",
     "remove_relationship",
+    "merge_work",
 }
 SYNTHETIC_CLIENT = "mnemonic-stack-check"
 SYNTHETIC_GATE_QUESTION = "Choose the synthetic validation decision for this disposable work item."
@@ -704,9 +707,9 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 catalog = await session.list_tools()
                 tools_by_name = {entry.name: entry for entry in catalog.tools}
                 require(
-                    len(catalog.tools) == 25
-                    and len(tools_by_name) == 25
-                    and len(PROTECTED_MUTATION_TOOLS) == 10
+                    len(catalog.tools) == 26
+                    and len(tools_by_name) == 26
+                    and len(PROTECTED_MUTATION_TOOLS) == 11
                     and set(tools_by_name) == CANONICAL_TOOLS,
                     "Unexpected MCP tool catalog.",
                 )
@@ -747,7 +750,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         )
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: real MCP initialization, 25-tool catalog, exact ten protected "
+                    "PASS: real MCP initialization, 26-tool catalog, exact eleven protected "
                     "mutation schemas/annotations, and REST-backed project listing"
                 )
                 if not args.project_id:

@@ -94,7 +94,7 @@ class ClientOperation(Base):
             "operation_kind IN ('create_work', 'add_checkpoint', 'append_event', "
             "'add_relationship', 'update_work', 'defer_work', 'complete_work', "
             "'delete_work', 'remove_relationship', 'release_claim', "
-            "'request_human_input', 'resolve_human_input')",
+            "'request_human_input', 'resolve_human_input', 'merge_work')",
             name="operation_kind_valid",
         ),
         CheckConstraint(
@@ -409,6 +409,28 @@ class WorkRelationship(Base):
             "target_work_item_id",
             name="uq_work_relationships_identity",
         ),
+        UniqueConstraint(
+            "project_id",
+            "id",
+            "relationship_type",
+            "source_work_item_id",
+            "target_work_item_id",
+            name="uq_work_relationships_merge_identity",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "created_for_duplicate_merge_id",
+            name="uq_work_relationships_merge_witness",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "created_for_duplicate_merge_id"],
+            ["work_duplicate_merges.project_id", "work_duplicate_merges.id"],
+            name="fk_work_relationships_duplicate_merge",
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+            use_alter=True,
+        ),
         Index(
             "uq_work_relationships_one_parent",
             "target_work_item_id",
@@ -439,9 +461,148 @@ class WorkRelationship(Base):
     created_by_client: Mapped[str] = mapped_column(String(80))
     created_by_session_id: Mapped[str] = mapped_column(String(200))
     created_by_model: Mapped[str | None] = mapped_column(String(120))
+    created_for_duplicate_merge_id: Mapped[UUID | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.clock_timestamp()
     )
+
+
+class WorkDuplicateMerge(Base):
+    """An immutable selection of one duplicate alias and its direct destination."""
+
+    __tablename__ = "work_duplicate_merges"
+    __table_args__ = (
+        CheckConstraint(
+            "duplicate_relationship_type = 'duplicate-of'",
+            name="relationship_type_valid",
+        ),
+        CheckConstraint(
+            "source_work_item_id <> destination_work_item_id",
+            name="endpoints_differ",
+        ),
+        CheckConstraint(
+            "reviewed_source_work_version > 0 "
+            "AND reviewed_destination_work_version > 0 "
+            "AND reviewed_source_work_event_count > 0 "
+            "AND reviewed_destination_work_event_count > 0",
+            name="review_revision_positive",
+        ),
+        CheckConstraint(
+            "resulting_source_work_version = reviewed_source_work_version + 1 "
+            "AND resulting_destination_work_version = "
+            "reviewed_destination_work_version + 1",
+            name="result_versions_valid",
+        ),
+        CheckConstraint(
+            "mnemonic_has_non_whitespace(rationale)",
+            name="rationale_nonblank",
+        ),
+        CheckConstraint(
+            "mnemonic_has_non_whitespace(merged_by_client)",
+            name="merged_by_client_nonblank",
+        ),
+        CheckConstraint(
+            "mnemonic_has_non_whitespace(merged_by_session_id)",
+            name="merged_by_session_id_nonblank",
+        ),
+        CheckConstraint(
+            "merged_by_model IS NULL OR mnemonic_has_non_whitespace(merged_by_model)",
+            name="merged_by_model_nonblank",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "source_work_item_id"],
+            ["work_items.project_id", "work_items.id"],
+            name="fk_work_duplicate_merges_source_work_item",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "destination_work_item_id"],
+            ["work_items.project_id", "work_items.id"],
+            name="fk_work_duplicate_merges_destination_work_item",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_work_item_id", "reviewed_source_context_checkpoint_id"],
+            ["checkpoints.work_item_id", "checkpoints.id"],
+            name="fk_work_duplicate_merges_source_context_checkpoint",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["destination_work_item_id", "reviewed_destination_context_checkpoint_id"],
+            ["checkpoints.work_item_id", "checkpoints.id"],
+            name="fk_work_duplicate_merges_destination_context_checkpoint",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "project_id",
+                "duplicate_relationship_id",
+                "duplicate_relationship_type",
+                "source_work_item_id",
+                "destination_work_item_id",
+            ],
+            [
+                "work_relationships.project_id",
+                "work_relationships.id",
+                "work_relationships.relationship_type",
+                "work_relationships.source_work_item_id",
+                "work_relationships.target_work_item_id",
+            ],
+            name="fk_work_duplicate_merges_relationship",
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        UniqueConstraint("merge_sequence", name="uq_work_duplicate_merges_merge_sequence"),
+        UniqueConstraint(
+            "project_id",
+            "source_work_item_id",
+            name="uq_work_duplicate_merges_source",
+        ),
+        UniqueConstraint(
+            "duplicate_relationship_id",
+            name="uq_work_duplicate_merges_relationship",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "id",
+            name="uq_work_duplicate_merges_project_id_id",
+        ),
+        Index(
+            "ix_work_duplicate_merges_destination",
+            "project_id",
+            "destination_work_item_id",
+            "merge_sequence",
+            "id",
+        ),
+        Index(
+            "ix_work_duplicate_merges_audit",
+            "project_id",
+            "merge_sequence",
+            "id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    merge_sequence: Mapped[int] = mapped_column(BigInteger, Identity(always=True))
+    project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id", ondelete="RESTRICT"))
+    source_work_item_id: Mapped[UUID] = mapped_column()
+    destination_work_item_id: Mapped[UUID] = mapped_column()
+    duplicate_relationship_id: Mapped[UUID] = mapped_column()
+    duplicate_relationship_type: Mapped[str] = mapped_column(String(32))
+    reviewed_source_work_version: Mapped[int] = mapped_column(Integer)
+    reviewed_source_context_checkpoint_id: Mapped[UUID] = mapped_column()
+    reviewed_source_work_event_count: Mapped[int] = mapped_column(BigInteger)
+    reviewed_destination_work_version: Mapped[int] = mapped_column(Integer)
+    reviewed_destination_context_checkpoint_id: Mapped[UUID] = mapped_column()
+    reviewed_destination_work_event_count: Mapped[int] = mapped_column(BigInteger)
+    resulting_source_work_version: Mapped[int] = mapped_column(Integer)
+    resulting_destination_work_version: Mapped[int] = mapped_column(Integer)
+    rationale: Mapped[str] = mapped_column(String(4000))
+    merged_by_client: Mapped[str] = mapped_column(String(80))
+    merged_by_session_id: Mapped[str] = mapped_column(String(200))
+    merged_by_model: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class WorkGate(Base):
@@ -605,7 +766,7 @@ class WorkEvent(Base):
             "'work_reopened', 'work_claimed', 'work_released', 'checkpoint_added', "
             "'progress', 'dependency_added', 'dependency_removed', "
             "'relationship_added', 'relationship_removed', 'work_completed', "
-            "'work_deleted', 'human_attention_requested', "
+            "'work_deleted', 'work_merged', 'human_attention_requested', "
             "'human_attention_resolved')",
             name="event_type_valid",
         ),
@@ -627,17 +788,17 @@ class WorkEvent(Base):
             "(origin = 'live' AND ("
             "event_type NOT IN ('work_created', 'checkpoint_added', 'work_completed', "
             "'work_claimed', 'dependency_added', 'relationship_added', 'progress', "
-            "'human_attention_requested', 'human_attention_resolved') "
+            "'work_merged', 'human_attention_requested', 'human_attention_resolved') "
             "OR actor_kind = 'client')) OR "
             "(origin = 'backfill' AND (event_type <> 'work_deleted' "
             "OR actor_kind = 'unattributed'))",
             name="actor_matrix_valid",
         ),
         CheckConstraint(
-            "(event_type IN ('progress', 'human_attention_requested', "
+            "(event_type IN ('progress', 'work_merged', 'human_attention_requested', "
             "'human_attention_resolved') AND body IS NOT NULL "
             "AND length(body) <= 4000 AND mnemonic_has_non_whitespace(body)) OR "
-            "(event_type NOT IN ('progress', 'human_attention_requested', "
+            "(event_type NOT IN ('progress', 'work_merged', 'human_attention_requested', "
             "'human_attention_resolved') AND body IS NULL)",
             name="body_valid",
         ),
@@ -696,6 +857,13 @@ class WorkEvent(Base):
             "OR NOT (metadata ? 'gate_id' OR metadata ? 'gate_type')",
             name="gate_metadata_reserved",
         ),
+        CheckConstraint(
+            "(created_for_duplicate_merge_id IS NULL "
+            "OR event_type = 'relationship_added') AND "
+            "((event_type = 'work_merged' AND work_duplicate_merge_id IS NOT NULL) OR "
+            "(event_type <> 'work_merged' AND work_duplicate_merge_id IS NULL))",
+            name="duplicate_merge_references_valid",
+        ),
         CheckConstraint("metadata_version = 1", name="metadata_version_valid"),
         CheckConstraint(
             "jsonb_typeof(metadata) = 'object' AND octet_length(metadata::text) <= 16384",
@@ -706,8 +874,11 @@ class WorkEvent(Base):
             "AND metadata_version = 1 "
             "AND metadata = jsonb_build_object('gate_id', gate_id::text, "
             "'gate_type', 'human')) OR "
-            "(event_type NOT IN ('human_attention_requested', "
-            "'human_attention_resolved') AND mnemonic_work_event_metadata_v2_is_valid("
+            "(event_type = 'work_merged' AND "
+            "mnemonic_work_merged_metadata_v1_is_valid(work_item_id, "
+            "work_duplicate_merge_id, metadata_version, metadata)) OR "
+            "(event_type NOT IN ('human_attention_requested', 'human_attention_resolved', "
+            "'work_merged') AND mnemonic_work_event_metadata_v2_is_valid("
             "event_type, origin, work_item_id, checkpoint_id, lease_generation_id, "
             "lease_release_id, relationship_id, relationship_source_work_item_id, "
             "relationship_target_work_item_id, "
@@ -768,6 +939,22 @@ class WorkEvent(Base):
             ["work_gates.work_item_id", "work_gates.id"],
             name="fk_work_events_gate",
             ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "created_for_duplicate_merge_id"],
+            ["work_duplicate_merges.project_id", "work_duplicate_merges.id"],
+            name="fk_work_events_created_for_duplicate_merge",
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "work_duplicate_merge_id"],
+            ["work_duplicate_merges.project_id", "work_duplicate_merges.id"],
+            name="fk_work_events_duplicate_merge",
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
         ),
         Index(
             "uq_work_events_checkpoint_fact",
@@ -831,6 +1018,30 @@ class WorkEvent(Base):
             postgresql_where=text("gate_id IS NOT NULL"),
         ),
         Index(
+            "uq_work_events_relationship_merge_witness",
+            "project_id",
+            "created_for_duplicate_merge_id",
+            "work_item_id",
+            unique=True,
+            postgresql_where=text("created_for_duplicate_merge_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_work_events_merge_endpoint",
+            "project_id",
+            "work_duplicate_merge_id",
+            "work_item_id",
+            unique=True,
+            postgresql_where=text("work_duplicate_merge_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_work_events_merge_role",
+            "project_id",
+            "work_duplicate_merge_id",
+            text("(metadata ->> 'role')"),
+            unique=True,
+            postgresql_where=text("work_duplicate_merge_id IS NOT NULL"),
+        ),
+        Index(
             "ix_work_events_timeline",
             "project_id",
             "work_item_id",
@@ -865,6 +1076,8 @@ class WorkEvent(Base):
     relationship_context_checkpoint_work_item_id: Mapped[UUID | None] = mapped_column()
     relationship_context_checkpoint_id: Mapped[UUID | None] = mapped_column()
     gate_id: Mapped[UUID | None] = mapped_column()
+    created_for_duplicate_merge_id: Mapped[UUID | None] = mapped_column()
+    work_duplicate_merge_id: Mapped[UUID | None] = mapped_column()
     metadata_version: Mapped[int] = mapped_column(SmallInteger, default=1, server_default="1")
     event_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, default=dict, server_default=text("'{}'::jsonb")

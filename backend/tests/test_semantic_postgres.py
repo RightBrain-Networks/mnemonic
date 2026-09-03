@@ -75,8 +75,8 @@ def test_semantic_search_finds_dense_only_matches_and_reuses_digest_cache(
     assert result.status_code == 200, result.text
     body = result.json()
     assert body["total"] == 2
-    assert body["items"][0]["work_item"]["id"] == target["id"]
-    assert "prompt" not in body["items"][0]["current_context"]
+    assert body["items"][0]["summary"]["work_item"]["id"] == target["id"]
+    assert "prompt" not in body["items"][0]["summary"]["current_context"]
     assert [len(batch) for batch in embedder.document_batches] == [2]
 
     api.get(path(project), params={"q": query, "semantic": "true"})
@@ -132,7 +132,7 @@ def test_semantic_search_preserves_strong_lexical_results(api, project, work_pay
     api.app.state.semantic_embedder = DeterministicEmbedder()
     result = api.get(path(project), params={"q": "needle", "semantic": "true"})
     assert result.status_code == 200
-    assert result.json()["items"][0]["work_item"]["id"] == lexical["id"]
+    assert result.json()["items"][0]["summary"]["work_item"]["id"] == lexical["id"]
 
 
 def test_semantic_failure_is_explicit_and_lexical_search_still_works(
@@ -146,4 +146,4 @@ def test_semantic_failure_is_explicit_and_lexical_search_still_works(
     assert "Turn it off" in failed.json()["detail"]["message"]
     ordinary = api.get(path(project), params={"q": "fallback"})
     assert ordinary.status_code == 200
-    assert ordinary.json()["items"][0]["work_item"]["id"] == saved["id"]
+    assert ordinary.json()["items"][0]["summary"]["work_item"]["id"] == saved["id"]

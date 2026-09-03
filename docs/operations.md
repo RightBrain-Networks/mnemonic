@@ -107,18 +107,70 @@ newer contract.
    optionally with a different `--other-project-id` for isolation coverage.
 
 Application rollback means redeploying a compatible fixed image while leaving
-the database at head. Prefer a forward fix. Migration `0015_gate_review_fixes`
-has no supported Alembic downgrade path, so no later revision can downgrade
-past it. Once 0015 has been applied, the only data rollback boundary is a complete restore of a chosen
-pre-upgrade archive, explicitly accepting loss of every later write. Never
+the database at head. Prefer a forward fix. Migrations
+`0015_gate_review_fixes` and `0016_duplicate_handling` have no supported
+Alembic downgrade path. Once 0016 has been applied, the only data rollback
+boundary is a complete restore of a chosen pre-upgrade archive, explicitly
+accepting loss of every later write. Never
 truncate receipts, edit events, resolve/delete gates, or disable constraints to
 force an application or schema rollback.
 
-A restore rehearsal for this release should cover unresolved and resolved gates,
-attention sequence state, paired gate events, request/resolution receipts, and
-same-key replay without a new durable effect. An older archive can migrate
-forward, but it cannot recover graph, event, receipt, or gate facts created after
-that archive.
+A Phase 9 Core restore rehearsal must also cover authoritative merge rows,
+supporting relationship witnesses, paired relationship and `work_merged`
+events, alias readiness/mutation guards, merge receipts, and same-key replay
+without another durable effect. An older archive can migrate forward, but it
+cannot recover graph, event, receipt, gate, or merge facts created after that
+archive.
+
+### Phase 9 Core 0.3.0 cutover
+
+Core is one coordinated compatibility boundary: API, MCP, and dashboard
+`0.3.0`, plugin `0.7.0`, and migration `0016_duplicate_handling`. Do not serve
+a Phase 8 process against 0016. Before scheduling production downtime, obtain
+the product/operator permanence signoff and complete the pre- and post-0016
+backup restore rehearsals; neither is implied merely because the code or tests
+pass.
+
+The release procedure is:
+
+1. Build and pin all coordinated artifacts. Stop web, MCP, API, and every
+   direct writer while leaving PostgreSQL and backup access available.
+2. Take a named custom-format pre-upgrade dump, verify `pg_restore --list`,
+   copy it to independent storage, and prove it restores in isolation.
+3. In a private environment with backend dependencies, database connectivity,
+   and the configured backup directory, run the aggregate read-only preflight:
+
+   ```sh
+   uv run --project backend python scripts/audit_duplicate_handling.py \
+     --database-url "$MNEMONIC_OPERATOR_DATABASE_URL" \
+     --backup-directory ./backups \
+     --expected-head 0015_gate_review_fixes
+   ```
+
+4. Apply exactly 0016 with
+   `docker compose run --rm api alembic upgrade 0016_duplicate_handling`.
+   Verify the head, coordinated package versions, generated OpenAPI snapshot,
+   and exact 26 MCP tools/11 protected MCP writes/11 browser mutations before
+   reopening traffic.
+5. Run the same audit with `--expected-head 0016_duplicate_handling`. Core must
+   pass with zero blocking findings. Historical weak duplicate marks, their
+   multi-target/cycle/depth shape, and related source facts are informational:
+   migration deliberately preserves them and creates zero authoritative merges
+   or witnesses from them.
+6. Start API first for authenticated read-only health, contract, old-receipt,
+   event, and canonical-root probes. Then start MCP and web for read-only probes.
+   No production cutover probe commits a merge.
+7. Take a post-0016 backup, prove it restores in isolation, rerun the 0016 audit
+   and representative old/merge receipt replays on that restore, and only then
+   reopen writers.
+
+The audit defaults to the later final Phase 9 head, so Core operators must pass
+`--expected-head 0015_gate_review_fixes` before migration and
+`--expected-head 0016_duplicate_handling` afterward. It opens a repeatable-read,
+read-only transaction, emits aggregate JSON without IDs or content, checks
+schema/functions/capacity and Core invariants, and returns nonzero when blocked.
+An audit runtime failure is not a pass. Keep raw diagnostic IDs out of ordinary
+logs and tickets.
 
 ## Durable runtime invariants
 
@@ -172,6 +224,52 @@ only the exact privately retained operation UUID and full request. A
 `client_operation_conflict` on an asserted exact retry is a caller-safety
 incident, not permission to substitute a UUID.
 
+### Authoritative duplicate merges
+
+A duplicate mark is a descriptive `duplicate-of` relationship. Only an
+immutable row in `work_duplicate_merges` makes its source an alias. Never infer
+one from old marks, lifecycle, wording, embeddings, timestamps, or UUID order.
+New duplicate marks must be created inside `merge_work`; existing marks remain
+unchanged and unselected marks remain removable only while both endpoints are
+canonical.
+
+Every merge has one source, one direct destination, one exact supporting mark,
+two endpoint `work_merged` events, two relationship events only when it created
+that mark, and one completed `merge_work` receipt. The source becomes
+non-actionable but retains its own lifecycle and complete checkpoint, event,
+gate, relationship, provenance, and receipt audit. Reads expose its bounded
+path to the current root explicitly. They never redirect an ID or blend source
+and root context, and the mutation never transfers or coalesces relationships,
+leases, gates, content, lifecycle, provenance, or authority.
+
+The source must have no unresolved human gate or incident block/parent-child
+edge. An active source lease can be consumed only with its exact capability;
+the browser never receives one and therefore disables merge until the lease is
+released, completed, or expires. After merge, every source-incident
+relationship and every alias domain mutation is frozen. An alias must never
+appear in ready results or acquire a lease. A nonzero aggregate audit finding
+in these categories is an incident; do not bypass triggers or repair rows
+manually.
+
+`merge_work` always requires a caller-prepared operation UUID. On timeout,
+disconnect, malformed success, 5xx, or `client_operation_unavailable`, resend
+only the exact retained UUID and complete source/destination revisions, token,
+rationale, and provenance. The replay is historical proof, so reread exact
+source history and the canonical root afterward. Generating another UUID can
+commit a different irreversible decision and is never recovery.
+
+The typed `503 duplicate_graph_invalid` response is the exception: it is a
+definitive integrity incident, not an unknown merge outcome. Do not retry the
+mutation. Stop authority-changing work, preserve the frozen intent privately,
+and run the aggregate audit before investigating the database invariants.
+
+There is no unmerge, retarget, delete, or operator SQL repair. For a mistaken
+merge, quiesce all writers, take a named backup, preserve aggregate audit
+evidence privately, and rehearse the complete pre-merge restore. Restore only
+with explicit two-person approval accepting loss of every write after that
+archive. If those writes cannot be discarded, leave the merge intact and ship
+a separately designed append-only correction release.
+
 ### Human gates, deferral, and hierarchy reads
 
 An unresolved gate makes Pending work `waiting`, removes it from ready
@@ -212,6 +310,15 @@ or weaken hierarchy constraints.
 ## Monitoring and repair boundaries
 
 ### Identifier-free aggregate monitoring
+
+Run `scripts/audit_duplicate_handling.py` regularly with
+`--expected-head 0016_duplicate_handling` from a private environment that can
+reach PostgreSQL and the backup directory. Alert on any blocking finding. Its
+weak-mark counts are inventory, not merge decisions: cycles, multiple targets,
+leases, gates, or structural adjacency on historical descriptive marks do not
+authorize data cleanup or canonical inference. Invoke privileged ID-level
+diagnostics only during an incident and do not copy their output into ordinary
+telemetry.
 
 Run these checks only from a private operator shell and retain aggregates, not
 query output containing application rows. The examples deliberately have no
@@ -410,7 +517,8 @@ docker compose logs --tail=20 backup
 
 Files appear under `MNEMONIC_BACKUP_DIR` (`./backups` by default). They include
 canonical work, immutable checkpoint text and provenance, retained leases, typed
-relationships, immutable work events and their sequence, human gates and their
+relationships, authoritative duplicate merges and their sequence/witnesses,
+immutable work events and their sequence, human gates and their
 attention identity sequence, private durable client-operation receipts, and
 migration state; treat them as private. Receipt
 rows include stored successful response bodies and salted fingerprints, so they
@@ -425,8 +533,9 @@ into an isolated PostgreSQL instance and verify representative projects, work
 items, checkpoint history, exact relationship source/target/context/provenance,
 derived readiness, event count/max ID/content checksum and sequence ownership,
 all event and gate indexes plus immutability/completeness/fail-closed triggers,
+duplicate-forest depth and alias guards, exact merge/relationship event pairs,
 attention sequence state, receipt count/uniqueness/state plus its guards, exact
-replay of representative ordinary and gate successes, and the expected
+replay of representative ordinary, gate, and merge successes, and the expected
 `alembic_version`. Keep
 the PostgreSQL major version compatible with the dump
 tools.
@@ -457,10 +566,14 @@ before becoming ready. Do not expose API, MCP, or dashboard traffic until
 readiness succeeds and the restored schema/data checks pass. Rehearse a restore
 from before a schema change on an isolated instance first. Restore is not a
 substitute for schema downgrade; downgrade is explicitly unsupported beginning
-with migration 0015. A pre-Phase-3 archive cannot recover later graph facts, a
+with migration 0015 and remains unsupported for 0016. A pre-Phase-3 archive cannot recover later graph facts, a
 pre-Phase-5 archive cannot recover later event history, a pre-Phase-6 archive
 cannot recover later client-operation receipts, and a pre-Phase-7 archive cannot
 recover later gates, gate events, attention order, or gate-operation receipts.
+A pre-Phase-9 archive cannot recover later authoritative merges, supporting
+witnesses, merge events, or merge receipts. Restoring such an archive after a
+merge discards that merge and every unrelated later write as one database-wide
+recovery boundary.
 
 Deletion from the dashboard is a soft delete. No ordinary work/checkpoint/event
 API or MCP read can retrieve a deleted work item. The immutable rows remain

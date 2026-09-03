@@ -1,5 +1,63 @@
 # Mnemonic validation record
 
+## Phase 9 Core implementation checkpoint — 2026-09-02
+
+This checkpoint covers application/API/MCP/dashboard `0.3.0`, plugin `0.7.0`,
+and Alembic head `0016_duplicate_handling`. Core contains authoritative
+duplicate merging and canonical aliases. It does not contain or validate the
+separate Advisory suggestion release. Only observed results are stated here.
+
+- **The complete backend suite passed 458 tests against PostgreSQL 17; backend
+  Ruff and whole-source `ty` passed.** The committed OpenAPI freshness test
+  passed with `docs/openapi.json` regenerated at application version `0.3.0`.
+  The focused client-operation suite passed 95 tests, including the thirteenth
+  merge receipt and preserved response-v1 contracts. A separate non-PostgreSQL
+  selection earlier passed 189 tests with 31 database skips and 220 deselected;
+  that run is supporting evidence only, not the database release result.
+- **The focused Core migration batch passed 13 PostgreSQL tests.** It covers
+  fresh/populated `0015 -> 0016` upgrade, preservation and zero inferred
+  merges/witnesses, schema/catalog parity, immutable ledger/evidence/event
+  constraints, and direct-database guard behavior. Migration 0016 has no
+  downgrade.
+- **The aggregate duplicate audit passed manually on a fresh PostgreSQL 17
+  schema at head 0016 with zero blocking findings.** This proves that invocation
+  and fresh-schema catalog only; it is not a populated production preflight,
+  continuous audit history, or backup/restore rehearsal.
+- **The complete MCP suite passed 241 tests; MCP Ruff and `ty` passed.** The
+  contract contains exactly 26 tools and 11 protected writes, with
+  `merge_work`, canonical/group search, alias context, strict merge results,
+  same-key recovery, and no suggestion tool.
+- **The frontend passed `npm ci`, all 142 unit tests, TypeScript checking, and
+  the production build.** Its contract contains exactly 11 protected browser
+  mutations, including the two-work-key frozen merge intent. The local install
+  reported the existing Node 22 versus required Node 24 engine warning; the
+  build itself completed successfully, and the disposable production image
+  rebuilt and passed with Node 24.
+- **The complete isolated browser stack passed all 53 Playwright executions in
+  desktop Chromium, narrow Chromium, and the focused Firefox motion project.**
+  Eight of those executions exercise the four Core duplicate scenarios at both
+  dashboard viewports: exact lost-response replay, immutable aliases and
+  regrouping, active-lease/capability denial, context drift, and unambiguous
+  source/destination identity under hostile Unicode titles.
+- **Both plugin manifests passed strict validation.** A disposable fresh
+  `0.7.0` install and a separate sequential `0.6.1 -> 0.7.0` marketplace/cache
+  update both resolved the Core plugin version. The isolated configuration and
+  marketplace source contained no compatibility skill tree.
+- **`pre-commit run --all-files` passed**, including the required hardcoded
+  secret scan.
+- **The application, MCP, frontend, and plugin metadata align at the Core
+  boundary.** Application packages and the dashboard are `0.3.0`; the plugin is
+  `0.7.0`; OpenAPI is `0.3.0`; and the migration head is 0016. Historical
+  receipt-bearing Phase 1–8 response shapes remain separate from the new detail,
+  context, search, and merge projections.
+
+A writable Core stack check, frozen performance fixture, populated audit,
+pre/post-0016 backup restore rehearsal, and product/operator permanence signoff
+are not recorded here. No production cutover, production merge, recovery-point
+proof, or Advisory shipment is claimed. Those remain operational gates; the
+historical sections below are retained as evidence for their named revisions
+and do not fill these Core gaps.
+
 ## Complexity ceiling and type-check gate widening — 2026-09-02
 
 This record covers removing the `C901` per-file exceptions from

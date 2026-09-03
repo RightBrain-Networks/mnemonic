@@ -163,7 +163,9 @@ export default function HumanGatePanel({
     {context.unresolved_gates.length > 0 ? <div className="gate-facts">
       {context.unresolved_gates.map((gate) => <div className="gate-with-resolution" key={gate.id}>
         <GateFact gate={gate} />
-        <HumanGateResolution gate={gate} reviewedContext={context} onResolved={() => resolved(gate.id)} />
+        {context.canonical.is_duplicate
+          ? <p className="gate-omission">This duplicate is immutable; review the gate as source-owned audit history.</p>
+          : <HumanGateResolution gate={gate} reviewedContext={context} onResolved={() => resolved(gate.id)} />}
       </div>)}
     </div> : <p className="no-gates">No explicit human questions are unresolved for this work item.</p>}
     {unresolvedOmission && <p className="gate-omission">{unresolvedOmission}</p>}

@@ -92,6 +92,23 @@ export function validUtcDateTime(value: unknown): value is string {
   return day >= 1 && day <= days[month - 1]!;
 }
 
+export function compareUtcDateTimes(left: string, right: string): number {
+  const parts = (value: string) => {
+    const [whole, fraction = ""] = value.slice(0, -1).split(".");
+    return { whole, fraction };
+  };
+  const leftParts = parts(left);
+  const rightParts = parts(right);
+  if (leftParts.whole !== rightParts.whole) {
+    return leftParts.whole < rightParts.whole ? -1 : 1;
+  }
+  const width = Math.max(leftParts.fraction.length, rightParts.fraction.length);
+  const leftFraction = leftParts.fraction.padEnd(width, "0");
+  const rightFraction = rightParts.fraction.padEnd(width, "0");
+  if (leftFraction === rightFraction) return 0;
+  return leftFraction < rightFraction ? -1 : 1;
+}
+
 export function validBoundedMetadata(
   value: unknown,
   reservedKeys: ReadonlySet<string>,

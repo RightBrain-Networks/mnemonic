@@ -34,6 +34,50 @@
         "title": "AdjacentRelationshipRead",
         "type": "object"
       },
+      "CanonicalWorkProjection": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_work_item": {
+            "$ref": "#/components/schemas/WorkIdentityPointer"
+          },
+          "direct_destination": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkIdentityPointer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "duplicate_member_count": {
+            "minimum": 0.0,
+            "title": "Duplicate Member Count",
+            "type": "integer"
+          },
+          "is_duplicate": {
+            "title": "Is Duplicate",
+            "type": "boolean"
+          },
+          "path": {
+            "items": {
+              "$ref": "#/components/schemas/WorkIdentityPointer"
+            },
+            "maxItems": 50,
+            "title": "Path",
+            "type": "array"
+          }
+        },
+        "required": [
+          "is_duplicate",
+          "direct_destination",
+          "canonical_work_item",
+          "path",
+          "duplicate_member_count"
+        ],
+        "title": "CanonicalWorkProjection",
+        "type": "object"
+      },
       "CheckpointAddedMetadata": {
         "additionalProperties": false,
         "properties": {
@@ -613,6 +657,42 @@
         "title": "CompletionCheckpointCreate",
         "type": "object"
       },
+      "DuplicateMergeEligibility": {
+        "additionalProperties": false,
+        "properties": {
+          "has_unresolved_gate": {
+            "title": "Has Unresolved Gate",
+            "type": "boolean"
+          },
+          "incident_blocks_count": {
+            "minimum": 0.0,
+            "title": "Incident Blocks Count",
+            "type": "integer"
+          },
+          "incident_parent_child_count": {
+            "minimum": 0.0,
+            "title": "Incident Parent Child Count",
+            "type": "integer"
+          },
+          "source_lease_state": {
+            "enum": [
+              "none",
+              "expired",
+              "active"
+            ],
+            "title": "Source Lease State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "incident_blocks_count",
+          "incident_parent_child_count",
+          "has_unresolved_gate",
+          "source_lease_state"
+        ],
+        "title": "DuplicateMergeEligibility",
+        "type": "object"
+      },
       "EmptyEventMetadata": {
         "additionalProperties": false,
         "properties": {},
@@ -641,6 +721,10 @@
           },
           "blocked_descendant_count": {
             "title": "Blocked Descendant Count",
+            "type": "integer"
+          },
+          "branch_merged_duplicate_count": {
+            "title": "Branch Merged Duplicate Count",
             "type": "integer"
           },
           "branch_unresolved_human_gate_count": {
@@ -691,6 +775,7 @@
           "completed_descendant_count",
           "discovered_descendant_count",
           "branch_unresolved_human_gate_count",
+          "branch_merged_duplicate_count",
           "is_discovered_work",
           "discovered_from_parent",
           "next_active_descendant_lease_expires_at"
@@ -1423,6 +1508,34 @@
         "title": "LeaseTokenCreate",
         "type": "object"
       },
+      "MergeReviewRevision": {
+        "additionalProperties": false,
+        "description": "Exact, commit-visible context reviewed before an irreversible merge.",
+        "properties": {
+          "context_checkpoint_id": {
+            "format": "uuid",
+            "title": "Context Checkpoint Id",
+            "type": "string"
+          },
+          "work_event_count": {
+            "minimum": 1.0,
+            "title": "Work Event Count",
+            "type": "integer"
+          },
+          "work_version": {
+            "minimum": 1.0,
+            "title": "Work Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "work_version",
+          "context_checkpoint_id",
+          "work_event_count"
+        ],
+        "title": "MergeReviewRevision",
+        "type": "object"
+      },
       "MutationActor": {
         "additionalProperties": false,
         "description": "Client-asserted mutation provenance; never an authenticated identity.",
@@ -1588,20 +1701,17 @@
         "title": "Page[ProjectRead]",
         "type": "object"
       },
-      "Page_Union_WorkSummary__HierarchySummary__WorkSummaryMinimal__": {
+      "Page_Union_WorkSearchHit__HierarchySummary__": {
         "additionalProperties": false,
         "properties": {
           "items": {
             "items": {
               "anyOf": [
                 {
-                  "$ref": "#/components/schemas/WorkSummary"
+                  "$ref": "#/components/schemas/WorkSearchHit"
                 },
                 {
                   "$ref": "#/components/schemas/HierarchySummary"
-                },
-                {
-                  "$ref": "#/components/schemas/WorkSummaryMinimal"
                 }
               ]
             },
@@ -1627,7 +1737,7 @@
           "limit",
           "offset"
         ],
-        "title": "Page[Union[WorkSummary, HierarchySummary, WorkSummaryMinimal]]",
+        "title": "Page[Union[WorkSearchHit, HierarchySummary]]",
         "type": "object"
       },
       "PriorityChange": {
@@ -1928,6 +2038,11 @@
               }
             ]
           },
+          "canonical_work_item_id": {
+            "format": "uuid",
+            "title": "Canonical Work Item Id",
+            "type": "string"
+          },
           "display_state": {
             "enum": [
               "pending",
@@ -1935,6 +2050,7 @@
               "dropped",
               "blocked",
               "waiting",
+              "duplicate",
               "deferred",
               "done",
               "wont-do",
@@ -1953,6 +2069,10 @@
           },
           "is_blocked": {
             "title": "Is Blocked",
+            "type": "boolean"
+          },
+          "is_duplicate": {
+            "title": "Is Duplicate",
             "type": "boolean"
           },
           "is_gated": {
@@ -1989,6 +2109,8 @@
         },
         "required": [
           "lifecycle_status",
+          "is_duplicate",
+          "canonical_work_item_id",
           "is_terminal",
           "has_active_lease",
           "has_dropped_lease",
@@ -2689,6 +2811,9 @@
       "WorkContext": {
         "additionalProperties": false,
         "properties": {
+          "canonical": {
+            "$ref": "#/components/schemas/CanonicalWorkProjection"
+          },
           "checkpoint_total": {
             "description": "Every checkpoint on this work item, including those not returned here.",
             "title": "Checkpoint Total",
@@ -2710,6 +2835,22 @@
             "title": "Current Context Is Initial",
             "type": "boolean"
           },
+          "duplicate_member_total": {
+            "minimum": 0.0,
+            "title": "Duplicate Member Total",
+            "type": "integer"
+          },
+          "duplicate_members": {
+            "items": {
+              "$ref": "#/components/schemas/WorkIdentityPointer"
+            },
+            "maxItems": 20,
+            "title": "Duplicate Members",
+            "type": "array"
+          },
+          "duplicate_merge_eligibility": {
+            "$ref": "#/components/schemas/DuplicateMergeEligibility"
+          },
           "event_total": {
             "title": "Event Total",
             "type": "integer"
@@ -2718,20 +2859,32 @@
             "items": {
               "$ref": "#/components/schemas/AdjacentRelationshipRead"
             },
+            "maxItems": 100,
             "title": "Incoming Relationships",
             "type": "array"
           },
           "initial_checkpoint": {
             "$ref": "#/components/schemas/CheckpointRead"
           },
+          "merge_review_revision": {
+            "$ref": "#/components/schemas/MergeReviewRevision"
+          },
           "omitted_checkpoint_count": {
             "description": "checkpoint_total minus the distinct checkpoints in this payload. Page the remainder with list_checkpoints.",
             "title": "Omitted Checkpoint Count",
             "type": "integer"
           },
+          "omitted_duplicate_member_count": {
+            "minimum": 0.0,
+            "title": "Omitted Duplicate Member Count",
+            "type": "integer"
+          },
           "omitted_event_count": {
             "title": "Omitted Event Count",
             "type": "integer"
+          },
+          "omitted_relationship_counts": {
+            "$ref": "#/components/schemas/RelationshipCounts"
           },
           "omitted_resolved_gate_count": {
             "title": "Omitted Resolved Gate Count",
@@ -2745,6 +2898,7 @@
             "items": {
               "$ref": "#/components/schemas/AdjacentRelationshipRead"
             },
+            "maxItems": 100,
             "title": "Outgoing Relationships",
             "type": "array"
           },
@@ -2788,6 +2942,7 @@
             "items": {
               "$ref": "#/components/schemas/AdjacentRelationshipRead"
             },
+            "maxItems": 100,
             "title": "Undirected Relationships",
             "type": "array"
           },
@@ -2808,6 +2963,11 @@
         },
         "required": [
           "work_item",
+          "merge_review_revision",
+          "canonical",
+          "duplicate_members",
+          "duplicate_member_total",
+          "omitted_duplicate_member_count",
           "initial_checkpoint",
           "current_context",
           "current_context_is_initial",
@@ -2821,6 +2981,7 @@
           "recent_resolved_gates",
           "resolved_gate_total",
           "omitted_resolved_gate_count",
+          "duplicate_merge_eligibility",
           "recent_events",
           "event_total",
           "omitted_event_count",
@@ -3151,7 +3312,8 @@
               "work_completed",
               "work_deleted",
               "human_attention_requested",
-              "human_attention_resolved"
+              "human_attention_resolved",
+              "work_merged"
             ],
             "title": "Event Type",
             "type": "string"
@@ -3218,6 +3380,9 @@
               },
               {
                 "$ref": "#/components/schemas/HumanGateEventMetadata"
+              },
+              {
+                "$ref": "#/components/schemas/WorkMergedMetadata"
               },
               {
                 "$ref": "#/components/schemas/WorkCompletedLiveMetadata"
@@ -3456,6 +3621,23 @@
         "title": "WorkItemCreate",
         "type": "object"
       },
+      "WorkItemDetailRead": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical": {
+            "$ref": "#/components/schemas/CanonicalWorkProjection"
+          },
+          "work_item": {
+            "$ref": "#/components/schemas/WorkItemRead"
+          }
+        },
+        "required": [
+          "work_item",
+          "canonical"
+        ],
+        "title": "WorkItemDetailRead",
+        "type": "object"
+      },
       "WorkItemPatch": {
         "additionalProperties": false,
         "properties": {
@@ -3678,6 +3860,285 @@
         "title": "WorkItemRead",
         "type": "object"
       },
+      "WorkMergeCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "client_operation_id": {
+            "description": "Required caller-generated UUID for durable replay of this irreversible mutation. Reuse it only with the exact same operation and semantic arguments after an unknown outcome.",
+            "format": "uuid",
+            "title": "Client Operation Id",
+            "type": "string"
+          },
+          "destination_work_item_id": {
+            "format": "uuid",
+            "title": "Destination Work Item Id",
+            "type": "string"
+          },
+          "lease_token": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Token"
+          },
+          "merged_by_client": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Merged By Client",
+            "type": "string"
+          },
+          "merged_by_model": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merged By Model"
+          },
+          "merged_by_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Merged By Session Id",
+            "type": "string"
+          },
+          "rationale": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Rationale",
+            "type": "string"
+          },
+          "reviewed_destination_revision": {
+            "$ref": "#/components/schemas/MergeReviewRevision"
+          },
+          "reviewed_source_revision": {
+            "$ref": "#/components/schemas/MergeReviewRevision"
+          }
+        },
+        "required": [
+          "destination_work_item_id",
+          "reviewed_source_revision",
+          "reviewed_destination_revision",
+          "rationale",
+          "merged_by_client",
+          "merged_by_session_id",
+          "client_operation_id"
+        ],
+        "title": "WorkMergeCreate",
+        "type": "object"
+      },
+      "WorkMergeRead": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "destination_work_item_id": {
+            "format": "uuid",
+            "title": "Destination Work Item Id",
+            "type": "string"
+          },
+          "duplicate_relationship_id": {
+            "format": "uuid",
+            "title": "Duplicate Relationship Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "merge_sequence": {
+            "minimum": 1.0,
+            "title": "Merge Sequence",
+            "type": "integer"
+          },
+          "merged_by_client": {
+            "title": "Merged By Client",
+            "type": "string"
+          },
+          "merged_by_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merged By Model"
+          },
+          "merged_by_session_id": {
+            "title": "Merged By Session Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "resulting_destination_work_version": {
+            "minimum": 2.0,
+            "title": "Resulting Destination Work Version",
+            "type": "integer"
+          },
+          "resulting_source_work_version": {
+            "minimum": 2.0,
+            "title": "Resulting Source Work Version",
+            "type": "integer"
+          },
+          "reviewed_destination_revision": {
+            "$ref": "#/components/schemas/MergeReviewRevision"
+          },
+          "reviewed_source_revision": {
+            "$ref": "#/components/schemas/MergeReviewRevision"
+          },
+          "source_work_item_id": {
+            "format": "uuid",
+            "title": "Source Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "merge_sequence",
+          "project_id",
+          "source_work_item_id",
+          "destination_work_item_id",
+          "duplicate_relationship_id",
+          "reviewed_source_revision",
+          "reviewed_destination_revision",
+          "resulting_source_work_version",
+          "resulting_destination_work_version",
+          "rationale",
+          "merged_by_client",
+          "merged_by_session_id",
+          "merged_by_model",
+          "created_at"
+        ],
+        "title": "WorkMergeRead",
+        "type": "object"
+      },
+      "WorkMergeResult": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_work_item": {
+            "$ref": "#/components/schemas/WorkIdentityPointer"
+          },
+          "destination_work_item": {
+            "$ref": "#/components/schemas/WorkItemRead"
+          },
+          "direct_destination": {
+            "$ref": "#/components/schemas/WorkIdentityPointer"
+          },
+          "merge": {
+            "$ref": "#/components/schemas/WorkMergeRead"
+          },
+          "merge_events": {
+            "items": {
+              "$ref": "#/components/schemas/WorkEventRead"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Merge Events",
+            "type": "array"
+          },
+          "relationship_events": {
+            "items": {
+              "$ref": "#/components/schemas/WorkEventRead"
+            },
+            "maxItems": 2,
+            "title": "Relationship Events",
+            "type": "array"
+          },
+          "source_work_item": {
+            "$ref": "#/components/schemas/WorkItemRead"
+          },
+          "supporting_relationship": {
+            "$ref": "#/components/schemas/RelationshipEdgeRead"
+          },
+          "supporting_relationship_created": {
+            "title": "Supporting Relationship Created",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "merge",
+          "source_work_item",
+          "destination_work_item",
+          "direct_destination",
+          "canonical_work_item",
+          "supporting_relationship_created",
+          "supporting_relationship",
+          "relationship_events",
+          "merge_events"
+        ],
+        "title": "WorkMergeResult",
+        "type": "object"
+      },
+      "WorkMergedMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "destination_work_item_id": {
+            "format": "uuid",
+            "title": "Destination Work Item Id",
+            "type": "string"
+          },
+          "destination_work_version": {
+            "minimum": 2.0,
+            "title": "Destination Work Version",
+            "type": "integer"
+          },
+          "merge_id": {
+            "format": "uuid",
+            "title": "Merge Id",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "source",
+              "destination"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "source_work_item_id": {
+            "format": "uuid",
+            "title": "Source Work Item Id",
+            "type": "string"
+          },
+          "source_work_version": {
+            "minimum": 2.0,
+            "title": "Source Work Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "merge_id",
+          "source_work_item_id",
+          "destination_work_item_id",
+          "role",
+          "source_work_version",
+          "destination_work_version"
+        ],
+        "title": "WorkMergedMetadata",
+        "type": "object"
+      },
       "WorkPointer": {
         "additionalProperties": false,
         "properties": {
@@ -3756,6 +4217,23 @@
           "lease_holder_kind"
         ],
         "title": "WorkReleasedUnattributedMetadata",
+        "type": "object"
+      },
+      "WorkSearchHit": {
+        "additionalProperties": false,
+        "properties": {
+          "matched_member": {
+            "$ref": "#/components/schemas/WorkIdentityPointer"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/WorkSummary"
+          }
+        },
+        "required": [
+          "summary",
+          "matched_member"
+        ],
+        "title": "WorkSearchHit",
         "type": "object"
       },
       "WorkSnapshot": {
@@ -3955,7 +4433,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -4780,11 +5258,42 @@
               "default": "full",
               "enum": [
                 "full",
-                "minimal",
                 "roots"
               ],
               "title": "View",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "duplicate_scope",
+            "required": false,
+            "schema": {
+              "default": "canonical",
+              "enum": [
+                "canonical",
+                "aliases",
+                "all"
+              ],
+              "title": "Duplicate Scope",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "canonical_work_item_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Canonical Work Item Id"
             }
           },
           {
@@ -4816,7 +5325,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Page_Union_WorkSummary__HierarchySummary__WorkSummaryMinimal__"
+                  "$ref": "#/components/schemas/Page_Union_WorkSearchHit__HierarchySummary__"
                 }
               }
             },
@@ -4894,6 +5403,72 @@
         "summary": "Create Work"
       }
     },
+    "/api/v1/projects/{project_id}/work-items/{source_work_item_id}/merge": {
+      "post": {
+        "operationId": "merge_work_api_v1_projects__project_id__work_items__source_work_item_id__merge_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_work_item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Work Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkMergeCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkMergeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Merge Work",
+        "x-mnemonic-effect": "receipt_protected_write"
+      }
+    },
     "/api/v1/projects/{project_id}/work-items/{work_item_id}": {
       "get": {
         "operationId": "get_work_api_v1_projects__project_id__work_items__work_item_id__get",
@@ -4924,7 +5499,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WorkItemRead"
+                  "$ref": "#/components/schemas/WorkItemDetailRead"
                 }
               }
             },
@@ -5800,7 +6375,8 @@
                     "work_completed",
                     "work_deleted",
                     "human_attention_requested",
-                    "human_attention_resolved"
+                    "human_attention_resolved",
+                    "work_merged"
                   ],
                   "type": "string"
                 },
@@ -6510,6 +7086,15 @@
         "required"
       ],
       "property_sets": {
+        "frontend/lib/duplicate-handling.ts:decodeCanonicalWorkProjection": "CanonicalWorkProjection",
+        "frontend/lib/duplicate-handling.ts:decodeMergeReviewRevision": "MergeReviewRevision",
+        "frontend/lib/duplicate-handling.ts:decodeWorkContext": "WorkContext",
+        "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": "WorkItemDetailRead",
+        "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": "Page_Union_WorkSearchHit__HierarchySummary__",
+        "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage:item": "WorkSearchHit",
+        "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage": "Page_Union_WorkSearchHit__HierarchySummary__",
+        "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage:item": "HierarchySummary",
+        "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPresentation": "HierarchyPresentation",
         "frontend/lib/human-gates.ts:GATE_FIELDS": "HumanGateRead",
         "frontend/lib/human-gates.ts:decodeAncestor": "WorkIdentityPointer",
         "frontend/lib/human-gates.ts:decodeCheckpointPointer": "CheckpointPointer",
@@ -6538,7 +7123,7 @@
         "RelationshipPage": "Page_AdjacentRelationshipRead_",
         "WorkCompletion": "WorkCompletionRead",
         "WorkDeletionResult": "WorkDeletionRead",
-        "WorkPage": "Page_Union_WorkSummary__HierarchySummary__WorkSummaryMinimal__"
+        "WorkPage": "Page_Union_WorkSearchHit__HierarchySummary__"
       },
       "default_component_rule": "CanonicalResponse class name equals component name"
     }

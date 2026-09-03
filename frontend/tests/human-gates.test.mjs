@@ -122,6 +122,8 @@ function summary() {
       is_blocked: false,
       unresolved_gate_count: 1,
       is_gated: true,
+      is_duplicate: false,
+      canonical_work_item_id: work,
       is_ready: false,
       display_state: "waiting"
     }
@@ -328,7 +330,8 @@ test("relationship drift review is complete only when every directional count is
     incoming_relationships: [incoming],
     outgoing_relationships: [outgoing],
     undirected_relationships: [undirected],
-    relationship_counts: { incoming: 1, outgoing: 1, undirected: 1, total: 3 }
+    relationship_counts: { incoming: 1, outgoing: 1, undirected: 1, total: 3 },
+    omitted_relationship_counts: { incoming: 0, outgoing: 0, undirected: 0, total: 0 }
   };
   assert.equal(hasCompleteRelationshipReview(complete), true);
   assert.equal(hasCompleteRelationshipReview({

@@ -42,7 +42,7 @@ and to reject force pushes and branch deletion. That aggregate status fails
 unless Gitleaks, Ruff, `ty`, backend tests, MCP tests, and frontend checks all
 succeed.
 
-## Phases 5–8 backend verification
+## Backend verification through Phase 9 Core
 
 The database suite needs a real PostgreSQL instance because the system depends
 on PostgreSQL search, row locking, database time, receipt reservation/waiting,
@@ -173,6 +173,44 @@ The combined Phases 7–8 additions verify:
   assertions. Representative post-correction performance measurement remains a
   release gate.
 
+The Phase 9 Core additions verify:
+
+- fresh and populated `0015_gate_review_fixes -> 0016_duplicate_handling`
+  upgrades preserve all Phase 1–8 rows, exact receipt
+  JSON, gate projections, event validator vectors, embeddings, IDs, versions,
+  timestamps, bodies, hashes, and provenance while creating zero merge or
+  witness rows; 0016 has no downgrade;
+- ORM/migration parity for the immutable `work_duplicate_merges` ledger,
+  relationship/event witnesses, composite keys, identities, indexes,
+  deferrability, triggers, and normalized function definitions;
+- project-local forest depth/cycle/root/source uniqueness, exact relationship
+  and paired-event completeness, immutable merge/evidence facts, and stale
+  direct-SQL writers failing closed;
+- source/destination context review, structural/gate/lease preconditions,
+  source-only lease consumption, version/time increments, historical mark reuse,
+  same-transaction mark creation, and exact result ordering;
+- the thirteenth receipt kind, mandatory merge UUID, canonical/digest/response
+  vectors, unknown-outcome recovery, later-state same-key replay, concurrent
+  merges and mutations, and preservation of every old receipt wire shape;
+- alias guards across lifecycle, claim/lease, checkpoint, event, gate, and
+  relationship operations with no redirect or canonical substitution;
+- canonical detail/context/search/hierarchy/readiness projections, grouping
+  before pagination, alias audit scopes, matched-member reporting, bounded
+  paths/members/relationships, coherent snapshots, and corrupt-graph failure;
+  and
+- the read-only aggregate audit at head 0016 with zero blocking findings.
+
+For a focused Core iteration, run:
+
+```sh
+uv run pytest -q \
+  tests/test_duplicate_handling_postgres.py \
+  tests/test_duplicate_merge_catalog_postgres.py \
+  tests/test_duplicate_merge_invariants_postgres.py \
+  tests/test_duplicate_merge_migration_postgres.py \
+  tests/test_client_operations.py
+```
+
 For a focused Phases 7–8 iteration, run the real gate/migration/readiness suites;
 the complete `pytest` command above remains the release gate:
 
@@ -204,7 +242,7 @@ do not contact a model service.
 Without `TEST_DATABASE_URL`, PostgreSQL tests explicitly skip. Such a run still
 checks pure validation helpers but is not proof of migration, transaction,
 trigger, concurrency, receipt replay, or PostgreSQL retrieval behavior. Any
-skipped PostgreSQL-marked test makes the Phases 7–8 release gate incomplete.
+skipped PostgreSQL-marked test makes the Phase 9 Core release gate incomplete.
 
 Stop the disposable database afterward from the repository root:
 
@@ -212,7 +250,7 @@ Stop the disposable database afterward from the repository root:
 docker compose -f compose.test.yaml down
 ```
 
-## Phases 5–8 MCP verification
+## MCP verification through Phase 9 Core
 
 Run from `mcp`:
 
@@ -223,13 +261,14 @@ uv run ruff check .
 uv run ty check src/mnemonic_mcp
 ```
 
-The MCP suite verifies the exact 25-tool canonical catalog, strict unknown-field
-rejection, nested checkpoint request bodies, pointer-only search/ready results,
-bounded recall, deterministic checkpoint/event pagination, versioned mutation
-receipts, typed graph and lease behavior, the `resume_work` prompt, and the
-work-item resource across direct, Streamable HTTP, and real stdio transports.
+The MCP suite verifies the exact 26-tool canonical catalog, strict unknown-field
+rejection, nested checkpoint request bodies, canonical/grouped search hits,
+compact ready results, bounded recall, deterministic checkpoint/event
+pagination, versioned mutation receipts, typed graph and lease behavior, the
+`resume_work` prompt, and the work-item resource across direct, Streamable HTTP,
+and real stdio transports.
 
-Exactly ten mutation tools require a canonical `client_operation_id` and
+Exactly eleven mutation tools require a canonical `client_operation_id` and
 advertise truthful idempotency: `create_work`, `add_checkpoint`, `append_event`,
 `add_relationship`, `update_work`, `complete_work`, `delete_work`,
 `remove_relationship`, `release_claim`, and `request_human_input`. Tests prove
@@ -237,6 +276,14 @@ exact one-attempt forwarding, strict coherent response decoding, sanitized
 same-key recovery guidance, and local rejection on excluded tools. Project
 creation, claim, claim-and-recall, and renewal retain separate non-idempotent
 contracts.
+
+The eleventh protected mutation is `merge_work`. Core tests pin its two reviewed
+revisions, exact direction, optional source lease token, mandatory operation
+UUID, single outbound attempt, strict result/event/relationship coherence,
+same-key recovery, and sanitized alias/merge errors. Search/resource/prompt
+tests pin canonical grouping, explicit alias audit scopes, matched-member
+pointers, exact source-owned alias context, and the absence of any suggestion
+tool or automatic canonical substitution.
 
 Phase 7–8 assertions cover exact request arguments and revision projections,
 unknown-outcome guidance, model-valid request coherence injections, reachable
@@ -247,12 +294,13 @@ gate errors, OpenAPI property/required-set parity, and value-free DEBUG logging
 for query and cursor markers. They also pin the tool-description rules to check
 open gates and write supporting context first, never withdraw or self-resolve a
 gate, and restart the attention traversal. HTTP and stdio expose the same 25
-names; `get_activity`, `resolve_human_input`, and removed hand-off surfaces
+names at that historical Phase 7–8 boundary; Core exposes 26.
+`get_activity`, `resolve_human_input`, and removed hand-off surfaces
 remain absent.
 
-The inner plugin manifest is `0.6.1`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.6.1` install
-plus a sequential `0.6.0 -> 0.6.1` marketplace update. Use an isolated
+The inner plugin manifest is `0.7.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.7.0` install
+plus a sequential `0.6.1 -> 0.7.0` marketplace update. Use an isolated
 `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that the cached
 installed skill bytes changed, and a compatibility copy of the old prerelease
 tool schema is not a valid substitute.
@@ -264,7 +312,7 @@ repository root over the MCP and live-check code:
 uv run --project backend ruff check mcp/src/mnemonic_mcp mcp/tests scripts/check-stack.py
 ```
 
-## Phases 5–8 dashboard verification
+## Dashboard verification through Phase 9 Core
 
 Run from `frontend`:
 
@@ -287,15 +335,15 @@ invalidation, actor request construction, progress composer errors, pagination/
 filtering, and the partial-history notice at desktop and narrow viewports. The
 ready endpoint remains intentionally proxy-denied.
 
-Mutation tests cover all ten browser writes, one UUID and exact frozen serialized
+Mutation tests cover all eleven browser writes, one UUID and exact frozen serialized
 body per intent, in-flight coalescing, same-document recovery after component or
 view unmount, exact manual retry after ambiguous outcomes, and a non-discardable
 safety state for key conflicts. Strict per-operation decoders require the
 expected status, exact shape, and path/result coherence before clearing
-recovery. Proxy-policy tests admit the top-level UUID only on those ten routes,
-including gate resolution, and reject invalid, nested, query/header/cookie,
-secret-equal, and excluded-route IDs without echoing them. Gate creation, lease
-paths, and token-bearing browser mutations remain denied.
+recovery. Proxy-policy tests admit the top-level UUID only on those eleven
+routes, including gate resolution and merge, and reject invalid, nested,
+query/header/cookie, secret-equal, and excluded-route IDs without echoing them.
+Gate creation, lease paths, and token-bearing browser mutations remain denied.
 
 Phase 7–8 Node regressions cover literal gate/event decoding, exact reviewed and
 resolved revisions, drift facts, Waiting/readiness and terminal guards,
@@ -304,6 +352,17 @@ omission/history presentation, hierarchy population and discovery labels,
 overlap wording, corrupt depth/cycle fallbacks, identifier-free live frames, and
 the passive-expiry scheduler. No gate question, answer, UUID, or frozen body
 enters browser storage.
+
+Core duplicate tests cover strict detail/canonical/context/search/merge/event
+decoding; root/alias/path/member/count coherence; default canonical grouping and
+explicit alias/group audit navigation; historical mark display with fresh
+generic creation closed; and the distinct `work_merged` timeline. Merge UI
+tests must cover separate bidi-isolated source/destination panels, full UUIDs,
+permanence acknowledgement, source structural/gate/lease blockers, active-lease
+disablement, both frozen review revisions, a two-work-key conflict lock, exact
+ambiguous retry, stale-review replacement, and current-root refetch after
+success. The browser registry remains exactly eleven kinds and admits no lease
+token.
 
 Playwright renders hostile literal questions and answers, exact ambiguous retry,
 B-to-C drift rejection and fresh intent, attention empty/error recovery,
@@ -350,6 +409,12 @@ is already running and `MNEMONIC_E2E_WEB_URL`, `MNEMONIC_E2E_API_URL`, and
 `MNEMONIC_E2E_API_KEY` point to that stack; it does not provision or tear down
 services itself.
 
+Phase 9 browser acceptance additionally exercises source/destination direction,
+alias audit-to-canonical navigation, canonical/group search, branch merged
+counts, active-lease merge refusal, drift rejection, exact lost-response replay,
+and live convergence of both endpoints. This acceptance run is a release gate;
+unit/type/build success alone does not substitute for it.
+
 For native dashboard development, keep the container API running, stop the
 `web` container, and create an untracked `frontend/.env.local` containing:
 
@@ -377,8 +442,8 @@ Run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 25-tool
-catalog, the exact ten protected schemas and annotations, the absence of an MCP
+Read-only mode verifies REST/MCP health, authentication, the exact 26-tool
+catalog, the exact eleven protected schemas and annotations, the absence of an MCP
 resolution tool, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, and the shipped WOFF2 font assets. It does
 not create, gate, edit, relate, claim, append events, resolve, complete, or
@@ -397,8 +462,9 @@ The write path performs the combined canonical lifecycle:
 1. prepares and retains one UUID plus exact arguments for every protected call,
    deliberately discards the first create result, and recovers the original IDs
    through exact same-key replay without duplicate events;
-2. proves pointer-only search, bounded recall, resource/prompt behavior, and
-   request-known credential/capability rejection;
+2. proves canonical/grouped search with exact matched-member identity, bounded
+   recall, resource/prompt behavior, and request-known credential/capability
+   rejection;
 3. claims one candidate, discards a completed `request_human_input` response,
    and recovers the same unresolved gate through exact MCP replay;
 4. proves active-plus-waiting context, text-free attention count, attention and
@@ -415,6 +481,14 @@ The write path performs the combined canonical lifecycle:
    edges, resolves any interrupted run-owned gate during cleanup, then
    soft-deletes all five synthetic records and confirms ordinary reads return
    `404`.
+
+The Core write check must additionally review two exact contexts, merge a
+structurally eligible source through `merge_work`, discard/recover one response
+with the same key, verify paired events and canonical/alias projections, reject
+an alias claim/mutation without redirect, and clean up only by soft-deleting
+other synthetic roots. The merge and alias are immutable audit history and must
+not be deleted during cleanup; therefore run this only against a disposable
+stack whose database will be discarded.
 
 The checker prints its synthetic run UUID before its first write. Retain that
 line until cleanup succeeds. If the process is interrupted, recover only that
@@ -439,9 +513,9 @@ Add `--other-project-id` to prove the new ID cannot be read through a second
 project. Do not pass either project option without authorization to write in the
 named project. Prefer a disposable full stack for automated write-path checks.
 
-## Phases 7–8 release gate
+## Phase 9 Core release gate
 
-The combined human-oversight release is incomplete until all of these pass
+The authoritative duplicate Core release is incomplete until all of these pass
 together:
 
 1. the full backend suite against isolated PostgreSQL with no database skips,
@@ -450,28 +524,32 @@ together:
    for MCP and `scripts/check-stack.py`;
 3. frontend unit tests, typecheck, production build, and the isolated Playwright
    stack;
-4. fresh head plus populated `0014_human_gates -> 0015_gate_review_fixes`
-   preservation, exact legacy validator/non-gate event parity, current timestamp
-   defaults, acknowledgement and persisted resolution-drift column removal, and
-   old-backend fail-closed claim/terminal probes;
-5. backup/restore with resolved and unresolved gates, attention sequence,
-   paired events, and exact request/resolution receipt replay without another
-   domain effect;
-6. representative hierarchy `EXPLAIN (ANALYZE, BUFFERS)` fixtures proving one
-   statement per page with exact branch aggregate/filter behavior;
-7. plugin manifest parsing plus disposable fresh `0.6.1` and sequential
-   `0.6.0 -> 0.6.1` installation;
+4. fresh head plus populated `0015_gate_review_fixes -> 0016_duplicate_handling`
+   preservation, zero inferred merges/witnesses,
+   exact legacy event/receipt/gate projection parity, direct-SQL completeness
+   and alias guards, schema parity, depth boundaries, and concurrency races;
+5. the aggregate duplicate audit before and after 0016, plus isolated pre- and
+   post-0016 backup restores covering ordinary/gate/merge receipts and
+   authoritative merge/event/witness facts;
+6. representative canonical search/context/hierarchy/ready/claim
+   `EXPLAIN (ANALYZE, BUFFERS)` fixtures and bounded query/RSS/latency evidence;
+7. plugin manifest parsing plus disposable fresh `0.7.0` and sequential
+   `0.6.1 -> 0.7.0` installation;
 8. read-only and authorized writable stack checks against a disposable project,
-   including the exact 25-tool/ten-protected contract and gate lifecycle; and
+   including the exact 26-tool/eleven-protected contract, gate lifecycle,
+   receipt recovery, and irreversible merge/alias lifecycle; and
 9. `git diff --check`, repository Markdown link/path validation, schema/tool
    snapshots, and cold adversarial review.
 
 Do not treat a focused suite, PostgreSQL-skipped run, read-only smoke, stale
-Phase 6 validation count, or marketplace refresh by itself as a Phases 7–8
-release result. Deploy backend, MCP/plugin, dashboard/proxy, and the operational guidance as
-one compatible release boundary.
+Phase 6/8 validation count, or marketplace refresh by itself as a Phase 9 Core
+release result. Do not claim completion from the Core checks until isolated E2E,
+full pre-commit, permanence signoff, and backup rehearsal are actually recorded.
+Deploy application/API/MCP/dashboard `0.3.0`, plugin `0.7.0`, migration 0016,
+and the operational guidance as one compatible release boundary. Advisory
+suggestions remain a separate unshipped release.
 
-## Manual Phases 5–8 browser pass
+## Manual browser pass through Phase 9 Core
 
 Exercise project empty state and switching, root browsing, lazy child expansion,
 subtree-aware filters, flat-search breadcrumbs, Pending/Active/Dropped/Deferred
@@ -484,8 +562,9 @@ narrow viewport, confirm lists, hierarchy, detail panes, editors, dialogs, long
 IDs, and defensive depth/cycle fallbacks remain usable.
 
 Add and remove every relationship type through the editor with exact stored
-direction and truthful provenance. Confirm duplicate adds are harmless and the
-editor prevents self-links or invalid context selection. Use REST or MCP in the
+direction and truthful provenance. Confirm repeated identical non-`duplicate-of`
+adds are harmless and the editor prevents self-links or invalid context
+selection. Use REST or MCP in the
 test project to verify cycle, second-parent, missing-context, and invalid-context
 requests return sanitized actionable errors. Confirm work with active
 relationships cannot be deleted. A nonmatching ancestor should
@@ -517,6 +596,19 @@ Expand planned and discovered branches and verify collapsed-by-default display,
 direct/descendant and blocked/active/completed/discovered counts, discovery
 labels, gate counts, filter-hidden explanations, child paging, defensive
 cycle/depth fallbacks, and passive refresh when a descendant lease expires.
+
+In a disposable stack only, review two same-project root contexts and open the
+merge dialog. Confirm separate bidi-isolated source/destination panels, full
+UUIDs, exact direction, both review revisions, rationale, and mandatory
+permanence acknowledgement. Exercise source structural and unresolved-gate
+blockers; verify an active source lease disables browser merge without exposing
+a token. Interrupt the response and retry only the frozen two-work-key intent;
+confirm one merge, one supporting mark, the expected relationship-event pair
+when new, exactly two `work_merged` events, and one version increment per
+endpoint. The source must remain available as an audit alias but absent from
+ready/root views; every fresh alias mutation must fail without redirect. Follow
+its explicit canonical link, inspect group/alias search, and verify no source or
+destination checkpoint, lifecycle, relationship, gate, or lease was coalesced.
 
 With a nonblank search, Semantic starts disabled. Enabling it performs a hybrid
 request; disabling it restores lexical retrieval. Repeat the enabled query once

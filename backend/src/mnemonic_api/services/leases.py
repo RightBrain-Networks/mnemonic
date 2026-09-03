@@ -73,6 +73,9 @@ def claim_lease_record(
     ttl_seconds: int,
 ) -> ClaimReceipt:
     """Acquire, replay, or replace one lease while the work row is locked."""
+    from mnemonic_api.services.duplicates import require_canonical_work_item
+
+    require_canonical_work_item(database, work_item)
     lease = _locked_lease(database, work_item.id)
     if work_item.status != "pending":
         raise conflict("work_not_pending", "Only pending work can be claimed.")
@@ -169,6 +172,9 @@ def renew_lease_record(
     lease_token: str,
     ttl_seconds: int,
 ) -> ClaimReceipt:
+    from mnemonic_api.services.duplicates import require_canonical_work_item
+
+    require_canonical_work_item(database, work_item)
     lease = _locked_lease(database, work_item.id)
     database_now = _database_now(database)
     if lease is None:
@@ -189,6 +195,9 @@ def release_lease_record(
     lease_token: str,
     actor: MutationActor | None = None,
 ) -> ReleaseResult:
+    from mnemonic_api.services.duplicates import require_canonical_work_item
+
+    require_canonical_work_item(database, work_item)
     lease = _locked_lease(database, work_item.id)
     database_now = _database_now(database)
     if lease is None:

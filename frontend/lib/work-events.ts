@@ -15,6 +15,7 @@ import {
   finiteInteger,
   nullableUuid,
   objectValue,
+  sameUuid,
   validBoundedMetadata,
   validUtcDateTime,
   validUuid,
@@ -36,6 +37,7 @@ export const WORK_EVENT_TYPES = [
   "relationship_removed",
   "human_attention_requested",
   "human_attention_resolved",
+  "work_merged",
   "work_completed",
   "work_deleted"
 ] as const satisfies readonly WorkEventType[];
@@ -72,6 +74,7 @@ const REQUIRED_LIVE_ACTOR_TYPES = new Set<WorkEventType>([
   "relationship_added",
   "human_attention_requested",
   "human_attention_resolved",
+  "work_merged",
   "work_completed"
 ]);
 const EVENT_FIELDS = [
@@ -250,6 +253,27 @@ function validMetadata(eventType: WorkEventType, origin: "live" | "backfill", va
       && validUuid(metadata.gate_id)
       && metadata.gate_type === "human";
   }
+  if (eventType === "work_merged") {
+    const source = metadata.source_work_item_id;
+    const destination = metadata.destination_work_item_id;
+    const role = metadata.role;
+    return origin === "live"
+      && exactKeys(metadata, [
+        "merge_id",
+        "source_work_item_id",
+        "destination_work_item_id",
+        "role",
+        "source_work_version",
+        "destination_work_version"
+      ])
+      && validUuid(metadata.merge_id)
+      && validUuid(source)
+      && validUuid(destination)
+      && source.toLowerCase() !== destination.toLowerCase()
+      && (role === "source" || role === "destination")
+      && finiteInteger(metadata.source_work_version, 1)
+      && finiteInteger(metadata.destination_work_version, 1);
+  }
   if (eventType === "work_completed") {
     return origin === "backfill"
       ? exactKeys(metadata, [])
@@ -279,6 +303,7 @@ function validReferences(event: JsonObject): boolean {
     eventType === "progress"
     || eventType === "human_attention_requested"
     || eventType === "human_attention_resolved"
+    || eventType === "work_merged"
   ) {
     if (!boundedText(event.body, 4000)) return false;
   } else if (event.body !== null) {
@@ -312,6 +337,23 @@ function validReferences(event: JsonObject): boolean {
     return event.checkpoint_id === null
       && event.lease_generation_id !== null
       && event.lease_release_id !== null
+      && event.relationship_id === null
+      && event.relationship_source_work_item_id === null
+      && event.relationship_target_work_item_id === null
+      && event.relationship_context_checkpoint_work_item_id === null
+      && event.relationship_context_checkpoint_id === null
+      && event.relationship_direction === null
+      && event.counterpart_work_item_id === null;
+  }
+  if (eventType === "work_merged") {
+    const metadata = objectValue(event.metadata);
+    const expectedWorkId = metadata?.role === "source"
+      ? metadata.source_work_item_id
+      : metadata?.destination_work_item_id;
+    return sameUuid(event.work_item_id, expectedWorkId)
+      && event.checkpoint_id === null
+      && event.lease_generation_id === null
+      && event.lease_release_id === null
       && event.relationship_id === null
       && event.relationship_source_work_item_id === null
       && event.relationship_target_work_item_id === null
@@ -556,6 +598,7 @@ export function workEventTitle(eventType: WorkEventType): string {
     relationship_removed: "Removed relationship",
     human_attention_requested: "Requested human attention",
     human_attention_resolved: "Resolved human attention",
+    work_merged: "Merged duplicate work",
     work_completed: "Completed work",
     work_deleted: "Deleted work"
   }[eventType];
@@ -645,6 +688,10 @@ export function workEventDescription(event: WorkEventRead, counterpartTitle?: st
       return "Requested an explicit human decision. The question remains paired with its durable gate record.";
     case "human_attention_resolved":
       return "Recorded a human-facing answer. The answer does not execute or authorize another action.";
+    case "work_merged":
+      return metadata.role === "source"
+        ? `Made this work an immutable duplicate of ${String(metadata.destination_work_item_id)}.`
+        : `Kept this work canonical when ${String(metadata.source_work_item_id)} was merged into it.`;
     case "work_completed":
       return "Completed work with an immutable completion checkpoint.";
     case "work_deleted":
@@ -660,6 +707,6 @@ export function workEventActorLabel(event: WorkEventRead): string {
 
 export function safeEventBody(event: WorkEventRead): string | null {
   return [
-    "progress", "human_attention_requested", "human_attention_resolved"
+    "progress", "human_attention_requested", "human_attention_resolved", "work_merged"
   ].includes(event.event_type) ? event.body : null;
 }

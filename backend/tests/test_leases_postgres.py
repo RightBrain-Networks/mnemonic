@@ -74,7 +74,7 @@ def test_claim_replay_context_readiness_renew_release_and_no_work_activity(
     created = create_work(api, project, work_payload)
     work_item = created["work_item"]
     endpoint = item_path(project, work_item)
-    before = api.get(endpoint).json()
+    before = api.get(endpoint).json()["work_item"]
     payload = claim_payload("recoverable-request")
 
     claimed = api.post(f"{endpoint}/claim-and-recall", json=payload)
@@ -115,7 +115,9 @@ def test_claim_replay_context_readiness_renew_release_and_no_work_activity(
     assert different_request.status_code == 409
     assert different_request.json()["detail"]["code"] == "lease_held"
 
-    summary = api.get(collection(project), params={"status": "active"}).json()["items"][0]
+    summary = api.get(collection(project), params={"status": "active"}).json()["items"][0][
+        "summary"
+    ]
     assert summary["readiness"] == readiness
     assert "lease_token" not in json.dumps(summary)
 
@@ -131,7 +133,7 @@ def test_claim_replay_context_readiness_renew_release_and_no_work_activity(
     assert api.post(f"{endpoint}/renew-claim", json={}).status_code == 422
     assert api.post(f"{endpoint}/release-claim", json={}).status_code == 422
 
-    assert api.get(endpoint).json() == before
+    assert api.get(endpoint).json()["work_item"] == before
     with Session(postgres_engine) as database:
         retained = database.get(WorkLease, UUID(work_item["id"]))
         assert retained is not None
@@ -154,7 +156,7 @@ def test_claim_replay_context_readiness_renew_release_and_no_work_activity(
     assert ready["is_ready"] is True
     assert ready["has_active_lease"] is False
     assert ready["active_lease"] is None
-    assert api.get(endpoint).json() == before
+    assert api.get(endpoint).json()["work_item"] == before
 
 
 def test_deferring_dropped_work_clears_expired_lease_before_pending_resume(
@@ -584,7 +586,7 @@ def test_capabilities_are_body_only_and_lease_routes_reject_every_query_paramete
     replay = api.post(f"{endpoint}/claim", json=payload)
     assert replay.status_code == 200
     assert replay.json() == receipt
-    assert api.get(endpoint).json()["status"] == "pending"
+    assert api.get(endpoint).json()["work_item"]["status"] == "pending"
 
     # Ordinary retrieval queries remain valid, and the same capability is accepted
     # once it is carried in the request body instead of the URL.

@@ -24,7 +24,7 @@ It does not modify any client's memory subsystem. Claude Code is the first clien
 
 The included agent skills encourage the LLM to default to using `mnemonic` to save hand-off prompts and self-discovered follow-up tasks. Markdown docs and your bug/issue tracker are reserved for durable human-facing information. Claude's "suggested task chips" are explicitly discouraged here since they live only in the ephemeral client and are easily lost.
 
-Upon discovering something worth remembering, your agent will first search `mnemonic` for related work items, using PostgreSQL keyword matching by default and opt-in semantic search (embeddings). If it doesn't find any results, it opens a new work item in a "pending" state.
+Upon discovering something worth remembering, your agent will first search `mnemonic` for related work items, using PostgreSQL keyword matching by default and opt-in semantic search (embeddings). Search groups authoritative duplicate aliases under their current canonical work by default and identifies the exact member that matched. Similarity remains retrieval evidence, never merge authority or a reason to suppress creation. If no durable objective exists, the agent opens a new work item in a "pending" state.
 
 The human (you, presumably) then click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh Claude Code session. Claude will then retrieve the work item and validate the stated premises. If the facts check-out, it requests a "work lease" of 15 minutes and then gets to work. The lease is periodically renewed until the task is complete and the work item is marked as "done".
 
@@ -78,7 +78,7 @@ Registering the endpoint does not connect it to a running session. Claude Code l
 
 In PowerShell, the URL and header expressions are `"http://127.0.0.1:$env:MNEMONIC_MCP_PORT/mcp"` and
 `"Authorization: Bearer $env:MNEMONIC_API_KEY"`; PowerShell has no `:-` default, so set the port variable explicitly there. Do not paste the real key into tracked project configuration. Configuration examples, including a Docker stdio
-alternative and OpenCode, live in [`examples/`](examples/); they show the default ports and need the same substitution if yours differ. [`work.json`](examples/work.json) is the canonical work body. Copyable Phase 7-8 workflows are [`discovered-work.json`](examples/discovered-work.json), [`human-gate-request.json`](examples/human-gate-request.json), and [`human-gate-resolution.json`](examples/human-gate-resolution.json).
+alternative and OpenCode, live in [`examples/`](examples/); they show the default ports and need the same substitution if yours differ. [`work.json`](examples/work.json) is the canonical work body. Copyable workflows are [`discovered-work.json`](examples/discovered-work.json), [`human-gate-request.json`](examples/human-gate-request.json), [`human-gate-resolution.json`](examples/human-gate-resolution.json), and the irreversible [`merge-work.json`](examples/merge-work.json) request. Replace every placeholder and read both exact work contexts before using the merge example.
 
 The three skills ship as a Claude Code plugin. Register this repository as a marketplace once, then enable the plugin in any project that should have them:
 
@@ -102,7 +102,7 @@ Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemon
 reachable remotely.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current plugin is version `0.6.1`. It provides:
+not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. Phase 9 Core uses plugin version `0.7.0` with application/API/MCP version `0.3.0`. It provides:
 
 - **`mnemonic-save`** searches for existing work, creates a durable objective
   with its initial checkpoint and explicit atomic links, appends corrective
@@ -110,17 +110,19 @@ not the installed files. After a published plugin version changes, run `claude p
   only for a concrete decision a person must make, after checking for an open
   question and writing the supporting checkpoint first.
 - **`mnemonic-search`** finds compact work-item leads within the chosen project,
-  normally restricted to pending work, separately lists priority-ordered ready
-  candidates, and pages the Needs Attention queue without treating any read as
-  authority.
+  normally restricted to canonical pending work, identifies the exact member
+  that supplied a grouped match, supports explicit alias audit scopes,
+  separately lists priority-ordered ready candidates, and pages the Needs
+  Attention queue without treating any read as authority.
 - **`mnemonic-recall`** loads bounded current context, pages older checkpoints
   or events when needed, atomically claims already-authorized execution, renews
   or releases that expiring lease, inspects immediate typed relationships,
   reads unresolved and answered human questions with their drift flags, asks a
   person mid-execution through the save procedure, records concise progress
   events, pages complete paired gate history when bounded context omits an
-  older decision, and saves an atomic completion checkpoint when the work is
-  complete.
+  older decision, distinguishes an alias's exact retained history from its
+  canonical continuation, reviews both context revisions before any permanent
+  merge, and saves an atomic completion checkpoint when the work is complete.
 
 Invoke `/mnemonic-save`, `/mnemonic-search`, or `/mnemonic-recall`, or ask Claude in natural language. The skills require the connected `mnemonic` MCP server. You can copy the selected project's ID from the dashboard, or use
 `list_projects`. Session IDs are opaque text (often UUIDs), not integers, and refer to the originating LLM conversation, not the MCP transport session. 
@@ -139,9 +141,10 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   An opt-in Semantic dashboard toggle and `search_work` argument add hybrid
   similarity ranking from a local embedding model; both default to disabled.
   The model runs offline and needs no hosted embedding service or model API key.
-  Checkpoint text participates in lexical and semantic retrieval. Search returns
-  one compact result per work item; recall returns bounded current context, and
-  older history is explicitly paginated.
+  Checkpoint text participates in lexical and semantic retrieval. Search
+  returns one full summary hit per canonical group by default and identifies
+  the exact matching member; recall returns bounded current context, and older
+  history is explicitly paginated.
 - Lets a user edit work identity, append immutable context/progress checkpoints,
   complete work with a required completion checkpoint, copy current context, and
   soft-delete work. Concurrent edits and completions are detected rather than
@@ -162,18 +165,27 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 - Stores explicit project-local `blocks`, `parent-child`, `discovered-from`,
   `duplicate-of`, and `related` relationships. All directed edges use
   `source --type--> target`; `related` is normalized and presented as
-  undirected.
+  undirected. A historical `duplicate-of` mark is descriptive evidence only;
+  fresh marks are created only as part of an authoritative merge.
+- Records an authoritative duplicate merge as one immutable
+  `source --duplicate-of--> direct destination` decision. The source becomes a
+  retained, non-actionable alias while keeping its lifecycle, checkpoints,
+  gates, events, provenance, receipts, and relationships. Exact alias reads
+  remain source-owned and separately point through a bounded path to the
+  current canonical root; Mnemonic never redirects the supplied ID, blends
+  contexts, transfers relationships or leases, or coalesces content.
 - Makes only unresolved incoming `blocks` edges affect readiness and claim
   eligibility. `done` resolves a blocker; `wont-do` and `promoted` do not.
   Active work may become blocked without revoking its existing lease.
 - Exposes dedicated `ready-work` REST and `list_ready_work` MCP reads. Ready
   items are pending, visible, unblocked, unleased, and have no unresolved human
-  gate at one database-time snapshot, ordered by priority descending, then
+  gate and are not duplicate aliases at one database-time snapshot, ordered by priority descending, then
   creation time and UUID. The
   compact result is advisory: `claim_and_recall` revalidates before execution.
 - Stores append-only, actor-attributed work events for creation, work changes,
   claims/releases, checkpoints, relationships, completion/reopen, deletion,
-  explicit concise progress, and human-gate requests/resolutions. Authoritative
+  explicit concise progress, human-gate requests/resolutions, and paired
+  `work_merged` audit facts. Authoritative
   events commit with the mutation they describe; canonical idempotent replays
   and natural no-ops do not fabricate duplicates.
 - Provides first-class human gates with exact question/answer history, asserted
@@ -183,13 +195,15 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   completion, terminal transitions, and deletion without revoking exact active
   claim replay, renewal, release, checkpoints, or progress. Resolution is a
   direct REST/dashboard human action; MCP intentionally has no resolve tool.
-- Makes retries safe for twelve project-scoped REST mutations with caller-generated
-  `client_operation_id` values and durable typed success receipts. Exactly ten
-  of the 25 canonical MCP tools require the UUID, including `request_human_input`;
-  the dashboard retains frozen same-document requests for its ten non-capability
-  mutations, including deferral and gate resolution. Direct REST may omit the
-  UUID and remain retry-unprotected. An exact retry returns the original result
-  without repeating domain or event work.
+- Makes retries safe for thirteen project-scoped REST mutations with
+  caller-generated `client_operation_id` values and durable typed success
+  receipts. Exactly eleven of the 26 canonical MCP tools require the UUID,
+  including `request_human_input` and `merge_work`; the dashboard retains frozen
+  same-document requests for its eleven non-capability mutations, including
+  deferral, gate resolution, and merge. Direct REST may omit the UUID for the
+  older twelve operations and remain retry-unprotected; `merge_work` always
+  requires it. An exact retry returns the original historical result without
+  repeating domain or event work, after which callers reread current state.
 - Keeps checkpoints and events separate. A checkpoint is substantial resume
   context; a progress event is a short historical fact. Recall includes at most
   20 recent events, while the dashboard pages the complete per-work Activity
@@ -204,7 +218,7 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 - Browses collapsed structural roots and lazily loaded children in the
   dashboard. Every branch summary includes direct-child and descendant totals,
   blocked/active/completed/discovered descendant counts, unresolved gate count,
-  discovery labels, and the next active descendant lease expiry. Subtree-aware
+  merged duplicate count, discovery labels, and the next active descendant lease expiry. Subtree-aware
   lifecycle/source/tag filters keep matching descendants reachable beneath
   muted ancestors, while free-text search returns direct hits with bounded
   ancestor breadcrumbs.
@@ -216,8 +230,11 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 It does **not** automatically execute checkpoints, grant authority by claiming,
 create GitHub issues, inject memory hooks, infer missing session IDs, schedule
 or claim the next ready item, infer or self-resolve human answers, infer
-relationships from semantic similarity, merge duplicates, or reserve repository
-resources. Mnemonic is deliberately
+relationships or merges from semantic similarity, suggest duplicate candidates
+during creation in Phase 9 Core, suppress creation, repair/unmerge a mistaken
+merge, or reserve repository resources. Every merge is an explicit permanent
+operation; correction requires a whole-database restore that discards later
+writes or a future append-only correction design. Mnemonic is deliberately
 LLM-centric: checkpoints and relationship context record an agent's claims
 rather than server-verified proof. Context quality and freshness remain agent
 workflow obligations; storing a commit ID is not proof the service verified

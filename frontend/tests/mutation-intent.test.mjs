@@ -9,6 +9,7 @@ import {
 
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
 const work = "7a5dc555-0a6d-4f92-9678-1647524827c8";
+const destination = "f1cf3691-7d28-4716-94a9-4867b341a685";
 const operation = "91b9168a-37d1-4a6a-aa1f-bb538b65cb55";
 
 function deletionInput() {
@@ -66,6 +67,83 @@ test("unknown outcome retry reuses one UUID and the exact frozen serialized body
   assert.equal(registry.get(deletionInput().slot), undefined);
   assert.deepEqual(recovered.map((intent) => intent.slot), [deletionInput().slot]);
   assert.equal("operationId" in recovered[0], false);
+});
+
+test("merge ambiguity freezes both work keys, both revisions, and byte-identical retry", async () => {
+  const calls = [];
+  const registry = new MutationIntentRegistry(async (url, init) => {
+    calls.push({ url: String(url), method: init.method, body: init.body });
+    return new Response(JSON.stringify({ detail: "Lost merge response." }), { status: 502 });
+  }, () => operation);
+  const sourceRevision = {
+    work_version: 3,
+    context_checkpoint_id: "26a3a437-0af3-405a-ab82-7932d17869e0",
+    work_event_count: 7
+  };
+  const destinationRevision = {
+    work_version: 5,
+    context_checkpoint_id: "11111111-1111-4111-8111-111111111111",
+    work_event_count: 9
+  };
+  const slot = `merge-work:${project}:${work}`;
+  const input = {
+    kind: "merge_work",
+    slot,
+    projectId: project,
+    conflictKeys: [
+      mutationWorkKey(project, work),
+      mutationWorkKey(project, destination)
+    ],
+    method: "POST",
+    path: `/projects/${project}/work-items/${work}/merge`,
+    payload: {
+      destination_work_item_id: destination,
+      reviewed_source_revision: sourceRevision,
+      reviewed_destination_revision: destinationRevision,
+      rationale: "Exact rationale with bidi text: العربية \u202E literal.",
+      merged_by_client: "dashboard",
+      merged_by_session_id: "tab-1",
+      merged_by_model: null
+    }
+  };
+
+  await assert.rejects(
+    registry.execute(input),
+    (error) => error instanceof MutationIntentError && error.state === "unresolved"
+  );
+  sourceRevision.work_version = 99;
+  destinationRevision.work_event_count = 99;
+  const retained = registry.get(slot);
+  assert.deepEqual(retained.conflictKeys, [
+    `work:${project}:${work}`,
+    `work:${project}:${destination}`
+  ]);
+  assert.equal(Object.isFrozen(retained), true);
+  assert.equal(Object.isFrozen(retained.conflictKeys), true);
+  assert.deepEqual(JSON.parse(retained.body), {
+    destination_work_item_id: destination,
+    reviewed_source_revision: {
+      work_version: 3,
+      context_checkpoint_id: "26a3a437-0af3-405a-ab82-7932d17869e0",
+      work_event_count: 7
+    },
+    reviewed_destination_revision: {
+      work_version: 5,
+      context_checkpoint_id: "11111111-1111-4111-8111-111111111111",
+      work_event_count: 9
+    },
+    rationale: "Exact rationale with bidi text: العربية \u202E literal.",
+    merged_by_client: "dashboard",
+    merged_by_session_id: "tab-1",
+    merged_by_model: null,
+    client_operation_id: operation
+  });
+
+  await assert.rejects(
+    registry.retry(slot),
+    (error) => error instanceof MutationIntentError && error.state === "unresolved"
+  );
+  assert.deepEqual(calls[0], calls[1]);
 });
 
 test("double submission coalesces one in-flight request", async () => {

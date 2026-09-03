@@ -15,8 +15,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from mnemonic_api.application.mutations import run_registered_mutation
-from mnemonic_api.database import Database
-from mnemonic_api.models import WorkItem
+from mnemonic_api.database import Database, begin_coherent_read
 from mnemonic_api.schemas import (
     ChildrenListQuery,
     HierarchySummary,
@@ -32,9 +31,11 @@ from mnemonic_api.schemas import (
     WorkDeletionCreate,
     WorkDeletionRead,
     WorkItemCreate,
+    WorkItemDetailRead,
     WorkItemPatch,
     WorkItemRead,
 )
+from mnemonic_api.services.duplicates import work_item_detail
 from mnemonic_api.services.hierarchy import hierarchy_page
 from mnemonic_api.services.readiness import ready_work_page
 from mnemonic_api.services.relationships import relationship_edge
@@ -84,9 +85,14 @@ def create_work(
     )
 
 
-@router.get("/projects/{project_id}/work-items/{work_item_id}", response_model=WorkItemRead)
-def get_work(project_id: UUID, work_item_id: UUID, database: Database) -> WorkItem:
-    return require_work_item(database, project_id, work_item_id)
+@router.get(
+    "/projects/{project_id}/work-items/{work_item_id}",
+    response_model=WorkItemDetailRead,
+)
+def get_work(project_id: UUID, work_item_id: UUID, database: Database) -> WorkItemDetailRead:
+    begin_coherent_read(database)
+    work_item = require_work_item(database, project_id, work_item_id)
+    return work_item_detail(database, project_id, work_item)
 
 
 @router.patch("/projects/{project_id}/work-items/{work_item_id}", response_model=WorkItemRead)

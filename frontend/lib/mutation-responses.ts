@@ -8,13 +8,19 @@ import type {
   RelationshipRemovalResult,
   HumanGateRead,
   WorkCreation,
-  WorkItem
+  WorkItem,
+  WorkMergeResult
 } from "@/lib/types";
-import { decodeHumanGate, sameHumanGateRevision } from "./human-gates.ts";
+import {
+  decodeHumanGate,
+  decodeWorkIdentityPointer,
+  sameHumanGateRevision
+} from "./human-gates.ts";
 import { isDefinitiveProxyError } from "./proxy-policy.ts";
 import {
   UUID_PATTERN,
   boundedText,
+  compareUtcDateTimes,
   decodeWorkItem,
   exactKeys,
   finiteInteger,
@@ -40,7 +46,8 @@ export const MUTATION_KINDS = [
   "complete_work",
   "delete_work",
   "remove_relationship",
-  "resolve_human_input"
+  "resolve_human_input",
+  "merge_work"
 ] as const;
 
 export type MutationKind = typeof MUTATION_KINDS[number];
@@ -56,6 +63,7 @@ export interface MutationResultByKind {
   delete_work: DeletionResult;
   remove_relationship: RelationshipRemovalResult;
   resolve_human_input: HumanGateRead;
+  merge_work: WorkMergeResult;
 }
 
 export interface FrozenMutationRequest {
@@ -105,12 +113,15 @@ const EXPECTED_STATUS: Record<MutationKind, number> = {
   complete_work: 200,
   delete_work: 200,
   remove_relationship: 200,
-  resolve_human_input: 200
+  resolve_human_input: 200,
+  merge_work: 201
 };
 const AMBIGUOUS_STATUSES = new Set([408, 425, 429, 502, 504]);
 const ERROR_ROOT_KEYS = new Set(["detail"]);
 const STRUCTURED_ERROR_KEYS = new Set(["code", "message", "context"]);
-const SAFE_CONTEXT_KEYS = new Set(["holder_client", "expires_at", "fields"]);
+const SAFE_CONTEXT_KEYS = new Set([
+  "holder_client", "expires_at", "fields", "canonical_work_item_id"
+]);
 const VALIDATION_KEYS = new Set(["type", "loc", "msg"]);
 const VALIDATION_LOCATION_ROOTS = new Set(["body", "query", "path", "header", "cookie"]);
 const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
@@ -137,9 +148,23 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "active_relationships",
     "work_gated",
     "gate_already_resolved",
-    "gate_context_changed"
+    "gate_context_changed",
+    "duplicate_merge_required",
+    "duplicate_self",
+    "work_duplicate",
+    "work_already_duplicate",
+    "duplicate_destination_not_canonical",
+    "duplicate_context_changed",
+    "duplicate_source_gate_unresolved",
+    "duplicate_structural_relationships",
+    "duplicate_depth_exceeded",
+    "duplicate_relationship_frozen"
   ])],
-  [422, new Set(["event_secret_echo", "client_operation_secret_echo", "gate_secret_echo"])]
+  [422, new Set([
+    "event_secret_echo", "client_operation_secret_echo", "gate_secret_echo",
+    "merge_secret_echo"
+  ])],
+  [503, new Set(["duplicate_graph_invalid"])]
 ]);
 const DEFINITIVE_API_STRING_ERRORS = new Map<number, ReadonlySet<string>>([
   [401, new Set(["Valid bearer authentication is required"])]
@@ -219,7 +244,7 @@ function requestBody(request: FrozenMutationRequest): JsonObject {
   return body;
 }
 
-function decodeCheckpoint(
+export function decodeCheckpoint(
   value: unknown,
   workItemId: string,
   expectedKind?: string,
@@ -349,7 +374,7 @@ function initialRelationshipOrder(input: JsonObject): string {
   ].join("\0");
 }
 
-function decodeRelationship(
+export function decodeRelationship(
   value: unknown,
   projectId: string,
   input?: JsonObject,
@@ -404,6 +429,217 @@ function decodeRelationship(
 
 function sameNullableUuid(left: unknown, right: unknown): boolean {
   return left === null && right === null || sameUuid(left, right);
+}
+
+function mergeRevision(value: unknown): {
+  work_version: number;
+  context_checkpoint_id: string;
+  work_event_count: number;
+} {
+  const revision = objectValue(value);
+  if (
+    !revision
+    || !exactKeys(revision, [
+      "work_version", "context_checkpoint_id", "work_event_count"
+    ])
+    || !finiteInteger(revision.work_version, 1)
+    || !validUuid(revision.context_checkpoint_id)
+    || !finiteInteger(revision.work_event_count, 1)
+  ) throw new Error("Mnemonic returned an invalid merge response.");
+  return revision as {
+    work_version: number;
+    context_checkpoint_id: string;
+    work_event_count: number;
+  };
+}
+
+function sameMergeRevision(left: unknown, right: unknown): boolean {
+  try {
+    const leftRevision = mergeRevision(left);
+    const rightRevision = mergeRevision(right);
+    return leftRevision.work_version === rightRevision.work_version
+      && leftRevision.work_event_count === rightRevision.work_event_count
+      && sameUuid(leftRevision.context_checkpoint_id, rightRevision.context_checkpoint_id);
+  } catch {
+    return false;
+  }
+}
+
+function decodeMergeResult(
+  value: unknown,
+  projectId: string,
+  sourceWorkItemId: string,
+  body: JsonObject
+): WorkMergeResult {
+  const result = objectValue(value);
+  const merge = objectValue(result?.merge);
+  if (
+    !result
+    || !exactKeys(result, [
+      "merge", "source_work_item", "destination_work_item", "direct_destination",
+      "canonical_work_item", "supporting_relationship_created",
+      "supporting_relationship", "relationship_events", "merge_events"
+    ])
+    || !merge
+    || !exactKeys(merge, [
+      "id", "merge_sequence", "project_id", "source_work_item_id",
+      "destination_work_item_id", "duplicate_relationship_id",
+      "reviewed_source_revision", "reviewed_destination_revision",
+      "resulting_source_work_version", "resulting_destination_work_version",
+      "rationale", "merged_by_client", "merged_by_session_id", "merged_by_model",
+      "created_at"
+    ])
+    || !validUuid(merge.id)
+    || !finiteInteger(merge.merge_sequence, 1)
+    || !sameUuid(merge.project_id, projectId)
+    || !sameUuid(merge.source_work_item_id, sourceWorkItemId)
+    || !validUuid(merge.destination_work_item_id)
+    || !sameUuid(merge.destination_work_item_id, body.destination_work_item_id)
+    || sameUuid(merge.source_work_item_id, merge.destination_work_item_id)
+    || !validUuid(merge.duplicate_relationship_id)
+    || !sameMergeRevision(merge.reviewed_source_revision, body.reviewed_source_revision)
+    || !sameMergeRevision(
+      merge.reviewed_destination_revision,
+      body.reviewed_destination_revision
+    )
+    || !finiteInteger(merge.resulting_source_work_version, 2)
+    || !finiteInteger(merge.resulting_destination_work_version, 2)
+    || merge.resulting_source_work_version
+      !== mergeRevision(merge.reviewed_source_revision).work_version + 1
+    || merge.resulting_destination_work_version
+      !== mergeRevision(merge.reviewed_destination_revision).work_version + 1
+    || !boundedText(merge.rationale, 4_000)
+    || merge.rationale !== body.rationale
+    || merge.merged_by_client !== body.merged_by_client
+    || merge.merged_by_session_id !== body.merged_by_session_id
+    || merge.merged_by_model !== (body.merged_by_model ?? null)
+    || !validUtcDateTime(merge.created_at)
+    || typeof result.supporting_relationship_created !== "boolean"
+    || !Array.isArray(result.relationship_events)
+    || !Array.isArray(result.merge_events)
+  ) throw new Error("Mnemonic returned an invalid merge response.");
+
+  const source = decodeWorkItem(result.source_work_item, projectId, sourceWorkItemId);
+  const destination = decodeWorkItem(
+    result.destination_work_item,
+    projectId,
+    merge.destination_work_item_id as string
+  );
+  const directDestination = decodeWorkIdentityPointer(result.direct_destination);
+  const canonicalWorkItem = decodeWorkIdentityPointer(result.canonical_work_item);
+  if (
+    source.version !== merge.resulting_source_work_version
+    || destination.version !== merge.resulting_destination_work_version
+    || source.updated_at !== merge.created_at
+    || destination.updated_at !== merge.created_at
+    || !sameUuid(directDestination.id, destination.id)
+    || directDestination.title !== destination.title
+    || directDestination.status !== destination.status
+    || !sameUuid(canonicalWorkItem.id, destination.id)
+    || canonicalWorkItem.title !== destination.title
+    || canonicalWorkItem.status !== destination.status
+  ) throw new Error("Mnemonic returned an incoherent merge response.");
+
+  const relationship = decodeRelationship(result.supporting_relationship, projectId);
+  if (
+    !sameUuid(relationship.id, merge.duplicate_relationship_id)
+    || relationship.relationship_type !== "duplicate-of"
+    || !sameUuid(relationship.source_work_item_id, source.id)
+    || !sameUuid(relationship.target_work_item_id, destination.id)
+    || compareUtcDateTimes(relationship.created_at, merge.created_at as string) > 0
+    || result.supporting_relationship_created && (
+      relationship.created_by_client !== merge.merged_by_client
+      || relationship.created_by_session_id !== merge.merged_by_session_id
+      || relationship.created_by_model !== merge.merged_by_model
+      || relationship.created_at !== merge.created_at
+      || relationship.context_checkpoint_work_item_id !== null
+      || relationship.context_checkpoint_id !== null
+    )
+  ) throw new Error("Mnemonic returned an incoherent merge relationship.");
+
+  const relationshipEvents = result.relationship_events.map((entry, index) => {
+    const expectedWork = index === 0 ? source.id : destination.id;
+    const event = decodeWorkEventForWork(entry, projectId, expectedWork);
+    const metadata = objectValue(event.metadata);
+    if (
+      event.event_type !== "relationship_added"
+      || !sameUuid(event.relationship_id, relationship.id)
+      || !sameUuid(event.relationship_source_work_item_id, source.id)
+      || !sameUuid(event.relationship_target_work_item_id, destination.id)
+      || !sameNullableUuid(
+        event.relationship_context_checkpoint_work_item_id,
+        relationship.context_checkpoint_work_item_id
+      )
+      || !sameNullableUuid(
+        event.relationship_context_checkpoint_id,
+        relationship.context_checkpoint_id
+      )
+      || event.relationship_direction !== (index === 0 ? "outgoing" : "incoming")
+      || !sameUuid(event.counterpart_work_item_id, index === 0 ? destination.id : source.id)
+      || metadata?.relationship_type !== "duplicate-of"
+      || event.origin !== "live"
+      || event.actor_kind !== "client"
+      || event.created_at !== merge.created_at
+      || event.actor_client !== merge.merged_by_client
+      || event.actor_session_id !== merge.merged_by_session_id
+      || event.actor_model !== merge.merged_by_model
+    ) throw new Error("Mnemonic returned incoherent merge relationship events.");
+    return event;
+  });
+  if (
+    relationshipEvents.length !== (result.supporting_relationship_created ? 2 : 0)
+  ) throw new Error("Mnemonic returned incoherent merge relationship events.");
+
+  const mergeEvents = result.merge_events.map((entry, index) => {
+    const role = index === 0 ? "source" : "destination";
+    const expectedWork = role === "source" ? source.id : destination.id;
+    const event = decodeWorkEventForWork(entry, projectId, expectedWork);
+    const metadata = objectValue(event.metadata);
+    if (
+      event.event_type !== "work_merged"
+      || event.body !== merge.rationale
+      || event.origin !== "live"
+      || event.actor_kind !== "client"
+      || event.created_at !== merge.created_at
+      || event.actor_client !== merge.merged_by_client
+      || event.actor_session_id !== merge.merged_by_session_id
+      || event.actor_model !== merge.merged_by_model
+      || !metadata
+      || !sameUuid(metadata.merge_id, merge.id)
+      || !sameUuid(metadata.source_work_item_id, source.id)
+      || !sameUuid(metadata.destination_work_item_id, destination.id)
+      || metadata.role !== role
+      || metadata.source_work_version !== source.version
+      || metadata.destination_work_version !== destination.version
+    ) throw new Error("Mnemonic returned incoherent merge decision events.");
+    return event;
+  });
+  if (mergeEvents.length !== 2) {
+    throw new Error("Mnemonic returned incoherent merge decision events.");
+  }
+  const eventIds = [
+    ...relationshipEvents.map((event) => event.id),
+    ...mergeEvents.map((event) => event.id)
+  ];
+  if (new Set(eventIds).size !== eventIds.length) {
+    throw new Error("Mnemonic returned duplicate merge event identities.");
+  }
+
+  return {
+    merge: {
+      ...merge,
+      reviewed_source_revision: mergeRevision(merge.reviewed_source_revision),
+      reviewed_destination_revision: mergeRevision(merge.reviewed_destination_revision)
+    } as unknown as WorkMergeResult["merge"],
+    source_work_item: source,
+    destination_work_item: destination,
+    direct_destination: directDestination,
+    canonical_work_item: canonicalWorkItem,
+    supporting_relationship_created: result.supporting_relationship_created,
+    supporting_relationship: relationship,
+    relationship_events: relationshipEvents,
+    merge_events: mergeEvents
+  };
 }
 
 function decodeSuccess<K extends MutationKind>(
@@ -567,6 +803,28 @@ function decodeSuccess<K extends MutationKind>(
       || result.version !== Number(body.expected_version) + 1
     ) throw new Error("Mnemonic returned an invalid mutation response.");
     decoded = result as unknown as DeletionResult;
+  } else if (request.kind === "merge_work") {
+    const path = parsePath(request.path, "/merge");
+    if (
+      !path?.workItemId
+      || !exactKeys(body, [
+        "destination_work_item_id", "reviewed_source_revision",
+        "reviewed_destination_revision", "rationale", "merged_by_client",
+        "merged_by_session_id", "merged_by_model", "client_operation_id"
+      ])
+      || !validUuid(body.destination_work_item_id)
+      || sameUuid(body.destination_work_item_id, path.workItemId)
+      || !sameMergeRevision(body.reviewed_source_revision, body.reviewed_source_revision)
+      || !sameMergeRevision(
+        body.reviewed_destination_revision,
+        body.reviewed_destination_revision
+      )
+      || !boundedText(body.rationale, 4_000)
+      || body.merged_by_client !== "dashboard"
+      || !boundedText(body.merged_by_session_id, 200)
+      || body.merged_by_model !== null
+    ) throw new Error("The frozen merge request is invalid.");
+    decoded = decodeMergeResult(value, path.projectId, path.workItemId, body);
   } else if (request.kind === "resolve_human_input") {
     const path = parseGateResolutionPath(request.path);
     if (!path || !boundedText(body.resolution, 4_000)) {
@@ -664,6 +922,8 @@ function safeError(value: unknown): {
       !Array.isArray(context.fields)
       || context.fields.some((field) => !boundedText(field, 100))
     )
+    || context.canonical_work_item_id !== undefined
+      && !validUuid(context.canonical_work_item_id)
   ) return null;
   return { ...detailMessage(root.detail), category: "application" };
 }
@@ -724,6 +984,13 @@ export async function classifyMutationResponse<K extends MutationKind>(
       type: "unresolved",
       message: "Mnemonic cannot verify the mutation outcome yet. Retry the same pending action."
     };
+  }
+  if (
+    response.status === 503
+    && detail?.category === "application"
+    && detail.code === "duplicate_graph_invalid"
+  ) {
+    return { type: "rejected", error: new ApiError(detail.message, 503, detail.code) };
   }
   if (AMBIGUOUS_STATUSES.has(response.status) || response.status >= 500) {
     return {

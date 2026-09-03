@@ -552,7 +552,7 @@ def test_request_vs_every_terminal_or_delete_path_in_both_orders(
         assert len(gate_history(api, project_id, work_item_id)) == 1
         current = api.get(f"{collection(project_id)}/{work_item_id}")
         assert current.status_code == 200
-        assert current.json()["status"] == "pending"
+        assert current.json()["work_item"]["status"] == "pending"
     else:
         assert outcome.code == ("work_item_not_found" if action == "delete" else "work_not_pending")
         with postgres_engine.connect() as connection:
@@ -638,7 +638,8 @@ def test_resolution_vs_claim_completion_or_new_gate_in_both_orders(
                 {"work_item_id": work_item_id},
             ) == "resolution-race-claim"
     if resolution_first and action == "complete":
-        assert api.get(f"{collection(project_id)}/{work_item_id}").json()["status"] == "done"
+        detail = api.get(f"{collection(project_id)}/{work_item_id}").json()
+        assert detail["work_item"]["status"] == "done"
 
 
 @pytest.mark.parametrize("mutation", ["checkpoint", "relationship"])

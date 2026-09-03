@@ -31,6 +31,7 @@ from mnemonic_api.schemas import (
     WorkDeletionCreate,
     WorkItemCreate,
     WorkItemPatch,
+    WorkMergeCreate,
 )
 from mnemonic_api.services.client_operations import (
     OPERATION_REGISTRY,
@@ -53,6 +54,7 @@ PROJECT_ID = UUID("10000000-0000-0000-0000-000000000001")
 WORK_ID = UUID("20000000-0000-0000-0000-000000000001")
 OTHER_WORK_ID = UUID("20000000-0000-0000-0000-000000000002")
 CHECKPOINT_ID = UUID("30000000-0000-0000-0000-000000000001")
+OTHER_CHECKPOINT_ID = UUID("30000000-0000-0000-0000-000000000002")
 GATE_ID = UUID("35000000-0000-0000-0000-000000000001")
 OPERATION_ID = UUID("40000000-0000-0000-0000-000000000001")
 OPERATION_ID_SPELLINGS = (
@@ -166,6 +168,24 @@ def canonical_vector_cases():
             "context_checkpoint_id": CHECKPOINT_ID,
             "relationship_event_count": 4,
         },
+        client_operation_id=OPERATION_ID,
+    )
+    merge_request = WorkMergeCreate(
+        destination_work_item_id=OTHER_WORK_ID,
+        reviewed_source_revision={
+            "work_version": 7,
+            "context_checkpoint_id": CHECKPOINT_ID,
+            "work_event_count": 11,
+        },
+        reviewed_destination_revision={
+            "work_version": 5,
+            "context_checkpoint_id": OTHER_CHECKPOINT_ID,
+            "work_event_count": 9,
+        },
+        rationale="These records describe the same durable work.",
+        merged_by_client="pytest",
+        merged_by_session_id="phase-9-unit",
+        merged_by_model="test-model",
         client_operation_id=OPERATION_ID,
     )
 
@@ -341,6 +361,29 @@ def canonical_vector_cases():
                 },
             },
         ),
+        (
+            "merge_work",
+            {"work_item_id": WORK_ID},
+            merge_request,
+            {
+                "destination_work_item_id": str(OTHER_WORK_ID),
+                "reviewed_source_revision": {
+                    "work_version": 7,
+                    "context_checkpoint_id": str(CHECKPOINT_ID),
+                    "work_event_count": 11,
+                },
+                "reviewed_destination_revision": {
+                    "work_version": 5,
+                    "context_checkpoint_id": str(OTHER_CHECKPOINT_ID),
+                    "work_event_count": 9,
+                },
+                "rationale": "These records describe the same durable work.",
+                "merged_by_client": "pytest",
+                "merged_by_session_id": "phase-9-unit",
+                "merged_by_model": "test-model",
+                "lease_token": None,
+            },
+        ),
     ]
 
 
@@ -357,6 +400,7 @@ CANONICAL_DIGESTS = {
     "release_claim": "c126a78e24676588e683387709035ecbedde7b6d2f6d1799bf2e36f71678fb8e",
     "request_human_input": "ca768c0d25c3abe9b966af1612c0f102418b748f1a795135594223ee8749a114",
     "resolve_human_input": "34371216cc7e87183d1a96cffd20ccc0da4b1cb17074e5074eeacd351419e4fb",
+    "merge_work": "32e053fe69bfc7a4ce0238d71e58d8a083192484a407d003da77802178afd648",
 }
 
 
@@ -365,15 +409,22 @@ def response_vector_cases():
     updated_at = "2026-09-01T12:00:01Z"
     relationship_id = UUID("50000000-0000-0000-0000-000000000001")
 
-    def work(*, status="pending", version=2):
+    def work(
+        *,
+        work_item_id=WORK_ID,
+        checkpoint_id=CHECKPOINT_ID,
+        title="Frozen response work",
+        status="pending",
+        version=2,
+    ):
         return {
-            "id": str(WORK_ID),
+            "id": str(work_item_id),
             "project_id": str(PROJECT_ID),
-            "title": "Frozen response work",
+            "title": title,
             "summary": "Freeze the public response-v1 representation.",
             "status": status,
             "priority": 42,
-            "initial_checkpoint_id": str(CHECKPOINT_ID),
+            "initial_checkpoint_id": str(checkpoint_id),
             "version": version,
             "created_at": created_at,
             "updated_at": updated_at,
@@ -498,6 +549,140 @@ def response_vector_cases():
         },
         "context_changed_at_resolution": True,
     }
+    merge_id = UUID("60000000-0000-0000-0000-000000000001")
+    merge_relationship_id = UUID("50000000-0000-0000-0000-000000000002")
+    source_work = work(version=8)
+    destination_work = work(
+        work_item_id=OTHER_WORK_ID,
+        checkpoint_id=OTHER_CHECKPOINT_ID,
+        title="Canonical response work",
+        version=6,
+    )
+    merge_revision_source = {
+        "work_version": 7,
+        "context_checkpoint_id": str(CHECKPOINT_ID),
+        "work_event_count": 11,
+    }
+    merge_revision_destination = {
+        "work_version": 5,
+        "context_checkpoint_id": str(OTHER_CHECKPOINT_ID),
+        "work_event_count": 9,
+    }
+    merge_fact = {
+        "id": str(merge_id),
+        "merge_sequence": 1,
+        "project_id": str(PROJECT_ID),
+        "source_work_item_id": str(WORK_ID),
+        "destination_work_item_id": str(OTHER_WORK_ID),
+        "duplicate_relationship_id": str(merge_relationship_id),
+        "reviewed_source_revision": merge_revision_source,
+        "reviewed_destination_revision": merge_revision_destination,
+        "resulting_source_work_version": 8,
+        "resulting_destination_work_version": 6,
+        "rationale": "These records describe the same durable work.",
+        "merged_by_client": "pytest",
+        "merged_by_session_id": "phase-9-unit",
+        "merged_by_model": "test-model",
+        "created_at": updated_at,
+    }
+    merge_relationship = {
+        "id": str(merge_relationship_id),
+        "project_id": str(PROJECT_ID),
+        "relationship_type": "duplicate-of",
+        "source_work_item_id": str(WORK_ID),
+        "target_work_item_id": str(OTHER_WORK_ID),
+        "context_checkpoint_work_item_id": None,
+        "context_checkpoint_id": None,
+        "created_by_client": "pytest",
+        "created_by_session_id": "phase-9-unit",
+        "created_by_model": "test-model",
+        "created_at": updated_at,
+    }
+
+    def merge_event(*, event_id, work_item_id, event_type, role=None):
+        is_relationship = event_type == "relationship_added"
+        metadata = (
+            {"relationship_type": "duplicate-of"}
+            if is_relationship
+            else {
+                "merge_id": str(merge_id),
+                "source_work_item_id": str(WORK_ID),
+                "destination_work_item_id": str(OTHER_WORK_ID),
+                "role": role,
+                "source_work_version": 8,
+                "destination_work_version": 6,
+            }
+        )
+        counterpart_id = OTHER_WORK_ID if work_item_id == WORK_ID else WORK_ID
+        return {
+            "id": event_id,
+            "project_id": str(PROJECT_ID),
+            "work_item_id": str(work_item_id),
+            "event_type": event_type,
+            "actor_kind": "client",
+            "actor_client": "pytest",
+            "actor_session_id": "phase-9-unit",
+            "actor_model": "test-model",
+            "body": None if is_relationship else merge_fact["rationale"],
+            "checkpoint_id": None,
+            "lease_generation_id": None,
+            "lease_release_id": None,
+            "relationship_id": str(merge_relationship_id) if is_relationship else None,
+            "relationship_source_work_item_id": str(WORK_ID) if is_relationship else None,
+            "relationship_target_work_item_id": (
+                str(OTHER_WORK_ID) if is_relationship else None
+            ),
+            "relationship_context_checkpoint_work_item_id": None,
+            "relationship_context_checkpoint_id": None,
+            "relationship_direction": (
+                "outgoing" if work_item_id == WORK_ID else "incoming"
+            ) if is_relationship else None,
+            "counterpart_work_item_id": str(counterpart_id) if is_relationship else None,
+            "metadata_version": 1,
+            "metadata": metadata,
+            "origin": "live",
+            "created_at": updated_at,
+        }
+
+    merge_response = {
+        "merge": merge_fact,
+        "source_work_item": source_work,
+        "destination_work_item": destination_work,
+        "direct_destination": {
+            "id": str(OTHER_WORK_ID),
+            "title": destination_work["title"],
+            "status": destination_work["status"],
+        },
+        "canonical_work_item": {
+            "id": str(OTHER_WORK_ID),
+            "title": destination_work["title"],
+            "status": destination_work["status"],
+        },
+        "supporting_relationship_created": True,
+        "supporting_relationship": merge_relationship,
+        "relationship_events": [
+            merge_event(event_id=101, work_item_id=WORK_ID, event_type="relationship_added"),
+            merge_event(
+                event_id=102,
+                work_item_id=OTHER_WORK_ID,
+                event_type="relationship_added",
+            ),
+        ],
+        "merge_events": [
+            merge_event(
+                event_id=103,
+                work_item_id=WORK_ID,
+                event_type="work_merged",
+                role="source",
+            ),
+            merge_event(
+                event_id=104,
+                work_item_id=OTHER_WORK_ID,
+                event_type="work_merged",
+                role="destination",
+            ),
+        ],
+    }
     return [
         (
             "create_work",
@@ -557,6 +742,7 @@ def response_vector_cases():
         ),
         ("request_human_input", unresolved_gate, unresolved_gate),
         ("resolve_human_input", resolved_gate, resolved_gate),
+        ("merge_work", merge_response, merge_response),
     ]
 
 
@@ -573,6 +759,7 @@ RESPONSE_V1_DIGESTS = {
     "release_claim": "a12ffef2c559e02d33d223cafd7f0fea6456f55a53ed21b3ae04abe39eb674f2",
     "request_human_input": "41185134969745dd81cf4b6b97c29843bbf2f5649ed09bc078e73ab30f8e96be",
     "resolve_human_input": "ffef30d660f61f41ec9beb75031afd2b95ef716d8e113c89f72942fc7525fb55",
+    "merge_work": "3dff64424a6789fd1f975342a0c49222e3ed4f140cbd4a5ff1cb8c416ca793c9",
 }
 
 
@@ -634,7 +821,13 @@ def test_every_registered_operation_has_a_frozen_response_v1_vector(
 
 def test_gate_response_replay_regenerates_computed_fields_and_refuses_tampering():
     spec = operation_spec("request_human_input")
-    source = dict(response_vector_cases()[-2][1])
+    source = dict(
+        next(
+            body
+            for kind, body, _expected in response_vector_cases()
+            if kind == "request_human_input"
+        )
+    )
     _, canonical, _ = _render_registered_response(spec, source)
 
     typed, replayed, _ = _render_registered_response(
@@ -659,7 +852,7 @@ def test_gate_response_replay_regenerates_computed_fields_and_refuses_tampering(
 
 def test_registry_is_closed_and_non_capability_bearing():
     assert tuple(OPERATION_REGISTRY) == REGISTERED_OPERATION_KINDS
-    assert len(OPERATION_REGISTRY) == 12
+    assert len(OPERATION_REGISTRY) == 13
     assert {
         spec.request_model.__name__ for spec in OPERATION_REGISTRY.values()
     } == {
@@ -675,6 +868,7 @@ def test_registry_is_closed_and_non_capability_bearing():
         "LeaseReleaseCreate",
         "HumanGateRequestCreate",
         "HumanGateResolutionCreate",
+        "WorkMergeCreate",
     }
     for kind, spec in OPERATION_REGISTRY.items():
         assert spec.kind == kind
@@ -749,6 +943,23 @@ def test_exactly_covered_request_models_accept_the_optional_uuid():
                 "context_checkpoint_id": CHECKPOINT_ID,
                 "relationship_event_count": 0,
             },
+            client_operation_id=operation_id,
+        ),
+        WorkMergeCreate(
+            destination_work_item_id=OTHER_WORK_ID,
+            reviewed_source_revision={
+                "work_version": 1,
+                "context_checkpoint_id": CHECKPOINT_ID,
+                "work_event_count": 1,
+            },
+            reviewed_destination_revision={
+                "work_version": 1,
+                "context_checkpoint_id": OTHER_CHECKPOINT_ID,
+                "work_event_count": 1,
+            },
+            rationale="Reviewed as the same work.",
+            merged_by_client="pytest",
+            merged_by_session_id="phase-9-unit",
             client_operation_id=operation_id,
         ),
     ]

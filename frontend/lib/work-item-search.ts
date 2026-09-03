@@ -1,4 +1,4 @@
-import type { StatusFilter, WorkSort } from "@/lib/types";
+import type { DuplicateScope, StatusFilter, WorkSort } from "@/lib/types";
 
 export const HIERARCHY_FILTER_DEBOUNCE_MS = 300;
 
@@ -39,7 +39,7 @@ export function scheduleHierarchyFilterCommit(
   }, HIERARCHY_FILTER_DEBOUNCE_MS);
 }
 
-type WorkSearchOptions = {
+export type WorkSearchOptions = {
   status: StatusFilter;
   sort: WorkSort;
   limit: number;
@@ -49,7 +49,18 @@ type WorkSearchOptions = {
   tag?: string;
   sourceClient?: string;
   sourceSessionId?: string;
+  duplicateScope?: DuplicateScope;
+  canonicalWorkItemId?: string;
 };
+
+export function isFlatWorkSearch(input: Pick<
+  WorkSearchOptions,
+  "query" | "duplicateScope" | "canonicalWorkItemId"
+>): boolean {
+  return input.query.trim().length > 0
+    || (input.duplicateScope ?? "canonical") !== "canonical"
+    || Boolean(input.canonicalWorkItemId);
+}
 
 function addHierarchyFilters(
   params: URLSearchParams,
@@ -72,14 +83,20 @@ export function workSearchParams({
   semantic = false,
   tag,
   sourceClient,
-  sourceSessionId
+  sourceSessionId,
+  duplicateScope = "canonical",
+  canonicalWorkItemId
 }: WorkSearchOptions): URLSearchParams {
+  if (canonicalWorkItemId && duplicateScope === "canonical") {
+    throw new Error("Canonical-group filtering requires aliases or all members.");
+  }
   const params = new URLSearchParams({
     status,
     sort,
-    view: query.trim() ? "full" : "roots",
+    view: isFlatWorkSearch({ query, duplicateScope, canonicalWorkItemId }) ? "full" : "roots",
     limit: String(limit),
-    offset: String(offset)
+    offset: String(offset),
+    duplicate_scope: duplicateScope
   });
   const trimmedQuery = query.trim();
   if (trimmedQuery) {
@@ -87,6 +104,7 @@ export function workSearchParams({
     if (semantic) params.set("semantic", "true");
   }
   addHierarchyFilters(params, { tag, sourceClient, sourceSessionId });
+  if (canonicalWorkItemId) params.set("canonical_work_item_id", canonicalWorkItemId);
   return params;
 }
 

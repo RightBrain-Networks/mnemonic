@@ -1,25 +1,26 @@
 """Canonical projections for bounded context and work summaries."""
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, literal_column, select, text
 from sqlalchemy.orm import Session
 
+from mnemonic_api.database import begin_coherent_read
 from mnemonic_api.models import Checkpoint, WorkItem, WorkLease
 from mnemonic_api.schemas import (
     CheckpointPointer,
     CheckpointRead,
     HumanGateContextRevision,
     LeasePublic,
+    MergeReviewRevision,
     WorkContext,
     WorkEventRead,
     WorkIdentityPointer,
-    WorkItemPointer,
     WorkItemRead,
     WorkSummary,
-    WorkSummaryMinimal,
 )
 from mnemonic_api.services.readiness import (
     readiness,
@@ -38,17 +39,21 @@ def checkpoint_pointer(checkpoint: Checkpoint) -> CheckpointPointer:
 
 
 def _summary_inputs(
-    database: Session, ids: list[UUID]
+    database: Session,
+    ids: list[UUID],
+    *,
+    as_of: datetime | None = None,
 ) -> tuple[
     dict[UUID, int],
     dict[UUID, int],
     dict[UUID, int],
     dict[UUID, WorkLease],
     set[UUID],
+    dict[UUID, UUID],
 ]:
     """Counts and lease facts used by bounded work-summary pages."""
-    blocker_counts, gate_counts, active_leases, dropped_lease_ids = readiness_inputs(
-        database, ids
+    blocker_counts, gate_counts, active_leases, dropped_lease_ids, canonical_ids = readiness_inputs(
+        database, ids, as_of=as_of
     )
     counts = dict(
         database.execute(
@@ -59,42 +64,26 @@ def _summary_inputs(
         .tuples()
         .all()
     )
-    return counts, blocker_counts, gate_counts, active_leases, dropped_lease_ids
+    return counts, blocker_counts, gate_counts, active_leases, dropped_lease_ids, canonical_ids
 
 
-def minimal_work_summaries(
-    database: Session, work_items: Sequence[WorkItem]
-) -> list[WorkSummaryMinimal]:
-    """Pointer-only summaries for callers on a context budget. No checkpoint pointer."""
+def work_summaries(
+    database: Session,
+    work_items: Sequence[WorkItem],
+    *,
+    as_of: datetime | None = None,
+) -> list[WorkSummary]:
     if not work_items:
         return []
     ids = [work_item.id for work_item in work_items]
-    counts, blocker_counts, gate_counts, active_leases, dropped_lease_ids = _summary_inputs(
-        database, ids
-    )
-    return [
-        WorkSummaryMinimal(
-            work_item=WorkItemPointer.model_validate(work_item),
-            checkpoint_count=counts[work_item.id],
-            display_state=readiness(
-                work_item,
-                active_leases.get(work_item.id),
-                blocker_counts.get(work_item.id, 0),
-                work_item.id in dropped_lease_ids,
-                gate_counts.get(work_item.id, 0),
-            ).display_state,
-        )
-        for work_item in work_items
-    ]
-
-
-def work_summaries(database: Session, work_items: Sequence[WorkItem]) -> list[WorkSummary]:
-    if not work_items:
-        return []
-    ids = [work_item.id for work_item in work_items]
-    counts, blocker_counts, gate_counts, active_leases, dropped_lease_ids = _summary_inputs(
-        database, ids
-    )
+    (
+        counts,
+        blocker_counts,
+        gate_counts,
+        active_leases,
+        dropped_lease_ids,
+        canonical_ids,
+    ) = _summary_inputs(database, ids, as_of=as_of)
     current_contexts = {
         checkpoint.work_item_id: checkpoint
         for checkpoint in database.scalars(
@@ -119,6 +108,7 @@ def work_summaries(database: Session, work_items: Sequence[WorkItem]) -> list[Wo
                 blocker_counts.get(work_item.id, 0),
                 work_item.id in dropped_lease_ids,
                 gate_counts.get(work_item.id, 0),
+                canonical_work_item_id=canonical_ids.get(work_item.id, work_item.id),
             ),
         )
         for work_item in work_items
@@ -133,8 +123,11 @@ def assemble_work_context(
     recent_event_limit: int = 10,
     *,
     focus_gate_id: UUID | None = None,
+    coherent_read: bool = True,
 ) -> WorkContext:
-    """Read all bounded context components from one READ COMMITTED statement."""
+    """Read source-owned context and canonical projections from one pinned snapshot."""
+    if coherent_read:
+        begin_coherent_read(database)
     dialect = database.get_bind().dialect
 
     def sql(expression) -> str:
@@ -175,7 +168,7 @@ def assemble_work_context(
                   AND deleted_at IS NULL
             ),
             database_time AS (
-                SELECT clock_timestamp() AS now
+                SELECT transaction_timestamp() AS now
             ),
             chosen AS (
                 SELECT
@@ -219,11 +212,54 @@ def assemble_work_context(
                  AND gate.work_item_id = w.id
             ),
             recent_events AS MATERIALIZED (
-                SELECT recent_event.*
+                SELECT
+                    recent_event.id,
+                    recent_event.project_id,
+                    recent_event.work_item_id,
+                    recent_event.event_type,
+                    recent_event.actor_kind,
+                    recent_event.actor_client,
+                    recent_event.actor_session_id,
+                    recent_event.actor_model,
+                    recent_event.body,
+                    recent_event.checkpoint_id,
+                    recent_event.lease_generation_id,
+                    recent_event.lease_release_id,
+                    recent_event.relationship_id,
+                    recent_event.relationship_source_work_item_id,
+                    recent_event.relationship_target_work_item_id,
+                    recent_event.relationship_context_checkpoint_work_item_id,
+                    recent_event.relationship_context_checkpoint_id,
+                    recent_event.metadata_version,
+                    recent_event.metadata,
+                    recent_event.origin,
+                    recent_event.created_at,
+                    recent_event.relationship_direction,
+                    recent_event.counterpart_work_item_id
                 FROM chosen AS w
                 CROSS JOIN LATERAL (
                     SELECT
-                        event.*,
+                        event.id,
+                        event.project_id,
+                        event.work_item_id,
+                        event.event_type,
+                        event.actor_kind,
+                        event.actor_client,
+                        event.actor_session_id,
+                        event.actor_model,
+                        event.body,
+                        event.checkpoint_id,
+                        event.lease_generation_id,
+                        event.lease_release_id,
+                        event.relationship_id,
+                        event.relationship_source_work_item_id,
+                        event.relationship_target_work_item_id,
+                        event.relationship_context_checkpoint_work_item_id,
+                        event.relationship_context_checkpoint_id,
+                        event.metadata_version,
+                        event.metadata,
+                        event.origin,
+                        event.created_at,
                         CASE
                             WHEN event.relationship_id IS NULL THEN NULL
                             WHEN event.metadata->>'relationship_type' = 'related'
@@ -277,14 +313,7 @@ def assemble_work_context(
                         ) AS direction_rank
                     FROM adjacent_base
                 ) AS ranked
-                WHERE ranked.direction_rank <= 50
-                   OR EXISTS (
-                        SELECT 1
-                        FROM gate_rows AS focused_gate
-                        WHERE CAST(:focus_gate_id AS uuid) IS NOT NULL
-                          AND focused_gate.id = CAST(:focus_gate_id AS uuid)
-                          AND focused_gate.resolved_at IS NULL
-                    )
+                WHERE ranked.direction_rank <= 100
             ),
             adjacent_rows AS (
                 SELECT
@@ -521,7 +550,35 @@ def assemble_work_context(
                 COALESCE(
                     (
                         SELECT jsonb_agg(
-                            to_jsonb(recent_event) - 'gate_id'
+                            jsonb_build_object(
+                                'id', recent_event.id,
+                                'project_id', recent_event.project_id,
+                                'work_item_id', recent_event.work_item_id,
+                                'event_type', recent_event.event_type,
+                                'actor_kind', recent_event.actor_kind,
+                                'actor_client', recent_event.actor_client,
+                                'actor_session_id', recent_event.actor_session_id,
+                                'actor_model', recent_event.actor_model,
+                                'body', recent_event.body,
+                                'checkpoint_id', recent_event.checkpoint_id,
+                                'lease_generation_id', recent_event.lease_generation_id,
+                                'lease_release_id', recent_event.lease_release_id,
+                                'relationship_id', recent_event.relationship_id,
+                                'relationship_source_work_item_id',
+                                    recent_event.relationship_source_work_item_id,
+                                'relationship_target_work_item_id',
+                                    recent_event.relationship_target_work_item_id,
+                                'relationship_context_checkpoint_work_item_id',
+                                    recent_event.relationship_context_checkpoint_work_item_id,
+                                'relationship_context_checkpoint_id',
+                                    recent_event.relationship_context_checkpoint_id,
+                                'relationship_direction', recent_event.relationship_direction,
+                                'counterpart_work_item_id', recent_event.counterpart_work_item_id,
+                                'metadata_version', recent_event.metadata_version,
+                                'metadata', recent_event.metadata,
+                                'origin', recent_event.origin,
+                                'created_at', recent_event.created_at
+                            )
                             ORDER BY recent_event.created_at, recent_event.id
                         )
                         FROM recent_events AS recent_event
@@ -544,6 +601,7 @@ def assemble_work_context(
                     ),
                     false
                 ) AS pre_phase5_history_may_be_incomplete
+                ,database_time.now AS as_of
             FROM chosen AS w
             JOIN checkpoints AS initial_checkpoint
               ON initial_checkpoint.work_item_id = w.id
@@ -606,6 +664,18 @@ def assemble_work_context(
         row["outgoing_relationships"],
         row["undirected_relationships"],
     )
+    from mnemonic_api.services.duplicates import (
+        canonical_work_item_ids,
+        duplicate_members_for_context,
+        duplicate_merge_eligibility,
+    )
+
+    counterpart_ids = [
+        UUID(str(edge["counterpart"]["id"]))
+        for relationships in relationship_groups
+        for edge in relationships
+    ]
+    counterpart_canonical_ids = canonical_work_item_ids(database, counterpart_ids)
     for relationships in relationship_groups:
         for edge in relationships:
             counterpart = edge["counterpart"]
@@ -625,6 +695,9 @@ def assemble_work_context(
                 int(counterpart_inputs["unresolved_blocker_count"]),
                 bool(counterpart_inputs["has_dropped_lease"]),
                 int(counterpart_inputs["unresolved_gate_count"]),
+                canonical_work_item_id=counterpart_canonical_ids.get(
+                    UUID(str(counterpart["id"])), UUID(str(counterpart["id"]))
+                ),
             )
     blocker_count = int(row["unresolved_blocker_count"])
     materialized_ids = {initial.id, current.id, *(item.id for item in recent)}
@@ -632,8 +705,29 @@ def assemble_work_context(
     # One checkpoint body per payload: when the newest context checkpoint is the
     # initial one, the client reads initial_checkpoint instead of a second copy.
     current_is_initial = current.id == initial.id
+    canonical, duplicate_members, duplicate_member_total = duplicate_members_for_context(
+        database, project_id, work_item
+    )
+    relationship_counts = row["relationship_counts"]
+    omitted_relationship_counts = {
+        "incoming": int(relationship_counts["incoming"]) - len(row["incoming_relationships"]),
+        "outgoing": int(relationship_counts["outgoing"]) - len(row["outgoing_relationships"]),
+        "undirected": int(relationship_counts["undirected"])
+        - len(row["undirected_relationships"]),
+        "total": int(relationship_counts["total"])
+        - sum(len(group) for group in relationship_groups),
+    }
     return WorkContext(
         work_item=work_item,
+        merge_review_revision=MergeReviewRevision(
+            work_version=work_item.version,
+            context_checkpoint_id=current.id,
+            work_event_count=event_total,
+        ),
+        canonical=canonical,
+        duplicate_members=duplicate_members,
+        duplicate_member_total=duplicate_member_total,
+        omitted_duplicate_member_count=duplicate_member_total - len(duplicate_members),
         initial_checkpoint=initial,
         current_context=None if current_is_initial else current,
         current_context_is_initial=current_is_initial,
@@ -646,6 +740,7 @@ def assemble_work_context(
             blocker_count,
             bool(row["has_dropped_lease"]),
             unresolved_gate_total,
+            canonical_work_item_id=canonical.canonical_work_item.id,
         ),
         unresolved_gates=unresolved_gates,
         unresolved_gate_total=unresolved_gate_total,
@@ -657,6 +752,13 @@ def assemble_work_context(
         outgoing_relationships=row["outgoing_relationships"],
         undirected_relationships=row["undirected_relationships"],
         relationship_counts=row["relationship_counts"],
+        omitted_relationship_counts=omitted_relationship_counts,
+        duplicate_merge_eligibility=duplicate_merge_eligibility(
+            database,
+            project_id,
+            work_item_id,
+            as_of=row["as_of"],
+        ),
         recent_events=recent_events,
         event_total=event_total,
         omitted_event_count=event_total - len(recent_events),

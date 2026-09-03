@@ -82,7 +82,6 @@
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
 body:has(dialog[open]) { overflow: hidden; }
 button, input, select, textarea { font: inherit; }
@@ -982,4 +981,76 @@ button { touch-action: manipulation; }
   .attention-pagination { align-items: stretch; flex-direction: column; }
   .attention-pagination > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .gate-review-revision { grid-template-columns: 1fr; }
+}
+
+/* Phase 9 duplicate audit and irreversible merge review. */
+.operational-badge.duplicate { color: #8f1d14; background: #fff0e8; border: 1px solid #e7b59e; }
+.work-event-kind-work_merged { color: #7a2018; background: #fff0e8; }
+
+.duplicate-filter-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 18px; margin-top: 12px; }
+.duplicate-scope-control { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.duplicate-scope-control legend { float: left; margin-right: 7px; color: var(--muted); font: 700 9px/1.6 var(--mono); letter-spacing: .35px; text-transform: uppercase; }
+.duplicate-scope-control label { display: inline-flex; cursor: pointer; }
+.duplicate-scope-control input { position: absolute; opacity: 0; pointer-events: none; }
+.duplicate-scope-control span { display: inline-flex; padding: 5px 8px; border: 1px solid transparent; border-radius: 999px; color: var(--muted); font-size: 9px; }
+.duplicate-scope-control label:hover span, .duplicate-scope-control label.selected span { color: #6d35d7; border-color: #d8c5ff; background: var(--violet-soft); }
+.duplicate-scope-control input:focus-visible + span { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
+.duplicate-group-filter { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 9px; border: 1px solid #d8c5ff; border-radius: 7px; color: #5b466f; background: var(--violet-soft); font-size: 9px; }
+.duplicate-group-filter code { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.matched-member { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; align-items: baseline; gap: 5px 10px; margin: 0 0 5px 42px; padding: 6px 9px; border: 1px solid #e3d7c5; border-radius: 7px; color: #514438; background: #faf5e9; font-size: 9px; }
+.matched-member > span { color: #7a2018; font: 700 8px/1.5 var(--mono); letter-spacing: .3px; text-transform: uppercase; }
+.matched-member bdi { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.matched-member code { color: var(--muted); }
+
+.duplicate-audit-panel { display: grid; gap: 15px; margin: 22px 0; padding: 19px; border: 1px solid #e7b59e; border-left: 4px solid #a63700; border-radius: 10px; background: #fff8ef; }
+.duplicate-audit-panel h4, .audit-history-heading h4 { margin: 4px 0 0; font-size: 17px; }
+.duplicate-audit-panel > p, .audit-history-heading p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.7; }
+.duplicate-direction-grid, .duplicate-merge-fact { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 0; }
+.duplicate-direction-grid > div, .duplicate-merge-fact > div { display: grid; gap: 5px; min-width: 0; padding: 11px; border: 1px solid #e3d7c5; border-radius: 7px; background: #fffdf8; }
+.duplicate-direction-grid dt, .duplicate-merge-fact dt { color: var(--muted); font: 700 8px/1.5 var(--mono); letter-spacing: .35px; text-transform: uppercase; }
+.duplicate-direction-grid dd, .duplicate-merge-fact dd { display: grid; gap: 3px; min-width: 0; margin: 0; line-height: 1.65; overflow-wrap: anywhere; }
+.duplicate-hop-path { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; counter-reset: duplicate-hop; }
+.duplicate-hop-path li { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 7px; padding: 7px 9px; border-left: 2px solid #a63700; background: #fffdf8; counter-increment: duplicate-hop; }
+.duplicate-hop-path li::before { content: "Hop " counter(duplicate-hop); grid-column: 1 / -1; color: var(--muted); font: 700 8px/1.5 var(--mono); text-transform: uppercase; }
+.duplicate-audit-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.audit-history-heading { display: grid; gap: 5px; margin: 28px 0 13px; padding-top: 20px; border-top: 2px solid #a63700; }
+
+.merge-dialog { width: min(1080px, calc(100vw - 40px)); }
+.merge-direction-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.merge-direction-panel { display: grid; align-content: start; gap: 10px; min-width: 0; padding: 18px; border: 2px solid #d8c5ff; border-radius: 10px; background: #faf7ff; }
+.merge-direction-source { border-color: #e7b59e; background: #fff8ef; }
+.merge-direction-panel h3 { margin: 0; font: 650 20px/1.35 var(--display); overflow-wrap: anywhere; }
+.merge-direction-panel bdi, .duplicate-audit-panel bdi, .matched-member bdi { unicode-bidi: isolate; }
+.merge-full-id { display: block; color: #4e4554; overflow-wrap: anywhere; }
+.merge-direction-badges { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: var(--muted); font-size: 9px; }
+.merge-direction-panel > p { margin: 0; color: #514438; line-height: 1.7; overflow-wrap: anywhere; }
+.merge-direction-panel dl { display: grid; gap: 7px; margin: 0; }
+.merge-direction-panel dl > div { display: grid; gap: 3px; padding-top: 7px; border-top: 1px solid #ded4c5; }
+.merge-direction-panel dt, .merge-eligibility dt { color: var(--muted); font: 700 8px/1.5 var(--mono); letter-spacing: .3px; text-transform: uppercase; }
+.merge-direction-panel dd, .merge-eligibility dd { margin: 0; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.merge-eligibility { display: grid; gap: 11px; padding: 15px; border: 1px solid #ded4c5; border-radius: 8px; background: #faf5e9; }
+.merge-eligibility h3 { margin: 0; font-size: 14px; }
+.merge-eligibility dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin: 0; }
+.merge-eligibility dl > div { display: grid; gap: 4px; min-width: 0; padding: 8px; border: 1px solid #e3d7c5; border-radius: 6px; background: #fffdf8; }
+.merge-eligibility .terminal-action-note { display: grid; gap: 4px; margin: 0; padding-left: 18px; font-size: 10px; }
+.merge-reconcile-link { justify-self: start; }
+.merge-permanence { display: flex; align-items: flex-start; gap: 9px; padding: 13px; border: 2px solid #a63700; border-radius: 8px; color: #5e261b; background: #fff0e8; font-weight: 650; line-height: 1.6; }
+.merge-permanence input { flex: none; margin-top: 3px; }
+
+@media (max-width: 760px) {
+  .merge-direction-grid, .duplicate-direction-grid, .duplicate-merge-fact { grid-template-columns: 1fr; }
+  .merge-eligibility dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .matched-member { grid-template-columns: minmax(0, 1fr); margin-left: 0; }
+  .matched-member code { overflow-wrap: anywhere; }
+}
+
+@media (max-width: 520px) {
+  .duplicate-scope-control { align-items: stretch; width: 100%; }
+  .duplicate-scope-control legend { float: none; width: 100%; }
+  .duplicate-scope-control label { flex: 1; }
+  .duplicate-scope-control span { justify-content: center; width: 100%; }
+  .duplicate-group-filter { align-items: flex-start; flex-direction: column; width: 100%; }
+  .duplicate-hop-path li, .merge-eligibility dl { grid-template-columns: 1fr; }
+  .duplicate-audit-actions .button { width: 100%; }
+  .merge-direction-panel { padding: 14px; }
 }

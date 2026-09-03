@@ -19,7 +19,7 @@ export const DEFINITIVE_PROXY_ERRORS = {
   invalidJson: { status: 400, detail: "The request body is not valid JSON." },
   forbiddenControlTransport: {
     status: 400,
-    detail: "Gate and operation control IDs are not accepted in headers or cookies."
+    detail: "Gate, operation, and lease controls are not accepted in headers or cookies."
   },
   nestedClientOperation: {
     status: 400,
@@ -78,6 +78,10 @@ export const DEFINITIVE_PROXY_ERRORS = {
     status: 400,
     detail: "The human-gate resolution body does not match the dashboard allowlist."
   },
+  invalidWorkMerge: {
+    status: 400,
+    detail: "The work-merge body does not match the dashboard allowlist."
+  },
   untrustedOrigin: {
     status: 403,
     detail: "This dashboard request is not from a trusted origin."
@@ -131,6 +135,7 @@ const RELATIONSHIP = new RegExp(`^projects/${UUID}/relationships/${UUID}$`);
 const WORK_COMPLETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/complete$`);
 const WORK_DEFER = new RegExp(`^projects/${UUID}/work-items/${UUID}/defer$`);
 const WORK_DELETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/delete$`);
+const WORK_MERGE = new RegExp(`^projects/${UUID}/work-items/${UUID}/merge$`);
 const WORK_EVENTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/events$`);
 const HUMAN_ATTENTION = new RegExp(`^projects/${UUID}/human-attention$`);
 const WORK_GATES = new RegExp(`^projects/${UUID}/work-items/${UUID}/gates$`);
@@ -159,7 +164,10 @@ const FORBIDDEN_CONTROL_TRANSPORT_NAMES = new Set([
   "gate-id",
   "human-gate-id",
   "x-gate-id",
-  "x-human-gate-id"
+  "x-human-gate-id",
+  "lease_token",
+  "lease-token",
+  "x-lease-token"
 ]);
 
 
@@ -174,7 +182,11 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   if (PROJECT_SETTINGS.test(path) && (method === "GET" || method === "PATCH")) return [];
   if (WORK_ITEMS.test(path)) {
     if (method === "GET") {
-      return ["q", "semantic", "status", "sort", "tag", "source_client", "source_session_id", "view", "limit", "offset"];
+      return [
+        "q", "semantic", "status", "sort", "tag", "source_client",
+        "source_session_id", "view", "duplicate_scope", "canonical_work_item_id",
+        "limit", "offset"
+      ];
     }
     if (method === "POST") return [];
   }
@@ -209,6 +221,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   if (WORK_COMPLETE.test(path) && method === "POST") return [];
   if (WORK_DEFER.test(path) && method === "POST") return [];
   if (WORK_DELETE.test(path) && method === "POST") return [];
+  if (WORK_MERGE.test(path) && method === "POST") return [];
   return null;
 }
 
@@ -265,6 +278,20 @@ function validHumanGateRevision(value: unknown): boolean {
     && finiteInteger(revision.work_version, 1)
     && validUuid(revision.context_checkpoint_id)
     && finiteInteger(revision.relationship_event_count, 0)
+  );
+}
+
+function validMergeReviewRevision(value: unknown): boolean {
+  const revision = jsonObject(value);
+  return Boolean(
+    revision
+    && allowedKeys(revision, [
+      "work_version", "context_checkpoint_id", "work_event_count"
+    ])
+    && Object.keys(revision).length === 3
+    && finiteInteger(revision.work_version, 1)
+    && validUuid(revision.context_checkpoint_id)
+    && finiteInteger(revision.work_event_count, 1)
   );
 }
 
@@ -328,6 +355,7 @@ function coveredMutation(path: string, method: string): boolean {
     || method === "POST" && WORK_COMPLETE.test(path)
     || method === "POST" && WORK_DEFER.test(path)
     || method === "POST" && WORK_DELETE.test(path)
+    || method === "POST" && WORK_MERGE.test(path)
     || method === "DELETE" && RELATIONSHIP.test(path)
     || method === "POST" && GATE_RESOLVE.test(path);
 }
@@ -345,7 +373,7 @@ function validInitialRelationships(value: unknown): boolean {
       relationship
       && allowedKeys(relationship, ["type", "direction", "other_work_item_id", "context_checkpoint_id"])
       && typeof relationship.type === "string"
-      && ["blocks", "parent-child", "discovered-from", "duplicate-of", "related"].includes(relationship.type)
+      && ["blocks", "parent-child", "discovered-from", "related"].includes(relationship.type)
       && (relationship.direction === "incoming" || relationship.direction === "outgoing")
       && validUuid(relationship.other_work_item_id)
       && (relationship.context_checkpoint_id === undefined
@@ -482,7 +510,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
         "created_by_client", "created_by_session_id", "created_by_model",
         "context_checkpoint_id", CLIENT_OPERATION_FIELD
       ])
-      || !["blocks", "parent-child", "discovered-from", "duplicate-of", "related"].includes(
+      || !["blocks", "parent-child", "discovered-from", "related"].includes(
         String(body.relationship_type)
       )
       || !validUuid(body.source_work_item_id)
@@ -517,6 +545,38 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !validHumanGateRevision(body.reviewed_context_revision)
     ) return DEFINITIVE_PROXY_ERRORS.invalidHumanGateResolution.detail;
   }
+  if (WORK_MERGE.test(path) && method === "POST") {
+    if (
+      !allowedKeys(body, [
+        "destination_work_item_id", "reviewed_source_revision",
+        "reviewed_destination_revision", "rationale", "merged_by_client",
+        "merged_by_session_id", "merged_by_model", CLIENT_OPERATION_FIELD
+      ])
+      || Object.keys(body).length !== 8
+      || !validUuid(body.destination_work_item_id)
+      || !validMergeReviewRevision(body.reviewed_source_revision)
+      || !validMergeReviewRevision(body.reviewed_destination_revision)
+      || !boundedText(body.rationale, 4_000)
+      || body.merged_by_client !== "dashboard"
+      || !boundedText(body.merged_by_session_id, 200)
+      || body.merged_by_model !== null
+    ) return DEFINITIVE_PROXY_ERRORS.invalidWorkMerge.detail;
+  }
+  return null;
+}
+
+export type BrowserTransportEffect =
+  | "safe_read"
+  | "receipt_protected_write"
+  | "lease_claim";
+
+export function browserTransportEffect(
+  path: string,
+  method: string
+): BrowserTransportEffect | null {
+  if (LEASE_CAPABILITY.test(path)) return "lease_claim";
+  if (method === "GET" && allowedQueryKeys(path, method) !== null) return "safe_read";
+  if (coveredMutation(path, method)) return "receipt_protected_write";
   return null;
 }
 export function upstreamTimeoutMs(query: URLSearchParams): number {

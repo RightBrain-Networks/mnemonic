@@ -34,7 +34,7 @@ const cardStatusLabels: Record<CardStatus, string> = {
 };
 
 function effectiveCardStatus(status: WorkStatus, readiness?: Readiness): CardStatus {
-  if (status !== "pending" || !readiness) return status;
+  if (status !== "pending" || !readiness || readiness.is_duplicate) return status;
   if (readiness.is_gated) return "waiting";
   if (readiness.is_blocked) return "blocked";
   if (readiness.has_active_lease) return "active";
@@ -49,6 +49,7 @@ function StatusBadge({ status, readiness }: { status: WorkStatus; readiness?: Re
 
 function OperationalBadge({ readiness }: { readiness: Readiness }) {
   return <>
+    {readiness.is_duplicate && <span className="operational-badge duplicate">Duplicate</span>}
     {readiness.is_gated && readiness.display_state !== "waiting" && <span className="operational-badge waiting">Needs attention</span>}
     {readiness.is_blocked && readiness.display_state !== "blocked" && <span className="operational-badge blocked">Blocked</span>}
     {readiness.has_active_lease && readiness.display_state !== "active" && <span className="operational-badge active">Active</span>}
@@ -135,16 +136,18 @@ export default function WorkItemCard({
         {(work.status === "pending" || work.status === "deferred") && <button
           className="button defer-button"
           type="button"
-          disabled={deferring || summary.readiness.has_active_lease}
+          disabled={deferring || summary.readiness.has_active_lease || summary.readiness.is_duplicate}
           aria-label={work.status === "deferred" ? `Move ${work.title} to Pending` : `Defer ${work.title}`}
-          title={summary.readiness.has_active_lease
+          title={summary.readiness.is_duplicate
+            ? "Duplicate audit records are immutable. Open it to navigate to canonical work."
+            : summary.readiness.has_active_lease
             ? "Active work cannot be deferred until its lease is released or expires."
             : work.status === "deferred"
               ? "Move this work item back to Pending; blockers and human gates still apply"
               : "Hold this work item out of the work queue"}
           onClick={onDefer}
         >{deferring ? "Saving…" : work.status === "deferred" ? "Move to Pending" : "Defer"}</button>}
-        <button className="icon-button" type="button" aria-label={`Edit ${work.title}`} title="Edit work item" onClick={onEdit}>✎</button>
+        <button className="icon-button" type="button" aria-label={`Edit ${work.title}`} title={summary.readiness.is_duplicate ? "Duplicate audit records are immutable" : "Edit work item"} disabled={summary.readiness.is_duplicate} onClick={onEdit}>✎</button>
         <button
           className="icon-button danger-hover"
           type="button"

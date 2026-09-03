@@ -4,6 +4,7 @@ export type EventCreateWorkStatus = Exclude<EventWorkStatus, "done">;
 export type MutableWorkStatus = "pending" | "wont-do" | "promoted";
 export type StatusFilter = WorkStatus | "active" | "dropped" | "all";
 export type WorkSort = "updated" | "created" | "priority";
+export type DuplicateScope = "canonical" | "aliases" | "all";
 export type CheckpointKind = "context" | "progress" | "completion";
 export type MigrationOrigin = "legacy-handoff-snapshot" | "legacy-comment" | null;
 
@@ -81,8 +82,10 @@ export interface Readiness {
   is_blocked: boolean;
   unresolved_gate_count: number;
   is_gated: boolean;
+  is_duplicate: boolean;
+  canonical_work_item_id: string;
   is_ready: boolean;
-  display_state: WorkStatus | "active" | "dropped" | "blocked" | "waiting";
+  display_state: WorkStatus | "active" | "dropped" | "blocked" | "waiting" | "duplicate";
 }
 
 export interface WorkIdentityPointer {
@@ -100,6 +103,24 @@ export interface WorkSummary {
   readiness: Readiness;
 }
 
+export interface WorkSearchHit {
+  summary: WorkSummary;
+  matched_member: WorkIdentityPointer;
+}
+
+export interface CanonicalWorkProjection {
+  is_duplicate: boolean;
+  direct_destination: WorkIdentityPointer | null;
+  canonical_work_item: WorkIdentityPointer;
+  path: WorkIdentityPointer[];
+  duplicate_member_count: number;
+}
+
+export interface WorkItemDetailRead {
+  work_item: WorkItem;
+  canonical: CanonicalWorkProjection;
+}
+
 export interface HierarchySummary {
   summary: WorkSummary;
   self_matches_filter: boolean;
@@ -115,6 +136,7 @@ export interface HierarchyPresentation {
   completed_descendant_count: number;
   discovered_descendant_count: number;
   branch_unresolved_human_gate_count: number;
+  branch_merged_duplicate_count: number;
   is_discovered_work: boolean;
   discovered_from_parent: boolean;
   next_active_descendant_lease_expires_at: string | null;
@@ -154,6 +176,7 @@ export type WorkEventType =
   | "relationship_removed"
   | "human_attention_requested"
   | "human_attention_resolved"
+  | "work_merged"
   | "work_completed"
   | "work_deleted";
 
@@ -196,6 +219,14 @@ export type WorkEventMetadata =
   | { checkpoint_kind: "context" | "progress" }
   | { relationship_type: RelationshipType }
   | { gate_id: string; gate_type: "human" }
+  | {
+      merge_id: string;
+      source_work_item_id: string;
+      destination_work_item_id: string;
+      role: "source" | "destination";
+      source_work_version: number;
+      destination_work_version: number;
+    }
   | { from_status: "open" | "pending"; to_status: "done"; work_version: number }
   | { final_status: EventWorkStatus; final_version: number }
   | Record<string, unknown>;
@@ -368,10 +399,17 @@ export interface WorkContext {
   checkpoint_total: number;
   omitted_checkpoint_count: number;
   readiness: Readiness;
+  merge_review_revision: MergeReviewRevision;
+  canonical: CanonicalWorkProjection;
+  duplicate_members: WorkIdentityPointer[];
+  duplicate_member_total: number;
+  omitted_duplicate_member_count: number;
   incoming_relationships: AdjacentRelationshipRead[];
   outgoing_relationships: AdjacentRelationshipRead[];
   undirected_relationships: AdjacentRelationshipRead[];
   relationship_counts: RelationshipCounts;
+  omitted_relationship_counts: RelationshipCounts;
+  duplicate_merge_eligibility: DuplicateMergeEligibility;
   recent_events: WorkEventRead[];
   event_total: number;
   omitted_event_count: number;
@@ -382,6 +420,61 @@ export interface WorkContext {
   recent_resolved_gates: HumanGateRead[];
   resolved_gate_total: number;
   omitted_resolved_gate_count: number;
+}
+
+export interface MergeReviewRevision {
+  work_version: number;
+  context_checkpoint_id: string;
+  work_event_count: number;
+}
+
+export type SourceLeaseState = "none" | "expired" | "active";
+
+export interface DuplicateMergeEligibility {
+  incident_blocks_count: number;
+  incident_parent_child_count: number;
+  has_unresolved_gate: boolean;
+  source_lease_state: SourceLeaseState;
+}
+
+export interface WorkMergeInput extends ClientOperationInput {
+  destination_work_item_id: string;
+  reviewed_source_revision: MergeReviewRevision;
+  reviewed_destination_revision: MergeReviewRevision;
+  rationale: string;
+  merged_by_client: "dashboard";
+  merged_by_session_id: string;
+  merged_by_model?: null;
+}
+
+export interface WorkMergeRead {
+  id: string;
+  merge_sequence: number;
+  project_id: string;
+  source_work_item_id: string;
+  destination_work_item_id: string;
+  duplicate_relationship_id: string;
+  reviewed_source_revision: MergeReviewRevision;
+  reviewed_destination_revision: MergeReviewRevision;
+  resulting_source_work_version: number;
+  resulting_destination_work_version: number;
+  rationale: string;
+  merged_by_client: string;
+  merged_by_session_id: string;
+  merged_by_model: string | null;
+  created_at: string;
+}
+
+export interface WorkMergeResult {
+  merge: WorkMergeRead;
+  source_work_item: WorkItem;
+  destination_work_item: WorkItem;
+  direct_destination: WorkIdentityPointer;
+  canonical_work_item: WorkIdentityPointer;
+  supporting_relationship_created: boolean;
+  supporting_relationship: RelationshipEdgeRead;
+  relationship_events: WorkEventRead[];
+  merge_events: WorkEventRead[];
 }
 
 export interface WorkCreateInput extends ClientOperationInput {

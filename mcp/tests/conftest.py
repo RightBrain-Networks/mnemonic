@@ -153,6 +153,8 @@ def checkpoint():
 def readiness():
     return {
         "lifecycle_status": "pending",
+        "is_duplicate": False,
+        "canonical_work_item_id": WORK_ID,
         "is_terminal": False,
         "has_active_lease": False,
         "has_dropped_lease": False,
@@ -219,6 +221,25 @@ def work_summary(work_item, checkpoint, readiness):
 def work_context(work_item, checkpoint, readiness):
     return {
         "work_item": work_item,
+        "merge_review_revision": {
+            "work_version": work_item["version"],
+            "context_checkpoint_id": checkpoint["id"],
+            "work_event_count": 1,
+        },
+        "canonical": {
+            "is_duplicate": False,
+            "direct_destination": None,
+            "canonical_work_item": {
+                "id": work_item["id"],
+                "title": work_item["title"],
+                "status": work_item["status"],
+            },
+            "path": [],
+            "duplicate_member_count": 0,
+        },
+        "duplicate_members": [],
+        "duplicate_member_total": 0,
+        "omitted_duplicate_member_count": 0,
         "initial_checkpoint": checkpoint,
         # Recall serializes a single-checkpoint item's body once.
         "current_context": None,
@@ -233,14 +254,23 @@ def work_context(work_item, checkpoint, readiness):
         "resolved_gate_total": 0,
         "omitted_resolved_gate_count": 0,
         "recent_events": [],
-        "event_total": 0,
-        "omitted_event_count": 0,
+        "event_total": 1,
+        "omitted_event_count": 1,
         "pre_phase5_history_may_be_incomplete": False,
         "readiness": readiness,
         "incoming_relationships": [],
         "outgoing_relationships": [],
         "undirected_relationships": [],
         "relationship_counts": {"incoming": 0, "outgoing": 0, "undirected": 0, "total": 0},
+        "omitted_relationship_counts": {
+            "incoming": 0, "outgoing": 0, "undirected": 0, "total": 0,
+        },
+        "duplicate_merge_eligibility": {
+            "incident_blocks_count": 0,
+            "incident_parent_child_count": 0,
+            "has_unresolved_gate": False,
+            "source_lease_state": "none",
+        },
     }
 
 
@@ -375,5 +405,9 @@ def active_work_context(work_context, claim_receipt):
             "active_lease": public_lease,
             "is_ready": False,
             "display_state": "active",
+        },
+        "duplicate_merge_eligibility": {
+            **work_context["duplicate_merge_eligibility"],
+            "source_lease_state": "active",
         },
     }

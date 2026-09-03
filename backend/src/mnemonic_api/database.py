@@ -2,7 +2,7 @@ from collections.abc import Iterator
 from typing import Annotated, Any, cast
 
 from fastapi import Depends, Request
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import CursorResult, Engine, Result
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
@@ -23,6 +23,12 @@ def rows_affected(result: Result[Any]) -> int:
     statement always yields a ``CursorResult`` at runtime.
     """
     return cast(CursorResult[Any], result).rowcount
+
+
+def begin_coherent_read(database: Session, *, read_only: bool = True) -> None:
+    """Pin a snapshot before the first query of a composite projected response."""
+    mode = ", READ ONLY" if read_only else ""
+    database.execute(text(f"SET TRANSACTION ISOLATION LEVEL REPEATABLE READ{mode}"))
 
 
 def build_engine(settings: Settings) -> Engine:

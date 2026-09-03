@@ -67,6 +67,8 @@ def _event(
     lease_release_id: UUID | None = None,
     relationship: WorkRelationship | None = None,
     gate_id: UUID | None = None,
+    created_for_duplicate_merge_id: UUID | None = None,
+    work_duplicate_merge_id: UUID | None = None,
 ) -> WorkEvent:
     values: dict[str, Any] = {
         "project_id": project_id,
@@ -78,6 +80,8 @@ def _event(
         "lease_generation_id": lease_generation_id,
         "lease_release_id": lease_release_id,
         "gate_id": gate_id,
+        "created_for_duplicate_merge_id": created_for_duplicate_merge_id,
+        "work_duplicate_merge_id": work_duplicate_merge_id,
         "event_metadata": metadata,
         "created_at": created_at,
         "origin": "live",
@@ -353,6 +357,7 @@ def stage_relationship_events(
     action: str,
     actor: MutationActor | None,
     created_at: datetime,
+    created_for_duplicate_merge_id: UUID | None = None,
 ) -> list[WorkEvent]:
     if action not in {"added", "removed"}:
         raise ValueError("Relationship event action must be added or removed")
@@ -367,10 +372,52 @@ def stage_relationship_events(
             created_at=created_at,
             metadata={"relationship_type": relationship.relationship_type},
             relationship=relationship,
+            created_for_duplicate_merge_id=created_for_duplicate_merge_id,
         )
         for work_item_id in (
             relationship.source_work_item_id,
             relationship.target_work_item_id,
+        )
+    ]
+    database.add_all(events)
+    return events
+
+
+def stage_work_merged_events(
+    database: Session,
+    *,
+    merge_id: UUID,
+    project_id: UUID,
+    source_work_item_id: UUID,
+    destination_work_item_id: UUID,
+    source_work_version: int,
+    destination_work_version: int,
+    rationale: str,
+    actor: MutationActor,
+    created_at: datetime,
+) -> list[WorkEvent]:
+    """Stage the source-role event first and destination-role event second."""
+    metadata = {
+        "merge_id": str(merge_id),
+        "source_work_item_id": str(source_work_item_id),
+        "destination_work_item_id": str(destination_work_item_id),
+        "source_work_version": source_work_version,
+        "destination_work_version": destination_work_version,
+    }
+    events = [
+        _event(
+            project_id=project_id,
+            work_item_id=work_item_id,
+            event_type="work_merged",
+            actor=actor,
+            created_at=created_at,
+            body=rationale,
+            metadata={**metadata, "role": role},
+            work_duplicate_merge_id=merge_id,
+        )
+        for role, work_item_id in (
+            ("source", source_work_item_id),
+            ("destination", destination_work_item_id),
         )
     ]
     database.add_all(events)
@@ -438,6 +485,9 @@ def append_progress_event(
 
     reject_known_secret_echo(payload, bearer_key=bearer_key)
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
+    from mnemonic_api.services.duplicates import require_canonical_work_item
+
+    require_canonical_work_item(database, work_item)
     mutation_time = database_now(database)
     validate_optional_lease_token(
         database,
@@ -539,21 +589,58 @@ def list_work_events(
                   AND deleted_at IS NULL
             ),
             paged AS MATERIALIZED (
-                SELECT event.*
+                SELECT
+                    event.id,
+                    event.project_id,
+                    event.work_item_id,
+                    event.event_type,
+                    event.actor_kind,
+                    event.actor_client,
+                    event.actor_session_id,
+                    event.actor_model,
+                    event.body,
+                    event.checkpoint_id,
+                    event.lease_generation_id,
+                    event.lease_release_id,
+                    event.relationship_id,
+                    event.relationship_source_work_item_id,
+                    event.relationship_target_work_item_id,
+                    event.relationship_context_checkpoint_work_item_id,
+                    event.relationship_context_checkpoint_id,
+                    event.metadata_version,
+                    event.metadata,
+                    event.origin,
+                    event.created_at
                 FROM visible_work
-                CROSS JOIN LATERAL (
-                    SELECT event.*
-                    FROM work_events AS event
-                    WHERE event.project_id = :project_id
-                      AND event.work_item_id = visible_work.id
-                      {type_predicate}
-                    ORDER BY {ordering}
-                    LIMIT :limit OFFSET :offset
-                ) AS event
+                JOIN work_events AS event ON event.work_item_id = visible_work.id
+                WHERE event.project_id = :project_id
+                  {type_predicate}
+                ORDER BY {ordering}
+                LIMIT :limit OFFSET :offset
             ),
             projected AS (
                 SELECT
-                    paged.*,
+                    paged.id,
+                    paged.project_id,
+                    paged.work_item_id,
+                    paged.event_type,
+                    paged.actor_kind,
+                    paged.actor_client,
+                    paged.actor_session_id,
+                    paged.actor_model,
+                    paged.body,
+                    paged.checkpoint_id,
+                    paged.lease_generation_id,
+                    paged.lease_release_id,
+                    paged.relationship_id,
+                    paged.relationship_source_work_item_id,
+                    paged.relationship_target_work_item_id,
+                    paged.relationship_context_checkpoint_work_item_id,
+                    paged.relationship_context_checkpoint_id,
+                    paged.metadata_version,
+                    paged.metadata,
+                    paged.origin,
+                    paged.created_at,
                     CASE
                         WHEN paged.relationship_id IS NULL THEN NULL
                         WHEN paged.metadata->>'relationship_type' = 'related'

@@ -186,7 +186,9 @@ test("external API writes appear through live browser sync", async ({ page }, te
 
     const searchbox = page.getByRole("searchbox", { name: "Search work items" });
     await searchbox.fill(emptySearchToken);
-    await expect(page.getByRole("heading", { name: "No matching work." })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "No matching work records." })
+    ).toBeVisible();
     await page.evaluate(() => {
       const motionState = (window as typeof window & {
         __queueMotionTest?: QueueMotionState;
@@ -261,7 +263,9 @@ test("external API writes appear through live browser sync", async ({ page }, te
     }, emptyTitle);
     expect(emptyExit?.duration).toBe(1000);
     expect(emptyExit?.easing.replaceAll(" ", "")).toBe("cubic-bezier(0.83,0,0.17,1)");
-    await expect(page.getByRole("heading", { name: "No matching work." })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "No matching work records." })
+    ).toBeVisible();
     await searchbox.fill("");
 
     const retainedCards = page.locator("article.work-item-card").filter({
@@ -277,15 +281,25 @@ test("external API writes appear through live browser sync", async ({ page }, te
       const listBottom = listTop + list.getBoundingClientRect().height;
       const maxScroll = scrollingElement.scrollHeight - window.innerHeight;
       document.documentElement.style.scrollBehavior = "auto";
-      scrollingElement.scrollTop = Math.max(listTop + 1, maxScroll - 50);
+      scrollingElement.scrollTop = Math.max(
+        listTop + 1,
+        Math.min(listTop + window.innerHeight / 2, maxScroll - window.innerHeight)
+      );
       await new Promise<void>((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
       });
-      return { y: window.scrollY, listTop, listBottom, maxScroll };
+      return {
+        y: window.scrollY,
+        listTop,
+        listBottom,
+        maxScroll,
+        viewportHeight: window.innerHeight
+      };
     });
     expect(scroll.maxScroll).toBeGreaterThan(0);
     expect(scroll.y).toBeGreaterThan(scroll.listTop);
     expect(scroll.y).toBeLessThan(scroll.listBottom);
+    expect(scroll.maxScroll - scroll.y).toBeGreaterThanOrEqual(scroll.viewportHeight);
 
     await page.evaluate(() => {
       const motionState = (window as typeof window & {

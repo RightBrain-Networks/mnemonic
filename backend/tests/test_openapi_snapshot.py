@@ -19,7 +19,7 @@ MCP_COMPONENT_OVERRIDES = {
     "RelationshipPage": "Page_AdjacentRelationshipRead_",
     "WorkCompletion": "WorkCompletionRead",
     "WorkDeletionResult": "WorkDeletionRead",
-    "WorkPage": "Page_Union_WorkSummary__HierarchySummary__WorkSummaryMinimal__",
+    "WorkPage": "Page_Union_WorkSearchHit__HierarchySummary__",
 }
 
 FRONTEND_PROPERTY_SETS = {
@@ -37,6 +37,23 @@ FRONTEND_PROPERTY_SETS = {
     "frontend/lib/mutation-responses.ts:decodeRelationship": "RelationshipEdgeRead",
     "frontend/lib/work-events.ts:EVENT_FIELDS": "WorkEventRead",
     "frontend/lib/work-events.ts:decodeWorkEventPage": "WorkEventPage",
+    "frontend/lib/duplicate-handling.ts:decodeCanonicalWorkProjection": (
+        "CanonicalWorkProjection"
+    ),
+    "frontend/lib/duplicate-handling.ts:decodeMergeReviewRevision": "MergeReviewRevision",
+    "frontend/lib/duplicate-handling.ts:decodeWorkContext": "WorkContext",
+    "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": "WorkItemDetailRead",
+    "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage:item": "WorkSearchHit",
+    "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": (
+        "Page_Union_WorkSearchHit__HierarchySummary__"
+    ),
+    "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage": (
+        "Page_Union_WorkSearchHit__HierarchySummary__"
+    ),
+    "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage:item": "HierarchySummary",
+    "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPresentation": (
+        "HierarchyPresentation"
+    ),
 }
 
 CONSUMER_METADATA = {

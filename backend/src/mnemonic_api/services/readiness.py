@@ -10,7 +10,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from mnemonic_api.errors import conflict, work_gated
-from mnemonic_api.models import WorkGate, WorkItem, WorkLease, WorkRelationship
+from mnemonic_api.models import (
+    WorkDuplicateMerge,
+    WorkGate,
+    WorkItem,
+    WorkLease,
+    WorkRelationship,
+)
 from mnemonic_api.schemas import (
     LeasePublic,
     Readiness,
@@ -29,6 +35,8 @@ def readiness(
     unresolved_blocker_count: int = 0,
     has_dropped_lease: bool = False,
     unresolved_gate_count: int = 0,
+    *,
+    canonical_work_item_id: UUID | None = None,
 ) -> Readiness:
     """Project lifecycle, blocker, lease, and gate facts with fixed display precedence."""
     terminal = work_item.status in {"done", "wont-do", "promoted"}
@@ -36,7 +44,11 @@ def readiness(
     has_active_lease = lease_public is not None
     is_blocked = unresolved_blocker_count > 0
     is_gated = unresolved_gate_count > 0
-    if work_item.status != "pending":
+    canonical_id = canonical_work_item_id or work_item.id
+    is_duplicate = canonical_id != work_item.id
+    if is_duplicate:
+        display_state = "duplicate"
+    elif work_item.status != "pending":
         display_state = work_item.status
     elif is_gated:
         display_state = "waiting"
@@ -50,6 +62,8 @@ def readiness(
         display_state = "pending"
     return Readiness(
         lifecycle_status=work_item.status,
+        is_duplicate=is_duplicate,
+        canonical_work_item_id=canonical_id,
         is_terminal=terminal,
         has_active_lease=has_active_lease,
         has_dropped_lease=has_dropped_lease,
@@ -63,6 +77,7 @@ def readiness(
             and not has_active_lease
             and not is_blocked
             and not is_gated
+            and not is_duplicate
         ),
         display_state=display_state,
     )
@@ -121,15 +136,27 @@ def unresolved_gate_counts(
 
 
 def readiness_inputs(
-    database: Session, work_item_ids: Sequence[UUID]
-) -> tuple[dict[UUID, int], dict[UUID, int], dict[UUID, WorkLease], set[UUID]]:
+    database: Session,
+    work_item_ids: Sequence[UUID],
+    *,
+    as_of: datetime | None = None,
+) -> tuple[
+    dict[UUID, int],
+    dict[UUID, int],
+    dict[UUID, WorkLease],
+    set[UUID],
+    dict[UUID, UUID],
+]:
     """Read blocker, gate, and lease facts with one timestamp per lease snapshot."""
     blocker_counts = unresolved_blocker_counts(database, work_item_ids)
     gate_counts = unresolved_gate_counts(database, work_item_ids)
+    captured_at = as_of or database.scalar(select(func.transaction_timestamp()))
+    if captured_at is None:
+        raise RuntimeError("Database did not provide a transaction timestamp")
     lease_rows = database.execute(
         select(
             WorkLease,
-            (WorkLease.expires_at > func.statement_timestamp()).label("is_active"),
+            (WorkLease.expires_at > captured_at).label("is_active"),
         ).where(WorkLease.work_item_id.in_(work_item_ids))
     ).all()
     active_leases = {
@@ -138,7 +165,10 @@ def readiness_inputs(
     dropped_lease_ids = {
         lease.work_item_id for lease, is_active in lease_rows if not is_active
     }
-    return blocker_counts, gate_counts, active_leases, dropped_lease_ids
+    from mnemonic_api.services.duplicates import canonical_work_item_ids
+
+    canonical_ids = canonical_work_item_ids(database, list(work_item_ids))
+    return blocker_counts, gate_counts, active_leases, dropped_lease_ids, canonical_ids
 
 
 def require_unblocked(database: Session, work_item_id: UUID) -> None:
@@ -213,13 +243,19 @@ class EligibilityClauses:
     has_unresolved_blocker: ColumnElement[bool]
     has_active_lease: ColumnElement[bool]
     gate_eligible: ColumnElement[bool]
+    is_canonical: ColumnElement[bool]
 
     @property
     def has_unresolved_gate(self) -> ColumnElement[bool]:
         return ~self.gate_eligible
 
     def eligible(self, *, include_active_lease: bool = True) -> ColumnElement[bool]:
-        clauses = [self.is_pending, ~self.has_unresolved_blocker, self.gate_eligible]
+        clauses = [
+            self.is_pending,
+            ~self.has_unresolved_blocker,
+            self.gate_eligible,
+            self.is_canonical,
+        ]
         if include_active_lease:
             clauses.append(~self.has_active_lease)
         return and_(*clauses)
@@ -251,11 +287,17 @@ def eligibility_clauses(
     )
     if correlate_from is not None:
         lease_lookup = lease_lookup.correlate(correlate_from)
+    merge_source = WorkDuplicateMerge.__table__.alias("eligibility_duplicate_source")
+    canonical_lookup = ~select(merge_source.c.source_work_item_id).where(
+        merge_source.c.project_id == work_item_project_id,
+        merge_source.c.source_work_item_id == work_item_id,
+    ).exists()
     return EligibilityClauses(
         is_pending=work_item_status == "pending",
         has_unresolved_blocker=blocker_count > 0,
         has_active_lease=func.coalesce(lease_lookup.scalar_subquery(), false()),
         gate_eligible=gate_eligibility_clause(work_item_id),
+        is_canonical=canonical_lookup,
     )
 
 
@@ -294,13 +336,21 @@ def ready_work_page(
     project_id: UUID,
     filters: ReadyWorkListQuery,
 ) -> ReadyWorkPage:
-    """Return one deterministic pointer-only ready page from one SQL statement."""
+    """Validate the duplicate graph, then return one deterministic pointer-only page."""
+    from mnemonic_api.database import begin_coherent_read
+    from mnemonic_api.services.duplicates import (
+        require_canonical_work_item,
+        validate_project_duplicate_graph,
+    )
     from mnemonic_api.services.work_items import require_project, require_work_item
 
+    begin_coherent_read(database)
     if filters.parent_work_item_id is None:
         require_project(database, project_id)
     else:
-        require_work_item(database, project_id, filters.parent_work_item_id)
+        parent = require_work_item(database, project_id, filters.parent_work_item_id)
+        require_canonical_work_item(database, parent)
+    validate_project_duplicate_graph(database, project_id)
 
     canonical_eligibility = eligibility_clauses(
         literal_column("work_item.id"),
@@ -345,7 +395,7 @@ def ready_work_page(
             text(
                 f"""
             WITH database_time AS MATERIALIZED (
-                SELECT clock_timestamp() AS now
+                SELECT transaction_timestamp() AS now
             ),
             eligible AS MATERIALIZED (
                 SELECT

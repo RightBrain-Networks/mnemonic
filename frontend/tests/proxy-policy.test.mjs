@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   allowedQueryKeys,
+  browserTransportEffect,
   clientOperationMatchesSecret,
   configuredOrigins,
   forbiddenMutationField,
@@ -66,7 +67,7 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.deepEqual(allowedQueryKeys(`projects/${project}`, "PATCH"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/settings`, "GET"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/settings`, "PATCH"), []);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "GET"), ["q", "semantic", "status", "sort", "tag", "source_client", "source_session_id", "view", "limit", "offset"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "GET"), ["q", "semantic", "status", "sort", "tag", "source_client", "source_session_id", "view", "duplicate_scope", "canonical_work_item_id", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "GET"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "PATCH"), []);
@@ -83,6 +84,7 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/complete`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/defer`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/delete`, "POST"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/merge`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/human-attention`, "GET"), ["work_item_id", "limit", "cursor"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/gates`, "GET"), ["status", "limit", "cursor"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/gates/${gate}/context`, "GET"), ["recent_limit", "recent_event_limit"]);
@@ -443,11 +445,92 @@ test("canonical mutation bodies cannot carry lease tokens", () => {
     [`projects/${project}/work-items/${work}/defer`, "POST"],
     [`projects/${project}/work-items/${work}/delete`, "POST"],
     [`projects/${project}/work-items/${work}/checkpoints`, "POST"],
-    [`projects/${project}/relationships`, "POST"]
+    [`projects/${project}/relationships`, "POST"],
+    [`projects/${project}/work-items/${work}/merge`, "POST"]
   ];
   for (const [path, method] of browserMutations) {
     assert.notEqual(allowedQueryKeys(path, method), null, `${method} ${path} should otherwise be allowed`);
     assert.equal(forbiddenMutationField({ expected_version: 1, lease_token: "browser-secret" }), "lease_token");
+  }
+});
+
+test("Core merge is a receipt-protected browser mutation with one exact body", () => {
+  const path = `projects/${project}/work-items/${work}/merge`;
+  const revision = {
+    work_version: 3,
+    context_checkpoint_id: checkpoint,
+    work_event_count: 8
+  };
+  const body = {
+    destination_work_item_id: other,
+    reviewed_source_revision: revision,
+    reviewed_destination_revision: { ...revision, work_version: 4 },
+    rationale: "These records describe the same durable objective.",
+    merged_by_client: "dashboard",
+    merged_by_session_id: "tab-1",
+    merged_by_model: null,
+    client_operation_id: operation
+  };
+  assert.equal(invalidMutationBody(path, "POST", body), null);
+  assert.equal(browserTransportEffect(path, "POST"), "receipt_protected_write");
+  assert.equal(browserTransportEffect(`projects/${project}/work-items`, "GET"), "safe_read");
+  assert.equal(
+    browserTransportEffect(`projects/${project}/work-items/${work}/claim`, "POST"),
+    "lease_claim"
+  );
+  for (const invalid of [
+    { ...body, destination_work_item_id: "not-a-uuid" },
+    { ...body, reviewed_source_revision: { ...revision, work_event_count: 0 } },
+    { ...body, reviewed_destination_revision: { ...revision, extra: true } },
+    { ...body, rationale: "   " },
+    { ...body, merged_by_client: "agent" },
+    { ...body, merged_by_model: "forged" },
+    { ...body, lease_token: "browser-secret" },
+    { ...body, nested: { lease_token: "browser-secret" } }
+  ]) assert.match(invalidMutationBody(path, "POST", invalid), /(allowlist|unsupported field)/);
+});
+
+test("fresh generic duplicate marks are absent from both browser creation paths", () => {
+  assert.match(invalidMutationBody(`projects/${project}/relationships`, "POST", {
+    relationship_type: "duplicate-of",
+    source_work_item_id: work,
+    target_work_item_id: other,
+    created_by_client: "dashboard",
+    created_by_session_id: "tab-1",
+    created_by_model: null,
+    client_operation_id: operation
+  }), /allowlist/);
+  assert.match(invalidMutationBody(`projects/${project}/work-items`, "POST", {
+    title: "Duplicate",
+    summary: "Summary",
+    priority: 0,
+    status: "pending",
+    initial_checkpoint: {
+      prompt: "Context",
+      source_client: "dashboard",
+      source_session_id: "tab-1",
+      tags: [],
+      source_metadata: {}
+    },
+    initial_relationships: [{
+      type: "duplicate-of",
+      direction: "outgoing",
+      other_work_item_id: other
+    }],
+    client_operation_id: operation
+  }), /allowlist/);
+});
+
+test("lease controls are denied recursively and across browser transport locations", () => {
+  for (const name of ["lease_token", "Lease_Token"]) {
+    assert.equal(forbiddenMutationField({ outer: [{ [name]: "secret" }] }), name);
+  }
+  for (const name of ["lease_token", "lease-token", "x-lease-token"]) {
+    assert.equal(forbiddenControlTransport(new Headers({ [name]: "secret" })), "header");
+    assert.equal(
+      forbiddenControlTransport(new Headers({ cookie: `theme=dark; ${name}=secret` })),
+      "cookie"
+    );
   }
 });
 

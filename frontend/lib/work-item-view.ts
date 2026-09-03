@@ -45,8 +45,10 @@ export function readinessAfterWorkSave(
       has_active_lease: false,
       has_dropped_lease: false,
       active_lease: null,
-      is_ready: !readiness.is_blocked && !readiness.is_gated,
-      display_state: readiness.is_gated ? "waiting" : readiness.is_blocked ? "blocked" : "pending"
+      is_ready: !readiness.is_duplicate && !readiness.is_blocked && !readiness.is_gated,
+      display_state: readiness.is_duplicate
+        ? "duplicate"
+        : readiness.is_gated ? "waiting" : readiness.is_blocked ? "blocked" : "pending"
     };
   }
   return {
@@ -57,7 +59,7 @@ export function readinessAfterWorkSave(
     has_dropped_lease: false,
     active_lease: null,
     is_ready: false,
-    display_state: nextStatus
+    display_state: readiness.is_duplicate ? "duplicate" : nextStatus
   };
 }
 
@@ -67,13 +69,16 @@ export function terminalActionDisabled(
   readiness: Readiness,
   mutationBlocked = false
 ): boolean {
-  return mutationBlocked || readiness.is_gated;
+  return mutationBlocked || readiness.is_duplicate || readiness.is_gated;
 }
 
 export function terminalActionGateExplanation(
   readiness: Readiness,
   action: TerminalAction
 ): string | null {
+  if (readiness.is_duplicate) {
+    return `This duplicate is an immutable audit record; ${action} is unavailable.`;
+  }
   if (!readiness.is_gated) return null;
   const count = readiness.unresolved_gate_count;
   const questions = `${count} unresolved human question${count === 1 ? "" : "s"}`;

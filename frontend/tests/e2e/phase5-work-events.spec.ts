@@ -71,9 +71,9 @@ async function hideFixtureWork(
   if (!workId) return;
   const current = await client.get(`/api/v1/projects/${projectId}/work-items/${workId}`);
   if (!current.ok()) return;
-  const work = await current.json() as { version: number };
+  const detail = await current.json() as { work_item: { version: number } };
   await client.post(`/api/v1/projects/${projectId}/work-items/${workId}/delete`, {
-    data: { expected_version: work.version }
+    data: { expected_version: detail.work_item.version }
   });
 }
 

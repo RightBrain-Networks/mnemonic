@@ -44,6 +44,11 @@ function referenceRows(event: WorkEventPage["items"][number]): Array<[string, st
     && "gate_id" in event.metadata
     && typeof event.metadata.gate_id === "string"
   ) rows.push(["Human gate", event.metadata.gate_id]);
+  if (event.event_type === "work_merged" && "merge_id" in event.metadata) {
+    rows.push(["Merge", String(event.metadata.merge_id)]);
+    rows.push(["Source work", String(event.metadata.source_work_item_id)]);
+    rows.push(["Destination work", String(event.metadata.destination_work_item_id)]);
+  }
   return rows;
 }
 
@@ -60,7 +65,7 @@ export default function WorkEventTimeline({
   const mutationRegistry = useMutationIntentRegistry();
   const mutationIntents = useMutationIntents(mutationRegistry);
   const workConflictKey = mutationWorkKey(work.project_id, work.id);
-  const mutationBlocked = mutationIntents.some((intent) => (
+  const mutationBlocked = context.canonical.is_duplicate || mutationIntents.some((intent) => (
     intent.state !== "prepared" && intent.conflictKeys.includes(workConflictKey)
   ));
   const [recoverySignal, setRecoverySignal] = useState(0);
@@ -188,6 +193,8 @@ export default function WorkEventTimeline({
       </article>;
     })}</div> : null}
     {page && page.total > EVENT_PAGE_SIZE && <div className="pagination event-pagination"><span>{page.total ? `${page.offset + 1}–${Math.min(page.offset + page.limit, page.total)} of ${page.total}` : "0 events"}</span><div><button type="button" className="button button-secondary" disabled={loading || offset === 0} onClick={() => requestEventOffset(Math.max(0, offset - EVENT_PAGE_SIZE))}>Newer</button><button type="button" className="button button-secondary" disabled={loading || offset + EVENT_PAGE_SIZE >= page.total} onClick={() => requestEventOffset(offset + EVENT_PAGE_SIZE)}>Older</button></div></div>}
-    <WorkEventComposer onAppend={append} blocked={mutationBlocked} resetSignal={recoverySignal} />
+    {context.canonical.is_duplicate
+      ? <p className="event-authority-note">This duplicate is immutable. Its exact source-owned activity remains available for audit.</p>
+      : <WorkEventComposer onAppend={append} blocked={mutationBlocked} resetSignal={recoverySignal} />}
   </section>;
 }

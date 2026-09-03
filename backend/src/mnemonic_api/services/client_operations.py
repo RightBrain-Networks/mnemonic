@@ -54,6 +54,9 @@ from mnemonic_api.schemas import (
     WorkItemCreate,
     WorkItemPatch,
     WorkItemRead,
+    WorkMergeCreate,
+    WorkMergeRequest,
+    WorkMergeResult,
 )
 
 type OperationKind = Literal[
@@ -69,6 +72,7 @@ type OperationKind = Literal[
     "release_claim",
     "request_human_input",
     "resolve_human_input",
+    "merge_work",
 ]
 REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
     "create_work",
@@ -83,6 +87,7 @@ REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
     "release_claim",
     "request_human_input",
     "resolve_human_input",
+    "merge_work",
 )
 
 REQUEST_FINGERPRINT_VERSION = 1
@@ -113,6 +118,7 @@ class OperationSpec:
     response_model: type[APIModel]
     status_code: int
     target_fields: tuple[str, ...]
+    domain_model: type[APIModel]
     mutation_applied_field: Literal["created", "removed", "released"] | None = None
     request_fingerprint_version: int = REQUEST_FINGERPRINT_VERSION
     response_contract_version: int = RESPONSE_CONTRACT_VERSION
@@ -142,6 +148,7 @@ def _spec(
     status_code: int,
     *target_fields: str,
     mutation_applied_field: Literal["created", "removed", "released"] | None = None,
+    domain_model: type[APIModel] | None = None,
 ) -> OperationSpec:
     if "client_operation_id" not in request_model.model_fields:
         raise RuntimeError(f"{kind} request is missing its client operation field")
@@ -158,6 +165,7 @@ def _spec(
         response_model=response_model,
         status_code=status_code,
         target_fields=tuple(target_fields),
+        domain_model=domain_model or request_model,
         mutation_applied_field=mutation_applied_field,
     )
 
@@ -221,6 +229,14 @@ _REGISTRY: dict[OperationKind, OperationSpec] = {
         200,
         "work_item_id",
         "gate_id",
+    ),
+    "merge_work": _spec(
+        "merge_work",
+        WorkMergeCreate,
+        WorkMergeResult,
+        201,
+        "work_item_id",
+        domain_model=WorkMergeRequest,
     ),
 }
 OPERATION_REGISTRY: Mapping[OperationKind, OperationSpec] = MappingProxyType(_REGISTRY)
@@ -397,7 +413,7 @@ def prepare_client_operation(
     # Revalidate only explicitly supplied domain fields. This prevents a control
     # field from crossing the service boundary while preserving patch field-set
     # semantics and the validated/defaulted values of every request class.
-    domain_payload = spec.request_model.model_validate(
+    domain_payload = spec.domain_model.model_validate(
         payload.model_dump(exclude={"client_operation_id"}, exclude_unset=True)
     )
     identity = (
@@ -965,6 +981,32 @@ def _resolve_human_input_matches(
     )
 
 
+def _merge_work_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(WorkMergeResult, typed)
+    request = cast(WorkMergeRequest, payload)
+    merge = result.merge
+    return (
+        merge.project_id == project_id
+        and str(merge.source_work_item_id) == target_envelope.get("work_item_id")
+        and merge.destination_work_item_id == request.destination_work_item_id
+        and merge.reviewed_source_revision == request.reviewed_source_revision
+        and merge.reviewed_destination_revision == request.reviewed_destination_revision
+        and merge.rationale == request.rationale
+        and merge.merged_by_client == request.merged_by_client
+        and merge.merged_by_session_id == request.merged_by_session_id
+        and merge.merged_by_model == request.merged_by_model
+        and result.source_work_item.id == merge.source_work_item_id
+        and result.destination_work_item.id == merge.destination_work_item_id
+        and result.direct_destination.id == merge.destination_work_item_id
+        and result.canonical_work_item.id == merge.destination_work_item_id
+    )
+
+
 _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
     {
         "create_work": _create_work_matches,
@@ -979,6 +1021,7 @@ _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
         "release_claim": _release_claim_matches,
         "request_human_input": _request_human_input_matches,
         "resolve_human_input": _resolve_human_input_matches,
+        "merge_work": _merge_work_matches,
     }
 )
 if set(_RESPONSE_MATCHERS) != set(OPERATION_REGISTRY):  # pragma: no cover - import guard

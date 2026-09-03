@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  decodeHierarchyPresentation,
   discoveryLabel,
   hierarchyBranchTotals,
   hierarchyOverlapNote
@@ -13,7 +14,8 @@ const totals = {
   active_descendant_count: 2,
   completed_descendant_count: 3,
   discovered_descendant_count: 1,
-  branch_unresolved_human_gate_count: 1
+  branch_unresolved_human_gate_count: 1,
+  branch_merged_duplicate_count: 4
 };
 
 test("discovery labels distinguish ungrouped, direct, grouped, and planned work", () => {
@@ -32,13 +34,14 @@ test("branch totals spell out every descendant population with correct grammar",
     { key: "active", label: "2 active descendants" },
     { key: "completed", label: "3 completed descendants" },
     { key: "discovered", label: "1 discovered descendant" },
+    { key: "merged-duplicates", label: "4 merged duplicate audit records" },
     {
       key: "human-attention",
       label: "1 unresolved human question needs attention",
       needsAttention: true
     }
   ]);
-  assert.equal(hierarchyOverlapNote, "Blocked, active, completed, and discovered descendant counts can overlap.");
+  assert.equal(hierarchyOverlapNote, "Blocked, active, completed, discovered, and merged-duplicate counts can overlap.");
 });
 
 test("zero totals remain exposed and plural questions use the plural verb", () => {
@@ -50,6 +53,7 @@ test("zero totals remain exposed and plural questions use the plural verb", () =
     active_descendant_count: 0,
     completed_descendant_count: 0,
     discovered_descendant_count: 0,
+    branch_merged_duplicate_count: 0,
     branch_unresolved_human_gate_count: 2
   }), [
     { key: "direct-children", label: "0 direct children" },
@@ -58,10 +62,24 @@ test("zero totals remain exposed and plural questions use the plural verb", () =
     { key: "active", label: "0 active descendants" },
     { key: "completed", label: "0 completed descendants" },
     { key: "discovered", label: "0 discovered descendants" },
+    { key: "merged-duplicates", label: "0 merged duplicate audit records" },
     {
       key: "human-attention",
       label: "2 unresolved human questions need attention",
       needsAttention: true
     }
   ]);
+});
+
+test("parent discovery cannot be asserted for planned work", () => {
+  const presentation = {
+    ...totals,
+    is_discovered_work: false,
+    discovered_from_parent: true,
+    next_active_descendant_lease_expires_at: null
+  };
+  assert.throws(
+    () => decodeHierarchyPresentation(presentation),
+    /invalid hierarchy presentation/
+  );
 });

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { HUMAN_GATE_DECODER_FIELDS } from "../lib/human-gates.ts";
+import { DUPLICATE_HANDLING_DECODER_FIELDS } from "../lib/duplicate-handling.ts";
+import { HIERARCHY_DECODER_FIELDS } from "../lib/hierarchy-presentation.ts";
 import { MUTATION_RESPONSE_DECODER_FIELDS } from "../lib/mutation-responses.ts";
 import { WORK_EVENT_DECODER_FIELDS } from "../lib/work-events.ts";
 
@@ -10,6 +12,13 @@ const DEFAULTED_RESPONSE_FIELDS = {
   "frontend/lib/human-gates.ts:decodeWorkSummary": [
     "ancestor_path",
     "ancestor_path_truncated"
+  ],
+  "frontend/lib/duplicate-handling.ts:decodeWorkContext": [
+    "incoming_relationships",
+    "omitted_relationship_counts",
+    "outgoing_relationships",
+    "relationship_counts",
+    "undirected_relationships"
   ]
 };
 
@@ -33,6 +42,8 @@ test("strict frontend decoders match the committed OpenAPI component contracts",
 
   const decoderFields = {
     ...qualifiedFields("frontend/lib/human-gates.ts", HUMAN_GATE_DECODER_FIELDS),
+    ...qualifiedFields("frontend/lib/duplicate-handling.ts", DUPLICATE_HANDLING_DECODER_FIELDS),
+    ...qualifiedFields("frontend/lib/hierarchy-presentation.ts", HIERARCHY_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/mutation-responses.ts", MUTATION_RESPONSE_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/work-events.ts", WORK_EVENT_DECODER_FIELDS)
   };

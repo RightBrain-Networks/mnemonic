@@ -12,23 +12,25 @@ Every directed edge reads source → target:
 | `A blocks B` | B has an incoming blocker from A. |
 | `A parent-child B` | A is B's parent. |
 | `A discovered-from B` | A was discovered from B; cite a context checkpoint belonging to B. |
-| `A duplicate-of B` | B is the canonical counterpart. |
+| `A duplicate-of B` | A carries a weak duplicate mark pointing to B; this alone is not canonical authority. |
 | `A related B` | Symmetric; returned as undirected adjacency. |
 
 ## Blockers and human gates are separate readiness facts
 
 An item is blocked only by an **incoming `blocks` edge whose source is not
 `done`**. `wont-do` and `promoted` blockers stay unresolved. `parent-child`,
-`discovered-from`, `duplicate-of`, and `related` are descriptive and never make
-work ready or blocked. An unresolved human gate is a separate explicit fact: it
+`discovered-from`, a `duplicate-of` mark by itself, and `related` are descriptive and never
+make work ready or blocked. A permanent authoritative merge separately makes its source a frozen
+duplicate that is never ready. An unresolved human gate is a separate explicit fact: it
 makes Pending work `waiting`, excludes it from ready discovery, prevents a fresh
 or replacement claim, and refuses completion, retirement, promotion, and
 deletion until every gate on the item is resolved. It is never inferred from an
 edge, status, checkpoint, or progress text, and no agent can withdraw one.
 
 Blocking or gating does not cancel an existing lease, so `has_active_lease`,
-`is_blocked`, and `is_gated` can all be true. Human display precedence is
-non-Pending lifecycle, then waiting, blocked, active, dropped, and pending; the
+`is_blocked`, and `is_gated` can all be true. Human display precedence gives a merged duplicate
+its `duplicate` state, then uses non-Pending lifecycle, waiting, blocked, active, dropped, and pending
+for roots; the
 independent flags remain authoritative.
 
 ## Ready discovery is advisory; claim is authoritative
@@ -86,6 +88,33 @@ Similarity of wording, adjacency in a search result, or two items sounding
 related is not evidence of an edge, least of all `duplicate-of`. Never infer
 graph facts from search results.
 
+## Duplicate marks are not authoritative merges
+
+An existing `A duplicate-of B` relationship is only retained evidence. It does not redirect A,
+make B canonical, freeze either endpoint, or authorize `merge_work`. Fresh generic duplicate-of
+writes through `create_work` or `add_relationship` are closed; those tools still accept the literal
+only so a previously completed protected mutation can replay at the backend.
+
+`merge_work(source=A, destination=B)` is the sole authoritative operation. Direction is permanent:
+A becomes a frozen audit alias and B remains the canonical root. Before calling it, recall A and B
+separately, preserve each exact ID, and freeze both complete `merge_review_revision` objects. The
+source must be a current root with no incident `blocks` or `parent-child` relationships and no
+unresolved human gate. Handle its active lease with the matching private token. The destination
+must be a visible current root at its reviewed revision. Similarity, a weak mark, model output, or
+stored prose is evidence only; current explicit authority must establish the merge and direction.
+
+The server atomically reuses the exact A → B duplicate mark or creates it as witnessed evidence,
+records one immutable merge fact and two `work_merged` events, and advances both endpoint versions.
+Canonical links form an immutable acyclic forest with paths of at most 50 hops. There is no
+unmerge, transfer, redirect-on-read, relationship rewiring, or merge-on-create path.
+
+Afterward A keeps its own lifecycle, checkpoints, events, gates, and relationships for audit, but
+claims and every fresh mutation on it are refused. Default search, ready discovery, and hierarchy
+omit it as an independent item. Use explicit `duplicate_scope="aliases"` or `"all"` only for audit,
+and recall the returned `canonical_work_item` separately before continuing root work. Never replace
+the selected or displayed audit ID silently. Relationships incident to an alias, including the
+chosen duplicate mark, are frozen and cannot be removed.
+
 ## Keep traversal shallow and pointer-only
 
 Use `list_relationships` with an explicit `direction` and `relationship_type`,
@@ -110,9 +139,10 @@ initial `discovered-from` edge must be `outgoing` and must cite a checkpoint on
 its originating target. These atomic edges inherit creator provenance from the
 initial checkpoint and are part of the immutable `create_work` intent. Prepare
 and retry that intent under the canonical rules in authority-and-provenance.md;
-reordering, adding, or removing an edge is a changed intent.
+reordering, adding, or removing an edge is a changed intent. Never include a fresh `duplicate-of`
+entry; authoritative deduplication is the separately reviewed `merge_work` operation above.
 
-For a fact connecting existing work, use `add_relationship` with the exact
+For a non-duplicate fact connecting existing work, use `add_relationship` with the exact
 source, target, type, and real acting client/session provenance; removal with
 `remove_relationship` requires the real acting actor fields. Each add or remove
 is its own protected intent under the same shared rules; a replay returns the

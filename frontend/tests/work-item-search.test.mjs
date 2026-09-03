@@ -9,7 +9,7 @@ import {
 
 test("work search includes the explicit full view and defaults to lexical retrieval", () => {
   const params = workSearchParams({ status: "pending", sort: "created", limit: 20, offset: 0, query: "database migration" });
-  assert.equal(params.toString(), "status=pending&sort=created&view=full&limit=20&offset=0&q=database+migration");
+  assert.equal(params.toString(), "status=pending&sort=created&view=full&limit=20&offset=0&duplicate_scope=canonical&q=database+migration");
   assert.equal(params.has("semantic"), false);
 });
 
@@ -21,14 +21,14 @@ test("semantic work search trims and requires a nonblank query", () => {
   assert.equal(semantic.get("sort"), "priority");
 
   const blank = workSearchParams({ status: "all", sort: "updated", limit: 20, offset: 0, query: " \n\t ", semantic: true });
-  assert.equal(blank.toString(), "status=all&sort=updated&view=roots&limit=20&offset=0");
+  assert.equal(blank.toString(), "status=all&sort=updated&view=roots&limit=20&offset=0&duplicate_scope=canonical");
 });
 
 test("ordinary browse pages structural roots and child pages inherit filters", () => {
   const browse = workSearchParams({ status: "pending", sort: "updated", limit: 20, offset: 20, query: "" });
-  assert.equal(browse.toString(), "status=pending&sort=updated&view=roots&limit=20&offset=20");
+  assert.equal(browse.toString(), "status=pending&sort=updated&view=roots&limit=20&offset=20&duplicate_scope=canonical");
   const active = workSearchParams({ status: "active", sort: "priority", limit: 20, offset: 0, query: "" });
-  assert.equal(active.toString(), "status=active&sort=priority&view=roots&limit=20&offset=0");
+  assert.equal(active.toString(), "status=active&sort=priority&view=roots&limit=20&offset=0&duplicate_scope=canonical");
   assert.equal(childSearchParams({ status: "promoted", sort: "created", limit: 50, offset: 100 }).toString(), "status=promoted&sort=created&limit=50&offset=100");
   assert.equal(childSearchParams({ status: "dropped", sort: "updated", limit: 50, offset: 0 }).toString(), "status=dropped&sort=updated&limit=50&offset=0");
   assert.equal(childSearchParams({ status: "deferred", sort: "updated", limit: 50, offset: 0 }).toString(), "status=deferred&sort=updated&limit=50&offset=0");
@@ -56,6 +56,41 @@ test("ordinary browse pages structural roots and child pages inherit filters", (
     }).toString(),
     "status=all&sort=created&limit=50&offset=0"
   );
+});
+
+test("duplicate audit scopes force flat pages and bind group filters only to audit views", () => {
+  assert.equal(
+    workSearchParams({
+      status: "all",
+      sort: "updated",
+      limit: 20,
+      offset: 0,
+      query: "",
+      duplicateScope: "aliases"
+    }).toString(),
+    "status=all&sort=updated&view=full&limit=20&offset=0&duplicate_scope=aliases"
+  );
+  assert.equal(
+    workSearchParams({
+      status: "all",
+      sort: "updated",
+      limit: 20,
+      offset: 0,
+      query: "",
+      duplicateScope: "all",
+      canonicalWorkItemId: "7a5dc555-0a6d-4f92-9678-1647524827c8"
+    }).toString(),
+    "status=all&sort=updated&view=full&limit=20&offset=0&duplicate_scope=all&canonical_work_item_id=7a5dc555-0a6d-4f92-9678-1647524827c8"
+  );
+  assert.throws(() => workSearchParams({
+    status: "all",
+    sort: "updated",
+    limit: 20,
+    offset: 0,
+    query: "",
+    duplicateScope: "canonical",
+    canonicalWorkItemId: "7a5dc555-0a6d-4f92-9678-1647524827c8"
+  }), /requires aliases or all/);
 });
 
 test("rapid hierarchy-filter edits produce one request-driving committed key", () => {

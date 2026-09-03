@@ -22,8 +22,8 @@ def test_plugin_manifest_and_inventory_are_exact():
     )
 
     assert inner["name"] == "mnemonic"
-    assert inner["version"] == "0.6.1"
-    assert "human questions" in inner["description"]
+    assert inner["version"] == "0.7.0"
+    assert "duplicate merges" in inner["description"]
     assert marketplace["plugins"] == [
         {
             "name": "mnemonic",
@@ -58,11 +58,17 @@ def test_every_skill_agrees_on_gate_authority_and_dual_graph_facts():
             assert (PLUGIN_ROOT / relative).is_file(), (name, relative)
 
 
-def test_shared_references_freeze_ten_writes_and_no_agent_resolution():
+def test_shared_references_freeze_eleven_writes_and_permanent_merge():
     authority = (PLUGIN_ROOT / "reference" / "authority-and-provenance.md").read_text()
     graph = (PLUGIN_ROOT / "reference" / "work-graph.md").read_text()
 
-    assert "These ten canonical mutations" in authority
+    assert "These eleven canonical mutations" in authority
+    assert "`merge_work`" in authority
+    assert "permanent" in authority
+    assert "typed `503 duplicate_graph_invalid`" in authority
+    assert "not an unknown" in authority
+    assert "do not retry" in authority
+    assert "duplicate-handling aggregate audit" in authority
     assert "No canonical MCP tool resolves a gate" in authority
     assert "request_human_input" in authority
     assert "list_work_gates" in authority
@@ -74,3 +80,7 @@ def test_shared_references_freeze_ten_writes_and_no_agent_resolution():
     assert "unresolved human gate" in graph
     assert "Only `parent-child` defines" in graph
     assert "record both facts atomically" in graph
+    assert "Duplicate marks are not authoritative merges" in graph
+    assert "sole authoritative operation" in graph
+    assert "never replace" in graph.lower()
+    assert "Fresh generic duplicate-of" in graph

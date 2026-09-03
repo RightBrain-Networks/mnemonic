@@ -7,7 +7,7 @@ from sqlalchemy import literal_column, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
-from mnemonic_api.database import database_sqlstate
+from mnemonic_api.database import begin_coherent_read, database_sqlstate
 from mnemonic_api.errors import ApplicationError, not_found
 from mnemonic_api.schemas import (
     ChildrenListQuery,
@@ -16,6 +16,10 @@ from mnemonic_api.schemas import (
     WorkIdentityPointer,
     WorkItemListQuery,
     WorkItemRead,
+)
+from mnemonic_api.services.duplicates import (
+    require_canonical_work_item,
+    validate_project_duplicate_graph,
 )
 from mnemonic_api.services.readiness import (
     readiness,
@@ -93,6 +97,14 @@ def hierarchy_page(
     parent_work_item_id: UUID | None = None,
 ) -> tuple[list[HierarchySummary], int]:
     """Return one coherent hierarchy page and full-branch presentation snapshot."""
+    from mnemonic_api.services.work_items import require_project, require_work_item
+
+    begin_coherent_read(database)
+    require_project(database, project_id)
+    if parent_work_item_id is not None:
+        parent = require_work_item(database, project_id, parent_work_item_id)
+        require_canonical_work_item(database, parent)
+    validate_project_duplicate_graph(database, project_id)
     # The recursive page itself remains one data statement and one snapshot. These
     # transaction-local controls avoid expensive one-shot LLVM compilation and bound
     # damage from a corrupt or unexpectedly pathological graph. Transaction end
@@ -105,6 +117,12 @@ def hierarchy_page(
             FROM work_items AS root
             WHERE root.project_id = :project_id
               AND root.deleted_at IS NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM work_duplicate_merges AS duplicate_merge
+                  WHERE duplicate_merge.project_id = :project_id
+                    AND duplicate_merge.source_work_item_id = root.id
+              )
               AND NOT EXISTS (
                   SELECT 1
                   FROM work_relationships AS parent_edge
@@ -121,6 +139,12 @@ def hierarchy_page(
               ON child.id = child_edge.target_work_item_id
              AND child.project_id = :project_id
              AND child.deleted_at IS NULL
+             AND NOT EXISTS (
+                 SELECT 1
+                 FROM work_duplicate_merges AS duplicate_merge
+                 WHERE duplicate_merge.project_id = :project_id
+                   AND duplicate_merge.source_work_item_id = child.id
+             )
             WHERE child_edge.project_id = :project_id
               AND child_edge.relationship_type = 'parent-child'
               AND child_edge.source_work_item_id = :parent_work_item_id
@@ -172,7 +196,7 @@ def hierarchy_page(
                     f"""
             WITH RECURSIVE
             database_time AS MATERIALIZED (
-                SELECT clock_timestamp() AS now
+                SELECT transaction_timestamp() AS now
             ),
             scope AS MATERIALIZED (
                 SELECT
@@ -213,6 +237,12 @@ def hierarchy_page(
                   ON visible_child.project_id = :project_id
                  AND visible_child.id = child_edge.target_work_item_id
                  AND visible_child.deleted_at IS NULL
+                 AND NOT EXISTS (
+                     SELECT 1
+                     FROM work_duplicate_merges AS duplicate_merge
+                     WHERE duplicate_merge.project_id = :project_id
+                       AND duplicate_merge.source_work_item_id = visible_child.id
+                 )
                 WHERE NOT child_edge.target_work_item_id = ANY(subtree.visited_path)
             ),
             -- Qualification and paging deliberately precede member facts: branch
@@ -292,6 +322,47 @@ def hierarchy_page(
                  AND member.deleted_at IS NULL
                 CROSS JOIN database_time
             ),
+            duplicate_members(
+                branch_id,
+                canonical_member_id,
+                member_id,
+                visited_path
+            ) AS (
+                SELECT
+                    member_facts.branch_id,
+                    member_facts.member_id,
+                    member_facts.member_id,
+                    ARRAY[member_facts.member_id]::uuid[]
+                FROM member_facts
+                UNION ALL
+                SELECT
+                    duplicate_members.branch_id,
+                    duplicate_members.canonical_member_id,
+                    duplicate_merge.source_work_item_id,
+                    duplicate_members.visited_path || duplicate_merge.source_work_item_id
+                FROM duplicate_members
+                JOIN work_duplicate_merges AS duplicate_merge
+                  ON duplicate_merge.project_id = :project_id
+                 AND duplicate_merge.destination_work_item_id = duplicate_members.member_id
+                JOIN work_items AS duplicate_work
+                  ON duplicate_work.project_id = :project_id
+                 AND duplicate_work.id = duplicate_merge.source_work_item_id
+                 AND duplicate_work.deleted_at IS NULL
+                WHERE cardinality(duplicate_members.visited_path) <= 50
+                  AND NOT duplicate_merge.source_work_item_id = ANY(
+                      duplicate_members.visited_path
+                  )
+            ),
+            duplicate_aggregates AS MATERIALIZED (
+                SELECT
+                    duplicate_members.branch_id,
+                    count(*) FILTER (
+                        WHERE duplicate_members.member_id
+                            <> duplicate_members.canonical_member_id
+                    ) AS branch_merged_duplicate_count
+                FROM duplicate_members
+                GROUP BY duplicate_members.branch_id
+            ),
             branch_aggregates AS MATERIALIZED (
                 SELECT
                     facts.branch_id,
@@ -333,6 +404,7 @@ def hierarchy_page(
                     aggregate.completed_descendant_count,
                     aggregate.discovered_descendant_count,
                     aggregate.branch_unresolved_human_gate_count,
+                    duplicate_aggregate.branch_merged_duplicate_count,
                     aggregate.is_discovered_work,
                     EXISTS (
                         SELECT 1
@@ -381,6 +453,8 @@ def hierarchy_page(
                 FROM paged
                 JOIN branch_aggregates AS aggregate
                   ON aggregate.branch_id = paged.branch_id
+                JOIN duplicate_aggregates AS duplicate_aggregate
+                  ON duplicate_aggregate.branch_id = paged.branch_id
                 JOIN work_items AS root ON root.id = paged.branch_id
                 CROSS JOIN database_time
                 JOIN LATERAL (
@@ -481,6 +555,8 @@ def hierarchy_page(
                                     page_rows.discovered_descendant_count,
                                 'branch_unresolved_human_gate_count',
                                     page_rows.branch_unresolved_human_gate_count,
+                                'branch_merged_duplicate_count',
+                                    page_rows.branch_merged_duplicate_count,
                                 'is_discovered_work',
                                     page_rows.is_discovered_work,
                                 'discovered_from_parent',
@@ -533,6 +609,7 @@ def hierarchy_page(
             int(readiness_inputs["unresolved_blocker_count"]),
             bool(readiness_inputs["has_dropped_lease"]),
             int(readiness_inputs["unresolved_gate_count"]),
+            canonical_work_item_id=UUID(str(summary["work_item"]["id"])),
         )
         items.append(HierarchySummary.model_validate(item))
     return items, int(row["total"])

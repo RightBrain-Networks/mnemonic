@@ -1,7 +1,9 @@
-# Mnemonic Phases 7–8 architecture
+# Mnemonic architecture through Phase 9 Core
 
-This architecture describes the implementation through Phases 7–8. The longer-term
-direction and the boundaries of later phases are in [`roadmap.md`](roadmap.md).
+This architecture describes application/API/MCP `0.3.0`, Claude plugin `0.7.0`,
+and Alembic head `0016_duplicate_handling`. Phase 9 Advisory suggestions are not
+part of this release. The longer-term direction and later-phase boundaries are
+in [`roadmap.md`](roadmap.md).
 
 ## Product model
 
@@ -30,6 +32,9 @@ flowchart LR
     Graph --> Discovery[discovered-from]
     Graph --> Duplicate[duplicate-of]
     Graph --> Related[related]
+    WorkItem --> Merge[Immutable duplicate merge]
+    Merge --> Alias[Retained source alias]
+    Merge --> Canonical[Direct destination]
 ```
 
 A work item owns only mutable identity and lifecycle: title, summary, status,
@@ -49,19 +54,28 @@ The live `WorkItem` lifecycle values are `pending`, `deferred`, `done`,
 Historical `WorkEvent` snapshots may retain legacy `open`, while new events use
 Pending/Deferred values. Pending means no session has started or work remains
 incomplete; Deferred is an intentional human-controlled hold outside the agent queue.
-`active`, `dropped`, `blocked`, and `waiting` are derived facts. Active means an
+`active`, `dropped`, `blocked`, `waiting`, and `duplicate` are derived facts. Active means an
 unexpired lease exists; Dropped means the retained lease expired unexpectedly;
 Waiting means at least one unresolved human gate exists. Pending, visible work
 is ready only when it has no unexpired lease, unresolved incoming `blocks` edge,
-or unresolved human gate. Only a blocker whose source is `done` is resolved;
+unresolved human gate, or authoritative outgoing duplicate merge. Only a blocker whose source is `done` is resolved;
 `wont-do` and `promoted` do not imply completion. A work item can be active,
 blocked, and waiting simultaneously because later facts do not revoke an
-existing lease. Waiting has display precedence, but the independent flags
-remain authoritative. Completion is the only operation that can set `done`, and it
+existing lease. Duplicate has display precedence over Waiting, but the
+independent flags remain authoritative. Completion is the only operation that can set `done`, and it
 atomically appends a completion checkpoint. Reopening leaves that historical
 completion checkpoint intact.
 
-Ready discovery runs the same nonrecursive blocker/lease/gate predicate used by
+A descriptive `duplicate-of` relationship is a duplicate mark, not a canonical
+decision. An authoritative merge permanently records one exact
+`source --duplicate-of--> direct destination` decision. The source becomes a
+retained alias whose stored lifecycle and source-owned checkpoints, events,
+gates, provenance, relationships, and receipts do not change. Following at most
+50 immutable destination edges identifies the current canonical root. No read
+redirects the requested ID, and no operation coalesces content, lifecycle,
+relationships, leases, gates, provenance, or authority into the destination.
+
+Ready discovery runs the same nonrecursive blocker/lease/gate/alias predicate used by
 a fresh or replacement claim and returns only compact pointers. Its order is `priority DESC,
 created_at ASC, id ASC`; tag and direct-parent filters do not change
 eligibility. A page is one statement snapshot, not a reservation. Concurrent
@@ -78,9 +92,25 @@ that locks and revalidates before already-authorized execution.
   rejected, and each child has at most one parent.
 - Graph mutations serialize on the project row and then lock endpoint work in
   UUID order so concurrent cycle checks cannot both commit reciprocal edges.
-- Only unresolved incoming `blocks` edges and unresolved human gates affect
-  readiness and fresh/replacement claimability. Existing leases survive either
-  later fact; exact active claim replay, renewal, and release remain available.
+- Authoritative duplicate merges form a project-local immutable forest. Each
+  source has at most one outgoing merge, endpoints are current distinct roots,
+  cycles and a 51st edge fail closed, and several alias branches may converge.
+- Migration 0016 does not reinterpret or backfill historical `duplicate-of`
+  relationships. Every fresh duplicate mark must instead be the exact
+  same-transaction witness of `merge_work`; a pre-0016 completed generic
+  relationship receipt still replays before the fresh-write guard.
+- Merge retains or creates the exact source-to-destination mark, increments both
+  endpoint versions at one database timestamp, consumes only the source lease
+  when its exact token is supplied (or clears an expired lease), appends exactly
+  two `work_merged` events, and commits its mandatory receipt atomically.
+- An alias is never ready or claimable. New alias checkpoint, event, gate,
+  lifecycle, lease, and relationship mutations fail without redirect; every
+  source-incident relationship is frozen. Raw exact history remains readable
+  and the canonical continuation is an explicit, separate projection.
+- Only unresolved incoming `blocks` edges, unresolved human gates, and an
+  authoritative outgoing merge affect readiness and fresh/replacement
+  claimability. Existing leases survive a later blocker or gate; a merge
+  consumes the source lease before making that source an alias.
 - A gate request freezes the work version, newest context-checkpoint ID, and
   relationship-event count as a nested `requested_context_revision`; the gate and exact `human_attention_requested` event
   commit atomically. Resolution is one immutable transition with an exact
@@ -146,7 +176,7 @@ that locks and revalidates before already-authorized execution.
 - PostgreSQL and the FastAPI service are the sole persistence and transaction
   authority. The MCP adapter never connects to the database.
 - `client_operation_id` is private control data. It is accepted only at the
-  top level of the twelve enrolled REST request bodies, never persisted in domain
+  top level of the thirteen enrolled REST request bodies, never persisted in domain
   models/events or returned through public read surfaces.
 
 ## Services and trust boundaries
@@ -160,7 +190,8 @@ flowchart LR
     API --> DB[(PostgreSQL)]
 ```
 
-FastAPI owns validation, lifecycle transitions, project isolation, search,
+FastAPI owns validation, lifecycle transitions, project isolation, canonical
+duplicate resolution and merge, search,
 the reusable readiness predicate/query, relationship invariants, immutable
 event and human-gate construction/listing, attention cursors, bounded context,
 hierarchy presentation queries, idempotency
@@ -180,17 +211,19 @@ errors. `mutations` holds the one lifecycle every receipt-protected write shares
 only its domain work. `handlers` renders the two failure classes that escape
 routes. `routes/` has one module per concept: `projects`, `work_search`,
 `work_items`, `history` (checkpoints and events), `relationships`,
-`human_gates`, `leases`, `dashboard_sync`, and `health`.
+`human_gates`, `leases`, `duplicates`, `dashboard_sync`, and `health`.
 
-The MCP service is a typed HTTP adapter. Its ten protected mutation tools
+The MCP service is a typed HTTP adapter. Its eleven protected mutation tools
 require the caller to prepare and retain one operation UUID plus the complete
 arguments; the adapter sends only one HTTP attempt. Its other tools use work,
-checkpoint, lease, relationship, and human-gate terminology. Its exact 25-tool
+checkpoint, lease, relationship, human-gate, and duplicate terminology. Its exact 26-tool
 catalog includes request, attention, and gate-history operations but deliberately
-no resolution tool. The dashboard calls only an exact same-origin proxy
+no resolution tool; `merge_work` is its only authoritative duplicate mutation.
+The dashboard calls only an exact same-origin proxy
 allowlist, including attention/history reads, gate resolution, event
 list/progress append, and actor-bearing work or relationship writes. A dashboard-lifetime in-memory
-registry owns frozen protected intents, blocks overlapping conflicts while an
+registry owns eleven frozen protected intents, including a two-work-key merge
+intent, and blocks overlapping conflicts while an
 outcome is unresolved, and never writes those bodies or UUIDs to browser
 storage. Its API key is server-only. Every lease-capability route
 is denied to the browser, event append rejects a browser lease token, and any
@@ -325,17 +358,37 @@ resolution-drift convenience field from retained revision anchors. Migration 001
 deliberately has no downgrade: deployments fix forward or restore a complete
 chosen archive with an explicit data-loss boundary.
 
+`0016_duplicate_handling` creates the initially empty
+`work_duplicate_merges` ledger with immutable project-scoped source,
+destination, reviewed revisions, resulting versions, exact supporting
+relationship, rationale, asserted provenance, sequence, and timestamp. It adds
+private deferred witnesses to newly created supporting relationships and their
+paired events, private references for the two new `work_merged` events, a unique
+source anti-join index used by readiness/claim, reverse/audit indexes, and
+database guards for completeness, depth, alias freeze, and stale writers.
+Those private witness columns never enter public `WorkEventRead` or any preserved
+receipt-bearing Phase 1–8 shape.
+
+The migration preserves every existing row and byte of work, checkpoint,
+relationship, lease, event, gate, embedding, receipt, identity, timestamp,
+version, body, hash, and provenance. It creates zero merges or witnesses from
+historical marks. Migration 0016 has no downgrade. Before a Core write, an
+operator can restore the complete pre-0016 archive with matching Phase 8
+binaries; after any merge or Core receipt, correction is a whole-database
+restore that knowingly loses every later write, or a future reviewed append-only
+correction release.
+
 ## Idempotent mutation execution
 
-The twelve enrolled REST operations are create work, add checkpoint, append
+The thirteen enrolled REST operations are create work, add checkpoint, append
 event, add relationship, update, defer, complete, delete, remove relationship,
-release claim, request human input, and resolve human input. Direct REST makes
-the operation UUID optional. Canonical MCP requires it for ten tools: the
-previous nine plus gate request; defer and gate resolution remain human control
-plane actions without MCP tools. The browser keys its ten non-capability
-mutations: the previous nine plus resolution, while gate creation and release
-remain proxy-denied. Project administration, claim, claim-and-recall, and
-renewal are explicitly excluded.
+release claim, request human input, resolve human input, and merge work. Direct
+REST makes the operation UUID optional for the original twelve; merge requires
+it. Canonical MCP requires it for eleven tools: the previous ten plus merge;
+defer and gate resolution remain human control-plane actions without MCP tools.
+The browser keys eleven non-capability mutations: the previous ten plus merge,
+while gate creation and release remain proxy-denied. Project administration,
+claim, claim-and-recall, and renewal are explicitly excluded.
 
 For a keyed request the service validates secrets and canonicalizes the entire
 semantic envelope before any domain lookup. Defaults and nulls are explicit,
@@ -358,7 +411,7 @@ key.
 
 ## Recall and retrieval
 
-`recall_work` is deliberately bounded. It returns the work identity, initial
+`recall_work` is deliberately bounded. It returns the exact requested work identity, initial
 checkpoint, newest `context` checkpoint, and at most five additional recent
 checkpoints by default. If the initial checkpoint is still current,
 `current_context` is null and `current_context_is_initial` directs clients to
@@ -377,14 +430,22 @@ and token are excluded. `claim_and_recall` acquires or replays a claim and
 assembles the same bounded context before one commit. Recall includes immediate
 incoming, outgoing, and undirected relationships with counts and pointer-only
 counterparts; it never recursively injects the graph. Ordinary recall caps each
-relationship direction at 50. The exact nested review route for a valid unresolved gate deliberately
+relationship direction at 100 in Phase 9 Core. It also returns an exact
+`MergeReviewRevision`, canonical projection, at most 20 duplicate member
+pointers, exact member/omission totals, omitted relationship counts, and source
+merge-eligibility facts. An alias response retains only that alias's checkpoint,
+event, gate, and relationship history; clients explicitly read its canonical
+root when continuation context is needed. The exact nested review route for a valid unresolved gate deliberately
 materializes every adjacent edge in that same statement so the dashboard can
 fail closed unless the human review is complete; its payload and counterpart
 projection cost scale with focal degree. Context assembly is one SQL statement
 so a `READ COMMITTED` request does not mix multiple snapshots.
 
-Search returns one compact `WorkSummary` per work item, even when several
-checkpoints match. It never includes prompt bodies or source metadata. Title and
+Search returns `WorkSearchHit` rows containing a canonical `summary` and the
+exact `matched_member` pointer. The default `duplicate_scope=canonical` groups
+all matching members under one root before pagination; explicit `aliases` and
+`all` scopes retain audit access and may be narrowed with a canonical root ID.
+It never includes prompt bodies or source metadata. Title and
 summary carry the strongest lexical weight; checkpoint text and literal
 identifiers/provenance/tags participate without multiplying result rows.
 Canonical source and tag filters match any checkpoint.
@@ -398,13 +459,14 @@ work scheduler.
 
 ## Hierarchical human presentation
 
-Root and child hierarchy pages are a human presentation over the unchanged
-project-local graph. The dashboard collapses descendants by default and lazily
+Root and child hierarchy pages are a human presentation over the parent-child
+graph. The dashboard collapses descendants by default and lazily
 loads direct children, while each `HierarchySummary` carries one-statement
 branch aggregates: direct children; strict descendants; blocked, active,
 completed, and discovered descendants; inclusive unresolved human gates;
-discovery labels for the current node; and the earliest active descendant lease
-expiry. Counts are independent rather than mutually exclusive, so one
+discovery labels for the current node; the earliest active descendant lease
+expiry; and the number of merged aliases in the branch. Alias rows are not
+hierarchy nodes. Counts are independent rather than mutually exclusive, so one
 descendant may be active, blocked, and gated.
 
 Lifecycle/source/tag filters are subtree-aware. A root or direct branch is
@@ -424,7 +486,7 @@ explicit cycle and depth fallbacks instead of silently hiding corrupt or
 unexpectedly deep branches, and schedules passive refresh from the earliest
 visible descendant lease expiry.
 
-## Deliberate Phases 7–8 limits
+## Deliberate Phase 9 Core limits
 
 Ready discovery is not automatic scheduling and there is no
 `claim_next_ready_work`. The receipt ledger still excludes project
@@ -435,11 +497,14 @@ or agent-facing resolution operation exists. A stored question/answer is
 untrusted context under a shared bearer, not verified human identity or renewed
 execution authority.
 
-The release does not add duplicate merging, repository freshness verification,
-resource reservation, or automatic execution. `duplicate-of`, `related`,
-`parent-child`, and `discovered-from` remain descriptive; only `blocks` and
-unresolved gates change readiness, for different reasons. No relationship or
-human answer may be inferred from search similarity or checkpoint prose.
+Core adds only explicit authoritative duplicate merging. A bare `duplicate-of`
+mark, `related`, `parent-child`, and `discovered-from` remain descriptive; only
+an authoritative merge makes its source a non-actionable alias. The release has
+no automatic merge, duplicate-suggestion endpoint or create-form suggestion,
+creation suppression, unmerge/split/retarget, ID redirect, claim substitution,
+relationship transfer, content or lifecycle coalescing, repository freshness
+verification, resource reservation, or automatic execution. No relationship,
+merge, or human answer may be inferred from similarity or checkpoint prose.
 
 The per-work event identity is not a durable project activity cursor. The gate
 attention cursor is purpose-built from immutable request sequence and identity;
@@ -448,7 +513,8 @@ once before declaring the queue drained;
 it does not create a general `get_activity`, notification broker, SSE/webhook
 feed, or passive lease-expiry event.
 
-Backups include canonical work, checkpoints, leases, relationships, immutable
+Backups include canonical work, checkpoints, leases, relationships,
+authoritative duplicate merges and their witnesses, immutable
 events and their sequence, human gates and attention sequence, durable
 client-operation receipts, and migration state. Operators must still copy
 backups off-machine and rehearse restores; a persistent Docker volume is not a
