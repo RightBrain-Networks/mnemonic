@@ -5,6 +5,7 @@ import {
   RECALL_POINTER_MACROS
 } from "../../lib/work-recall-pointer";
 import { statePath, type E2EState } from "./global.setup";
+import { closeDetail, selectWork, workCard } from "./surface";
 
 let state: E2EState;
 
@@ -206,7 +207,7 @@ test("project recall pointer settings drive card and detail clipboard content", 
     await expect(page).toHaveURL(/\/$/);
     await page.locator("#project-select").selectOption(state.projectId);
     await page.getByLabel("Search work items").fill(title);
-    const card = page.locator("article.work-item-card").filter({ hasText: title });
+    const card = workCard(page, title);
     await expect(card).toHaveCount(1);
 
     const expectedCustomPointer = [
@@ -214,16 +215,25 @@ test("project recall pointer settings drive card and detail clipboard content", 
       `Work ${seededWork.id}: ${title}`,
       `Summary: ${summary}`
     ].join("\n");
-    await card.getByRole("button", { name: "Copy recall pointer" }).click();
+    await card.getByRole("button", { name: /Copy recall pointer/ }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
       .toBe(expectedCustomPointer);
 
-    await card.getByRole("button", { name: title, exact: true }).click();
-    const detail = page.getByRole("dialog", { name: "Work context" });
-    await detail.getByRole("button", { name: "Copy recall pointer" }).click();
+    // Overwrite the clipboard so the pane copy below proves its own content instead of
+    // inheriting the value the card just wrote.
+    const clipboardSentinel = `clipboard sentinel ${suffix}`;
+    await page.evaluate((value) => navigator.clipboard.writeText(value), clipboardSentinel);
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(clipboardSentinel);
+
+    const pane = await selectWork(page, title);
+    // The card and the pane share one copied state, so the pane button briefly reads "Copied"
+    // after the card copy; the exact-name locator waits for the label to revert.
+    await pane.getByRole("button", { name: "Copy recall pointer", exact: true }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
       .toBe(expectedCustomPointer);
-    await detail.getByRole("button", { name: "Close dialog" }).click();
+    // On the narrow project the open pane is a sheet over the navigation; desktop is a no-op.
+    await closeDetail(page);
 
     await workspaceNavigation.getByRole("link", { name: "Project settings" }).click();
     await expect(page).toHaveURL(/\/settings$/);
@@ -244,9 +254,9 @@ test("project recall pointer settings drive card and detail clipboard content", 
       .click();
     await page.locator("#project-select").selectOption(state.projectId);
     await page.getByLabel("Search work items").fill(title);
-    const restoredCard = page.locator("article.work-item-card").filter({ hasText: title });
+    const restoredCard = workCard(page, title);
     await expect(restoredCard).toHaveCount(1);
-    await restoredCard.getByRole("button", { name: "Copy recall pointer" }).click();
+    await restoredCard.getByRole("button", { name: /Copy recall pointer/ }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
       `Recall the mnemonic work item "${title}" (project_id ${state.projectId}, work_item_id ${seededWork.id}) using \`recall_work\`. Verify its premises and, if confirmed, proceed with the work as described.
 

@@ -4,9 +4,11 @@ import {
   request,
   test,
   type APIRequestContext,
+  type Locator,
   type Page
 } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
+import { closeDetail, openTab, selectWork, workCard } from "./surface";
 
 let state: E2EState;
 
@@ -236,12 +238,20 @@ function invalidationCount(messages: Invalidation[]): number {
   return messages.filter((message) => message.scope === "work-items").length;
 }
 
-async function openWork(page: Page, title: string): Promise<void> {
+async function openWork(page: Page, title: string): Promise<Locator> {
   await page.getByLabel("Search work items").fill(title);
-  const card = page.locator("article.work-item-card").filter({ hasText: title });
-  await expect(card).toHaveCount(1);
-  await card.getByRole("button", { name: title, exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Work context" })).toBeVisible();
+  await expect(workCard(page, title)).toHaveCount(1);
+  return await selectWork(page, title);
+}
+
+// The modal's disabled Close button used to prove the open item was locked while one of
+// its mutations was pending. The pane locks its Edit and Delete actions instead, plus the
+// Back button whenever the narrow project renders it.
+async function expectPaneLocked(pane: Locator): Promise<void> {
+  await expect(pane.getByRole("button", { name: "Edit work item" })).toBeDisabled();
+  await expect(pane.getByRole("button", { name: "Delete work item" })).toBeDisabled();
+  const back = pane.getByRole("button", { name: "Back to work queue" });
+  if (await back.isVisible()) await expect(back).toBeDisabled();
 }
 
 async function proxyMutation(
@@ -414,10 +424,9 @@ test("a committed deferral recovers its exact result without a second transition
   try {
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
-    await page.getByLabel("Search work items").fill(title);
-    const card = page.locator("article.work-item-card").filter({ hasText: title });
-    await expect(card).toHaveCount(1);
-    await card.getByRole("button", { name: `Defer ${title}` }).click();
+    const pane = await openWork(page, title);
+    const card = workCard(page, title);
+    await pane.getByRole("button", { name: `Defer ${title}` }).click();
 
     await expect.poll(() => probe.requests.length).toBe(1);
     await expect(page.locator(".mutation-recovery")).toContainText(
@@ -427,6 +436,7 @@ test("a committed deferral recovers its exact result without a second transition
     expect(probe.responses[0]!.status).toBe(200);
     expect(probe.responses[0]!.body).not.toContain(retainedOperationId);
     await expect(page.locator("#project-select")).toBeDisabled();
+    await expectPaneLocked(pane);
 
     const committed = await getWork(client, workId);
     expect(committed).toMatchObject({
@@ -447,6 +457,8 @@ test("a committed deferral recovers its exact result without a second transition
       status: "deferred",
       version: initialVersion + 1
     });
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Deferred");
+    await closeDetail(page);
     await page.getByRole("button", { name: "Deferred", exact: true }).click();
     await expect(card).toHaveCount(1);
     await expect(card.locator(".status-badge")).toHaveText("Deferred");
@@ -492,9 +504,9 @@ test("a malformed committed append retains its editor intent and reconciles newe
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
     await expect(page.locator(".sync-status")).toHaveText("Live updates");
-    await openWork(page, title);
-    const detail = page.getByRole("dialog", { name: "Work context" });
-    const activity = detail.locator(".event-timeline");
+    const pane = await openWork(page, title);
+    const activity = pane.locator(".event-timeline");
+    await openTab(pane, "Activity");
     await activity.getByLabel("Progress text").fill(originalBody);
     await activity.getByRole("button", { name: "Add progress update" }).click();
 
@@ -507,10 +519,12 @@ test("a malformed committed append retains its editor intent and reconciles newe
     expect(probe.responses[0]!.body).not.toContain(retainedOperationId);
     await expect(activity.getByLabel("Progress text")).toHaveValue(originalBody);
     await expect(activity.getByLabel("Progress text")).toBeDisabled();
-    await expect(detail.getByRole("button", { name: "Close dialog" })).toBeDisabled();
-    await expect(detail.getByRole("button", { name: "Edit work item" })).toBeDisabled();
-    await expect(detail.getByRole("button", { name: "Delete work item" })).toBeDisabled();
-    await expect(detail.getByLabel("Checkpoint text")).toBeDisabled();
+    await expectPaneLocked(pane);
+    // The checkpoint form lives in the Context tab now. That tab stays selected through
+    // the replay, so the reload failure below must clear its body just as it cleared the
+    // modal's.
+    const contextPanel = await openTab(pane, "Context");
+    await expect(contextPanel.getByLabel("Checkpoint text")).toBeDisabled();
     await expect(page.locator("#project-select")).toBeDisabled();
     await expect.poll(() => invalidationCount(invalidations)).toBe(1);
 
@@ -572,18 +586,21 @@ test("a malformed committed append retains its editor intent and reconciles newe
     await expect(page.locator(".toast")).toContainText(
       "current state could not be reloaded"
     );
-    await expect(detail).toContainText("Synthetic reconciliation failure");
-    await expect(detail.getByRole("button", { name: "Edit work item" })).toHaveCount(0);
-    await expect(detail.getByLabel("Checkpoint text")).toHaveCount(0);
-    const retryContext = detail.getByRole("button", { name: "Try again" });
+    await expect(pane).toContainText("Synthetic reconciliation failure");
+    await expect(pane.getByRole("button", { name: "Edit work item" })).toBeDisabled();
+    await expect(pane.getByRole("button", { name: "Delete work item" })).toBeDisabled();
+    await expect(pane.getByLabel("Checkpoint text")).toHaveCount(0);
+    const retryContext = pane.getByRole("button", { name: "Try again" });
     await expect(retryContext).toBeVisible();
     rejectContextReload = false;
     await expect(async () => {
       if (await retryContext.isVisible()) await retryContext.click({ timeout: 500 });
-      await expect(detail.locator(".detail-summary")).toHaveText(newerSummary);
+      await expect(pane.locator(".detail-summary")).toHaveText(newerSummary);
     }).toPass();
 
-    await expect(detail.locator(".detail-summary")).toHaveText(newerSummary);
+    await expect(pane.locator(".detail-summary")).toHaveText(newerSummary);
+    await expect(pane.getByRole("button", { name: "Edit work item" })).toBeEnabled();
+    await openTab(pane, "Activity");
     await expect(activity.getByLabel("Progress text")).toHaveValue("");
     await expect(activity.locator("article.work-event").filter({ hasText: originalBody })).toHaveCount(1);
     await expect(activity.locator("article.work-event").filter({ hasText: newerBody })).toHaveCount(1);
@@ -643,9 +660,12 @@ test("a committed append gates stale controls when direct reconciliation fails",
   try {
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
-    await openWork(page, title);
-    const detail = page.getByRole("dialog", { name: "Work context" });
-    const activity = detail.locator(".event-timeline");
+    const pane = await openWork(page, title);
+    const activity = pane.locator(".event-timeline");
+    await openTab(pane, "Activity");
+    // The pane shows its title from the queue summary before /context resolves, so the
+    // synthetic failure is armed only once the initial context has actually loaded.
+    await expect(activity.getByLabel("Progress text")).toBeEnabled();
     rejectContextReload = true;
     await activity.getByLabel("Progress text").fill(progress);
     await activity.getByRole("button", { name: "Add progress update" }).click();
@@ -653,19 +673,20 @@ test("a committed append gates stale controls when direct reconciliation fails",
     await expect(page.locator(".toast")).toContainText(
       "Progress was saved, but current work context could not be reloaded"
     );
-    await expect(detail).toContainText("Synthetic append reconciliation failure");
-    await expect(detail.getByRole("button", { name: "Edit work item" })).toHaveCount(0);
-    await expect(detail.getByLabel("Checkpoint text")).toHaveCount(0);
+    await expect(pane).toContainText("Synthetic append reconciliation failure");
+    await expect(pane.getByRole("button", { name: "Edit work item" })).toBeDisabled();
+    await expect(pane.getByRole("button", { name: "Delete work item" })).toBeDisabled();
+    await expect(activity).toHaveCount(0);
 
-    const retryContext = detail.getByRole("button", { name: "Try again" });
+    const retryContext = pane.getByRole("button", { name: "Try again" });
     await expect(retryContext).toBeVisible();
     rejectContextReload = false;
     await expect(async () => {
       if (await retryContext.isVisible()) await retryContext.click({ timeout: 500 });
-      await expect(detail.getByRole("button", { name: "Edit work item" })).toBeVisible();
+      await expect(pane.getByRole("button", { name: "Edit work item" })).toBeEnabled();
     }).toPass();
-    await expect(detail.getByRole("button", { name: "Edit work item" })).toBeVisible();
-    await expect(detail.locator("article.work-event").filter({ hasText: progress })).toHaveCount(1);
+    await expect(pane.getByRole("button", { name: "Edit work item" })).toBeEnabled();
+    await expect(activity.locator("article.work-event").filter({ hasText: progress })).toHaveCount(1);
     const events = await progressEvents(client, workId);
     expect(events.items.filter((event) => event.body === progress)).toHaveLength(1);
   } finally {
@@ -716,12 +737,13 @@ test("relationship and deletion recovery preserve true receipts and natural no-o
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
     await expect(page.locator(".sync-status")).toHaveText("Live updates");
-    await openWork(page, title);
-    let detail = page.getByRole("dialog", { name: "Work context" });
-    await detail.getByText("Add a relationship", { exact: true }).click();
-    await detail.getByLabel("Find another work item").fill(counterpartTitle);
-    await detail.getByRole("option").filter({ hasText: counterpartTitle }).click();
-    const addButton = detail.getByRole("button", { name: "Add relationship" });
+    const pane = await openWork(page, title);
+    // Queue cards are options too, so the counterpart picker is scoped to the Graph panel.
+    const graph = await openTab(pane, "Graph");
+    await graph.getByText("Add a relationship", { exact: true }).click();
+    await graph.getByLabel("Find another work item").fill(counterpartTitle);
+    await graph.getByRole("option").filter({ hasText: counterpartTitle }).click();
+    const addButton = graph.getByRole("button", { name: "Add relationship" });
     await expect(addButton).toBeEnabled();
     await addButton.click();
 
@@ -729,8 +751,8 @@ test("relationship and deletion recovery preserve true receipts and natural no-o
     await expect(page.locator(".mutation-recovery")).toContainText(
       "Add relationship · outcome unknown"
     );
-    await expect(detail.getByLabel("Find another work item")).toBeDisabled();
-    await expect(detail.getByRole("button", { name: "Close dialog" })).toBeDisabled();
+    await expect(graph.getByLabel("Find another work item")).toBeDisabled();
+    await expectPaneLocked(pane);
     const firstAdd = JSON.parse(addProbe.responses[0]!.body) as {
       created: boolean;
       relationship: { id: string };
@@ -745,8 +767,7 @@ test("relationship and deletion recovery preserve true receipts and natural no-o
     await expect.poll(() => addProbe.requests.length).toBe(2);
     await expect(page.locator(".mutation-recovery")).toHaveCount(0);
     expectExactReplay(addProbe);
-    detail = page.getByRole("dialog", { name: "Work context" });
-    const relatedGroup = detail.getByRole("heading", { name: "Related", exact: true });
+    const relatedGroup = graph.getByRole("heading", { name: "Related", exact: true });
     await expect(relatedGroup).toBeVisible();
     expect((await getContext(client, workId)).relationship_counts.total).toBe(1);
 
@@ -784,7 +805,7 @@ test("relationship and deletion recovery preserve true receipts and natural no-o
     await expect.poll(() => removeProbe.requests.length).toBe(2);
     await expect(page.locator(".mutation-recovery")).toHaveCount(0);
     expectExactReplay(removeProbe);
-    await expect(detail.getByRole("heading", { name: "Related", exact: true })).toHaveCount(0);
+    await expect(graph.getByRole("heading", { name: "Related", exact: true })).toHaveCount(0);
     expect((await getContext(client, workId)).relationship_counts.total).toBe(0);
 
     const naturalRemoval = await proxyMutation(
@@ -800,15 +821,14 @@ test("relationship and deletion recovery preserve true receipts and natural no-o
     });
     await expect.poll(() => invalidationCount(invalidations)).toBe(2);
 
-    await detail.getByRole("button", { name: "Close dialog" }).click();
     const deleteProbe = await installCommittedResponseLoss(
       page,
       `**/api/mnemonic/projects/${state.projectId}/work-items/${workId}/delete`,
       "POST",
       "bad-gateway"
     );
-    const card = page.locator("article.work-item-card").filter({ hasText: title });
-    await card.getByRole("button", { name: `Delete ${title}` }).click();
+    const card = workCard(page, title);
+    await pane.getByRole("button", { name: "Delete work item" }).click();
     const deleteDialog = page.getByRole("dialog", { name: "Delete this work item?" });
     await deleteDialog.getByRole("button", { name: "Delete work item" }).click();
 
@@ -829,6 +849,7 @@ test("relationship and deletion recovery preserve true receipts and natural no-o
     await expect(deleteDialog).toHaveCount(0);
     expectExactReplay(deleteProbe);
     await expect(card).toHaveCount(0);
+    await expect(pane.locator(".detail-title")).toHaveCount(0);
     await expect.poll(() => invalidationCount(invalidations)).toBe(3);
   } finally {
     if (relationshipId) {

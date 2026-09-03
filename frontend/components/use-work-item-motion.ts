@@ -23,6 +23,8 @@ type MotionSnapshot = {
   itemIds: string[];
   total: number;
   items: Map<string, ItemSnapshot>;
+  // The nearest scrolling ancestor of the list; positions are recorded relative to its content.
+  scroller: HTMLElement | null;
 };
 
 type EnteringState = {
@@ -35,6 +37,7 @@ type EnteringState = {
 type ExitingState = {
   element: HTMLElement;
   reposition: () => void;
+  scroller: HTMLElement | null;
 };
 
 type MotionOptions = {
@@ -56,8 +59,18 @@ function directWorkItems(list: HTMLElement): Map<string, HTMLElement> {
   return items;
 }
 
-function documentTop(element: HTMLElement): number {
-  return element.getBoundingClientRect().top + window.scrollY;
+function scrollingAncestor(element: HTMLElement): HTMLElement | null {
+  let node = element.parentElement;
+  while (node && node !== document.body) {
+    const { overflowY } = getComputedStyle(node);
+    if (overflowY === "auto" || overflowY === "scroll") return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function documentTop(element: HTMLElement, scroller: HTMLElement | null): number {
+  return element.getBoundingClientRect().top + window.scrollY + (scroller?.scrollTop ?? 0);
 }
 
 function sameIds(left: readonly string[], right: readonly string[]): boolean {
@@ -138,9 +151,10 @@ export function useWorkItemMotion<T extends HTMLElement>({
     if (sameResult && motionActive && list && enabled && !reducedMotion) return;
 
     const generation = ++generationRef.current;
+    const scroller = list ? scrollingAncestor(list) : null;
     const elementsBeforeCancel = list ? directWorkItems(list) : new Map<string, HTMLElement>();
     const visualTops = new Map(
-      [...elementsBeforeCancel].map(([id, element]) => [id, documentTop(element)])
+      [...elementsBeforeCancel].map(([id, element]) => [id, documentTop(element, scroller)])
     );
     const plan = list && total !== null && previous?.viewKey === viewKey
       && enabled && !reducedMotion
@@ -157,8 +171,8 @@ export function useWorkItemMotion<T extends HTMLElement>({
     }
 
     const elements = directWorkItems(list);
-    const items = itemSnapshots(elements);
-    snapshotRef.current = { viewKey, itemIds: [...itemIds], total, items };
+    const items = itemSnapshots(elements, scroller);
+    snapshotRef.current = { viewKey, itemIds: [...itemIds], total, items, scroller };
 
     if (!plan || !previous) {
       releaseEntering();
@@ -190,7 +204,7 @@ export function useWorkItemMotion<T extends HTMLElement>({
 
     for (const id of plan.removedIds) {
       const item = previous.items.get(id);
-      if (item) exitingRef.current.set(id, createExitingState(id, item));
+      if (item) exitingRef.current.set(id, createExitingState(id, item, previous.scroller));
     }
 
     const slideAnimations: Animation[] = [];
@@ -277,13 +291,16 @@ export function useWorkItemMotion<T extends HTMLElement>({
   return listRef;
 }
 
-function itemSnapshots(elements: Map<string, HTMLElement>): Map<string, ItemSnapshot> {
+function itemSnapshots(
+  elements: Map<string, HTMLElement>,
+  scroller: HTMLElement | null
+): Map<string, ItemSnapshot> {
   return new Map([...elements].map(([id, element]) => {
     const rect = element.getBoundingClientRect();
     return [id, {
       element,
-      documentLeft: rect.left + window.scrollX,
-      documentTop: rect.top + window.scrollY,
+      documentLeft: rect.left + window.scrollX + (scroller?.scrollLeft ?? 0),
+      documentTop: rect.top + window.scrollY + (scroller?.scrollTop ?? 0),
       width: rect.width,
       height: rect.height,
       opacity: getComputedStyle(element).opacity
@@ -298,7 +315,11 @@ function removeDuplicateIds(element: HTMLElement) {
   }
 }
 
-function createExitingState(id: string, snapshot: ItemSnapshot): ExitingState {
+function createExitingState(
+  id: string,
+  snapshot: ItemSnapshot,
+  scroller: HTMLElement | null
+): ExitingState {
   const element = snapshot.element.cloneNode(true) as HTMLElement;
   removeDuplicateIds(element);
   element.removeAttribute("data-work-item-id");
@@ -318,19 +339,21 @@ function createExitingState(id: string, snapshot: ItemSnapshot): ExitingState {
     zIndex: "5"
   });
   const reposition = () => {
-    element.style.transform = `translate(${snapshot.documentLeft - window.scrollX}px, ${
-      snapshot.documentTop - window.scrollY
-    }px)`;
+    element.style.transform = `translate(${
+      snapshot.documentLeft - window.scrollX - (scroller?.scrollLeft ?? 0)
+    }px, ${snapshot.documentTop - window.scrollY - (scroller?.scrollTop ?? 0)}px)`;
   };
   reposition();
   document.body.append(element);
   window.addEventListener("scroll", reposition, { passive: true });
   window.addEventListener("resize", reposition);
-  return { element, reposition };
+  scroller?.addEventListener("scroll", reposition, { passive: true });
+  return { element, reposition, scroller };
 }
 
 function removeExiting(state: ExitingState) {
   window.removeEventListener("scroll", state.reposition);
   window.removeEventListener("resize", state.reposition);
+  state.scroller?.removeEventListener("scroll", state.reposition);
   state.element.remove();
 }

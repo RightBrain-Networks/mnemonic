@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { expect, request, test } from "@playwright/test";
 import { expireLease } from "./database";
 import { statePath, type E2EState } from "./global.setup";
+import { closeDetail, selectWork, workCard } from "./surface";
 
 let state: E2EState;
 
@@ -63,32 +64,51 @@ test("an active lease is visible without exposing its capability and refreshes a
   await page.getByRole("button", { name: "Active", exact: true }).click();
   await page.getByLabel("Search work items").fill(title);
 
-  const card = page.locator("article.work-item-card").filter({ hasText: title });
+  const card = workCard(page, title);
   await expect(card).toHaveCount(1);
   await expect(card.locator(".status-badge")).toHaveText(/Active/);
-  await expect(card.getByRole("button", { name: `Defer ${title}` })).toBeDisabled();
-  await expect(card.getByLabel("Active work lease")).toContainText("Active session");
-  await expect(card.getByLabel("Active work lease")).toContainText("Claude Code");
-  await expect(card.getByLabel("Active work lease")).toContainText(holderSession);
-  await expect(card.getByLabel("Active work lease")).toContainText("Lease acquired");
-  await expect(card.getByLabel("Active work lease")).toContainText("Renewed");
-  await expect(card.getByLabel("Active work lease")).toContainText("Expires");
+
+  // The lease summary and the Defer control live in the detail pane. The saved
+  // checkpoint text arrives on its own before the lease-based disable is trusted,
+  // so a still-loading pane cannot satisfy the assertion by accident.
+  const pane = await selectWork(page, title);
+  await expect(pane.locator(".prompt-body")).toHaveText("This checkpoint must remain separate from the temporary lease.");
+  const defer = pane.getByRole("button", { name: `Defer ${title}` });
+  await expect(defer).toBeDisabled();
+  await expect(defer).toHaveAttribute("title", "Active work cannot be deferred until its lease is released or expires.");
+  const lease = pane.getByLabel("Active work lease");
+  await expect(lease).toContainText("Active session");
+  await expect(lease).toContainText("Claude Code");
+  await expect(lease).toContainText(holderSession);
+  await expect(lease).toContainText("Lease acquired");
+  await expect(lease).toContainText("Renewed");
+  await expect(lease).toContainText("Expires");
 
   const browserListPayload = await page.evaluate(async ({ projectId, title }) => {
     const query = new URLSearchParams({ q: title, status: "pending", view: "full", limit: "20", offset: "0" });
     return (await fetch(`/api/mnemonic/projects/${projectId}/work-items?${query}`)).text();
   }, { projectId: state.projectId, title });
   expect(browserListPayload).not.toContain("lease_token");
+  // The pane renders the lease from the same-origin context read, which must be as
+  // capability-free as the list.
+  const browserContextPayload = await page.evaluate(async ({ projectId, workItemId }) => {
+    const query = new URLSearchParams({ recent_limit: "5", recent_event_limit: "10" });
+    return (await fetch(`/api/mnemonic/projects/${projectId}/work-items/${workItemId}/context?${query}`)).text();
+  }, { projectId: state.projectId, workItemId });
+  expect(browserContextPayload).not.toContain("lease_token");
   await expect(page.getByRole("button", { name: /^(?:claim(?: work)?|force release(?: work)?)$/i })).toHaveCount(0);
 
   await expireLease(state.projectId, workItemId);
   await page.clock.fastForward(61 * 1000);
   await expect(card).toHaveCount(0);
 
+  await closeDetail(page);
   await page.getByRole("button", { name: "Dropped", exact: true }).click();
   await expect(card).toHaveCount(1);
   await expect(card.locator(".status-badge")).toHaveText(/Dropped/);
-  await expect(card.getByLabel("Active work lease")).toHaveCount(0);
+  const dropped = await selectWork(page, title);
+  await expect(dropped.locator(".detail-identity > .status-badge")).toHaveText(/Dropped/);
+  await expect(dropped.getByLabel("Active work lease")).toHaveCount(0);
 });
 
 test("a human can defer a pending card and return it to the queue", async ({ page }, testInfo) => {
@@ -129,23 +149,31 @@ test("a human can defer a pending card and return it to the queue", async ({ pag
   await page.getByRole("button", { name: "Pending", exact: true }).click();
   await page.getByLabel("Search work items").fill(title);
 
-  const card = page.locator("article.work-item-card").filter({ hasText: title });
+  const card = workCard(page, title);
   await expect(card).toHaveCount(1);
   await expect(card.locator(".status-badge")).toHaveText("Pending");
-  await card.getByRole("button", { name: `Defer ${title}` }).click();
+  const pane = await selectWork(page, title);
+  await pane.getByRole("button", { name: `Defer ${title}` }).click();
   await expect(page.locator(".toast")).toContainText("Deferred and held out of the work queue");
   await expect(card).toHaveCount(0);
 
+  await closeDetail(page);
   await page.getByRole("button", { name: "Deferred", exact: true }).click();
   await expect(card).toHaveCount(1);
   await expect(card.locator(".status-badge")).toHaveText("Deferred");
-  await card.getByRole("button", { name: `Move ${title} to Pending` }).click();
+  const deferred = await selectWork(page, title);
+  await expect(deferred.locator(".detail-identity > .status-badge")).toHaveText("Deferred");
+  await deferred.getByRole("button", { name: `Move ${title} to Pending` }).click();
   await expect(page.locator(".toast")).toContainText("Pending and available in the work queue");
   await expect(card).toHaveCount(0);
 
+  await closeDetail(page);
   await page.getByRole("button", { name: "Pending", exact: true }).click();
   await expect(card).toHaveCount(1);
   await expect(card.locator(".status-badge")).toHaveText("Pending");
+  const returned = await selectWork(page, title);
+  await expect(returned.locator(".detail-identity > .status-badge")).toHaveText("Pending");
+  await expect(returned.getByRole("button", { name: `Defer ${title}` })).toBeEnabled();
 
   const verification = await request.newContext({
     baseURL: apiURL,
@@ -201,13 +229,15 @@ test("a claim committed before an identity edit is reconciled in the visible det
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
     await page.getByLabel("Search work items").fill(title);
-    const card = page.locator("article.work-item-card").filter({ hasText: title });
+    const card = workCard(page, title);
     await expect(card).toHaveCount(1);
-    await card.getByRole("button", { name: `Edit ${title}` }).click();
+    const pane = await selectWork(page, title);
+    await pane.getByRole("button", { name: "Edit work item" }).click();
 
-    const editor = page.getByRole("dialog", { name: "Edit work item" });
-    await expect(editor.locator(".status-badge")).toHaveText("Pending");
-    await editor.getByLabel("Summary").fill(updatedSummary);
+    // Edit is inline: the header keeps showing the identity while the Context tab
+    // holds the editor form.
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Pending");
+    await pane.getByLabel("Summary").fill(updatedSummary);
 
     const claimed = await client.post(`/api/v1/projects/${state.projectId}/work-items/${workItemId}/claim`, {
       data: {
@@ -218,11 +248,10 @@ test("a claim committed before an identity edit is reconciled in the visible det
     });
     if (!claimed.ok()) throw new Error(`Could not claim edit-race fixture (${claimed.status()}): ${await claimed.text()}`);
 
-    await editor.getByRole("button", { name: "Save changes" }).click();
-    const detail = page.getByRole("dialog", { name: "Work context" });
-    await expect(detail).toContainText(updatedSummary);
-    await expect(detail.locator(".status-badge")).toHaveText("Active");
-    await expect(detail.getByLabel("Active work lease")).toContainText(holderSession);
+    await pane.getByRole("button", { name: "Save changes" }).click();
+    await expect(pane.locator(".detail-summary")).toHaveText(updatedSummary);
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Active");
+    await expect(pane.getByLabel("Active work lease")).toContainText(holderSession);
   } finally {
     await client.dispose();
   }

@@ -1,5 +1,49 @@
 # Mnemonic validation record
 
+## Work library two-column surface — 2026-09-03
+
+This entry covers dashboard `0.5.0` over unchanged application/API/MCP `0.4.0`,
+plugin `0.8.0`, and Alembic head `0017_duplicate_suggestion_title_key`. The
+change replaces the work-context modal with the two-column work surface: a
+lazily paged queue beside a detail pane with Context, History, Graph,
+Questions, and Activity tabs, inline edit in the Context tab, and the merge
+panel inside the Graph tab. It touches no backend, MCP, plugin, migration, or
+proxy-allowlist code and is validated with the frontend checks only. Every
+figure below was observed in the session that recorded it, on a local Node
+v22.22.3 checkout of the topic branch (CI uses Node 24).
+
+- **Frontend unit tests (`npm test`): 175 passing, 0 failing.** The run
+  includes the new `tests/work-queue.test.mjs` (page merging, loaded offsets,
+  forced More-filters state, result-count labels, arrow-key selection, and
+  list-scroll arithmetic) and `tests/work-detail-tabs.test.mjs` (tab counts
+  and alert state) alongside every existing suite; the proxy-policy tests are
+  unchanged.
+- **TypeScript checking (`npm run typecheck`) and the production build
+  (`npm run build`): both pass** with the final tree.
+- **Isolated Playwright stack (`npm run test:e2e:stack`): 79 executions, 79
+  passing, 0 failing, 4.5 minutes** on a uniquely named disposable Compose
+  project: 39 on desktop Chromium, 1 on the focused Firefox motion project,
+  and 39 on narrow Chromium. Teardown left no `mnemonic-e2e-*` container,
+  volume, or network. The run covered `tests/e2e/work-library-surface.spec.ts`
+  in both Chromium projects, every phase spec migrated to the
+  `tests/e2e/surface.ts` helpers, and the updated dark-theme contrast fixture.
+  Two earlier full runs on the same tree surfaced and fixed, in order: two
+  pre-existing dark-theme contrast gaps (blocked/waiting operational badges and
+  `button.text-link` chrome), an unmounted merge recovery block after a lost
+  merge response, and two live-sync races that superseded an in-flight exact
+  or reconciling context load; the first duplicate-suggestion request on a
+  fully seeded project takes about six seconds while new embeddings are built,
+  so that browser expectation now waits up to thirty seconds.
+- **Metadata alignment: confirmed.** `frontend/package.json` and both root
+  `package-lock.json` version fields read `0.5.0`; application/API/MCP remain
+  `0.4.0`, the plugin `0.8.0`; the browser registry remains exactly eleven
+  mutations and no proxy route was added.
+- **Gitleaks (`pre-commit run --all-files`): passed.**
+
+No backend, MCP, migration, plugin, stack-check, or adversarial-review result
+is claimed for this change, and it does not alter any production, cutover,
+backup/restore, or permanence gate recorded below.
+
 ## Phase 9 Advisory implementation checkpoint — 2026-09-02
 
 This checkpoint covers application/API/MCP/dashboard `0.4.0`, plugin `0.8.0`,
