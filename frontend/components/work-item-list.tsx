@@ -4,7 +4,15 @@ import type { RefObject } from "react";
 import WorkHierarchy, { SearchBreadcrumb } from "@/components/work-hierarchy";
 import WorkItemCard from "@/components/work-item-card";
 import { useWorkItemMotion } from "@/components/use-work-item-motion";
-import type { HierarchySummary, Page, StatusFilter, WorkSort, WorkSummary } from "@/lib/types";
+import type {
+  DuplicateScope,
+  HierarchySummary,
+  Page,
+  StatusFilter,
+  WorkSearchHit,
+  WorkSort,
+  WorkSummary
+} from "@/lib/types";
 
 const WORK_PAGE_SIZE = 20;
 const filters: StatusFilter[] = [
@@ -39,8 +47,8 @@ function Icon({ name, size = 18 }: { name: keyof typeof iconPaths; size?: number
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[name]} /></svg>;
 }
 
-function isHierarchySummary(item: WorkSummary | HierarchySummary): item is HierarchySummary {
-  return "summary" in item;
+function isHierarchySummary(item: WorkSearchHit | HierarchySummary): item is HierarchySummary {
+  return "presentation" in item;
 }
 
 type Props = {
@@ -48,12 +56,14 @@ type Props = {
   searchedQuery: string;
   searchRef: RefObject<HTMLInputElement | null>;
   semantic: boolean;
+  duplicateScope: DuplicateScope;
+  canonicalWorkItemId: string;
   status: StatusFilter;
   sort: WorkSort;
   tag: string;
   sourceClient: string;
   sourceSessionId: string;
-  results: Page<WorkSummary | HierarchySummary> | null;
+  results: Page<WorkSearchHit> | Page<HierarchySummary> | null;
   loading: boolean;
   error: string;
   offset: number;
@@ -63,6 +73,8 @@ type Props = {
   deferringId: string | null;
   onQuery: (value: string) => void;
   onToggleSemantic: () => void;
+  onDuplicateScope: (scope: DuplicateScope) => void;
+  onClearDuplicateGroup: () => void;
   onStatus: (status: StatusFilter) => void;
   onSort: (sort: WorkSort) => void;
   onTag: (value: string) => void;
@@ -84,6 +96,8 @@ export default function WorkItemList({
   searchedQuery,
   searchRef,
   semantic,
+  duplicateScope,
+  canonicalWorkItemId,
   status,
   sort,
   tag,
@@ -99,6 +113,8 @@ export default function WorkItemList({
   deferringId,
   onQuery,
   onToggleSemantic,
+  onDuplicateScope,
+  onClearDuplicateGroup,
   onStatus,
   onSort,
   onTag,
@@ -114,13 +130,20 @@ export default function WorkItemList({
   onCopyPointer,
   onOffset
 }: Props) {
-  const searchResults = results?.items.map((item) => isHierarchySummary(item) ? item.summary : item) ?? [];
-  const hierarchyResults = results?.items.filter(isHierarchySummary) ?? [];
+  const flatSearch = Boolean(searchedQuery)
+    || duplicateScope !== "canonical"
+    || Boolean(canonicalWorkItemId);
+  const searchResults = flatSearch
+    ? (results?.items.filter((item): item is WorkSearchHit => !isHierarchySummary(item)) ?? [])
+    : [];
+  const hierarchyResults = !flatSearch
+    ? (results?.items.filter(isHierarchySummary) ?? [])
+    : [];
   const searchMotionRef = useWorkItemMotion<HTMLElement>({
-    itemIds: searchResults.map((item) => item.work_item.id),
-    total: searchedQuery && results ? results.total : null,
+    itemIds: searchResults.map((item) => item.summary.work_item.id),
+    total: flatSearch && results ? results.total : null,
     viewKey: `${viewKey}:search`,
-    revision: searchedQuery ? results?.items : null,
+    revision: flatSearch ? results?.items : null,
     snapshotSignal: refreshKey,
     enabled: offset === 0
   });
@@ -147,8 +170,18 @@ export default function WorkItemList({
               </label>)}
             </div>
           </fieldset>
-          <span className="result-count" role="status">{loading || query.trim() !== searchedQuery ? "Finding work…" : results ? searchedQuery ? `${results.total} work item${results.total === 1 ? "" : "s"}` : `${results.total} root branch${results.total === 1 ? "" : "es"}` : ""}</span>
+          <span className="result-count" role="status">{loading || query.trim() !== searchedQuery ? "Finding work…" : results ? flatSearch ? `${results.total} work record${results.total === 1 ? "" : "s"}` : `${results.total} root branch${results.total === 1 ? "" : "es"}` : ""}</span>
         </div>
+      </div>
+      <div className="duplicate-filter-row">
+        <fieldset className="duplicate-scope-control">
+          <legend>Duplicate records</legend>
+          {(["canonical", "aliases", "all"] as DuplicateScope[]).map((scope) => <label key={scope} className={duplicateScope === scope ? "selected" : ""}>
+            <input type="radio" name="duplicate-scope" checked={duplicateScope === scope} onChange={() => onDuplicateScope(scope)} />
+            <span>{scope === "canonical" ? "Canonical only" : scope === "aliases" ? "Aliases only" : "All records"}</span>
+          </label>)}
+        </fieldset>
+        {canonicalWorkItemId && <div className="duplicate-group-filter" role="status"><span>Canonical group</span><code>{canonicalWorkItemId}</code><button type="button" className="text-link" onClick={onClearDuplicateGroup}>Clear group</button></div>}
       </div>
       <div className="hierarchy-filter-fields" role="group" aria-label="Filter hierarchy by checkpoint provenance">
         <label>Tag<input value={tag} maxLength={50} placeholder="Exact tag" onChange={(event) => onTag(event.target.value)} /></label>
@@ -161,7 +194,7 @@ export default function WorkItemList({
     {error && !results ? <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" type="button" onClick={onRetry}>Try again</button></div> :
       loading && !results ? <div className="card-skeletons" role="status" aria-label="Loading work items">{[1, 2, 3].map((item) => <div className="card-skeleton" key={item}><span /><span /><span /></div>)}</div> :
       results ? <>
-        {searchedQuery ? <section ref={searchMotionRef} className="work-list search-results" aria-label="Matching durable work items">{searchResults.map((item) => <div className="search-result" data-work-item-id={item.work_item.id} key={item.work_item.id}><SearchBreadcrumb summary={item} /><WorkItemCard summary={item} copied={copiedKey === `${item.work_item.id}:pointer`} deferring={deferringId === item.work_item.id} onOpen={() => onOpen(item)} onEdit={() => onEdit(item)} onDelete={() => onDelete(item)} onDefer={() => onDefer(item)} onCopyPointer={() => onCopyPointer(item)} /></div>)}</section> :
+        {flatSearch ? <section ref={searchMotionRef} className="work-list search-results" aria-label="Matching durable work records">{searchResults.map(({ summary: item, matched_member: matchedMember }) => <div className="search-result" data-work-item-id={item.work_item.id} key={item.work_item.id}><div className="matched-member" role="note"><span>{matchedMember.id.toLowerCase() === item.work_item.id.toLowerCase() ? "Matched record" : "Matched duplicate member"}</span><bdi dir="auto">{matchedMember.title}</bdi><code>{matchedMember.id}</code></div><SearchBreadcrumb summary={item} /><WorkItemCard summary={item} copied={copiedKey === `${item.work_item.id}:pointer`} deferring={deferringId === item.work_item.id} onOpen={() => onOpen(item)} onEdit={() => onEdit(item)} onDelete={() => onDelete(item)} onDefer={() => onDefer(item)} onCopyPointer={() => onCopyPointer(item)} /></div>)}</section> :
           <WorkHierarchy
             items={hierarchyResults}
             status={status}
@@ -188,7 +221,7 @@ export default function WorkItemList({
               onQuery(item.work_item.id);
             }}
           />}
-        {!results.items.length && <section className="empty-state"><div className="empty-art"><Icon name={searchedQuery ? "search" : "box"} size={31} /><span /></div><h2>{searchedQuery ? "No matching work." : status === "pending" ? "No pending work yet." : status === "all" ? "No work yet." : `No ${filterLabels[status].toLowerCase()} work.`}</h2><p>{searchedQuery ? "Try another phrase or search across all lifecycle states." : "Create a durable objective here, or ask a connected agent to create one with its first checkpoint."}</p>{searchedQuery || status !== "pending" ? <button type="button" className="button button-secondary" onClick={onClearFilters}>Clear filters</button> : <button type="button" className="button button-primary" onClick={onCreate}><Icon name="plus" size={16} />Create work</button>}</section>}
+        {!results.items.length && <section className="empty-state"><div className="empty-art"><Icon name={flatSearch ? "search" : "box"} size={31} /><span /></div><h2>{flatSearch ? "No matching work records." : status === "pending" ? "No pending work yet." : status === "all" ? "No work yet." : `No ${filterLabels[status].toLowerCase()} work.`}</h2><p>{flatSearch ? "Try another phrase, lifecycle, duplicate scope, or canonical group." : "Create a durable objective here, or ask a connected agent to create one with its first checkpoint."}</p>{flatSearch || status !== "pending" ? <button type="button" className="button button-secondary" onClick={onClearFilters}>Clear filters</button> : <button type="button" className="button button-primary" onClick={onCreate}><Icon name="plus" size={16} />Create work</button>}</section>}
       </> : null}
 
     {results && results.total > 0 && <nav className="pagination" aria-label="Work result pages"><span>Showing {offset + 1}–{Math.min(offset + results.items.length, results.total)} of {results.total}</span><div><button type="button" className="button button-secondary" disabled={loading || offset === 0} onClick={() => onOffset(Math.max(0, offset - WORK_PAGE_SIZE))}><Icon name="back" size={15} />Previous</button><button type="button" className="button button-secondary" disabled={loading || offset + results.items.length >= results.total} onClick={() => onOffset(offset + WORK_PAGE_SIZE)}>Next<Icon name="arrow" size={15} /></button></div></nav>}

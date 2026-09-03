@@ -64,7 +64,7 @@ def test_event_emission_replay_progress_reads_and_bounded_recall(api, project, w
     assert creation["actor_client"] == work_payload["initial_checkpoint"]["source_client"]
     assert creation["body"] is None
 
-    before = api.get(endpoint).json()
+    before = api.get(endpoint).json()["work_item"]
     progress = api.post(
         f"{endpoint}/events",
         json={
@@ -77,7 +77,7 @@ def test_event_emission_replay_progress_reads_and_bounded_recall(api, project, w
     assert progress.status_code == 201, progress.text
     assert progress.json()["body"] == "  Exact progress text.\r\n  "
     assert progress.json()["event_type"] == "progress"
-    assert api.get(endpoint).json()["version"] == before["version"]
+    assert api.get(endpoint).json()["work_item"]["version"] == before["version"]
 
     checkpoint = api.post(
         f"{endpoint}/checkpoints",

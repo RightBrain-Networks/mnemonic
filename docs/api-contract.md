@@ -1,4 +1,8 @@
-# Phases 7–8 API contract
+# Phase 9 API contract
+
+This is the application/API/MCP `0.4.0`, plugin `0.8.0`, and migration
+`0017_duplicate_suggestion_title_key` contract. It includes both authoritative
+duplicate merges and evidence-only duplicate suggestions.
 
 All application routes use `/api/v1` and
 `Authorization: Bearer <MNEMONIC_API_KEY>`. `GET /healthz` and
@@ -44,11 +48,29 @@ actor/session value, or control UUID. A hierarchy statement canceled by its
 five-second limit returns typed `503 hierarchy_timeout`; retry a narrower read.
 Any database failure may return `503 database_unavailable`; a write outcome can
 be unknown, so retain the exact request before deciding whether to retry.
+The typed `503 duplicate_graph_invalid` response is the exception: it is a
+definitive integrity stop, not an unknown write outcome, and must not be retried.
+
+Duplicate conflicts use `duplicate_merge_required`, `duplicate_self`,
+`work_duplicate`, `work_already_duplicate`,
+`duplicate_destination_not_canonical`, `duplicate_context_changed`,
+`duplicate_source_gate_unresolved`, `duplicate_structural_relationships`,
+`duplicate_depth_exceeded`, and `duplicate_relationship_frozen`. A corrupt
+authoritative graph returns `503 duplicate_graph_invalid` and disables
+canonical-sensitive authority changes. Only `work_duplicate` may expose the
+current `canonical_work_item_id`; errors never expose rationale, history,
+reviewed revisions, tokens, operation IDs, or arbitrary endpoint IDs.
+Suggestion-specific failures are `request_body_too_large` (413),
+`duplicate_suggestion_busy` (429 with `Retry-After: 1`), and
+`duplicate_suggestion_unavailable` (503). The suggestion operation is a safe
+read: its timeout/429/503 may be retried normally and never imply an unknown
+structural write. Creation remains independent.
 
 ## Idempotent mutation receipts
 
-Exactly twelve project-scoped REST mutations accept an optional top-level
-`client_operation_id` UUID:
+Exactly thirteen project-scoped REST mutations use a top-level
+`client_operation_id` UUID. It is optional on the original twelve and mandatory
+for merge:
 
 | Operation | Route |
 | --- | --- |
@@ -64,6 +86,7 @@ Exactly twelve project-scoped REST mutations accept an optional top-level
 | release claim | `POST /projects/{project_id}/work-items/{work_item_id}/release-claim` |
 | request human input | `POST /projects/{project_id}/work-items/{work_item_id}/gates` |
 | resolve human input | `POST /projects/{project_id}/work-items/{work_item_id}/gates/{gate_id}/resolve` |
+| merge work | `POST /projects/{project_id}/work-items/{source_work_item_id}/merge` |
 
 A caller generates one UUID before the first attempt and retains the complete,
 validated semantic request. An exact retry under the same
@@ -95,12 +118,13 @@ responses, errors, events, resources, prompts, logs, or browser persistence.
 `actor` whenever the operation ID is present. Their unkeyed direct-REST form
 remains valid and may remain unattributed.
 
-Direct REST callers may omit `client_operation_id`; that preserves a single
-unprotected attempt and makes no retry-safety promise. Exactly ten canonical
-MCP mutation tools require it: the existing nine plus `request_human_input`.
+Direct REST callers may omit `client_operation_id` from the original twelve;
+that preserves a single unprotected attempt and makes no retry-safety promise.
+`merge_work` has no unkeyed form. Exactly eleven canonical
+MCP mutation tools require it: the previous ten plus `merge_work`.
 Human-only deferral and gate resolution have no MCP tools. The dashboard
-generates it for ten covered browser operations: its previous nine plus gate
-resolution, while capability-bearing release and gate creation remain denied.
+generates it for eleven covered browser operations: its previous ten plus merge,
+while capability-bearing release and gate creation remain denied.
 It freezes the entire request and retries only that exact in-memory intent.
 Project create/update, project settings, claim, claim-and-recall, and
 renew-claim remain outside this ledger. Claim recovery continues to use its
@@ -140,8 +164,10 @@ Base path: `/projects/{project_id}/work-items`.
 
 - `POST /` creates one work item, its initial context checkpoint, and optional
   initial relationships atomically, returning `WorkCreation` (201).
-- `GET /` browses or searches one compact `WorkSummary` per work item.
-- `GET /{work_item_id}` returns `WorkItemRead` only.
+- `GET /` browses or searches `WorkSearchHit` rows, grouping aliases under
+  their canonical root by default.
+- `GET /{work_item_id}` returns `WorkItemDetailRead`, containing the exact
+  `WorkItemRead` plus an explicit canonical projection.
 - `PATCH /{work_item_id}` performs a version-protected work identity or
   lifecycle edit.
 - `POST /{work_item_id}/defer` is the human control-plane action that parks
@@ -171,8 +197,13 @@ Base path: `/projects/{project_id}/work-items`.
 - `POST /{work_item_id}/release-claim` releases a matching retained capability.
 - `GET /{work_item_id}/relationships` pages immediate adjacent graph facts.
 - `GET /{work_item_id}/children` pages subtree-aware direct child branches.
+- `POST /{source_work_item_id}/merge` permanently merges that reviewed source
+  root into one reviewed destination root and returns `WorkMergeResult` (201).
 - `GET /projects/{project_id}/human-attention` cursor-pages unresolved gates and
   their work summaries; `limit=0` returns the exact text-free count.
+- `POST /projects/{project_id}/duplicate-suggestions` compares one transient
+  creation draft and returns canonical-grouped evidence without creating a
+  receipt or domain event.
 
 There are no checkpoint update/delete routes. PostgreSQL also rejects direct
 `UPDATE` and `DELETE` against checkpoint rows.
@@ -225,6 +256,12 @@ incoming `parent-child` makes the existing counterpart the parent; an incoming
 top-level `client_operation_id`. Work, checkpoint, and every requested edge
 commit or roll back together, and relationship creator provenance is copied
 from the supplied initial checkpoint.
+
+Fresh `duplicate-of` initial relationships are rejected with
+`409 duplicate_merge_required`; only `merge_work` may create new duplicate
+evidence. The request shape still parses the literal so a completed pre-0016
+`create_work` receipt can dispatch to the backend and replay before that
+current-state guard.
 
 `status` may initially be `pending`, `wont-do`, or `promoted`, never
 `deferred` or `done`. Priority is an integer from 0 through 100 and defaults to
@@ -391,7 +428,9 @@ Work list/search accepts:
 | `tag` | matches any checkpoint |
 | `source_client` | matches any checkpoint |
 | `source_session_id` | matches any checkpoint |
-| `view` | `full` by default; `minimal` for pointer-only results; `roots` for structural root browsing |
+| `view` | `full` by default; `roots` for structural root browsing |
+| `duplicate_scope` | `canonical` by default; `aliases` or `all` only for explicit audit |
+| `canonical_work_item_id` | optional root UUID, valid only with `aliases` or `all` |
 | `limit` | 30 by default, maximum 100 |
 | `offset` | 0 by default |
 
@@ -403,6 +442,13 @@ visually distinct. `deferred` is a persisted lifecycle filter, and `all`
 includes every lifecycle and lease state. Dropped work records an unexpectedly
 terminated session; it has no active owner and may be ready for a new claim.
 
+`duplicate_scope=canonical` omits aliases as independent rows and groups matches
+from every visible member under its current root before offset pagination.
+`duplicate_scope=aliases` returns only retained aliases, while `all` returns
+roots and aliases separately. `canonical_work_item_id` narrows the latter two
+scopes to one group and must itself name a visible root. Hierarchy
+`view=roots` permits only `duplicate_scope=canonical`.
+
 Blank `q` uses the selected ordering: most recently updated, most recently
 created, or highest priority first. Updated time breaks priority ties. IDs
 provide deterministic final tie-breaking. A nonblank query searches weighted work
@@ -413,13 +459,22 @@ relevance controls its page order, with the selected sort as a deterministic
 tie-breaker. Search results never contain prompt or
 source-metadata bodies.
 
-`view=full` returns flat `WorkSummary` pages and gives every row a bounded
-root-to-parent `ancestor_path` plus an `ancestor_path_truncated` flag, including
-blank-query browse pages. A nonblank `q` requires `full` or `minimal`. `view=minimal` returns
-`WorkSummaryMinimal` pages carrying only `work_item` (`id`, `title`, `status`,
-`priority`, `version`, `updated_at`), `checkpoint_count`, and `display_state`;
-it skips the ancestor-path query entirely. REST defaults to `full` for the
-dashboard; the MCP `search_work` tool defaults to `minimal` for agent callers.
+Opt-in semantic search acquires the same one-slot process-wide inference gate
+as duplicate suggestions before opening its database snapshot. If the 50 ms
+capacity wait expires, a valid semantic request returns typed 503
+`semantic_unavailable`; clients can retry as lexical search. Existing-work
+semantic text is SQL-bounded to the first 1,500 initial-prompt characters and a
+1,500-character tail across later checkpoints. Derived cache refresh occurs in
+a separate post-snapshot transaction, skips locked work rows, and bounds cache
+lock and statement waits; a bounded cache timeout retains the computed ranking.
+
+`view=full` returns flat `WorkSearchHit` pages. Each hit has `summary`, the
+returned root or explicitly scoped member's full `WorkSummary`, and
+`matched_member`, the exact member whose stored text supplied that match. A
+blank-query row matches itself. The pointer is retrieval evidence, not merge
+authority and not permission to substitute its ID. Each summary carries a
+bounded root-to-parent `ancestor_path` plus an `ancestor_path_truncated` flag.
+A nonblank `q` requires `full`.
 `view=roots` forbids free-text search and returns
 `HierarchySummary` root branches. Root filters are subtree-aware: a structural
 root remains when it or any descendant matches, and `total` counts qualifying
@@ -432,6 +487,90 @@ with `limit` defaulting to 50 (maximum 100) and `offset=0`; totals count
 qualifying direct child branches. Relationship pages use the filters documented
 in the relationship contract below.
 
+### Duplicate suggestions
+
+`POST /projects/{project_id}/duplicate-suggestions` accepts exactly:
+
+```json
+{
+  "title": "Verify backup restoration",
+  "summary": "Check that the backup restores durable work.",
+  "initial_prompt": "Restore into an isolated database and verify the selected records.",
+  "tags": ["backup", "verification"],
+  "exclude_work_item_id": null,
+  "limit": 5
+}
+```
+
+Text and tag limits and normalization match the valid creation fields. `tags`
+defaults to `[]`, `exclude_work_item_id` to `null`, and `limit` to 5 with a
+maximum of 10. No provenance, operation UUID, lease token, relationship,
+canonical choice, create flag, unknown field, or silent truncation is accepted.
+An exclusion must name visible same-project work and removes its complete
+canonical group.
+
+The strict response is:
+
+```text
+DuplicateSuggestionPage {
+  items: [{
+    canonical_work: {
+      work_item_id, title, summary, status, updated_at,
+      duplicate_member_count
+    },
+    matched_member: {id, title, status},
+    rank,
+    signals: [exact_title | lexical | semantic]
+  }],
+  limit,
+  mode: hybrid_full | hybrid_shortlist | lexical,
+  semantic_available,
+  semantic_scope: full_project | lexical_shortlist | unavailable,
+  composition_version,
+  exact_title_group_total,
+  omitted_exact_title_group_count
+}
+```
+
+Ranks are contiguous from one; roots are unique; signals use the displayed
+closed order with no duplicates. The mode, semantic availability, and scope
+must agree. The candidate summary exposes no readiness, checkpoint body or
+provenance, lease holder/session, gate detail, raw score, vector, merge control,
+or operation capability. Candidate titles and summaries are returned exactly
+as stored, including boundary whitespace; create-draft trimming and
+normalization are not reapplied to retained work.
+
+Selection is `duplicate-suggestion-v1`. The immutable PostgreSQL-17 title key
+applies NFKC, trims and collapses POSIX whitespace, and lowercases under C
+collation. All visible members participate in the indexed exact-title lane;
+canonical groups reserve result slots before other lanes and exact total/omitted
+counts describe the global lane. Weighted lexical search uses title, summary,
+the 30 most-recent distinct normalized tags (chosen by latest checkpoint
+occurrence and emitted lexicographically), the first 1,500 characters of the
+initial prompt, and a SQL-bounded 1,500-character tail from later checkpoints,
+then retains at most 200 non-exact groups. Optional local
+`BAAI/bge-small-en-v1.5` rank uses RRF K=60 with lexical weight 3.0 and groups
+before the public limit. The cache version includes `tags=recent-30` alongside
+the composition, title-key, model, dimensions, text bounds, and rank weights.
+
+Full semantic scope is reported only for a project of at most 10,000 visible
+members when all current vectors are cached. Otherwise semantic work is limited
+to the lexical shortlist and at most 128 missing vectors. The process-wide
+inference gate is shared with ordinary semantic search. Suggestions wait at
+most 50 ms for capacity, then fall back to deterministic lexical 200; model
+load, inference, vector, or derived-cache failure has the same fallback.
+Database/system failure returns the typed 503.
+
+One absolute 60-second request deadline begins before body handling and spans
+inference and application work. The PostgreSQL-17 snapshot transaction sets
+transaction, statement, and lock timeouts from the remaining route budget.
+Existing-work cache updates occur afterward in a separate digest-checked
+transaction, skip locked work rows, and cap cache lock waits at 50 ms within
+that remaining budget. A cache-row lock timeout therefore falls back without
+extending the transport deadline. The draft vector and result are never
+persisted. The request creates no work, relationship, event, receipt,
+version/activity change, or live invalidation.
+
 ### Ready-work discovery
 
 `GET /projects/{project_id}/ready-work` accepts exactly `min_priority` (default
@@ -439,9 +578,9 @@ in the relationship contract below.
 maximum 100), and nonnegative `offset`. An unknown/cross-project parent returns
 the same `work_item_not_found` 404 as other project-scoped work lookups.
 
-A returned item is visible `pending` work with no active lease, no unresolved
-incoming `blocks` edge, and no unresolved human gate at one captured database
-time. Only a blocker in `done` is resolved. A resolved gate no longer affects
+A returned item is visible canonical `pending` work with no active lease, no
+unresolved incoming `blocks` edge, and no unresolved human gate at one captured
+database time. An alias is never ready. Only a blocker in `done` is resolved. A resolved gate no longer affects
 readiness; its answer remains in gate/event history and bounded recall.
 
 The exact order is `priority DESC, created_at ASC, id ASC`. `total` is the exact
@@ -459,7 +598,7 @@ Ready discovery is advisory. It is separate from lexical/semantic retrieval,
 does not reserve work, and cannot bypass the atomic readiness recheck performed
 by `claim_work` or `claim_and_recall`.
 
-### Core response shapes
+### Phase 9 response shapes
 
 `WorkItemRead` contains:
 
@@ -467,6 +606,14 @@ by `claim_work` or `claim_and_recall`.
 id, project_id, title, summary, status, priority, initial_checkpoint_id,
 version, created_at, updated_at
 ```
+
+The exact detail route wraps that unchanged, receipt-bearing shape as
+`WorkItemDetailRead={work_item,canonical}`. `CanonicalWorkProjection` contains
+`is_duplicate`, nullable `direct_destination`, `canonical_work_item`, `path`,
+and `duplicate_member_count`. Pointers contain only `id`, `title`, and stored
+`status`. A root points to itself with no direct destination and an empty path;
+an alias path begins with its direct destination, ends at its current root, and
+has at most 50 hops. The member count excludes the root itself.
 
 `CheckpointRead` contains:
 
@@ -488,9 +635,10 @@ time fields.
 The ancestor path is root-to-parent for every full flat result and empty only
 for a structural root; hierarchy root/child summaries keep their documented
 empty compact-summary path. `Readiness` contains lifecycle, terminal, active,
-dropped, blocked, and ready booleans, unresolved blocker and human-gate counts, `is_gated`,
-display state, and an optional safe active lease. Display precedence is
-non-Pending lifecycle, waiting, blocked, active, dropped, then Pending;
+dropped, blocked, and ready booleans, unresolved blocker and human-gate counts,
+`is_gated`, `is_duplicate`, `canonical_work_item_id`, display state, and an
+optional safe active lease. An alias has `is_ready=false`; display precedence
+is duplicate, non-Pending lifecycle, waiting, blocked, active, dropped, then Pending;
 independent flags remain authoritative because gated, lease, and blocked facts
 can overlap.
 
@@ -506,6 +654,11 @@ and lifecycle fields remain authoritative.
 
 ```text
 work_item
+merge_review_revision
+canonical
+duplicate_members
+duplicate_member_total
+omitted_duplicate_member_count
 initial_checkpoint
 current_context
 current_context_is_initial
@@ -527,6 +680,8 @@ incoming_relationships
 outgoing_relationships
 undirected_relationships
 relationship_counts
+omitted_relationship_counts
+duplicate_merge_eligibility
 ```
 
 `current_context` is the newest context-kind checkpoint, not the newest
@@ -541,8 +696,15 @@ and 20 recent resolved gates, with exact totals and omitted counts. The nested
 present in the bounded gate slice for a one-snapshot human review; ordinary
 context accepts no focus-ID query. Page complete paired decisions through the
 dedicated gate-history route. In ordinary bounded context, each immediate
-relationship list contains at most 50 pointer-only counterparts and
-`relationship_counts` covers all adjacent edges by direction. The valid nested
+relationship list contains at most 100 pointer-only counterparts,
+`relationship_counts` covers all adjacent edges by direction, and
+`omitted_relationship_counts` identifies what was not materialized. The
+`merge_review_revision` contains positive `work_version`, non-null newest
+context-checkpoint ID, and positive committed work-event count. Context returns
+at most 20 alias pointers, placing the requested alias first when applicable,
+with exact total and omission count. `duplicate_merge_eligibility` reports
+source incident block count, incident parent-child count, unresolved-gate fact,
+and `source_lease_state=none|expired|active`. The valid nested
 review route is the deliberate exception: that same one-statement review
 materializes every adjacent relationship, so drift review cannot be prepared from an omitted edge. Focused response size therefore grows with focal
 work-item degree and clients must request it only for explicit human review;
@@ -554,7 +716,8 @@ child summaries have empty ancestor paths. The flags distinguish a direct
 filter match from an ancestor retained only to navigate to a matching
 descendant. `presentation` contains exact direct-child and strict-descendant
 counts; blocked, active, completed, and discovered descendant counts; an
-inclusive branch unresolved-human-gate count; `is_discovered_work`;
+inclusive branch unresolved-human-gate count; `branch_merged_duplicate_count`;
+`is_discovered_work`;
 `discovered_from_parent`; and the earliest active descendant lease expiry. All
 fields come from one database statement and one database-time snapshot.
 
@@ -678,7 +841,7 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 25 tools:
+The catalog is exactly 27 tools:
 
 ```text
 list_projects, create_project,
@@ -687,22 +850,38 @@ list_checkpoints, recall_work, request_human_input, list_human_attention,
 list_work_gates, append_event, list_work_events,
 update_work, complete_work, delete_work,
 claim_work, claim_and_recall, renew_claim, release_claim,
-add_relationship, get_relationship, list_relationships, remove_relationship
+add_relationship, get_relationship, list_relationships, remove_relationship,
+merge_work, suggest_duplicate_work
 ```
 
 Exactly `create_work`, `add_checkpoint`, `append_event`, `add_relationship`,
 `update_work`, `complete_work`, `delete_work`, `remove_relationship`,
-`release_claim`, and `request_human_input` require a caller-generated
-`client_operation_id` and are annotated as idempotent mutations. Prepare the
+`release_claim`, `request_human_input`, and `merge_work` require a
+caller-generated `client_operation_id` and are annotated as idempotent
+mutations. Prepare the
 complete arguments once, retain them privately, and retry only that exact tool,
 UUID, and argument object after an unknown outcome. Project administration,
 claim acquisition/recovery, and renewal retain their separate contracts.
 
-`search_work` defaults to `view="minimal"`; every `view="full"` result carries
-the root-to-parent `ancestor_path`, including blank-query pages. `list_ready_work`
+`search_work` defaults to `view="full"` and `duplicate_scope="canonical"`.
+Every result is a `WorkSearchHit`; `matched_member` identifies which exact
+member supplied a grouped text match but does not grant merge authority or ID
+substitution. Use `aliases` or `all` only for explicit audit, and use
+`canonical_work_item_id` only with those scopes. Every summary carries the
+root-to-parent `ancestor_path`, including blank-query pages. `list_ready_work`
 returns strict compact pointers and directs an already-authorized selection to
 `claim_and_recall`; it is not retrieval, reservation, or authority, and excludes
 waiting work.
+
+`suggest_duplicate_work` accepts the resolved project plus exactly the six
+draft fields documented above. It is read-only, closed-world, and explicitly
+classified `safe_read`; it takes no `client_operation_id` and sends one request
+with the 60-second Advisory budget. A timeout, transport failure, 429, or 503
+permits an ordinary retry because no structural outcome is uncertain. Its
+strict response validator binds project-independent candidate fields, unique
+canonical groups, contiguous ranks, signal order, exact counts, and coherent
+mode/scope/semantic state. It never exposes scores or turns a candidate into an
+automatic create, redirect, relationship, or merge.
 
 The `request_human_input` tool description requires its caller to check existing
 open questions and write supporting context first. It sends one attempt; after an unknown outcome, retry only the exact retained UUID
@@ -717,6 +896,19 @@ required for the protected mutation tools that carry an actor. Recall, resources
 and the `resume_work` prompt carry bounded gate/event slices with exact omitted
 counts and untrusted-evidence warnings; none grants execution authority.
 
+`merge_work` requires two distinct current roots, the complete
+`merge_review_revision` from each exact `recall_work`, a nonblank rationale,
+truthful merger provenance, and a mandatory operation UUID. The source must
+have no unresolved gate or incident `blocks`/`parent-child` relationship. An
+active source lease additionally requires its exact token; the destination's
+lease and gate state do not transfer. Review direction as
+`source duplicate -> destination canonical` and retain the complete frozen call
+before the first attempt. A timeout or malformed/5xx outcome permits only the
+same-key, same-arguments retry unless the typed response is
+`duplicate_graph_invalid`. That integrity failure is definitive: stop
+authority-changing work and involve an operator. The returned receipt is
+historical; read the source and current canonical root again afterward.
+
 Stable structured application errors are mapped to value-free guidance. A 404
 names only reachable entity kinds (project, work item, checkpoint, or
 relationship) when the backend supplies a typed code; otherwise it uses generic
@@ -725,9 +917,12 @@ error kinds. Unknown/string-detail conflicts are not guessed as slug or version
 conflicts. No adapter error renders caller values, request IDs, operation IDs,
 lease tokens, prompts, or upstream detail.
 
-Every top-level input rejects unknown fields. A timeout/reset, upstream 5xx,
-malformed protected success, or `client_operation_unavailable` is an unknown
-outcome and causes no second outbound attempt. MCP validates protected success
+Every top-level input rejects unknown fields. For a protected write, a
+timeout/reset, upstream 5xx, malformed success, or
+`client_operation_unavailable` is an unknown outcome and causes no second
+outbound attempt, except that a typed `duplicate_graph_invalid` is a definitive
+stop. Safe-read suggestion failures use the separate ordinary-retry rule above.
+MCP validates protected success
 against strict OpenAPI-aligned response properties, required fields, requested
 scope, and request coherence. Its server and `httpx` logger run at WARNING so
 query text, cursors, and URL identifiers are not emitted at INFO.
@@ -746,14 +941,28 @@ answer, asserted dashboard resolver fields, required
 request input through MCP or an authorized direct REST client, while a person
 resolves it in the dashboard.
 
-Covered browser writes require one top-level operation UUID and a frozen body.
+The proxy also admits the exact merge route with the two reviewed revisions,
+rationale, dashboard provenance, and required operation UUID. The browser has
+no lease-token surface, so it disables merge while the source has an active
+lease and directs the person to release or finish that lease through an
+authorized client. It never strips or invents a token.
+
+The exact duplicate-suggestion route is the sole safe POST in this area. Its
+body allowlist is only `title`, `summary`, `initial_prompt`, `tags`,
+`exclude_work_item_id`, and `limit`; operation IDs, lease tokens, headers,
+cookies, query parameters, and nested additions are rejected. Only this route
+raises the streaming proxy body cap to 2,097,152 bytes and the transport budget
+to 60 seconds. It forwards `Retry-After: 1` only for the typed busy response,
+never enters the protected-intent registry, and publishes no live invalidation.
+
+The eleven covered browser writes require one top-level operation UUID and a frozen body.
 Event POST accepts `{event_type,body,metadata,actor,client_operation_id}` and
 rejects `lease_token` rather than stripping it. Relationship DELETE carries the
 serialized actor/key body. Project relationship GET-by-ID, project ready-work,
 claim, renew, release, and every capability-bearing body are denied.
 
 The proxy rejects arbitrary paths, unknown query keys, untrusted hosts/origins,
-bodies over 1 MiB, a `lease_token` at any depth, operation IDs outside their
+bodies over the route-specific cap, a `lease_token` at any depth, operation IDs outside their
 allowed top-level bodies, and gate IDs outside typed path segments. Invalid UUIDs
 and values equal to the server bearer are rejected without echo.
 
@@ -764,6 +973,14 @@ editable answer draft, reload the current gate review, and prepare a new UUID
 and complete body. Reload or tab close can lose an uncertain intent, so the UI
 warns before unloading; it never stores gate text, mutation bodies, UUIDs, or
 credentials in browser storage.
+
+Merge freezes one intent under both source and destination work keys so neither
+endpoint can begin a conflicting browser mutation while its outcome is unknown.
+The confirmation renders source and destination in separate bidi-isolated
+panels, shows their full UUIDs, and requires explicit acknowledgement that the
+source becomes a permanent alias. A definite stale-context rejection requires
+two fresh contexts and a new UUID; an ambiguous outcome permits only exact
+retry of the retained body.
 
 ## Live invalidation
 
@@ -780,7 +997,13 @@ API: `DATABASE_URL`, `MNEMONIC_API_KEY` (required, at least 32 characters),
 `MNEMONIC_LEASE_TTL_SECONDS` (default 900, allowed 60 through 3600),
 `MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS` (default 10, allowed 1 through 10),
 `MNEMONIC_EMBEDDING_CACHE`, and `MNEMONIC_DASHBOARD_ORIGINS` for exact
-browser/WebSocket origins.
+browser/WebSocket origins. Advisory settings are
+`MNEMONIC_DUPLICATE_SUGGESTION_BODY_MAX_BYTES`, `_REQUEST_SLOTS`,
+`_REQUEST_WAIT_MS`, `_INFERENCE_SLOTS`, `_INFERENCE_WAIT_MS`,
+`_LEXICAL_SHORTLIST`, `_MISSING_VECTOR_LIMIT`,
+`_FULL_POPULATION_CEILING`, and `_TIMEOUT_SECONDS`, where every abbreviated
+name retains the `MNEMONIC_DUPLICATE_SUGGESTION` prefix. Their defaults are the
+2 MiB/4/250 ms/1/50 ms/200/128/10000/60-second limits documented above.
 
 MCP: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, `MNEMONIC_MCP_HOST`,
 `MNEMONIC_MCP_PORT`, `MNEMONIC_MCP_ALLOWED_HOSTS`, and
@@ -789,6 +1012,67 @@ MCP: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, `MNEMONIC_MCP_HOST`,
 Dashboard server: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, and
 `MNEMONIC_DASHBOARD_ORIGINS`. Credentials must never use a `NEXT_PUBLIC_*`
 variable.
+
+## Authoritative duplicate merge
+
+`POST /projects/{project_id}/work-items/{source_work_item_id}/merge` accepts
+this strict `WorkMergeCreate` shape:
+
+```json
+{
+  "destination_work_item_id": "22222222-2222-4222-8222-222222222222",
+  "reviewed_source_revision": {
+    "work_version": 3,
+    "context_checkpoint_id": "33333333-3333-4333-8333-333333333333",
+    "work_event_count": 7
+  },
+  "reviewed_destination_revision": {
+    "work_version": 5,
+    "context_checkpoint_id": "44444444-4444-4444-8444-444444444444",
+    "work_event_count": 12
+  },
+  "rationale": "These records describe the same durable objective.",
+  "merged_by_client": "claude-code",
+  "merged_by_session_id": "opaque-current-session",
+  "merged_by_model": null,
+  "lease_token": null,
+  "client_operation_id": "00000000-0000-4000-8000-000000000010"
+}
+```
+
+Direction is exact and irreversible: the path work item is the duplicate
+source and `destination_work_item_id` is its direct canonical destination. Both
+must be visible, distinct, same-project current roots at commit and both exact
+three-field review revisions must still match. The source may retain any
+lifecycle but must have no unresolved gate or incident `blocks` or
+`parent-child` relationship. An active source lease requires its exact token; a
+tokenless call clears an expired source lease. Destination lease, gate,
+lifecycle, and incoming aliases do not block selection and nothing transfers.
+The resulting authoritative path may not exceed 50 edges.
+
+The operation reuses an exact historical source-to-destination `duplicate-of`
+mark when present, otherwise creates it with its two endpoint events. In one
+transaction it records the immutable merge, increments each endpoint version
+once at one timestamp, consumes the source lease as applicable, appends one
+source and one destination `work_merged` event, and completes the receipt.
+
+`WorkMergeResult` contains exactly `merge`, the resulting source and destination
+`WorkItemRead` values, `direct_destination`, `canonical_work_item`,
+`supporting_relationship_created`, the exact `supporting_relationship`, zero or
+two `relationship_events` ordered source then destination, and exactly two
+`merge_events` ordered source then destination.
+`WorkMergeRead` contains IDs and sequence, both reviewed revisions, both
+resulting versions, rationale, asserted merger provenance, and timestamp. Each
+public `work_merged` event uses the rationale as body and exact metadata keys
+`merge_id`, `source_work_item_id`, `destination_work_item_id`, `role`,
+`source_work_version`, and `destination_work_version`. Private database witness
+columns never appear.
+
+There is no unmerge, retarget, correction, redirect, or merge-delete API. A
+same-key replay returns this frozen historical result before current alias or
+graph guards; callers then reread exact source history and the canonical root.
+Correction requires a complete pre-merge database restore with acknowledged
+loss of every later write or a future append-only correction release.
 
 ## Relationship contract
 
@@ -836,6 +1120,14 @@ Canonical clients send both; actor is required for a keyed request. A bodyless
 unkeyed direct REST call remains valid and emits unattributed removal history.
 An absent edge emits no event.
 
+A bare `duplicate-of` edge remains a descriptive duplicate mark with no
+canonical effect. Fresh generic adds, including initial relationships, return
+`409 duplicate_merge_required`; the parsers retain the literal only so a
+completed pre-0016 generic receipt can replay. Unselected historical marks may
+be removed while both endpoints remain canonical. Once either endpoint is an
+alias, every incident relationship is frozen and add returns `work_duplicate`
+while removal returns `duplicate_relationship_frozen`.
+
 `GET /projects/{project_id}/work-items/{work_item_id}/relationships` accepts
 `direction=incoming|outgoing|undirected|both` (default `both`), optional `type`,
 `limit` (default 50, maximum 100), and `offset`. Each
@@ -844,8 +1136,10 @@ work ID, endpoint-relative direction, and a compact counterpart containing only
 ID, title, lifecycle status, and readiness. It never embeds checkpoint prompt
 or metadata.
 
-Only an unresolved incoming `blocks` edge changes readiness or claimability.
-The other four types remain descriptive.
+Only an unresolved incoming `blocks` edge changes readiness or claimability as
+a relationship. The other four relationship types remain descriptive; the
+separate authoritative merge ledger, not its supporting `duplicate-of` mark,
+makes an alias non-actionable.
 
 ## Work events
 
@@ -895,7 +1189,7 @@ work_created, work_updated, work_status_changed, work_reopened,
 work_claimed, work_released, checkpoint_added, progress,
 dependency_added, dependency_removed, relationship_added,
 relationship_removed, work_completed, work_deleted,
-human_attention_requested, human_attention_resolved
+human_attention_requested, human_attention_resolved, work_merged
 ```
 
 Gate request/resolution events are server-only. Each carries the same exact
@@ -914,6 +1208,13 @@ checkpoint event references its checkpoint ID but never duplicates its body.
 One work item's public order is `created_at,id`; ID only breaks timestamp ties.
 Neither value promises transaction commit order or forms a resumable project
 activity cursor.
+
+`work_merged` is server-only and appears exactly twice per authoritative merge:
+source first with role `source`, destination second with role `destination`.
+Its body is the exact rationale and its version-1 metadata has only the six
+public merge keys documented above. It has no checkpoint, lease, relationship,
+release, or gate reference. Internal merge/witness foreign keys are excluded
+from every public event and from preserved historical receipt shapes.
 
 `WorkEventPage` has `items,total,limit,offset` plus
 `pre_phase5_history_may_be_incomplete`. Reconstructed rows include only facts

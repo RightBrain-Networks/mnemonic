@@ -24,10 +24,12 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 ## Delivery Snapshot
 
-As of 2026-09-02, Phases 1–8 are shipped. Phases 9–13 remain planned, although
-some of their underlying primitives already exist. The phase sections retain
-the original design rationale and acceptance criteria; their status lines and
-shipped-implementation notes describe the current product.
+As of 2026-09-02, Phases 1–9 are shipped at application/API/MCP `0.4.0`,
+plugin `0.8.0`, and migration `0017_duplicate_suggestion_title_key`; Phases
+10–13 remain planned. Phase 9's Core and Advisory implementations passed their
+repository implementation gates. Production cutover, backup restore rehearsal, and
+product/operator permanence signoff remain deployment prerequisites rather
+than claims made by this repository snapshot.
 
 | Roadmap element | Status | Implemented functionality |
 | --- | --- | --- |
@@ -36,10 +38,10 @@ shipped-implementation notes describe the current product.
 | Phase 3 — Typed relationships | Shipped | Five project-local edge types, blocker and parent-cycle protection, one-parent enforcement, atomic linked creation, graph-aware recall, and hierarchy browsing. |
 | Phase 4 — Ready-work discovery | Shipped | A deterministic, filtered REST/MCP ready queue derived from lifecycle, blockers, leases, and human gates, with claim-time revalidation. |
 | Phase 5 — Work event timeline | Shipped | Immutable typed per-work events, conservative historical backfill, atomic mutation events, explicit progress events, bounded recall, and a paged dashboard timeline. |
-| Phase 6 — Idempotent mutations | Shipped | Durable project-scoped success receipts protect twelve REST mutations, ten canonical MCP writes, and ten dashboard actions from duplicate execution. |
+| Phase 6 — Idempotent mutations | Shipped | Durable project-scoped success receipts established exact unknown-outcome recovery; Phase 9 extends the registry to 13 REST kinds, 11 canonical MCP writes, and 11 dashboard actions. |
 | Phase 7 — Human gates | Shipped | Immutable question/answer history, drift-aware review, readiness and lifecycle guards, bounded recall, and a dedicated Needs Attention queue. |
 | Phase 8 — Hierarchical presentation | Shipped | Collapsed root workstreams, lazy child paging, subtree-aware filtering, breadcrumbs, discovery labels, and exact branch aggregates. |
-| Phase 9 — Duplicate handling | Planned | The Phase 3 `duplicate-of` edge can be recorded; canonical merging and duplicate suggestions have not shipped. |
+| Phase 9 — Duplicate handling | Shipped | Immutable authoritative merges, retained non-actionable aliases, canonical-aware reads/search/hierarchy, explicit draft duplicate suggestions, resource controls, and coordinated 0.4.0/0.8.0 clients. Production cutover and recovery gates remain explicit. |
 | Phase 10 — Freshness verification | Planned | Checkpoints retain caller-asserted `verified_against` commits; Mnemonic does not yet verify repository freshness. |
 | Phase 11 — Completion evidence | Planned | Completion checkpoints and completion events exist; structured verification results and artifact references have not shipped. |
 | Phase 12 — Project activity feed | Planned | Per-work timelines and data-free dashboard invalidations exist; a durable project-wide cursor/feed, SSE, and webhooks have not shipped. |
@@ -102,6 +104,8 @@ Project
         |     +-- discovered-from
         |     +-- duplicate-of
         |     +-- related
+        |
+        +-- Authoritative Duplicate Merge (optional outgoing, immutable)
         |
         +-- Active Lease (optional, ephemeral)
         |
@@ -373,7 +377,9 @@ This is particularly important for agents because they frequently encounter late
 
 ### `duplicate-of`
 
-Explicitly marks canonical work identity.
+Records a directional descriptive assertion that the source duplicates the
+target. Phase 9 deliberately does not infer canonical identity from this weak
+fact; only an authoritative `merge_work` ledger row makes the source an alias.
 
 ### `related`
 
@@ -406,7 +412,7 @@ the result is a project-local forest rather than a general DAG. The remaining
 relationship types do not participate in execution ordering:
 
 - `discovered-from` records provenance;
-- `duplicate-of` identifies canonical work;
+- `duplicate-of` records descriptive duplicate evidence;
 - `related` is symmetric and descriptive.
 
 Blocker resolution must be explicit. Initially, only `done` automatically
@@ -560,8 +566,11 @@ human_attention_resolved
 work_completed
 work_reopened
 promotion_requested
-duplicate_marked
+work_merged
 ```
+
+Phase 9 implements `work_merged` as a paired server event backed by an
+immutable merge, rather than treating a generic relationship mark as identity.
 
 Not every event needs a free-form body.
 
@@ -705,6 +714,11 @@ reset/EOF, malformed success JSON, a backend/proxy `5xx`, or
 `client_operation_unavailable` leaves the outcome unknown. The caller retries
 only the frozen call with the same UUID; MCP makes one outbound attempt per tool
 invocation and does not retry automatically.
+
+Phase 9 adds one typed exception to that general rule:
+`503 duplicate_graph_invalid` is a definitive integrity stop, not an unknown
+protected-write outcome. Callers stop authority-changing work and involve an
+operator instead of retrying it.
 
 Any changed tool, target, actor/source value, expected version, metadata, token,
 or other argument is a new intent and needs a new UUID. A conflict on an
@@ -884,48 +898,83 @@ tree walk, per-branch query, or load-all-descendants fallback.
 
 # Phase 9 - Structural Duplicate Handling
 
-**Status: Planned.** Phase 3 shipped the explicit `duplicate-of` relationship
-and its history, but canonical merge/redirect behavior and semantic duplicate
-suggestions have not shipped.
+**Status: Shipped.** Application/API/MCP/dashboard `0.4.0`, plugin `0.8.0`, and
+migration `0017_duplicate_suggestion_title_key` implement both the Core
+authoritative merge and Advisory duplicate suggestions. The validation record
+does not claim production cutover, backup rehearsal, or product/operator
+permanence signoff.
 
 ## Objective
 
 Handle inevitable duplicate work safely and explicitly.
 
-## Proposed Relationship
+## Implemented Core distinction
 
 ```text
-duplicate_of
+duplicate mark
+  descriptive source --duplicate-of--> target evidence
+
+authoritative merge
+  immutable source alias -> direct canonical destination decision
 ```
 
-## Proposed Operation
+Migration 0016 preserves every old duplicate mark and creates no merge from it.
+Fresh generic marks are closed; `merge_work` reuses or creates its one exact
+supporting mark atomically. The retained source keeps its lifecycle,
+checkpoints, events, gates, relationships, provenance, and receipts, but it is
+never ready or claimable and every fresh alias mutation fails without redirect.
+Exact alias reads remain source-owned and explicitly identify a bounded path to
+the current root.
+
+## Implemented Core operation
 
 ```text
 merge_work(source_id, destination_id)
 ```
 
-A merge should be non-destructive.
+A merge is non-destructive and permanent. It requires two exact current-root
+context revisions, a rationale, truthful asserted provenance, and a mandatory
+operation UUID. The source must have no unresolved gate or incident
+`blocks`/`parent-child` relationship. An active source lease requires its exact
+token; the browser cannot carry that capability and disables merge. One
+transaction commits the immutable ledger row, exact supporting relationship,
+paired evidence/merge events, endpoint version increments, source lease
+consumption when applicable, and receipt.
 
-Possible behavior:
+Core deliberately does not:
 
-- mark source as duplicate,
-- establish canonical destination,
-- preserve original IDs,
-- preserve historical checkpoints/events,
-- optionally migrate or redirect relationships,
-- make normal recall identify the canonical work item.
+- infer a merge from similarity, wording, lifecycle, marks, or embeddings;
+- redirect a supplied alias ID or silently substitute the root;
+- transfer or coalesce content, lifecycle, relationships, leases, gates,
+  provenance, or authority;
+- provide unmerge, retarget, merge deletion, or row-level repair; or
+- suppress creation or expose a dormant suggestion route.
 
-## Duplicate Suggestions
+A mistaken merge requires a complete pre-merge database restore that discards
+every later write, or a future separately designed append-only correction
+release.
 
-During work creation, semantic search may suggest:
+## Implemented Advisory suggestions
+
+On explicit action from a valid creation draft, Mnemonic can show:
 
 ```text
 Possible existing work
 ```
 
-but should never automatically merge or suppress creation.
+without automatically merging, persisting the draft/result, or suppressing
+creation. Exact-title candidates are reserved first, lexical retrieval supplies
+a bounded shortlist, and local embeddings either cover the full eligible
+project or that disclosed shortlist. Results group aliases under one canonical
+candidate and expose only categorical signals and semantic coverage.
 
 Embeddings should produce candidates, not truth.
+
+The `suggest_duplicate_work` safe read has bounded body, request, inference,
+shortlist, fill, population, response, and timeout budgets. Saturated or failed
+model work falls back to lexical results; database/system failures are explicit.
+Ordinary search and Create remain independent, and similarity never authorizes
+`merge_work`.
 
 ## Acceptance Criteria
 
@@ -933,6 +982,12 @@ Embeddings should produce candidates, not truth.
 - Canonical work identity is explicit.
 - Existing references remain understandable.
 - Semantic similarity never silently changes work structure.
+- Exact history remains separate from canonical continuation; no redirect or
+  coalescing occurs.
+- Same-key merge recovery returns one historical result without another
+  durable effect.
+- Both separately versioned Core and Advisory repository implementation gates have
+  concrete evidence; deployment recovery gates remain operator work.
 
 ---
 
@@ -1293,9 +1348,12 @@ list_verification_results
 ## Duplicate handling
 
 ```text
-mark_duplicate
 merge_work
+suggest_duplicate_work
 ```
+
+There is no generic `mark_duplicate` tool. Historical marks remain evidence;
+only `merge_work` creates a fresh supporting `duplicate-of` relationship.
 
 ## Resource coordination - later
 
@@ -1341,8 +1399,8 @@ At this point multiple agents can safely share a project.
 ## Milestone 3 - Durable Collaboration History
 
 **Status: Partially shipped.** Phase 5 delivered append-only per-work events and
-the timeline UI. The Phase 9 duplicate workflow and Phase 12 project activity
-feed remain planned.
+the timeline UI, and Phase 9 implements authoritative duplicate merging plus
+advisory comparison. The Phase 12 project activity feed remains planned.
 
 1. Add append-only work events.
 2. Add project activity feed.

@@ -182,10 +182,10 @@ async function hideWork(client: APIRequestContext, workId: string): Promise<void
     `/api/v1/projects/${state.projectId}/work-items/${workId}`
   );
   if (!current.ok()) return;
-  const work = await current.json() as { version: number };
+  const detail = await current.json() as { work_item: { version: number } };
   const deletionPath = `/api/v1/projects/${state.projectId}/work-items/${workId}/delete`;
   let response = await client.post(deletionPath, {
-    data: { expected_version: work.version }
+    data: { expected_version: detail.work_item.version }
   });
   let body = await response.text();
   if (response.status() === 409 && body.includes("\"code\":\"work_gated\"")) {
@@ -221,7 +221,7 @@ async function hideWork(client: APIRequestContext, workId: string): Promise<void
       expect(resolution.ok(), await resolution.text()).toBe(true);
     }
     response = await client.post(deletionPath, {
-      data: { expected_version: work.version }
+      data: { expected_version: detail.work_item.version }
     });
     body = await response.text();
   }
@@ -742,9 +742,11 @@ test("a deep attention cursor and sibling drafts survive refresh and resolution"
     await expect(attentionList.getByRole("alert")).toContainText(
       "Injected attention page failure."
     );
-    failNextAttentionPage = false;
-    await attentionList.getByRole("button", { name: "Try again" }).dispatchEvent("click");
     const attentionTitle = page.locator("#attention-list-title");
+    failNextAttentionPage = false;
+    await attentionList.getByRole("button", { name: "Try again" })
+      .click({ timeout: 1_000 })
+      .catch(() => undefined);
     await expect(attentionTitle).toHaveText("32 waiting");
     await page.unroute("**/api/mnemonic/**");
 

@@ -169,7 +169,7 @@ def test_gate_request_capability_overlap_attention_resolution_and_replay(
 
     activity_before_resolution = api.get(
         f"{collection(project)}/{work['id']}"
-    ).json()["updated_at"]
+    ).json()["work_item"]["updated_at"]
     resolve_operation_id = uuid4()
     resolved = api.post(
         f"{path}/{gate['id']}/resolve",
@@ -184,7 +184,7 @@ def test_gate_request_capability_overlap_attention_resolution_and_replay(
     assert resolved_gate["context_changed_at_resolution"] is False
     activity_after_resolution = api.get(
         f"{collection(project)}/{work['id']}"
-    ).json()["updated_at"]
+    ).json()["work_item"]["updated_at"]
     assert activity_after_resolution != activity_before_resolution
     immediate_resolution_replay = api.post(
         f"{path}/{gate['id']}/resolve",
@@ -195,9 +195,9 @@ def test_gate_request_capability_overlap_attention_resolution_and_replay(
     )
     assert immediate_resolution_replay.status_code == 200
     assert immediate_resolution_replay.json() == resolved_gate
-    assert api.get(f"{collection(project)}/{work['id']}").json()["updated_at"] == (
-        activity_after_resolution
-    )
+    assert api.get(f"{collection(project)}/{work['id']}").json()["work_item"][
+        "updated_at"
+    ] == activity_after_resolution
 
     request_replay = api.post(
         path,
@@ -619,9 +619,9 @@ def test_attention_filter_project_isolation_and_ancestor_path(
     )
     assert blank_full_view.status_code == 200, blank_full_view.text
     child_summary = next(
-        item
+        item["summary"]
         for item in blank_full_view.json()["items"]
-        if item["work_item"]["id"] == child["work_item"]["id"]
+        if item["summary"]["work_item"]["id"] == child["work_item"]["id"]
     )
     assert [item["id"] for item in child_summary["ancestor_path"]] == [
         root["work_item"]["id"]
@@ -870,7 +870,7 @@ def test_gate_request_and_completion_race_has_one_valid_linearized_outcome(
 
 
 @pytest.mark.postgres
-def test_summary_lease_state_uses_one_database_time_statement(
+def test_summary_and_pointer_lease_state_share_one_database_timestamp(
     api,
     project,
     work_payload,
@@ -888,32 +888,34 @@ def test_summary_lease_state_uses_one_database_time_statement(
     )
     assert claimed.status_code == 200, claimed.text
 
-    lease_statements: list[str] = []
+    lease_statements: list[tuple[str, dict]] = []
 
     def observe_lease_statement(
         connection, cursor, statement, parameters, context, executemany
     ):
-        del connection, cursor, parameters, context, executemany
+        del connection, cursor, context, executemany
         if "FROM work_leases" in statement:
-            lease_statements.append(statement)
+            lease_statements.append((statement, parameters))
 
     event.listen(postgres_engine, "before_cursor_execute", observe_lease_statement)
     try:
         with Session(postgres_engine) as database:
+            as_of = database.scalar(text("SELECT transaction_timestamp()"))
+            assert as_of is not None
             *_, active_leases, dropped_lease_ids = _summary_inputs(
-                database, [UUID(work_id)]
+                database, [UUID(work_id)], as_of=as_of
             )
             summary_lease_statements = list(lease_statements)
             lease_statements.clear()
-            pointers = _work_pointers(database, [UUID(work_id)])
+            pointers = _work_pointers(database, [UUID(work_id)], as_of=as_of)
             pointer_lease_statements = list(lease_statements)
     finally:
         event.remove(postgres_engine, "before_cursor_execute", observe_lease_statement)
 
     assert len(summary_lease_statements) == 1
-    assert "statement_timestamp" in summary_lease_statements[0]
     assert len(pointer_lease_statements) == 1
-    assert "statement_timestamp" in pointer_lease_statements[0]
+    assert as_of in summary_lease_statements[0][1].values()
+    assert as_of in pointer_lease_statements[0][1].values()
     assert (UUID(work_id) in active_leases) != (UUID(work_id) in dropped_lease_ids)
     assert pointers[UUID(work_id)].readiness.has_active_lease is True
     assert pointers[UUID(work_id)].readiness.has_dropped_lease is False
@@ -1391,7 +1393,9 @@ def test_hierarchy_recursive_rollup_is_bounded_for_corrupt_cycles(
             connection.execute(
                 text("ALTER TABLE work_relationships DISABLE TRIGGER USER")
             )
+        with postgres_engine.begin() as connection:
             connection.execute(insert, parameters)
+        with postgres_engine.begin() as connection:
             connection.execute(
                 text("ALTER TABLE work_relationships ENABLE TRIGGER USER")
             )
@@ -1418,6 +1422,7 @@ def test_hierarchy_recursive_rollup_is_bounded_for_corrupt_cycles(
             connection.execute(
                 text("ALTER TABLE work_relationships DISABLE TRIGGER USER")
             )
+        with postgres_engine.begin() as connection:
             connection.execute(
                 text(
                     "DELETE FROM work_relationships "
@@ -1425,6 +1430,7 @@ def test_hierarchy_recursive_rollup_is_bounded_for_corrupt_cycles(
                 ),
                 {"ids": relationship_ids},
             )
+        with postgres_engine.begin() as connection:
             connection.execute(
                 text("ALTER TABLE work_relationships ENABLE TRIGGER USER")
             )

@@ -188,6 +188,9 @@ def create_work_records(
 def append_checkpoint_record(
     database: Session, work_item: WorkItem, payload: CheckpointCreate
 ) -> Checkpoint:
+    from mnemonic_api.services.duplicates import require_canonical_work_item
+
+    require_canonical_work_item(database, work_item)
     # Token-bearing routes lock the work row before entering this helper. Lock
     # the retained lease here to preserve work -> lease order through commit.
     validate_optional_lease_token(
@@ -213,6 +216,9 @@ def append_checkpoint_record(
 
 
 def update_work_record(database: Session, work_item: WorkItem, payload: WorkItemPatch) -> None:
+    from mnemonic_api.services.duplicates import require_canonical_work_item
+
+    require_canonical_work_item(database, work_item)
     require_version(work_item, payload.expected_version)
     changes = payload.model_dump(
         exclude_unset=True,
@@ -267,6 +273,9 @@ def defer_work_record(
     payload: WorkDeferralCreate,
 ) -> None:
     """Apply the dashboard-only deferral transition without displacing active work."""
+    from mnemonic_api.services.duplicates import require_canonical_work_item
+
+    require_canonical_work_item(database, work_item)
     require_version(work_item, payload.expected_version)
     if work_item.status != "pending":
         raise conflict(
@@ -300,6 +309,9 @@ def complete_work_record(
     payload: CompletionCheckpointCreate,
     lease_token: str | None = None,
 ) -> Checkpoint:
+    from mnemonic_api.services.duplicates import require_canonical_work_item
+
+    require_canonical_work_item(database, work_item)
     if work_item.status != "pending":
         raise conflict("work_not_pending", "Only pending work can be completed.")
     require_version(work_item, expected_version)
@@ -330,6 +342,9 @@ def delete_work_record(
     lease_token: str | None = None,
     actor: MutationActor | None = None,
 ) -> None:
+    from mnemonic_api.services.duplicates import require_canonical_work_item
+
+    require_canonical_work_item(database, work_item)
     require_version(work_item, expected_version)
     require_no_relationships(database, work_item.project_id, work_item.id)
     require_no_unresolved_gates(database, work_item.id)

@@ -22,22 +22,36 @@ evidence that the project has no saved work.
 
 ## Retrieve relevant work
 
-3. Call `search_work(project_id, q, status="pending")`. Include distinctive
+3. Call `search_work(project_id, q, status="pending")`. Canonical scope is the default: it returns
+   one current root per duplicate group. Include distinctive
    symptoms, symbols, paths, IDs, or session IDs and try a relevant alternate
    term. Omit `q` to browse. Optional `tag`, `source_client`, and
    `source_session_id` match any checkpoint. Use `semantic=true` only when
    hybrid lexical/vector retrieval is useful. `status` defaults to `pending`,
    which excludes active and dropped leases; pass `active`, `dropped`,
    `deferred`, `done`, `wont-do`, `promoted`, or `all` deliberately.
-4. `view` defaults to `minimal` (identity, priority, version, activity time,
-   checkpoint count, display state). Ask for `view="full"` only when the
-   summary, current-context provenance, full readiness, or ancestry is needed.
-   Every full result carries `ancestor_path`, which follows `parent-child` edges
-   only, root to parent; a structural root legitimately has an empty path.
-   Discovery edges never appear in it.
-5. Present pointers only: title, work-item ID, project, lifecycle and readiness,
+4. `view` defaults to `full`. Every result is a `WorkSearchHit`: `summary` is the returned root or
+   audit row, while `matched_member` names the exact group member whose text won the match. This is
+   search evidence only, not permission to merge or substitute IDs. Use `view="roots"` only for a
+   blank/filter-only canonical hierarchy browse. Every full summary carries `ancestor_path`, which
+   follows `parent-child` edges only, root to parent; discovery edges never appear in it.
+5. Use `duplicate_scope="aliases"` or `"all"` only when the user explicitly wants duplicate audit
+   records. `canonical_work_item_id` is valid only with one of those scopes and must name a visible
+   current root. Keep the returned audit ID distinct from its canonical ID; never redirect or copy
+   one as the other. Present pointers only: title, work-item ID, project, lifecycle and readiness,
    checkpoint count, and relevant age. Do not fetch every checkpoint, event, or
    question body into unrelated work.
+
+For an explicit compare-before-create request, use `suggest_duplicate_work`
+with the complete draft rather than trying to reconstruct its ranking from
+`search_work`. Suggestions group every matching member under one canonical
+root, identify the exact matched member, and return only ordered categorical
+signals—not scores. Exact-title candidates are globally reserved before other
+lanes. `hybrid_full`, `hybrid_shortlist`, and `lexical` describe retrieval
+coverage, not confidence; `semantic_scope=lexical_shortlist` means semantic
+comparison covered only the lexical shortlist. Recall plausible candidates and
+keep Create anyway available. Never turn a suggestion into an automatic merge,
+redirect, relationship, or hidden creation veto.
 
 ## Discover actionable candidates
 
@@ -82,15 +96,15 @@ from ready discovery, cannot be freshly claimed, and cannot be completed,
 retired, promoted, or deleted until every gate resolves. Blocked has an
 unresolved incoming `blocks` edge. Deferred is a persisted hold a person set in
 the dashboard. Active, blocked, and gated flags can all be true at once; the
-single `display_state` only picks the most human-actionable badge, in the order
-non-Pending lifecycle, waiting, blocked, active, dropped, pending. `waiting` and
+single `display_state` only picks the most human-actionable badge: a merged alias is `duplicate`;
+roots use non-Pending lifecycle, waiting, blocked, active, dropped, then pending. `waiting` and
 `blocked` are display states, not `search_work` status filters. Never select or
 move Deferred work back to Pending autonomously; it may be resumed only when the
 current human instruction explicitly selects that item.
 
 ## Keep reads read-only
 
-Search, ready listing, and attention reads take no `client_operation_id`; do
+Search, duplicate suggestion, ready listing, and attention reads take no `client_operation_id`; do
 not generate a mutation UUID while browsing or attach one to a read. If the
 user later authorizes a protected write such as `create_work`,
 `add_relationship`, `update_work`, `remove_relationship`, or
@@ -109,7 +123,7 @@ independent facts; never infer either from the other, from wording, or from the
 dashboard's presentation (see
 [work-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md)).
 
-Do not merge, delete, reopen, promote, complete, or execute work while merely
+Do not call `merge_work`, delete, reopen, promote, complete, or execute work while merely
 finding it. Do not add or remove relationships, and do not create external
 issues. Report honest uncertainty about missing matches, relevance, freshness,
 and partial pages.

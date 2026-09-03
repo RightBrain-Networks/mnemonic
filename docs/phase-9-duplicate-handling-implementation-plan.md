@@ -1,6 +1,7 @@
 # Mnemonic Phase 9 — Duplicate Handling Implementation Plan
 
-**Status:** Proposed implementation contract; planning only
+**Status:** Historical implementation plan; repository implementation completed on 2026-09-02,
+with deployment-only gates retained below
 
 **Scope:** Roadmap Phase 9, “Duplicate handling,” delivered as an authoritative core release
 followed by an independently releasable advisory-suggestions release
@@ -13,10 +14,12 @@ followed by an independently releasable advisory-suggestions release
 2efa84d5e8b489ce7be0b3ad72e27d4a8a5c0a12 (Document shipped roadmap phases), with Phases 1–8
 shipped and Alembic head 0015_gate_review_fixes
 
-**Planning boundary:** This document authorizes no code, schema, public-contract, version, generated
-artifact, plugin, or shipped-status change. Implementation begins only after explicit human
-approval. Mnemonic is prerelease, so this plan intentionally chooses clean contract changes over
-compatibility shims. Existing database content must nevertheless be preserved and migrated.
+**Planning origin:** This document was the code-free implementation contract. Implementation was
+separately authorized, completed, and validated; observed evidence is recorded in
+`docs/validation.md`. Mnemonic is prerelease, so the resulting implementation intentionally chooses
+clean contract changes over compatibility shims while preserving and migrating existing database
+content. Current operator and client behavior is specified in `docs/operations.md` and
+`docs/api-contract.md`.
 
 ## 1. Outcome
 
@@ -152,14 +155,13 @@ merge_review_revision; existing gate objects continue to carry HumanGateContextR
 ### 2.4 Existing semantic infrastructure is derived
 
 semantic.py uses BAAI/bge-small-en-v1.5, bounded composed text, a disposable embedding cache, and
-deterministic reciprocal-rank fusion. It does not persist duplicate decisions. Phase 9 may reuse
-that local model and cache, but suggestion request text and query vectors are ephemeral. Only
-vectors for existing work items may be cached.
+deterministic reciprocal-rank fusion. It does not persist duplicate decisions. Phase 9 reuses that
+local model and cache, but suggestion request text and query vectors remain ephemeral. Only vectors
+for existing work items may be cached.
 
-The current implementation can read all checkpoint prompts before trimming them in Python and can
-commit cache writes partway through a read. Phase 9 must replace those properties for suggestions
-and any canonical-aware semantic search: SQL bounds checkpoint extraction, and cache writes occur
-outside the coherent response snapshot.
+The implementation SQL-bounds checkpoint extraction for both ordinary semantic search and
+suggestions. Cache writes occur outside the coherent response snapshot and use bounded,
+best-effort locking so cache contention cannot hold the response path indefinitely.
 
 ### 2.5 Existing catalog and client seams
 
@@ -192,8 +194,9 @@ Correctness is not coupled to an ML-backed advisory endpoint.
 
 **Phase 9 Advisory — application/API 0.4.0, plugin 0.8.0**
 
-- migration 0017_duplicate_suggestion_title_key, containing only a derived normalization function
-  and partial expression index;
+- migration 0017_duplicate_suggestion_title_key, widening the Alembic revision column to retain the
+  full descriptive head and adding only a derived normalization function and partial expression
+  index to application tables;
 - duplicate-suggestions REST route, suggest_duplicate_work MCP tool, and create-form comparison UI;
 - explicit transport classification, resource controls, ranking contract, performance evidence,
   and privacy tests;
@@ -496,6 +499,8 @@ DuplicateCandidateSummary
 The candidate summary deliberately excludes Readiness, checkpoint provenance, lease holder/session,
 gate detail, checkpoint bodies, actor data, raw scores, vectors, and merge controls. Signals are a
 closed ordered enum set, not floats, probabilities, thresholds, or confidence.
+Candidate title and summary are exact stored strings; response validation does not apply the
+create-draft trim or normalization rules to retained work.
 
 Candidate selection is frozen as duplicate-suggestion-v1:
 
@@ -527,14 +532,17 @@ Candidate selection is frozen as duplicate-suggestion-v1:
 9. Group before the public limit, use the best member per root, and order by exact lane, RRF rank,
    canonical updated_at descending, then canonical UUID ascending. Member ties use updated_at
    descending and UUID ascending.
-10. If model load, capacity acquisition, inference, vector validation, or cache use fails, return
-    deterministic lexical success with semantic_available false. Database/scope failures remain
-    explicit.
+10. One process-wide inference gate is shared with ordinary semantic search. Suggestions wait at
+    most 50 ms for it, then return deterministic lexical success. Model load, inference, vector
+    validation, or cache use also falls back to lexical with semantic_available false.
+    Database/scope failures remain explicit.
 
 The draft vector and suggestion result are never persisted. Existing-work cache upserts use a
-separate compare-by-digest transaction after the response candidate snapshot. No work,
-relationship, event, receipt, version, activity, invalidation, or live-sync message is created.
-Create remains enabled for loading, empty, stale, lexical, busy, and unavailable suggestion states.
+separate compare-by-digest transaction after the response candidate snapshot. Work-row locks are
+skip-locked, and cache lock waits are capped at 50 ms within the remaining request deadline. No
+work, relationship, event, receipt, version, activity, invalidation, or live-sync message is
+created. Create remains enabled for loading, empty, stale, lexical, busy, and unavailable
+suggestion states.
 
 ### 3.9 Merge history, result, and durable idempotency
 
@@ -954,7 +962,7 @@ that snapshot.
 
 For semantic reads:
 
-1. acquire inference capacity before opening a database transaction;
+1. acquire the shared process-wide inference capacity before opening a database transaction;
 2. capture one database as_of plus all candidate IDs, bounded text, canonical group facts,
    summaries, lease/readiness facts, and valid cached vectors in one repeatable-read snapshot;
 3. close the read transaction;
@@ -967,17 +975,22 @@ Barrier tests merge work between each former query boundary and expire a lease b
 qualification/enrichment statements. They prove one response never mixes roots, mismatches
 total/items, or evaluates readiness at two times.
 
+Ordinary semantic search now composes the first 1,500 initial-prompt characters and a SQL-bounded
+1,500-character later-checkpoint tail without aggregating an unbounded prompt history. Its derived
+cache refresh is post-snapshot and best effort: locked work rows are skipped, lock waits are capped
+at 50 ms, statements at five seconds, and those bounded expirations retain the computed ranking.
+
 ### 6.7 Suggestion resource controls
 
-Advisory introduces backend controls, not claims of reuse:
+Advisory adds request controls and shares the model gate with ordinary semantic search:
 
 | Control | Frozen default |
 | --- | --- |
 | authenticated streaming body cap | 2,097,152 bytes |
 | suggestion requests per API process | 4 |
 | request-slot wait | 250 ms |
-| model inference slots per process | 1 |
-| inference-slot wait | 50 ms, then lexical fallback |
+| model inference slots per process | 1, shared with ordinary semantic search |
+| inference-slot wait | 50 ms; suggestion lexical fallback, semantic-search 503 |
 | lexical canonical-group shortlist | 200 |
 | missing vectors computed per request | 128 |
 | full semantic population ceiling | 10,000 visible members |
@@ -991,17 +1004,26 @@ schema and fails if future valid limits can cross the cap. Enforce it before JSO
 Content-Length, missing length, and chunked transfer. Oversize returns 413
 request_body_too_large. A saturated request queue returns 429
 duplicate_suggestion_busy with Retry-After: 1. Model saturation/failure returns lexical 200.
-Database/system failure returns 503 duplicate_suggestion_unavailable.
+The same saturated inference gate returns semantic_unavailable for a valid ordinary semantic
+search; lexical search remains available. Database/system suggestion failure returns 503
+duplicate_suggestion_unavailable.
 
 Configuration exposes namespaced MNEMONIC_DUPLICATE_SUGGESTION_* settings with these defaults and
-validated safe ranges. Authentication occurs before work; a request slot and inference capacity are
-acquired before any database session. Metrics are aggregate only.
+validated safe ranges. Authentication occurs before work; a suggestion request slot and the shared
+inference capacity are acquired before any database session. One absolute suggestion deadline
+starts before body handling and spans inference and application work. On PostgreSQL 17, the
+coherent snapshot and cache transaction set route-relative transaction, statement, and lock
+timeouts from its remaining budget; cache locking is further capped at 50 ms. Metrics are aggregate
+only.
 
 ### 6.8 Cache and publication
 
 Canonical roots are query-derived; add no cross-request canonical cache. Embedding rows are
 versioned disposable cache and may change on aliases after merge. This is not an authoritative alias
-mutation. Suggestion and search cache writes publish no live-sync signal.
+mutation. Suggestion cache refresh skip-locks contended work rows and cannot wait more than 50 ms on
+a cache lock. Ordinary semantic refresh uses the same skip-locked pattern, a 50 ms lock timeout,
+and a five-second statement timeout; bounded lock/statement expiry leaves its ranked response
+intact. Suggestion and search cache writes publish no live-sync signal.
 
 Merge publishes one bounded project refresh with no IDs/content. Failed/replayed transactions
 publish nothing new.
@@ -1432,17 +1454,20 @@ Cover:
 
 - strict two-MiB request/body streaming cap for Content-Length, absent length, and chunked bodies,
   including a maximum 100,000-code-point astral prompt serialized as surrogate-pair escapes;
-- queue 429/Retry-After, inference fallback, DB 503, timeout effect classification;
+- queue 429/Retry-After, the cross-route shared inference gate, suggestion fallback, ordinary
+  semantic-search 503, DB 503, and absolute timeout effect classification;
 - all lifecycle states, deleted/scope/exclude-group behavior;
 - PostgreSQL-17 title-key normalization/index usage, tags, global exact-title total/omission, and
   deterministic ordering;
 - full-project cached dense-only match beyond lexical 200 at a 10,000-member fixture;
 - project above 10,000 explicitly using shortlist and never claiming global semantic;
 - alias-heavy groups grouped before caps;
-- SQL-bounded prompt extraction with many large checkpoints;
+- SQL-bounded prompt extraction with many large checkpoints in both suggestion and ordinary
+  semantic-search composition;
 - malformed/nonfinite/dimension-wrong vectors and stale composition;
-- candidate summary privacy and categorical signals only;
-- draft/query-vector nonpersistence and compare-by-digest cache writes;
+- candidate summary privacy, exact stored title/summary preservation, and categorical signals only;
+- draft/query-vector nonpersistence and compare-by-digest cache writes with skip-locked work rows,
+  bounded lock waits, and route-relative PostgreSQL transaction/statement deadlines;
 - zero domain/receipt/version/activity/invalidation effects;
 - safe retry in MCP/proxy and no live-sync mutation; and
 - create success for loading, busy, lexical, error, and offline suggestion states.
@@ -1569,11 +1594,13 @@ No production probe commits a merge. Never serve a Phase 8 process against 0016 
 
 ### 12.4 Advisory rollout
 
-Advisory migration 0017 adds only the versioned immutable title-key function and partial expression
-index; it rewrites no work content and creates no canonical fact. Rehearse populated upgrade,
-function/index parity, EXPLAIN use, and full restore before deploying coordinated 0.4.0 API/MCP/web
-and plugin 0.8.0. Verify 27 tools/11 protected writes, direct body/queue behavior, safe-read retry,
-lexical fallback, Create anyway, and no mutation publication before exposing the route/UI.
+Advisory migration 0017 widens `alembic_version.version_num` to `VARCHAR(64)` so the full
+descriptive revision identifier is preserved, then adds the versioned immutable title-key function
+and partial expression index. It rewrites no work content and creates no canonical fact. Rehearse
+populated upgrade, function/index parity, EXPLAIN use, and full restore before deploying coordinated
+0.4.0 API/MCP/web and plugin 0.8.0. Verify 27 tools/11 protected writes, direct body/queue behavior,
+safe-read retry, lexical fallback, Create anyway, and no mutation publication before exposing the
+route/UI.
 
 ### 12.5 Rollback and mistaken merge
 
@@ -1856,25 +1883,29 @@ semantics before use.
 
 ## 18. Definition of done
 
+Checked items below have repository evidence in `docs/validation.md`. Unchecked items remain
+explicit operator deployment or final acceptance gates; repository shipment does not claim that
+they occurred in production.
+
 ### 18.1 Core release
 
 - [ ] Product/operator permanence decision is signed.
-- [ ] 0016 preserves all existing content and creates zero inferred merge/witness rows.
-- [ ] HumanGateContextRevision, v2 event validator, old receipt JSON, and live gate projections are
+- [x] 0016 preserves all existing content and creates zero inferred merge/witness rows.
+- [x] HumanGateContextRevision, v2 event validator, old receipt JSON, and live gate projections are
       unchanged.
-- [ ] Ledger, exact relationship, private witnesses, relationship events, and two merge events are
+- [x] Ledger, exact relationship, private witnesses, relationship events, and two merge events are
       immutable/complete under direct SQL.
-- [ ] Existing project-row lock and corrected reverse-depth formula pass all races/boundaries.
-- [ ] New weak duplicate insertion and every alias mutation fail closed under stale writers.
-- [ ] merge_work is mandatory-key receipt kind 13 with exact new/replay effects and redaction.
-- [ ] Source eligibility, lease, gate, structural, revision, lifecycle, and destination rules match.
-- [ ] Ready/every shipped claim share the indexed alias exclusion.
-- [ ] Exact history, canonical projection, bounded context, structural counts, and corrupt-read
+- [x] Existing project-row lock and corrected reverse-depth formula pass all races/boundaries.
+- [x] New weak duplicate insertion and every alias mutation fail closed under stale writers.
+- [x] merge_work is mandatory-key receipt kind 13 with exact new/replay effects and redaction.
+- [x] Source eligibility, lease, gate, structural, revision, lifecycle, and destination rules match.
+- [x] Ready/every shipped claim share the indexed alias exclusion.
+- [x] Exact history, canonical projection, bounded context, structural counts, and corrupt-read
       behavior are exact.
-- [ ] Canonical search/hierarchy group before offset and use coherent snapshots/matched_member.
-- [ ] Core REST/OpenAPI 0.3.0, 26 MCP tools, 11 protected writes, 11 browser mutations, proxy, and
+- [x] Canonical search/hierarchy group before offset and use coherent snapshots/matched_member.
+- [x] Core REST/OpenAPI 0.3.0, 26 MCP tools, 11 protected writes, 11 browser mutations, proxy, and
       plugin 0.7.0 agree.
-- [ ] Direction/bidi, accessibility, live refresh, and lost-response recovery pass.
+- [x] Direction/bidi, accessibility, live refresh, and lost-response recovery pass.
 - [ ] Empty/populated migration plus pre/post-0016 backup restore rehearsals pass before traffic.
 - [ ] Core performance/security/audit gates pass.
 
@@ -1882,23 +1913,23 @@ semantics before use.
 
 - [ ] Migration 0017 preserves work content and its immutable title-key function/index pass
       PostgreSQL-17 parity, global lookup, EXPLAIN, upgrade, and restore tests.
-- [ ] Suggestion selection, normalization, exact lane, semantic scopes, weights/model/composition,
+- [x] Suggestion selection, normalization, exact lane, semantic scopes, weights/model/composition,
       grouping, caps, and ordering match this plan.
-- [ ] Direct API body/request/model controls and 413/429/503 contracts pass.
-- [ ] Suggestions are snapshot-coherent, lifecycle-complete, bounded, inert, and categorical.
-- [ ] Draft/query vectors never persist; candidate summaries expose no capability/provenance.
-- [ ] Semantic unavailability yields lexical success and never disables create.
-- [ ] safe_read behavior agrees across REST, MCP, proxy, live sync, and retry guidance.
-- [ ] Advisory REST/OpenAPI 0.4.0, 27 MCP tools, 11 protected writes, frontend, and plugin 0.8.0
+- [x] Direct API body/request/model controls and 413/429/503 contracts pass.
+- [x] Suggestions are snapshot-coherent, lifecycle-complete, bounded, inert, and categorical.
+- [x] Draft/query vectors never persist; candidate summaries expose no capability/provenance.
+- [x] Semantic unavailability yields lexical success and never disables create.
+- [x] safe_read behavior agrees across REST, MCP, proxy, live sync, and retry guidance.
+- [x] Advisory REST/OpenAPI 0.4.0, 27 MCP tools, 11 protected writes, frontend, and plugin 0.8.0
       agree.
 - [ ] Numeric performance, fault, security, frontend, and E2E gates pass.
-- [ ] Full backend/MCP/frontend/E2E/Ruff/ty/build/OpenAPI/pre-commit matrix passes with database
+- [x] Full backend/MCP/frontend/E2E/Ruff/ty/build/OpenAPI/pre-commit matrix passes with database
       suites enabled.
-- [ ] Documentation, examples, validation, operations, and roadmap link concrete evidence.
-- [ ] No shim, alternate route/tool, dormant flag, automatic merge, or destructive cleanup remains.
+- [x] Documentation, examples, validation, operations, and roadmap link concrete evidence.
+- [x] No shim, alternate route/tool, dormant flag, automatic merge, or destructive cleanup remains.
 
-Until these gates pass and a human separately authorizes implementation, this remains a planning
-contract, not shipped status.
+Unchecked deployment gates must pass before production traffic is enabled. They do not negate the
+completed repository implementation and do not constitute production-cutover evidence.
 
 ## 19. Cold adversarial review record
 

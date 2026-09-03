@@ -30,7 +30,7 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     requested_relationship_event_count resolved_context_revision
     resolved_work_version resolved_context_checkpoint_id
     resolved_relationship_event_count relationship_event_count work_version cursor
-    focus_gate_id recall_pointer_template
+    focus_gate_id recall_pointer_template initial_prompt exclude_work_item_id
     """.split()
 )
 

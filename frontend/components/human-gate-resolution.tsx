@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { currentContext } from "@/lib/current-context";
 import { dashboardSessionId } from "@/lib/dashboard-session";
+import { decodeWorkContext } from "@/lib/duplicate-handling";
 import {
   decodeHumanGate,
   hasCompleteRelationshipReview,
@@ -157,9 +158,10 @@ export default function HumanGateResolution({
         recent_limit: "5",
         recent_event_limit: "10"
       });
-      const context = await api<WorkContext>(
+      const value = await api<unknown>(
         `${humanGatePath(gate.project_id, gate.work_item_id, gate.id)}/context?${params}`
       );
+      const context = decodeWorkContext(value, gate.project_id, gate.work_item_id);
       const projected = gateFromContext(context, gate);
       if (!hasCompleteRelationshipReview(context)) {
         throw new Error(

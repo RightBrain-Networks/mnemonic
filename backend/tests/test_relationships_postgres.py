@@ -105,7 +105,6 @@ def test_all_relationship_types_round_trip_normalize_and_delete_guard(
     for relationship_type in [
         "blocks",
         "parent-child",
-        "duplicate-of",
         "related",
     ]:
         result = add_relationship(
@@ -121,6 +120,13 @@ def test_all_relationship_types_round_trip_normalize_and_delete_guard(
         assert edge["created_by_model"] == "graph-model"
         assert edge["created_at"].endswith("Z")
         created_edges[relationship_type] = edge
+
+    rejected_duplicate = api.post(
+        relationship_collection(project),
+        json=relationship_payload(source, target, "duplicate-of"),
+    )
+    assert rejected_duplicate.status_code == 409
+    assert rejected_duplicate.json()["detail"]["code"] == "duplicate_merge_required"
 
     discovery = add_relationship(
         api,
@@ -159,12 +165,11 @@ def test_all_relationship_types_round_trip_normalize_and_delete_guard(
         f"{work_path(project, target)}/relationships",
         params={"direction": "incoming", "limit": 100},
     ).json()
-    assert incoming["total"] == 4
+    assert incoming["total"] == 3
     assert {item["relationship"]["relationship_type"] for item in incoming["items"]} == {
         "blocks",
         "parent-child",
         "discovered-from",
-        "duplicate-of",
     }
     assert all(item["direction"] == "incoming" for item in incoming["items"])
     assert all("prompt" not in item["counterpart"] for item in incoming["items"])
@@ -585,7 +590,9 @@ def test_atomic_linked_creation_hierarchy_filters_and_search_ancestry(
     )
     assert search.status_code == 200, search.text
     hit = next(
-        item for item in search.json()["items"] if item["work_item"]["id"] == grandchild["id"]
+        item["summary"]
+        for item in search.json()["items"]
+        if item["summary"]["work_item"]["id"] == grandchild["id"]
     )
     assert [item["id"] for item in hit["ancestor_path"]] == [root["id"], child["id"]]
     assert hit["ancestor_path_truncated"] is False
@@ -640,7 +647,6 @@ def test_nonblocking_relationship_types_preserve_readiness(api, project, work_pa
             "discovered-from",
             context_checkpoint_id=origin_created["initial_checkpoint"]["id"],
         ),
-        relationship_payload(dependent, origin, "duplicate-of"),
         relationship_payload(dependent, origin, "related"),
     ]
     for payload in payloads:
@@ -652,17 +658,17 @@ def test_nonblocking_relationship_types_preserve_readiness(api, project, work_pa
     assert context["readiness"]["unresolved_blocker_count"] == 0
     assert context["relationship_counts"] == {
         "incoming": 1,
-        "outgoing": 2,
+        "outgoing": 1,
         "undirected": 1,
-        "total": 4,
+        "total": 3,
     }
 
 
-def test_context_relationship_projection_is_bounded_unless_gate_review_is_focused(
+def test_context_relationship_projection_has_fixed_cap_and_exact_omissions(
     api, project, work_payload
 ):
     anchor = create_work(api, project, work_payload, "High degree anchor")["work_item"]
-    for index in range(51):
+    for index in range(101):
         counterpart = create_work(
             api,
             project,
@@ -681,10 +687,16 @@ def test_context_relationship_projection_is_bounded_unless_gate_review_is_focuse
     assert body["relationship_counts"] == {
         "incoming": 0,
         "outgoing": 0,
-        "undirected": 51,
-        "total": 51,
+        "undirected": 101,
+        "total": 101,
     }
-    assert len(body["undirected_relationships"]) == 50
+    assert body["omitted_relationship_counts"] == {
+        "incoming": 0,
+        "outgoing": 0,
+        "undirected": 1,
+        "total": 1,
+    }
+    assert len(body["undirected_relationships"]) == 100
     assert all(
         "prompt" not in relationship["counterpart"]
         for relationship in body["undirected_relationships"]
@@ -695,8 +707,8 @@ def test_context_relationship_projection_is_bounded_unless_gate_review_is_focuse
         params={"direction": "undirected", "limit": 100},
     )
     assert full_page.status_code == 200
-    assert full_page.json()["total"] == 51
-    assert len(full_page.json()["items"]) == 51
+    assert full_page.json()["total"] == 101
+    assert len(full_page.json()["items"]) == 100
     gate_response = api.post(
         f"{work_path(project, anchor)}/gates",
         json={
@@ -712,7 +724,10 @@ def test_context_relationship_projection_is_bounded_unless_gate_review_is_focuse
     assert focused.status_code == 200, focused.text
     focused_body = focused.json()
     assert focused_body["relationship_counts"] == body["relationship_counts"]
-    assert len(focused_body["undirected_relationships"]) == 51
+    assert focused_body["omitted_relationship_counts"] == body[
+        "omitted_relationship_counts"
+    ]
+    assert len(focused_body["undirected_relationships"]) == 100
 
 
 def test_relationship_model_parity_and_indexes(postgres_engine):

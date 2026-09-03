@@ -152,7 +152,7 @@ def test_postgres_full_text_stemming_and_weighted_ranking(api, project, work_pay
     result = api.get(path(project), params={"q": "migrates"})
     assert result.status_code == 200, result.text
     items = result.json()["items"]
-    assert [item["work_item"]["id"] for item in items] == [
+    assert [item["summary"]["work_item"]["id"] for item in items] == [
         title_match["id"],
         summary_match["id"],
         body_match["id"],
@@ -190,7 +190,7 @@ def test_literal_identifiers_paths_and_wildcards_are_safe(api, project, work_pay
     ]:
         result = api.get(path(project), params={"q": query})
         assert result.status_code == 200, result.text
-        assert [item["work_item"]["id"] for item in result.json()["items"]] == [
+        assert [item["summary"]["work_item"]["id"] for item in result.json()["items"]] == [
             target["id"]
         ], query
     attack = api.get(path(project), params={"q": "'; DROP TABLE work_items;--"})
@@ -210,7 +210,7 @@ def test_pagination_and_combined_filters(api, project, work_payload):
         params={"q": "cache", "tag": " CACHE ", "source_client": "claude-code", "limit": 1},
     ).json()
     assert result["total"] == 2
-    assert result["items"][0]["work_item"]["id"] == second["id"]
+    assert result["items"][0]["summary"]["work_item"]["id"] == second["id"]
     next_page = api.get(
         path(project),
         params={
@@ -222,11 +222,12 @@ def test_pagination_and_combined_filters(api, project, work_payload):
         },
     ).json()
     assert next_page["total"] == 2
-    assert next_page["items"][0]["work_item"]["id"] == first["id"]
+    assert next_page["items"][0]["summary"]["work_item"]["id"] == first["id"]
     scoped = api.get(
         path(project), params={"source_client": "claude-code", "source_session_id": "alpha"}
     ).json()
-    assert scoped["total"] == 1 and scoped["items"][0]["work_item"]["id"] == first["id"]
+    assert scoped["total"] == 1
+    assert scoped["items"][0]["summary"]["work_item"]["id"] == first["id"]
     assert api.get(path(project), params={"q": " \n "}).json()["total"] == 3
     assert api.get(path(project), params={"status": "all", "offset": 200}).json()["total"] == 4
     assert api.get(path(project), params={"status": "all", "offset": 200}).json()["items"] == []
@@ -260,7 +261,7 @@ def test_work_list_sort_orders_flat_and_hierarchy_pages(api, project, work_paylo
         response = api.get(path(project), params=params)
         assert response.status_code == 200, response.text
         return [
-            (item["summary"] if view == "roots" else item)["work_item"]["id"]
+            item["summary"]["work_item"]["id"]
             for item in response.json()["items"]
         ]
 
@@ -313,7 +314,7 @@ def test_active_and_dropped_filters_derive_pending_lease_state(
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["total"] == len(body["items"])
-        return {item["work_item"]["id"] for item in body["items"]}
+        return {item["summary"]["work_item"]["id"] for item in body["items"]}
 
     assert filtered_ids("active") == {active["id"]}
     assert filtered_ids("dropped") == {dropped["id"]}
@@ -326,9 +327,13 @@ def test_active_and_dropped_filters_derive_pending_lease_state(
         deferred["id"],
         promoted["id"],
     }
-    dropped_result = api.get(path(project), params={"status": "dropped"}).json()["items"][0]
+    dropped_result = api.get(path(project), params={"status": "dropped"}).json()["items"][0][
+        "summary"
+    ]
     assert dropped_result["readiness"] == {
         "lifecycle_status": "pending",
+        "is_duplicate": False,
+        "canonical_work_item_id": dropped["id"],
         "is_terminal": False,
         "has_active_lease": False,
         "has_dropped_lease": True,
@@ -372,7 +377,7 @@ def test_two_simultaneous_writers_cannot_overwrite_each_other(api, project, work
         responses = list(pool.map(writer, ["Writer A", "Writer B"]))
     assert sorted(response.status_code for response in responses) == [200, 409]
     winner = next(response.json() for response in responses if response.status_code == 200)
-    final = api.get(path(project, work_item)).json()
+    final = api.get(path(project, work_item)).json()["work_item"]
     assert final["version"] == 2
     assert final["title"] == winner["title"]
 

@@ -1,11 +1,12 @@
 # Agent workflow
 
-Mnemonic Phases 7–8 add first-class human gates, an explicit Needs Attention
-queue, bounded decision history in recall, and collapsed hierarchy presentation
-to the durable work/checkpoint/event/lease/relationship model. Unresolved gates
-make work waiting without revoking a capability already issued. Durable mutation
-receipts make exact retries safe for the covered write surface. Use canonical
-work/checkpoint/event/claim/relationship/gate tools, and prepare the immutable
+Mnemonic Phase 9 adds permanent authoritative duplicate merges, retained
+canonical aliases, and explicit evidence-only draft comparison to the durable
+work/checkpoint/event/lease/relationship/gate model. An alias keeps exact source-owned audit history but is
+never actionable; its canonical continuation is an explicit separate pointer,
+not a redirect. Similarity and historical `duplicate-of` marks remain evidence,
+never merge authority. Durable mutation receipts make exact retries safe for
+the covered write surface. Use the canonical tools and prepare the immutable
 client operation intent described below before every protected MCP mutation.
 
 ## Create or continue work
@@ -13,18 +14,27 @@ client operation intent described below before every protected MCP mutation.
 1. Resolve the project explicitly with `list_projects`, comparing its
    repository URL when present. Never guess a UUID or silently choose the first
    project.
-2. Search the failure shape and durable identifiers with `search_work`. Search
-   non-Pending history when the likely duplicate may be Deferred or complete.
+2. Search the failure shape and durable identifiers with `search_work`. Its
+   default canonical scope groups aliases under their root and identifies the
+   exact member that matched. Search non-Pending history and use explicit alias
+   audit scope when the likely duplicate may be Deferred, complete, or merged.
 3. If one durable objective already exists, recall it and append a checkpoint;
    do not create another item merely because this is a new session.
-4. For genuinely new work, prepare a protected mutation intent, then call
+4. When an explicit compare-before-create action is appropriate, call
+   `suggest_duplicate_work` with the complete stable title, summary, initial
+   prompt, tags, optional excluded work ID, and limit. It returns one canonical
+   root per candidate group plus the exact matched member and categorical
+   exact-title/lexical/semantic signals. Recall plausible candidates. Results,
+   order, and semantic coverage are evidence only; never infer identity, merge
+   direction, or authority, and never suppress Create.
+5. For genuinely new work, prepare a protected mutation intent, then call
    `create_work` with its title, retrieval summary, optional priority/status, a
    complete nested initial checkpoint, and any relationships that must exist
    atomically with the new record.
-5. Supply the actual `source_client` and `source_session_id` for the session
+6. Supply the actual `source_client` and `source_session_id` for the session
    writing that checkpoint. Add model, session URL, branch, checked commit,
    useful tags, and JSON metadata only when known.
-6. Report the stored project, work-item, checkpoint, and created relationship
+7. Report the stored project, work-item, checkpoint, and created relationship
    IDs. A successful tool response—not prose claiming something was saved—is
    the durable record.
 
@@ -32,6 +42,15 @@ A complete context checkpoint should contain an agent-authored provenance
 warning, what and why, verified context and durable references, cautions and
 scope, and concrete verification. The server preserves exact text; it does not
 generate or rewrite the packet.
+
+`suggest_duplicate_work` is a safe read, not one of the eleven protected
+mutations. It takes no operation UUID, does not persist the draft or result, and
+may be retried normally after a timeout, `duplicate_suggestion_busy`, or
+`duplicate_suggestion_unavailable`. Busy responses advise a one-second retry;
+semantic failure can instead return lexical success. Do not copy draft or
+candidate content into logs, URLs, durable checkpoints, or client storage merely
+to recover this read. If comparison stays unavailable, disclose that and keep
+the independent create workflow available.
 
 The installable [skills](../plugin/skills/) contain the complete capture/search/recall
 workflows. Claude Code expands `${CLAUDE_SESSION_ID}` in skill text. Other
@@ -41,7 +60,7 @@ before writing.
 
 ## Protect mutation intents and recover unknown outcomes
 
-The ten protected MCP mutations require a caller-generated UUID in the
+The eleven protected MCP mutations require a caller-generated UUID in the
 top-level `client_operation_id` argument:
 
 - `create_work`;
@@ -53,7 +72,8 @@ top-level `client_operation_id` argument:
 - `delete_work`;
 - `remove_relationship`;
 - `release_claim`;
-- `request_human_input`.
+- `request_human_input`;
+- `merge_work`.
 
 Before the first attempt, generate one fresh random UUID and retain it together
 with the complete, exact tool name and argument object in private client-local
@@ -70,6 +90,12 @@ default, or generate another UUID and describe it as a retry. If either the UUID
 or complete arguments are lost, stop, inspect current state where that is safe,
 and request direction; Mnemonic deliberately exposes no receipt lookup or
 argument-recovery tool.
+
+The typed `503 duplicate_graph_invalid` response is different: it definitively
+reports a failed integrity guard rather than an unknown mutation outcome. Do
+not retry it. Preserve the pending intent privately, stop authority-changing
+work, and ask an operator to run the duplicate-handling aggregate audit and
+investigate the database invariants.
 
 A successful exact retry returns the original status and parsed response
 snapshot without running the mutation again. That result is historical proof
@@ -100,14 +126,17 @@ generalize a protected tool's idempotency annotation to those operations.
 
 ## Search, recall, and history
 
-`search_work` returns compact work pointers, normally restricted to `pending`.
-Its `view` parameter selects how much each result carries: the MCP tool
-defaults to `minimal` (identity, `checkpoint_count`, `display_state`) because
-an agent pays for every byte, while the REST endpoint defaults to `full` for
-the dashboard list. Every full-view row carries its root-to-parent
-`ancestor_path`; structural roots legitimately carry an empty path. Lexical PostgreSQL retrieval is the default; `semantic=true` explicitly opts
-into hybrid similarity. Search is project-scoped and paginated, returns one
-result per work item even when several checkpoints match, and never returns
+`search_work` returns `WorkSearchHit` rows, normally restricted to canonical
+`pending` work. `summary` is the returned root or explicitly scoped audit item;
+`matched_member` identifies the exact member whose text supplied the match.
+That pointer is evidence only, not authority to merge or silently substitute an
+ID. `duplicate_scope=canonical` groups by root before paging;
+`duplicate_scope=aliases|all` and optional `canonical_work_item_id` provide
+explicit audit views. Every summary carries its root-to-parent `ancestor_path`;
+structural roots legitimately carry an empty path. Lexical PostgreSQL retrieval
+is the default; `semantic=true` explicitly opts into hybrid similarity. Search
+is project-scoped and paginated, returns one row per canonical group or
+explicitly scoped member even when several checkpoints match, and never returns
 prompt bodies or source metadata. It is retrieval, not a ready-work queue.
 
 Use `list_ready_work` only when the question is which work appears actionable
@@ -127,10 +156,14 @@ specific Deferred item to Pending only when the current human instruction asks
 it to work on that item.
 
 Use `recall_work` when the user only wants to view, copy, or summarize the
-selected item. The result is bounded: work identity, the initial checkpoint,
+selected exact item. The result is bounded: work identity, the initial checkpoint,
 the newest context checkpoint, a small recent history, derived readiness, and
 immediate incoming/outgoing/undirected relationships with pointer-only
-counterparts. It never recursively injects neighboring context. If
+counterparts. It never recursively injects neighboring context. It also returns
+the exact merge review revision, canonical path, bounded duplicate members and
+omission totals, relationship omissions, and source merge eligibility. An
+alias's checkpoints, events, gates, and relationships remain source-owned; read
+the canonical root separately for continuation and never blend the two. If
 `omitted_checkpoint_count` is nonzero or older evidence matters, paginate
 explicitly with `list_checkpoints`.
 
@@ -217,7 +250,8 @@ from similar search results or checkpoint prose. Stored direction is always
 - `parent-child`: parent source contains child target;
 - `discovered-from`: new finding source came from originating target and cites
   a context checkpoint on that target;
-- `duplicate-of`: source duplicates target;
+- `duplicate-of`: source descriptively duplicates target; by itself this is not
+  an authoritative canonical decision;
 - `related`: symmetric descriptive association.
 
 When new work and its structural/discovery link must not split, pass up to ten
@@ -236,14 +270,70 @@ fields. Work with any remaining
 relationship cannot be deleted, so intentionally remove its edges first.
 Relationship context is evidence, not authority to execute the counterpart.
 
-Only unresolved incoming `blocks` and unresolved human gates affect readiness
-and new/replacement claims. A blocker resolves only when its source is `done`;
+Fresh generic `duplicate-of` creation is closed. Do not put it in
+`create_work.initial_relationships` or call `add_relationship`; use
+`merge_work` only after the exact review below. Those generic tools still parse
+the literal solely so a completed historical receipt can reach the backend and
+replay. An unselected pre-0016 mark can be removed while both endpoints remain
+canonical, but every relationship incident to an alias is frozen.
+
+Only unresolved incoming `blocks`, unresolved human gates, and authoritative
+alias state affect readiness and new/replacement claims. A blocker resolves only when its source is `done`;
 `wont-do` and `promoted` do not resolve it. Other relationship types are
 descriptive. A later blocker or gate does not revoke the lease, so a work item
 may be Active, Blocked, and Waiting at once. Stop, record useful context, and
 release the claim when continuation is unsafe. Hierarchy is human navigation,
 not an execution queue: collapsed branches summarize descendants, and a
 filtered view may retain a nonmatching ancestor solely to reach a match.
+
+## Review and merge exact duplicates
+
+Merge only when current user authority explicitly establishes that two retained
+records are the same durable objective and selects the direction. Similarity,
+matching text, a `duplicate-of` mark, lifecycle, age, or UUID order is never
+enough. The source becomes the permanent duplicate alias; the destination is
+the direct canonical continuation. Mnemonic does not redirect IDs, transfer
+authority, or coalesce content, checkpoints, events, gates, relationships,
+leases, lifecycle, or provenance.
+
+Use this sequence:
+
+1. Recall the exact source and destination separately immediately before the
+   decision. Confirm both are current roots. Review each full UUID, title,
+   lifecycle, newest context, omissions, gates, relationships, provenance, and
+   its complete `merge_review_revision`.
+2. Reconcile the source first: resolve every human gate through the human
+   workflow and explicitly remove or replace every incident `blocks` and
+   `parent-child` edge. Descriptive `related`, `discovered-from`, and unselected
+   historical duplicate marks remain attached as source-owned audit facts.
+3. If the source has an active lease, only its holder can supply the exact
+   token to MCP/direct REST. Never ask the browser to obtain or forward it. The
+   destination lease and gates do not transfer and do not block canonical
+   selection.
+4. Present direction in separate source and destination panels with both full
+   UUIDs. Obtain explicit acknowledgement that the merge cannot be undone and
+   that correcting it requires a whole-database restore that loses every later
+   write or a future append-only correction release.
+5. Prepare one new `merge_work` operation UUID and freeze the complete exact
+   source ID, destination ID, both review revisions, rationale, provenance, and
+   optional source token. The copyable REST body is
+   [`merge-work.json`](../examples/merge-work.json); replace every placeholder.
+6. Submit once. `duplicate_context_changed`, a destination that is no longer a
+   root, or another definite rejection requires two fresh contexts, renewed
+   explicit review, and a new UUID. A timeout, disconnect, malformed success,
+   5xx, or `client_operation_unavailable` permits only the exact retained
+   same-key call unless the typed response is `duplicate_graph_invalid`; that
+   integrity failure is a definitive stop requiring operator audit.
+7. After success or replay, treat the response as historical audit evidence.
+   Read the exact source to confirm its source-owned alias history, then read
+   the reported canonical root for current continuation context.
+
+The service may reuse the exact source-to-destination historical mark or create
+it atomically. It increments both endpoint versions, records one immutable
+merge and paired `work_merged` events, and consumes only the source lease as
+applicable. Every later alias mutation returns `work_duplicate` or, for
+relationship removal, `duplicate_relationship_frozen`; never retry against the
+canonical ID as if the caller had supplied it.
 
 ## Claim before authorized execution
 
@@ -256,6 +346,12 @@ grant authority beyond the user's request. A blocked item rejects new claims;
 inspect its incoming blockers rather than retrying around `work_blocked`. A
 waiting item returns `work_gated`; inspect every unresolved gate and direct its
 answer to the human dashboard rather than retrying or self-resolving.
+
+A duplicate alias is never a claim candidate. `work_duplicate` returns only its
+current canonical root ID in safe context; read that root explicitly and obtain
+current authority before any action. Never resend a claim, checkpoint, event,
+gate, relationship, lifecycle, release, or completion mutation against the root
+as an automatic substitute for the alias ID.
 
 Keep `lease_token` only in private active-session state. Never place it in a
 URL, checkpoint, metadata, log, chat response, copied pointer, or browser. MCP
@@ -288,7 +384,7 @@ human identity. Never store credentials, lease tokens, private chain-of-thought,
 operation UUIDs, frozen mutation arguments, or transcript dumps in either
 surface. The server rejects request-known secret echoes and reserved metadata
 keys, but cannot recognize every sensitive value; accepted progress is durable
-and returned exactly to authorized readers. `append_event` is one of the ten
+and returned exactly to authorized readers. `append_event` is one of the eleven
 protected mutations: retain its exact pending call and use only the same-key,
 same-arguments retry rule after an unknown outcome.
 
@@ -349,9 +445,17 @@ and review the current revision before preparing a new resolution intent;
 context, cycle, second-parent, and deletion with remaining relationships require
 correcting the requested graph fact rather than blind retry. Validation and
 application errors never include stored prompt content, arbitrary metadata,
-claim request IDs, lease tokens, or raw UUID values.
+claim request IDs, lease tokens, or raw UUID values beyond the allowlisted
+canonical root ID on `work_duplicate`.
 
-After an unknown outcome from one of the ten protected writes, use only its
+`duplicate_merge_required` closes fresh generic duplicate marks.
+`duplicate_context_changed` and `duplicate_destination_not_canonical` require a
+new two-context review and new intent; `work_already_duplicate` identifies a
+source that is already an alias. Source gates, structural edges, active-lease
+token mismatch, and depth have distinct merge errors. `duplicate_graph_invalid`
+is an integrity incident: stop authority-changing work and involve the operator.
+
+After an unknown outcome from one of the eleven protected writes, use only its
 retained exact operation retry; search or recall cannot substitute for the
 receipt protocol. Claims use only their distinct same-request replay rule while
 the lease remains active. For excluded writes, reconcile their current state
@@ -371,9 +475,10 @@ Copy the generic skill directories into the discovery location supported by the
 target client. Tool-name prefixes may differ, but the underlying canonical names
 stay the same. Setup does not modify other projects or user-global configuration.
 
-The dashboard protects ten browser-accessible mutations: create work, add a
+The dashboard protects eleven browser-accessible mutations: create work, add a
 checkpoint, append progress, add a relationship, edit work, complete work,
-defer work, delete work, remove a relationship, and resolve a human gate.
+defer work, delete work, remove a relationship, resolve a human gate, and
+permanently merge duplicate work.
 Deferral and resolution remain human-only actions with no MCP tools; the proxy
 intentionally denies gate creation. The dashboard creates one UUID and
 freezes one serialized request in a dashboard-owned, same-document registry.
@@ -387,10 +492,18 @@ process loss. If the document is lost while an intent is unresolved, do not
 invent a replacement key or claim the mutation is safe to repeat; inspect state
 and request direction. The dashboard intentionally exposes no claim, renewal,
 release, or lease-token route, so `release_claim` is protected through MCP/REST
-but is not one of the ten browser actions. Gate resolution freezes its reviewed
+but is not one of the eleven browser actions. Gate resolution freezes its reviewed
 revision and answer in the same registry; a definite context-change rejection
 requires a fresh human review and new UUID, while an ambiguous outcome permits
 only the exact frozen retry. No question or answer is browser-persisted.
+
+Merge is keyed under both endpoint work IDs, so either item's conflicting UI
+actions stay blocked while its outcome is uncertain. The browser shows separate
+bidi-isolated source/destination panels and full UUIDs, requires permanence
+acknowledgement, and disables merge for an active source lease because it never
+accepts a capability token. It freezes both reviewed revisions with the rest of
+the body and follows the same definite-stale/new-key versus ambiguous/exact-
+retry rule.
 
 ChatGPT cloud access, OAuth, public hosting, automatic ready selection/claim,
 authenticated human identity/signatures, nonhuman gate types, relationship

@@ -6,6 +6,7 @@ import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import { api, errorMessage, workItemPath } from "@/lib/api";
 import {
   discoveryLabel,
+  decodeHierarchyPage,
   hierarchyBranchTotals,
   hierarchyOverlapNote
 } from "@/lib/hierarchy-presentation";
@@ -151,11 +152,17 @@ function HierarchyBranch(props: BranchProps) {
     });
     setLoading(true);
     setLoadFailure(null);
-    api<Page<HierarchySummary>>(
+    api<unknown>(
       `${workItemPath(summary.work_item.project_id, id)}/children?${params}`,
       { signal: controller.signal }
-    ).then((result) => {
+    ).then((value) => {
       if (controller.signal.aborted) return;
+      const result = decodeHierarchyPage(
+        value,
+        summary.work_item.project_id,
+        CHILD_PAGE_SIZE,
+        offset
+      );
       if (offset > 0 && offset >= result.total) {
         setOffset(Math.max(0, Math.floor((result.total - 1) / CHILD_PAGE_SIZE) * CHILD_PAGE_SIZE));
         return;

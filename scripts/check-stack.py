@@ -1,11 +1,15 @@
 """Exercise the live HTTP MCP -> REST -> PostgreSQL path and dashboard proxy.
 
 Run with the MCP project's Python environment. Checks are read-only unless a
-project is explicitly authorized with --project-id. The write check creates a
-small, uniquely marked Phases 7–8 work graph, exercises human gates, ready discovery, and its
-canonical event lifecycle, then removes the graph and soft-deletes every
-synthetic item it created. Immutable events remain attached to those hidden
-items. Never authorize writes against a project without permission.
+project is explicitly authorized with --project-id. The writable check creates
+a small, uniquely marked work graph, exercises Advisory duplicate suggestions,
+human gates, ready discovery, its canonical event lifecycle, and one real
+irreversible duplicate merge with response-loss receipt recovery. Cleanup
+removes the reversible graph but deliberately retains both merged work items,
+their frozen relationship, merge record, events, and receipts as evidence.
+
+Never authorize writes against a project without permission. Because merge
+evidence cannot be deleted, use --project-id only with a disposable project.
 """
 
 from __future__ import annotations
@@ -51,6 +55,8 @@ CANONICAL_TOOLS = {
     "remove_relationship",
     "append_event",
     "list_work_events",
+    "merge_work",
+    "suggest_duplicate_work",
 }
 PROTECTED_MUTATION_TOOLS = {
     "create_work",
@@ -63,6 +69,7 @@ PROTECTED_MUTATION_TOOLS = {
     "remove_relationship",
     "release_claim",
     "request_human_input",
+    "merge_work",
 }
 EXCLUDED_MUTATION_TOOLS = {
     "create_project",
@@ -76,6 +83,7 @@ DESTRUCTIVE_TOOLS = {
     "complete_work",
     "delete_work",
     "remove_relationship",
+    "merge_work",
 }
 SYNTHETIC_CLIENT = "mnemonic-stack-check"
 SYNTHETIC_GATE_QUESTION = "Choose the synthetic validation decision for this disposable work item."
@@ -105,9 +113,7 @@ def local_settings() -> dict[str, str]:
     return {**values, **os.environ}
 
 
-async def tool(
-    session: ClientSession, name: str, arguments: dict[str, Any]
-) -> dict[str, Any]:
+async def tool(session: ClientSession, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     result = await session.call_tool(name, arguments)
     require(not result.isError, f"MCP {name} reported an error.")
     if result.structuredContent is not None:
@@ -116,7 +122,7 @@ async def tool(
 
 
 def synthetic_summary(marker: str) -> str:
-    return f"Synthetic Phases 7–8 integration check {marker}"
+    return f"Synthetic Phase 9 integration check {marker}"
 
 
 def mutation_actor(run_id: str) -> dict[str, str]:
@@ -154,8 +160,7 @@ async def protected_tool(
     encoded_arguments = json.dumps(arguments, sort_keys=True, separators=(",", ":"))
     result = await tool(session, name, arguments)
     require(
-        json.dumps(arguments, sort_keys=True, separators=(",", ":"))
-        == encoded_arguments,
+        json.dumps(arguments, sort_keys=True, separators=(",", ":")) == encoded_arguments,
         f"MCP {name} mutated its caller-retained arguments.",
     )
     return result
@@ -174,10 +179,7 @@ def _is_target_tool_call(
     if not isinstance(params, dict) or params.get("name") != name:
         return False
     arguments = params.get("arguments")
-    return (
-        isinstance(arguments, dict)
-        and arguments.get("client_operation_id") == operation_id
-    )
+    return isinstance(arguments, dict) and arguments.get("client_operation_id") == operation_id
 
 
 class OneShotToolResponseLoss(httpx.AsyncBaseTransport):
@@ -195,9 +197,8 @@ class OneShotToolResponseLoss(httpx.AsyncBaseTransport):
             payload = json.loads(body)
         except (json.JSONDecodeError, UnicodeDecodeError):
             payload = None
-        should_drop = (
-            not self.dropped
-            and _is_target_tool_call(payload, self.name, self.operation_id)
+        should_drop = not self.dropped and _is_target_tool_call(
+            payload, self.name, self.operation_id
         )
         response = await self._transport.handle_async_request(request)
         if should_drop:
@@ -235,23 +236,30 @@ async def lose_protected_tool_response(
     operation_id = arguments["client_operation_id"]
     transport = OneShotToolResponseLoss(name, operation_id)
 
-    def client_factory(**options: Any) -> httpx.AsyncClient:
+    def client_factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
         return httpx.AsyncClient(
-            headers=options.get("headers"),
-            timeout=options.get("timeout"),
-            auth=options.get("auth"),
+            headers=headers,
+            timeout=timeout,
+            auth=auth,
             transport=transport,
             follow_redirects=True,
         )
 
     caller_observed_failure = False
     try:
-        async with streamablehttp_client(
-            mcp_url,
-            headers=headers,
-            timeout=15,
-            httpx_client_factory=client_factory,
-        ) as (read, write, _), ClientSession(read, write) as loss_session:
+        async with (
+            streamablehttp_client(
+                mcp_url,
+                headers=headers,
+                timeout=15,
+                httpx_client_factory=client_factory,
+            ) as (read, write, _),
+            ClientSession(read, write) as loss_session,
+        ):
             await loss_session.initialize()
             await loss_session.call_tool(name, arguments)
     except httpx.TransportError:
@@ -294,9 +302,7 @@ async def retained_api_mutation(
     raise RuntimeError("Cleanup remained unresolved after an exact retry.")
 
 
-async def work_events(
-    session: ClientSession, identity: dict[str, str]
-) -> list[dict[str, Any]]:
+async def work_events(session: ClientSession, identity: dict[str, str]) -> list[dict[str, Any]]:
     page = await tool(
         session,
         "list_work_events",
@@ -338,6 +344,102 @@ def ready_ids(page: dict[str, Any]) -> list[str]:
     return [item["work_item"]["id"] for item in page["items"]]
 
 
+def work_detail_parts(
+    value: object,
+    expected_work_item_id: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Require and unpack the exact Phase 9 detail envelope."""
+    if not isinstance(value, dict):
+        raise TypeError("Work detail was not an object.")
+    detail: dict[str, Any] = value
+    require(
+        set(detail) == {"work_item", "canonical"},
+        "Work detail did not use the exact work_item/canonical envelope.",
+    )
+    work_item = detail["work_item"]
+    canonical = detail["canonical"]
+    require(
+        isinstance(work_item, dict)
+        and isinstance(canonical, dict)
+        and set(canonical)
+        == {
+            "is_duplicate",
+            "direct_destination",
+            "canonical_work_item",
+            "path",
+            "duplicate_member_count",
+        }
+        and isinstance(canonical.get("canonical_work_item"), dict),
+        "Work detail returned an invalid canonical projection.",
+    )
+    if expected_work_item_id is not None:
+        require(
+            work_item.get("id") == expected_work_item_id,
+            "Work detail silently substituted a different identity.",
+        )
+    if canonical["is_duplicate"]:
+        require(
+            canonical["direct_destination"] is not None
+            and canonical["path"]
+            and canonical["path"][-1] == canonical["canonical_work_item"],
+            "Duplicate work detail returned an incoherent destination path.",
+        )
+    else:
+        require(
+            canonical["direct_destination"] is None
+            and canonical["path"] == []
+            and canonical["canonical_work_item"].get("id") == work_item.get("id"),
+            "Canonical work detail did not point to its exact requested identity.",
+        )
+    return work_item, canonical
+
+
+def textual_resource_json(value: object) -> dict[str, Any]:
+    """Require and decode a textual JSON MCP resource."""
+    text = getattr(value, "text", None)
+    if not isinstance(text, str):
+        raise TypeError("Canonical MCP resource was not textual JSON.")
+    decoded = json.loads(text)
+    if not isinstance(decoded, dict):
+        raise TypeError("Canonical MCP resource JSON was not an object.")
+    return decoded
+
+
+async def merge_observables(
+    session: ClientSession,
+    source_identity: dict[str, str],
+    destination_identity: dict[str, str],
+) -> dict[str, Any]:
+    """Capture public state that an exact merge receipt replay must not change."""
+    source_detail = await tool(session, "get_work", source_identity)
+    destination_detail = await tool(session, "get_work", destination_identity)
+    work_detail_parts(source_detail, source_identity["work_item_id"])
+    work_detail_parts(destination_detail, destination_identity["work_item_id"])
+    return {
+        "source_detail": source_detail,
+        "destination_detail": destination_detail,
+        "source_context": await tool(session, "recall_work", source_identity),
+        "destination_context": await tool(session, "recall_work", destination_identity),
+        "source_events": await work_events(session, source_identity),
+        "destination_events": await work_events(session, destination_identity),
+        "source_relationships": await tool(
+            session,
+            "list_relationships",
+            {**source_identity, "direction": "both", "limit": 100, "offset": 0},
+        ),
+        "destination_relationships": await tool(
+            session,
+            "list_relationships",
+            {
+                **destination_identity,
+                "direction": "both",
+                "limit": 100,
+                "offset": 0,
+            },
+        ),
+    }
+
+
 def typed_error_code(response: httpx.Response) -> str | None:
     try:
         return response.json().get("detail", {}).get("code")
@@ -358,25 +460,36 @@ async def find_synthetic_work(
             "q": marker,
             "status": "all",
             "view": "full",
+            "duplicate_scope": "all",
             "limit": 100,
             "offset": 0,
         },
     )
-    require(
-        response.status_code == 200, "Could not inspect synthetic work for cleanup."
-    )
+    require(response.status_code == 200, "Could not inspect synthetic work for cleanup.")
     matches: list[str] = []
     for item in response.json()["items"]:
-        work_item = item.get("work_item", {})
-        current_context = item.get("current_context", {})
+        require(
+            isinstance(item, dict)
+            and set(item) == {"summary", "matched_member"}
+            and isinstance(item.get("summary"), dict)
+            and isinstance(item.get("matched_member"), dict),
+            "Cleanup search did not return a Phase 9 full-search hit.",
+        )
+        summary = item["summary"]
+        work_item = summary.get("work_item", {})
+        current_context = summary.get("current_context", {})
         if (
             work_item.get("summary") == synthetic_summary(marker)
             and current_context.get("source_client") == SYNTHETIC_CLIENT
             and current_context.get("source_session_id") == run_id
         ):
+            require(
+                item["matched_member"].get("id") == work_item.get("id"),
+                "All-scope cleanup search confused match evidence with its returned row.",
+            )
             matches.append(work_item["id"])
     require(
-        len(matches) <= 5,
+        len(matches) <= 7,
         "Cleanup found more synthetic records than this lifecycle can create.",
     )
     return matches
@@ -388,7 +501,7 @@ async def find_synthetic_relationships(
     work_item_ids: set[str],
     run_id: str,
 ) -> set[str]:
-    """Discover only edges created by this run and connecting its exact work set."""
+    """Discover removable run-owned edges, never frozen merge evidence."""
     relationship_ids: set[str] = set()
     for work_item_id in work_item_ids:
         response = await api.get(
@@ -406,7 +519,8 @@ async def find_synthetic_relationships(
                 edge.get("target_work_item_id"),
             }
             if (
-                edge.get("created_by_client") == SYNTHETIC_CLIENT
+                edge.get("relationship_type") != "duplicate-of"
+                and edge.get("created_by_client") == SYNTHETIC_CLIENT
                 and edge.get("created_by_session_id") == run_id
                 and endpoints <= work_item_ids
             ):
@@ -422,10 +536,11 @@ def require_synthetic_relationship(
         edge.get("target_work_item_id"),
     }
     require(
-        edge.get("created_by_client") == SYNTHETIC_CLIENT
+        edge.get("relationship_type") != "duplicate-of"
+        and edge.get("created_by_client") == SYNTHETIC_CLIENT
         and edge.get("created_by_session_id") == run_id
         and endpoints <= work_item_ids,
-        "Refusing to remove a relationship outside this run's exact synthetic graph.",
+        "Refusing to remove frozen merge evidence or a relationship outside this run.",
     )
 
 
@@ -439,7 +554,7 @@ async def resolve_synthetic_gates_for_cleanup(
     path = f"projects/{project_id}/work-items/{work_item_id}/gates"
     cursor: str | None = None
     while True:
-        params: dict[str, object] = {"status": "unresolved", "limit": 100}
+        params: dict[str, str | int] = {"status": "unresolved", "limit": 100}
         if cursor is not None:
             params["cursor"] = cursor
         response = await api.get(path, params=params)
@@ -480,32 +595,55 @@ async def resolve_synthetic_gates_for_cleanup(
             break
 
 
-async def cleanup_synthetic_work(
+async def preserved_merge_work_ids(
     api: httpx.AsyncClient,
     project_id: str,
     marker: str,
-    run_id: str,
+    work_item_ids: set[str],
     known_work_item_ids: set[str],
-    known_relationship_ids: set[str],
-    claim_request_ids: dict[str, str],
-    lease_tokens: dict[str, str],
-) -> None:
-    """Safety-clean this run's graph with exact retained cleanup retries."""
-    work_item_ids = set(await find_synthetic_work(api, project_id, marker, run_id))
+) -> set[str]:
+    """Validate the run inventory and identify immutable merged groups."""
     for known_work_item_id in known_work_item_ids:
-        response = await api.get(
-            f"projects/{project_id}/work-items/{known_work_item_id}"
-        )
+        response = await api.get(f"projects/{project_id}/work-items/{known_work_item_id}")
         if response.status_code == 404:
             continue
         require(
             response.status_code == 200 and known_work_item_id in work_item_ids,
             "Refusing to clean up a known ID that was not proven to belong to this run.",
         )
+        work_detail_parts(response.json(), known_work_item_id)
 
-    relationship_ids = await find_synthetic_relationships(
-        api, project_id, work_item_ids, run_id
-    )
+    preserved: set[str] = set()
+    for work_item_id in sorted(work_item_ids):
+        response = await api.get(f"projects/{project_id}/work-items/{work_item_id}")
+        require(
+            response.status_code == 200,
+            "Could not inspect synthetic work for merge-preserving cleanup.",
+        )
+        work_item, canonical = work_detail_parts(response.json(), work_item_id)
+        require(
+            work_item.get("summary") == synthetic_summary(marker),
+            "Refusing to clean up work without this run's exact synthetic summary.",
+        )
+        if canonical["is_duplicate"] or canonical["duplicate_member_count"] > 0:
+            root_id = canonical["canonical_work_item"]["id"]
+            require(
+                root_id in work_item_ids,
+                "Synthetic work was merged into a non-synthetic group; refusing cleanup.",
+            )
+            preserved.update({work_item_id, root_id})
+    return preserved
+
+
+async def remove_synthetic_relationships(
+    api: httpx.AsyncClient,
+    project_id: str,
+    run_id: str,
+    work_item_ids: set[str],
+    known_relationship_ids: set[str],
+) -> None:
+    """Remove run-owned reversible edges while refusing frozen duplicate evidence."""
+    relationship_ids = await find_synthetic_relationships(api, project_id, work_item_ids, run_id)
     relationship_ids.update(known_relationship_ids)
     for relationship_id in sorted(relationship_ids):
         relationship_path = f"projects/{project_id}/relationships/{relationship_id}"
@@ -516,16 +654,12 @@ async def cleanup_synthetic_work(
             response.status_code == 200,
             "Could not inspect a known synthetic relationship for cleanup.",
         )
-        edge = response.json()
-        require_synthetic_relationship(edge, work_item_ids, run_id)
-        remove_arguments = retained_mutation(
-            {"actor": mutation_actor(run_id)}
-        )
+        require_synthetic_relationship(response.json(), work_item_ids, run_id)
         removed = await retained_api_mutation(
             api,
             "DELETE",
             relationship_path,
-            remove_arguments,
+            retained_mutation({"actor": mutation_actor(run_id)}),
         )
         require(
             removed.status_code == 200
@@ -534,88 +668,213 @@ async def cleanup_synthetic_work(
             "Synthetic relationship cleanup failed.",
         )
 
-    for work_item_id in sorted(work_item_ids, reverse=True):
-        await resolve_synthetic_gates_for_cleanup(
-            api, project_id, work_item_id, run_id
+
+async def cleanup_synthetic_item(
+    api: httpx.AsyncClient,
+    project_id: str,
+    marker: str,
+    run_id: str,
+    work_item_id: str,
+    claim_request_ids: dict[str, str],
+    lease_tokens: dict[str, str],
+) -> None:
+    """Release and soft-delete one proven reversible synthetic item."""
+    await resolve_synthetic_gates_for_cleanup(api, project_id, work_item_id, run_id)
+    path = f"projects/{project_id}/work-items/{work_item_id}"
+    remaining = await api.get(path)
+    if remaining.status_code == 404:
+        return
+    require(
+        remaining.status_code == 200,
+        "Could not inspect temporary work for cleanup.",
+    )
+    record, _canonical = work_detail_parts(remaining.json(), work_item_id)
+    require(
+        record.get("summary") == synthetic_summary(marker),
+        "Refusing to clean up work without this run's exact synthetic summary.",
+    )
+    cleanup_token = lease_tokens.get(work_item_id)
+    claim_request_id = claim_request_ids.get(work_item_id)
+    if cleanup_token is None and claim_request_id is not None and record["status"] == "pending":
+        recovered = await api.post(
+            path + "/claim",
+            json={
+                "holder_client": SYNTHETIC_CLIENT,
+                "holder_session_id": run_id,
+                "claim_request_id": claim_request_id,
+            },
         )
-        path = f"projects/{project_id}/work-items/{work_item_id}"
-        remaining = await api.get(path)
-        if remaining.status_code == 404:
-            continue
-        require(
-            remaining.status_code == 200,
-            "Could not inspect temporary work for cleanup.",
-        )
-        record = remaining.json()
-        require(
-            record.get("summary") == synthetic_summary(marker),
-            "Refusing to clean up work without this run's exact synthetic summary.",
-        )
-        cleanup_token = lease_tokens.get(work_item_id)
-        claim_request_id = claim_request_ids.get(work_item_id)
-        if (
-            cleanup_token is None
-            and claim_request_id is not None
-            and record["status"] == "pending"
-        ):
-            recovered = await api.post(
-                path + "/claim",
-                json={
-                    "holder_client": SYNTHETIC_CLIENT,
-                    "holder_session_id": run_id,
-                    "claim_request_id": claim_request_id,
-                },
+        if recovered.status_code == 200:
+            cleanup_token = recovered.json()["lease_token"]
+        else:
+            require(
+                recovered.status_code == 409
+                and typed_error_code(recovered) == "claim_request_expired",
+                "Could not recover the synthetic lease for cleanup.",
             )
-            if recovered.status_code == 200:
-                cleanup_token = recovered.json()["lease_token"]
-            else:
-                require(
-                    recovered.status_code == 409
-                    and typed_error_code(recovered) == "claim_request_expired",
-                    "Could not recover the synthetic lease for cleanup.",
-                )
-        if cleanup_token is not None and record["status"] == "pending":
-            release_arguments = retained_mutation(
+    if cleanup_token is not None and record["status"] == "pending":
+        released = await retained_api_mutation(
+            api,
+            "POST",
+            path + "/release-claim",
+            retained_mutation(
                 {
                     "lease_token": cleanup_token,
                     "actor": mutation_actor(run_id),
                 }
-            )
-            released = await retained_api_mutation(
-                api,
-                "POST",
-                path + "/release-claim",
-                release_arguments,
-            )
-            require(
-                released.status_code == 200
-                or (
-                    released.status_code == 409
-                    and typed_error_code(released) == "lease_expired"
-                ),
-                "Could not release the synthetic lease for cleanup.",
-            )
-        remaining = await api.get(path)
-        if remaining.status_code == 404:
-            continue
-        require(remaining.status_code == 200, "Could not refresh work for cleanup.")
-        record = remaining.json()
-        delete_arguments = retained_mutation(
+            ),
+        )
+        require(
+            released.status_code == 200
+            or (released.status_code == 409 and typed_error_code(released) == "lease_expired"),
+            "Could not release the synthetic lease for cleanup.",
+        )
+    remaining = await api.get(path)
+    if remaining.status_code == 404:
+        return
+    require(remaining.status_code == 200, "Could not refresh work for cleanup.")
+    record, _canonical = work_detail_parts(remaining.json(), work_item_id)
+    cleanup = await retained_api_mutation(
+        api,
+        "POST",
+        path + "/delete",
+        retained_mutation(
             {
                 "expected_version": record["version"],
                 "actor": mutation_actor(run_id),
             }
-        )
-        cleanup = await retained_api_mutation(
+        ),
+    )
+    require(
+        cleanup.status_code == 200 and cleanup.json().get("deleted") is True,
+        "Temporary work cleanup failed.",
+    )
+
+
+async def cleanup_synthetic_work(
+    api: httpx.AsyncClient,
+    project_id: str,
+    marker: str,
+    run_id: str,
+    known_work_item_ids: set[str],
+    known_relationship_ids: set[str],
+    claim_request_ids: dict[str, str],
+    lease_tokens: dict[str, str],
+) -> set[str]:
+    """Remove reversible run data and return intentionally retained merge work IDs."""
+    work_item_ids = set(await find_synthetic_work(api, project_id, marker, run_id))
+    preserved_work_item_ids = await preserved_merge_work_ids(
+        api, project_id, marker, work_item_ids, known_work_item_ids
+    )
+
+    await remove_synthetic_relationships(
+        api, project_id, run_id, work_item_ids, known_relationship_ids
+    )
+
+    for work_item_id in sorted(work_item_ids - preserved_work_item_ids, reverse=True):
+        await cleanup_synthetic_item(
             api,
-            "POST",
-            path + "/delete",
-            delete_arguments,
+            project_id,
+            marker,
+            run_id,
+            work_item_id,
+            claim_request_ids,
+            lease_tokens,
+        )
+    return preserved_work_item_ids
+
+
+def validate_mcp_catalog(catalog: Any) -> None:
+    """Require the exact tool set, annotations, and operation-ID boundaries."""
+    tools_by_name = {entry.name: entry for entry in catalog.tools}
+    require(
+        len(catalog.tools) == 27
+        and len(tools_by_name) == 27
+        and len(PROTECTED_MUTATION_TOOLS) == 11
+        and set(tools_by_name) == CANONICAL_TOOLS,
+        "Unexpected MCP tool catalog.",
+    )
+    for name, entry in tools_by_name.items():
+        schema = entry.inputSchema
+        properties = schema.get("properties", {})
+        required = set(schema.get("required", []))
+        annotations = entry.annotations
+        require(annotations is not None, f"MCP {name} has no annotations.")
+        expected_annotations = (
+            name in READ_ONLY_TOOLS,
+            name in DESTRUCTIVE_TOOLS,
+            name in READ_ONLY_TOOLS | PROTECTED_MUTATION_TOOLS,
+            False,
+        )
+        actual_annotations = (
+            annotations.readOnlyHint,
+            annotations.destructiveHint,
+            annotations.idempotentHint,
+            annotations.openWorldHint,
         )
         require(
-            cleanup.status_code == 200 and cleanup.json().get("deleted") is True,
-            "Temporary work cleanup failed.",
+            actual_annotations == expected_annotations,
+            f"MCP {name} annotations are not the exact four-hint contract.",
         )
+        if name in PROTECTED_MUTATION_TOOLS:
+            require(
+                "client_operation_id" in required
+                and properties.get("client_operation_id", {}).get("format") == "uuid",
+                f"MCP {name} does not require a UUID client operation ID.",
+            )
+        else:
+            require(
+                "client_operation_id" not in properties and "client_operation_id" not in required,
+                f"MCP {name} unexpectedly exposes a client operation ID.",
+            )
+
+
+def report_retained_merge_evidence(
+    preserved: set[str], project_id: str, prefix: str = "INFO"
+) -> None:
+    if preserved:
+        print(
+            f"{prefix}: intentionally retained irreversible merge evidence in "
+            f"disposable project {project_id}: " + ", ".join(sorted(preserved))
+        )
+
+
+async def cleanup_interrupted_synthetic_run(
+    api: httpx.AsyncClient,
+    project_id: str,
+    cleanup_run_id: str,
+) -> None:
+    cleanup_marker = "mnemoniccheck" + cleanup_run_id.replace("-", "")
+    preserved = await cleanup_synthetic_work(
+        api,
+        project_id,
+        cleanup_marker,
+        cleanup_run_id,
+        set(),
+        set(),
+        {},
+        {},
+    )
+    remaining = set(await find_synthetic_work(api, project_id, cleanup_marker, cleanup_run_id))
+    require(
+        remaining == preserved,
+        "Interrupted-run cleanup left reversible synthetic work.",
+    )
+    if preserved:
+        report_retained_merge_evidence(preserved, project_id, "PASS")
+    else:
+        print("PASS: interrupted synthetic run cleanup")
+
+
+async def require_cross_project_isolation(
+    api: httpx.AsyncClient,
+    other_project_id: str | None,
+    work_item_id: str,
+) -> None:
+    if other_project_id is None:
+        return
+    wrong = await api.get(f"projects/{other_project_id}/work-items/{work_item_id}")
+    require(wrong.status_code == 404, "A cross-project ID was accepted.")
 
 
 async def check(args: argparse.Namespace, key: str) -> None:
@@ -682,9 +941,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
         )
         require(
             (
-                await public.get(
-                    proxy + "projects", headers={"Host": "untrusted.example"}
-                )
+                await public.get(proxy + "projects", headers={"Host": "untrusted.example"})
             ).status_code
             in {400, 403, 421},
             "Dashboard accepted an untrusted host.",
@@ -694,7 +951,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
             "dashboard proxy and origin protection"
         )
 
-        async with streamablehttp_client(args.mcp_url, headers=auth, timeout=15) as (  # noqa: SIM117
+        async with streamablehttp_client(args.mcp_url, headers=auth, timeout=65) as (  # noqa: SIM117
             read,
             write,
             _,
@@ -702,83 +959,27 @@ async def check(args: argparse.Namespace, key: str) -> None:
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 catalog = await session.list_tools()
-                tools_by_name = {entry.name: entry for entry in catalog.tools}
-                require(
-                    len(catalog.tools) == 25
-                    and len(tools_by_name) == 25
-                    and len(PROTECTED_MUTATION_TOOLS) == 10
-                    and set(tools_by_name) == CANONICAL_TOOLS,
-                    "Unexpected MCP tool catalog.",
-                )
-                for name, entry in tools_by_name.items():
-                    schema = entry.inputSchema
-                    properties = schema.get("properties", {})
-                    required = set(schema.get("required", []))
-                    annotations = entry.annotations
-                    require(annotations is not None, f"MCP {name} has no annotations.")
-                    expected_annotations = (
-                        name in READ_ONLY_TOOLS,
-                        name in DESTRUCTIVE_TOOLS,
-                        name in READ_ONLY_TOOLS | PROTECTED_MUTATION_TOOLS,
-                        False,
-                    )
-                    actual_annotations = (
-                        annotations.readOnlyHint,
-                        annotations.destructiveHint,
-                        annotations.idempotentHint,
-                        annotations.openWorldHint,
-                    )
-                    require(
-                        actual_annotations == expected_annotations,
-                        f"MCP {name} annotations are not the exact four-hint contract.",
-                    )
-                    if name in PROTECTED_MUTATION_TOOLS:
-                        require(
-                            "client_operation_id" in required
-                            and properties.get("client_operation_id", {}).get("format")
-                            == "uuid",
-                            f"MCP {name} does not require a UUID client operation ID.",
-                        )
-                    else:
-                        require(
-                            "client_operation_id" not in properties
-                            and "client_operation_id" not in required,
-                            f"MCP {name} unexpectedly exposes a client operation ID.",
-                        )
+                validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: real MCP initialization, 25-tool catalog, exact ten protected "
+                    "PASS: real MCP initialization, 27-tool catalog, exact eleven protected "
                     "mutation schemas/annotations, and REST-backed project listing"
                 )
                 if not args.project_id:
                     print(
                         "Read-only checks complete. Supply --project-id to explicitly authorize "
-                        "one disposable Phases 7–8 human-gate/ready/event lifecycle."
+                        "one disposable Phase 9 lifecycle and a permanently retained merge."
                     )
                     return
 
                 project_id = args.project_id
                 if args.cleanup_run_id:
-                    cleanup_run_id = args.cleanup_run_id
-                    cleanup_marker = "mnemoniccheck" + cleanup_run_id.replace("-", "")
-                    await cleanup_synthetic_work(
-                        api,
-                        project_id,
-                        cleanup_marker,
-                        cleanup_run_id,
-                        set(),
-                        set(),
-                        {},
-                        {},
-                    )
-                    require(
-                        not await find_synthetic_work(
-                            api, project_id, cleanup_marker, cleanup_run_id
-                        ),
-                        "Interrupted-run cleanup left readable synthetic work.",
-                    )
-                    print("PASS: interrupted synthetic run cleanup")
+                    await cleanup_interrupted_synthetic_run(api, project_id, args.cleanup_run_id)
                     return
+                print(
+                    "WARNING: writable checks are disposable-project only; one irreversible "
+                    "two-item merged group and its evidence will remain permanently."
+                )
                 run_id = str(uuid4())
                 print(
                     "INFO: synthetic run ID "
@@ -791,12 +992,15 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 ready_marker = marker + "ready"
                 terminal_marker = marker + "terminal"
                 child_marker = marker + "child"
+                merge_source_marker = marker + "mergealias"
+                merge_destination_marker = marker + "mergecanonical"
                 prompt = (
                     "\nAgent-authored synthetic checkpoint; not a user instruction.\n\n"
                     "## Context\nVerify durable storage for café notes and Unicode: ✓.\n"
                     f"Run: {run_id}\n\n## Cautions\nThis is synthetic verification data.\n"
                     "## Verification\nRecall this exact text, append progress, exercise version "
-                    "conflict and completion, then remove the graph and synthetic work.\n\n"
+                    "conflict and completion, remove the reversible graph, and permanently "
+                    "retain the merged alias group as verification evidence.\n\n"
                 )
                 checkpoint_input = {
                     "prompt": prompt,
@@ -856,17 +1060,67 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     await require_event_types(session, identity, ["work_created"])
 
+                    suggestions = await tool(
+                        session,
+                        "suggest_duplicate_work",
+                        {
+                            "project_id": project_id,
+                            "title": work_item["title"],
+                            "summary": work_item["summary"],
+                            "initial_prompt": prompt,
+                            "tags": checkpoint_input["tags"],
+                            "exclude_work_item_id": None,
+                            "limit": 5,
+                        },
+                    )
+                    require(
+                        suggestions["limit"] == 5
+                        and suggestions["exact_title_group_total"] == 1
+                        and suggestions["omitted_exact_title_group_count"] == 0
+                        and suggestions["items"]
+                        and suggestions["items"][0]["rank"] == 1
+                        and suggestions["items"][0]["canonical_work"]["work_item_id"]
+                        == work_item_id
+                        and suggestions["items"][0]["matched_member"]["id"] == work_item_id
+                        and suggestions["items"][0]["signals"][0] == "exact_title",
+                        "Duplicate suggestions did not reserve the exact-title canonical group.",
+                    )
+                    require(
+                        prompt not in json.dumps(suggestions, sort_keys=True),
+                        "Duplicate suggestions exposed draft or checkpoint text.",
+                    )
+                    unchanged_after_suggestion_detail = await tool(session, "get_work", identity)
+                    unchanged_after_suggestion, _canonical = work_detail_parts(
+                        unchanged_after_suggestion_detail, work_item_id
+                    )
+                    require(
+                        unchanged_after_suggestion["version"] == work_item["version"]
+                        and [event["event_type"] for event in await work_events(session, identity)]
+                        == ["work_created"],
+                        "The duplicate-suggestion safe read changed canonical work or events.",
+                    )
+
                     found = await tool(
                         session,
                         "search_work",
                         {"project_id": project_id, "q": primary_marker},
                     )
                     require(
-                        found["total"] == 1
-                        and found["items"][0]["work_item"]["id"] == work_item_id
-                        and "current_context" not in found["items"][0]
-                        and "summary" not in found["items"][0]["work_item"],
-                        "Unique pointer-only work search failed.",
+                        found["total"] == 1 and len(found["items"]) == 1,
+                        "Unique full work search did not return one hit.",
+                    )
+                    found_hit = found["items"][0]
+                    require(
+                        set(found_hit) == {"summary", "matched_member"}
+                        and found_hit["summary"]["work_item"]["id"] == work_item_id
+                        and found_hit["summary"]["work_item"]["summary"]
+                        == synthetic_summary(marker)
+                        and found_hit["matched_member"]["id"] == work_item_id
+                        and found_hit["summary"]["current_context"]["source_client"]
+                        == SYNTHETIC_CLIENT
+                        and found_hit["summary"]["current_context"]["source_session_id"] == run_id
+                        and "prompt" not in found_hit["summary"]["current_context"],
+                        "Full search did not preserve row/match identity or bounded context.",
                     )
                     recalled = await tool(session, "recall_work", identity)
                     require(
@@ -878,11 +1132,9 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "Bounded work context differs from the created checkpoint.",
                     )
                     resource = await session.read_resource(
-                        AnyUrl(
-                            f"mnemonic://projects/{project_id}/work-items/{work_item_id}"
-                        )
+                        AnyUrl(f"mnemonic://projects/{project_id}/work-items/{work_item_id}")
                     )
-                    resource_context = json.loads(resource.contents[0].text)
+                    resource_context = textual_resource_json(resource.contents[0])
                     require(
                         resource_context["initial_checkpoint"]["prompt"] == prompt
                         and resource_context["current_context"] is None
@@ -894,13 +1146,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         bool(resumed.messages),
                         "Canonical MCP resume prompt is missing.",
                     )
-                    if args.other_project_id:
-                        wrong = await api.get(
-                            f"projects/{args.other_project_id}/work-items/{work_item_id}"
-                        )
-                        require(
-                            wrong.status_code == 404, "A cross-project ID was accepted."
-                        )
+                    await require_cross_project_isolation(api, args.other_project_id, work_item_id)
 
                     bearer_echo_arguments = retained_mutation(
                         {
@@ -916,23 +1162,17 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     require(
                         bearer_echo.status_code == 422
-                        and typed_error_code(bearer_echo)
-                        == "client_operation_secret_echo"
+                        and typed_error_code(bearer_echo) == "client_operation_secret_echo"
                         and key not in bearer_echo.text,
                         "Protected progress did not reject the request bearer value-free.",
                     )
                     require(
-                        [
-                            event["event_type"]
-                            for event in await work_events(session, identity)
-                        ]
+                        [event["event_type"] for event in await work_events(session, identity)]
                         == ["work_created"],
                         "Rejected bearer echo changed work history.",
                     )
 
-                    progress_body = (
-                        "Synthetic Phase 6 progress preserved exact Unicode: café ✓."
-                    )
+                    progress_body = "Synthetic Phase 6 progress preserved exact Unicode: café ✓."
                     progress_event_arguments = retained_mutation(
                         {
                             **identity,
@@ -966,13 +1206,10 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         progress_replay == progress_event,
                         "Progress exact replay did not return the original event snapshot.",
                     )
-                    await require_event_types(
-                        session, identity, ["work_created", "progress"]
-                    )
+                    await require_event_types(session, identity, ["work_created", "progress"])
 
                     progress_prompt = (
-                        "Live validation preserved exact context and reached the mutation "
-                        "checks."
+                        "Live validation preserved exact context and reached the mutation checks."
                     )
                     progress_input = {
                         "prompt": progress_prompt,
@@ -998,8 +1235,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         progress_checkpoint_arguments,
                     )
                     require(
-                        progress["prompt"] == progress_prompt
-                        and progress["kind"] == "progress",
+                        progress["prompt"] == progress_prompt and progress["kind"] == "progress",
                         "Progress checkpoint did not survive MCP -> REST -> database.",
                     )
                     timeline = await tool(
@@ -1018,7 +1254,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         identity,
                         ["work_created", "progress", "checkpoint_added"],
                     )
-                    unchanged = await tool(session, "get_work", identity)
+                    unchanged_detail = await tool(session, "get_work", identity)
+                    unchanged, _canonical = work_detail_parts(unchanged_detail, work_item_id)
                     require(
                         unchanged["version"] == work_item["version"],
                         "Appending a checkpoint unexpectedly changed the work version.",
@@ -1036,9 +1273,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         headers={"Origin": args.web_url.rstrip("/")},
                         json=edit_arguments,
                     )
-                    require(
-                        edit.status_code == 200, "Dashboard proxy work edit failed."
-                    )
+                    require(edit.status_code == 200, "Dashboard proxy work edit failed.")
                     current = edit.json()
                     await require_event_types(
                         session,
@@ -1066,8 +1301,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "A stale work edit was not rejected.",
                     )
                     require(
-                        conflict.json().get("detail", {}).get("code")
-                        == "version_conflict",
+                        conflict.json().get("detail", {}).get("code") == "version_conflict",
                         "The stale edit did not return the typed version_conflict code.",
                     )
 
@@ -1086,8 +1320,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         claimed["context"]["work_item"]["id"] == work_item_id
                         and claimed["context"]["readiness"]["display_state"] == "active"
-                        and claimed["context"]["recent_events"][-1]["event_type"]
-                        == "work_claimed"
+                        and claimed["context"]["recent_events"][-1]["event_type"] == "work_claimed"
                         and receipt["claim_request_id"] == claim_request_id,
                         "Atomic claim-and-recall did not return active bounded context.",
                     )
@@ -1117,8 +1350,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     require(
                         token_echo.status_code == 422
-                        and typed_error_code(token_echo)
-                        == "client_operation_secret_echo"
+                        and typed_error_code(token_echo) == "client_operation_secret_echo"
                         and lease_token not in token_echo.text,
                         "Protected progress did not reject a lease-token echo value-free.",
                     )
@@ -1161,7 +1393,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         == [event["id"] for event in events_after_claim],
                         "Lease renewal emitted a domain event.",
                     )
-                    after_lease = await tool(session, "get_work", identity)
+                    after_lease_detail = await tool(session, "get_work", identity)
+                    after_lease, _canonical = work_detail_parts(after_lease_detail, work_item_id)
                     require(
                         after_lease["version"] == current["version"]
                         and after_lease["updated_at"] == current["updated_at"],
@@ -1189,8 +1422,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         json=denied_completion_arguments,
                     )
                     require(
-                        denied_claim.status_code == 404
-                        and denied_token.status_code == 400,
+                        denied_claim.status_code == 404 and denied_token.status_code == 400,
                         "Dashboard proxy accepted a lease route or token-bearing body.",
                     )
                     blocker_checkpoint = {
@@ -1318,9 +1550,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         attention["total"] == 1
                         and len(attention["items"]) == 1
                         and attention["items"][0]["gate"]["id"] == gate_id
-                        and attention["items"][0]["summary"]["readiness"][
-                            "display_state"
-                        ]
+                        and attention["items"][0]["summary"]["readiness"]["display_state"]
                         == "waiting",
                         "Human-attention paging did not return the synthetic gate.",
                     )
@@ -1345,8 +1575,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         {**ready_identity, "status": "all", "limit": 100},
                     )
                     require(
-                        gate_history["total"] == 1
-                        and gate_history["items"][0] == requested_gate,
+                        gate_history["total"] == 1 and gate_history["items"][0] == requested_gate,
                         "Human-gate history did not match the requested gate.",
                     )
                     roots_while_waiting = await api.get(
@@ -1374,10 +1603,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     require(
                         ready_branch is not None
-                        and ready_branch["presentation"][
-                            "branch_unresolved_human_gate_count"
-                        ]
-                        == 1
+                        and ready_branch["presentation"]["branch_unresolved_human_gate_count"] == 1
                         and ready_branch["summary"]["readiness"]["is_gated"] is True,
                         "Hierarchy presentation omitted the waiting branch count.",
                     )
@@ -1444,8 +1670,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
 
                     resolve_path = (
-                        f"projects/{project_id}/work-items/{ready_id}/gates/"
-                        f"{gate_id}/resolve"
+                        f"projects/{project_id}/work-items/{ready_id}/gates/{gate_id}/resolve"
                     )
                     resolution_arguments = retained_mutation(
                         {
@@ -1453,32 +1678,35 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "resolved_by_client": "dashboard",
                             "resolved_by_session_id": run_id,
                             "resolved_by_model": None,
-                            "reviewed_context_revision": requested_gate[
-                                "current_context_revision"
-                            ],
+                            "reviewed_context_revision": requested_gate["current_context_revision"],
                         }
                     )
                     frozen_resolution = json.dumps(
                         resolution_arguments, sort_keys=True, separators=(",", ":")
                     )
-                    work_before_resolution = await tool(
-                        session, "get_work", ready_identity
+                    work_before_resolution_detail = await tool(session, "get_work", ready_identity)
+                    work_before_resolution, _canonical = work_detail_parts(
+                        work_before_resolution_detail, ready_id
                     )
                     resolved_response = await public.post(
                         proxy + resolve_path,
                         headers={"Origin": args.web_url.rstrip("/")},
                         json=resolution_arguments,
                     )
-                    work_after_resolution = await tool(
-                        session, "get_work", ready_identity
+                    work_after_resolution_detail = await tool(session, "get_work", ready_identity)
+                    work_after_resolution, _canonical = work_detail_parts(
+                        work_after_resolution_detail, ready_id
                     )
                     replayed_resolution = await public.post(
                         proxy + resolve_path,
                         headers={"Origin": args.web_url.rstrip("/")},
                         json=resolution_arguments,
                     )
-                    work_after_resolution_replay = await tool(
+                    work_after_resolution_replay_detail = await tool(
                         session, "get_work", ready_identity
+                    )
+                    work_after_resolution_replay, _canonical = work_detail_parts(
+                        work_after_resolution_replay_detail, ready_id
                     )
                     require(
                         json.dumps(
@@ -1492,8 +1720,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and replayed_resolution.json() == resolved_response.json()
                         and work_after_resolution["updated_at"]
                         != work_before_resolution["updated_at"]
-                        and work_after_resolution["version"]
-                        == work_before_resolution["version"]
+                        and work_after_resolution["version"] == work_before_resolution["version"]
                         and work_after_resolution_replay["updated_at"]
                         == work_after_resolution["updated_at"]
                         and work_after_resolution_replay["version"]
@@ -1522,9 +1749,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "limit": 0,
                         },
                     )
-                    resolved_context = await tool(
-                        session, "recall_work", ready_identity
-                    )
+                    resolved_context = await tool(session, "recall_work", ready_identity)
                     restored_ready_page = await tool(
                         session,
                         "list_ready_work",
@@ -1536,8 +1761,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and empty_attention["total"] == 0
                         and resolved_context["unresolved_gate_total"] == 0
                         and resolved_context["resolved_gate_total"] == 1
-                        and resolved_context["recent_resolved_gates"][0]["id"]
-                        == gate_id
+                        and resolved_context["recent_resolved_gates"][0]["id"] == gate_id
                         and ready_id in ready_ids(restored_ready_page),
                         "Resolution did not converge history, attention, context, and ready state.",
                     )
@@ -1591,9 +1815,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             event["event_type"] == "progress"
                             for event in pressure_context["recent_events"]
                         )
-                        and [
-                            event["id"] for event in pressure_context["recent_events"]
-                        ]
+                        and [event["id"] for event in pressure_context["recent_events"]]
                         == unrelated_event_ids[-20:]
                         and pressure_context["resolved_gate_total"] == 1
                         and pressure_context["omitted_resolved_gate_count"] == 0
@@ -1630,9 +1852,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "project_id": project_id,
                         "work_item_id": terminal_id,
                     }
-                    await require_event_types(
-                        session, terminal_identity, ["work_created"]
-                    )
+                    await require_event_types(session, terminal_identity, ["work_created"])
 
                     blocker_identity = {
                         "project_id": project_id,
@@ -1706,10 +1926,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     require(
                         block_replay == block_result
-                        and [
-                            event["id"]
-                            for event in await work_events(session, identity)
-                        ]
+                        and [event["id"] for event in await work_events(session, identity)]
                         == [event["id"] for event in events_after_block],
                         "Same-key relationship replay changed its typed result or domain events.",
                     )
@@ -1728,10 +1945,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         block_noop["created"] is False
                         and block_noop["relationship"] == block_edge
                         and block_noop_replay == block_noop
-                        and [
-                            event["id"]
-                            for event in await work_events(session, identity)
-                        ]
+                        and [event["id"] for event in await work_events(session, identity)]
                         == [event["id"] for event in events_after_block],
                         "New-key relationship no-op did not bind and replay created=false.",
                     )
@@ -1755,8 +1969,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         fetched_block == block_edge
                         and listed_blocks["total"] == 1
-                        and listed_blocks["items"][0]["relationship"]["id"]
-                        == block_relationship_id
+                        and listed_blocks["items"][0]["relationship"]["id"] == block_relationship_id
                         and listed_blocks["items"][0]["direction"] == "incoming"
                         and listed_blocks["items"][0]["counterpart"]["id"] == blocker_id
                         and "prompt" not in listed_blocks["items"][0]["counterpart"],
@@ -1779,8 +1992,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         {"project_id": project_id, "tag": run_tag, "limit": 100},
                     )
                     require(
-                        ready_page["total"] == 1
-                        and ready_ids(ready_page) == [ready_id],
+                        ready_page["total"] == 1 and ready_ids(ready_page) == [ready_id],
                         "Ready discovery did not exclude blocked, leased, and terminal work.",
                     )
                     release_intent = {
@@ -1820,10 +2032,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     require(
                         release_replay == released
-                        and [
-                            event["id"]
-                            for event in await work_events(session, identity)
-                        ]
+                        and [event["id"] for event in await work_events(session, identity)]
                         == [event["id"] for event in events_after_release],
                         "Same-key release replay changed its typed result or domain events.",
                     )
@@ -1841,10 +2050,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         release_noop["released"] is False
                         and release_noop_replay == release_noop
-                        and [
-                            event["id"]
-                            for event in await work_events(session, identity)
-                        ]
+                        and [event["id"] for event in await work_events(session, identity)]
                         == [event["id"] for event in events_after_release],
                         "New-key absent release did not bind and replay released=false.",
                     )
@@ -1911,10 +2117,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     require(
                         remove_block_replay == removed_block
-                        and [
-                            event["id"]
-                            for event in await work_events(session, identity)
-                        ]
+                        and [event["id"] for event in await work_events(session, identity)]
                         == [event["id"] for event in events_after_unblock],
                         "Same-key relationship removal changed its typed result or events.",
                     )
@@ -1932,10 +2135,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         absent_remove["removed"] is False
                         and absent_remove_replay == absent_remove
-                        and [
-                            event["id"]
-                            for event in await work_events(session, identity)
-                        ]
+                        and [event["id"] for event in await work_events(session, identity)]
                         == [event["id"] for event in events_after_unblock],
                         "New-key absent removal did not bind and replay removed=false.",
                     )
@@ -1943,8 +2143,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         unblocked_context["readiness"]["is_ready"] is True
                         and unblocked_context["readiness"]["is_blocked"] is False
-                        and unblocked_context["readiness"]["unresolved_blocker_count"]
-                        == 0,
+                        and unblocked_context["readiness"]["unresolved_blocker_count"] == 0,
                         "Removing the blocker did not restore readiness.",
                     )
                     ready_page = await tool(
@@ -2022,8 +2221,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         {"project_id": project_id, "tag": run_tag, "limit": 100},
                     )
                     require(
-                        ready_ids(ready_page)
-                        == [work_item_id, blocker_id, ready_id, terminal_id],
+                        ready_ids(ready_page) == [work_item_id, blocker_id, ready_id, terminal_id],
                         "Reopened work did not reappear in deterministic priority order.",
                     )
 
@@ -2100,25 +2298,17 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     child_id = child["id"]
                     known_work_item_ids.add(child_id)
                     initial_edges = child_created["initial_relationships"]
-                    edges_by_type = {
-                        edge["relationship_type"]: edge for edge in initial_edges
-                    }
+                    edges_by_type = {edge["relationship_type"]: edge for edge in initial_edges}
                     require(
                         len(initial_edges) == 2
                         and set(edges_by_type) == {"parent-child", "discovered-from"}
-                        and edges_by_type["parent-child"]["source_work_item_id"]
-                        == work_item_id
-                        and edges_by_type["parent-child"]["target_work_item_id"]
-                        == child_id
-                        and edges_by_type["discovered-from"]["source_work_item_id"]
-                        == child_id
-                        and edges_by_type["discovered-from"]["target_work_item_id"]
-                        == work_item_id
+                        and edges_by_type["parent-child"]["source_work_item_id"] == work_item_id
+                        and edges_by_type["parent-child"]["target_work_item_id"] == child_id
+                        and edges_by_type["discovered-from"]["source_work_item_id"] == child_id
+                        and edges_by_type["discovered-from"]["target_work_item_id"] == work_item_id
                         and edges_by_type["discovered-from"]["context_checkpoint_id"]
                         == progress["id"]
-                        and edges_by_type["discovered-from"][
-                            "context_checkpoint_work_item_id"
-                        ]
+                        and edges_by_type["discovered-from"]["context_checkpoint_work_item_id"]
                         == work_item_id
                         and all(
                             edge["created_by_client"] == SYNTHETIC_CLIENT
@@ -2204,8 +2394,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         children.status_code == 200
                         and children.json()["total"] == 1
-                        and children.json()["items"][0]["summary"]["work_item"]["id"]
-                        == child_id,
+                        and children.json()["items"][0]["summary"]["work_item"]["id"] == child_id,
                         "The synthetic child was not returned by hierarchy expansion.",
                     )
                     roots = await api.get(
@@ -2221,8 +2410,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     require(roots.status_code == 200, "Root hierarchy browse failed.")
                     root_ids = {
-                        item["summary"]["work_item"]["id"]
-                        for item in roots.json()["items"]
+                        item["summary"]["work_item"]["id"] for item in roots.json()["items"]
                     }
                     require(
                         work_item_id in root_ids and child_id not in root_ids,
@@ -2244,6 +2432,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "completed_descendant_count": 0,
                             "discovered_descendant_count": 1,
                             "branch_unresolved_human_gate_count": 0,
+                            "branch_merged_duplicate_count": 0,
                             "is_discovered_work": False,
                             "discovered_from_parent": False,
                             "next_active_descendant_lease_expires_at": None,
@@ -2257,6 +2446,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "completed_descendant_count": 0,
                             "discovered_descendant_count": 0,
                             "branch_unresolved_human_gate_count": 0,
+                            "branch_merged_duplicate_count": 0,
                             "is_discovered_work": True,
                             "discovered_from_parent": True,
                             "next_active_descendant_lease_expires_at": None,
@@ -2303,8 +2493,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         completion["work_item"]["status"] == "done"
                         and completion["checkpoint"]["kind"] == "completion"
-                        and completion["checkpoint"]["prompt"]
-                        == completion_input["prompt"],
+                        and completion["checkpoint"]["prompt"] == completion_input["prompt"],
                         "Completion did not atomically save its checkpoint and done status.",
                     )
                     await require_event_types(
@@ -2444,8 +2633,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     require(
                         any(
-                            event["event_type"] == "progress"
-                            and event["body"] == progress_body
+                            event["event_type"] == "progress" and event["body"] == progress_body
                             for event in recalled["recent_events"]
                         ),
                         "Bounded recall did not preserve the accepted progress body.",
@@ -2469,6 +2657,401 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "Final ready results did not follow priority-first order.",
                     )
 
+                    merge_source_created = await protected_tool(
+                        session,
+                        "create_work",
+                        retained_mutation(
+                            {
+                                "project_id": project_id,
+                                "title": (
+                                    f"Permanent synthetic duplicate alias {merge_source_marker}"
+                                ),
+                                "summary": synthetic_summary(marker),
+                                "priority": 0,
+                                "initial_checkpoint": {
+                                    **checkpoint_input,
+                                    "prompt": (
+                                        "Permanent merge-source evidence for disposable run "
+                                        f"{run_id}."
+                                    ),
+                                    "tags": [run_tag, "verification", "merge-alias"],
+                                },
+                                "initial_relationships": [],
+                            }
+                        ),
+                    )
+                    merge_destination_created = await protected_tool(
+                        session,
+                        "create_work",
+                        retained_mutation(
+                            {
+                                "project_id": project_id,
+                                "title": (
+                                    f"Permanent synthetic canonical work {merge_destination_marker}"
+                                ),
+                                "summary": synthetic_summary(marker),
+                                "priority": 0,
+                                "initial_checkpoint": {
+                                    **checkpoint_input,
+                                    "prompt": (
+                                        "Permanent merge-destination evidence for disposable run "
+                                        f"{run_id}."
+                                    ),
+                                    "tags": [
+                                        run_tag,
+                                        "verification",
+                                        "merge-canonical",
+                                    ],
+                                },
+                                "initial_relationships": [],
+                            }
+                        ),
+                    )
+                    merge_source = merge_source_created["work_item"]
+                    merge_destination = merge_destination_created["work_item"]
+                    merge_source_id = merge_source["id"]
+                    merge_destination_id = merge_destination["id"]
+                    known_work_item_ids.update({merge_source_id, merge_destination_id})
+                    merge_source_identity = {
+                        "project_id": project_id,
+                        "work_item_id": merge_source_id,
+                    }
+                    merge_destination_identity = {
+                        "project_id": project_id,
+                        "work_item_id": merge_destination_id,
+                    }
+                    merge_source_creation_events = await require_event_types(
+                        session, merge_source_identity, ["work_created"]
+                    )
+                    merge_destination_creation_events = await require_event_types(
+                        session, merge_destination_identity, ["work_created"]
+                    )
+                    merge_source_review = await tool(session, "recall_work", merge_source_identity)
+                    merge_destination_review = await tool(
+                        session, "recall_work", merge_destination_identity
+                    )
+                    merge_rationale = (
+                        f"Irreversible synthetic duplicate proof for disposable stack run {run_id}."
+                    )
+                    merge_arguments = retained_mutation(
+                        {
+                            "project_id": project_id,
+                            "source_work_item_id": merge_source_id,
+                            "destination_work_item_id": merge_destination_id,
+                            "reviewed_source_revision": merge_source_review[
+                                "merge_review_revision"
+                            ],
+                            "reviewed_destination_revision": merge_destination_review[
+                                "merge_review_revision"
+                            ],
+                            "rationale": merge_rationale,
+                            "merged_by_client": SYNTHETIC_CLIENT,
+                            "merged_by_session_id": run_id,
+                            "merged_by_model": None,
+                        }
+                    )
+                    frozen_merge_arguments = json.dumps(
+                        merge_arguments, sort_keys=True, separators=(",", ":")
+                    )
+                    await lose_protected_tool_response(
+                        args.mcp_url,
+                        auth,
+                        "merge_work",
+                        merge_arguments,
+                    )
+                    merge_result = await protected_tool(session, "merge_work", merge_arguments)
+                    merge_fact = merge_result["merge"]
+                    require(
+                        set(merge_result)
+                        == {
+                            "merge",
+                            "source_work_item",
+                            "destination_work_item",
+                            "direct_destination",
+                            "canonical_work_item",
+                            "supporting_relationship_created",
+                            "supporting_relationship",
+                            "relationship_events",
+                            "merge_events",
+                        }
+                        and set(merge_fact)
+                        == {
+                            "id",
+                            "merge_sequence",
+                            "project_id",
+                            "source_work_item_id",
+                            "destination_work_item_id",
+                            "duplicate_relationship_id",
+                            "reviewed_source_revision",
+                            "reviewed_destination_revision",
+                            "resulting_source_work_version",
+                            "resulting_destination_work_version",
+                            "rationale",
+                            "merged_by_client",
+                            "merged_by_session_id",
+                            "merged_by_model",
+                            "created_at",
+                        },
+                        "Recovered merge response did not use the exact public shape.",
+                    )
+                    relationship = merge_result["supporting_relationship"]
+                    relationship_events = merge_result["relationship_events"]
+                    merge_events = merge_result["merge_events"]
+                    all_merge_events = [*relationship_events, *merge_events]
+                    require(
+                        merge_fact["project_id"] == project_id
+                        and merge_fact["source_work_item_id"] == merge_source_id
+                        and merge_fact["destination_work_item_id"] == merge_destination_id
+                        and merge_fact["reviewed_source_revision"]
+                        == merge_source_review["merge_review_revision"]
+                        and merge_fact["reviewed_destination_revision"]
+                        == merge_destination_review["merge_review_revision"]
+                        and merge_fact["rationale"] == merge_rationale
+                        and merge_fact["merged_by_client"] == SYNTHETIC_CLIENT
+                        and merge_fact["merged_by_session_id"] == run_id
+                        and merge_fact["merged_by_model"] is None
+                        and merge_result["source_work_item"]["version"]
+                        == merge_source["version"] + 1
+                        == merge_fact["resulting_source_work_version"]
+                        and merge_result["destination_work_item"]["version"]
+                        == merge_destination["version"] + 1
+                        == merge_fact["resulting_destination_work_version"]
+                        and merge_result["source_work_item"]["updated_at"]
+                        == merge_fact["created_at"]
+                        and merge_result["destination_work_item"]["updated_at"]
+                        == merge_fact["created_at"]
+                        and merge_result["direct_destination"]["id"] == merge_destination_id
+                        and merge_result["canonical_work_item"]
+                        == merge_result["direct_destination"],
+                        "Recovered merge changed direction, revisions, versions, or timestamp.",
+                    )
+                    require(
+                        merge_result["supporting_relationship_created"] is True
+                        and relationship["id"] == merge_fact["duplicate_relationship_id"]
+                        and relationship["relationship_type"] == "duplicate-of"
+                        and relationship["source_work_item_id"] == merge_source_id
+                        and relationship["target_work_item_id"] == merge_destination_id
+                        and relationship["created_at"] == merge_fact["created_at"]
+                        and len(relationship_events) == 2
+                        and len(merge_events) == 2
+                        and [event["work_item_id"] for event in relationship_events]
+                        == [merge_source_id, merge_destination_id]
+                        and [event["work_item_id"] for event in merge_events]
+                        == [merge_source_id, merge_destination_id]
+                        and [event["metadata"]["role"] for event in merge_events]
+                        == ["source", "destination"]
+                        and all(
+                            event["created_at"] == merge_fact["created_at"]
+                            and event["actor_client"] == SYNTHETIC_CLIENT
+                            and event["actor_session_id"] == run_id
+                            for event in all_merge_events
+                        )
+                        and all(
+                            event["body"] == merge_rationale
+                            and event["metadata"]
+                            == {
+                                "merge_id": merge_fact["id"],
+                                "source_work_item_id": merge_source_id,
+                                "destination_work_item_id": merge_destination_id,
+                                "role": event["metadata"]["role"],
+                                "source_work_version": merge_result["source_work_item"]["version"],
+                                "destination_work_version": merge_result["destination_work_item"][
+                                    "version"
+                                ],
+                            }
+                            for event in merge_events
+                        ),
+                        "Recovered merge did not expose its exact relationship/event fact set.",
+                    )
+                    merge_json = json.dumps(merge_result, sort_keys=True)
+                    require(
+                        merge_arguments["client_operation_id"] not in merge_json
+                        and key not in merge_json,
+                        "Recovered merge exposed a receipt key or bearer capability.",
+                    )
+                    before_merge_replay = await merge_observables(
+                        session, merge_source_identity, merge_destination_identity
+                    )
+                    source_event_ids = {
+                        merge_source_creation_events[0]["id"],
+                        relationship_events[0]["id"],
+                        merge_events[0]["id"],
+                    }
+                    destination_event_ids = {
+                        merge_destination_creation_events[0]["id"],
+                        relationship_events[1]["id"],
+                        merge_events[1]["id"],
+                    }
+                    require(
+                        {event["id"] for event in before_merge_replay["source_events"]}
+                        == source_event_ids
+                        and {event["id"] for event in before_merge_replay["destination_events"]}
+                        == destination_event_ids,
+                        "Recovered merge events were not attached to both exact identities.",
+                    )
+                    merge_replay = await protected_tool(session, "merge_work", merge_arguments)
+                    after_merge_replay = await merge_observables(
+                        session, merge_source_identity, merge_destination_identity
+                    )
+                    require(
+                        json.dumps(merge_arguments, sort_keys=True, separators=(",", ":"))
+                        == frozen_merge_arguments
+                        and merge_replay == merge_result
+                        and after_merge_replay == before_merge_replay,
+                        "Exact merge receipt replay changed its response or public facts.",
+                    )
+
+                    merge_source_detail = before_merge_replay["source_detail"]
+                    merge_destination_detail = before_merge_replay["destination_detail"]
+                    source_after_merge, source_canonical = work_detail_parts(
+                        merge_source_detail, merge_source_id
+                    )
+                    _destination_after_merge, destination_canonical = work_detail_parts(
+                        merge_destination_detail, merge_destination_id
+                    )
+                    require(
+                        source_after_merge == merge_result["source_work_item"]
+                        and source_canonical
+                        == {
+                            "is_duplicate": True,
+                            "direct_destination": merge_result["direct_destination"],
+                            "canonical_work_item": merge_result["canonical_work_item"],
+                            "path": [merge_result["direct_destination"]],
+                            "duplicate_member_count": 1,
+                        }
+                        and destination_canonical["is_duplicate"] is False
+                        and destination_canonical["duplicate_member_count"] == 1,
+                        "Exact alias/root reads lost identity or canonical authority.",
+                    )
+                    source_merge_context = before_merge_replay["source_context"]
+                    require(
+                        source_merge_context["work_item"]["id"] == merge_source_id
+                        and source_merge_context["canonical"] == source_canonical
+                        and source_merge_context["readiness"]["is_duplicate"] is True
+                        and source_merge_context["readiness"]["canonical_work_item_id"]
+                        == merge_destination_id
+                        and source_merge_context["readiness"]["is_ready"] is False
+                        and source_merge_context["readiness"]["display_state"] == "duplicate"
+                        and source_merge_context["duplicate_member_total"] == 1
+                        and source_merge_context["omitted_duplicate_member_count"] == 0
+                        and source_merge_context["duplicate_members"]
+                        == [
+                            {
+                                "id": merge_source_id,
+                                "title": merge_source["title"],
+                                "status": merge_source["status"],
+                            }
+                        ],
+                        "Alias recall did not retain its audit identity and root authority.",
+                    )
+
+                    canonical_match = await tool(
+                        session,
+                        "search_work",
+                        {
+                            "project_id": project_id,
+                            "q": merge_source_marker,
+                            "status": "all",
+                        },
+                    )
+                    alias_match = await tool(
+                        session,
+                        "search_work",
+                        {
+                            "project_id": project_id,
+                            "q": merge_source_marker,
+                            "status": "all",
+                            "duplicate_scope": "aliases",
+                        },
+                    )
+                    require(
+                        canonical_match["total"] == 1
+                        and canonical_match["items"][0]["summary"]["work_item"]["id"]
+                        == merge_destination_id
+                        and canonical_match["items"][0]["matched_member"]["id"] == merge_source_id
+                        and alias_match["total"] == 1
+                        and alias_match["items"][0]["summary"]["work_item"]["id"] == merge_source_id
+                        and alias_match["items"][0]["matched_member"]["id"] == merge_source_id,
+                        "Canonical search or explicit alias audit confused row and match IDs.",
+                    )
+                    merged_roots = await tool(
+                        session,
+                        "search_work",
+                        {
+                            "project_id": project_id,
+                            "status": "all",
+                            "view": "roots",
+                            "source_client": SYNTHETIC_CLIENT,
+                            "source_session_id": run_id,
+                            "limit": 100,
+                        },
+                    )
+                    merged_root_ids = {
+                        item["summary"]["work_item"]["id"] for item in merged_roots["items"]
+                    }
+                    merged_destination_branch = next(
+                        item
+                        for item in merged_roots["items"]
+                        if item["summary"]["work_item"]["id"] == merge_destination_id
+                    )
+                    require(
+                        merge_source_id not in merged_root_ids
+                        and merge_destination_id in merged_root_ids
+                        and merged_destination_branch["presentation"][
+                            "branch_merged_duplicate_count"
+                        ]
+                        == 1,
+                        "Hierarchy did not omit the alias or count retained merge evidence.",
+                    )
+
+                    rejected_alias_update = await api.patch(
+                        f"projects/{project_id}/work-items/{merge_source_id}",
+                        json=retained_mutation(
+                            {
+                                "expected_version": source_after_merge["version"],
+                                "title": "Forbidden post-merge synthetic edit",
+                                "actor": mutation_actor(run_id),
+                            }
+                        ),
+                    )
+                    after_rejected_alias_update = await merge_observables(
+                        session, merge_source_identity, merge_destination_identity
+                    )
+                    require(
+                        rejected_alias_update.status_code == 409
+                        and typed_error_code(rejected_alias_update) == "work_duplicate"
+                        and rejected_alias_update.json()["detail"]["context"]
+                        == {"canonical_work_item_id": merge_destination_id}
+                        and after_rejected_alias_update == before_merge_replay,
+                        "Fresh alias mutation did not fail closed with zero public effects.",
+                    )
+
+                    rejected_alias_claim = await api.post(
+                        f"projects/{project_id}/work-items/{merge_source_id}/claim",
+                        json={
+                            "holder_client": SYNTHETIC_CLIENT,
+                            "holder_session_id": run_id,
+                            "claim_request_id": str(uuid4()),
+                        },
+                        follow_redirects=False,
+                    )
+                    rejected_alias_claim_detail = rejected_alias_claim.json().get("detail", {})
+                    after_rejected_alias_claim = await merge_observables(
+                        session, merge_source_identity, merge_destination_identity
+                    )
+                    require(
+                        rejected_alias_claim.status_code == 409
+                        and rejected_alias_claim.headers.get("location") is None
+                        and set(rejected_alias_claim_detail) == {"code", "message", "context"}
+                        and rejected_alias_claim_detail["code"] == "work_duplicate"
+                        and rejected_alias_claim_detail["context"]
+                        == {"canonical_work_item_id": merge_destination_id}
+                        and merge_source_id
+                        not in json.dumps(rejected_alias_claim_detail["context"], sort_keys=True)
+                        and after_rejected_alias_claim == before_merge_replay,
+                        "Exact alias claim redirected, widened context, or changed merge facts.",
+                    )
+
                     synthetic_ids = (
                         child_id,
                         terminal_id,
@@ -2481,7 +3064,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "project_id": project_id,
                             "work_item_id": item_id,
                         }
-                        latest = await tool(session, "get_work", item_identity)
+                        latest_detail = await tool(session, "get_work", item_identity)
+                        latest, _canonical = work_detail_parts(latest_detail, item_id)
                         delete_arguments = retained_mutation(
                             {
                                 **item_identity,
@@ -2495,32 +3079,31 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             delete_arguments,
                         )
                         require(
-                            deleted["deleted"] is True
-                            and deleted["work_item_id"] == item_id,
+                            deleted["deleted"] is True and deleted["work_item_id"] == item_id,
                             "Canonical delete did not return its explicit receipt.",
                         )
 
                     for item_id in synthetic_ids:
                         require(
                             (
-                                await api.get(
-                                    f"projects/{project_id}/work-items/{item_id}"
-                                )
+                                await api.get(f"projects/{project_id}/work-items/{item_id}")
                             ).status_code
                             == 404,
                             "Soft-deleted synthetic work remains readable.",
                         )
                     print(
-                        "PASS: canonical create/search/recall/checkpoints/events, resource/prompt, "
-                        "dashboard edit, typed stale conflict, claim/replay/renew/release, "
-                        "pointer and capability isolation, human-gate request/resolution replay, "
-                        "single activity advance, attention/history/context convergence under "
-                        "ordinary-event pressure, waiting readiness and exact hierarchy counts, "
-                        "event replay/no-op behavior, atomic child/discovery, hierarchy browse, "
-                        "leased completion/reopen, graph removal and soft deletion"
+                        "PASS: canonical create/suggest/search/recall/checkpoints/events, "
+                        "resource/prompt, dashboard edit, typed stale conflict, "
+                        "claim/replay/renew/release, pointer and capability isolation, "
+                        "human-gate request/resolution replay, single activity advance, "
+                        "attention/history/context convergence under ordinary-event pressure, "
+                        "waiting readiness and exact hierarchy counts, event replay/no-op "
+                        "behavior, atomic child/discovery, hierarchy browse, leased completion/"
+                        "reopen, irreversible merge response-loss recovery, exact receipt replay, "
+                        "alias authority/freeze, and reversible graph deletion"
                     )
                 finally:
-                    await cleanup_synthetic_work(
+                    preserved = await cleanup_synthetic_work(
                         api,
                         project_id,
                         marker,
@@ -2530,6 +3113,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         claim_request_ids,
                         lease_tokens,
                     )
+                    report_retained_merge_evidence(preserved, project_id)
 
 
 def main() -> None:
@@ -2551,8 +3135,8 @@ def main() -> None:
         "--project-id",
         type=project_uuid,
         help=(
-            "Explicitly authorizes one synthetic Phases 7–8 human-gate/ready/event lifecycle and cleanup "
-            "inside this project"
+            "Explicitly authorizes a disposable Phase 9 writable lifecycle, including an "
+            "irreversible two-item merge whose evidence is permanently retained"
         ),
     )
     parser.add_argument(
@@ -2564,8 +3148,8 @@ def main() -> None:
         "--cleanup-run-id",
         type=project_uuid,
         help=(
-            "Clean only exact synthetic marker data from an interrupted run; retry after "
-            "lease expiry if its capability token was lost"
+            "Clean reversible synthetic marker data from an interrupted run; retained merge "
+            "evidence cannot be removed; retry after lease expiry if its token was lost"
         ),
     )
     args = parser.parse_args()

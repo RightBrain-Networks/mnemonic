@@ -4,7 +4,9 @@ from typing import Any
 
 from fastapi import HTTPException
 
-SAFE_ERROR_CONTEXT_KEYS = frozenset({"holder_client", "expires_at"})
+SAFE_ERROR_CONTEXT_KEYS = frozenset(
+    {"holder_client", "expires_at", "canonical_work_item_id"}
+)
 SAFE_ERROR_FIELD_LOCATIONS = frozenset(
     {
         "actor.actor_client",
@@ -37,6 +39,7 @@ class ApplicationError(HTTPException):
         message: str,
         *,
         context: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(
             status_code=status_code,
@@ -45,6 +48,7 @@ class ApplicationError(HTTPException):
                 "message": message,
                 "context": _safe_context(context),
             },
+            headers=headers,
         )
 
 
@@ -119,4 +123,113 @@ def gate_secret_echo() -> ApplicationError:
         422,
         "gate_secret_echo",
         "Credential or control data cannot appear in durable human-gate fields.",
+    )
+
+
+def duplicate_merge_required() -> ApplicationError:
+    return conflict(
+        "duplicate_merge_required",
+        "Fresh duplicate-of relationships must be created by merge_work.",
+    )
+
+
+def duplicate_self() -> ApplicationError:
+    return conflict("duplicate_self", "A work item cannot be merged into itself.")
+
+
+def work_duplicate(canonical_work_item_id: object) -> ApplicationError:
+    return conflict(
+        "work_duplicate",
+        "This work item is a retained duplicate alias and cannot be mutated or claimed.",
+        context={"canonical_work_item_id": str(canonical_work_item_id)},
+    )
+
+
+def work_already_duplicate() -> ApplicationError:
+    return conflict(
+        "work_already_duplicate",
+        "This merge source already has an authoritative destination.",
+    )
+
+
+def duplicate_destination_not_canonical() -> ApplicationError:
+    return conflict(
+        "duplicate_destination_not_canonical",
+        "The merge destination is no longer canonical. Read both contexts again.",
+    )
+
+
+def duplicate_context_changed() -> ApplicationError:
+    return conflict(
+        "duplicate_context_changed",
+        "A reviewed work context changed. Read and review both current contexts again.",
+    )
+
+
+def duplicate_source_gate_unresolved() -> ApplicationError:
+    return conflict(
+        "duplicate_source_gate_unresolved",
+        "Resolve every human gate on the merge source, then review fresh contexts.",
+    )
+
+
+def duplicate_structural_relationships() -> ApplicationError:
+    return conflict(
+        "duplicate_structural_relationships",
+        "Remove or reconcile source blocks and parent-child relationships before merging.",
+    )
+
+
+def duplicate_depth_exceeded() -> ApplicationError:
+    return conflict(
+        "duplicate_depth_exceeded",
+        "The authoritative duplicate path would exceed 50 edges.",
+    )
+
+
+def duplicate_relationship_frozen() -> ApplicationError:
+    return conflict(
+        "duplicate_relationship_frozen",
+        "Relationships incident to a duplicate alias are retained audit facts and cannot change.",
+    )
+
+
+def duplicate_graph_invalid() -> ApplicationError:
+    return ApplicationError(
+        503,
+        "duplicate_graph_invalid",
+        "The authoritative duplicate graph is invalid. Authority-changing work is unavailable.",
+    )
+
+
+def request_body_too_large() -> ApplicationError:
+    return ApplicationError(
+        413,
+        "request_body_too_large",
+        "The duplicate-suggestion request body exceeds the allowed size.",
+    )
+
+
+def duplicate_suggestion_busy() -> ApplicationError:
+    return ApplicationError(
+        429,
+        "duplicate_suggestion_busy",
+        "Duplicate suggestions are busy. Retry this safe read later.",
+        headers={"Retry-After": "1"},
+    )
+
+
+def duplicate_suggestion_unavailable() -> ApplicationError:
+    return ApplicationError(
+        503,
+        "duplicate_suggestion_unavailable",
+        "Duplicate suggestions are unavailable. Work creation remains available.",
+    )
+
+
+def semantic_unavailable() -> ApplicationError:
+    return ApplicationError(
+        503,
+        "semantic_unavailable",
+        "Semantic search is unavailable. Turn it off to use lexical search.",
     )

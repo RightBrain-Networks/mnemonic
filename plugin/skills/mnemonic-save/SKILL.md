@@ -28,8 +28,31 @@ claim durability from a draft or bypass the MCP connection.
    context. Never rewrite an earlier checkpoint. Use `update_work` only for
    intended identity fields such as title, summary, priority, or a permitted
    lifecycle state; do not reopen terminal work implicitly. Similarity alone is
-   not evidence of a `duplicate-of` relationship; never infer graph facts from
-   search results.
+   not merge authority. Never create a fresh generic `duplicate-of` relationship from search;
+   authoritative deduplication uses the separately reviewed `merge_work` workflow below.
+
+## Compare a complete draft before creating
+
+Once a proposed new item's title, summary, initial prompt, and tags are stable,
+call `suggest_duplicate_work` only when the user or workflow explicitly asks to
+check for existing work. Pass exactly that draft, the resolved `project_id`, an
+optional exact `exclude_work_item_id`, and a bounded `limit`. Do not call it on
+each keystroke, send operation or lease identifiers, or treat it as part of the
+later `create_work` intent. It is a safe read: an ordinary retry after timeout,
+`duplicate_suggestion_busy`, or `duplicate_suggestion_unavailable` cannot
+duplicate a write. If suggestions remain unavailable, report that comparison
+could not run and leave creation available.
+
+The response contains one current canonical root per candidate group and the
+exact member that matched. Read categorical `signals` only: `exact_title`,
+`lexical`, and `semantic`. `semantic_available=false` or
+`semantic_scope=unavailable` means lexical comparison still ran; a shortlist
+scope is not a full-project semantic scan. Candidate order, an exact title, a
+matched alias, or model similarity is retrieval evidence—not proof of identity,
+merge direction, or permission to suppress creation. Recall plausible items
+before choosing. If none is the same objective, or the user deliberately wants
+a distinct item, proceed with `create_work` unchanged. There is always a Create
+anyway path.
 
 ## Establish truthful provenance
 
@@ -43,10 +66,11 @@ by the user. Full rules for session, client, model, branch, and
 
 ## Prepare each protected write once
 
-`create_work`, `add_checkpoint`, `append_event`, `add_relationship`,
-`update_work`, and `request_human_input` are protected mutations. Prepare each
-complete intent once and follow the canonical retention, exact-retry, conflict,
-and lost-intent rules in
+The eleven protected mutations are `create_work`, `add_checkpoint`,
+`append_event`, `add_relationship`, `update_work`, `complete_work`,
+`delete_work`, `remove_relationship`, `release_claim`, `request_human_input`,
+and `merge_work`. Prepare each complete intent once and follow the canonical
+retention, exact-retry, conflict, and lost-intent rules in
 [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md)
 under "Retain protected mutation intents privately". Never put an operation
 UUID or retained arguments in Mnemonic content, chat, or logs.
@@ -74,6 +98,42 @@ any edge. Three facts decide what you record:
 When a new work item and its links must succeed together, pass up to ten
 `initial_relationships` to `create_work` (each `direction` is relative to the
 new item). For a fact connecting existing work, use `add_relationship`.
+Fresh generic `duplicate-of` use on either surface is closed and returns
+`duplicate_merge_required`; old calls remain parseable only for completed-receipt replay. Retained
+duplicate marks are evidence and do not establish a canonical
+work item.
+
+## Merge duplicates only after exact review
+
+`merge_work` is the sole authoritative and permanent duplicate operation. Use it only when current
+authority establishes that the two durable objectives are duplicates and establishes the exact
+direction: the source becomes a frozen audit alias, while the destination remains the canonical
+root. Similar titles, semantic ranking, a pre-existing duplicate mark, or model output never makes
+that decision.
+
+Do these in order:
+
+1. Call `recall_work` separately for the exact source ID and exact destination ID. Do not replace
+   either selected ID with a search hit or canonical pointer. Both must currently be roots.
+2. Review source-owned and destination-owned checkpoints, events, gates, lifecycle, provenance,
+   canonical projections, relationship totals/omissions, and the complete
+   `merge_review_revision` returned for each. Page omitted relationships when eligibility or
+   direction depends on them.
+3. Reconcile every source-incident `blocks` and `parent-child` relationship. Resolve every source
+   human gate through the dashboard, including as "No longer needed" when appropriate, then reread
+   both contexts. If the source has an active lease, only its matching private token can authorize
+   merge; never request or inspect a destination lease token.
+4. Explain the permanent source → destination direction and retained audit behavior. Once that
+   direction is within current authority, freeze one complete intent containing both exact IDs,
+   both unchanged `merge_review_revision` objects, a nonblank rationale, truthful
+   `merged_by_client` and `merged_by_session_id`, optional known model, optional source lease token,
+   and a fresh `client_operation_id`.
+5. Call `merge_work` once. On an unknown outcome, replay only the byte-equivalent retained call.
+   Any stale revision or changed field requires a fresh review and a new UUID; never edit arguments
+   under the old UUID.
+6. After success or replay, recall the exact source audit ID and destination separately. Continue
+   only on the canonical destination when current authority calls for it. Never redirect silently,
+   mutate the alias, remove an alias-incident relationship, or imply that an unmerge exists.
 
 ## Request human input only for an explicit decision
 

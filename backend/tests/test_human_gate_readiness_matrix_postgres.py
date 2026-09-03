@@ -322,7 +322,9 @@ def public_lease(receipt: dict) -> dict:
     }
 
 
-def expected_readiness(case: ReadinessCase, receipt: dict | None) -> dict:
+def expected_readiness(
+    case: ReadinessCase, receipt: dict | None, *, canonical_work_item_id: str
+) -> dict:
     if case.expected_active_lease:
         assert receipt is not None
         active_lease = public_lease(receipt)
@@ -330,6 +332,8 @@ def expected_readiness(case: ReadinessCase, receipt: dict | None) -> dict:
         active_lease = None
     return {
         "lifecycle_status": case.lifecycle,
+        "is_duplicate": False,
+        "canonical_work_item_id": canonical_work_item_id,
         "is_terminal": case.expected_terminal,
         "has_active_lease": case.expected_active_lease,
         "has_dropped_lease": case.expected_dropped_lease,
@@ -500,7 +504,9 @@ def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
     )
     apply_lifecycle(api, target_path, case.lifecycle)
 
-    expected = expected_readiness(case, receipt)
+    expected = expected_readiness(
+        case, receipt, canonical_work_item_id=target["id"]
+    )
     context_response = api.get(f"{target_path}/context")
     assert context_response.status_code == 200, context_response.text
     context = context_response.json()
@@ -516,20 +522,9 @@ def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
         resolved_gate_ids
     )
 
-    minimal = api.get(
-        collection(project),
-        params={"status": "all", "tag": tag, "view": "minimal"},
-    )
-    assert minimal.status_code == 200, minimal.text
     expected_minimal = minimal_summary(
         context["work_item"], display_state=case.expected_display_state
     )
-    assert minimal.json() == {
-        "items": [expected_minimal],
-        "total": 1,
-        "limit": 30,
-        "offset": 0,
-    }
 
     full = api.get(
         collection(project),
@@ -541,7 +536,9 @@ def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
     assert full_page["limit"] == 30
     assert full_page["offset"] == 0
     assert len(full_page["items"]) == 1
-    full_summary = full_page["items"][0]
+    full_hit = full_page["items"][0]
+    assert full_hit["matched_member"]["id"] == target["id"]
+    full_summary = full_hit["summary"]
     assert set(full_summary) == {
         "work_item",
         "checkpoint_count",

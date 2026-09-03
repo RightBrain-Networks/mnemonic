@@ -21,6 +21,14 @@ a server guarantee that the current tree matches.
 A claim coordinates agents; it grants no authority beyond the user's request.
 Finding, recalling, or claiming work never authorizes executing it.
 
+`suggest_duplicate_work` is also evidence-only. It evaluates a transient draft
+and returns categorical retrieval signals without saving the draft, creating a
+work item, changing the graph, or granting authority. An exact-title signal is
+not verified identity; a semantic signal is not permission to merge; and an
+unavailable or partial semantic lane is not permission to hide Create anyway.
+Because this endpoint is a safe read, its timeout and `429`/`503` retry rules do
+not use or alter the protected-mutation UUID workflow below.
+
 ## Human gates coordinate; they do not authenticate or authorize
 
 Use `request_human_input` only for a concrete decision or input that genuinely
@@ -98,10 +106,10 @@ provenance.
 
 ## Retain protected mutation intents privately
 
-These ten canonical mutations require a caller-generated
+These eleven canonical mutations require a caller-generated
 `client_operation_id`: `create_work`, `add_checkpoint`, `append_event`,
 `add_relationship`, `update_work`, `complete_work`, `delete_work`,
-`remove_relationship`, `release_claim`, and `request_human_input`.
+`remove_relationship`, `release_claim`, `request_human_input`, and `merge_work`.
 
 Before the first attempt, generate one fresh UUID and retain it together with
 the complete tool name and complete immutable argument object in secure,
@@ -111,6 +119,12 @@ version, and any lease token. Make one tool call per attempt. A retry after a
 timeout, disconnect, malformed success, backend `5xx`, or
 `client_operation_unavailable` must reuse that UUID and the exact same tool
 arguments. Never rebuild the arguments from mutable drafts under an old UUID.
+
+The typed `503 duplicate_graph_invalid` response is the exception to the
+generic `5xx` recovery rule. It is a definitive integrity stop, not an unknown
+protected-mutation outcome: do not retry the mutation. Preserve the frozen
+intent privately, stop authority-changing work, and ask an operator to run the
+duplicate-handling aggregate audit and investigate the database invariants.
 
 Changing any argument or beginning a genuinely new intent requires a new UUID.
 A `client_operation_conflict` on an asserted exact retry is a caller-safety
@@ -131,6 +145,15 @@ only for the recovery lifetime. After any successful original or replayed
 result, read the affected work or relationship again when current state matters:
 the returned result is the historical snapshot from the first success.
 
+`merge_work` is permanent and therefore always requires its UUID, even for direct REST callers.
+Its retained intent includes the exact source and destination IDs, both complete
+`MergeReviewRevision` objects, direction, rationale, asserted merge provenance, and any source lease
+token. Review both exact contexts before freezing that intent. A stale revision, reconciled source
+edge, resolved gate, changed destination, or altered rationale requires a new reviewed intent and a
+new UUID; never patch the old retained call. A successful replay returns the original merge result
+without rechecking current graph state, so reread the source audit record and destination separately.
+There is no automatic redirect, unmerge, transfer, or safe replacement operation ID.
+
 This durable mutation workflow is separate from lease acquisition.
 `claim_work` and `claim_and_recall` use `claim_request_id` only while the same
 retained lease remains active; `renew_claim` is time-relative and not
@@ -146,7 +169,9 @@ or source metadata. Do not store the same prose in both merely to duplicate it.
 
 Events are bounded, structured facts. Only `progress` is directly appendable;
 clients cannot forge lifecycle, checkpoint, lease, relationship, or gate
-events. Recent events in recall are chronological and bounded; use
+events. The server-reserved `work_merged` pair records the permanent source and destination roles,
+resulting versions, rationale, and asserted merge provenance; internal merge foreign keys are never
+public event fields. Recent events in recall are chronological and bounded; use
 `list_work_events` for deliberate pagination. Pre-Phase-5 history is
 reconstructed only from retained facts and can be incomplete when the response
 flag says so.

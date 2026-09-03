@@ -103,7 +103,7 @@ async function getWork(
   );
   if (response.status() === 404) return null;
   expect(response.ok(), await response.text()).toBe(true);
-  return await response.json() as WorkItem;
+  return (await response.json() as { work_item: WorkItem }).work_item;
 }
 
 async function hideFixtureWork(
@@ -354,21 +354,23 @@ test("a committed work creation recovers its exact result without a duplicate", 
     await expect(page.locator(".mutation-recovery")).toHaveCount(0);
     await expect(dialog).toHaveCount(0);
     expectExactReplay(probe);
-    await expect.poll(() => invalidationCount(invalidations)).toBe(2);
+    await expect.poll(() => invalidationCount(invalidations)).toBe(1);
 
     const card = page.locator("article.work-item-card").filter({ hasText: title });
     await expect(card).toHaveCount(1);
     const search = await client.get(
-      `/api/v1/projects/${state.projectId}/work-items?status=all&view=minimal`
+      `/api/v1/projects/${state.projectId}/work-items?status=all&view=full`
         + `&q=${encodeURIComponent(title)}&limit=100&offset=0`
     );
     expect(search.ok(), await search.text()).toBe(true);
     const searchPage = await search.json() as {
-      items: Array<{ work_item: { id: string; title: string } }>;
+      items: Array<{ summary: { work_item: { id: string; title: string } } }>;
     };
-    expect(searchPage.items.filter((item) => item.work_item.title === title)).toEqual([
+    expect(searchPage.items.filter((item) => item.summary.work_item.title === title)).toEqual([
       expect.objectContaining({
-        work_item: expect.objectContaining({ id: workId, title })
+        summary: expect.objectContaining({
+          work_item: expect.objectContaining({ id: workId, title })
+        })
       })
     ]);
     const context = await getContext(client, workId);
@@ -565,7 +567,7 @@ test("a malformed committed append retains its editor intent and reconciles newe
     await expect.poll(() => probe.requests.length).toBe(2);
     await expect(page.locator(".mutation-recovery")).toHaveCount(0);
     expectExactReplay(probe);
-    await expect.poll(() => invalidationCount(invalidations)).toBe(4);
+    await expect.poll(() => invalidationCount(invalidations)).toBe(3);
 
     await expect(page.locator(".toast")).toContainText(
       "current state could not be reloaded"
@@ -796,7 +798,7 @@ test("relationship and deletion recovery preserve true receipts and natural no-o
       removed: false,
       relationship_id: relationshipId
     });
-    await expect.poll(() => invalidationCount(invalidations)).toBe(4);
+    await expect.poll(() => invalidationCount(invalidations)).toBe(2);
 
     await detail.getByRole("button", { name: "Close dialog" }).click();
     const deleteProbe = await installCommittedResponseLoss(
@@ -827,7 +829,7 @@ test("relationship and deletion recovery preserve true receipts and natural no-o
     await expect(deleteDialog).toHaveCount(0);
     expectExactReplay(deleteProbe);
     await expect(card).toHaveCount(0);
-    await expect.poll(() => invalidationCount(invalidations)).toBe(6);
+    await expect.poll(() => invalidationCount(invalidations)).toBe(3);
   } finally {
     if (relationshipId) {
       await client.delete(

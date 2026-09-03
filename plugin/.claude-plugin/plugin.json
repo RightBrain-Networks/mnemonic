@@ -1,7 +1,7 @@
 {
   "name": "mnemonic",
   "displayName": "Mnemonic",
-  "description": "Save and retrieve durable work, coordinate explicit human questions, discover ready work, and preserve truthful graph and decision history.",
-  "version": "0.6.1",
+  "description": "Save and retrieve durable work, compare drafts with possible existing work, review permanent duplicate merges, coordinate human questions, and preserve truthful audit history.",
+  "version": "0.8.0",
   "author": { "name": "Jamie Begin" }
 }

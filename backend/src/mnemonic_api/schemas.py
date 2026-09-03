@@ -15,6 +15,7 @@ from pydantic import (
     Field,
     JsonValue,
     RootModel,
+    StrictBool,
     StrictInt,
     StringConstraints,
     computed_field,
@@ -94,6 +95,8 @@ Summary = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1, max_length=1000),
     AfterValidator(nonblank),
 ]
+StoredTitle = Annotated[str, StringConstraints(min_length=1, max_length=200)]
+StoredSummary = Annotated[str, StringConstraints(min_length=1, max_length=1000)]
 Prompt = Annotated[
     str, StringConstraints(min_length=1, max_length=100000), AfterValidator(nonblank)
 ]
@@ -194,6 +197,15 @@ CLIENT_OPERATION_ID_DESCRIPTION = (
     "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with "
     "the exact same operation and semantic arguments after an unknown outcome."
 )
+REQUIRED_CLIENT_OPERATION_ID_DESCRIPTION = (
+    "Required caller-generated UUID for durable replay of this irreversible mutation. Reuse it "
+    "only with the exact same operation and semantic arguments after an unknown outcome."
+)
+MergeRationale = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=4000),
+    AfterValidator(nonblank),
+]
 
 
 def progress_request_metadata_is_safe(
@@ -246,6 +258,7 @@ EventType = Literal[
     "work_deleted",
     "human_attention_requested",
     "human_attention_resolved",
+    "work_merged",
 ]
 ProjectName = Annotated[
     str,
@@ -540,6 +553,34 @@ class HumanGateContextRevision(APIModel):
     relationship_event_count: Annotated[StrictInt, Field(ge=0)]
 
 
+class MergeReviewRevision(APIModel):
+    """Exact, commit-visible context reviewed before an irreversible merge."""
+
+    work_version: Annotated[StrictInt, Field(ge=1)]
+    context_checkpoint_id: UUID
+    work_event_count: Annotated[StrictInt, Field(ge=1)]
+
+
+class WorkMergeRequest(APIModel):
+    """Domain fields shared by the public request and receipt-isolated service payload."""
+
+    destination_work_item_id: UUID
+    reviewed_source_revision: MergeReviewRevision
+    reviewed_destination_revision: MergeReviewRevision
+    rationale: MergeRationale
+    merged_by_client: ClientName
+    merged_by_session_id: SessionID
+    merged_by_model: ModelName | None = None
+    lease_token: LeaseToken | None = Field(default=None, repr=False)
+
+
+class WorkMergeCreate(WorkMergeRequest):
+    client_operation_id: UUID = Field(
+        repr=False,
+        description=REQUIRED_CLIENT_OPERATION_ID_DESCRIPTION,
+    )
+
+
 class HumanGateResolutionCreate(APIModel):
     resolution: GateText
     resolved_by_client: ClientName
@@ -726,6 +767,8 @@ class ClaimReceipt(LeasePublic):
 
 class Readiness(APIModel):
     lifecycle_status: Status
+    is_duplicate: bool
+    canonical_work_item_id: UUID
     is_terminal: bool
     has_active_lease: bool
     has_dropped_lease: bool
@@ -741,6 +784,7 @@ class Readiness(APIModel):
         "dropped",
         "blocked",
         "waiting",
+        "duplicate",
         "deferred",
         "done",
         "wont-do",
@@ -752,6 +796,56 @@ class WorkIdentityPointer(APIModel):
     id: UUID
     title: str
     status: Status
+
+
+class CanonicalWorkProjection(APIModel):
+    is_duplicate: StrictBool
+    direct_destination: WorkIdentityPointer | None
+    canonical_work_item: WorkIdentityPointer
+    path: list[WorkIdentityPointer] = Field(max_length=50)
+    duplicate_member_count: Annotated[StrictInt, Field(ge=0)]
+
+    @model_validator(mode="after")
+    def canonical_path_is_coherent(self) -> Self:
+        ids = [item.id for item in self.path]
+        if len(ids) != len(set(ids)):
+            raise ValueError("A canonical path cannot repeat a work item")
+        if not self.is_duplicate:
+            if self.direct_destination is not None or self.path:
+                raise ValueError("A canonical root cannot have a destination path")
+            return self
+        if (
+            self.direct_destination is None
+            or not self.path
+            or self.duplicate_member_count < len(self.path)
+        ):
+            raise ValueError("A duplicate requires a direct destination and path")
+        if self.path[0] != self.direct_destination:
+            raise ValueError("The canonical path must begin with the direct destination")
+        if self.path[-1] != self.canonical_work_item:
+            raise ValueError("The canonical path must end with the canonical work item")
+        return self
+
+
+class WorkItemDetailRead(APIModel):
+    work_item: WorkItemRead
+    canonical: CanonicalWorkProjection
+
+    @model_validator(mode="after")
+    def requested_identity_is_coherent(self) -> Self:
+        requested = WorkIdentityPointer(
+            id=self.work_item.id,
+            title=self.work_item.title,
+            status=self.work_item.status,
+        )
+        if not self.canonical.is_duplicate and self.canonical.canonical_work_item != requested:
+            raise ValueError("A canonical root must point to itself")
+        if (
+            self.canonical.is_duplicate
+            and self.work_item.id in {item.id for item in self.canonical.path}
+        ):
+            raise ValueError("A duplicate path cannot contain its requested source")
+        return self
 
 
 class RelationshipEdgeRead(APIModel):
@@ -846,6 +940,138 @@ class WorkSummary(APIModel):
     readiness: Readiness
 
 
+class WorkSearchHit(APIModel):
+    summary: WorkSummary
+    matched_member: WorkIdentityPointer
+
+
+DuplicateSuggestionSignal = Literal["exact_title", "lexical", "semantic"]
+DuplicateSuggestionMode = Literal["hybrid_full", "hybrid_shortlist", "lexical"]
+DuplicateSuggestionSemanticScope = Literal[
+    "full_project", "lexical_shortlist", "unavailable"
+]
+_DUPLICATE_SUGGESTION_SIGNAL_ORDER = ("exact_title", "lexical", "semantic")
+
+
+class DuplicateSuggestionRequest(APIModel):
+    """An ephemeral create draft; no authority or mutation control is accepted."""
+
+    title: Title
+    summary: Summary
+    initial_prompt: Prompt
+    tags: Tags = Field(default_factory=list)
+    exclude_work_item_id: UUID | None = None
+    limit: Annotated[StrictInt, Field(ge=1, le=10)] = 5
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(tag.lower() for tag in value))
+
+
+class DuplicateCandidateSummary(APIModel):
+    work_item_id: UUID
+    title: StoredTitle
+    summary: StoredSummary
+    status: Status
+    updated_at: datetime
+    duplicate_member_count: Annotated[StrictInt, Field(ge=0)]
+
+    @model_validator(mode="after")
+    def aware_timestamp(self) -> Self:
+        if self.updated_at.tzinfo is None or self.updated_at.utcoffset() != timedelta(0):
+            raise ValueError("Candidate timestamps must use UTC")
+        return self
+
+    @field_serializer("updated_at")
+    def utc_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class DuplicateSuggestion(APIModel):
+    canonical_work: DuplicateCandidateSummary
+    matched_member: WorkIdentityPointer
+    rank: Annotated[StrictInt, Field(ge=1, le=10)]
+    signals: list[DuplicateSuggestionSignal] = Field(min_length=1, max_length=3)
+
+    @model_validator(mode="after")
+    def ordered_unique_signals(self) -> Self:
+        expected = sorted(
+            set(self.signals),
+            key=_DUPLICATE_SUGGESTION_SIGNAL_ORDER.index,
+        )
+        if self.signals != expected:
+            raise ValueError("Suggestion signals must be unique and in canonical order")
+        if self.matched_member.id == self.canonical_work.work_item_id and (
+            self.matched_member.title != self.canonical_work.title
+            or self.matched_member.status != self.canonical_work.status
+        ):
+            raise ValueError("A root match must identify the canonical candidate exactly")
+        if (
+            self.matched_member.id != self.canonical_work.work_item_id
+            and self.canonical_work.duplicate_member_count == 0
+        ):
+            raise ValueError("An alias match requires a duplicate group member")
+        return self
+
+
+class DuplicateSuggestionPage(APIModel):
+    items: list[DuplicateSuggestion] = Field(max_length=10)
+    limit: Annotated[StrictInt, Field(ge=1, le=10)]
+    mode: DuplicateSuggestionMode
+    semantic_available: StrictBool
+    semantic_scope: DuplicateSuggestionSemanticScope
+    composition_version: Literal["duplicate-suggestion-v1"]
+    exact_title_group_total: Annotated[StrictInt, Field(ge=0)]
+    omitted_exact_title_group_count: Annotated[StrictInt, Field(ge=0)]
+
+    @model_validator(mode="after")
+    def page_is_coherent(self) -> Self:
+        self._require_rank_and_group_identity()
+        self._require_semantic_mode()
+        self._require_exact_lane()
+        return self
+
+    def _require_rank_and_group_identity(self) -> None:
+        if len(self.items) > self.limit:
+            raise ValueError("Suggestion items cannot exceed the requested limit")
+        if [item.rank for item in self.items] != list(range(1, len(self.items) + 1)):
+            raise ValueError("Suggestion ranks must be contiguous and ordered")
+        root_ids = [item.canonical_work.work_item_id for item in self.items]
+        if len(root_ids) != len(set(root_ids)):
+            raise ValueError("Suggestion canonical groups must be unique")
+        member_ids = [item.matched_member.id for item in self.items]
+        if len(member_ids) != len(set(member_ids)):
+            raise ValueError("Suggestion matched members must be unique")
+
+    def _require_semantic_mode(self) -> None:
+        expected = {
+            "hybrid_full": (True, "full_project"),
+            "hybrid_shortlist": (True, "lexical_shortlist"),
+            "lexical": (False, "unavailable"),
+        }[self.mode]
+        if (self.semantic_available, self.semantic_scope) != expected:
+            raise ValueError("Suggestion mode and semantic scope are inconsistent")
+        if not self.semantic_available and any(
+            "semantic" in item.signals for item in self.items
+        ):
+            raise ValueError("Lexical fallback cannot report semantic evidence")
+
+    def _require_exact_lane(self) -> None:
+        visible_exact = min(self.exact_title_group_total, self.limit)
+        if len(self.items) < visible_exact:
+            raise ValueError("Exact-title groups must fill available response slots first")
+        actual_exact = sum("exact_title" in item.signals for item in self.items)
+        if actual_exact != visible_exact:
+            raise ValueError("Exact-title group totals are inconsistent")
+        if any(
+            "exact_title" not in item.signals for item in self.items[:visible_exact]
+        ) or any("exact_title" in item.signals for item in self.items[visible_exact:]):
+            raise ValueError("Exact-title suggestions must form the response prefix")
+        if self.omitted_exact_title_group_count != self.exact_title_group_total - visible_exact:
+            raise ValueError("Omitted exact-title group count is inconsistent")
+
+
 class HumanAttentionItem(APIModel):
     gate: HumanGateRead
     summary: WorkSummary
@@ -873,6 +1099,7 @@ class HierarchyPresentation(APIModel):
     completed_descendant_count: int
     discovered_descendant_count: int
     branch_unresolved_human_gate_count: int
+    branch_merged_duplicate_count: int
     is_discovered_work: bool
     discovered_from_parent: bool
     next_active_descendant_lease_expires_at: datetime | None
@@ -897,11 +1124,55 @@ class WorkCreation(APIModel):
     initial_relationships: list[RelationshipEdgeRead] = Field(default_factory=list)
 
 
+class WorkMergeRead(APIModel):
+    id: UUID
+    merge_sequence: Annotated[StrictInt, Field(ge=1)]
+    project_id: UUID
+    source_work_item_id: UUID
+    destination_work_item_id: UUID
+    duplicate_relationship_id: UUID
+    reviewed_source_revision: MergeReviewRevision
+    reviewed_destination_revision: MergeReviewRevision
+    resulting_source_work_version: Annotated[StrictInt, Field(ge=2)]
+    resulting_destination_work_version: Annotated[StrictInt, Field(ge=2)]
+    rationale: str
+    merged_by_client: str
+    merged_by_session_id: str
+    merged_by_model: str | None
+    created_at: datetime
+
+    @model_validator(mode="after")
+    def merge_fact_is_coherent(self) -> Self:
+        if self.source_work_item_id == self.destination_work_item_id:
+            raise ValueError("A merge requires distinct endpoints")
+        if self.resulting_source_work_version != self.reviewed_source_revision.work_version + 1:
+            raise ValueError("Source merge version is inconsistent")
+        if (
+            self.resulting_destination_work_version
+            != self.reviewed_destination_revision.work_version + 1
+        ):
+            raise ValueError("Destination merge version is inconsistent")
+        if self.created_at.tzinfo is None:
+            raise ValueError("Merge timestamps must include a UTC offset")
+        return self
+
+    @field_serializer("created_at")
+    def utc_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 class RelationshipCounts(APIModel):
     incoming: int = 0
     outgoing: int = 0
     undirected: int = 0
     total: int = 0
+
+
+class DuplicateMergeEligibility(APIModel):
+    incident_blocks_count: Annotated[StrictInt, Field(ge=0)]
+    incident_parent_child_count: Annotated[StrictInt, Field(ge=0)]
+    has_unresolved_gate: StrictBool
+    source_lease_state: Literal["none", "expired", "active"]
 
 
 EventBody = Annotated[
@@ -1029,6 +1300,21 @@ class HumanGateEventMetadata(APIModel):
     gate_type: Literal["human"]
 
 
+class WorkMergedMetadata(APIModel):
+    merge_id: UUID
+    source_work_item_id: UUID
+    destination_work_item_id: UUID
+    role: Literal["source", "destination"]
+    source_work_version: Annotated[StrictInt, Field(ge=2)]
+    destination_work_version: Annotated[StrictInt, Field(ge=2)]
+
+    @model_validator(mode="after")
+    def endpoints_are_distinct(self) -> Self:
+        if self.source_work_item_id == self.destination_work_item_id:
+            raise ValueError("Merge event endpoints must be distinct")
+        return self
+
+
 class WorkCompletedLiveMetadata(APIModel):
     from_status: Literal["open", "pending"]
     to_status: Literal["done"]
@@ -1056,6 +1342,7 @@ WorkEventMetadata = (
     | CheckpointAddedMetadata
     | RelationshipEventMetadata
     | HumanGateEventMetadata
+    | WorkMergedMetadata
     | WorkCompletedLiveMetadata
     | WorkDeletedMetadata
     | ProgressEventMetadata
@@ -1080,6 +1367,7 @@ _LIVE_CLIENT_EVENTS = frozenset(
         "work_completed",
         "human_attention_requested",
         "human_attention_resolved",
+        "work_merged",
     }
 )
 _BACKFILL_EVENTS = frozenset(
@@ -1094,7 +1382,7 @@ _BACKFILL_EVENTS = frozenset(
     }
 )
 _GATE_EVENTS = frozenset({"human_attention_requested", "human_attention_resolved"})
-_TEXT_EVENTS = frozenset({"progress", *_GATE_EVENTS})
+_TEXT_EVENTS = frozenset({"progress", "work_merged", *_GATE_EVENTS})
 _CHECKPOINT_EVENTS = frozenset({"work_created", "checkpoint_added", "work_completed"})
 _LEASE_EVENTS = frozenset({"work_claimed", "work_released"})
 _LIFECYCLE_EVENTS = frozenset({"work_status_changed", "work_reopened"})
@@ -1123,6 +1411,7 @@ _PLAIN_METADATA_TYPES: dict[str, type[WorkEventMetadata]] = {
     "progress": ProgressEventMetadata,
     "human_attention_requested": HumanGateEventMetadata,
     "human_attention_resolved": HumanGateEventMetadata,
+    "work_merged": WorkMergedMetadata,
     "work_deleted": WorkDeletedMetadata,
 }
 
@@ -1197,7 +1486,21 @@ class WorkEventRead(APIModel):
         self._require_reference_columns()
         self._require_relationship_projection()
         self.metadata = self._typed_metadata()
+        self._require_merge_projection()
         return self
+
+    def _require_merge_projection(self) -> None:
+        if self.event_type != "work_merged":
+            return
+        if not isinstance(self.metadata, WorkMergedMetadata):
+            raise ValueError("Merge events require typed merge metadata")
+        expected_work_item_id = (
+            self.metadata.source_work_item_id
+            if self.metadata.role == "source"
+            else self.metadata.destination_work_item_id
+        )
+        if self.work_item_id != expected_work_item_id:
+            raise ValueError("Merge event role does not match its work item")
 
     def _require_actor_provenance(self) -> None:
         actor_values = (self.actor_client, self.actor_session_id, self.actor_model)
@@ -1344,8 +1647,166 @@ class WorkEventPage(APIModel):
     pre_phase5_history_may_be_incomplete: bool
 
 
+class WorkMergeResult(APIModel):
+    merge: WorkMergeRead
+    source_work_item: WorkItemRead
+    destination_work_item: WorkItemRead
+    direct_destination: WorkIdentityPointer
+    canonical_work_item: WorkIdentityPointer
+    supporting_relationship_created: StrictBool
+    supporting_relationship: RelationshipEdgeRead
+    relationship_events: list[WorkEventRead] = Field(max_length=2)
+    merge_events: list[WorkEventRead] = Field(min_length=2, max_length=2)
+
+    @model_validator(mode="after")
+    def merge_result_is_coherent(self) -> Self:
+        self._require_endpoints()
+        self._require_supporting_relationship()
+        self._require_relationship_events()
+        self._require_merge_events()
+        event_ids = [
+            *(event.id for event in self.relationship_events),
+            *(event.id for event in self.merge_events),
+        ]
+        if len(event_ids) != len(set(event_ids)):
+            raise ValueError("Merge result events must have distinct identities")
+        return self
+
+    def _require_endpoints(self) -> None:
+        merge = self.merge
+        source = self.source_work_item
+        destination = self.destination_work_item
+        if (
+            source.id != merge.source_work_item_id
+            or destination.id != merge.destination_work_item_id
+            or source.project_id != merge.project_id
+            or destination.project_id != merge.project_id
+            or source.version != merge.resulting_source_work_version
+            or destination.version != merge.resulting_destination_work_version
+            or source.updated_at != merge.created_at
+            or destination.updated_at != merge.created_at
+        ):
+            raise ValueError("Merge result endpoint snapshots are incoherent")
+        destination_identity = (destination.id, destination.title, destination.status)
+        if (
+            (
+                self.direct_destination.id,
+                self.direct_destination.title,
+                self.direct_destination.status,
+            )
+            != destination_identity
+            or (
+                self.canonical_work_item.id,
+                self.canonical_work_item.title,
+                self.canonical_work_item.status,
+            )
+            != destination_identity
+        ):
+            raise ValueError("A fresh merge must point directly to its canonical destination")
+
+    def _require_supporting_relationship(self) -> None:
+        merge = self.merge
+        edge = self.supporting_relationship
+        if (
+            edge.id != merge.duplicate_relationship_id
+            or edge.project_id != merge.project_id
+            or edge.relationship_type != "duplicate-of"
+            or edge.source_work_item_id != merge.source_work_item_id
+            or edge.target_work_item_id != merge.destination_work_item_id
+            or edge.created_at > merge.created_at
+        ):
+            raise ValueError("Merge supporting relationship is incoherent")
+        if self.supporting_relationship_created and (
+            edge.created_by_client != merge.merged_by_client
+            or edge.created_by_session_id != merge.merged_by_session_id
+            or edge.created_by_model != merge.merged_by_model
+            or edge.created_at != merge.created_at
+            or edge.context_checkpoint_work_item_id is not None
+            or edge.context_checkpoint_id is not None
+        ):
+            raise ValueError("A merge-created relationship must share merge provenance")
+
+    def _require_relationship_events(self) -> None:
+        expected_count = 2 if self.supporting_relationship_created else 0
+        if len(self.relationship_events) != expected_count:
+            raise ValueError("Merge relationship event count is inconsistent")
+        if not self.relationship_events:
+            return
+        expected_work_ids = [
+            self.merge.source_work_item_id,
+            self.merge.destination_work_item_id,
+        ]
+        expected_directions = ["outgoing", "incoming"]
+        expected_counterparts = list(reversed(expected_work_ids))
+        edge = self.supporting_relationship
+        for event, work_item_id, direction, counterpart in zip(
+            self.relationship_events,
+            expected_work_ids,
+            expected_directions,
+            expected_counterparts,
+            strict=True,
+        ):
+            if (
+                event.event_type != "relationship_added"
+                or event.work_item_id != work_item_id
+                or event.project_id != self.merge.project_id
+                or event.relationship_id != edge.id
+                or event.relationship_source_work_item_id != edge.source_work_item_id
+                or event.relationship_target_work_item_id != edge.target_work_item_id
+                or event.relationship_context_checkpoint_work_item_id
+                != edge.context_checkpoint_work_item_id
+                or event.relationship_context_checkpoint_id != edge.context_checkpoint_id
+                or event.relationship_direction != direction
+                or event.counterpart_work_item_id != counterpart
+                or not isinstance(event.metadata, RelationshipEventMetadata)
+                or event.metadata.relationship_type != "duplicate-of"
+                or event.origin != "live"
+                or event.actor_kind != "client"
+                or event.actor_client != self.merge.merged_by_client
+                or event.actor_session_id != self.merge.merged_by_session_id
+                or event.actor_model != self.merge.merged_by_model
+                or event.created_at != self.merge.created_at
+            ):
+                raise ValueError("Merge relationship event ordering is incoherent")
+
+    def _require_merge_events(self) -> None:
+        expected_work_ids = [self.merge.source_work_item_id, self.merge.destination_work_item_id]
+        expected_roles = ["source", "destination"]
+        for event, work_item_id, role in zip(
+            self.merge_events, expected_work_ids, expected_roles, strict=True
+        ):
+            metadata = event.metadata
+            if (
+                event.event_type != "work_merged"
+                or event.work_item_id != work_item_id
+                or event.project_id != self.merge.project_id
+                or event.actor_kind != "client"
+                or event.actor_client != self.merge.merged_by_client
+                or event.actor_session_id != self.merge.merged_by_session_id
+                or event.actor_model != self.merge.merged_by_model
+                or event.body != self.merge.rationale
+                or event.created_at != self.merge.created_at
+                or not isinstance(metadata, WorkMergedMetadata)
+                or metadata.merge_id != self.merge.id
+                or metadata.source_work_item_id != self.merge.source_work_item_id
+                or metadata.destination_work_item_id
+                != self.merge.destination_work_item_id
+                or metadata.role != role
+                or metadata.source_work_version
+                != self.merge.resulting_source_work_version
+                or metadata.destination_work_version
+                != self.merge.resulting_destination_work_version
+            ):
+                raise ValueError("Merge event ordering or provenance is incoherent")
+
+
 class WorkContext(APIModel):
     work_item: WorkItemRead
+    merge_review_revision: MergeReviewRevision
+    canonical: CanonicalWorkProjection
+    duplicate_members: list[WorkIdentityPointer] = Field(max_length=20)
+    duplicate_member_total: Annotated[StrictInt, Field(ge=0)]
+    omitted_duplicate_member_count: Annotated[StrictInt, Field(ge=0)]
     initial_checkpoint: CheckpointRead
     current_context: CheckpointRead | None = Field(
         description=(
@@ -1379,14 +1840,90 @@ class WorkContext(APIModel):
     recent_resolved_gates: list[HumanGateRead]
     resolved_gate_total: int
     omitted_resolved_gate_count: int
-    incoming_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
-    outgoing_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
-    undirected_relationships: list[AdjacentRelationshipRead] = Field(default_factory=list)
+    incoming_relationships: list[AdjacentRelationshipRead] = Field(
+        default_factory=list, max_length=100
+    )
+    outgoing_relationships: list[AdjacentRelationshipRead] = Field(
+        default_factory=list, max_length=100
+    )
+    undirected_relationships: list[AdjacentRelationshipRead] = Field(
+        default_factory=list, max_length=100
+    )
     relationship_counts: RelationshipCounts = Field(default_factory=RelationshipCounts)
+    omitted_relationship_counts: RelationshipCounts = Field(default_factory=RelationshipCounts)
+    duplicate_merge_eligibility: DuplicateMergeEligibility
     recent_events: list[WorkEventRead]
     event_total: int
     omitted_event_count: int
     pre_phase5_history_may_be_incomplete: bool
+
+    @model_validator(mode="after")
+    def merge_revision_is_coherent(self) -> Self:
+        if self.merge_review_revision.work_version != self.work_item.version:
+            raise ValueError("Merge review work version does not match the requested item")
+        current_checkpoint_id = (
+            self.initial_checkpoint.id
+            if self.current_context_is_initial
+            else self.current_context.id if self.current_context is not None else None
+        )
+        if current_checkpoint_id != self.merge_review_revision.context_checkpoint_id:
+            raise ValueError("Merge review checkpoint does not match current context")
+        if self.merge_review_revision.work_event_count != self.event_total:
+            raise ValueError("Merge review event count does not match event total")
+        return self
+
+    @model_validator(mode="after")
+    def duplicate_member_totals_are_coherent(self) -> Self:
+        member_ids = [member.id for member in self.duplicate_members]
+        if len(member_ids) != len(set(member_ids)):
+            raise ValueError("Duplicate members must be unique")
+        if self.canonical.canonical_work_item.id in member_ids:
+            raise ValueError("Duplicate members cannot contain the canonical root")
+        if self.canonical.is_duplicate and (
+            not member_ids or member_ids[0] != self.work_item.id
+        ):
+            raise ValueError("Requested duplicate must be the first duplicate member")
+        if self.duplicate_member_total != len(member_ids) + self.omitted_duplicate_member_count:
+            raise ValueError("Duplicate member totals are inconsistent")
+        if self.duplicate_member_total != self.canonical.duplicate_member_count:
+            raise ValueError("Canonical and context duplicate member totals differ")
+        return self
+
+    @model_validator(mode="after")
+    def relationship_totals_are_coherent(self) -> Self:
+        relationship_groups = {
+            "incoming": self.incoming_relationships,
+            "outgoing": self.outgoing_relationships,
+            "undirected": self.undirected_relationships,
+        }
+        for direction, relationships in relationship_groups.items():
+            visible = len(relationships)
+            total = getattr(self.relationship_counts, direction)
+            omitted = getattr(self.omitted_relationship_counts, direction)
+            if total != visible + omitted:
+                raise ValueError(f"{direction.title()} relationship totals are inconsistent")
+        visible_total = sum(len(items) for items in relationship_groups.values())
+        if self.relationship_counts.total != visible_total + self.omitted_relationship_counts.total:
+            raise ValueError("Overall relationship totals are inconsistent")
+        if self.relationship_counts.total != (
+            self.relationship_counts.incoming
+            + self.relationship_counts.outgoing
+            + self.relationship_counts.undirected
+        ):
+            raise ValueError("Relationship category totals do not sum to the overall total")
+        if self.omitted_relationship_counts.total != (
+            self.omitted_relationship_counts.incoming
+            + self.omitted_relationship_counts.outgoing
+            + self.omitted_relationship_counts.undirected
+        ):
+            raise ValueError("Omitted relationship totals do not sum to the overall omission")
+        return self
+
+    @model_validator(mode="after")
+    def readiness_projection_is_coherent(self) -> Self:
+        if self.readiness.canonical_work_item_id != self.canonical.canonical_work_item.id:
+            raise ValueError("Readiness and canonical projections disagree")
+        return self
 
 
 class ClaimAndRecall(APIModel):
@@ -1435,7 +1972,9 @@ class WorkItemListQuery(APIModel):
     tag: Tag | None = None
     source_client: ClientName | None = None
     source_session_id: SessionID | None = None
-    view: Literal["full", "minimal", "roots"] = "full"
+    view: Literal["full", "roots"] = "full"
+    duplicate_scope: Literal["canonical", "aliases", "all"] = "canonical"
+    canonical_work_item_id: UUID | None = None
     limit: int = Field(default=30, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
 
@@ -1450,7 +1989,11 @@ class WorkItemListQuery(APIModel):
         if self.semantic and not query:
             raise ValueError("semantic=true requires a nonblank q")
         if self.view == "roots" and query:
-            raise ValueError("A nonblank q requires view=full or view=minimal")
+            raise ValueError("A nonblank q requires view=full")
+        if self.view == "roots" and self.duplicate_scope != "canonical":
+            raise ValueError("Hierarchy roots require duplicate_scope=canonical")
+        if self.canonical_work_item_id is not None and self.duplicate_scope == "canonical":
+            raise ValueError("canonical_work_item_id requires duplicate_scope=aliases or all")
         return self
 
 

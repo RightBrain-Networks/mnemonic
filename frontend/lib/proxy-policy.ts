@@ -19,7 +19,7 @@ export const DEFINITIVE_PROXY_ERRORS = {
   invalidJson: { status: 400, detail: "The request body is not valid JSON." },
   forbiddenControlTransport: {
     status: 400,
-    detail: "Gate and operation control IDs are not accepted in headers or cookies."
+    detail: "Gate, operation, and lease controls are not accepted in headers or cookies."
   },
   nestedClientOperation: {
     status: 400,
@@ -37,6 +37,10 @@ export const DEFINITIVE_PROXY_ERRORS = {
   invalidWorkCreation: {
     status: 400,
     detail: "The work-creation body does not match the dashboard allowlist."
+  },
+  invalidDuplicateSuggestion: {
+    status: 400,
+    detail: "The duplicate-suggestion body does not match the dashboard allowlist."
   },
   invalidCheckpoint: {
     status: 400,
@@ -77,6 +81,10 @@ export const DEFINITIVE_PROXY_ERRORS = {
   invalidHumanGateResolution: {
     status: 400,
     detail: "The human-gate resolution body does not match the dashboard allowlist."
+  },
+  invalidWorkMerge: {
+    status: 400,
+    detail: "The work-merge body does not match the dashboard allowlist."
   },
   untrustedOrigin: {
     status: 403,
@@ -121,6 +129,7 @@ const UUID = UUID_PATTERN.source.slice(1, -1);
 const PROJECT = new RegExp(`^projects/${UUID}$`);
 const PROJECT_SETTINGS = new RegExp(`^projects/${UUID}/settings$`);
 const WORK_ITEMS = new RegExp(`^projects/${UUID}/work-items$`);
+const DUPLICATE_SUGGESTIONS = new RegExp(`^projects/${UUID}/duplicate-suggestions$`);
 const WORK_ITEM = new RegExp(`^projects/${UUID}/work-items/${UUID}$`);
 const CHECKPOINTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/checkpoints$`);
 const WORK_CONTEXT = new RegExp(`^projects/${UUID}/work-items/${UUID}/context$`);
@@ -131,6 +140,7 @@ const RELATIONSHIP = new RegExp(`^projects/${UUID}/relationships/${UUID}$`);
 const WORK_COMPLETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/complete$`);
 const WORK_DEFER = new RegExp(`^projects/${UUID}/work-items/${UUID}/defer$`);
 const WORK_DELETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/delete$`);
+const WORK_MERGE = new RegExp(`^projects/${UUID}/work-items/${UUID}/merge$`);
 const WORK_EVENTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/events$`);
 const HUMAN_ATTENTION = new RegExp(`^projects/${UUID}/human-attention$`);
 const WORK_GATES = new RegExp(`^projects/${UUID}/work-items/${UUID}/gates$`);
@@ -159,7 +169,10 @@ const FORBIDDEN_CONTROL_TRANSPORT_NAMES = new Set([
   "gate-id",
   "human-gate-id",
   "x-gate-id",
-  "x-human-gate-id"
+  "x-human-gate-id",
+  "lease_token",
+  "lease-token",
+  "x-lease-token"
 ]);
 
 
@@ -172,9 +185,14 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   }
   if (PROJECT.test(path) && (method === "GET" || method === "PATCH")) return [];
   if (PROJECT_SETTINGS.test(path) && (method === "GET" || method === "PATCH")) return [];
+  if (DUPLICATE_SUGGESTIONS.test(path) && method === "POST") return [];
   if (WORK_ITEMS.test(path)) {
     if (method === "GET") {
-      return ["q", "semantic", "status", "sort", "tag", "source_client", "source_session_id", "view", "limit", "offset"];
+      return [
+        "q", "semantic", "status", "sort", "tag", "source_client",
+        "source_session_id", "view", "duplicate_scope", "canonical_work_item_id",
+        "limit", "offset"
+      ];
     }
     if (method === "POST") return [];
   }
@@ -209,6 +227,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   if (WORK_COMPLETE.test(path) && method === "POST") return [];
   if (WORK_DEFER.test(path) && method === "POST") return [];
   if (WORK_DELETE.test(path) && method === "POST") return [];
+  if (WORK_MERGE.test(path) && method === "POST") return [];
   return null;
 }
 
@@ -265,6 +284,20 @@ function validHumanGateRevision(value: unknown): boolean {
     && finiteInteger(revision.work_version, 1)
     && validUuid(revision.context_checkpoint_id)
     && finiteInteger(revision.relationship_event_count, 0)
+  );
+}
+
+function validMergeReviewRevision(value: unknown): boolean {
+  const revision = jsonObject(value);
+  return Boolean(
+    revision
+    && allowedKeys(revision, [
+      "work_version", "context_checkpoint_id", "work_event_count"
+    ])
+    && Object.keys(revision).length === 3
+    && finiteInteger(revision.work_version, 1)
+    && validUuid(revision.context_checkpoint_id)
+    && finiteInteger(revision.work_event_count, 1)
   );
 }
 
@@ -328,6 +361,7 @@ function coveredMutation(path: string, method: string): boolean {
     || method === "POST" && WORK_COMPLETE.test(path)
     || method === "POST" && WORK_DEFER.test(path)
     || method === "POST" && WORK_DELETE.test(path)
+    || method === "POST" && WORK_MERGE.test(path)
     || method === "DELETE" && RELATIONSHIP.test(path)
     || method === "POST" && GATE_RESOLVE.test(path);
 }
@@ -345,7 +379,7 @@ function validInitialRelationships(value: unknown): boolean {
       relationship
       && allowedKeys(relationship, ["type", "direction", "other_work_item_id", "context_checkpoint_id"])
       && typeof relationship.type === "string"
-      && ["blocks", "parent-child", "discovered-from", "duplicate-of", "related"].includes(relationship.type)
+      && ["blocks", "parent-child", "discovered-from", "related"].includes(relationship.type)
       && (relationship.direction === "incoming" || relationship.direction === "outgoing")
       && validUuid(relationship.other_work_item_id)
       && (relationship.context_checkpoint_id === undefined
@@ -396,6 +430,21 @@ export function invalidMutationBody(path: string, method: string, value: unknown
     return DEFINITIVE_PROXY_ERRORS.invalidClientOperation.detail;
   }
 
+  if (DUPLICATE_SUGGESTIONS.test(path) && method === "POST") {
+    if (
+      !allowedKeys(body, [
+        "title", "summary", "initial_prompt", "tags", "exclude_work_item_id", "limit"
+      ])
+      || !boundedText(body.title, 200)
+      || !boundedText(body.summary, 1_000)
+      || !boundedText(body.initial_prompt, 100_000)
+      || !(body.tags === undefined || validStringArray(body.tags, 20, 50))
+      || !(body.exclude_work_item_id === undefined
+        || body.exclude_work_item_id === null
+        || validUuid(body.exclude_work_item_id))
+      || !(body.limit === undefined || finiteInteger(body.limit, 1, 10))
+    ) return DEFINITIVE_PROXY_ERRORS.invalidDuplicateSuggestion.detail;
+  }
   if (WORK_ITEMS.test(path) && method === "POST") {
     if (
       !allowedKeys(body, [
@@ -482,7 +531,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
         "created_by_client", "created_by_session_id", "created_by_model",
         "context_checkpoint_id", CLIENT_OPERATION_FIELD
       ])
-      || !["blocks", "parent-child", "discovered-from", "duplicate-of", "related"].includes(
+      || !["blocks", "parent-child", "discovered-from", "related"].includes(
         String(body.relationship_type)
       )
       || !validUuid(body.source_work_item_id)
@@ -517,10 +566,109 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !validHumanGateRevision(body.reviewed_context_revision)
     ) return DEFINITIVE_PROXY_ERRORS.invalidHumanGateResolution.detail;
   }
+  if (WORK_MERGE.test(path) && method === "POST") {
+    if (
+      !allowedKeys(body, [
+        "destination_work_item_id", "reviewed_source_revision",
+        "reviewed_destination_revision", "rationale", "merged_by_client",
+        "merged_by_session_id", "merged_by_model", CLIENT_OPERATION_FIELD
+      ])
+      || Object.keys(body).length !== 8
+      || !validUuid(body.destination_work_item_id)
+      || !validMergeReviewRevision(body.reviewed_source_revision)
+      || !validMergeReviewRevision(body.reviewed_destination_revision)
+      || !boundedText(body.rationale, 4_000)
+      || body.merged_by_client !== "dashboard"
+      || !boundedText(body.merged_by_session_id, 200)
+      || body.merged_by_model !== null
+    ) return DEFINITIVE_PROXY_ERRORS.invalidWorkMerge.detail;
+  }
   return null;
 }
-export function upstreamTimeoutMs(query: URLSearchParams): number {
-  return query.get("semantic") === "true" && Boolean(query.get("q")?.trim()) ? 60_000 : 15_000;
+
+export type BrowserTransportEffect =
+  | "safe_read"
+  | "receipt_protected_write"
+  | "lease_claim";
+
+export function browserTransportEffect(
+  path: string,
+  method: string
+): BrowserTransportEffect | null {
+  if (method === "POST" && DUPLICATE_SUGGESTIONS.test(path)) return "safe_read";
+  if (LEASE_CAPABILITY.test(path)) return "lease_claim";
+  if (method === "GET" && allowedQueryKeys(path, method) !== null) return "safe_read";
+  if (coveredMutation(path, method)) return "receipt_protected_write";
+  return null;
+}
+export function upstreamTimeoutMs(
+  query: URLSearchParams,
+  path = "",
+  method = "GET"
+): number {
+  return method === "POST" && DUPLICATE_SUGGESTIONS.test(path)
+    || query.get("semantic") === "true" && Boolean(query.get("q")?.trim())
+    ? 60_000
+    : 15_000;
+}
+
+export function upstreamAbortSignal(
+  requestSignal: AbortSignal,
+  query: URLSearchParams,
+  path = "",
+  method = "GET"
+): AbortSignal {
+  return AbortSignal.any([
+    requestSignal,
+    AbortSignal.timeout(upstreamTimeoutMs(query, path, method))
+  ]);
+}
+
+export async function readBodyChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal: AbortSignal
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  return await new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+    let settled = false;
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", abort);
+      void reader.cancel(signal.reason).catch(() => undefined);
+      reject(signal.reason ?? new Error("Proxy request aborted."));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    void reader.read().then(
+      (result) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        resolve(result);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      }
+    );
+  });
+}
+
+export function proxyBodyLimitBytes(path: string): number {
+  return DUPLICATE_SUGGESTIONS.test(path) ? 2_097_152 : 1_048_576;
+}
+
+export function forwardedRetryAfter(status: number, headers: Headers): string | null {
+  if (status !== 429) return null;
+  const value = headers.get("retry-after");
+  if (!value || value.length > 128) return null;
+  if (/^\d+$/.test(value)) return value;
+  return Number.isNaN(Date.parse(value)) ? null : value;
 }
 
 export function configuredOrigins(value?: string): Set<string> {

@@ -619,7 +619,7 @@ def test_event_staging_faults_roll_back_work_lease_checkpoint_and_relationship(
                 lease_token=claim["lease_token"],
             ),
         )
-    retained = api.get(completed_endpoint).json()
+    retained = api.get(completed_endpoint).json()["work_item"]
     assert retained["status"] == "pending"
     assert retained["version"] == 1
     assert api.get(f"{completed_endpoint}/checkpoints").json()["total"] == 1
@@ -755,7 +755,7 @@ def test_simultaneous_checkpoint_and_progress_events_both_commit_in_total_order(
     ]
     assert order_keys == sorted(order_keys)
     assert len({item["id"] for item in page["items"]}) == 3
-    assert api.get(endpoint).json()["version"] == 1
+    assert api.get(endpoint).json()["work_item"]["version"] == 1
     beyond_end = event_page(
         api,
         project,

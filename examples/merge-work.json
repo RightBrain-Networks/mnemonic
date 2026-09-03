@@ -1,0 +1,19 @@
+{
+  "destination_work_item_id": "22222222-2222-4222-8222-222222222222",
+  "reviewed_source_revision": {
+    "work_version": 3,
+    "context_checkpoint_id": "33333333-3333-4333-8333-333333333333",
+    "work_event_count": 7
+  },
+  "reviewed_destination_revision": {
+    "work_version": 5,
+    "context_checkpoint_id": "44444444-4444-4444-8444-444444444444",
+    "work_event_count": 12
+  },
+  "rationale": "These records describe the same durable objective; retain the source as audit history and continue only from the reviewed destination.",
+  "merged_by_client": "example-only-replace-with-real-client",
+  "merged_by_session_id": "example-only-replace-with-actual-origin-session-id",
+  "merged_by_model": null,
+  "lease_token": null,
+  "client_operation_id": "00000000-0000-4000-8000-000000000010"
+}

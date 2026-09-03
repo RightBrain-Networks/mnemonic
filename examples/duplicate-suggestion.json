@@ -1,0 +1,8 @@
+{
+  "title": "Verify backup restoration",
+  "summary": "Check that a current database backup restores durable work and provenance into an isolated database.",
+  "initial_prompt": "This is an illustrative draft, not authority to execute. When authorized, restore a selected backup into a separate disposable database, verify durable records and provenance, and leave the active store unchanged.",
+  "tags": ["backup", "verification"],
+  "exclude_work_item_id": null,
+  "limit": 5
+}

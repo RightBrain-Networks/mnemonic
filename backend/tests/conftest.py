@@ -60,7 +60,8 @@ def api(postgres_engine: Engine) -> Iterator[TestClient]:
         connection.execute(
             text(
                 "TRUNCATE client_operations, project_settings, work_events, "
-                "work_gates, work_relationships, work_leases, work_item_embeddings, "
+                "work_gates, work_relationships, work_duplicate_merges, work_leases, "
+                "work_item_embeddings, "
                 "checkpoints, work_items, projects RESTART IDENTITY CASCADE"
             )
         )

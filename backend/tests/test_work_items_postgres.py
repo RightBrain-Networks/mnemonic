@@ -1,6 +1,5 @@
 """Phase 1 canonical work/checkpoint API and database invariants."""
 
-import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from uuid import UUID, uuid4
@@ -96,10 +95,30 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
     assert initial["legacy_record_id"] is None
     assert initial["created_at"].endswith("Z")
 
-    assert api.get(item_path(project, work_item)).json() == work_item
+    detail = api.get(item_path(project, work_item)).json()
+    assert detail == {
+        "work_item": work_item,
+        "canonical": {
+            "is_duplicate": False,
+            "direct_destination": None,
+            "canonical_work_item": {
+                "id": work_item["id"],
+                "title": work_item["title"],
+                "status": work_item["status"],
+            },
+            "path": [],
+            "duplicate_member_count": 0,
+        },
+    }
     result = api.get(collection(project)).json()
     assert result["total"] == 1
-    summary = result["items"][0]
+    hit = result["items"][0]
+    assert hit["matched_member"] == {
+        "id": work_item["id"],
+        "title": work_item["title"],
+        "status": work_item["status"],
+    }
+    summary = hit["summary"]
     assert summary["work_item"] == work_item
     assert summary["checkpoint_count"] == 1
     assert summary["ancestor_path"] == []
@@ -109,6 +128,8 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
     assert summary["current_context"]["id"] == initial["id"]
     assert summary["readiness"] == {
         "lifecycle_status": "pending",
+        "is_duplicate": False,
+        "canonical_work_item_id": work_item["id"],
         "is_terminal": False,
         "has_active_lease": False,
         "has_dropped_lease": False,
@@ -123,6 +144,15 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
 
     context = api.get(f"{item_path(project, work_item)}/context").json()
     assert context["work_item"] == work_item
+    assert context["merge_review_revision"] == {
+        "work_version": 1,
+        "context_checkpoint_id": initial["id"],
+        "work_event_count": context["event_total"],
+    }
+    assert context["canonical"] == detail["canonical"]
+    assert context["duplicate_members"] == []
+    assert context["duplicate_member_total"] == 0
+    assert context["omitted_duplicate_member_count"] == 0
     assert context["initial_checkpoint"] == initial
     # A single-checkpoint item serializes that body once: current_context is null
     # and the client reads initial_checkpoint.
@@ -140,32 +170,35 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
         "undirected": 0,
         "total": 0,
     }
+    assert context["omitted_relationship_counts"] == {
+        "incoming": 0,
+        "outgoing": 0,
+        "undirected": 0,
+        "total": 0,
+    }
+    assert context["duplicate_merge_eligibility"] == {
+        "incident_blocks_count": 0,
+        "incident_parent_child_count": 0,
+        "has_unresolved_gate": False,
+        "source_lease_state": "none",
+    }
 
 
-def test_minimal_view_returns_only_choosing_fields(api, project, work_payload):
+def test_minimal_view_is_removed_and_full_search_hit_is_the_default(
+    api, project, work_payload
+):
     created = api.post(collection(project), json=work_payload).json()
     work_item = created["work_item"]
 
     minimal = api.get(collection(project), params={"view": "minimal"})
-    assert minimal.status_code == 200, minimal.text
-    item = minimal.json()["items"][0]
-    assert item == {
-        "work_item": {
-            "id": work_item["id"],
-            "title": work_item["title"],
-            "status": work_item["status"],
-            "priority": work_item["priority"],
-            "version": work_item["version"],
-            "updated_at": work_item["updated_at"],
-        },
-        "checkpoint_count": 1,
-        "display_state": "pending",
-    }
+    assert minimal.status_code == 422, minimal.text
 
-    # The dashboard shape is unchanged and remains the REST default.
+    # Full canonical-aware search hits are the REST default.
     default = api.get(collection(project)).json()["items"][0]
     assert default == api.get(collection(project), params={"view": "full"}).json()["items"][0]
-    assert set(default) == {
+    assert set(default) == {"summary", "matched_member"}
+    assert default["matched_member"]["id"] == work_item["id"]
+    assert set(default["summary"]) == {
         "work_item",
         "checkpoint_count",
         "ancestor_path",
@@ -173,8 +206,6 @@ def test_minimal_view_returns_only_choosing_fields(api, project, work_payload):
         "current_context",
         "readiness",
     }
-    # Minimal is strictly cheaper than the shape it replaces for agent callers.
-    assert len(json.dumps(item)) < len(json.dumps(default))
 
 
 def test_append_history_current_context_and_terminal_clarification(
@@ -203,7 +234,7 @@ def test_append_history_current_context_and_terminal_clarification(
     )
     assert correction.status_code == 201, correction.text
     assert progress.json()["prompt"] == "  Progress remains exact.\r\n  "
-    assert api.get(endpoint).json()["version"] == 1
+    assert api.get(endpoint).json()["work_item"]["version"] == 1
 
     oldest = api.get(f"{endpoint}/checkpoints", params={"limit": 2}).json()
     newest = api.get(
@@ -272,7 +303,7 @@ def test_append_history_current_context_and_terminal_clarification(
         json=checkpoint_payload("Audit clarification after completion.", "session-audit"),
     )
     assert clarification.status_code == 201
-    assert api.get(endpoint).json()["status"] == "done"
+    assert api.get(endpoint).json()["work_item"]["status"] == "done"
     terminal_context = api.get(f"{endpoint}/context").json()
     assert terminal_context["current_context"]["id"] == clarification.json()["id"]
     assert terminal_context["current_context_is_initial"] is False
@@ -514,14 +545,16 @@ def test_search_aggregates_checkpoint_hits_and_filter_contract(api, project, wor
 
     found = api.get(collection(project), params={"q": "frobnicate"}).json()
     assert found["total"] == 1
-    assert [row["work_item"]["id"] for row in found["items"]] == [first["work_item"]["id"]]
+    assert [row["summary"]["work_item"]["id"] for row in found["items"]] == [
+        first["work_item"]["id"]
+    ]
     assert api.get(collection(project), params={"tag": "later-tag"}).json()["total"] == 1
     assert api.get(
         collection(project), params={"source_session_id": "shared-hit-b"}
     ).json()["total"] == 1
     initial_only = api.get(collection(project), params={"tag": "initial-only"}).json()
     assert initial_only["total"] == 1
-    assert initial_only["items"][0]["work_item"]["id"] == second["work_item"]["id"]
+    assert initial_only["items"][0]["summary"]["work_item"]["id"] == second["work_item"]["id"]
 
 
 def test_cross_project_isolation_and_two_appenders_plus_editor_succeed(
@@ -557,7 +590,7 @@ def test_cross_project_isolation_and_two_appenders_plus_editor_succeed(
         edited = pool.submit(edit)
         responses = [append_a.result(), append_b.result(), edited.result()]
     assert sorted(response.status_code for response in responses) == [200, 201, 201]
-    final = api.get(endpoint).json()
+    final = api.get(endpoint).json()["work_item"]
     assert final["title"] == "Edited identity"
     assert final["version"] == 2
     assert api.get(f"{endpoint}/checkpoints").json()["total"] == 3

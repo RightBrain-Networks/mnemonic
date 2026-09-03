@@ -11,6 +11,7 @@ from conftest import (
     GATE_ID,
     LEASE_TOKEN,
     LOCAL_VALIDATION_CASES,
+    NOW,
     OTHER_CHECKPOINT_ID,
     OTHER_WORK_ID,
     PROJECT_ID,
@@ -21,13 +22,20 @@ from conftest import (
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 
-from mnemonic_mcp.api import UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME, MnemonicAPI
+from mnemonic_mcp.api import (
+    UNKNOWN_CLAIM_OUTCOME,
+    UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME,
+    MnemonicAPI,
+    TransportEffect,
+)
 from mnemonic_mcp.models import (
     ClaimAndRecall,
     ClaimReceipt,
     HumanGateRead,
     ReadyWorkPage,
+    WorkContext,
     WorkEventRead,
+    WorkPage,
 )
 from mnemonic_mcp.server import build_server
 
@@ -56,6 +64,7 @@ PROTECTED_TOOL_NAMES = (
     "remove_relationship",
     "release_claim",
     "request_human_input",
+    "merge_work",
 )
 
 
@@ -144,6 +153,26 @@ def protected_tool_arguments(operation_id: str = CLIENT_OPERATION_ID):
             "requested_by_model": "test-model",
             **operation,
         },
+        "merge_work": {
+            "project_id": PROJECT_ID,
+            "source_work_item_id": WORK_ID,
+            "destination_work_item_id": OTHER_WORK_ID,
+            "reviewed_source_revision": {
+                "work_version": 3,
+                "context_checkpoint_id": CHECKPOINT_ID,
+                "work_event_count": 1,
+            },
+            "reviewed_destination_revision": {
+                "work_version": 3,
+                "context_checkpoint_id": OTHER_CHECKPOINT_ID,
+                "work_event_count": 2,
+            },
+            "rationale": "Both records describe the same durable objective.",
+            "merged_by_client": "claude-code",
+            "merged_by_session_id": "phase-9-session",
+            "merged_by_model": "test-model",
+            **operation,
+        },
     }
 
 
@@ -175,6 +204,66 @@ def protected_success_responses(
 
     created_checkpoint = checkpoint_response("create_work", "context")
     completion_checkpoint = checkpoint_response("complete_work", "completion")
+    merge_arguments = arguments["merge_work"]
+    merge_id = "897043b5-7e92-41c8-a55a-202913b25f2e"
+    merged_source = {**work_item, "version": 4}
+    merged_destination = {
+        **work_item,
+        "id": OTHER_WORK_ID,
+        "title": "Canonical retained objective",
+        "summary": "The canonical version of the durable objective.",
+        "initial_checkpoint_id": OTHER_CHECKPOINT_ID,
+        "version": 4,
+    }
+    supporting_relationship = {
+        **relationship,
+        "relationship_type": "duplicate-of",
+        "source_work_item_id": WORK_ID,
+        "target_work_item_id": OTHER_WORK_ID,
+        "context_checkpoint_work_item_id": None,
+        "context_checkpoint_id": None,
+        "created_by_client": merge_arguments["merged_by_client"],
+        "created_by_session_id": merge_arguments["merged_by_session_id"],
+        "created_by_model": merge_arguments["merged_by_model"],
+    }
+
+    def merge_event(event_id: int, work_id: str, role: str):
+        return {
+            **progress_event,
+            "id": event_id,
+            "work_item_id": work_id,
+            "event_type": "work_merged",
+            "actor_client": merge_arguments["merged_by_client"],
+            "actor_session_id": merge_arguments["merged_by_session_id"],
+            "actor_model": merge_arguments["merged_by_model"],
+            "body": merge_arguments["rationale"],
+            "metadata": {
+                "merge_id": merge_id,
+                "source_work_item_id": WORK_ID,
+                "destination_work_item_id": OTHER_WORK_ID,
+                "role": role,
+                "source_work_version": 4,
+                "destination_work_version": 4,
+            },
+        }
+
+    def relationship_event(event_id: int, work_id: str, direction: str, counterpart: str):
+        return {
+            **progress_event,
+            "id": event_id,
+            "work_item_id": work_id,
+            "event_type": "relationship_added",
+            "actor_client": merge_arguments["merged_by_client"],
+            "actor_session_id": merge_arguments["merged_by_session_id"],
+            "actor_model": merge_arguments["merged_by_model"],
+            "body": None,
+            "relationship_id": RELATIONSHIP_ID,
+            "relationship_source_work_item_id": WORK_ID,
+            "relationship_target_work_item_id": OTHER_WORK_ID,
+            "relationship_direction": direction,
+            "counterpart_work_item_id": counterpart,
+            "metadata": {"relationship_type": "duplicate-of"},
+        }
     return {
         "create_work": {
             "work_item": {
@@ -256,6 +345,51 @@ def protected_success_responses(
                 "requested_by_model"
             ],
         },
+        "merge_work": {
+            "merge": {
+                "id": merge_id,
+                "merge_sequence": 1,
+                "project_id": PROJECT_ID,
+                "source_work_item_id": WORK_ID,
+                "destination_work_item_id": OTHER_WORK_ID,
+                "duplicate_relationship_id": RELATIONSHIP_ID,
+                "reviewed_source_revision": merge_arguments[
+                    "reviewed_source_revision"
+                ],
+                "reviewed_destination_revision": merge_arguments[
+                    "reviewed_destination_revision"
+                ],
+                "resulting_source_work_version": 4,
+                "resulting_destination_work_version": 4,
+                "rationale": merge_arguments["rationale"],
+                "merged_by_client": merge_arguments["merged_by_client"],
+                "merged_by_session_id": merge_arguments["merged_by_session_id"],
+                "merged_by_model": merge_arguments["merged_by_model"],
+                "created_at": NOW,
+            },
+            "source_work_item": merged_source,
+            "destination_work_item": merged_destination,
+            "direct_destination": {
+                "id": OTHER_WORK_ID,
+                "title": merged_destination["title"],
+                "status": merged_destination["status"],
+            },
+            "canonical_work_item": {
+                "id": OTHER_WORK_ID,
+                "title": merged_destination["title"],
+                "status": merged_destination["status"],
+            },
+            "supporting_relationship_created": True,
+            "supporting_relationship": supporting_relationship,
+            "relationship_events": [
+                relationship_event(44, WORK_ID, "outgoing", OTHER_WORK_ID),
+                relationship_event(45, OTHER_WORK_ID, "incoming", WORK_ID),
+            ],
+            "merge_events": [
+                merge_event(46, WORK_ID, "source"),
+                merge_event(47, OTHER_WORK_ID, "destination"),
+            ],
+        },
     }
 
 
@@ -282,6 +416,73 @@ def test_claim_receipt_repr_redacts_token_but_serialization_retains_it(
     assert LEASE_TOKEN not in repr(combined)
     assert receipt.model_dump(mode="json")["lease_token"] == LEASE_TOKEN
     assert combined.model_dump(mode="json")["lease"]["lease_token"] == LEASE_TOKEN
+
+
+def test_work_pages_reject_repeated_work_items(work_summary):
+    hit = {
+        "summary": work_summary,
+        "matched_member": {
+            "id": work_summary["work_item"]["id"],
+            "title": work_summary["work_item"]["title"],
+            "status": work_summary["work_item"]["status"],
+        },
+    }
+    with pytest.raises(ValueError, match="cannot repeat work items"):
+        WorkPage.model_validate(
+            {"items": [hit, hit], "total": 2, "limit": 20, "offset": 0}
+        )
+
+
+def test_recall_model_rejects_misordered_events(
+    work_context, progress_event
+):
+    first = {**progress_event, "id": 42}
+    second = {**progress_event, "id": 43}
+    payload = {
+        **work_context,
+        "merge_review_revision": {
+            **work_context["merge_review_revision"],
+            "work_event_count": 2,
+        },
+        "recent_events": [second, first],
+        "event_total": 2,
+        "omitted_event_count": 0,
+    }
+    with pytest.raises(ValueError, match="event history is incoherent"):
+        WorkContext.model_validate(payload)
+
+
+def test_recall_model_rejects_misordered_relationships_and_false_eligibility(
+    work_context, adjacent_relationship
+):
+    lower = json.loads(json.dumps(adjacent_relationship))
+    lower["relationship"]["id"] = "22222222-2222-4222-8222-222222222222"
+    higher = json.loads(json.dumps(adjacent_relationship))
+    higher["relationship"]["id"] = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+    base = {
+        **work_context,
+        "incoming_relationships": [higher, lower],
+        "relationship_counts": {
+            "incoming": 2,
+            "outgoing": 0,
+            "undirected": 0,
+            "total": 2,
+        },
+        "duplicate_merge_eligibility": {
+            **work_context["duplicate_merge_eligibility"],
+            "incident_blocks_count": 2,
+        },
+    }
+    with pytest.raises(ValueError, match="canonical order"):
+        WorkContext.model_validate(base)
+
+    structurally_false = {
+        **base,
+        "incoming_relationships": [lower, higher],
+        "duplicate_merge_eligibility": work_context["duplicate_merge_eligibility"],
+    }
+    with pytest.raises(ValueError, match="structural counts"):
+        WorkContext.model_validate(structurally_false)
 
 
 async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
@@ -340,6 +541,7 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
         "remove_relationship",
         "release_claim",
         "request_human_input",
+        "merge_work",
     }
     for name in protected:
         description = described[name]
@@ -383,6 +585,8 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "request_human_input",
         "list_human_attention",
         "list_work_gates",
+        "merge_work",
+        "suggest_duplicate_work",
     }
     assert all(tool.outputSchema for tool in tools.values())
     assert all(
@@ -400,6 +604,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "list_work_events",
         "list_human_attention",
         "list_work_gates",
+        "suggest_duplicate_work",
     ):
         assert tools[name].annotations.readOnlyHint is True
     for name in (
@@ -421,6 +626,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "complete_work",
         "delete_work",
         "remove_relationship",
+        "merge_work",
     ):
         assert tools[name].annotations.destructiveHint is True
     protected = {
@@ -434,6 +640,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "release_claim",
         "request_human_input",
+        "merge_work",
     }
     mutating = protected | {
         "create_project",
@@ -446,8 +653,9 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "complete_work",
         "delete_work",
         "remove_relationship",
+        "merge_work",
     }
-    assert len(tools) == 25
+    assert len(tools) == 27
     for name in mutating:
         assert tools[name].annotations.idempotentHint is (name in protected)
     for name in tools.keys() - mutating:
@@ -482,6 +690,7 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
         "remove_relationship",
         "release_claim",
         "request_human_input",
+        "merge_work",
     }
 
     for name, tool in tools.items():
@@ -882,7 +1091,7 @@ async def test_all_protected_mutations_forward_one_canonical_top_level_uuid(sett
         method, path, kwargs = calls[-1]
         assert method in {"POST", "PATCH", "DELETE"}
         assert path.startswith(f"projects/{PROJECT_ID}/")
-        assert kwargs["idempotent_mutation"] is True
+        assert kwargs["effect"] == TransportEffect.RECEIPT_PROTECTED_WRITE
         payload = kwargs["payload"]
         assert payload["client_operation_id"] == CLIENT_OPERATION_ID
         assert json.dumps(payload).count('"client_operation_id"') == 1
@@ -1209,6 +1418,10 @@ async def test_relationship_tools_use_exact_rest_contract_and_pointer_only_count
                         "undirected": 0,
                         "total": 1,
                     },
+                    "duplicate_merge_eligibility": {
+                        **work_context["duplicate_merge_eligibility"],
+                        "incident_blocks_count": 1,
+                    },
                 },
             )
         assert request.url.path == f"{relationship_path}/{RELATIONSHIP_ID}"
@@ -1323,7 +1536,8 @@ async def test_search_work_is_open_only_and_pointer_only(settings, work_summary)
         assert dict(request.url.params) == {
             "q": "src/search.py",
             "status": "pending",
-            "view": "minimal",
+            "view": "full",
+            "duplicate_scope": "canonical",
             "limit": "30",
             "offset": "0",
         }
@@ -1332,7 +1546,19 @@ async def test_search_work_is_open_only_and_pointer_only(settings, work_summary)
         # accidentally adds full content to this response.
         return httpx.Response(
             200,
-            json={"items": [upstream_summary], "total": 1, "limit": 30, "offset": 0},
+            json={
+                "items": [{
+                    "summary": upstream_summary,
+                    "matched_member": {
+                        "id": WORK_ID,
+                        "title": work_summary["work_item"]["title"],
+                        "status": "pending",
+                    },
+                }],
+                "total": 1,
+                "limit": 30,
+                "offset": 0,
+            },
         )
 
     result = structured(
@@ -1340,7 +1566,7 @@ async def test_search_work_is_open_only_and_pointer_only(settings, work_summary)
             "search_work", {"project_id": PROJECT_ID, "q": "src/search.py"}
         )
     )
-    pointer = result["items"][0]["current_context"]
+    pointer = result["items"][0]["summary"]["current_context"]
     assert pointer["id"] == CHECKPOINT_ID
     assert "prompt" not in pointer
     assert "source_metadata" not in pointer
@@ -1699,6 +1925,14 @@ async def test_gate_read_scope_or_filter_mismatch_is_rejected_without_values(
             "project_id": OTHER_WORK_ID,
             "id": OTHER_WORK_ID,
         },
+        "current_context": {
+            **gated_summary["current_context"],
+            "work_item_id": OTHER_WORK_ID,
+        },
+        "readiness": {
+            **gated_summary["readiness"],
+            "canonical_work_item_id": OTHER_WORK_ID,
+        },
     }
 
     def attention_handler(request):
@@ -1922,6 +2156,7 @@ async def test_historical_progress_operation_key_remains_readable(
                 **work_context,
                 "recent_events": [historical_event],
                 "event_total": 1,
+                "omitted_event_count": 0,
             },
         )
 
@@ -2434,13 +2669,30 @@ async def test_get_and_update_work_use_identity_endpoint(settings, work_item):
                     "version": 4,
                 },
             )
-        return httpx.Response(200, json=work_item)
+        return httpx.Response(
+            200,
+            json={
+                "work_item": work_item,
+                "canonical": {
+                    "is_duplicate": False,
+                    "direct_destination": None,
+                    "canonical_work_item": {
+                        "id": WORK_ID,
+                        "title": work_item["title"],
+                        "status": work_item["status"],
+                    },
+                    "path": [],
+                    "duplicate_member_count": 0,
+                },
+            },
+        )
 
     server = adapter(settings, handler)
     recalled = structured(
         await server.call_tool("get_work", {"project_id": PROJECT_ID, "work_item_id": WORK_ID})
     )
-    assert recalled["version"] == 3
+    assert recalled["work_item"]["version"] == 3
+    assert recalled["canonical"]["canonical_work_item"]["id"] == WORK_ID
     updated = structured(
         await server.call_tool(
             "update_work",
@@ -2533,6 +2785,7 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
     calls = []
     gated_context = {
         **work_context,
+        "checkpoint_total": 13,
         "omitted_checkpoint_count": 12,
         "readiness": {
             **work_context["readiness"],
@@ -2547,6 +2800,10 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
         "recent_resolved_gates": [resolved_human_gate],
         "resolved_gate_total": 2,
         "omitted_resolved_gate_count": 1,
+        "duplicate_merge_eligibility": {
+            **work_context["duplicate_merge_eligibility"],
+            "has_unresolved_gate": True,
+        },
     }
 
     def handler(request):
@@ -2567,7 +2824,7 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
     )
     resource_document = json.loads(next(iter(resources)).content)
     assert resource_document["work_item"]["id"] == WORK_ID
-    assert resource_document["checkpoint_total"] == 1
+    assert resource_document["checkpoint_total"] == 13
     assert resource_document["omitted_checkpoint_count"] == 12
     assert resource_document["unresolved_gate_total"] == 1
     assert resource_document["resolved_gate_total"] == 2
@@ -2615,6 +2872,10 @@ async def test_recall_returns_bounded_chronological_events_without_checkpoint_du
             200,
             json={
                 **work_context,
+                "merge_review_revision": {
+                    **work_context["merge_review_revision"],
+                    "work_event_count": 4,
+                },
                 "recent_events": [progress_event],
                 "event_total": 4,
                 "omitted_event_count": 3,
@@ -2915,7 +3176,7 @@ async def test_search_passes_explicit_filters_and_pagination(settings, status):
         assert dict(request.url.params) == {
             "status": status, "tag": "search", "source_client": "opencode",
             "source_session_id": "ses_123/opaque", "view": "full", "limit": "5",
-            "offset": "10", "semantic": "true",
+            "duplicate_scope": "canonical", "offset": "10", "semantic": "true",
         }
         assert request.extensions["timeout"]["read"] == 60.0
         assert request.extensions["timeout"]["connect"] == 5.0
@@ -2928,45 +3189,40 @@ async def test_search_passes_explicit_filters_and_pagination(settings, status):
     })
 
 
-async def test_search_defaults_to_the_minimal_view_and_can_opt_up(settings, work_summary):
-    """The agent path is cheap by default; view="full" is an explicit opt-in."""
-    minimal_item = {
-        "work_item": {
-            name: work_summary["work_item"][name]
-            for name in ("id", "title", "status", "priority", "version", "updated_at")
-        },
-        "checkpoint_count": 1,
-        "display_state": "pending",
-    }
-    seen: list[str] = []
+async def test_search_defaults_to_full_canonical_hits(settings, work_summary):
+    seen: list[dict[str, str]] = []
 
     def handler(request):
-        seen.append(request.url.params["view"])
-        payload = minimal_item if request.url.params["view"] == "minimal" else work_summary
+        seen.append(dict(request.url.params))
         return httpx.Response(
-            200, json={"items": [payload], "total": 1, "limit": 30, "offset": 0}
+            200,
+            json={
+                "items": [{
+                    "summary": work_summary,
+                    "matched_member": {
+                        "id": WORK_ID,
+                        "title": work_summary["work_item"]["title"],
+                        "status": "pending",
+                    },
+                }],
+                "total": 1,
+                "limit": 30,
+                "offset": 0,
+            },
         )
 
     server = adapter(settings, handler)
     default = structured(await server.call_tool("search_work", {"project_id": PROJECT_ID}))
-    item = default["items"][0]
-    assert set(item) == {"work_item", "checkpoint_count", "display_state"}
-    assert set(item["work_item"]) == {
-        "id", "title", "status", "priority", "version", "updated_at"
-    }
-    assert item["display_state"] == "pending"
-    # No summary, no current-context pointer, no readiness object, no ancestor path.
-    assert "summary" not in item["work_item"]
-    assert "current_context" not in item
-    assert "readiness" not in item
-    assert "ancestor_path" not in item
-
-    full = structured(
-        await server.call_tool("search_work", {"project_id": PROJECT_ID, "view": "full"})
-    )
-    assert full["items"][0]["current_context"]["id"] == work_summary["current_context"]["id"]
-    assert full["items"][0]["readiness"]["display_state"] == "pending"
-    assert seen == ["minimal", "full"]
+    hit = default["items"][0]
+    assert hit["summary"]["current_context"]["id"] == work_summary["current_context"]["id"]
+    assert hit["matched_member"]["id"] == WORK_ID
+    assert seen == [{
+        "status": "pending",
+        "view": "full",
+        "duplicate_scope": "canonical",
+        "limit": "30",
+        "offset": "0",
+    }]
 
 
 
@@ -3615,6 +3871,7 @@ async def test_protected_success_responses_are_canonical_and_request_coherent(
         "add_checkpoint",
         "append_event",
         "request_human_input",
+        "merge_work",
     } else 200
 
     def handler(request):
@@ -3648,27 +3905,34 @@ async def test_protected_noncanonical_success_is_an_unknown_outcome_without_retr
             )[tool_name]
         )
     )
-    if tool_name == "create_work":
-        response["work_item"]["created_at"] = "2026-08-30T12:00:00+00:00"
-    elif tool_name in {"add_checkpoint", "append_event"}:
-        response["created_at"] = "2026-08-30T12:00:00+00:00"
-    elif tool_name == "add_relationship":
-        response["relationship"]["created_at"] = "2026-08-30T12:00:00+00:00"
-    elif tool_name == "update_work":
-        response["created_at"] = "2026-08-30T12:00:00+00:00"
-    elif tool_name == "complete_work":
-        response["checkpoint"]["created_at"] = "2026-08-30T12:00:00+00:00"
+    timestamp_paths = {
+        "create_work": ("work_item", "created_at"),
+        "add_checkpoint": ("created_at",),
+        "append_event": ("created_at",),
+        "add_relationship": ("relationship", "created_at"),
+        "update_work": ("created_at",),
+        "complete_work": ("checkpoint", "created_at"),
+        "request_human_input": ("created_at",),
+        "merge_work": ("merge", "created_at"),
+    }
+    timestamp_path = timestamp_paths.get(tool_name)
+    if timestamp_path is not None:
+        target = response
+        for field in timestamp_path[:-1]:
+            target = target[field]
+        target[timestamp_path[-1]] = "2026-08-30T12:00:00+00:00"
     elif tool_name == "delete_work":
         response["version"] = "4"
     elif tool_name == "remove_relationship":
         response["removed"] = "true"
-    else:
+    elif tool_name == "release_claim":
         response["released"] = "true"
     status_code = 201 if tool_name in {
         "create_work",
         "add_checkpoint",
         "append_event",
         "request_human_input",
+        "merge_work",
     } else 200
 
     def handler(request):
@@ -3719,6 +3983,8 @@ async def test_protected_incoherent_success_is_an_unknown_outcome_without_retry(
         response["work_item_id"] = OTHER_WORK_ID
     elif tool_name == "remove_relationship":
         response["relationship_id"] = OTHER_WORK_ID
+    elif tool_name == "merge_work":
+        response["merge"]["source_work_item_id"] = OTHER_WORK_ID
     else:
         response["work_item_id"] = OTHER_WORK_ID
     status_code = 201 if tool_name in {
@@ -3726,6 +3992,7 @@ async def test_protected_incoherent_success_is_an_unknown_outcome_without_retry(
         "add_checkpoint",
         "append_event",
         "request_human_input",
+        "merge_work",
     } else 200
 
     def handler(request):
@@ -3795,6 +4062,7 @@ async def test_create_work_accepts_normalized_deduplicated_related_edges(
             "other_work_item_id": OTHER_WORK_ID,
         },
     ]
+
     response = protected_success_responses(
         work_item, checkpoint, relationship, progress_event, human_gate
     )["create_work"]
@@ -4020,3 +4288,736 @@ async def test_invalid_project_id_cannot_alter_request_path(settings):
         await adapter(settings, handler).call_tool("recall_work", {
             "project_id": "../other-project", "work_item_id": WORK_ID,
         })
+
+
+async def test_phase9_core_catalog_exposes_exact_merge_and_search_contracts(settings):
+    tools = {tool.name: tool for tool in await build_server(settings).list_tools()}
+    merge = tools["merge_work"]
+    merge_input = merge.inputSchema
+    assert set(merge_input["properties"]) == {
+        "project_id",
+        "source_work_item_id",
+        "destination_work_item_id",
+        "reviewed_source_revision",
+        "reviewed_destination_revision",
+        "rationale",
+        "merged_by_client",
+        "merged_by_session_id",
+        "client_operation_id",
+        "merged_by_model",
+        "lease_token",
+    }
+    assert set(merge_input["required"]) == {
+        "project_id",
+        "source_work_item_id",
+        "destination_work_item_id",
+        "reviewed_source_revision",
+        "reviewed_destination_revision",
+        "rationale",
+        "merged_by_client",
+        "merged_by_session_id",
+        "client_operation_id",
+    }
+    revision = merge_input["$defs"]["MergeReviewRevision"]
+    assert revision["additionalProperties"] is False
+    assert set(revision["required"]) == {
+        "work_version",
+        "context_checkpoint_id",
+        "work_event_count",
+    }
+    token_schema = next(
+        option
+        for option in merge_input["properties"]["lease_token"]["anyOf"]
+        if option.get("type") == "string"
+    )
+    assert token_schema == {
+        "type": "string",
+        "format": "password",
+        "writeOnly": True,
+        "minLength": 1,
+        "maxLength": 200,
+    }
+    assert list(merge.outputSchema["properties"]) == [
+        "merge",
+        "source_work_item",
+        "destination_work_item",
+        "direct_destination",
+        "canonical_work_item",
+        "supporting_relationship_created",
+        "supporting_relationship",
+        "relationship_events",
+        "merge_events",
+    ]
+    assert list(merge.outputSchema["$defs"]["WorkMergeRead"]["properties"]) == [
+        "id",
+        "merge_sequence",
+        "project_id",
+        "source_work_item_id",
+        "destination_work_item_id",
+        "duplicate_relationship_id",
+        "reviewed_source_revision",
+        "reviewed_destination_revision",
+        "resulting_source_work_version",
+        "resulting_destination_work_version",
+        "rationale",
+        "merged_by_client",
+        "merged_by_session_id",
+        "merged_by_model",
+        "created_at",
+    ]
+    assert merge.outputSchema["$defs"]["WorkMergedMetadata"]["additionalProperties"] is False
+
+    search = tools["search_work"].inputSchema["properties"]
+    assert search["view"]["default"] == "full"
+    assert search["view"]["enum"] == ["full", "roots"]
+    assert search["duplicate_scope"]["default"] == "canonical"
+    assert search["duplicate_scope"]["enum"] == ["canonical", "aliases", "all"]
+    assert "minimal" not in json.dumps(tools["search_work"].inputSchema)
+    assert set(tools["get_work"].outputSchema["properties"]) == {
+        "work_item",
+        "canonical",
+    }
+    assert tools["get_work"].outputSchema["$defs"]["CanonicalWorkProjection"][
+        "additionalProperties"
+    ] is False
+
+
+def _duplicate_context(work_context):
+    canonical = {
+        "id": OTHER_WORK_ID,
+        "title": "Canonical retained objective",
+        "status": "pending",
+    }
+    requested = {
+        "id": WORK_ID,
+        "title": work_context["work_item"]["title"],
+        "status": work_context["work_item"]["status"],
+    }
+    return {
+        **work_context,
+        "canonical": {
+            "is_duplicate": True,
+            "direct_destination": canonical,
+            "canonical_work_item": canonical,
+            "path": [canonical],
+            "duplicate_member_count": 1,
+        },
+        "duplicate_members": [requested],
+        "duplicate_member_total": 1,
+        "omitted_duplicate_member_count": 0,
+        "readiness": {
+            **work_context["readiness"],
+            "is_duplicate": True,
+            "canonical_work_item_id": OTHER_WORK_ID,
+            "is_ready": False,
+            "display_state": "duplicate",
+        },
+    }
+
+
+async def test_exact_alias_get_recall_resource_and_prompt_never_redirect(
+    settings, work_context
+):
+    alias_context = _duplicate_context(work_context)
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path.endswith("/context"):
+            return httpx.Response(200, json=alias_context)
+        return httpx.Response(
+            200,
+            json={
+                "work_item": work_context["work_item"],
+                "canonical": alias_context["canonical"],
+            },
+        )
+
+    server = adapter(settings, handler)
+    detail = structured(
+        await server.call_tool(
+            "get_work", {"project_id": PROJECT_ID, "work_item_id": WORK_ID}
+        )
+    )
+    recalled = structured(
+        await server.call_tool(
+            "recall_work", {"project_id": PROJECT_ID, "work_item_id": WORK_ID}
+        )
+    )
+    resources = await server.read_resource(
+        f"mnemonic://projects/{PROJECT_ID}/work-items/{WORK_ID}"
+    )
+    resource = json.loads(next(iter(resources)).content)
+    prompt = await server.get_prompt(
+        "resume_work", {"project_id": PROJECT_ID, "work_item_id": WORK_ID}
+    )
+    prompt_text = prompt.messages[0].content.text
+
+    for document in (detail, recalled, resource):
+        assert document["work_item"]["id"] == WORK_ID
+        assert document["canonical"]["canonical_work_item"]["id"] == OTHER_WORK_ID
+    assert recalled["initial_checkpoint"]["work_item_id"] == WORK_ID
+    resumed = json.loads(prompt_text.split("\n\n", 1)[1])
+    assert resumed["initial_checkpoint"]["prompt"] == work_context["initial_checkpoint"][
+        "prompt"
+    ]
+    assert "frozen duplicate audit record" in prompt_text
+    assert "silently substitute its canonical ID" in prompt_text
+    assert "recall the canonical_work_item ID separately" in prompt_text
+    assert calls == [
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}",
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/context",
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/context",
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/context",
+    ]
+
+
+async def test_alias_audit_search_and_canonical_root_hierarchy_shapes(
+    settings, work_summary
+):
+    alias_summary = {
+        **work_summary,
+        "readiness": {
+            **work_summary["readiness"],
+            "is_duplicate": True,
+            "canonical_work_item_id": OTHER_WORK_ID,
+            "is_ready": False,
+            "display_state": "duplicate",
+        },
+    }
+    seen = []
+
+    def handler(request):
+        params = dict(request.url.params)
+        seen.append(params)
+        if params["view"] == "roots":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "summary": work_summary,
+                            "self_matches_filter": True,
+                            "has_matching_descendants": False,
+                            "presentation": {
+                                "direct_child_count": 0,
+                                "descendant_count": 0,
+                                "blocked_descendant_count": 0,
+                                "active_descendant_count": 0,
+                                "completed_descendant_count": 0,
+                                "discovered_descendant_count": 0,
+                                "branch_unresolved_human_gate_count": 0,
+                                "branch_merged_duplicate_count": 3,
+                                "is_discovered_work": False,
+                                "discovered_from_parent": False,
+                                "next_active_descendant_lease_expires_at": None,
+                            },
+                        }
+                    ],
+                    "total": 1,
+                    "limit": 30,
+                    "offset": 0,
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "summary": alias_summary,
+                        "matched_member": {
+                            "id": WORK_ID,
+                            "title": alias_summary["work_item"]["title"],
+                            "status": alias_summary["work_item"]["status"],
+                        },
+                    }
+                ],
+                "total": 1,
+                "limit": 30,
+                "offset": 0,
+            },
+        )
+
+    server = adapter(settings, handler)
+    audit = structured(
+        await server.call_tool(
+            "search_work",
+            {
+                "project_id": PROJECT_ID,
+                "q": "retained symptom",
+                "duplicate_scope": "aliases",
+                "canonical_work_item_id": OTHER_WORK_ID,
+            },
+        )
+    )
+    roots = structured(
+        await server.call_tool(
+            "search_work", {"project_id": PROJECT_ID, "view": "roots"}
+        )
+    )
+    assert audit["items"][0]["summary"]["readiness"]["display_state"] == "duplicate"
+    assert audit["items"][0]["matched_member"]["id"] == WORK_ID
+    assert roots["items"][0]["presentation"]["branch_merged_duplicate_count"] == 3
+    assert seen == [
+        {
+            "q": "retained symptom",
+            "status": "pending",
+            "view": "full",
+            "duplicate_scope": "aliases",
+            "canonical_work_item_id": OTHER_WORK_ID,
+            "limit": "30",
+            "offset": "0",
+        },
+        {
+            "status": "pending",
+            "view": "roots",
+            "duplicate_scope": "canonical",
+            "limit": "30",
+            "offset": "0",
+        },
+    ]
+
+
+async def test_alias_search_rejects_nonself_matched_member(settings, work_summary):
+    alias_summary = {
+        **work_summary,
+        "readiness": {
+            **work_summary["readiness"],
+            "is_duplicate": True,
+            "canonical_work_item_id": OTHER_WORK_ID,
+            "is_ready": False,
+            "display_state": "duplicate",
+        },
+    }
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "summary": alias_summary,
+                        "matched_member": {
+                            "id": OTHER_WORK_ID,
+                            "title": "Forged group member",
+                            "status": "pending",
+                        },
+                    }
+                ],
+                "total": 1,
+                "limit": 30,
+                "offset": 0,
+            },
+        )
+
+    with pytest.raises(ToolError, match="outside the requested search scope"):
+        await adapter(settings, handler).call_tool(
+            "search_work",
+            {
+                "project_id": PROJECT_ID,
+                "q": "retained symptom",
+                "duplicate_scope": "aliases",
+                "canonical_work_item_id": OTHER_WORK_ID,
+            },
+        )
+
+
+async def test_merge_work_sends_exact_private_intent_once(
+    settings, work_item, checkpoint, relationship, progress_event, human_gate
+):
+    arguments = {**protected_tool_arguments()["merge_work"], "lease_token": LEASE_TOKEN}
+    response = protected_success_responses(
+        work_item, checkpoint, relationship, progress_event, human_gate
+    )["merge_work"]
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(201, json=response)
+
+    result = structured(await adapter(settings, handler).call_tool("merge_work", arguments))
+    assert len(requests) == 1
+    assert requests[0].method == "POST"
+    assert requests[0].url.path == (
+        f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/merge"
+    )
+    assert json.loads(requests[0].content) == {
+        "client_operation_id": CLIENT_OPERATION_ID,
+        "destination_work_item_id": OTHER_WORK_ID,
+        "reviewed_source_revision": arguments["reviewed_source_revision"],
+        "reviewed_destination_revision": arguments["reviewed_destination_revision"],
+        "rationale": arguments["rationale"],
+        "merged_by_client": arguments["merged_by_client"],
+        "merged_by_session_id": arguments["merged_by_session_id"],
+        "merged_by_model": arguments["merged_by_model"],
+        "lease_token": LEASE_TOKEN,
+    }
+    assert LEASE_TOKEN not in json.dumps(result)
+    assert CLIENT_OPERATION_ID not in json.dumps(result)
+
+
+async def test_merge_work_accepts_reused_historical_duplicate_mark(
+    settings, work_item, checkpoint, relationship, progress_event, human_gate
+):
+    response = json.loads(
+        json.dumps(
+            protected_success_responses(
+                work_item, checkpoint, relationship, progress_event, human_gate
+            )["merge_work"]
+        )
+    )
+    response["supporting_relationship_created"] = False
+    response["relationship_events"] = []
+    response["supporting_relationship"].update(
+        {
+            "context_checkpoint_work_item_id": OTHER_WORK_ID,
+            "context_checkpoint_id": OTHER_CHECKPOINT_ID,
+            "created_by_client": "historical-client",
+            "created_by_session_id": "historical-session",
+            "created_by_model": None,
+            "created_at": "2026-08-29T12:00:00Z",
+        }
+    )
+
+    def handler(request):
+        return httpx.Response(201, json=response)
+
+    result = structured(
+        await adapter(settings, handler).call_tool(
+            "merge_work", protected_tool_arguments()["merge_work"]
+        )
+    )
+    assert result["supporting_relationship_created"] is False
+    assert result["relationship_events"] == []
+    assert result["supporting_relationship"]["created_by_client"] == "historical-client"
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["private_event_fk", "wrong_relationship_projection", "duplicate_event_id"],
+)
+async def test_corrupt_merge_success_is_redacted_unknown_outcome(
+    settings,
+    work_item,
+    checkpoint,
+    relationship,
+    progress_event,
+    human_gate,
+    corruption,
+):
+    response = json.loads(
+        json.dumps(
+            protected_success_responses(
+                work_item, checkpoint, relationship, progress_event, human_gate
+            )["merge_work"]
+        )
+    )
+    if corruption == "private_event_fk":
+        response["merge_events"][0]["metadata"]["work_duplicate_merge_id"] = OTHER_WORK_ID
+    elif corruption == "wrong_relationship_projection":
+        response["relationship_events"][0]["relationship_direction"] = "incoming"
+    else:
+        response["merge_events"][1]["id"] = response["merge_events"][0]["id"]
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(201, json=response)
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(
+            "merge_work",
+            {**protected_tool_arguments()["merge_work"], "lease_token": LEASE_TOKEN},
+        )
+    message = str(caught.value)
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME in message
+    assert CLIENT_OPERATION_ID not in message
+    assert LEASE_TOKEN not in message
+    assert "work_duplicate_merge_id" not in message
+    assert len(requests) == 1
+
+
+def _legacy_duplicate_arguments():
+    arguments = protected_tool_arguments()
+    create_arguments = {
+        **arguments["create_work"],
+        "initial_relationships": [
+            {
+                "type": "duplicate-of",
+                "direction": "outgoing",
+                "other_work_item_id": OTHER_WORK_ID,
+            }
+        ],
+    }
+    add_arguments = {
+        **arguments["add_relationship"],
+        "source_work_item_id": WORK_ID,
+        "target_work_item_id": OTHER_WORK_ID,
+        "relationship_type": "duplicate-of",
+    }
+    return create_arguments, add_arguments
+
+
+async def test_legacy_duplicate_receipts_still_dispatch_and_replay_once(
+    settings, work_item, checkpoint, relationship, progress_event, human_gate
+):
+    create_arguments, add_arguments = _legacy_duplicate_arguments()
+    responses = protected_success_responses(
+        work_item, checkpoint, relationship, progress_event, human_gate
+    )
+    initial_checkpoint = responses["create_work"]["initial_checkpoint"]
+    duplicate_edge = {
+        **relationship,
+        "relationship_type": "duplicate-of",
+        "source_work_item_id": WORK_ID,
+        "target_work_item_id": OTHER_WORK_ID,
+        "context_checkpoint_work_item_id": None,
+        "context_checkpoint_id": None,
+        "created_by_client": initial_checkpoint["source_client"],
+        "created_by_session_id": initial_checkpoint["source_session_id"],
+        "created_by_model": initial_checkpoint["source_model"],
+    }
+    create_response = {
+        **responses["create_work"],
+        "initial_relationships": [duplicate_edge],
+    }
+    add_response = {
+        "relationship": {
+            **duplicate_edge,
+            "created_by_client": add_arguments["created_by_client"],
+            "created_by_session_id": add_arguments["created_by_session_id"],
+            "created_by_model": None,
+        },
+        "created": True,
+    }
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if request.url.path.endswith("/relationships"):
+            return httpx.Response(200, json=add_response)
+        return httpx.Response(201, json=create_response)
+
+    server = adapter(settings, handler)
+    created = structured(await server.call_tool("create_work", create_arguments))
+    added = structured(await server.call_tool("add_relationship", add_arguments))
+    assert created["initial_relationships"][0]["relationship_type"] == "duplicate-of"
+    assert added["relationship"]["relationship_type"] == "duplicate-of"
+    assert len(requests) == 2
+    assert [json.loads(request.content)["client_operation_id"] for request in requests] == [
+        CLIENT_OPERATION_ID,
+        CLIENT_OPERATION_ID,
+    ]
+
+
+@pytest.mark.parametrize("tool_name", ["create_work", "add_relationship"])
+async def test_fresh_legacy_duplicate_call_reaches_definite_backend_rejection_once(
+    settings, tool_name
+):
+    arguments = dict(
+        zip(
+            ("create_work", "add_relationship"),
+            _legacy_duplicate_arguments(),
+            strict=True,
+        )
+    )[tool_name]
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            409,
+            json={
+                "detail": {
+                    "code": "duplicate_merge_required",
+                    "message": f"private {API_KEY}",
+                    "context": {"private": LEASE_TOKEN},
+                }
+            },
+        )
+
+    with pytest.raises(ToolError, match="Generic duplicate marks are closed") as caught:
+        await adapter(settings, handler).call_tool(tool_name, arguments)
+    message = str(caught.value)
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME not in message
+    assert API_KEY not in message
+    assert LEASE_TOKEN not in message
+    assert len(requests) == 1
+
+
+async def test_work_duplicate_error_exposes_only_valid_canonical_id(settings):
+    private_marker = "private-alias-diagnostic"
+
+    def handler(request):
+        return httpx.Response(
+            409,
+            json={
+                "detail": {
+                    "code": "work_duplicate",
+                    "message": private_marker,
+                    "context": {
+                        "canonical_work_item_id": OTHER_WORK_ID,
+                        "source_work_item_id": WORK_ID,
+                        "lease_token": LEASE_TOKEN,
+                        "private": private_marker,
+                    },
+                }
+            },
+        )
+
+    with pytest.raises(ToolError, match=OTHER_WORK_ID) as caught:
+        await adapter(settings, handler).call_tool(
+            "update_work", protected_tool_arguments()["update_work"]
+        )
+    message = str(caught.value)
+    assert "retained duplicate audit record" in message
+    assert WORK_ID not in message
+    assert LEASE_TOKEN not in message
+    assert private_marker not in message
+
+
+async def test_safe_read_effect_is_not_inferred_from_post_method(settings):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        raise httpx.ReadTimeout("private-safe-read-diagnostic", request=request)
+
+    api = MnemonicAPI(settings, httpx.MockTransport(handler))
+    with pytest.raises(ToolError, match="API is unavailable") as caught:
+        await api.request("POST", "read-only-post", effect=TransportEffect.SAFE_READ)
+    assert "outcome is unknown" not in str(caught.value)
+    assert "private-safe-read-diagnostic" not in str(caught.value)
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("corruption", ["merge_checkpoint", "foreign_event"])
+async def test_recall_rejects_blended_or_stale_exact_history(
+    settings, work_context, progress_event, corruption
+):
+    response = json.loads(json.dumps(work_context))
+    if corruption == "merge_checkpoint":
+        response["merge_review_revision"]["context_checkpoint_id"] = OTHER_CHECKPOINT_ID
+    else:
+        response["recent_events"] = [{**progress_event, "work_item_id": OTHER_WORK_ID}]
+        response["event_total"] = 1
+        response["omitted_event_count"] = 0
+
+    def handler(request):
+        return httpx.Response(200, json=response)
+
+    with pytest.raises(ToolError, match="unexpected response") as caught:
+        await adapter(settings, handler).call_tool(
+            "recall_work", {"project_id": PROJECT_ID, "work_item_id": WORK_ID}
+        )
+    assert OTHER_WORK_ID not in str(caught.value)
+    assert OTHER_CHECKPOINT_ID not in str(caught.value)
+
+
+async def test_typed_duplicate_graph_failure_is_a_definitive_protected_stop(settings):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            503,
+            json={
+                "detail": {
+                    "code": "duplicate_graph_invalid",
+                    "message": f"private {API_KEY}",
+                    "context": {"lease_token": LEASE_TOKEN},
+                }
+            },
+        )
+
+    with pytest.raises(ToolError, match="canonical duplicate graph is invalid") as caught:
+        await adapter(settings, handler).call_tool(
+            "merge_work", protected_tool_arguments()["merge_work"]
+        )
+
+    message = str(caught.value)
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME not in message
+    assert API_KEY not in message
+    assert LEASE_TOKEN not in message
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("tool_name", ["get_work", "recall_work"])
+@pytest.mark.parametrize("scope_field", ["project_id", "id"])
+async def test_exact_work_reads_reject_a_different_response_identity(
+    settings, work_item, work_context, tool_name, scope_field
+):
+    del work_item
+    response = json.loads(json.dumps(work_context))
+    if tool_name == "get_work":
+        response = {
+            "work_item": response["work_item"],
+            "canonical": response["canonical"],
+        }
+    returned_work = response["work_item"]
+    returned_work[scope_field] = (
+        OTHER_CHECKPOINT_ID if scope_field == "project_id" else OTHER_WORK_ID
+    )
+
+    def handler(request):
+        return httpx.Response(200, json=response)
+
+    with pytest.raises(
+        ToolError, match="outside the requested exact scope|unexpected response"
+    ) as caught:
+        await adapter(settings, handler).call_tool(
+            tool_name, {"project_id": PROJECT_ID, "work_item_id": WORK_ID}
+        )
+    assert OTHER_WORK_ID not in str(caught.value)
+    assert OTHER_CHECKPOINT_ID not in str(caught.value)
+
+
+@pytest.mark.parametrize("tool_name", ["claim_work", "claim_and_recall"])
+async def test_claim_receipt_identity_mismatch_has_unknown_outcome_guidance(
+    settings, claim_receipt, active_work_context, tool_name
+):
+    poisoned_receipt = {**claim_receipt, "holder_session_id": "different-session"}
+
+    def handler(request):
+        response = poisoned_receipt
+        if tool_name == "claim_and_recall":
+            response = {"lease": poisoned_receipt, "context": active_work_context}
+        return httpx.Response(200, json=response)
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(
+            tool_name,
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "holder_client": claim_receipt["holder_client"],
+                "holder_session_id": claim_receipt["holder_session_id"],
+                "claim_request_id": claim_receipt["claim_request_id"],
+            },
+        )
+    message = str(caught.value)
+    assert UNKNOWN_CLAIM_OUTCOME in message
+    assert LEASE_TOKEN not in message
+
+
+async def test_renew_receipt_token_mismatch_never_claims_a_confirmed_renewal(
+    settings, claim_receipt
+):
+    poisoned_receipt = {**claim_receipt, "lease_token": "b" * 64}
+
+    def handler(request):
+        return httpx.Response(200, json=poisoned_receipt)
+
+    with pytest.raises(ToolError, match="incoherent renewal response") as caught:
+        await adapter(settings, handler).call_tool(
+            "renew_claim",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+                "lease_token": LEASE_TOKEN,
+            },
+        )
+    message = str(caught.value)
+    assert "exact same claim_request_id" not in message
+    assert LEASE_TOKEN not in message
+    assert "b" * 64 not in message

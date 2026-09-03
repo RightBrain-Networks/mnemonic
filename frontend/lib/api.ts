@@ -10,7 +10,9 @@ export class ApiError extends Error {
   }
 }
 
-const SAFE_ERROR_CONTEXT = new Set(["holder_client", "expires_at"]);
+const SAFE_ERROR_CONTEXT = new Set([
+  "holder_client", "expires_at", "canonical_work_item_id"
+]);
 
 const SAFE_VALIDATION_LOCATION_ROOTS = new Set(["body", "query", "path", "header", "cookie"]);
 const SAFE_VALIDATION_LOCATION_PARTS = new Set([
@@ -22,17 +24,22 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "checkpoint",
   "client_operation_id",
   "context_checkpoint_id",
+  "canonical_work_item_id",
   "created_by_client",
   "created_by_model",
   "created_by_session_id",
   "description",
   "direction",
+  "destination_work_item_id",
+  "duplicate_scope",
   "event_type",
   "gate_id",
   "gate_type",
   "expected_version",
+  "exclude_work_item_id",
   "id",
   "initial_checkpoint",
+  "initial_prompt",
   "kind",
   "limit",
   "metadata",
@@ -54,6 +61,8 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "resolved_by_model",
   "resolved_by_session_id",
   "reviewed_context_revision",
+  "reviewed_destination_revision",
+  "reviewed_source_revision",
   "repository_branch",
   "repository_url",
   "semantic",
@@ -64,6 +73,10 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "source_session_id",
   "source_session_url",
   "source_work_item_id",
+  "merged_by_client",
+  "merged_by_model",
+  "merged_by_session_id",
+  "rationale",
   "status",
   "summary",
   "tag",
@@ -74,6 +87,7 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "verified_against",
   "view",
   "work_item_id",
+  "work_event_count",
   "work_version"
 ]);
 

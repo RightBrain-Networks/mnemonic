@@ -1,12 +1,14 @@
 """Concurrency-safe project graph mutations and adjacency projections."""
 
 from collections.abc import Iterable, Sequence
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
-from mnemonic_api.errors import conflict, not_found
+from mnemonic_api.database import begin_coherent_read
+from mnemonic_api.errors import conflict, duplicate_merge_required, not_found
 from mnemonic_api.models import (
     Checkpoint,
     Project,
@@ -187,6 +189,13 @@ def stage_relationship_locked(
     if source_work_item_id not in locked_work_items or target_work_item_id not in locked_work_items:
         raise not_found("work_item_not_found", "Work item not found.")
 
+    from mnemonic_api.services.duplicates import require_canonical_work_item
+
+    require_canonical_work_item(database, locked_work_items[source_work_item_id])
+    require_canonical_work_item(database, locked_work_items[target_work_item_id])
+    if relationship_type == "duplicate-of":
+        raise duplicate_merge_required()
+
     existing = database.scalar(
         select(WorkRelationship).where(
             WorkRelationship.project_id == project_id,
@@ -252,6 +261,54 @@ def stage_relationship_locked(
         created_by_client=created_by_client,
         created_by_session_id=created_by_session_id,
         created_by_model=created_by_model,
+    )
+    database.add(relationship)
+    database.flush()
+    return relationship, True
+
+
+def stage_merge_relationship_locked(
+    database: Session,
+    *,
+    relationship_id: UUID,
+    merge_id: UUID,
+    project_id: UUID,
+    source_work_item_id: UUID,
+    destination_work_item_id: UUID,
+    created_by_client: str,
+    created_by_session_id: str,
+    created_by_model: str | None,
+    created_at: datetime,
+    locked_work_items: dict[UUID, WorkItem],
+) -> tuple[WorkRelationship, bool]:
+    """Reuse or stage the exact merge witness after graph/endpoints are already locked."""
+    if set((source_work_item_id, destination_work_item_id)) - set(locked_work_items):
+        raise not_found("work_item_not_found", "Work item not found.")
+    existing = database.scalar(
+        select(WorkRelationship)
+        .where(
+            WorkRelationship.project_id == project_id,
+            WorkRelationship.relationship_type == "duplicate-of",
+            WorkRelationship.source_work_item_id == source_work_item_id,
+            WorkRelationship.target_work_item_id == destination_work_item_id,
+        )
+        .with_for_update()
+    )
+    if existing is not None:
+        return existing, False
+    relationship = WorkRelationship(
+        id=relationship_id,
+        project_id=project_id,
+        relationship_type="duplicate-of",
+        source_work_item_id=source_work_item_id,
+        target_work_item_id=destination_work_item_id,
+        context_checkpoint_work_item_id=None,
+        context_checkpoint_id=None,
+        created_by_client=created_by_client,
+        created_by_session_id=created_by_session_id,
+        created_by_model=created_by_model,
+        created_for_duplicate_merge_id=merge_id,
+        created_at=created_at,
     )
     database.add(relationship)
     database.flush()
@@ -340,6 +397,14 @@ def remove_relationship_record(
         project_id,
         [relationship.source_work_item_id, relationship.target_work_item_id],
     )
+    from mnemonic_api.services.duplicates import is_duplicate_work_item
+
+    if is_duplicate_work_item(database, relationship.source_work_item_id) or is_duplicate_work_item(
+        database, relationship.target_work_item_id
+    ):
+        from mnemonic_api.errors import duplicate_relationship_frozen
+
+        raise duplicate_relationship_frozen()
     relationship = database.scalar(
         select(WorkRelationship)
         .where(
@@ -372,7 +437,12 @@ def remove_relationship_record(
     )
 
 
-def _work_pointers(database: Session, work_item_ids: Sequence[UUID]) -> dict[UUID, WorkPointer]:
+def _work_pointers(
+    database: Session,
+    work_item_ids: Sequence[UUID],
+    *,
+    as_of: datetime | None = None,
+) -> dict[UUID, WorkPointer]:
     if not work_item_ids:
         return {}
     work_items = list(
@@ -383,9 +453,13 @@ def _work_pointers(database: Session, work_item_ids: Sequence[UUID]) -> dict[UUI
             )
         )
     )
-    blocker_counts, gate_counts, active_leases, dropped_lease_ids = readiness_inputs(
-        database, work_item_ids
-    )
+    (
+        blocker_counts,
+        gate_counts,
+        active_leases,
+        dropped_lease_ids,
+        canonical_ids,
+    ) = readiness_inputs(database, work_item_ids, as_of=as_of)
     return {
         work_item.id: WorkPointer(
             id=work_item.id,
@@ -397,6 +471,7 @@ def _work_pointers(database: Session, work_item_ids: Sequence[UUID]) -> dict[UUI
                 blocker_counts.get(work_item.id, 0),
                 work_item.id in dropped_lease_ids,
                 gate_counts.get(work_item.id, 0),
+                canonical_work_item_id=canonical_ids.get(work_item.id, work_item.id),
             ),
         )
         for work_item in work_items
@@ -430,7 +505,11 @@ def list_adjacent_relationships(
 ) -> tuple[list[AdjacentRelationshipRead], int]:
     from mnemonic_api.services.work_items import require_work_item
 
+    begin_coherent_read(database)
     require_work_item(database, project_id, work_item_id)
+    as_of = database.scalar(select(func.transaction_timestamp()))
+    if as_of is None:
+        raise RuntimeError("Database did not provide a transaction timestamp")
     if filters.direction == "incoming":
         adjacency = (
             WorkRelationship.target_work_item_id == work_item_id,
@@ -477,7 +556,7 @@ def list_adjacent_relationships(
         else relationship.source_work_item_id
         for relationship in relationships
     ]
-    pointers = _work_pointers(database, counterpart_ids)
+    pointers = _work_pointers(database, counterpart_ids, as_of=as_of)
     return [
         adjacent_relationship(
             relationship,
