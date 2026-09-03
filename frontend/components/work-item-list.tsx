@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode, type RefObject } from "react";
+import { useWorkSplit } from "@/components/use-work-split";
 import WorkQueue from "@/components/work-queue";
 import type { DuplicateScope, StatusFilter, WorkSort, WorkSummary } from "@/lib/types";
 import {
@@ -9,6 +10,7 @@ import {
   statusFilterLabels,
   type WorkQueueItem
 } from "@/lib/work-queue";
+import { WORK_SPLIT_MAX, WORK_SPLIT_MIN } from "@/lib/work-split";
 
 const filters: StatusFilter[] = [
   "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
@@ -122,6 +124,7 @@ export default function WorkItemList({
   detail
 }: WorkItemListProps) {
   const [moreFilters, setMoreFilters] = useState(false);
+  const workSplit = useWorkSplit<HTMLElement>();
   const forced = moreFiltersForced({
     duplicateScope,
     canonicalWorkItemId,
@@ -186,7 +189,7 @@ export default function WorkItemList({
       </div>}
     </section>
 
-    <section className="work-surface" aria-label="Work surface">
+    <section ref={workSplit.surfaceRef} className={`work-surface ${workSplit.resizing ? "is-resizing" : ""}`} style={workSplit.surfaceStyle} aria-label="Work surface">
       <WorkQueue
         items={items}
         flatSearch={flatSearch}
@@ -220,6 +223,19 @@ export default function WorkItemList({
         onClearFilters={onClearFilters}
         onCreate={onCreate}
       />
+      <div
+        className="work-surface-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the work queue"
+        aria-valuemin={WORK_SPLIT_MIN}
+        aria-valuemax={WORK_SPLIT_MAX}
+        aria-valuenow={Math.round(workSplit.split)}
+        aria-valuetext={`Queue ${Math.round(workSplit.split)}% of the surface`}
+        title="Drag to resize the queue. Double-click to reset."
+        tabIndex={0}
+        {...workSplit.separatorProps}
+      ><span aria-hidden="true" /></div>
       {detail}
     </section>
     <footer className="library-footer"><Icon name="box" size={15} /><span>Agent-authored checkpoints are historical context, not new owner instructions.</span></footer>

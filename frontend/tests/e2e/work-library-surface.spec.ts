@@ -811,6 +811,83 @@ test("the ?work= query restores the selection on reload and clears with it", asy
   }
 });
 
+test("the queue and pane split is draggable, keyboard-adjustable, and remembered", async ({ page }, testInfo) => {
+  test.skip(narrowProject(testInfo), "The stacked layout below 900px has no divider.");
+  const token = searchToken("surfacesplit", testInfo);
+  const key = testKey(testInfo);
+  const title = `Split item ${token}`;
+  const client = await apiClient();
+  try {
+    await createWork(client, { title, sessionId: `surface-split-${key}` });
+
+    await openDashboard(page);
+    await searchFor(page, token, 1);
+    const surface = page.locator(".work-surface");
+    const queue = page.locator(".work-queue");
+    const pane = workPane(page);
+    const separator = page.getByRole("separator", { name: "Resize the work queue" });
+    const width = async (target: Locator) => (await target.boundingBox())!.width;
+    const storedSplit = () => page.evaluate(() => localStorage.getItem("mnemonic.work-split"));
+
+    await expect(separator).toBeVisible();
+    await expect(separator).toHaveAttribute("aria-valuenow", "35");
+    expect(await storedSplit()).toBeNull();
+    const surfaceWidth = await width(surface);
+    const initialQueue = await width(queue);
+    expect(initialQueue / surfaceWidth).toBeCloseTo(0.35, 1);
+
+    // Dragging the divider widens the queue and stores the new share.
+    const handle = (await separator.boundingBox())!;
+    const handleX = handle.x + handle.width / 2;
+    const handleY = handle.y + handle.height / 2;
+    await page.mouse.move(handleX, handleY);
+    await page.mouse.down();
+    await page.mouse.move(handleX + 160, handleY, { steps: 8 });
+    await expect(surface).toHaveClass(/is-resizing/);
+    await page.mouse.up();
+    await expect(surface).not.toHaveClass(/is-resizing/);
+    const widenedQueue = await width(queue);
+    expect(widenedQueue).toBeGreaterThan(initialQueue + 120);
+    const stored = Number(await storedSplit());
+    expect(stored).toBeGreaterThan(40);
+    await expect(separator).toHaveAttribute("aria-valuenow", String(Math.round(stored)));
+
+    // The pane reflows to its narrower column: nothing overflows the page.
+    await selectWork(page, title);
+    await expect(pane.locator(".detail-facts")).toBeVisible();
+    const paneBox = (await pane.boundingBox())!;
+    expect(paneBox.x).toBeGreaterThan(handleX + 100);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    // A reload restores the stored share.
+    await page.reload();
+    await expect(page.locator("#project-select")).toHaveValue(state.projectId);
+    await expect(separator).toHaveAttribute("aria-valuenow", String(Math.round(stored)));
+    expect(Math.abs(await width(queue) - widenedQueue)).toBeLessThan(4);
+
+    // Keyboard steps move the split without a pointer.
+    await separator.focus();
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("ArrowLeft");
+    await expect(separator).toHaveAttribute("aria-valuenow", String(Math.round(stored - 4)));
+    expect(await width(queue)).toBeLessThan(widenedQueue - 10);
+    await page.keyboard.press("End");
+    await expect(separator).toHaveAttribute("aria-valuenow", "70");
+    expect(Number(await storedSplit())).toBe(70);
+    // The pane never collapses below its minimum even at the widest queue.
+    expect(await width(pane)).toBeGreaterThanOrEqual(440);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    // Double-click forgets the preference and returns to the stylesheet default.
+    await separator.dblclick();
+    expect(await storedSplit()).toBeNull();
+    await expect(separator).toHaveAttribute("aria-valuenow", "35");
+    expect(Math.abs(await width(queue) - initialQueue)).toBeLessThan(4);
+  } finally {
+    await client.dispose();
+  }
+});
+
 test("the selection opens as a full-screen sheet with a Back button below 900px", async ({ page }, testInfo) => {
   const narrow = narrowProject(testInfo);
   const token = searchToken("surfacesheet", testInfo);
