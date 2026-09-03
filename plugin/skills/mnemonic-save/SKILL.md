@@ -64,6 +64,25 @@ by the user. Full rules for session, client, model, branch, and
 `verified_against` provenance, and for what must never be stored, are in
 [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
 
+Read
+[repository-freshness.md](${CLAUDE_PLUGIN_ROOT}/reference/repository-freshness.md)
+before authoring repository provenance. For each full checkpoint, declare
+`affected_paths` as the actual version-control dependencies of its assertions,
+not a blindly copied diff. Prefer the narrowest sufficient stable scope; use
+`**` only when all eligible repository paths truly govern the claims. Every
+pattern must follow the v1 ASCII grammar and match independently when later
+assessed. A literal names one file or gitlink; use `directory/**` for a
+directory.
+
+Set non-empty scope only with a `verified_against` commit whose cited state this
+session actually inspected, and record `repository_branch` only when known.
+When uncommitted, ignored, generated, submodule-interior, symlink-target,
+runtime, or external state cannot be represented by that commit and scope,
+omit the scope rather than imply coverage and disclose the limitation in the
+checkpoint text or source metadata. Suggested diff paths require author review.
+Freeze the exact ordered scope with the protected mutation intent; changing,
+reordering, adding, or removing a path requires a new operation UUID.
+
 ## Prepare each protected write once
 
 The eleven protected mutations are `create_work`, `add_checkpoint`,

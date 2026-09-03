@@ -13,6 +13,7 @@ from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.main import create_app
 from mnemonic_api.schemas import (
     CheckpointCreate,
+    CheckpointRead,
     CompletionCheckpointCreate,
     InitialCheckpointCreate,
     LeaseTokenCreate,
@@ -27,6 +28,52 @@ from mnemonic_api.schemas import (
     WorkItemPatch,
 )
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+SCOPE_CORPUS = json.loads(
+    (
+        REPOSITORY_ROOT
+        / "tests"
+        / "fixtures"
+        / "repository-freshness-scope-v1.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+def generated_scope(case: dict[str, object]) -> list[str]:
+    count = int(case["count"])
+    entry_bytes = int(case["entry_bytes"])
+    prefix_width = int(case["prefix_width"])
+    fill = str(case["fill"])
+    extra_bytes_on_first = int(case["extra_bytes_on_first"])
+    paths = []
+    for index in range(count):
+        prefix = f"{index:0{prefix_width}d}"
+        target_bytes = entry_bytes + (extra_bytes_on_first if index == 0 else 0)
+        paths.append(prefix + fill * (target_bytes - len(prefix)))
+    return paths
+
+
+def checkpoint_read_payload(**changes):
+    payload = {
+        "id": str(uuid4()),
+        "work_item_id": str(uuid4()),
+        "kind": "context",
+        "prompt": "Exact checkpoint context.",
+        "source_client": "claude-code",
+        "source_session_id": "phase-10-validation",
+        "source_model": None,
+        "source_session_url": None,
+        "repository_branch": None,
+        "verified_against": None,
+        "tags": [],
+        "source_metadata": {},
+        "migration_origin": None,
+        "legacy_record_id": None,
+        "created_at": datetime.now(UTC),
+    }
+    payload.update(changes)
+    return payload
+
 
 def test_prompt_is_exact_and_metadata_survives(checkpoint_fields):
     checkpoint_fields["prompt"] += "\nUnicode: café 日本語 🧠\t"
@@ -36,6 +83,226 @@ def test_prompt_is_exact_and_metadata_survives(checkpoint_fields):
     assert parsed.source_metadata == checkpoint_fields["source_metadata"]
     assert parsed.tags == ["cache", "correctness"]
     assert parsed.source_session_id == "3d46fe7a-session:opaque_001"
+
+
+@pytest.mark.parametrize(
+    "affected_path",
+    [
+        "src/file.py",
+        "src/**",
+        "tests/test_*.py",
+        "*",
+        "**",
+        "-leading-option-like-name",
+        "A0._@+=,~-*",
+    ],
+)
+def test_affected_path_valid_grammar_is_exact_and_preserved(affected_path):
+    parsed = InitialCheckpointCreate.model_validate(
+        {
+            "prompt": "Scope validation.",
+            "source_client": "pytest",
+            "source_session_id": "phase-10",
+            "verified_against": "ABCDEF1",
+            "affected_paths": [affected_path],
+        }
+    )
+
+    assert parsed.verified_against == "abcdef1"
+    assert parsed.affected_paths == [affected_path]
+    assert parsed.model_dump(mode="json")["affected_paths"] == [affected_path]
+
+
+def test_affected_paths_empty_is_unknown_and_canonically_omitted_at_every_nesting():
+    base = {
+        "prompt": "No dependency scope was declared.",
+        "source_client": "pytest",
+        "source_session_id": "phase-10",
+    }
+    omitted = InitialCheckpointCreate.model_validate(base)
+    explicit = InitialCheckpointCreate.model_validate({**base, "affected_paths": []})
+
+    assert omitted.affected_paths == explicit.affected_paths == []
+    assert omitted.model_dump(mode="json") == explicit.model_dump(mode="json")
+    assert "affected_paths" not in explicit.model_dump(mode="json")
+
+    work = WorkItemCreate.model_validate(
+        {
+            "title": "Sparse nested checkpoint",
+            "summary": "Preserve the historical canonical request body.",
+            "initial_checkpoint": {**base, "affected_paths": []},
+        }
+    )
+    assert "affected_paths" not in work.model_dump(mode="json")["initial_checkpoint"]
+
+    historical_read = CheckpointRead.model_validate(checkpoint_read_payload())
+    explicit_empty_read = CheckpointRead.model_validate(
+        checkpoint_read_payload(affected_paths=[])
+    )
+    assert historical_read.affected_paths == explicit_empty_read.affected_paths == []
+    assert "affected_paths" not in explicit_empty_read.model_dump(mode="json")
+
+
+def test_affected_paths_preserve_order_case_and_exact_boundary():
+    paths = [f"{index:02d}" + "a" * 254 for index in range(64)]
+    parsed = InitialCheckpointCreate.model_validate(
+        {
+            "prompt": "Maximum safe scope.",
+            "source_client": "pytest",
+            "source_session_id": "phase-10",
+            "verified_against": "abcdef1",
+            "affected_paths": paths,
+        }
+    )
+
+    assert parsed.affected_paths == paths
+    assert sum(len(path.encode("utf-8")) for path in parsed.affected_paths) == 16384
+    assert InitialCheckpointCreate.model_validate(
+        {
+            "prompt": "Maximum entry.",
+            "source_client": "pytest",
+            "source_session_id": "phase-10-entry",
+            "verified_against": "abcdef1",
+            "affected_paths": ["A" * 512],
+        }
+    ).affected_paths == ["A" * 512]
+
+
+@pytest.mark.parametrize(
+    "affected_paths",
+    [
+        [""],
+        ["/absolute"],
+        ["trailing/"],
+        ["repeated//separator"],
+        ["./relative"],
+        ["parent/../escape"],
+        [r"windows\\path"],
+        ["C:/drive"],
+        ["has space"],
+        ["caf\N{LATIN SMALL LETTER E WITH ACUTE}.py"],
+        ["line\nbreak"],
+        ["question?.py"],
+        ["class[ab].py"],
+        ["brace{a,b}.py"],
+        ["quote'file"],
+        ["dollar$file"],
+        ["tick`file"],
+        [":(glob)src/**"],
+        ["!excluded"],
+        ["^excluded"],
+        ["bad**component"],
+        ["***"],
+        ["src/**suffix"],
+        ["duplicate", "duplicate"],
+        ["x" * 513],
+        [f"path-{index}" for index in range(65)],
+        ["a" * 257, *(f"{index:02d}" + "a" * 254 for index in range(1, 64))],
+    ],
+    ids=lambda value: repr(value)[:48],
+)
+def test_affected_paths_reject_every_unsupported_or_excess_form(affected_paths):
+    with pytest.raises(ValidationError):
+        InitialCheckpointCreate.model_validate(
+            {
+                "prompt": "Invalid dependency scope.",
+                "source_client": "pytest",
+                "source_session_id": "phase-10",
+                "verified_against": "abcdef1",
+                "affected_paths": affected_paths,
+            }
+        )
+
+
+@pytest.mark.parametrize("affected_paths", [None, "src/**", [None], [1]])
+def test_affected_paths_are_a_strict_string_list(affected_paths):
+    with pytest.raises(ValidationError):
+        InitialCheckpointCreate.model_validate(
+            {
+                "prompt": "Invalid dependency scope type.",
+                "source_client": "pytest",
+                "source_session_id": "phase-10",
+                "verified_against": "abcdef1",
+                "affected_paths": affected_paths,
+            }
+        )
+
+
+def test_nonempty_affected_paths_require_a_baseline_on_inputs_and_reads():
+    with pytest.raises(ValidationError):
+        InitialCheckpointCreate.model_validate(
+            {
+                "prompt": "Missing baseline.",
+                "source_client": "pytest",
+                "source_session_id": "phase-10",
+                "affected_paths": ["src/**"],
+            }
+        )
+    with pytest.raises(ValidationError):
+        CheckpointRead.model_validate(
+            checkpoint_read_payload(affected_paths=["src/**"])
+        )
+
+
+def test_shared_repository_scope_corpus_matches_backend_validator():
+    assert SCOPE_CORPUS["version"] == "repository-freshness-scope-v1"
+    base = {
+        "prompt": "Shared repository-scope corpus.",
+        "source_client": "pytest",
+        "source_session_id": "phase-10-shared-corpus",
+        "verified_against": "abcdef1",
+    }
+    for path in SCOPE_CORPUS["valid_paths"]:
+        parsed = InitialCheckpointCreate.model_validate(
+            {**base, "affected_paths": [path]}
+        )
+        assert parsed.affected_paths == [path]
+    for path in SCOPE_CORPUS["invalid_paths"]:
+        with pytest.raises(ValidationError):
+            InitialCheckpointCreate.model_validate({**base, "affected_paths": [path]})
+
+    for case in SCOPE_CORPUS["generated_scopes"]:
+        paths = generated_scope(case)
+        assert sum(len(path.encode("ascii")) for path in paths) == int(
+            case["expected_total_bytes"]
+        )
+        if case["valid"]:
+            assert InitialCheckpointCreate.model_validate(
+                {**base, "affected_paths": paths}
+            ).affected_paths == paths
+        else:
+            with pytest.raises(ValidationError):
+                InitialCheckpointCreate.model_validate(
+                    {**base, "affected_paths": paths}
+                )
+    for case in SCOPE_CORPUS["literal_scopes"]:
+        with pytest.raises(ValidationError):
+            InitialCheckpointCreate.model_validate(
+                {**base, "affected_paths": case["paths"]}
+            )
+
+    supported = set(SCOPE_CORPUS["component_characters"])
+    for codepoint in range(128):
+        character = chr(codepoint)
+        path = f"a{character}b"
+        if character in supported or character == "/":
+            assert InitialCheckpointCreate.model_validate(
+                {**base, "affected_paths": [path]}
+            ).affected_paths == [path]
+        else:
+            with pytest.raises(ValidationError):
+                InitialCheckpointCreate.model_validate(
+                    {**base, "affected_paths": [path]}
+                )
+
+    with pytest.raises(ValidationError, match="verified_against"):
+        InitialCheckpointCreate.model_validate(
+            {
+                **base,
+                "verified_against": None,
+                "affected_paths": [SCOPE_CORPUS["requires_baseline_path"]],
+            }
+        )
 
 
 @pytest.mark.parametrize(
@@ -826,6 +1093,13 @@ def test_validation_error_sanitizer_allowlists_locations_and_drops_raw_content()
                 "msg": root_value,
             },
             {
+                "type": "value_error",
+                "loc": ("body", "affected_paths", 0),
+                "msg": nested_value,
+                "input": nested_value,
+                "ctx": {"error": nested_value},
+            },
+            {
                 "type": root_value,
                 "loc": ("body", "metadata", nested_key),
                 "msg": nested_value,
@@ -848,6 +1122,11 @@ def test_validation_error_sanitizer_allowlists_locations_and_drops_raw_content()
             "type": "missing",
             "loc": ["body", "actor", "actor_client"],
             "msg": "Field required.",
+        },
+        {
+            "type": "value_error",
+            "loc": ["body", "affected_paths", 0],
+            "msg": "Value is invalid.",
         },
         {
             "type": "validation_error",

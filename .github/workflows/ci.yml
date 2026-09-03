@@ -90,8 +90,11 @@ jobs:
       - name: Check MCP
         working-directory: mcp
         run: uv run ruff check .
-      - name: Check live stack script
-        run: uv run --project backend ruff check scripts/check-stack.py
+      - name: Check operational scripts
+        run: |
+          uv run --project backend ruff check \
+            scripts/audit_duplicate_handling.py \
+            scripts/check-stack.py
 
   ty:
     name: ty
@@ -178,6 +181,23 @@ jobs:
       - name: Run MCP tests
         working-directory: mcp
         run: uv run pytest -q
+      - name: Run repository freshness verifier tests
+        run: uv run --project mcp python -m unittest discover -s plugin/tests -p 'test_*.py'
+
+  repository-freshness-runtime:
+    name: Repository freshness runtime
+    runs-on: macos-15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Exercise installed payload with macOS Bash and Git
+        env:
+          MNEMONIC_AUTHENTIC_BASH: /bin/bash
+          MNEMONIC_AUTHENTIC_GIT: git
+          MNEMONIC_REQUIRE_EXACT_BASH_3_2: "1"
+        run: python3 -m unittest discover -s plugin/tests -p 'test_*.py'
 
   frontend:
     name: Frontend checks
@@ -209,7 +229,8 @@ jobs:
   required:
     name: Required checks
     if: ${{ always() }}
-    needs: [gitleaks, ruff, ty, backend-tests, mcp-tests, frontend]
+    needs:
+      [gitleaks, ruff, ty, backend-tests, mcp-tests, repository-freshness-runtime, frontend]
     runs-on: ubuntu-latest
     steps:
       - name: Verify required jobs succeeded
@@ -219,6 +240,7 @@ jobs:
           TY_RESULT: ${{ needs.ty.result }}
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
           MCP_RESULT: ${{ needs.mcp-tests.result }}
+          REPOSITORY_FRESHNESS_RUNTIME_RESULT: ${{ needs.repository-freshness-runtime.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
         run: |
           for result in \
@@ -227,6 +249,7 @@ jobs:
             "$TY_RESULT" \
             "$BACKEND_RESULT" \
             "$MCP_RESULT" \
+            "$REPOSITORY_FRESHNESS_RUNTIME_RESULT" \
             "$FRONTEND_RESULT"
           do
             test "$result" = "success" || exit 1

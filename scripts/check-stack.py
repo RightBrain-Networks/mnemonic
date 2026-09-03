@@ -8,6 +8,11 @@ irreversible duplicate merge with response-loss receipt recovery. Cleanup
 removes the reversible graph but deliberately retains both merged work items,
 their frozen relationship, merge record, events, and receipts as evidence.
 
+The writable Phase 10 path also requires --verified-against plus one or more
+--affected-path values. They must describe a real commit and dependency scope
+that the operator actually inspected; the checker never fabricates repository
+provenance and does not run Git itself.
+
 Never authorize writes against a project without permission. Because merge
 evidence cannot be deleted, use --project-id only with a disposable project.
 """
@@ -25,7 +30,8 @@ from uuid import UUID, uuid4
 
 import httpx
 from mcp.client.streamable_http import streamablehttp_client
-from pydantic import AnyUrl
+from mnemonic_mcp.models import CheckpointInput
+from pydantic import AnyUrl, ValidationError
 
 from mcp import ClientSession
 
@@ -95,11 +101,54 @@ def require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def _validation_schema(value: Any) -> Any:
+    """Drop presentation-only JSON Schema annotations before exact comparison."""
+    if isinstance(value, dict):
+        return {
+            key: _validation_schema(item)
+            for key, item in value.items()
+            if key not in {"description", "examples", "title"}
+        }
+    if isinstance(value, list):
+        return [_validation_schema(item) for item in value]
+    return value
+
+
 def project_uuid(value: str) -> str:
     try:
         return str(UUID(value))
     except ValueError:
         raise argparse.ArgumentTypeError("Project IDs must be UUIDs.") from None
+
+
+def full_commit_oid(value: str) -> str:
+    if len(value) not in {40, 64} or any(
+        character not in "0123456789abcdefABCDEF" for character in value
+    ):
+        raise argparse.ArgumentTypeError(
+            "Repository baselines must be full 40- or 64-hex commit object IDs."
+        )
+    return value.lower()
+
+
+def validated_repository_scope(
+    verified_against: str,
+    affected_paths: list[str],
+) -> tuple[str, list[str]]:
+    try:
+        checkpoint = CheckpointInput(
+            prompt="Validate the explicitly supplied live-stack repository declaration.",
+            source_client=SYNTHETIC_CLIENT,
+            source_session_id="stack-check-scope-validation",
+            verified_against=verified_against,
+            affected_paths=affected_paths,
+        )
+    except ValidationError as error:
+        raise argparse.ArgumentTypeError(
+            "Repository paths do not satisfy the Phase 10 declaration contract."
+        ) from error
+    assert checkpoint.verified_against is not None
+    return checkpoint.verified_against, list(checkpoint.affected_paths)
 
 
 def local_settings() -> dict[str, str]:
@@ -122,7 +171,7 @@ async def tool(session: ClientSession, name: str, arguments: dict[str, Any]) -> 
 
 
 def synthetic_summary(marker: str) -> str:
-    return f"Synthetic Phase 9 integration check {marker}"
+    return f"Synthetic Phase 10 integration check {marker}"
 
 
 def mutation_actor(run_id: str) -> dict[str, str]:
@@ -348,7 +397,7 @@ def work_detail_parts(
     value: object,
     expected_work_item_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Require and unpack the exact Phase 9 detail envelope."""
+    """Require and unpack the exact Phase 10 detail envelope."""
     if not isinstance(value, dict):
         raise TypeError("Work detail was not an object.")
     detail: dict[str, Any] = value
@@ -473,7 +522,7 @@ async def find_synthetic_work(
             and set(item) == {"summary", "matched_member"}
             and isinstance(item.get("summary"), dict)
             and isinstance(item.get("matched_member"), dict),
-            "Cleanup search did not return a Phase 9 full-search hit.",
+            "Cleanup search did not return a Phase 10 full-search hit.",
         )
         summary = item["summary"]
         work_item = summary.get("work_item", {})
@@ -784,6 +833,117 @@ async def cleanup_synthetic_work(
     return preserved_work_item_ids
 
 
+def validate_rest_contract(document: Any) -> None:
+    """Reject a healthy but contract-incompatible pre-Phase-10 API."""
+    try:
+        require(document["info"]["version"] == "0.5.0", "Unexpected REST API version.")
+        schemas = document["components"]["schemas"]
+        endpoint_refs = {
+            "/api/v1/projects/{project_id}/work-items": "#/components/schemas/WorkItemCreate",
+            "/api/v1/projects/{project_id}/work-items/{work_item_id}/checkpoints": (
+                "#/components/schemas/CheckpointCreate"
+            ),
+            "/api/v1/projects/{project_id}/work-items/{work_item_id}/complete": (
+                "#/components/schemas/WorkCompletionCreate"
+            ),
+        }
+        for path, expected_ref in endpoint_refs.items():
+            request_schema = document["paths"][path]["post"]["requestBody"]["content"][
+                "application/json"
+            ]["schema"]
+            require(
+                request_schema == {"$ref": expected_ref},
+                f"REST {path} does not expose the expected Phase 10 request.",
+            )
+        response_refs = {
+            ("/api/v1/projects/{project_id}/work-items", "201"): (
+                "#/components/schemas/WorkCreation"
+            ),
+            (
+                "/api/v1/projects/{project_id}/work-items/{work_item_id}/checkpoints",
+                "201",
+            ): "#/components/schemas/CheckpointRead",
+            (
+                "/api/v1/projects/{project_id}/work-items/{work_item_id}/complete",
+                "200",
+            ): "#/components/schemas/WorkCompletionRead",
+        }
+        for (path, status), expected_ref in response_refs.items():
+            response_schema = document["paths"][path]["post"]["responses"][status][
+                "content"
+            ]["application/json"]["schema"]
+            require(
+                response_schema == {"$ref": expected_ref},
+                f"REST {path} does not expose the expected Phase 10 response.",
+            )
+        require(
+            schemas["WorkItemCreate"]["properties"]["initial_checkpoint"]
+            == {"$ref": "#/components/schemas/InitialCheckpointCreate"},
+            "REST create-work does not bind the Phase 10 checkpoint schema.",
+        )
+        require(
+            schemas["WorkCompletionCreate"]["properties"]["checkpoint"]
+            == {"$ref": "#/components/schemas/CompletionCheckpointCreate"},
+            "REST complete-work does not bind the Phase 10 checkpoint schema.",
+        )
+        expected_scope_schema = {
+            "items": {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._@+=,~*/-]+$",
+                "type": "string",
+            },
+            "maxItems": 64,
+            "type": "array",
+        }
+        expected_input_commit_schema = {
+            "anyOf": [
+                {
+                    "pattern": "^[0-9a-fA-F]{7,64}$",
+                    "type": "string",
+                },
+                {"type": "null"},
+            ]
+        }
+        for name in (
+            "InitialCheckpointCreate",
+            "CheckpointCreate",
+            "CompletionCheckpointCreate",
+        ):
+            schema = schemas[name]
+            affected_paths = _validation_schema(
+                schema["properties"]["affected_paths"]
+            )
+            verified_against = _validation_schema(
+                schema["properties"]["verified_against"]
+            )
+            require(
+                schema["additionalProperties"] is False
+                and affected_paths == expected_scope_schema
+                and verified_against == expected_input_commit_schema,
+                f"REST {name} lacks the exact Phase 10 repository declaration.",
+            )
+            require(
+                {"verified_against", "affected_paths"}.isdisjoint(
+                    schema.get("required", [])
+                ),
+                f"REST {name} incorrectly requires repository provenance.",
+            )
+        checkpoint_read = schemas["CheckpointRead"]
+        require(
+            _validation_schema(checkpoint_read["properties"]["affected_paths"])
+            == expected_scope_schema
+            and "affected_paths" not in checkpoint_read.get("required", []),
+            "REST full checkpoint reads lack optional Phase 10 scope.",
+        )
+        require(
+            "affected_paths" not in schemas["CheckpointPointer"]["properties"],
+            "REST compact checkpoint pointers expose repository scope.",
+        )
+    except (KeyError, TypeError) as error:
+        raise RuntimeError("REST OpenAPI is missing the Phase 10 contract.") from error
+
+
 def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
@@ -827,6 +987,82 @@ def validate_mcp_catalog(catalog: Any) -> None:
                 "client_operation_id" not in properties and "client_operation_id" not in required,
                 f"MCP {name} unexpectedly exposes a client operation ID.",
             )
+    scoped_tools = {
+        name
+        for name, entry in tools_by_name.items()
+        if "affected_paths" in json.dumps(entry.inputSchema, sort_keys=True)
+    }
+    require(
+        scoped_tools == {"create_work", "add_checkpoint", "complete_work"},
+        "Unexpected MCP repository-declaration surface.",
+    )
+    expected_scope_schema = {
+        "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._@+=,~*/-]+$",
+            "type": "string",
+        },
+        "maxItems": 64,
+        "title": "Affected Paths",
+        "type": "array",
+    }
+    for name in sorted(scoped_tools):
+        checkpoint_schema = tools_by_name[name].inputSchema["$defs"]["CheckpointInput"]
+        checkpoint_properties = checkpoint_schema["properties"]
+        require(
+            checkpoint_properties.get("affected_paths") == expected_scope_schema
+            and {
+                "pattern": "^[0-9a-fA-F]{7,64}$",
+                "type": "string",
+            }
+            in checkpoint_properties.get("verified_against", {}).get("anyOf", []),
+            f"MCP {name} lacks the exact Phase 10 repository declaration.",
+        )
+        require(
+            {"verified_against", "affected_paths"}.isdisjoint(
+                checkpoint_schema.get("required", [])
+            ),
+            f"MCP {name} incorrectly requires repository provenance.",
+        )
+        output = tools_by_name[name].outputSchema
+        checkpoint_read = (
+            output
+            if output.get("title") == "CheckpointRead"
+            else output.get("$defs", {}).get("CheckpointRead")
+        )
+        require(
+            checkpoint_read is not None
+            and checkpoint_read["properties"].get("affected_paths")
+            == expected_scope_schema
+            and "affected_paths" not in checkpoint_read.get("required", []),
+            f"MCP {name} full response lacks optional Phase 10 scope.",
+        )
+    require(
+        tools_by_name["create_work"].outputSchema.get("properties", {}).get(
+            "initial_checkpoint"
+        )
+        == {"$ref": "#/$defs/CheckpointRead"},
+        "MCP create_work response does not bind the full checkpoint schema.",
+    )
+    require(
+        tools_by_name["add_checkpoint"].outputSchema.get("title")
+        == "CheckpointRead",
+        "MCP add_checkpoint response is not the full checkpoint schema.",
+    )
+    require(
+        tools_by_name["complete_work"].outputSchema.get("properties", {}).get(
+            "checkpoint"
+        )
+        == {"$ref": "#/$defs/CheckpointRead"},
+        "MCP complete_work response does not bind the full checkpoint schema.",
+    )
+    for name in ("search_work", "list_human_attention"):
+        pointer = tools_by_name[name].outputSchema["$defs"]["CheckpointPointer"]
+        require(
+            "affected_paths" not in pointer["properties"],
+            f"MCP {name} compact pointer exposes repository scope.",
+        )
 
 
 def report_retained_merge_evidence(
@@ -904,6 +1140,9 @@ async def check(args: argparse.Namespace, key: str) -> None:
             (await public.post(args.mcp_url, json={})).status_code == 401,
             "The MCP endpoint accepted an unauthenticated request.",
         )
+        openapi = await public.get(args.api_url.rstrip("/") + "/openapi.json")
+        require(openapi.status_code == 200, "The REST OpenAPI document is unavailable.")
+        validate_rest_contract(openapi.json())
         page = await public.get(args.web_url)
         require(
             page.status_code == 200 and key not in page.text,
@@ -962,13 +1201,15 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: real MCP initialization, 27-tool catalog, exact eleven protected "
-                    "mutation schemas/annotations, and REST-backed project listing"
+                    "PASS: REST 0.5.0 repository-declaration contract, real MCP initialization, "
+                    "27-tool catalog, exact eleven protected mutation schemas/annotations, and "
+                    "REST-backed project listing"
                 )
                 if not args.project_id:
                     print(
-                        "Read-only checks complete. Supply --project-id to explicitly authorize "
-                        "one disposable Phase 9 lifecycle and a permanently retained merge."
+                        "Read-only checks complete. Supply --project-id, --verified-against, and "
+                        "at least one --affected-path to explicitly authorize one disposable "
+                        "Phase 10 lifecycle and a permanently retained merge."
                     )
                     return
 
@@ -1002,6 +1243,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     "conflict and completion, remove the reversible graph, and permanently "
                     "retain the merged alias group as verification evidence.\n\n"
                 )
+                declared_baseline = args.verified_against
+                initial_affected_paths = list(args.affected_paths)
                 checkpoint_input = {
                     "prompt": prompt,
                     "source_client": SYNTHETIC_CLIENT,
@@ -1009,7 +1252,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     "source_model": None,
                     "source_session_url": None,
                     "repository_branch": None,
-                    "verified_against": None,
+                    "verified_against": declared_baseline,
+                    "affected_paths": initial_affected_paths,
                     "tags": [run_tag, "verification"],
                     "source_metadata": {"synthetic_check": True},
                 }
@@ -1053,6 +1297,11 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         initial_checkpoint["prompt"] == prompt
                         and initial_checkpoint["source_session_id"] == run_id,
                         "Initial checkpoint/provenance did not survive creation.",
+                    )
+                    require(
+                        initial_checkpoint["verified_against"] == declared_baseline
+                        and initial_checkpoint["affected_paths"] == initial_affected_paths,
+                        "Initial checkpoint dependency declaration did not survive exactly.",
                     )
                     require(
                         created["initial_relationships"] == [],
@@ -1119,6 +1368,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and found_hit["summary"]["current_context"]["source_client"]
                         == SYNTHETIC_CLIENT
                         and found_hit["summary"]["current_context"]["source_session_id"] == run_id
+                        and "affected_paths" not in found_hit["summary"]["current_context"]
+                        and "affected_paths" not in found_hit["matched_member"]
                         and "prompt" not in found_hit["summary"]["current_context"],
                         "Full search did not preserve row/match identity or bounded context.",
                     )
@@ -1131,20 +1382,30 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and recalled["omitted_checkpoint_count"] == 0,
                         "Bounded work context differs from the created checkpoint.",
                     )
+                    require(
+                        recalled["initial_checkpoint"]["affected_paths"]
+                        == initial_affected_paths,
+                        "Bounded recall lost or reordered the initial dependency declaration.",
+                    )
                     resource = await session.read_resource(
                         AnyUrl(f"mnemonic://projects/{project_id}/work-items/{work_item_id}")
                     )
                     resource_context = textual_resource_json(resource.contents[0])
                     require(
                         resource_context["initial_checkpoint"]["prompt"] == prompt
+                        and resource_context["initial_checkpoint"]["affected_paths"]
+                        == initial_affected_paths
                         and resource_context["current_context"] is None
                         and resource_context["current_context_is_initial"] is True,
                         "Canonical MCP resource differs.",
                     )
                     resumed = await session.get_prompt("resume_work", identity)
+                    resumed_text = resumed.messages[0].content.text if resumed.messages else ""
                     require(
-                        bool(resumed.messages),
-                        "Canonical MCP resume prompt is missing.",
+                        bool(resumed.messages)
+                        and declared_baseline in resumed_text
+                        and all(path in resumed_text for path in initial_affected_paths),
+                        "Canonical MCP resume prompt is missing the dependency declaration.",
                     )
                     await require_cross_project_isolation(api, args.other_project_id, work_item_id)
 
@@ -1218,7 +1479,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "source_model": None,
                         "source_session_url": None,
                         "repository_branch": None,
-                        "verified_against": None,
+                        "verified_against": declared_baseline,
+                        "affected_paths": initial_affected_paths,
                         "tags": [run_tag, "verification", "progress"],
                         "source_metadata": {"synthetic_check": True},
                     }
@@ -1235,7 +1497,9 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         progress_checkpoint_arguments,
                     )
                     require(
-                        progress["prompt"] == progress_prompt and progress["kind"] == "progress",
+                        progress["prompt"] == progress_prompt
+                        and progress["kind"] == "progress"
+                        and progress["affected_paths"] == initial_affected_paths,
                         "Progress checkpoint did not survive MCP -> REST -> database.",
                     )
                     timeline = await tool(
@@ -1248,6 +1512,14 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and timeline["items"][0]["id"] == initial_checkpoint["id"]
                         and timeline["items"][1]["id"] == progress["id"],
                         "Immutable checkpoint history is incomplete or misordered.",
+                    )
+                    require(
+                        [
+                            checkpoint["affected_paths"]
+                            for checkpoint in timeline["items"]
+                        ]
+                        == [initial_affected_paths, initial_affected_paths],
+                        "Checkpoint history lost or reordered dependency declarations.",
                     )
                     await require_event_types(
                         session,
@@ -1456,17 +1728,19 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "Unlinked blocker creation returned unexpected relationships.",
                     )
 
+                    ready_checkpoint = {
+                        **checkpoint_input,
+                        "prompt": f"Synthetic ready candidate for run {run_id}.",
+                        "affected_paths": [],
+                        "tags": [run_tag, "verification", "ready"],
+                    }
                     ready_create_arguments = retained_mutation(
                         {
                             "project_id": project_id,
                             "title": f"Temporary ready work check {ready_marker}",
                             "summary": synthetic_summary(marker),
                             "priority": 50,
-                            "initial_checkpoint": {
-                                **checkpoint_input,
-                                "prompt": f"Synthetic ready candidate for run {run_id}.",
-                                "tags": [run_tag, "verification", "ready"],
-                            },
+                            "initial_checkpoint": ready_checkpoint,
                             "initial_relationships": [],
                         }
                     )
@@ -1477,6 +1751,12 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     ready_id = ready_created["work_item"]["id"]
                     known_work_item_ids.add(ready_id)
+                    require(
+                        "affected_paths" not in ready_created["initial_checkpoint"]
+                        and ready_created["initial_checkpoint"]["verified_against"]
+                        == declared_baseline,
+                        "Explicit empty scope did not use the sparse canonical response form.",
+                    )
                     ready_identity = {
                         "project_id": project_id,
                         "work_item_id": ready_id,
@@ -2473,7 +2753,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "source_model": None,
                         "source_session_url": None,
                         "repository_branch": None,
-                        "verified_against": None,
+                        "verified_against": declared_baseline,
+                        "affected_paths": initial_affected_paths,
                         "tags": [run_tag, "verification", "complete"],
                         "source_metadata": {"synthetic_check": True},
                     }
@@ -2493,8 +2774,28 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         completion["work_item"]["status"] == "done"
                         and completion["checkpoint"]["kind"] == "completion"
-                        and completion["checkpoint"]["prompt"] == completion_input["prompt"],
+                        and completion["checkpoint"]["prompt"] == completion_input["prompt"]
+                        and completion["checkpoint"]["affected_paths"]
+                        == initial_affected_paths,
                         "Completion did not atomically save its checkpoint and done status.",
+                    )
+                    completed_timeline = await tool(
+                        session,
+                        "list_checkpoints",
+                        {**identity, "order": "oldest"},
+                    )
+                    require(
+                        completed_timeline["total"] == 3
+                        and [
+                            checkpoint["affected_paths"]
+                            for checkpoint in completed_timeline["items"]
+                        ]
+                        == [
+                            initial_affected_paths,
+                            initial_affected_paths,
+                            initial_affected_paths,
+                        ],
+                        "Completed checkpoint history lost exact dependency declarations.",
                     )
                     await require_event_types(
                         session,
@@ -2537,6 +2838,10 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     require(
                         found["total"] == 1,
                         "Completed work was lost from explicit history.",
+                    )
+                    require(
+                        "affected_paths" not in json.dumps(found, sort_keys=True),
+                        "Search pointer projections exposed checkpoint dependency declarations.",
                     )
 
                     for relationship_id in sorted(active_relationship_ids):
@@ -3116,6 +3421,46 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     report_retained_merge_evidence(preserved, project_id)
 
 
+def validate_cli_arguments(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> None:
+    """Enforce mutually consistent read-only, writable, and cleanup modes."""
+    if args.other_project_id:
+        if not args.project_id:
+            parser.error("--other-project-id requires --project-id.")
+        if args.other_project_id == args.project_id:
+            parser.error("--other-project-id must identify a different project.")
+    if args.cleanup_run_id and not args.project_id:
+        parser.error("--cleanup-run-id requires --project-id.")
+    if args.cleanup_run_id and args.other_project_id:
+        parser.error("--cleanup-run-id cannot be combined with --other-project-id.")
+    validate_repository_cli_arguments(parser, args)
+
+
+def validate_repository_cli_arguments(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> None:
+    """Validate repository declarations only for a writable non-cleanup run."""
+    scope_supplied = args.verified_against is not None or args.affected_paths is not None
+    if scope_supplied and not args.project_id:
+        parser.error("Repository declaration arguments require --project-id.")
+    if args.cleanup_run_id and scope_supplied:
+        parser.error("Cleanup does not accept repository declaration arguments.")
+    if args.project_id and not args.cleanup_run_id:
+        if args.verified_against is None or not args.affected_paths:
+            parser.error(
+                "Writable Phase 10 checks require --verified-against and at least one "
+                "--affected-path from the repository actually inspected by the operator."
+            )
+        try:
+            args.verified_against, args.affected_paths = validated_repository_scope(
+                args.verified_against,
+                args.affected_paths,
+            )
+        except argparse.ArgumentTypeError as error:
+            parser.error(str(error))
+
+
 def main() -> None:
     values = local_settings()
     parser = argparse.ArgumentParser(description=__doc__)
@@ -3135,7 +3480,7 @@ def main() -> None:
         "--project-id",
         type=project_uuid,
         help=(
-            "Explicitly authorizes a disposable Phase 9 writable lifecycle, including an "
+            "Explicitly authorizes a disposable Phase 10 writable lifecycle, including an "
             "irreversible two-item merge whose evidence is permanently retained"
         ),
     )
@@ -3143,6 +3488,24 @@ def main() -> None:
         "--other-project-id",
         type=project_uuid,
         help="Optional second project for an isolation check",
+    )
+    parser.add_argument(
+        "--verified-against",
+        type=full_commit_oid,
+        help=(
+            "Full commit object ID actually inspected for the writable check's repository "
+            "declaration"
+        ),
+    )
+    parser.add_argument(
+        "--affected-path",
+        action="append",
+        dest="affected_paths",
+        metavar="PATTERN",
+        help=(
+            "Ordered repository-relative dependency pattern actually inspected for the writable "
+            "check; repeat for multiple patterns"
+        ),
     )
     parser.add_argument(
         "--cleanup-run-id",
@@ -3153,15 +3516,7 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
-    if args.other_project_id:
-        if not args.project_id:
-            parser.error("--other-project-id requires --project-id.")
-        if args.other_project_id == args.project_id:
-            parser.error("--other-project-id must identify a different project.")
-    if args.cleanup_run_id and not args.project_id:
-        parser.error("--cleanup-run-id requires --project-id.")
-    if args.cleanup_run_id and args.other_project_id:
-        parser.error("--cleanup-run-id cannot be combined with --other-project-id.")
+    validate_cli_arguments(parser, args)
     key = values.get("MNEMONIC_API_KEY", "")
     if len(key) < 32:
         parser.error("Set MNEMONIC_API_KEY in .env or the environment first.")

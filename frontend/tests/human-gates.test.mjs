@@ -4,6 +4,7 @@ import {
   decodeHumanAttentionPage,
   decodeHumanGate,
   decodeHumanGatePage,
+  decodeWorkSummary,
   humanAttentionSearchParams,
   humanGateCurrentDriftMessage,
   humanGateChangedLabels,
@@ -129,6 +130,16 @@ function summary() {
     }
   };
 }
+
+test("compact checkpoint pointers remain scope-free", () => {
+  assert.equal(decodeWorkSummary(summary(), project).current_context.id, checkpoint);
+  const poisoned = summary();
+  poisoned.current_context = {
+    ...poisoned.current_context,
+    affected_paths: ["src/**"]
+  };
+  assert.throws(() => decodeWorkSummary(poisoned, project), /checkpoint pointer/);
+});
 
 function reviewedRelationship({
   id,

@@ -10,6 +10,7 @@ import {
   type ReactNode
 } from "react";
 import { CHECKPOINT_PAGE_SIZE } from "@/components/checkpoint-timeline";
+import AffectedPathsEditor from "@/components/affected-paths-editor";
 import DashboardViewChrome from "@/components/dashboard-view-chrome";
 import ThemeSelector from "@/components/theme-selector";
 import ProjectSettingsPanel from "@/components/project-settings";
@@ -73,6 +74,11 @@ import { editableLifecycleStatuses, normalizedTags } from "@/lib/work-item-view"
 import { dashboardMutationActor } from "@/lib/work-events";
 import { scheduleHierarchyFilterCommit } from "@/lib/work-item-search";
 import { workRecallPointer } from "@/lib/work-recall-pointer";
+import {
+  AffectedPathsValidationError,
+  parseAffectedPathsDraft
+} from "@/lib/affected-paths";
+import { decodeCheckpointPage } from "@/lib/mutation-responses";
 
 const mutationLabels: Record<MutationIntentSummary["kind"], string> = {
   create_work: "Create work",
@@ -195,11 +201,18 @@ function checkpointPayload(
   prompt: string,
   branch = "",
   commit = "",
-  tagText = ""
+  tagText = "",
+  affectedPathsText = ""
 ): CheckpointInput {
+  const affectedPaths = parseAffectedPathsDraft(affectedPathsText);
   const verified = commit.trim().toLowerCase();
   if (verified && !/^[a-fA-F0-9]{7,64}$/.test(verified)) {
     throw new Error("Verified commit must be a Git commit ID with 7–64 hexadecimal characters.");
+  }
+  if (affectedPaths.length > 0 && !verified) {
+    throw new AffectedPathsValidationError({
+      message: "Declared affected paths require a caller-asserted baseline commit."
+    });
   }
   return {
     prompt,
@@ -208,6 +221,7 @@ function checkpointPayload(
     source_model: null,
     repository_branch: branch.trim() || null,
     verified_against: verified || null,
+    ...(affectedPaths.length > 0 ? { affected_paths: affectedPaths } : {}),
     tags: normalizedTags(tagText),
     source_metadata: {}
   };
@@ -273,6 +287,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [workDialog, setWorkDialog] = useState<WorkDialogState>("closed");
   const [workSaving, setWorkSaving] = useState(false);
   const [newWorkError, setNewWorkError] = useState("");
+  const [createAffectedPathsError, setCreateAffectedPathsError] = useState("");
   const [suggestionDraftGeneration, setSuggestionDraftGeneration] = useState(0);
 
   const [opened, setOpened] = useState<WorkSummary | null>(null);
@@ -305,6 +320,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [checkpointBody, setCheckpointBody] = useState("");
   const [checkpointBranch, setCheckpointBranch] = useState("");
   const [checkpointCommit, setCheckpointCommit] = useState("");
+  const [checkpointAffectedPaths, setCheckpointAffectedPaths] = useState("");
+  const [checkpointAffectedPathsError, setCheckpointAffectedPathsError] = useState("");
   const [checkpointTags, setCheckpointTags] = useState("");
   const [checkpointSaving, setCheckpointSaving] = useState(false);
 
@@ -501,9 +518,13 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setCheckpointLoading(true);
     setCheckpointLoadError("");
     const base = workItemPath(opened.work_item.project_id, opened.work_item.id);
-    api<Page<Checkpoint>>(`${base}/checkpoints?order=newest&limit=${CHECKPOINT_PAGE_SIZE}&offset=${checkpointOffset}`, { signal: controller.signal })
-      .then((page) => {
+    api<unknown>(`${base}/checkpoints?order=newest&limit=${CHECKPOINT_PAGE_SIZE}&offset=${checkpointOffset}`, { signal: controller.signal })
+      .then((value) => {
         if (controller.signal.aborted) return;
+        const page = decodeCheckpointPage(value, opened.work_item.id, {
+          limit: CHECKPOINT_PAGE_SIZE,
+          offset: checkpointOffset
+        });
         if (checkpointOffset > 0 && checkpointOffset >= page.total) {
           setCheckpointOffset(Math.max(0, Math.floor((page.total - 1) / CHECKPOINT_PAGE_SIZE) * CHECKPOINT_PAGE_SIZE));
           return;
@@ -703,6 +724,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       return;
     }
     setNewWorkError("");
+    setCreateAffectedPathsError("");
     setWorkDialog("open");
   }
 
@@ -712,13 +734,15 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     const form = new FormData(event.currentTarget);
     setWorkSaving(true);
     setNewWorkError("");
+    setCreateAffectedPathsError("");
     try {
       const prompt = String(form.get("prompt") ?? "");
       const initialCheckpoint = checkpointPayload(
         prompt,
         String(form.get("repository_branch") ?? ""),
         String(form.get("verified_against") ?? ""),
-        String(form.get("tags") ?? "")
+        String(form.get("tags") ?? ""),
+        String(form.get("affected_paths") ?? "")
       );
       const payload: WorkCreateInput = {
         title: String(form.get("title") ?? ""),
@@ -742,7 +766,11 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       setNotice({ message: `“${created.work_item.title}” now has its first immutable checkpoint.` });
       void openExactWork(project.id, created.work_item.id);
     } catch (error) {
-      setNewWorkError(errorMessage(error));
+      if (error instanceof AffectedPathsValidationError) {
+        setCreateAffectedPathsError(error.message);
+      } else {
+        setNewWorkError(errorMessage(error));
+      }
     } finally {
       setWorkSaving(false);
     }
@@ -814,6 +842,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setCheckpointBody("");
     setCheckpointBranch("");
     setCheckpointCommit("");
+    setCheckpointAffectedPaths("");
+    setCheckpointAffectedPathsError("");
     setCheckpointTags("");
     setCheckpointKind("progress");
     setCheckpointActionError("");
@@ -835,6 +865,11 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setCheckpointOffset(0);
     setCheckpointPage(null);
     setCheckpointBody("");
+    setCheckpointBranch("");
+    setCheckpointCommit("");
+    setCheckpointAffectedPaths("");
+    setCheckpointAffectedPathsError("");
+    setCheckpointTags("");
     setCheckpointActionError("");
     try {
       const value = await api<unknown>(
@@ -881,6 +916,11 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setContextReconciliationRequired(false);
     setCheckpointPage(null);
     setCheckpointBody("");
+    setCheckpointBranch("");
+    setCheckpointCommit("");
+    setCheckpointAffectedPaths("");
+    setCheckpointAffectedPathsError("");
+    setCheckpointTags("");
   }
 
   function viewDuplicateGroup(canonicalId: string): void {
@@ -938,7 +978,11 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       });
       return false;
     }
-    if (checkpointBody.trim() && !window.confirm("Discard your unsaved checkpoint?")) return false;
+    if (
+      (checkpointBody || checkpointBranch || checkpointCommit
+        || checkpointAffectedPaths || checkpointTags)
+      && !window.confirm("Discard your unsaved checkpoint?")
+    ) return false;
     if (unsavedEditsKept()) return false;
     return true;
   }
@@ -1120,8 +1164,15 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     if (!context || !checkpointBody.trim() || checkpointSaving) return;
     setCheckpointSaving(true);
     setCheckpointActionError("");
+    setCheckpointAffectedPathsError("");
     try {
-      const checkpoint = checkpointPayload(checkpointBody, checkpointBranch, checkpointCommit, checkpointTags);
+      const checkpoint = checkpointPayload(
+        checkpointBody,
+        checkpointBranch,
+        checkpointCommit,
+        checkpointTags,
+        checkpointAffectedPaths
+      );
       const base = workItemPath(context.work_item.project_id, context.work_item.id);
       if (complete) {
         const result = await mutationRegistry.execute({
@@ -1169,6 +1220,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       setCheckpointBody("");
       setCheckpointBranch("");
       setCheckpointCommit("");
+      setCheckpointAffectedPaths("");
+      setCheckpointAffectedPathsError("");
       setCheckpointTags("");
       setCheckpointOffset(0);
       setCheckpointRefresh((value) => value + 1);
@@ -1181,7 +1234,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         setNotice({ message, error: true });
       }
     } catch (error) {
-      if (complete && isVersionConflict(error)) {
+      if (error instanceof AffectedPathsValidationError) {
+        setCheckpointAffectedPathsError(error.message);
+      } else if (complete && isVersionConflict(error)) {
         const reconciled = await reloadOpenContext();
         setCheckpointActionError(reconciled
           ? "This work item changed before completion. Your summary is still here; the current version has been reloaded for review."
@@ -1347,6 +1402,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         setCheckpointBody("");
         setCheckpointBranch("");
         setCheckpointCommit("");
+        setCheckpointAffectedPaths("");
+        setCheckpointAffectedPathsError("");
         setCheckpointTags("");
       }
       if (intent.kind === "update_work") setMode("view");
@@ -1726,12 +1783,18 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                   checkpointBody={checkpointBody}
                   checkpointBranch={checkpointBranch}
                   checkpointCommit={checkpointCommit}
+                  checkpointAffectedPaths={checkpointAffectedPaths}
+                  checkpointAffectedPathsError={checkpointAffectedPathsError}
                   checkpointTags={checkpointTags}
                   checkpointSaving={checkpointSaving}
                   onCheckpointKind={setCheckpointKind}
                   onCheckpointBody={setCheckpointBody}
                   onCheckpointBranch={setCheckpointBranch}
                   onCheckpointCommit={setCheckpointCommit}
+                  onCheckpointAffectedPaths={(value) => {
+                    setCheckpointAffectedPaths(value);
+                    setCheckpointAffectedPathsError("");
+                  }}
                   onCheckpointTags={setCheckpointTags}
                   onAppend={() => void saveCheckpoint(false)}
                   onComplete={() => void saveCheckpoint(true)}
@@ -1783,13 +1846,13 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={projectSaving} onClick={() => setProjectDialog(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={projectSaving}>{projectSaving ? "Creating…" : "Create project"}</button></div>
     </form></Dialog>}
 
-    {workDialog !== "closed" && project && <Dialog title="Create durable work" onClose={() => { if (!workSaving && !createWorkMutationBlocked) setWorkDialog("closed"); }} recovery={modalRecovery(createDialogMutationIntents)} wide busy={workSaving || createWorkMutationBlocked} suspended={workDialog === "suspended"}><form className="form-stack" onSubmit={(event) => void createWork(event)}>
+    {workDialog !== "closed" && project && <Dialog title="Create durable work" onClose={() => { if (!workSaving && !createWorkMutationBlocked) { setCreateAffectedPathsError(""); setWorkDialog("closed"); } }} recovery={modalRecovery(createDialogMutationIntents)} wide busy={workSaving || createWorkMutationBlocked} suspended={workDialog === "suspended"}><form className="form-stack" onSubmit={(event) => void createWork(event)}>
       <p className="dialog-intro">The objective remains editable. Its initial checkpoint is immutable and attributed to this dashboard session.</p>
       <label className="field">Title<input name="title" required disabled={createWorkMutationBlocked} maxLength={200} autoFocus placeholder="What durable objective should survive this session?" onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /></label>
       <label className="field">Summary<textarea name="summary" required disabled={createWorkMutationBlocked} rows={3} maxLength={1000} placeholder="When is this work relevant?" onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /></label>
       <label className="field field-half">Priority<input name="priority" type="number" disabled={createWorkMutationBlocked} min={0} max={100} defaultValue={0} /></label>
       <label className="field">Initial context checkpoint<textarea className="prompt-editor" name="prompt" required disabled={createWorkMutationBlocked} rows={14} maxLength={100000} spellCheck={false} placeholder="Context, intended outcome, references, hazards, and verification…" onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /><span className="field-hint">Saved exactly as entered. Corrections become new checkpoints.</span></label>
-      <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input name="repository_branch" disabled={createWorkMutationBlocked} maxLength={200} /></label><label className="field">Verified commit<input name="verified_against" disabled={createWorkMutationBlocked} className="mono" maxLength={64} /></label><label className="field">Tags <span className="optional">Comma separated</span><input name="tags" disabled={createWorkMutationBlocked} onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /></label></div></details>
+      <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input name="repository_branch" disabled={createWorkMutationBlocked} maxLength={200} /></label><label className="field">Caller-asserted baseline commit<input name="verified_against" disabled={createWorkMutationBlocked} className="mono" maxLength={64} /></label><AffectedPathsEditor name="affected_paths" disabled={createWorkMutationBlocked} error={createAffectedPathsError} onChange={() => setCreateAffectedPathsError("")} /><label className="field">Tags <span className="optional">Comma separated</span><input name="tags" disabled={createWorkMutationBlocked} onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /></label></div></details>
       <DuplicateSuggestionPanel
         projectId={project.id}
         draftGeneration={suggestionDraftGeneration}
@@ -1797,9 +1860,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         onInspect={(workItemId) => { void inspectExistingWork(project.id, workItemId); }}
       />
       {newWorkError && <ErrorNotice message={newWorkError} />}
-      <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={workSaving || createWorkMutationBlocked} onClick={() => setWorkDialog("closed")}>Cancel</button><button type="submit" className="button button-primary" disabled={workSaving || createWorkMutationBlocked}>{workSaving ? "Creating…" : "Create work and checkpoint"}</button></div>
+      <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={workSaving || createWorkMutationBlocked} onClick={() => { setCreateAffectedPathsError(""); setWorkDialog("closed"); }}>Cancel</button><button type="submit" className="button button-primary" disabled={workSaving || createWorkMutationBlocked}>{workSaving ? "Creating…" : "Create work and checkpoint"}</button></div>
     </form></Dialog>}
-
     {deleteTarget && <Dialog title="Delete this work item?" onClose={() => { if (!deleting && !mutationRegistry.blocks([mutationWorkKey(deleteTarget.project_id, deleteTarget.id)])) setDeleteTarget(null); }} recovery={modalRecovery(deleteDialogMutationIntents)} busy={deleting || mutationRegistry.blocks([mutationWorkKey(deleteTarget.project_id, deleteTarget.id)])}>
       <p className="dialog-intro">This hides the objective and all checkpoints from ordinary reads. Immutable history remains recoverable in the database.</p>
       <div className="delete-preview"><StatusBadge status={deleteTarget.status} /><h3>{deleteTarget.title}</h3><p>{deleteTarget.summary}</p><span>Version {deleteTarget.version} · {formatDate(deleteTarget.updated_at)}</span></div>

@@ -42,7 +42,7 @@ and to reject force pushes and branch deletion. That aggregate status fails
 unless Gitleaks, Ruff, `ty`, backend tests, MCP tests, and frontend checks all
 succeed.
 
-## Backend verification through Phase 9
+## Backend verification through Phase 10
 
 The database suite needs a real PostgreSQL instance because the system depends
 on PostgreSQL search, row locking, database time, receipt reservation/waiting,
@@ -228,6 +228,44 @@ The Advisory additions verify:
   receipt, version, activity, publication, or live-sync effect, with existing
   cache CAS writes isolated after the coherent read snapshot.
 
+The Phase 10 additions verify:
+
+- fresh zero-to-0018 and populated 0017-to-0018 upgrades preserve every prior
+  row, digest, timestamp, function/trigger/index definition, receipt fingerprint,
+  response body, contract version, and opaque metadata value while assigning an
+  empty array to every historical checkpoint;
+- PostgreSQL/ORM parity for the one-dimensional `VARCHAR(512)[] NOT NULL`
+  column and empty default, the versioned immutable validator, grammar and
+  commit-dependency constraints, unchanged checkpoint immutability, and the
+  deliberate absence of an index;
+- byte-identical ASCII grammar, component/star rules, exact-duplicate rejection,
+  64-entry, 512-byte, and 16,384-byte boundaries, preserved order/case, and the
+  requirement that every non-empty declaration have a caller-asserted baseline;
+- field-local sparse serialization: omitted and explicit-empty request values
+  share the historical canonical form, responses omit empty scope, and a stored
+  explicit-empty response fails receipt equality rather than silently rewriting
+  permanent evidence;
+- all three checkpoint mutations include non-empty ordered scope in request
+  hashing, exact replay, conflict detection, response coherence, history, and
+  bounded full context while compact pointers, events, search, hierarchy,
+  readiness, duplicate systems, embeddings, and derived cache identity remain
+  unchanged; and
+- lock-protected downgrade succeeds before scoped use, refuses before DDL after
+  any non-empty declaration, cannot race a concurrent insert, and supports
+  re-upgrade without data loss.
+
+For a focused Phase 10 backend iteration, run from `backend` with the real test
+database configured; the complete suite remains the release gate:
+
+```sh
+uv run pytest -q \
+  tests/test_repository_freshness_migration_postgres.py \
+  tests/test_validation.py \
+  tests/test_client_operations.py \
+  tests/test_work_items_postgres.py \
+  tests/test_schema_parity_postgres.py
+```
+
 For a focused Core iteration, run:
 
 ```sh
@@ -270,7 +308,7 @@ do not contact a model service.
 Without `TEST_DATABASE_URL`, PostgreSQL tests explicitly skip. Such a run still
 checks pure validation helpers but is not proof of migration, transaction,
 trigger, concurrency, receipt replay, or PostgreSQL retrieval behavior. Any
-skipped PostgreSQL-marked test makes the Phase 9 release gate incomplete.
+skipped PostgreSQL-marked test makes the Phase 10 release gate incomplete.
 
 Stop the disposable database afterward from the repository root:
 
@@ -278,7 +316,7 @@ Stop the disposable database afterward from the repository root:
 docker compose -f compose.test.yaml down
 ```
 
-## MCP verification through Phase 9
+## MCP verification through Phase 10
 
 Run from `mcp`:
 
@@ -329,21 +367,60 @@ names at that historical Phase 7–8 boundary; Core exposes 26.
 `get_activity`, `resolve_human_input`, and removed hand-off surfaces
 remain absent.
 
-The inner plugin manifest is `0.8.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.8.0` install
-plus a sequential `0.6.1 -> 0.7.0 -> 0.8.0` marketplace update. Use an isolated
-`CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that the cached
-installed skill bytes changed, and a compatibility copy of the old prerelease
-tool schema is not a valid substitute.
+Phase 10 MCP assertions cover omitted and explicit-empty checkpoint input,
+canonical rejection of an explicit-empty response, exact grammar and bounds,
+baseline dependency, order-sensitive request/response coherence, all full
+context/resource/prompt projections, and unchanged compact pointers. Static
+tests also prove the adapter contains no Git, subprocess, checkout, repository,
+or network assessment path. The catalog remains exactly 27 tools and eleven
+protected writes; there is no freshness tool or new receipt kind.
+
+The inner plugin manifest is `0.9.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.9.0` install
+plus a sequential `0.6.1 -> 0.7.0 -> 0.8.0 -> 0.9.0` marketplace update. Use an
+isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
+the cached binary, reference, and skill bytes changed. Confirm the installed
+helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
+the inventory remains exactly three skills plus the new helper and reference.
+A compatibility copy of the old prerelease schema or workflow is not a valid
+substitute.
+
+From the repository root, run the MCP scope/plugin contracts and disposable
+helper behavior suite with the MCP environment:
+
+```sh
+uv run --project mcp pytest -q \
+  mcp/tests/test_repository_freshness.py \
+  mcp/tests/test_plugin.py
+uv run --project mcp python -m unittest discover \
+  -s plugin/tests -p 'test_repository_freshness.py'
+```
+
+The helper behavior suite uses a trusted version-reporting wrapper around the
+host Git so it can exercise repository behavior on older development hosts.
+That is not evidence for the required platform lane. Release validation must
+also run the packaged helper and cold-session workflow on real Bash 3.2 and
+newer hosts with real Git 2.45 or newer, and separately prove a real Git 2.44
+executable is rejected after `git --version` and before object or repository
+access. The supported matrix covers clean, every changed lane, every
+indeterminate blocker, races, hostile environment/config/filter sentinels,
+exact ASCII protocol/exit agreement, byte quoting, 100-path and 32-KiB caps,
+15-second caller-enforced whole-process-group timeout, no child configured
+process, no network, and no repository mutation. A skipped runtime/security
+lane is not full validation.
 
 After syncing `backend`, run the repository's available Ruff binary from the
 repository root over the MCP and live-check code:
 
 ```sh
-uv run --project backend ruff check mcp/src/mnemonic_mcp mcp/tests scripts/check-stack.py
+uv run --project backend ruff check \
+  mcp/src/mnemonic_mcp \
+  mcp/tests \
+  scripts/audit_duplicate_handling.py \
+  scripts/check-stack.py
 ```
 
-## Dashboard verification through Phase 9
+## Dashboard verification through Phase 10
 
 Run from `frontend`:
 
@@ -406,6 +483,15 @@ states; generation/abort handling; stale marking after every compared draft
 field changes; bidi-isolated candidate text; and the guarantee that suggestions
 never enter browser storage, the mutation registry, or the valid form's Create
 path.
+
+Phase 10 Node contract tests cover the shared ASCII/byte corpus, sparse omitted
+or explicit-empty mutation input, explicit-empty response rejection, non-empty
+baseline dependency, exact ordered retry identity, full-checkpoint decoding,
+and continued absence from compact pointers and derived surfaces. They also pin
+the declaration-only trust boundary: browser code accepts and renders stored
+scope as untrusted provenance but contains no Git/subprocess/local-filesystem
+assessment path and never labels it semantically fresh, current, verified,
+correct, or safe.
 
 Playwright renders hostile literal questions and answers, exact ambiguous retry,
 B-to-C drift rejection and fresh intent, attention empty/error recovery,
@@ -529,8 +615,19 @@ disposable stack or an explicitly authorized project. Use a dedicated validation
 may safely include five synthetic, soft-deleted records:
 
 ```sh
-uv run --project mcp python scripts/check-stack.py --project-id YOUR_TEST_PROJECT_UUID
+uv run --project mcp python scripts/check-stack.py \
+  --project-id YOUR_TEST_PROJECT_UUID \
+  --verified-against FULL_COMMIT_OID_YOU_INSPECTED \
+  --affected-path 'backend/src/**' \
+  --affected-path 'mcp/src/**'
 ```
+
+The full 40- or 64-hex object ID and every repeated path must come from the
+repository/dependency scope the operator actually inspected for this synthetic
+run. The checker validates and stores that declaration but never selects a
+checkout, resolves an abbreviation, or runs Git. Use different patterns when
+the inspected test dependency scope differs; do not copy the example values as
+fabricated provenance.
 
 The write path performs the combined canonical lifecycle:
 
@@ -557,6 +654,13 @@ The write path performs the combined canonical lifecycle:
    edges, resolves any interrupted run-owned gate during cleanup, then
    soft-deletes all five synthetic records and confirms ordinary reads return
    `404`.
+
+At Phase 10 the writable checker also freezes valid non-empty ordered scopes on
+the synthetic create, add-checkpoint, and completion intents; verifies exact
+replay, history, bounded context, resource, and resume-prompt retention; and
+confirms search and every compact checkpoint pointer omit the field. It does not
+run the local Git helper: helper assessment belongs to the separately selected
+workspace/security matrix, not to the repository-blind API/MCP stack.
 
 The Core write check must additionally review two exact contexts, merge a
 structurally eligible source through `merge_work`, discard/recover one response
@@ -589,50 +693,63 @@ Add `--other-project-id` to prove the new ID cannot be read through a second
 project. Do not pass either project option without authorization to write in the
 named project. Prefer a disposable full stack for automated write-path checks.
 
-## Phase 9 implementation and deployment gates
+## Phase 10 implementation and deployment gates
 
-The authoritative Core and evidence-only Advisory repository implementation is
-incomplete until all of these pass together:
+The coordinated repository implementation is incomplete until all of these
+pass together:
 
-1. the full backend suite against isolated PostgreSQL with no database skips,
-   then backend Ruff;
-2. the full MCP suite in its separate frozen environment, then repository Ruff
-   for MCP and `scripts/check-stack.py`;
-3. frontend unit tests, typecheck, production build, and the isolated Playwright
-   stack;
-4. fresh head plus populated `0015_gate_review_fixes` to
-   `0016_duplicate_handling` to `0017_duplicate_suggestion_title_key`
-   preservation, zero inferred merges/witnesses,
-   exact legacy event/receipt/gate projection parity, direct-SQL completeness
-   and alias guards, schema parity, depth boundaries, and concurrency races;
-5. the aggregate duplicate audit at both Phase 9 heads on disposable populated
-   data, with zero blocking findings;
-6. plugin manifest parsing plus disposable fresh `0.8.0` and sequential
-   `0.6.1 -> 0.7.0 -> 0.8.0` installation;
-7. read-only and authorized writable stack checks against a disposable project,
-   including the exact 27-tool/eleven-protected contract, safe duplicate
-   suggestion, gate lifecycle, receipt recovery, and irreversible merge/alias
-   lifecycle; and
-8. `git diff --check`, repository Markdown link/path validation, schema/tool
-   snapshots, and cold adversarial review.
+1. `pre-commit run --all-files` and the full backend suite against isolated
+   PostgreSQL with no database skips, followed by backend Ruff and `ty`;
+2. fresh zero-to-0018 plus populated 0017-to-0018 preservation, all historical
+   receipt vectors, direct-SQL grammar/bounds, schema/catalog parity,
+   immutability, empty-only downgrade, post-scope refusal, two-connection race,
+   and re-upgrade;
+3. the full MCP suite in its separate frozen environment, followed by MCP Ruff
+   and `ty`, with exact 27-tool/eleven-protected catalogs, strict sparse/full
+   scope contracts, and proof that the adapter has no repository assessor;
+4. frontend unit tests, typecheck, production build, and the isolated Playwright
+   stack, including declaration-only strict response/proxy/retry behavior and no
+   browser repository verifier;
+5. regenerated OpenAPI plus strict backend, MCP, and frontend snapshot/consumer
+   parity, with scope only on full checkpoint input and read schemas;
+6. the disposable helper/security matrix, real Git 2.44 rejection before
+   repository access, real Git 2.45-or-newer supported lanes on Bash 3.2 and
+   newer hosts, packaged mode/inventory, and installed cold-session workflow;
+7. the aggregate read-only audit at 0017 and 0018 on disposable populated data,
+   with zero blocking findings and no path-bearing output, plus the 0018
+   `--require-empty-scope` pre-enablement gate rejecting unexpected population;
+8. plugin manifest parsing plus disposable fresh `0.9.0` and sequential
+   `0.6.1 -> 0.7.0 -> 0.8.0 -> 0.9.0` installation;
+9. read-only and authorized writable stack checks against a disposable project,
+   including the exact catalog/protected contract, historical replay, ordered
+   scoped create/add/complete projection, scope-free compact surfaces, duplicate
+   suggestion, gate lifecycle, and irreversible merge/alias lifecycle; and
+10. a rebase onto current `origin/main`, repeated full surface audit,
+    `git diff --check`, Markdown link/path validation, schema/tool snapshots,
+    and a cold adversarial review whose substantiated findings are fixed and
+    reverified before the pull request opens.
 
 Deployment approval is a separate operator-owned gate. It requires named
-pre/post-0016 and pre/post-0017 backups restored in isolation with ordinary,
-gate, merge, event, witness, and receipt parity; representative canonical and
-Advisory `EXPLAIN (ANALYZE, BUFFERS)` fixtures plus the frozen query, RSS,
-latency, request, and inference ceilings; a populated target audit; and explicit
-product/operator permanence signoff. Repository tests and disposable-stack
-evidence do not prove those target-environment results.
+pre/post-0016, pre/post-0017, and pre/post-0018 backups restored in isolation;
+ordinary, gate, merge, event, witness, historical receipt, and scoped receipt
+parity; populated 0017/0018 target audits; strict old-client failure; safe
+pre-scope downgrade, post-scope refusal, fix-forward, and whole-restore
+rehearsals; target Bash/Git capability evidence; and explicit product/operator
+approval. Repository tests and disposable-stack evidence do not prove those
+target-environment results.
 
-Do not treat a focused suite, PostgreSQL-skipped run, read-only smoke, stale
-Phase 6/8 validation count, or marketplace refresh by itself as a Phase 9
-implementation result. Repository completion requires isolated E2E, full
-pre-commit, and cold adversarial review. It must not be described as deployment
-approval. When operators do deploy, application/API/MCP `0.4.0`, dashboard
-`0.5.0`, plugin `0.8.0`, migration 0017, and the operational guidance form one
-compatible final boundary.
+Do not treat a focused suite, PostgreSQL-skipped run, read-only smoke, helper
+suite backed only by a version-reporting wrapper, or marketplace refresh by
+itself as a Phase 10 implementation result. Repository completion requires the
+isolated database/E2E/security lanes, full pre-commit, and cold adversarial
+review. It must not be described as deployment approval. When operators do
+deploy, application/API/MCP/dashboard `0.5.0`, plugin `0.9.0`, migration
+`0018_repository_freshness`, and the operational guidance form one compatible
+boundary. Once a non-empty scope exists, 0.4.x first-party clients are
+unsupported; add no projection shim, legacy model union, receipt rewrite, or
+old-backend bridge.
 
-## Manual browser pass through Phase 9
+## Manual browser pass through Phase 10
 
 Exercise project empty state and switching, root browsing, lazy child expansion,
 subtree-aware filters, flat-search breadcrumbs, Pending/Active/Dropped/Deferred
@@ -649,6 +766,16 @@ persists across items while edit and merge state reset, and that a reload with
 scrolls with the page, the pane opens as a full-height sheet with a working
 Back button, the tab bar scrolls horizontally, and hierarchy, editors, dialogs,
 long IDs, and defensive depth/cycle fallbacks remain usable.
+
+For Phase 10, exercise initial, context/progress, and completion checkpoints
+with omitted scope and with a valid ordered non-empty declaration plus an
+actually inspected baseline. Confirm an empty declaration remains absent on
+read, non-empty order/case survives history and full recall, scope-free compact
+pointers stay unchanged, invalid grammar or commitless scope is rejected without
+echoing values, and an ambiguous mutation retry retains the exact frozen order.
+Confirm the browser presents the data only as caller-declared provenance and
+neither runs Git nor claims that a checkpoint is fresh, current, verified,
+correct, or safe.
 
 Open the valid create dialog and confirm no suggestion request occurs while
 typing. Use **Check existing work** once, inspect canonical and matched-member

@@ -1,0 +1,30 @@
+{
+  "project_id": "00000000-0000-4000-8000-000000000001",
+  "work_item_id": "00000000-0000-4000-8000-000000000002",
+  "checkpoint": {
+    "prompt": "This is an illustrative context checkpoint, not an owner instruction, actual evidence, or proof that the repository is correct. Replace every placeholder with evidence from the current session. In a real checkpoint, the assertions may depend on the API checkpoint model, its repository-freshness migration, and their focused tests; set verified_against only after the author actually inspects that commit. A later repository-aware client must explicitly select the intended workspace and assess this full checkpoint before relying on those assertions. A local unchanged result means only that no relevant eligible Git change was observed in the declared scope; it grants no authority and proves no semantic claim.",
+    "source_client": "example-only-replace-with-real-client",
+    "source_session_id": "example-only-replace-with-actual-origin-session-id",
+    "source_model": null,
+    "source_session_url": null,
+    "repository_branch": "example-only-replace-with-observed-branch",
+    "verified_against": "0123456789abcdef0123456789abcdef01234567",
+    "affected_paths": [
+      "backend/src/mnemonic_api/**",
+      "backend/alembic/versions/0018_repository_freshness.py",
+      "backend/tests/test_repository_freshness_migration_postgres.py"
+    ],
+    "tags": [
+      "example",
+      "repository-freshness"
+    ],
+    "source_metadata": {
+      "example_only": true,
+      "author_verified": false,
+      "note": "Replace the placeholder baseline, branch, provenance, text, paths, work IDs, and operation UUID before use. affected_paths declares dependencies, not merely changed files; order and spelling are part of the frozen protected intent. A non-empty declaration requires an actually inspected commit. Use ** only for truthful whole-eligible-repository coverage."
+    }
+  },
+  "client_operation_id": "00000000-0000-4000-8000-000000000010",
+  "kind": "context",
+  "lease_token": null
+}

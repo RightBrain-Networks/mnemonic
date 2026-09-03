@@ -314,6 +314,129 @@ test("Phase 6 proxy accepts the operation UUID on all nine dashboard mutation bo
   }
 });
 
+test("repository scope is accepted only on the three checkpoint-bearing mutations", () => {
+  const checkpointPayload = {
+    prompt: "Exact context",
+    source_client: "dashboard",
+    source_session_id: "tab-1",
+    source_model: null,
+    repository_branch: "work/phase10",
+    verified_against: "abcdef1234567",
+    tags: [],
+    source_metadata: {}
+  };
+  const paths = ["src/**", "tests/test_*.py", "README.md"];
+  const bodies = [
+    [
+      `projects/${project}/work-items`,
+      {
+        title: "Durable work",
+        summary: "Summary",
+        priority: 0,
+        status: "pending",
+        initial_checkpoint: checkpointPayload,
+        client_operation_id: operation
+      },
+      "initial_checkpoint"
+    ],
+    [
+      `projects/${project}/work-items/${work}/checkpoints`,
+      { kind: "context", ...checkpointPayload, client_operation_id: operation },
+      null
+    ],
+    [
+      `projects/${project}/work-items/${work}/complete`,
+      { expected_version: 1, checkpoint: checkpointPayload, client_operation_id: operation },
+      "checkpoint"
+    ]
+  ];
+  const withPaths = (body, nested, value) => nested
+    ? { ...body, [nested]: { ...body[nested], affected_paths: value } }
+    : { ...body, affected_paths: value };
+
+  for (const [path, body, nested] of bodies) {
+    assert.equal(invalidMutationBody(path, "POST", body), null, `${path}: omitted`);
+    assert.equal(
+      invalidMutationBody(path, "POST", withPaths(body, nested, [])),
+      null,
+      `${path}: explicit empty`
+    );
+    assert.equal(
+      invalidMutationBody(path, "POST", withPaths(body, nested, paths)),
+      null,
+      `${path}: non-empty`
+    );
+  }
+
+  for (const [path, body, nested] of bodies) {
+    const withoutBaseline = withPaths(body, nested, paths);
+    if (nested) withoutBaseline[nested] = { ...withoutBaseline[nested], verified_against: null };
+    else withoutBaseline.verified_against = null;
+    assert.match(invalidMutationBody(path, "POST", withoutBaseline), /allowlist/);
+
+    for (const invalidPaths of [
+      ["unsafe path"],
+      ["src/**", "src/**"],
+      ["src/**tail"],
+      ["x".repeat(513)],
+      Array.from({ length: 65 }, (_, index) => `path-${index}`)
+    ]) {
+      assert.match(
+        invalidMutationBody(path, "POST", withPaths(body, nested, invalidPaths)),
+        /allowlist/
+      );
+    }
+  }
+
+  const nonCheckpoint = {
+    expected_version: 1,
+    title: "Updated",
+    actor: { actor_client: "dashboard", actor_session_id: "tab-1" },
+    client_operation_id: operation,
+    affected_paths: paths
+  };
+  assert.match(
+    invalidMutationBody(`projects/${project}/work-items/${work}`, "PATCH", nonCheckpoint),
+    /allowlist/
+  );
+  for (const field of ["repository_root", "freshness_state", "assessment_result"]) {
+    assert.match(
+      invalidMutationBody(
+        `projects/${project}/work-items/${work}/checkpoints`,
+        "POST",
+        { kind: "context", ...checkpointPayload, [field]: "forbidden", client_operation_id: operation }
+      ),
+      /allowlist/
+    );
+    assert.match(
+      invalidMutationBody(
+        `projects/${project}/work-items/${work}/checkpoints`,
+        "POST",
+        {
+          kind: "context",
+          ...checkpointPayload,
+          source_metadata: { nested: { [field]: "forbidden" } },
+          client_operation_id: operation
+        }
+      ),
+      /allowlist/
+    );
+  }
+  assert.match(
+    invalidMutationBody(
+      `projects/${project}/work-items/${work}/checkpoints`,
+      "POST",
+      {
+        kind: "context",
+        ...checkpointPayload,
+        source_metadata: { affected_paths: paths },
+        client_operation_id: operation
+      }
+    ),
+    /allowlist/
+  );
+});
+
 test("human-gate resolution is the only browser gate mutation and binds exact reviewed context", () => {
   const path = `projects/${project}/work-items/${work}/gates/${gate}/resolve`;
   const base = {

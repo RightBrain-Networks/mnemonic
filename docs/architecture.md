@@ -1,7 +1,7 @@
-# Mnemonic architecture through Phase 9
+# Mnemonic architecture through Phase 10
 
-This architecture describes application/API/MCP `0.4.0`, Claude plugin `0.8.0`,
-and Alembic head `0017_duplicate_suggestion_title_key`. The longer-term
+This architecture describes application/API/MCP `0.5.0`, Claude plugin `0.9.0`,
+and Alembic head `0018_repository_freshness`. The longer-term
 direction and later-phase boundaries are in [`roadmap.md`](roadmap.md).
 
 ## Product model
@@ -40,8 +40,10 @@ flowchart LR
 
 A work item owns only mutable identity and lifecycle: title, summary, status,
 priority, version, and timestamps. Checkpoints own exact prompt text, source
-client/session/model, optional session URL and repository provenance, tags,
-metadata, kind, and creation time.
+client/session/model, optional session URL and caller-asserted repository
+branch/commit, an ordered declared dependency scope, tags, metadata, kind, and
+creation time. The scope qualifies that exact immutable packet; it is not copied
+between checkpoints or into events, pointers, search, or derived state.
 
 A `WorkEvent` is a concise immutable fact in one work item's history. It can
 reference a checkpoint, lease generation/release action, or complete
@@ -152,6 +154,10 @@ that locks and revalidates before already-authorized execution.
 - Checkpoint text and provenance never change. The database rejects direct
   checkpoint `UPDATE` and `DELETE` statements as well as the API exposing no
   such routes. Corrections are new `context` checkpoints.
+- An affected-path declaration has at most 64 preserved ASCII patterns, each at
+  most 512 bytes and together at most 16 KiB. Non-empty scope requires a
+  caller-asserted checked commit. Empty means unknown scope and is canonically
+  omitted; `**` is the explicit whole-eligible-repository declaration.
 - Appending a checkpoint updates work activity but does not increment the work
   version. Independent appenders do not contend through optimistic versioning.
 - Work edits, completion, and soft deletion require the version last read.
@@ -176,6 +182,10 @@ that locks and revalidates before already-authorized execution.
   recalling them is not authority to execute them.
 - PostgreSQL and the FastAPI service are the sole persistence and transaction
   authority. The MCP adapter never connects to the database.
+- The API, MCP adapter, and browser never inspect, mount, identify, fetch, or
+  assess a repository. Only the installed local plugin helper reads the
+  explicitly selected current Git worktree. Its ephemeral three-state evidence
+  is advisory and never persisted or converted into authority.
 - `client_operation_id` is private control data. It is accepted only at the
   top level of the thirteen enrolled REST request bodies, never persisted in domain
   models/events or returned through public read surfaces.
@@ -185,6 +195,8 @@ that locks and revalidates before already-authorized execution.
 ```mermaid
 flowchart LR
     Agent[MCP client] --> MCP[MCP REST adapter :8001]
+    Agent --> Helper[Packaged read-only Git helper]
+    Helper --> Repo[(Explicit current local worktree)]
     MCP --> API[FastAPI :8000]
     User[Browser] --> Web[Next.js :3000]
     Web --> API
@@ -221,6 +233,9 @@ checkpoint, lease, relationship, human-gate, and duplicate terminology. Its exac
 catalog includes request, attention, and gate-history operations but deliberately
 no resolution tool; `merge_work` is its only authoritative duplicate mutation,
 while `suggest_duplicate_work` is an independently retryable safe read.
+Full checkpoint models transport non-empty `affected_paths` declarations;
+compact pointers remain scope-free. The adapter has no Git, subprocess,
+filesystem, repository-root, branch-resolution, or freshness-result surface.
 The dashboard calls only an exact same-origin proxy
 allowlist, including attention/history reads, gate resolution, event
 list/progress append, and actor-bearing work or relationship writes. A dashboard-lifetime in-memory
@@ -391,6 +406,18 @@ domain facts to reverse. The widened Alembic revision column remains at
 64 characters because the mandated 0017 revision ID exceeds the historical
 32-character capacity; no application content changes.
 
+`0018_repository_freshness` adds
+`checkpoints.affected_paths VARCHAR(512)[] NOT NULL DEFAULT '{}'` plus the
+versioned immutable `mnemonic_affected_paths_valid_v1(varchar[])` validator.
+Database constraints enforce the exact one-dimensional ASCII grammar, count,
+per-entry and aggregate byte bounds, case-sensitive exact uniqueness, and the
+non-empty-scope/`verified_against` dependency. Every historical row receives
+only the empty array; no text, tag, metadata, relationship, branch, or checkout
+is interpreted to infer scope. The existing checkpoint immutability trigger
+protects the new column, and there is no scope index. Downgrade takes an
+exclusive table lock and refuses before DDL once any non-empty declaration
+exists; after scoped use, recovery is fix-forward or a whole-database restore.
+
 ## Idempotent mutation execution
 
 The thirteen enrolled REST operations are create work, add checkpoint, append
@@ -422,6 +449,13 @@ An exact replay republishes the data-free invalidation only when the stored
 The receipt itself has no public endpoint, TTL, cleanup job, or resource foreign
 key.
 
+Checkpoint mutation receipts remain response-contract version 1. A newly
+completed receipt stores the canonical sparse checkpoint representation:
+`affected_paths` is present only when non-empty. Historical response bytes are
+never rewritten or synthesized. Replay accepts both the historical shape with
+the member absent and the new non-empty shape, while rejecting an explicit
+empty member as an unverifiable protected response.
+
 ## Recall and retrieval
 
 `recall_work` is deliberately bounded. It returns the exact requested work identity, initial
@@ -436,6 +470,12 @@ checkpoint or event pagination. Context also includes bounded unresolved and
 recent-resolved gate slices with exact totals/omitted counts; focused human
 review can require a named unresolved gate in the one-snapshot response, while
 complete paired decisions use cursor-paged gate history.
+
+Every materialized full checkpoint preserves a non-empty declared
+`affected_paths` list byte-for-byte and in caller order. Pointer projections,
+events, search hits, relationship counterparts, and other derived summaries
+omit the declaration. Callers that need declarations outside bounded recall
+page full checkpoint history explicitly.
 
 Ordinary recall and search return only the safe active-lease projection: holder
 client/session and acquisition, renewal, and expiry timestamps. The request ID
@@ -537,7 +577,7 @@ explicit cycle and depth fallbacks instead of silently hiding corrupt or
 unexpectedly deep branches, and schedules passive refresh from the earliest
 visible descendant lease expiry.
 
-## Deliberate Phase 9 limits
+## Deliberate Phase 10 limits
 
 Ready discovery is not automatic scheduling and there is no
 `claim_next_ready_work`. The receipt ledger still excludes project
@@ -554,7 +594,10 @@ an authoritative merge makes its source a non-actionable alias. Suggestions are
 explicit, transient, and evidence-only. The release has no automatic merge,
 per-keystroke suggestion, creation suppression, unmerge/split/retarget, ID redirect, claim substitution,
 relationship transfer, content or lifecycle coalescing, repository freshness
-verification, resource reservation, or automatic execution. No relationship,
+enforcement, resource reservation, or automatic execution. Repository
+freshness is a local, caller-selected advisory check over a declared dependency
+scope; it is not semantic proof, execution authority, or a server-side Git
+operation. No relationship,
 merge, or human answer may be inferred from similarity or checkpoint prose.
 
 The per-work event identity is not a durable project activity cursor. The gate
@@ -567,6 +610,8 @@ feed, or passive lease-expiry event.
 Backups include canonical work, checkpoints, leases, relationships,
 authoritative duplicate merges and their witnesses, immutable
 events and their sequence, human gates and attention sequence, durable
-client-operation receipts, and migration state. Operators must still copy
+client-operation receipts (including historical and scoped checkpoint response
+shapes), ordered checkpoint dependency declarations, and migration state.
+Operators must still copy
 backups off-machine and rehearse restores; a persistent Docker volume is not a
 backup.

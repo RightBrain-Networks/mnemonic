@@ -99,6 +99,24 @@
       "CheckpointCreate": {
         "additionalProperties": false,
         "properties": {
+          "affected_paths": {
+            "description": "Ordered caller-declared repository dependency patterns. Entries use a narrow ASCII root-relative grammar: slash-separated components containing letters, digits, . _ @ + = , ~ - and single-component * wildcards; ** is allowed only as a complete component. At most 64 entries, 512 bytes each, and 16384 bytes total. A non-empty list requires verified_against. Omitted or empty means no dependency scope was declared and is omitted from canonical responses; ** explicitly declares all eligible repository paths.",
+            "examples": [
+              [
+                "src/**",
+                "tests/test_*.py"
+              ]
+            ],
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._@+=,~*/-]+$",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Affected Paths",
+            "type": "array"
+          },
           "client_operation_id": {
             "anyOf": [
               {
@@ -351,6 +369,24 @@
       "CheckpointRead": {
         "additionalProperties": false,
         "properties": {
+          "affected_paths": {
+            "description": "Ordered caller-declared repository dependency patterns. Entries use a narrow ASCII root-relative grammar: slash-separated components containing letters, digits, . _ @ + = , ~ - and single-component * wildcards; ** is allowed only as a complete component. At most 64 entries, 512 bytes each, and 16384 bytes total. A non-empty list requires verified_against. Omitted or empty means no dependency scope was declared and is omitted from canonical responses; ** explicitly declares all eligible repository paths.",
+            "examples": [
+              [
+                "src/**",
+                "tests/test_*.py"
+              ]
+            ],
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._@+=,~*/-]+$",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Affected Paths",
+            "type": "array"
+          },
           "created_at": {
             "title": "Created At",
             "type": "string"
@@ -562,6 +598,24 @@
       "CompletionCheckpointCreate": {
         "additionalProperties": false,
         "properties": {
+          "affected_paths": {
+            "description": "Ordered caller-declared repository dependency patterns. Entries use a narrow ASCII root-relative grammar: slash-separated components containing letters, digits, . _ @ + = , ~ - and single-component * wildcards; ** is allowed only as a complete component. At most 64 entries, 512 bytes each, and 16384 bytes total. A non-empty list requires verified_against. Omitted or empty means no dependency scope was declared and is omitted from canonical responses; ** explicitly declares all eligible repository paths.",
+            "examples": [
+              [
+                "src/**",
+                "tests/test_*.py"
+              ]
+            ],
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._@+=,~*/-]+$",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Affected Paths",
+            "type": "array"
+          },
           "prompt": {
             "maxLength": 100000,
             "minLength": 1,
@@ -1494,6 +1548,24 @@
       "InitialCheckpointCreate": {
         "additionalProperties": false,
         "properties": {
+          "affected_paths": {
+            "description": "Ordered caller-declared repository dependency patterns. Entries use a narrow ASCII root-relative grammar: slash-separated components containing letters, digits, . _ @ + = , ~ - and single-component * wildcards; ** is allowed only as a complete component. At most 64 entries, 512 bytes each, and 16384 bytes total. A non-empty list requires verified_against. Omitted or empty means no dependency scope was declared and is omitted from canonical responses; ** explicitly declares all eligible repository paths.",
+            "examples": [
+              [
+                "src/**",
+                "tests/test_*.py"
+              ]
+            ],
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._@+=,~*/-]+$",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Affected Paths",
+            "type": "array"
+          },
           "prompt": {
             "maxLength": 100000,
             "minLength": 1,
@@ -4652,7 +4724,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.4.0"
+    "version": "0.5.0"
   },
   "openapi": "3.1.0",
   "paths": {

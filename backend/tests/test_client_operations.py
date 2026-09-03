@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from copy import deepcopy
 from unittest.mock import Mock
 from uuid import UUID, uuid4
 
@@ -34,6 +35,7 @@ from mnemonic_api.schemas import (
     WorkMergeCreate,
 )
 from mnemonic_api.services.client_operations import (
+    _CHECKPOINT_FIELDS,
     OPERATION_REGISTRY,
     REGISTERED_OPERATION_KINDS,
     CompletedOperation,
@@ -817,6 +819,197 @@ def test_every_registered_operation_has_a_frozen_response_v1_vector(
     assert response.status_code == spec.status_code
     assert json.loads(response.body) == expected_body
     assert hashlib.sha256(canonical).hexdigest() == RESPONSE_V1_DIGESTS[kind]
+
+
+@pytest.mark.parametrize("kind", ["create_work", "add_checkpoint", "complete_work"])
+def test_explicit_empty_affected_paths_preserve_historical_request_bytes(kind):
+    target, historical = next(
+        (target, payload)
+        for candidate_kind, target, payload, _expected in canonical_vector_cases()
+        if candidate_kind == kind
+    )
+    explicit_source = historical.model_dump(mode="python")
+    if kind == "create_work":
+        explicit_source["initial_checkpoint"]["affected_paths"] = []
+    elif kind == "complete_work":
+        explicit_source["checkpoint"]["affected_paths"] = []
+    else:
+        explicit_source["affected_paths"] = []
+    explicit = type(historical).model_validate(explicit_source)
+    canonical_target = {name: str(value) for name, value in target.items()}
+
+    assert canonical_request_bytes(
+        operation_spec(kind), PROJECT_ID, canonical_target, historical
+    ) == canonical_request_bytes(
+        operation_spec(kind), PROJECT_ID, canonical_target, explicit
+    )
+
+
+@pytest.mark.parametrize("kind", ["create_work", "add_checkpoint", "complete_work"])
+def test_nonempty_affected_paths_and_order_bind_new_request_bytes(kind):
+    target, historical = next(
+        (target, payload)
+        for candidate_kind, target, payload, _expected in canonical_vector_cases()
+        if candidate_kind == kind
+    )
+    base = historical.model_dump(mode="python")
+    checkpoint_key = (
+        "initial_checkpoint" if kind == "create_work" else "checkpoint"
+        if kind == "complete_work"
+        else None
+    )
+    checkpoint_source = base if checkpoint_key is None else base[checkpoint_key]
+    checkpoint_source["verified_against"] = "abcdef1"
+    checkpoint_source["affected_paths"] = ["src/**", "tests/test_*.py"]
+    forward = type(historical).model_validate(base)
+
+    reversed_source = forward.model_dump(mode="python")
+    reversed_checkpoint = (
+        reversed_source if checkpoint_key is None else reversed_source[checkpoint_key]
+    )
+    reversed_checkpoint["affected_paths"] = ["tests/test_*.py", "src/**"]
+    reversed_scope = type(historical).model_validate(reversed_source)
+    canonical_target = {name: str(value) for name, value in target.items()}
+
+    forward_bytes = canonical_request_bytes(
+        operation_spec(kind), PROJECT_ID, canonical_target, forward
+    )
+    reverse_bytes = canonical_request_bytes(
+        operation_spec(kind), PROJECT_ID, canonical_target, reversed_scope
+    )
+    assert b'"affected_paths":["src/**","tests/test_*.py"]' in forward_bytes
+    assert forward_bytes != reverse_bytes
+
+
+@pytest.mark.parametrize("kind", ["create_work", "add_checkpoint", "complete_work"])
+def test_checkpoint_response_v1_sparse_canonicality_and_new_scope(kind):
+    source = deepcopy(
+        next(
+            source
+            for candidate_kind, source, _expected in response_vector_cases()
+            if candidate_kind == kind
+        )
+    )
+    checkpoint_key = (
+        "initial_checkpoint" if kind == "create_work" else "checkpoint"
+        if kind == "complete_work"
+        else None
+    )
+    checkpoint_source = source if checkpoint_key is None else source[checkpoint_key]
+    checkpoint_source["affected_paths"] = []
+
+    with pytest.raises(ApplicationError) as captured:
+        _render_registered_response(
+            operation_spec(kind), source, stored_snapshot=True
+        )
+    assert captured.value.detail["code"] == "client_operation_unavailable"
+
+    checkpoint_source["affected_paths"] = ["src/**", "tests/test_*.py"]
+    _, body, _ = _render_registered_response(operation_spec(kind), source)
+    rendered_checkpoint = body if checkpoint_key is None else body[checkpoint_key]
+    assert rendered_checkpoint["affected_paths"] == ["src/**", "tests/test_*.py"]
+    _, replayed, _ = _render_registered_response(
+        operation_spec(kind), body, stored_snapshot=True
+    )
+    assert replayed == body
+
+
+@pytest.mark.parametrize("kind", ["create_work", "add_checkpoint", "complete_work"])
+def test_receipt_checkpoint_coherence_rejects_missing_reordered_or_changed_scope(kind):
+    scope = ["src/**", "tests/test_*.py"]
+    checkpoint_values = {
+        **checkpoint(),
+        "verified_against": "abcdef1",
+        "affected_paths": scope,
+    }
+    if kind == "create_work":
+        payload = work_payload(initial_checkpoint=checkpoint_values)
+        checkpoint_request = payload.initial_checkpoint
+        checkpoint_kind = "context"
+        target: dict[str, str] = {}
+    elif kind == "add_checkpoint":
+        payload = CheckpointCreate(
+            **checkpoint_values,
+            kind="progress",
+            client_operation_id=OPERATION_ID,
+        )
+        checkpoint_request = payload
+        checkpoint_kind = "progress"
+        target = {"work_item_id": str(WORK_ID)}
+    else:
+        payload = WorkCompletionCreate(
+            expected_version=4,
+            checkpoint=checkpoint_values,
+            client_operation_id=OPERATION_ID,
+        )
+        checkpoint_request = payload.checkpoint
+        checkpoint_kind = "completion"
+        target = {"work_item_id": str(WORK_ID)}
+
+    checkpoint_body = {
+        "id": str(CHECKPOINT_ID),
+        "work_item_id": str(WORK_ID),
+        "kind": checkpoint_kind,
+        **{
+            name: getattr(checkpoint_request, name)
+            for name in _CHECKPOINT_FIELDS
+        },
+        "migration_origin": None,
+        "legacy_record_id": None,
+        "created_at": "2026-09-01T00:00:00Z",
+    }
+    work_body = {
+        "id": str(WORK_ID),
+        "project_id": str(PROJECT_ID),
+        "title": getattr(payload, "title", "Completed work"),
+        "summary": getattr(payload, "summary", "Completed work summary"),
+        "status": "done" if kind == "complete_work" else getattr(payload, "status", "pending"),
+        "priority": getattr(payload, "priority", 0),
+        "initial_checkpoint_id": str(CHECKPOINT_ID),
+        "version": 5 if kind == "complete_work" else 1,
+        "created_at": "2026-09-01T00:00:00Z",
+        "updated_at": "2026-09-01T00:00:01Z",
+    }
+    if kind == "create_work":
+        response_body = {
+            "work_item": work_body,
+            "initial_checkpoint": checkpoint_body,
+            "initial_relationships": [],
+        }
+    elif kind == "complete_work":
+        response_body = {"work_item": work_body, "checkpoint": checkpoint_body}
+    else:
+        response_body = checkpoint_body
+
+    spec = operation_spec(kind)
+    typed = spec.response_model.model_validate(response_body)
+    assert "affected_paths" in _CHECKPOINT_FIELDS
+    assert _response_matches_operation(
+        spec, PROJECT_ID, target, payload, typed, True
+    )
+
+    checkpoint_key = (
+        "initial_checkpoint" if kind == "create_work" else
+        "checkpoint" if kind == "complete_work" else None
+    )
+    for replacement in (None, list(reversed(scope)), ["src/**", "mcp/**"]):
+        impossible = deepcopy(response_body)
+        impossible_checkpoint = (
+            impossible if checkpoint_key is None else impossible[checkpoint_key]
+        )
+        if replacement is None:
+            impossible_checkpoint.pop("affected_paths")
+        else:
+            impossible_checkpoint["affected_paths"] = replacement
+        impossible_typed = spec.response_model.model_validate(impossible)
+        assert not _response_matches_operation(
+            spec,
+            PROJECT_ID,
+            target,
+            payload,
+            impossible_typed,
+            True,
+        )
 
 
 def test_gate_response_replay_regenerates_computed_fields_and_refuses_tampering():

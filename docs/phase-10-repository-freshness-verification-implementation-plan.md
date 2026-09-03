@@ -1,7 +1,11 @@
 # Mnemonic Phase 10 — Repository Freshness Verification Implementation Plan
 
-This is the implementation contract for Phase 10 and a planning artifact only:
-none of its checkboxes assert that implementation has started or shipped.
+This began as the implementation contract for Phase 10 and now also records
+implementation-time feasibility corrections and release evidence. The original
+gate checklists in sections 10 and 18 remain unchecked until each complete
+release gate is satisfied. As of 2026-09-03, non-UI implementation and review
+are in progress; dashboard integration, rebasing, and full release validation
+are intentionally pending while a separate dashboard refactor lands.
 
 It was prepared against `origin/main` at
 `63227294e989a11e8ab914feace3652849b0ea88`, after Phase 9, the theme-selector
@@ -45,9 +49,10 @@ After the release:
 4. The backend persists the declaration on the existing immutable checkpoint
    row. It does not inspect Git, derive paths, or persist a freshness result.
 5. The MCP adapter transports the declaration but remains repository-blind.
-6. The installed plugin contains one bounded, read-only Git helper. The recall
-   workflow invokes it only for a full checkpoint the agent is about to rely
-   on.
+6. The installed plugin contains one read-only Git helper with capped input,
+   retained evidence, and output. The caller applies a whole-process-group
+   deadline, and the recall workflow invokes the helper only for a full
+   checkpoint the agent is about to rely on.
 7. The helper emits exactly one assessment state:
 
    - `unchanged`: no relevant Git change was observed and every required
@@ -353,7 +358,8 @@ The assessment has an anchor stage and evidence stage.
 
 Anchor failure is always `indeterminate`: no declaration, unbound workspace,
 invalid input, unsupported runtime, non-worktree/unborn state, unresolvable or
-non-commit baseline, or baseline not ancestral to captured `HEAD`.
+non-commit baseline, split-index metadata, or baseline not ancestral to captured
+`HEAD`.
 
 After a stable anchor:
 
@@ -362,7 +368,8 @@ After a stable anchor:
 2. A relevant difference reliably observed in both sweeps yields `changed`.
    The displayed list may be incomplete; one sound change is sufficient.
 3. If no sound change repeats, any completeness blocker—unmatched pattern,
-   directory ambiguity, assume-unchanged, skip-worktree, fsmonitor-valid,
+   directory ambiguity, assume-unchanged, skip-worktree, enabled or path-valued
+   `core.fsmonitor`,
    `core.fileMode=false`, content normalization/filter, symlink, sparse state,
    gitlink interior, command/resource failure, or moving state—yields
    `indeterminate`.
@@ -438,7 +445,7 @@ lifecycle, versions, events, activity, receipts, or server state.
 | RFV-011 | Implement the three-state, two-stage client-local lattice. |
 | RFV-012 | Cover committed, staged, unmerged, unstaged, and nonignored-untracked evidence. |
 | RFV-013 | Prove each pattern matches independently before `unchanged`. |
-| RFV-014 | Fail closed on index flags, filters, gitlinks, sparse state, errors, and races. |
+| RFV-014 | Fail closed on relevant index flags, enabled fsmonitor configuration, filters, gitlinks, sparse/split state, errors, and races. |
 | RFV-015 | Prevent stored content from becoming shell/Git syntax. |
 | RFV-016 | Guarantee no Git-triggered process, repository write, or network access. |
 | RFV-017 | Freeze protocol, reason ownership, exit codes, output order, and caps. |
@@ -635,9 +642,9 @@ object command. Failure emits `unsupported_bash_version` or
 for enforced no-lazy-fetch behavior; an older Git is never used optimistically.
 
 Runtime dependencies are Bash and Git only. The client execution facility
-enforces the 15-second whole-process deadline; timeout/signal/partial output is
-caller-side `timed_out` or `malformed_helper_result`. Test harnesses may use
-host utilities for measurement, but the installed helper does not.
+enforces the 15-second whole-process-group deadline; timeout/signal/partial
+output is caller-side `timed_out` or `malformed_helper_result`. Test harnesses
+may use host utilities for measurement, but the installed helper does not.
 
 ### 8.2 Injection-safe fixed invocation
 
@@ -669,18 +676,9 @@ occurs.
 ### 8.3 Exact environment and Git hardening
 
 At startup, retain only ordinary host execution variables required to locate
-Bash/Git. Using Bash built-ins, unset:
-
-- `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`,
-  `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_NAMESPACE`,
-  `GIT_PREFIX`, `GIT_CEILING_DIRECTORIES`,
-  `GIT_DISCOVERY_ACROSS_FILESYSTEM`, and `GIT_EXEC_PATH`;
-- `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`, every
-  `GIT_CONFIG_KEY_*`/`GIT_CONFIG_VALUE_*`, previous config-file overrides,
-  and pathspec-mode variables;
-- `GIT_EXTERNAL_DIFF`, `GIT_DIFF_OPTS`, pager/editor/askpass/SSH variables,
-  credential-interaction variables, and every `GIT_TRACE*`/curl-verbose
-  variable.
+Bash/Git. Using Bash built-ins, unset every inherited `GIT_*` variable, every
+`GCM_*` variable, `GLOBIGNORE`, and pager/editor/askpass/SSH/trace shell
+steering before resolving the absolute trusted-host Git executable.
 
 Then set:
 
@@ -733,9 +731,14 @@ objects; initializes; changes `safe.directory`; invokes hooks, aliases,
 external diffs, textconv, fsmonitor, pager, editor, credentials, SSH, filters,
 or a remote; or creates a file.
 
-Attribute preflight is not an execution barrier. The helper must never call
-`git diff`, `git diff-files`, `git status`, or another attribute-aware
-conversion path for index-to-worktree content.
+Attribute preflight is not an execution barrier. The helper never calls
+`git diff-files`, `git status`, patch-producing `git diff`, or another
+index-to-worktree conversion path. Its sole `git diff` use is a per-file
+`--no-index --raw` comparison between `/dev/null` and an already classified
+regular path. Git's no-index queue derives the mode with `lstat`; raw output
+bypasses patch generation, content hashing, attributes, user diff drivers, and
+clean/process filters. The call also forces `--no-ext-diff`, `--no-textconv`,
+`--no-renames`, `--no-relative`, and `-O/dev/null`.
 
 For each scoped stage-zero index entry, the worktree lane:
 
@@ -746,8 +749,11 @@ For each scoped stage-zero index entry, the worktree lane:
 3. reads a regular file through quoted stdin into
    `git hash-object --no-filters --stdin` without `-w`;
 4. compares that raw OID with the index OID;
-5. compares executable state only when `core.fileMode=true`;
-6. repeats the same observation in the second bracketed sweep.
+5. reads Git's canonical `100644` or `100755` owner-execute mode through the
+   no-index raw metadata call and compares it only when `core.fileMode=true`;
+6. rejects malformed mode output or a path/type race rather than using Bash
+   process-access tests as a proxy for the owner-execute bit;
+7. repeats the same observation in the second bracketed sweep.
 
 `--no-filters` is mandatory and no `--path` hint is supplied. Thus repository
 clean/process filters cannot execute even if attributes/config change during
@@ -761,13 +767,18 @@ raw equality does not prove the converted canonical result. `filter` yields
 `normalization_scope_unsupported`. If raw bytes differ under one of these
 conditions, the raw lane also remains indeterminate unless a different stable,
 filter-free committed/index/untracked observation independently establishes
-`changed`. `git check-attr` is used only to classify this safe raw comparison
-and is repeated; it is never followed by a filter-capable content command.
+`changed`. `git check-attr -z --all` is used only to classify this safe raw
+comparison and is repeated; every explicit relevant declaration, including a
+negative one, blocks zero because named porcelain output cannot distinguish
+literal `unset`/`unspecified` values from sentinel states. It is never followed
+by a filter-capable content command.
 
 If `core.fileMode=false`, content changes remain observable through raw hashes,
-but a zero result is `core_filemode_scope_unsupported` because executable-bit
-drift cannot be excluded. A true setting permits Bash executable-bit comparison
-against index mode. Any mode/type race is `state_changed_during_check`.
+but a zero result is `core_filemode_scope_unsupported`. A true setting permits
+comparison of the no-index raw Git mode against index mode. Bash `-x` is never
+used because process access is not equivalent to Git's owner-execute bit under
+different ownership, ACLs, `noexec` mounts, or root. Any mode/type race is
+`state_changed_during_check` or a fail-closed worktree-lane error.
 
 No temp file/directory is used. Any design needing configured conversion, an
 extra runtime, process sandbox, or temporary persistence returns to review.
@@ -775,9 +786,15 @@ extra runtime, process sandbox, or temporary persistence returns to review.
 ### 8.5 Exact object, pattern, and index preflight
 
 1. Discover top level from CWD; reject non-worktree, bare, unsafe ownership,
-   and unborn HEAD without changing configuration.
-2. Resolve the hex name without peeling. Require its own `cat-file -t` type to
-   be exactly `commit`; reject tag/tree/blob/missing/ambiguous IDs.
+   and unborn HEAD without changing configuration. Require the Git directory
+   to be listable and reject any `sharedindex.*` artifact before the first
+   index-aware command. Git 2.45 refreshes a live shared index's mtime on every
+   read, so split-index support is incompatible with RFV-016 without a temp
+   shadow, native helper, or read-only filesystem sandbox.
+2. Resolve the hex name without peeling. Stream and drain disambiguation
+   output, retaining only the first candidate and a count capped at two.
+   Require the candidate's own `cat-file -t` type to be exactly `commit`;
+   reject tag/tree/blob/missing/ambiguous IDs.
 3. Capture full current `HEAD`. Require baseline equal/ancestor; parse
    merge-base `0` ancestor, `1` non-ancestor, `>1` failure.
 4. Compile helper-owned top literal/glob pathspecs.
@@ -788,12 +805,22 @@ extra runtime, process sandbox, or temporary persistence returns to review.
    requires `directory/**`.
 7. Independently detect gitlink prefix intersections at baseline, HEAD, and
    index. Stable gitlink OID cannot prove interior.
-8. Globally enabled sparse checkout/index is a zero-result blocker.
-9. Inspect scoped `git ls-files -v -z`: lowercase assume-unchanged and uppercase
-   `S` skip-worktree are separate zero-result blockers even when sparse config
-   is off. Never clear either bit.
-10. Inspect scoped `git ls-files -f -z`; a lowercase fsmonitor-valid entry is a
-    zero-result blocker. Override `core.ignoreStat=false`.
+8. Globally enabled sparse checkout/index and a scoped persisted sparse-directory
+   index entry are zero-result blockers, even when sparse config was later
+   disabled.
+9. Inspect scoped `git ls-files -v --sparse -z`: lowercase assume-unchanged and
+   uppercase `S` skip-worktree are separate zero-result blockers even when
+   sparse config is off. Classify an `S` sparse-directory record ending in `/`
+   as sparse state rather than a symlink or ordinary skip-worktree entry. Never
+   clear either bit.
+10. Read effective repository/worktree `core.fsmonitor` through read-only,
+    source-selected config queries while every repository-aware Git process
+    still receives `-c core.fsmonitor=false`. Any enabled or path-valued setting
+    is a scoped zero-result blocker. Never run an unforced `git ls-files -f` or
+    `git ls-files --debug`: on supported Git, suppressing the monitor masks its
+    per-entry valid bit from both views. Dormant persisted valid bits cannot
+    suppress the helper's raw hash of every scoped stage-zero regular file.
+    Override `core.ignoreStat=false`.
 11. Read `core.fileMode` through hardened Git; false is the zero-result blocker
     described above.
 
@@ -805,28 +832,33 @@ lattice. These blockers prevent only an assertion of complete zero.
 Before and after each sweep, pipe these NUL streams to
 `git hash-object --no-filters --stdin` without `-w`:
 
-- `git ls-files --stage -z`;
-- `git ls-files -v -z`;
-- `git ls-files -f -z`.
+- `git ls-files --stage --sparse -z`;
+- `git ls-files -v --sparse -z`.
 
 Check all `PIPESTATUS` members. These logical hashes cover index stages,
-assume-unchanged, skip-worktree, and fsmonitor flags independently of split
-index layout and linked worktrees.
+assume-unchanged, and skip-worktree in ordinary indexes and linked worktrees.
+Split indexes are rejected before these streams. Each sweep separately rereads
+effective fsmonitor configuration through bounded NUL records and includes its
+blocker state in the repeated observation.
 
 Each sweep, using captured OIDs rather than symbolic `HEAD`, records:
 
 1. baseline-to-HEAD committed changes with renames off;
 2. HEAD-to-index staged/type changes;
 3. unmerged stages;
-4. the raw filter-free regular-file comparison in section 8.4;
+4. the raw filter-free content comparison and fixed no-index raw mode
+   observation in section 8.4;
 5. nonignored untracked paths.
 
 Two sweeps must repeat at least one sound observation for `changed`, or both
 must be complete zero for `unchanged`. Other disagreement is indeterminate.
 One HEAD move restarts; a second or any index-identity move does not.
 
-Command/status tables are fixtures. Diff status `0` is zero, `1` difference,
-and `>1` failure. Never map generic nonzero to clean or changed.
+Command/status tables are fixtures. Tree/index diff status `0` is zero, `1`
+is difference, and `>1` is failure. The fixed no-index mode call instead
+requires exit `1`, exactly two NUL records, an add record with two all-zero
+full OIDs, canonical regular mode, and the exact absolute input path. Never map
+generic nonzero to clean or changed.
 
 ### 8.7 Versioned ASCII protocol
 
@@ -858,7 +890,11 @@ protocol.
 Path order is first observation by lane (committed, staged, unmerged,
 unstaged, untracked) and Git byte order within a lane, deduplicated by first
 occurrence. Retain at most 100. Additional observations set
-`paths_truncated=1`; stdout never exceeds 32 KiB.
+`paths_truncated=1`; stdout never exceeds 32 KiB. Do not retain a raw path
+candidate longer than 8,192 bytes. Repeated anchored committed, staged, or
+unmerged difference status can remain sound `changed` evidence after such a
+name is dropped; an over-cap worktree or untracked observation cannot alone
+become stable `changed` because its identity was not retained.
 
 Exit mapping:
 
@@ -890,8 +926,8 @@ Helper protocol pairings:
 
 | Reason | State | OIDs | `detail` | Paths |
 | --- | --- | --- | --- | --- |
-| `unsupported_bash_version`, `unsupported_git_version`, `invalid_declaration`, `not_a_worktree`, `bare_repository`, `unborn_head`, `baseline_missing`, `baseline_ambiguous`, `baseline_not_commit`, `baseline_not_ancestor` | indeterminate | both `-` | none | none |
-| `pattern_unmatched`, `exact_directory_requires_recursive_glob`, `assume_unchanged_scope_unsupported`, `skip_worktree_scope_unsupported`, `fsmonitor_valid_scope_unsupported`, `submodule_scope_unsupported`, `external_filter_scope_unsupported`, `normalization_scope_unsupported`, `symlink_scope_unsupported` | indeterminate | both full | one or more `pattern_index:<decimal>` values, ascending/unique | none |
+| `unsupported_bash_version`, `unsupported_git_version`, `invalid_declaration`, `not_a_worktree`, `bare_repository`, `unborn_head`, `baseline_missing`, `baseline_ambiguous`, `baseline_not_commit`, `baseline_not_ancestor`, `split_index_unsupported` | indeterminate | both `-` | none | none |
+| `pattern_unmatched`, `exact_directory_requires_recursive_glob`, `assume_unchanged_scope_unsupported`, `skip_worktree_scope_unsupported`, `fsmonitor_scope_unsupported`, `submodule_scope_unsupported`, `external_filter_scope_unsupported`, `normalization_scope_unsupported`, `symlink_scope_unsupported` | indeterminate | both full | one or more `pattern_index:<decimal>` values, ascending/unique | none |
 | `sparse_checkout_unsupported`, `core_filemode_scope_unsupported` | indeterminate | both full | none | none |
 | `git_failed` | indeterminate | full only if anchor completed, otherwise both `-` | exactly one `lane:repository|object|ancestry|scope|index|attributes|worktree|untracked` | none |
 | `state_changed_during_check` | indeterminate | both full for abandoned anchor | exactly one `anchor:head|index|worktree` | none |
@@ -1085,9 +1121,10 @@ Index/worktree:
 - staged/unstaged add/modify/delete/type, unmerged, intent-to-add;
 - nonignored untracked, ignored-only unmatched, unrelated dirt;
 - manually set skip-worktree with sparse config off and modified/deleted bytes;
-- assume-unchanged modified bytes, `core.ignoreStat`, fsmonitor-valid;
+- assume-unchanged modified bytes, `core.ignoreStat`, enabled/path-valued
+  `core.fsmonitor`, and dormant valid bits with fsmonitor disabled;
 - `core.fileMode=false` plus executable-bit-only drift;
-- sparse and split index;
+- sparse index plus fail-closed, zero-write split-index rejection;
 - regular raw hash equality/difference;
 - CRLF/text/eol/ident/working-tree-encoding normalization;
 - external clean/process filter attempts to write/connect, proving no filter
@@ -1098,7 +1135,7 @@ Races:
 
 - one/two HEAD moves;
 - index stage/flag changes between every lane;
-- split/shared index changes;
+- split-index artifacts and shared-index mtime preservation;
 - attribute/config changes around raw comparison;
 - worktree change/revert and inconsistent observations;
 - timeout, signal, permission, malformed Git output.
@@ -1172,8 +1209,9 @@ validation.
 Performance tests report tracked/untracked counts, patterns, history distance,
 Git/Bash/OS/filesystem/runner hardware, cache state, repetitions, median/max
 duration, peak RSS, and output bytes. Functional release gates are the
-15-second caller timeout, bounded memory strategy, and 32-KiB output—not a
-hardware-agnostic RSS number.
+15-second caller-enforced process-group timeout, capped helper-retained data,
+and 32-KiB output—not a hardware-agnostic RSS number. Git and Bash enumeration
+cost remains proportional to the trusted local repository.
 
 ---
 
@@ -1271,19 +1309,27 @@ display counts, truncation, and versions. They contain no declarations, names,
 root, branch, SHA, URL, stderr, text, credential, or command string. The server
 has no freshness metric because it performs no assessment.
 
-### 13.4 Hard bounds
+### 13.4 Retained-data bounds and local scale assumption
 
 - 64 patterns;
 - 512 ASCII bytes each;
 - 16 KiB aggregate input;
 - 100 displayed paths;
+- 8,192 raw bytes per retained path candidate;
 - 32 KiB protocol stdout;
 - two sweeps and at most one whole retry after HEAD movement;
-- 15-second client-enforced wall clock.
+- 15-second client-enforced whole-process-group wall clock.
 
-Stream Git output and retain at most capped display values; logical identities
-are hashes, not full captured indexes. Timeout or bound failure is
-`indeterminate`, never partial `unchanged`.
+Stream Git output and retain at most capped display values; abbreviated-object
+resolution retains only its first candidate and a count capped at two; logical
+identities are hashes, not full captured indexes. These are bounds on data the
+helper intentionally retains and emits, not an absolute bound on Git/Bash
+internals. Git must enumerate repository entries, and Bash 3.2's
+`compgen -G` materializes split-index artifact matches before discarding them.
+Repository entry count, config size, and stable local metadata therefore remain
+trusted local scale inputs constrained by the caller's process-group deadline.
+Timeout or retained-data bound failure is `indeterminate`, never partial
+`unchanged`.
 
 ---
 
@@ -1374,7 +1420,7 @@ Roadmap becomes Shipped only after definition of done.
 | Environment redirects | Exact unset/set | Steering matrix |
 | Assume/skip flag hides bytes | Scoped flags block zero | Modified/deleted fixtures |
 | File-mode drift hidden | `core.fileMode=false` blocks zero | Chmod fixture |
-| Split/sparse/index race | Logical identities/two sweeps | Race matrix |
+| Split/sparse/index race | Reject shared indexes; logical ordinary-index identities/two sweeps | Race matrix |
 | Git error means empty | Command status table | Fault injection |
 | Submodule appears clean | Prefix intersection | Gitlink tests |
 | Unstable observation | repeated evidence/anchor retry | Race tests |
@@ -1514,7 +1560,50 @@ CHANGES** for one false-unchanged case and stale prose. The final revision makes
 every scoped content-conversion condition an unconditional zero-result blocker
 and replaces the stale conversion-preflight wording.
 
-### 19.6 Final closure verdict
+### 19.6 Planning closure verdict
 
-The cold reviewer returned **ACCEPT** after confirming that every initial and
-closure blocker was resolved. No implementation-plan blocker remains open.
+The cold reviewer returned **ACCEPT** for the pre-implementation plan after
+confirming that every planning blocker was resolved. Implementation review can
+and did reopen feasibility and correctness decisions below.
+
+### 19.7 Implementation feasibility correction
+
+An implementation-time probe against authentic Git 2.45.4 demonstrated that
+both `git ls-files -f` and `git ls-files --debug` invoke a configured fsmonitor
+when it is enabled, while `-c core.fsmonitor=false` prevents that process but
+masks the persisted per-entry valid bit from both commands. The original demand
+to inspect that bit while also guaranteeing no configured process was therefore
+not implementable through the supported Git interface.
+
+The delivered contract preserves the security and no-false-`unchanged`
+properties: every repository-aware Git invocation forces fsmonitor off;
+effective enabled or path-valued repository/worktree configuration is the
+`fsmonitor_scope_unsupported` zero blocker; dormant bits are not claimed to be
+observable; and every scoped stage-zero regular file is compared by a raw,
+filter-free hash regardless of Git stat-cache flags. Logical index identity
+retains the stage and assume-unchanged/skip-worktree streams. Disposable helper
+tests pin the configured-process sentinel, conservative blocker, and dormant-bit
+raw comparison; the required platform matrix must separately verify authentic
+Git 2.45 behavior. This is a correction to an impossible mechanism, not a
+relaxation of RFV-014 or RFV-016.
+
+### 19.8 Implementation-time helper corrections
+
+Cold implementation review found that Git 2.45 refreshes shared-index metadata
+on an index read, so the no-write contract requires pre-index rejection of any
+`sharedindex.*` artifact. It also found that Bash `-x` reports process access,
+not Git's owner-execute bit, and can therefore hide or invent a mode change.
+
+An attempted `git diff-files --raw` replacement was rejected immediately:
+authentic Git 2.45 source and a racy-index sentinel proved that it can enter
+clean/process conversion even with raw output and `--no-textconv`. The retained
+implementation instead uses `git diff --no-index --raw` only as a metadata
+`lstat` primitive, with external/text conversion and rename processing
+disabled and ordering pinned to `/dev/null`; raw no-index dispatch never enters
+the index conversion path. Direct filter sentinels, owner/group-execute cases,
+malformed output, and authentic Bash 3.2/Git 2.45 runs cover this distinction.
+
+Review also narrowed “bounded” to capped helper-retained data and protocol
+output. Git/Bash enumeration, including Bash 3.2 split-artifact glob expansion,
+remains proportional to a trusted, stable local repository and is contained by
+the caller's 15-second whole-process-group deadline.

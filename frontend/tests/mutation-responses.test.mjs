@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   classifyMutationResponse,
+  decodeCheckpoint,
+  decodeCheckpointPage,
   MUTATION_KINDS
 } from "../lib/mutation-responses.ts";
 import {
@@ -558,6 +560,172 @@ test("canonical lowercase commit responses resolve uppercase create, checkpoint,
     assert.equal((await classify(spec, status, value)).type, "success", spec.kind);
     assert.equal((await classify(spec, status, value)).type, "success", `${spec.kind} replay`);
   }
+});
+
+test("full checkpoint responses normalize absence but reject explicit empty affected paths", async () => {
+  const historical = checkpoint("context");
+  assert.deepEqual(decodeCheckpoint(historical, work).affected_paths, []);
+  assert.throws(
+    () => decodeCheckpoint({ ...historical, affected_paths: [] }, work),
+    /invalid mutation response/
+  );
+
+  const cases = [
+    [
+      request("create_work", "POST", `/projects/${project}/work-items`, {
+        title: "Durable objective",
+        summary: "Keep this context",
+        priority: 5,
+        status: "pending",
+        initial_checkpoint: checkpointInput()
+      }),
+      201,
+      {
+        work_item: workItem(),
+        initial_checkpoint: { ...checkpoint("context"), affected_paths: [] },
+        initial_relationships: []
+      }
+    ],
+    [
+      request(
+        "add_checkpoint",
+        "POST",
+        `/projects/${project}/work-items/${work}/checkpoints`,
+        { kind: "progress", ...checkpointInput("Scoped progress") }
+      ),
+      201,
+      { ...checkpoint("progress", "Scoped progress"), affected_paths: [] }
+    ],
+    [
+      request("complete_work", "POST", `/projects/${project}/work-items/${work}/complete`, {
+        expected_version: 1,
+        checkpoint: checkpointInput("Scoped completion")
+      }),
+      200,
+      {
+        work_item: workItem({ status: "done", version: 2 }),
+        checkpoint: { ...checkpoint("completion", "Scoped completion"), affected_paths: [] }
+      }
+    ]
+  ];
+  for (const [spec, status, value] of cases) {
+    assert.equal((await classify(spec, status, value)).type, "unresolved", spec.kind);
+  }
+});
+
+test("all checkpoint mutations bind exact ordered affected paths to their response", async () => {
+  const affectedPaths = ["src/**", "tests/test_*.py", "README.md"];
+  const baseline = "abcdef1234567";
+  const scopedInput = (prompt = "Exact context") => ({
+    ...checkpointInput(prompt),
+    verified_against: baseline.toUpperCase(),
+    affected_paths: affectedPaths
+  });
+  const scopedResponse = (kind, prompt = "Exact context", paths = affectedPaths) => checkpoint(
+    kind,
+    prompt,
+    { verified_against: baseline, affected_paths: paths }
+  );
+  const cases = [
+    [
+      request("create_work", "POST", `/projects/${project}/work-items`, {
+        title: "Durable objective",
+        summary: "Keep this context",
+        priority: 5,
+        status: "pending",
+        initial_checkpoint: scopedInput()
+      }),
+      201,
+      {
+        work_item: workItem(),
+        initial_checkpoint: scopedResponse("context"),
+        initial_relationships: []
+      }
+    ],
+    [
+      request(
+        "add_checkpoint",
+        "POST",
+        `/projects/${project}/work-items/${work}/checkpoints`,
+        { kind: "progress", ...scopedInput("Scoped progress") }
+      ),
+      201,
+      scopedResponse("progress", "Scoped progress")
+    ],
+    [
+      request("complete_work", "POST", `/projects/${project}/work-items/${work}/complete`, {
+        expected_version: 1,
+        checkpoint: scopedInput("Scoped completion")
+      }),
+      200,
+      {
+        work_item: workItem({ status: "done", version: 2 }),
+        checkpoint: scopedResponse("completion", "Scoped completion")
+      }
+    ]
+  ];
+  for (const [spec, status, value] of cases) {
+    const outcome = await classify(spec, status, value);
+    assert.equal(outcome.type, "success", spec.kind);
+    const returned = spec.kind === "create_work"
+      ? outcome.value.initial_checkpoint
+      : spec.kind === "complete_work"
+        ? outcome.value.checkpoint
+        : outcome.value;
+    assert.deepEqual(returned.affected_paths, affectedPaths);
+  }
+
+  const addSpec = cases[1][0];
+  assert.equal((await classify(
+    addSpec,
+    201,
+    scopedResponse("progress", "Scoped progress", [...affectedPaths].reverse())
+  )).type, "unresolved");
+  assert.equal((await classify(
+    addSpec,
+    201,
+    scopedResponse("progress", "Scoped progress", [])
+  )).type, "unresolved");
+  assert.equal((await classify(
+    addSpec,
+    201,
+    scopedResponse("progress", "Scoped progress", ["src/**", "unsafe path"])
+  )).type, "unresolved");
+  assert.equal((await classify(
+    addSpec,
+    201,
+    { ...scopedResponse("progress", "Scoped progress"), verified_against: null }
+  )).type, "unresolved");
+});
+
+test("checkpoint pages enforce sparse response canonicality for every full history row", () => {
+  const secondId = "555b506c-50ec-4664-9907-c993afd1237d";
+  const value = {
+    items: [
+      checkpoint("context"),
+      checkpoint("progress", "Scoped", {
+        id: secondId,
+        verified_against: "abcdef1",
+        affected_paths: ["src/**"]
+      })
+    ],
+    total: 2,
+    limit: 5,
+    offset: 0
+  };
+  const decoded = decodeCheckpointPage(value, work, { limit: 5, offset: 0 });
+  assert.deepEqual(decoded.items.map((item) => item.affected_paths), [[], ["src/**"]]);
+  assert.throws(
+    () => decodeCheckpointPage({
+      ...value,
+      items: [{ ...checkpoint("context"), affected_paths: [] }]
+    }, work),
+    /invalid mutation response/
+  );
+  assert.throws(
+    () => decodeCheckpointPage({ ...value, items: [checkpoint("context"), checkpoint("context")] }, work),
+    /repeated checkpoint identities/
+  );
 });
 
 test("semantic metadata equality ignores object key order but preserves array order", async () => {

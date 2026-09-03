@@ -11,8 +11,10 @@ SKILL_FILES = {
 }
 REFERENCE_FILES = {
     "authority-and-provenance.md",
+    "repository-freshness.md",
     "work-graph.md",
 }
+BIN_FILES = {"mnemonic-repository-freshness"}
 
 
 def test_plugin_manifest_and_inventory_are_exact():
@@ -22,8 +24,9 @@ def test_plugin_manifest_and_inventory_are_exact():
     )
 
     assert inner["name"] == "mnemonic"
-    assert inner["version"] == "0.8.0"
+    assert inner["version"] == "0.9.0"
     assert "duplicate merges" in inner["description"]
+    assert "declared repository scope" in inner["description"]
     assert marketplace["plugins"] == [
         {
             "name": "mnemonic",
@@ -37,6 +40,9 @@ def test_plugin_manifest_and_inventory_are_exact():
     assert {path.name for path in (PLUGIN_ROOT / "reference").glob("*.md")} == (
         REFERENCE_FILES
     )
+    assert {path.name for path in (PLUGIN_ROOT / "bin").iterdir()} == BIN_FILES
+    helper = PLUGIN_ROOT / "bin" / "mnemonic-repository-freshness"
+    assert helper.stat().st_mode & 0o111 == 0o111
 
 
 def test_every_skill_agrees_on_gate_authority_and_dual_graph_facts():
@@ -53,7 +59,7 @@ def test_every_skill_agrees_on_gate_authority_and_dual_graph_facts():
         assert "resolve_human_input" not in content, name
 
         for relative in re.findall(
-            r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\)]+)", content
+            r"\$\{CLAUDE_PLUGIN_ROOT\}/([A-Za-z0-9_./-]+)", content
         ):
             assert (PLUGIN_ROOT / relative).is_file(), (name, relative)
 
@@ -97,3 +103,23 @@ def test_advisory_guidance_preserves_create_anyway_and_categorical_evidence():
     assert re.search(r"create\s+anyway", save, re.IGNORECASE)
     assert "suggest_duplicate_work" in authority
     assert "evidence-only" in authority
+
+
+def test_repository_freshness_guidance_uses_only_the_packaged_fixed_helper():
+    recall = SKILL_FILES["mnemonic-recall"].read_text()
+    freshness = (PLUGIN_ROOT / "reference" / "repository-freshness.md").read_text()
+    executable = '"${CLAUDE_PLUGIN_ROOT}/bin/mnemonic-repository-freshness"'
+
+    for content in (recall, freshness):
+        assert executable in content
+        assert "--baseline" in content
+        assert "--path" in content
+    assert "explicitly select the workspace" in freshness
+    assert "15-second" in freshness
+    assert "unchanged" in freshness
+    assert "changed" in freshness
+    assert "indeterminate" in freshness
+    assert "semantic freshness" in freshness
+    assert "correctness" in freshness
+    assert "--repo" not in recall
+    assert "--root" not in recall

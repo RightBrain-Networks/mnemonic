@@ -300,8 +300,12 @@ button { touch-action: manipulation; }
 .field input, .field textarea, .field select { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #d5dfd0; border-radius: 6px; background: #fdfefb; color: var(--ink); font-size: 13px; font-weight: 400; line-height: 1.6; }
 .field textarea { resize: vertical; min-height: 80px; }
 .field input:focus, .field textarea:focus, .field select:focus { outline: 2px solid #b2cbb0; outline-offset: 1px; border-color: #7a9f76; }
+.field :is(input, textarea, select)[aria-invalid="true"] { border-color: #a33a30; }
 .field input::placeholder, .field textarea::placeholder { color: #a0aa9c; }
 .field .field-hint { font-size: 10px; line-height: 1.7; font-weight: 400; color: #889581; }
+.field-error { color: #8f251d; font-size: 10px; font-weight: 600; line-height: 1.7; }
+.affected-paths-editor textarea { min-height: 112px; white-space: pre; overflow-wrap: normal; }
+.affected-paths-editor code { font-family: var(--mono); }
 .optional { font-weight: 400; color: #94a08c; font-size: 10px; }
 .field > .optional { margin-top: -5px; }
 .field .prompt-editor { font: 12px/1.85 var(--mono); padding: 15px; tab-size: 2; min-height: 290px; }
@@ -650,6 +654,15 @@ button { touch-action: manipulation; }
 .checkpoint-provenance dt { margin-bottom: 3px; color: var(--muted); font-size: 9px; }
 .checkpoint-provenance dd { margin: 0; color: #473b30; font-size: 10px; line-height: 1.7; }
 .checkpoint-provenance .mono { font-size: 9px; }
+.checkpoint-repository-declaration { margin-top: 14px; padding: 14px; border: 1px solid #e0d5c3; border-radius: 6px; background: #faf6ed; }
+.checkpoint-repository-declaration h5 { margin: 0 0 11px; color: #5f5140; font-size: 11px; }
+.checkpoint-repository-declaration dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 0; }
+.checkpoint-repository-declaration dl > .span-two { grid-column: 1 / -1; }
+.checkpoint-repository-declaration dt { margin-bottom: 3px; color: var(--muted); font-size: 9px; }
+.checkpoint-repository-declaration dd { min-width: 0; margin: 0; color: #473b30; font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; }
+.checkpoint-repository-declaration > p { margin: 11px 0 0; color: var(--muted); font-size: 9px; line-height: 1.7; }
+.affected-path-list { display: grid; gap: 3px; margin: 0; padding-left: 22px; font: 10px/1.7 var(--mono); }
+.affected-path-list li { min-width: 0; padding-left: 2px; overflow-wrap: anywhere; word-break: break-word; }
 .checkpoint .metadata-details { margin-top: 14px; }
 .checkpoint-pagination { margin-top: 17px; }
 .readonly-lifecycle { padding: 10px 12px; border: 1px solid #ddcfb8; border-radius: 6px; color: #6d35d7; background: var(--violet-soft); font-weight: 700; }
@@ -658,6 +671,8 @@ button { touch-action: manipulation; }
   .heading-actions { align-self: flex-start; }
   .checkpoint-provenance { grid-template-columns: minmax(0, 1fr); }
   .checkpoint-provenance .span-two { grid-column: auto; }
+  .checkpoint-repository-declaration dl { grid-template-columns: minmax(0, 1fr); }
+  .checkpoint-repository-declaration dl > .span-two { grid-column: auto; }
   .checkpoint-header { align-items: flex-start; }
   .active-lease-times { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
@@ -1458,9 +1473,15 @@ html[data-theme="dark"] :is(.field, .comment > p, .metadata-grid dd, .checkpoint
   color: var(--dark-text);
 }
 html[data-theme="dark"] :is(.detail-summary, .checkpoint-provenance dd,
-  .relationship-direction legend) {
+  .checkpoint-repository-declaration dd, .relationship-direction legend) {
   color: var(--dark-text);
 }
+html[data-theme="dark"] .checkpoint-repository-declaration {
+  background: var(--dark-muted);
+  border-color: var(--dark-border);
+}
+html[data-theme="dark"] .checkpoint-repository-declaration h5 { color: var(--dark-text); }
+html[data-theme="dark"] .field-error { color: var(--dark-danger-text); }
 html[data-theme="dark"] :is(.field input, .field textarea,
   .hierarchy-filter-fields input)::placeholder {
   color: var(--faint);

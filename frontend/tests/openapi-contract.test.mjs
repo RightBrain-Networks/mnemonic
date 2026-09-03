@@ -10,6 +10,9 @@ import { WORK_EVENT_DECODER_FIELDS } from "../lib/work-events.ts";
 
 const SNAPSHOT_URL = new URL("../../docs/openapi.json", import.meta.url);
 const DEFAULTED_RESPONSE_FIELDS = {
+  "frontend/lib/mutation-responses.ts:decodeCheckpoint": [
+    "affected_paths"
+  ],
   "frontend/lib/human-gates.ts:decodeWorkSummary": [
     "ancestor_path",
     "ancestor_path_truncated"

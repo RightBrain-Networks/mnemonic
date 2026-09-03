@@ -17,7 +17,7 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     view sort limit offset min_priority parent_work_item_id direction type order
     event_type recent_limit recent_event_limit title summary priority expected_version
     initial_checkpoint initial_relationships checkpoint kind prompt source_model
-    source_session_url repository_branch verified_against tags source_metadata
+    source_session_url repository_branch verified_against affected_paths tags source_metadata
     migration_origin legacy_record_id relationship_type source_work_item_id
     target_work_item_id other_work_item_id context_checkpoint_id created_by_client
     created_by_session_id created_by_model holder_client holder_session_id

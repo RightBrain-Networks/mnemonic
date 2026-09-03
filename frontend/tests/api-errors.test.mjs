@@ -23,6 +23,20 @@ test("validation issues remain useful without exposing raw payloads", () => {
   });
 });
 
+test("affected-path validation identifies only the safe field and entry index", () => {
+  const secretPath = "secret/path/that-must-not-render";
+  const detail = detailMessage([{
+    loc: ["body", "checkpoint", "affected_paths", 7],
+    msg: "Value does not match the affected-path grammar",
+    input: secretPath
+  }]);
+  assert.equal(
+    detail.message,
+    "checkpoint.affected_paths.7: Value does not match the affected-path grammar"
+  );
+  assert.equal(detail.message.includes(secretPath), false);
+});
+
 test("validation locations never render attacker-controlled extra field names", () => {
   const sensitive = "SENSITIVE_CALLER_KEY_123";
   const detail = detailMessage([

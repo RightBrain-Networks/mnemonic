@@ -8,7 +8,7 @@
     {
       "name": "mnemonic",
       "source": "./plugin",
-      "description": "Save and retrieve durable work, compare drafts with possible existing work, review permanent duplicate merges, coordinate human questions, and preserve truthful audit history."
+      "description": "Save and retrieve durable work, assess declared repository scope without semantic claims, compare drafts with possible existing work, review permanent duplicate merges, coordinate human questions, and preserve truthful audit history."
     }
   ]
 }

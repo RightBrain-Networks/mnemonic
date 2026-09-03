@@ -44,6 +44,7 @@ def run_migrations_online() -> None:
         settings.database_url.get_secret_value(),
         poolclass=pool.NullPool,
         hide_parameters=True,
+        isolation_level="READ COMMITTED",
         connect_args={"connect_timeout": 5},
     )
     with engine.connect() as connection:

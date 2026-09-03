@@ -7,10 +7,12 @@ import type {
   RelationshipEdgeRead,
   RelationshipRemovalResult,
   HumanGateRead,
+  Page,
   WorkCreation,
   WorkItem,
   WorkMergeResult
 } from "@/lib/types";
+import { validAffectedPaths } from "./affected-paths.ts";
 import {
   decodeHumanGate,
   decodeWorkIdentityPointer,
@@ -91,8 +93,11 @@ const RELATIONSHIP_TYPES = new Set([
 const CHECKPOINT_RESPONSE_FIELDS = [
   "id", "work_item_id", "kind", "prompt", "source_client", "source_session_id",
   "source_model", "source_session_url", "repository_branch", "verified_against", "tags",
-  "source_metadata", "migration_origin", "legacy_record_id", "created_at"
+  "affected_paths", "source_metadata", "migration_origin", "legacy_record_id", "created_at"
 ] as const;
+const CHECKPOINT_REQUIRED_RESPONSE_FIELDS = CHECKPOINT_RESPONSE_FIELDS.filter(
+  (field) => field !== "affected_paths"
+);
 const RELATIONSHIP_RESPONSE_FIELDS = [
   "id", "project_id", "relationship_type", "source_work_item_id",
   "target_work_item_id", "context_checkpoint_work_item_id", "context_checkpoint_id",
@@ -251,9 +256,14 @@ export function decodeCheckpoint(
   expectedInput?: unknown
 ): Checkpoint {
   const checkpoint = objectValue(value);
+  const hasAffectedPaths = checkpoint !== null
+    && Object.hasOwn(checkpoint, "affected_paths");
   if (
     !checkpoint
-    || !exactKeys(checkpoint, CHECKPOINT_RESPONSE_FIELDS)
+    || !exactKeys(
+      checkpoint,
+      hasAffectedPaths ? CHECKPOINT_RESPONSE_FIELDS : CHECKPOINT_REQUIRED_RESPONSE_FIELDS
+    )
     || !validUuid(checkpoint.id)
     || !sameUuid(checkpoint.work_item_id, workItemId)
     || typeof checkpoint.kind !== "string"
@@ -267,6 +277,11 @@ export function decodeCheckpoint(
     || !nullableBoundedText(checkpoint.repository_branch, 200)
     || !(checkpoint.verified_against === null
       || (typeof checkpoint.verified_against === "string" && /^[a-fA-F0-9]{7,64}$/.test(checkpoint.verified_against)))
+    || hasAffectedPaths && (
+      !validAffectedPaths(checkpoint.affected_paths)
+      || checkpoint.affected_paths.length === 0
+      || checkpoint.verified_against === null
+    )
     || !Array.isArray(checkpoint.tags)
     || checkpoint.tags.some((tag) => !boundedText(tag, 50) || tag !== tag.toLowerCase())
     || new Set(checkpoint.tags).size !== checkpoint.tags.length
@@ -282,6 +297,7 @@ export function decodeCheckpoint(
   }
   if (expectedInput !== undefined) {
     const input = objectValue(expectedInput);
+    const expectedAffectedPaths = input?.affected_paths ?? [];
     const expectedVerified = input?.verified_against === undefined
       || input.verified_against === null
       ? null
@@ -291,6 +307,7 @@ export function decodeCheckpoint(
     if (
       !input
       || expectedVerified === undefined
+      || !validAffectedPaths(expectedAffectedPaths)
       || checkpoint.migration_origin !== null
       || checkpoint.legacy_record_id !== null
       || checkpoint.prompt !== input.prompt
@@ -300,13 +317,46 @@ export function decodeCheckpoint(
       || checkpoint.source_session_url !== (input.source_session_url ?? null)
       || checkpoint.repository_branch !== (input.repository_branch ?? null)
       || checkpoint.verified_against !== expectedVerified
+      || !jsonEqual(
+        hasAffectedPaths ? checkpoint.affected_paths : [],
+        expectedAffectedPaths
+      )
       || !jsonEqual(checkpoint.tags, input.tags ?? [])
       || !jsonEqual(checkpoint.source_metadata, input.source_metadata ?? {})
     ) {
       throw new Error("Mnemonic returned an incoherent mutation response.");
     }
   }
-  return checkpoint as unknown as Checkpoint;
+  return {
+    ...checkpoint,
+    affected_paths: hasAffectedPaths ? checkpoint.affected_paths : []
+  } as unknown as Checkpoint;
+}
+
+export function decodeCheckpointPage(
+  value: unknown,
+  workItemId: string,
+  expected: { limit?: number; offset?: number } = {}
+): Page<Checkpoint> {
+  const page = objectValue(value);
+  if (
+    !page
+    || !exactKeys(page, ["items", "total", "limit", "offset"])
+    || !Array.isArray(page.items)
+    || !finiteInteger(page.total)
+    || !finiteInteger(page.limit, 1, 100)
+    || !finiteInteger(page.offset)
+    || page.items.length > page.limit
+    || page.items.length > page.total
+    || page.items.length > 0 && page.offset + page.items.length > page.total
+    || expected.limit !== undefined && page.limit !== expected.limit
+    || expected.offset !== undefined && page.offset !== expected.offset
+  ) throw new Error("Mnemonic returned an invalid checkpoint page.");
+  const items = page.items.map((entry) => decodeCheckpoint(entry, workItemId));
+  if (new Set(items.map((checkpoint) => checkpoint.id.toLowerCase())).size !== items.length) {
+    throw new Error("Mnemonic returned repeated checkpoint identities.");
+  }
+  return { items, total: page.total, limit: page.limit, offset: page.offset };
 }
 
 type ExpectedRelationship = {

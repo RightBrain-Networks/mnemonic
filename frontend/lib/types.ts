@@ -62,6 +62,7 @@ export interface Checkpoint extends CheckpointPointer {
   prompt: string;
   source_session_url: string | null;
   source_metadata: Record<string, unknown>;
+  affected_paths: string[];
 }
 
 export interface LeasePublic {
@@ -555,6 +556,7 @@ export interface CheckpointInput {
   source_session_url?: string | null;
   repository_branch?: string | null;
   verified_against?: string | null;
+  affected_paths?: string[];
   tags?: string[];
   source_metadata?: Record<string, unknown>;
 }

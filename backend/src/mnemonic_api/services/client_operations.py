@@ -606,6 +606,7 @@ _CHECKPOINT_FIELDS = (
     "source_session_url",
     "repository_branch",
     "verified_against",
+    "affected_paths",
     "tags",
     "source_metadata",
 )

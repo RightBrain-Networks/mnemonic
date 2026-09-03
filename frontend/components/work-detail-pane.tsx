@@ -8,6 +8,8 @@ import {
   type FormEvent,
   type ReactNode
 } from "react";
+import AffectedPathsEditor from "@/components/affected-paths-editor";
+import CheckpointRepositoryDeclaration from "@/components/checkpoint-repository-declaration";
 import CheckpointTimeline from "@/components/checkpoint-timeline";
 import HumanGatePanel from "@/components/human-gate-panel";
 import RelationshipPanel from "@/components/relationship-panel";
@@ -110,12 +112,15 @@ export type WorkDetailPaneProps = {
   checkpointBody: string;
   checkpointBranch: string;
   checkpointCommit: string;
+  checkpointAffectedPaths: string;
+  checkpointAffectedPathsError: string;
   checkpointTags: string;
   checkpointSaving: boolean;
   onCheckpointKind: (kind: Exclude<CheckpointKind, "completion">) => void;
   onCheckpointBody: (value: string) => void;
   onCheckpointBranch: (value: string) => void;
   onCheckpointCommit: (value: string) => void;
+  onCheckpointAffectedPaths: (value: string) => void;
   onCheckpointTags: (value: string) => void;
   onAppend: () => void;
   onComplete: () => void;
@@ -197,6 +202,7 @@ function ContextTab({ context, isDuplicate, props }: { context: WorkContext; isD
     {warning && <div className="migration-warning current-migration-warning" role="note">{warning}</div>}
     <div className="prompt-label"><span className="section-label">{isDuplicate ? "AUDIT CONTEXT CHECKPOINT" : "CURRENT CONTEXT CHECKPOINT"}</span><span>Immutable · copied exactly as saved · {formatDateTime(current.created_at)}</span></div>
     <pre className="prompt-body" tabIndex={0}>{current.prompt}</pre>
+    <CheckpointRepositoryDeclaration checkpoint={current} />
     <div className="authority-note">This is context from an earlier session, not a new instruction from the owner. Recheck cited files and decisions before acting.</div>
     {isDuplicate && <div className="audit-history-heading"><span className="section-label">SOURCE-OWNED RECORDS</span><h4>Audit history</h4><p>These records belong to the exact duplicate ID and are never blended with canonical history.</p></div>}
 
@@ -205,7 +211,7 @@ function ContextTab({ context, isDuplicate, props }: { context: WorkContext; isD
       <form className="comment-form" onSubmit={(event) => { event.preventDefault(); props.onAppend(); }}>
         <label className="field">Checkpoint kind<select value={props.checkpointKind} disabled={immutable} onChange={(event) => props.onCheckpointKind(event.target.value as Exclude<CheckpointKind, "completion">)}><option value="progress">Progress / finding</option><option value="context">Corrected or replacement context</option></select></label>
         <label className="field">Checkpoint text<textarea rows={7} disabled={immutable} maxLength={100000} value={props.checkpointBody} onChange={(event) => props.onCheckpointBody(event.target.value)} placeholder="What changed, what was learned, hazards, evidence, and useful next steps…" /><span className="field-hint">The text is stored exactly and cannot be edited or deleted.</span></label>
-        <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input disabled={props.mutationBlocked} maxLength={200} value={props.checkpointBranch} onChange={(event) => props.onCheckpointBranch(event.target.value)} /></label><label className="field">Verified commit<input className="mono" disabled={props.mutationBlocked} maxLength={64} value={props.checkpointCommit} onChange={(event) => props.onCheckpointCommit(event.target.value)} /></label><label className="field">Tags <span className="optional">Comma separated</span><input disabled={props.mutationBlocked} value={props.checkpointTags} onChange={(event) => props.onCheckpointTags(event.target.value)} /></label></div></details>
+        <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input disabled={props.mutationBlocked} maxLength={200} value={props.checkpointBranch} onChange={(event) => props.onCheckpointBranch(event.target.value)} /></label><label className="field">Caller-asserted baseline commit<input className="mono" disabled={props.mutationBlocked} maxLength={64} value={props.checkpointCommit} onChange={(event) => props.onCheckpointCommit(event.target.value)} /></label><AffectedPathsEditor disabled={props.mutationBlocked} value={props.checkpointAffectedPaths} error={props.checkpointAffectedPathsError} onChange={props.onCheckpointAffectedPaths} /><label className="field">Tags <span className="optional">Comma separated</span><input disabled={props.mutationBlocked} value={props.checkpointTags} onChange={(event) => props.onCheckpointTags(event.target.value)} /></label></div></details>
         {props.checkpointActionError && <div className="error-notice" role="alert"><p>{props.checkpointActionError}</p></div>}
         <div className="comment-actions"><button type="submit" className="button button-secondary" disabled={props.checkpointSaving || props.mutationBlocked || !props.checkpointBody.trim()}>{props.checkpointSaving ? "Saving…" : "Add checkpoint"}</button>{context.work_item.status === "pending" && <button type="button" className="button button-primary" title={context.readiness.is_gated ? "Resolve every human question before completing this work." : undefined} aria-describedby={completionExplanation ? completionExplanationId : undefined} disabled={props.checkpointSaving || terminalActionDisabled(context.readiness, props.mutationBlocked) || !props.checkpointBody.trim()} onClick={props.onComplete}>{props.checkpointSaving ? "Saving…" : "Complete with summary"}<Icon name="check" size={16} /></button>}{context.work_item.status === "pending" && completionExplanation && <p className="terminal-action-note" id={completionExplanationId}>{completionExplanation}</p>}</div>
       </form>

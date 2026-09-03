@@ -42,6 +42,14 @@ evidence that the project has no saved work.
    checkpoint count, and relevant age. Do not fetch every checkpoint, event, or
    question body into unrelated work.
 
+Search and ready results are compact pointers and do not carry declared
+`affected_paths`. They cannot support a repository freshness assessment. When
+the user will rely on a result for repository work, recall that exact ID's full
+governing checkpoint and follow
+[repository-freshness.md](${CLAUDE_PLUGIN_ROOT}/reference/repository-freshness.md)
+and the `mnemonic-recall` workflow. Never infer scope from search text, paths,
+tags, similarity, graph adjacency, or the current checkout.
+
 For an explicit compare-before-create request, use `suggest_duplicate_work`
 with the complete draft rather than trying to reconstruct its ranking from
 `search_work`. Suggestions group every matching member under one canonical

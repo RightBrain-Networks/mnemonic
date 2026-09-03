@@ -1,0 +1,115 @@
+{
+  "version": "repository-freshness-scope-v1",
+  "component_characters": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._@+=,~-*",
+  "valid_paths": [
+    "src/file.py",
+    "src/**",
+    "tests/test_*.py",
+    "*",
+    "**",
+    "-leading-option-like-name",
+    "a*b*c",
+    "A0._@+=,~-*",
+    ".hidden",
+    "nested/.generated/file-1"
+  ],
+  "invalid_paths": [
+    "",
+    "/absolute",
+    "trailing/",
+    "repeated//separator",
+    ".",
+    "..",
+    "src/./file",
+    "src/../file",
+    "C:/drive",
+    "C:\\drive",
+    "\\\\server\\share",
+    "has space",
+    "café.py",
+    "line\nbreak",
+    "tab\tbreak",
+    "question?.py",
+    "class[ab].py",
+    "brace{a,b}.py",
+    "quote'file",
+    "quote\"file",
+    "dollar$file",
+    "tick`file",
+    "semicolon;file",
+    "pipe|file",
+    "ampersand&file",
+    "paren(file)",
+    ":(glob)src/**",
+    "!excluded",
+    "^excluded",
+    "bad**component",
+    "***",
+    "****",
+    "src/**suffix",
+    "prefix**"
+  ],
+  "generated_scopes": [
+    {
+      "name": "maximum_count_and_total_bytes",
+      "valid": true,
+      "count": 64,
+      "entry_bytes": 256,
+      "prefix_width": 2,
+      "fill": "a",
+      "extra_bytes_on_first": 0,
+      "expected_total_bytes": 16384
+    },
+    {
+      "name": "maximum_single_entry_bytes",
+      "valid": true,
+      "count": 1,
+      "entry_bytes": 512,
+      "prefix_width": 1,
+      "fill": "b",
+      "extra_bytes_on_first": 0,
+      "expected_total_bytes": 512
+    },
+    {
+      "name": "one_byte_over_total_limit",
+      "valid": false,
+      "count": 64,
+      "entry_bytes": 256,
+      "prefix_width": 2,
+      "fill": "c",
+      "extra_bytes_on_first": 1,
+      "expected_total_bytes": 16385
+    },
+    {
+      "name": "one_byte_over_entry_limit",
+      "valid": false,
+      "count": 1,
+      "entry_bytes": 513,
+      "prefix_width": 1,
+      "fill": "d",
+      "extra_bytes_on_first": 0,
+      "expected_total_bytes": 513
+    },
+    {
+      "name": "one_entry_over_count_limit",
+      "valid": false,
+      "count": 65,
+      "entry_bytes": 8,
+      "prefix_width": 2,
+      "fill": "e",
+      "extra_bytes_on_first": 0,
+      "expected_total_bytes": 520
+    }
+  ],
+  "literal_scopes": [
+    {
+      "name": "exact_duplicate",
+      "valid": false,
+      "paths": [
+        "duplicate",
+        "duplicate"
+      ]
+    }
+  ],
+  "requires_baseline_path": "src/**"
+}
