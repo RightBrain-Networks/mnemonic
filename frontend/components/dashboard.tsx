@@ -1557,7 +1557,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
 
     <main id="main-content" className="main-content">
       <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view !== "library" && <><span className="breadcrumb-slash">/</span><span>{view === "settings" ? "Project settings" : "Needs Attention"}</span></>}</div><span className="topbar-note"><span className="small-mark">m.</span>Context worth keeping</span></header>
-      <div className="page-content">
+      <div className={`page-content ${view === "library" ? "page-content-library" : ""}`}>
         {view === "settings" ? <>
           <DashboardViewChrome
             eyebrow="PROJECT CONFIGURATION"

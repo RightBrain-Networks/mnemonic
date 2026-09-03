@@ -155,6 +155,8 @@ button { touch-action: manipulation; }
 .topbar-note { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; white-space: nowrap; margin-left: 16px; }
 .small-mark { color: var(--accent); font-size: 16px; font-weight: 700; letter-spacing: -1.5px; }
 .page-content { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; max-width: 1320px; margin: 0 auto; padding: 40px 48px 30px; overflow-y: auto; scrollbar-width: thin; }
+/* The two-column surface uses the width a wide monitor offers; the cap only guards ultra-wide line lengths. */
+.page-content-library { max-width: 2200px; }
 .page-heading { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
 .eyebrow { color: var(--accent); font-weight: 650; font-size: 10px; letter-spacing: 1.8px; }
 .page-heading h1 { margin: 11px 0 11px; font-size: clamp(32px, 3.1vw, 46px); font-weight: 550; letter-spacing: -1.8px; line-height: 1.15; }
