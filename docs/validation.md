@@ -1,5 +1,88 @@
 # Mnemonic validation record
 
+## Phase 10 repository freshness implementation — 2026-09-03
+
+This checkpoint covers application/API/MCP/dashboard `0.5.0`, plugin `0.9.0`,
+and Alembic head `0018_repository_freshness`, rebased through
+`origin/main` at `a0cc7fc`. It records observed repository-release evidence;
+it does not claim a production backup, deployment approval, or live-fleet
+cutover.
+
+- **The complete backend suite passed 650 tests against PostgreSQL 17; backend
+  Ruff and whole-source `ty` passed.** The suite includes fresh and populated
+  migration, cross-layer grammar, sparse response, all 13 receipt kinds,
+  idempotency, authorization, alias/root, concurrency, OpenAPI, and aggregate
+  audit coverage. Seven upstream deprecation warnings were non-failing.
+- **A separate production-shaped database rehearsal passed.** Its populated
+  0017 fixture held seven work items, ten checkpoints across all kinds, 17
+  events, two relationships, a merge, gate, lease, two embeddings, and every
+  completed receipt kind. Upgrade to 0018 took 0.58 seconds and preserved every
+  prior row count and digest; historical scope stayed empty, old create/add/
+  complete receipts replayed without a changed digest, and the audit reported
+  zero findings. The focused migration/recovery batch passed 62 tests in 4.72
+  seconds, including both downgrade races.
+- **Downgrade and recovery boundaries behaved exactly as documented.** A
+  pre-use 0018-to-0017 downgrade and re-upgrade preserved all prior digests.
+  After three scoped create/add/complete writes and exact replays, downgrade
+  refused without losing the column, scope, or any of 16 receipts. A deliberately
+  removed constraint produced one audit blocker; restoring the reviewed
+  constraint fixed forward in place with all scope intact. A real strict 0.4.0
+  `CheckpointRead` rejected `affected_paths` as `extra_forbidden`.
+- **Matched PostgreSQL 17 backup tools produced and restored both sides of the
+  migration.** The pre-0018 custom archive was 208,456 bytes with 191 table-of-
+  contents entries and SHA-256
+  `ef01dd9460bc284b9df3fe3b42c2fffc6a4cab8a70ef56e2e96394dde9fd3d8a`.
+  The post-0018 archive was 212,763 bytes with 192 entries and SHA-256
+  `5a29a0b1a817c209eea18445cd4e8129bbefe7379315ba8029ed076ae9494e84`;
+  all 11 protected-table digests, 16 canonical receipts, and three scoped
+  checkpoints matched after restore. Whole rollback to the earlier archive
+  served the exact 0.4.0 code successfully while making the documented
+  post-backup data-loss boundary concrete.
+- **The complete MCP suite passed 348 tests; MCP Ruff and `ty` passed.** The
+  adapter remains repository-blind, exposes exactly 27 tools and 11 protected
+  writes, keeps compact pointers scope-free, and strictly accepts only the
+  sparse canonical full-checkpoint contract.
+- **The frontend passed all 197 unit tests, TypeScript checking, and a Node 24
+  production build.** The final isolated Playwright stack passed 84 executions
+  with one intentional narrow-layout divider skip and zero failures in 4.8
+  minutes. It covered declared scope create/display/append/complete/refresh and
+  historical omission at desktop and narrow widths. The first full run exposed
+  an accessible-name collision between the affected-path hint and baseline
+  field; a dedicated label plus regression fixed it before the clean rerun.
+- **The repository helper ran 71 default tests: 70 passed and only its opt-in
+  authentic-runtime case skipped; that case then passed with real Bash 3.2.57 and Git
+  2.45.4.** Real Git 2.44.4 was rejected before repository access. The matrix
+  covers object topology, every change lane, per-pattern matching, hostile
+  environment/config/filter sentinels, normalization and index blockers, races,
+  exact protocol/exit behavior, byte quoting and caps, and absence of configured
+  process, network, or repository mutation. A required `macos-15` authentic
+  runtime job is part of the aggregate CI gate.
+- **Plugin source and installed packaging passed validation.** A fresh isolated
+  0.9.0 install was byte-identical, with the helper at Git mode `100755`; a
+  separate `0.6.1 -> 0.7.0 -> 0.8.0 -> 0.9.0` update left only the current
+  version active. Installed clean and dirty helper smokes returned
+  `unchanged`/exit 0 and `changed`/exit 10.
+- **A fresh production-image stack passed read-only and authorized writable
+  checks.** All five services became healthy at head 0018. The checker verified
+  REST 0.5.0, authentication/origin/proxy/font boundaries, the exact tool/write
+  catalogs, scoped receipt recovery, gates, ready work, hierarchy, merge/alias
+  invariants, and cleanup. Its database retained exactly the two merge members
+  and one immutable witness, with five other synthetic records soft-deleted.
+  A 203,206-byte, 192-entry custom backup validated with SHA-256
+  `e44feb6815d6e23970fd9f9736d46fecf86330be2d784ff9134dacc9adb1e2a2`;
+  service logs contained no error marker.
+- **Final static and supply-chain gates passed:** both plugin manifests,
+  workflow YAML/runtime-job assertions, operational-script Ruff,
+  `git diff --check`, and `pre-commit run --all-files` including gitleaks.
+  Cold implementation review rejected unsafe intermediate helper mechanisms,
+  verified their replacements under authentic Git 2.45, and returned
+  **ACCEPT** on the final rebased tree with no unresolved blocker.
+
+The E2E, stack, migration, restore, plugin-install, and helper fixtures were
+uniquely scoped and disposable. Their containers, networks, volumes, databases,
+archives, credentials, and temporary installations were removed. The existing
+Mnemonic stack stayed healthy and no production data was read or changed.
+
 ## Adjustable work-surface split — 2026-09-03
 
 This entry covers the draggable divider between the work queue and the detail

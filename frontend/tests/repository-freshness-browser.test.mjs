@@ -40,6 +40,9 @@ test("checkpoint repository evidence is inert, isolated, and explicitly declarat
   assert.doesNotMatch(display, /<button|<a\s|verified-badge|fresh-badge/i);
 
   assert.match(editor, /One pattern per line/);
+  assert.match(editor, /<div className="field affected-paths-editor">/);
+  assert.match(editor, /<label htmlFor=\{inputId\}>Declared affected paths<\/label>/);
+  assert.doesNotMatch(editor, /<label className="field affected-paths-editor"/);
   assert.match(editor, /aria-describedby/);
   assert.match(editor, /aria-invalid/);
   assert.match(editor, /role="alert"/);

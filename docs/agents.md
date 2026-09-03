@@ -590,10 +590,10 @@ permanently merge duplicate work.
 Deferral and resolution remain human-only actions with no MCP tools; the proxy
 intentionally denies gate creation. The dashboard creates one UUID and
 freezes one serialized request in a dashboard-owned, same-document registry.
-An ambiguous result remains recoverable across modal closure or component
-unmount, blocks conflicting work actions, and is cleared only by a strictly
-decoded coherent success or a definite rejection. A key conflict remains a
-blocked safety state.
+An ambiguous result remains recoverable across pane deselection, dialog closure,
+or component unmount, blocks conflicting work actions, and is cleared only by a
+strictly decoded coherent success or a definite rejection. A key conflict
+remains a blocked safety state.
 
 The browser does not persist the UUID or frozen body across tabs, reloads, or
 process loss. If the document is lost while an intent is unresolved, do not

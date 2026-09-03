@@ -24,11 +24,10 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 ## Delivery Snapshot
 
-As of 2026-09-03, Phases 1–9 are shipped at application/API/MCP `0.4.0`,
-plugin `0.8.0`, and migration `0017_duplicate_suggestion_title_key`.
-Phase 10 implementation is in progress: its non-UI surfaces are under final
-review, while dashboard integration, rebasing, and full release validation
-wait for the concurrent dashboard refactor. Phases 11–13 remain planned.
+As of 2026-09-03, Phases 1–10 are shipped in the repository at
+application/API/MCP/dashboard `0.5.0`, plugin `0.9.0`, and migration
+`0018_repository_freshness`. Production-target preflight and cutover remain
+explicit operator gates. Phases 11–13 remain planned.
 
 | Roadmap element | Status | Implemented functionality |
 | --- | --- | --- |
@@ -41,7 +40,7 @@ wait for the concurrent dashboard refactor. Phases 11–13 remain planned.
 | Phase 7 — Human gates | Shipped | Immutable question/answer history, drift-aware review, readiness and lifecycle guards, bounded recall, and a dedicated Needs Attention queue. |
 | Phase 8 — Hierarchical presentation | Shipped | Collapsed root workstreams, lazy child paging, subtree-aware filtering, breadcrumbs, discovery labels, and exact branch aggregates. |
 | Phase 9 — Duplicate handling | Shipped | Immutable authoritative merges, retained non-actionable aliases, canonical-aware reads/search/hierarchy, explicit draft duplicate suggestions, resource controls, and coordinated 0.4.0/0.8.0 clients. Production cutover and recovery gates remain explicit. |
-| Phase 10 — Repository freshness verification | In progress | Non-UI implementation is under final review; dashboard integration, rebase, and complete release validation remain before shipment. |
+| Phase 10 — Repository freshness verification | Shipped | Immutable ordered checkpoint dependency declarations plus a local, repository-selected, three-state Git assessment with fail-closed runtime, index, filter, normalization, race, privacy, and authority boundaries. |
 | Phase 11 — Completion evidence | Planned | Completion checkpoints and completion events exist; structured verification results and artifact references have not shipped. |
 | Phase 12 — Project activity feed | Planned | Per-work timelines and data-free dashboard invalidations exist; a durable project-wide cursor/feed, SSE, and webhooks have not shipped. |
 | Phase 13 — Resource reservations | Planned | Work-item leases exist; arbitrary resource-key reservations have not shipped. |
@@ -730,9 +729,9 @@ The dashboard keeps frozen browser intents only for the current document. An
 ambiguous result survives pane deselection, dialog closure, or component
 unmount, blocks intersecting writes, and can be resent exactly. Strict
 operation-specific response decoding clears it only after a coherent expected
-success or definite rejection. It is
-never persisted across tabs, reloads, or browser-process loss, and Phase 6 makes
-no safe-retry claim after that private state disappears.
+success or definite rejection. It is never persisted across tabs, reloads, or
+browser-process loss, and Phase 6 makes no safe-retry claim after that private
+state disappears.
 
 ## Shipped acceptance criteria
 
@@ -994,11 +993,10 @@ Ordinary search and Create remain independent, and similarity never authorizes
 
 # Phase 10 - Repository Freshness Verification
 
-**Status: Implementation in progress; not shipped.** Backend, migration, MCP,
-and plugin/helper work target application/API/MCP/dashboard `0.5.0`, plugin
-`0.9.0`, and migration `0018_repository_freshness`. Dashboard integration,
-rebasing onto the concurrent UI refactor, and complete release validation
-remain open.
+**Status: Shipped in the repository.** The coordinated boundary is
+application/API/MCP/dashboard `0.5.0`, plugin `0.9.0`, and migration
+`0018_repository_freshness`. Production-target preflight, approval, backup,
+and quiesced cutover remain explicit operator work.
 
 ## Objective
 
@@ -1504,14 +1502,13 @@ This directly addresses the original GitHub Issues noise problem.
 
 ## Milestone 5 - Provenance and Verification
 
-**Status: Phase 10 implementation in progress.** Declared repository dependency
-scope and local advisory assessment are implemented on the topic branch but not
-yet shipped; Phase 11 completion evidence and artifact references remain
-planned.
+**Status: Phase 10 shipped.** Declared repository dependency scope and local
+advisory assessment are implemented; Phase 11 completion evidence and artifact
+references remain planned.
 
-1. Add `affected_paths`. **Implemented for Phase 10; release pending.**
-2. Add repository freshness checks to the MCP client skill. **Implemented for
-   Phase 10 as a local three-state assessment; release pending.**
+1. Add `affected_paths`. **Shipped in Phase 10.**
+2. Add repository freshness checks to the MCP client skill. **Shipped in Phase
+   10 as a local three-state assessment.**
 3. Add structured verification results.
 4. Add artifact references.
 

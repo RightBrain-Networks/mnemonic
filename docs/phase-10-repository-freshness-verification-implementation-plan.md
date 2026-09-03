@@ -1,11 +1,13 @@
 # Mnemonic Phase 10 — Repository Freshness Verification Implementation Plan
 
 This began as the implementation contract for Phase 10 and now also records
-implementation-time feasibility corrections and release evidence. The original
-gate checklists in sections 10 and 18 remain unchecked until each complete
-release gate is satisfied. As of 2026-09-03, non-UI implementation and review
-are in progress; dashboard integration, rebasing, and full release validation
-are intentionally pending while a separate dashboard refactor lands.
+implementation-time feasibility corrections and release evidence. The gates in
+sections 10 and 18 are checked only where the completed implementation,
+adversarial review, and disposable release rehearsal supplied direct evidence.
+As of 2026-09-03, the implementation is integrated through `origin/main` at
+`a0cc7fc`, the complete local release matrix passes, and cold review accepts
+the result. Production-target preflight, approval, live-fleet quiescence, and
+deployment remain operator work and are not claimed here.
 
 It was prepared against `origin/main` at
 `63227294e989a11e8ab914feace3652849b0ea88`, after Phase 9, the theme-selector
@@ -1014,48 +1016,48 @@ complete/refresh plus historical absent property.
 
 ### 10.1 Entry
 
-- [ ] Freeze grammar, byte fixtures, sparse vectors, state lattice, reason
+- [x] Freeze grammar, byte fixtures, sparse vectors, state lattice, reason
       ownership, protocol, commands/statuses, runtime floors, and inventories.
-- [ ] Freeze all 13 request/response receipt vectors before model changes.
-- [ ] Add historical nested response fixtures.
-- [ ] Prove Pydantic exclusion under exact dump/nesting.
-- [ ] Review DB/backend/MCP/frontend/helper/security/operations contract.
+- [x] Freeze all 13 request/response receipt vectors before model changes.
+- [x] Add historical nested response fixtures.
+- [x] Prove Pydantic exclusion under exact dump/nesting.
+- [x] Review DB/backend/MCP/frontend/helper/security/operations contract.
 
 ### 10.2 A — database and backend model
 
-- [ ] Add `0018`, validator, constraints, guarded downgrade.
-- [ ] Add ORM/shared validation and Pydantic floor/lock.
-- [ ] Add populated preservation, SQL parity, race, immutability tests.
-- [ ] Keep all receipt vectors exact.
+- [x] Add `0018`, validator, constraints, guarded downgrade.
+- [x] Add ORM/shared validation and Pydantic floor/lock.
+- [x] Add populated preservation, SQL parity, race, immutability tests.
+- [x] Keep all receipt vectors exact.
 
 ### 10.3 B — projections and receipts
 
-- [ ] Add scope to full writes/reads only.
-- [ ] Keep compact/derived systems unchanged.
-- [ ] Add canonical response and coherence/idempotency tests.
-- [ ] Regenerate OpenAPI.
-- [ ] Add authorization, precedence, alias/root, concurrency regressions.
+- [x] Add scope to full writes/reads only.
+- [x] Keep compact/derived systems unchanged.
+- [x] Add canonical response and coherence/idempotency tests.
+- [x] Regenerate OpenAPI.
+- [x] Add authorization, precedence, alias/root, concurrency regressions.
 
 ### 10.4 C — MCP
 
-- [ ] Add strict input/raw-output handling and dependency floor.
-- [ ] Update existing descriptions/resources/prompts.
-- [ ] Prove catalogs and repository-blind adapter.
+- [x] Add strict input/raw-output handling and dependency floor.
+- [x] Update existing descriptions/resources/prompts.
+- [x] Prove catalogs and repository-blind adapter.
 
 ### 10.5 D — helper and plugin
 
-- [ ] Implement runtime/env/process/protocol contract.
-- [ ] Build disposable matrix before skill wiring.
-- [ ] Add reference and update three skills/authority.
-- [ ] Test source and installed packaging/mode.
-- [ ] Pass cold-session workflow smoke.
+- [x] Implement runtime/env/process/protocol contract.
+- [x] Build disposable matrix before skill wiring.
+- [x] Add reference and update three skills/authority.
+- [x] Test source and installed packaging/mode.
+- [x] Pass cold-session workflow smoke.
 
 ### 10.6 E — dashboard and release
 
-- [ ] Add strict frontend/editor/display/proxy and tests.
-- [ ] Update versions, locks, manifests, docs/examples.
-- [ ] Run all standard/DB/E2E/helper/security suites.
-- [ ] Rehearse quiesced upgrade, fix-forward, pre-use downgrade, restore.
+- [x] Add strict frontend/editor/display/proxy and tests.
+- [x] Update versions, locks, manifests, docs/examples.
+- [x] Run all standard/DB/E2E/helper/security suites.
+- [x] Rehearse quiesced upgrade, fix-forward, pre-use downgrade, restore.
 
 Each increment stops on a red prior gate. There is no compatibility subrelease.
 
@@ -1456,38 +1458,38 @@ Roadmap becomes Shipped only after definition of done.
 
 ### 18.1 Contract and storage
 
-- [ ] RFV-001 through RFV-024 trace to implementation/tests.
-- [ ] Fresh/populated migration preserves every prior fact/receipt.
-- [ ] All validators agree on ASCII bytes.
-- [ ] Sparse canonical response is enforced, not merely emitted.
-- [ ] Downgrade cannot lose scope.
+- [x] RFV-001 through RFV-024 trace to implementation/tests.
+- [x] Fresh/populated migration preserves every prior fact/receipt.
+- [x] All validators agree on ASCII bytes.
+- [x] Sparse canonical response is enforced, not merely emitted.
+- [x] Downgrade cannot lose scope.
 
 ### 18.2 Product surfaces
 
-- [ ] Full checkpoints carry scope; compact/events/derived do not.
-- [ ] All old receipt vectors stay exact; new scope binds idempotency.
-- [ ] MCP remains 27 tools/11 writes; browser 11 mutations.
-- [ ] Browser is accessible/declaration-only.
-- [ ] OpenAPI and strict clients agree.
+- [x] Full checkpoints carry scope; compact/events/derived do not.
+- [x] All old receipt vectors stay exact; new scope binds idempotency.
+- [x] MCP remains 27 tools/11 writes; browser 11 mutations.
+- [x] Browser is accessible/declaration-only.
+- [x] OpenAPI and strict clients agree.
 
 ### 18.3 Helper and workflow
 
-- [ ] Runtime floor, environment, filter, index, object, pattern, sweep, and
+- [x] Runtime floor, environment, filter, index, object, pattern, sweep, and
       protocol contracts pass adversarial tests.
-- [ ] Every pattern independently matches before unchanged.
-- [ ] No process/network/repository mutation occurs.
-- [ ] All output is fixed ASCII/quoted/capped and privacy-reviewed.
-- [ ] Skill guidance preserves authority and exact history.
-- [ ] Installed cold-session smoke passes.
+- [x] Every pattern independently matches before unchanged.
+- [x] No process/network/repository mutation occurs.
+- [x] All output is fixed ASCII/quoted/capped and privacy-reviewed.
+- [x] Skill guidance preserves authority and exact history.
+- [x] Installed cold-session smoke passes.
 
 ### 18.4 Release
 
-- [ ] Branch rebased onto latest `origin/main` and surface audit rerun.
-- [ ] Versions/locks/manifests/OpenAPI/docs/examples/roadmap agree.
-- [ ] Standard/DB/E2E/helper/security suites pass without material skips.
-- [ ] Quiesced rollout, old-client failure, backup, fix-forward, safe pre-use
+- [x] Branch rebased onto latest `origin/main` and surface audit rerun.
+- [x] Versions/locks/manifests/OpenAPI/docs/examples/roadmap agree.
+- [x] Standard/DB/E2E/helper/security suites pass without material skips.
+- [x] Quiesced rollout, old-client failure, backup, fix-forward, safe pre-use
       downgrade, and restore are rehearsed.
-- [ ] No shim, receipt rewrite, inferred backfill, old-backend bridge, or
+- [x] No shim, receipt rewrite, inferred backfill, old-backend bridge, or
       hidden repository authority exists.
 
 ---
@@ -1546,11 +1548,12 @@ rollout; explicit old-client incompatibility; and contextual rather than
 hardware-agnostic benchmarks.
 
 The topic branch was initially rebased from reviewed commit `11457fb` onto
-`origin/main` at `7e35646`, then rebased again onto `6322729` before merge. The
-original intervening commit added a frontend theme selector; the two later
-commits adjusted dark-theme contrast and README prose. Repeated surface audits
-found no change to a Phase 10 contract, inventory, migration baseline, or
-implementation target.
+`origin/main` at `7e35646`, then onto `6322729`, `07d365f`, and finally
+`a0cc7fc`. The intervening upstream history added the Phase 10 plan, replaced
+the work-context modal with the two-column work library, refined README prose,
+expanded the wide layout, and made the queue/detail split adjustable. Repeated
+non-UI surface audits found no change to a Phase 10 contract, inventory,
+migration baseline, or implementation target.
 
 ### 19.5 Second closure finding and disposition
 
@@ -1607,3 +1610,27 @@ Review also narrowed “bounded” to capped helper-retained data and protocol
 output. Git/Bash enumeration, including Bash 3.2 split-artifact glob expansion,
 remains proportional to a trusted, stable local repository and is contained by
 the caller's 15-second whole-process-group deadline.
+
+### 19.9 Implementation closure verdict
+
+Independent implementation review reopened the plan's assumptions rather than
+treating planning acceptance as code acceptance. It found and closed four
+release-significant issues before the final matrix:
+
+| Finding | Disposition |
+| --- | --- |
+| Git index reads can update shared-index metadata | Reject every split-index artifact before an index read; cover ordinary and linked-worktree gitdirs and prove metadata does not move. |
+| Bash process executability is not Git owner-execute mode | Replace the test with raw no-index metadata parsing; reject malformed or widened records and cover owner/group execute combinations. |
+| The executable helper was initially staged without its required mode | Record it as Git mode `100755`; verify source, installed payload, manifest inventory, and digest. |
+| The affected-path hint polluted the textarea's accessible name after dashboard integration | Use a dedicated `htmlFor` label with descriptive siblings; add a structural regression and rerun both Playwright viewports. |
+
+Review also added a required authentic `macos-15` Bash 3.2/Git 2.45-or-newer
+job, enrolled it in the aggregate CI gate, and widened operational Ruff coverage
+to both audit/check scripts. A final cold pass over the rebased database,
+receipt, MCP, browser, helper, packaging, CI, and documentation surfaces returned
+**ACCEPT** with no unresolved high-, medium-, or release-blocking finding.
+
+The complete observed matrix and the production-shaped disposable
+upgrade/backup/restore rehearsal are recorded in `docs/validation.md`. They do
+not claim a production backup, deployment approval, or live service-fleet
+cutover.

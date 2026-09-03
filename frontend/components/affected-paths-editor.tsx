@@ -18,8 +18,9 @@ export default function AffectedPathsEditor({
   const inputId = useId();
   const hintId = `${inputId}-hint`;
   const errorId = `${inputId}-error`;
-  return <label className="field affected-paths-editor" htmlFor={inputId}>
-    Declared affected paths <span className="optional">One pattern per line</span>
+  return <div className="field affected-paths-editor">
+    <label htmlFor={inputId}>Declared affected paths</label>
+    <span className="optional">One pattern per line</span>
     <textarea
       id={inputId}
       name={name}
@@ -45,5 +46,5 @@ export default function AffectedPathsEditor({
       commit. This browser records the declaration but does not assess a local repository.
     </span>
     {error && <span className="field-error" id={errorId} role="alert">{error}</span>}
-  </label>;
+  </div>;
 }
