@@ -22,13 +22,13 @@ It does not modify any client's memory subsystem. Claude Code is the first clien
 
 ## Basic concepts
 
-The included agent skills encourage the LLM to default to using `mnemonic` to save hand-off prompts and self-discovered follow-up tasks. Markdown docs and your bug/issue tracker are reserved for durable human-facing information. Claude's "suggested task chips" are explicitly discouraged here since they live only in the ephemeral client and are easily lost.
+The included agent skills encourage the LLM to default to using `mnemonic` to save hand-off prompts and self-discovered follow-up tasks. Markdown docs and your bug/issue tracker (if specified) are reserved for durable human-facing information. Claude's "suggested task chips" are explicitly discouraged here since they live only in the ephemeral client and are easily lost.
 
-Upon discovering something worth doing but out-of-scope of its current task,the agent will first search `mnemonic` for related work items, using PostgreSQL keyword matching by default and opt-in semantic search (embeddings). If no matches are found, the agent opens a new work item in a "pending" state.
+Upon discovering something worth doing, but is out-of-scope of the current task, the agent will first search `mnemonic` for related work items using PostgreSQL keyword matching or semantic search (embeddings). If no matches are found, the agent opens a new work item in a "pending" state.
 
-The human (you, presumably) then click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh Claude Code session. Claude will then retrieve the work item and validate the stated premises. If the facts check-out, it requests a "work lease" of 15 minutes and then begins working. The lease is periodically renewed until the task is complete and then work item is marked as "done".
+The human (you, presumably) then click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh session. Claude (or similar) will then retrieve the work item and validate the stated premises. If the facts check-out, it requests a "work lease" of 15 minutes and then begins working. The lease is periodically renewed until the task is complete and then work item is marked as "done".
 
-The "human-required" copy-and-paste step is deliberate. It allows you to balance your weekly Claude quota or API usage between your normal development work and working through the `mnemonic` backlog. If an agent hits a human-needed decision, the work is parked in  *Needs Attention* and returns only after a person records an answer in the dashboard.
+The "human-required" copy-and-paste step is deliberate. It allows you to balance your weekly usage quota or API costs between your normal development work and working through the `mnemonic` backlog. If an agent hits a human-needed decision, the work is parked in *Needs Attention* and returns only after a person records an answer in the dashboard.
 
 ## Run it
 
