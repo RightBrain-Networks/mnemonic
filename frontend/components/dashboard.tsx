@@ -11,6 +11,7 @@ import {
 } from "react";
 import { CHECKPOINT_PAGE_SIZE } from "@/components/checkpoint-timeline";
 import DashboardViewChrome from "@/components/dashboard-view-chrome";
+import ThemeSelector from "@/components/theme-selector";
 import ProjectSettingsPanel from "@/components/project-settings";
 import DuplicateSuggestionPanel from "@/components/duplicate-suggestion-panel";
 import HumanAttentionList from "@/components/human-attention-list";
@@ -1519,7 +1520,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         <a className={`nav-item ${view === "settings" ? "active" : ""}`} href="/settings" aria-current={view === "settings" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="settings" /><span>Project settings</span><Icon name="arrow" size={15} /></a>
       </nav>
       <div className="sidebar-note"><img className="note-art" src="/img/robot.svg" alt="" width={115} height={115} aria-hidden="true" /><h2>Keep your agents on the same page.</h2><p>Work units are reserved and nothing is forgotten.</p></div>
-      <div className="sidebar-footer"><span className="local-dot" /><span>Local workspace</span><span className="mvp-label">WORK GRAPH</span></div>
+      <div className="sidebar-footer"><span className="local-dot" /><span>Local workspace</span><ThemeSelector /></div>
     </aside>
 
     <main id="main-content" className="main-content">
