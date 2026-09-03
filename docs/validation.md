@@ -39,6 +39,12 @@ v22.22.3 checkout of the topic branch (CI uses Node 24).
   `0.4.0`, the plugin `0.8.0`; the browser registry remains exactly eleven
   mutations and no proxy route was added.
 - **Gitleaks (`pre-commit run --all-files`): passed.**
+- **Wide-layout follow-up (same day): 79 executions, 79 passing, 0 failing,
+  4.6 minutes, clean teardown.** After review on a 2000px-wide monitor the
+  library view's content column stopped inheriting the 1320px cap that the old
+  single-column list used (`.page-content-library`, capped at 2200px); the
+  full isolated stack was rerun on that tree, and `npm test` (175 passing) and
+  `npm run typecheck` were repeated.
 
 No backend, MCP, migration, plugin, stack-check, or adversarial-review result
 is claimed for this change, and it does not alter any production, cutover,
