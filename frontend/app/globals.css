@@ -1036,7 +1036,14 @@ button { touch-action: manipulation; }
 .more-filters-panel .duplicate-group-filter { justify-self: start; max-width: 100%; }
 .more-filters-panel .hierarchy-filter-fields { margin-top: 0; }
 
-.work-surface { display: grid; grid-template-columns: minmax(0, 35fr) minmax(0, 65fr); gap: 18px; flex: 1; min-height: 420px; }
+/* --work-split is the queue's share of the surface width; a stored preference sets it inline. */
+.work-surface { --work-split: 35; display: grid; grid-template-columns: minmax(280px, min(calc(var(--work-split) * 1%), calc(100% - 458px))) 18px minmax(0, 1fr); flex: 1; min-height: 420px; }
+.work-surface-resizer { display: flex; justify-content: center; align-self: stretch; cursor: col-resize; touch-action: none; border-radius: 6px; }
+.work-surface-resizer > span { width: 2px; margin: 14px 0; border-radius: 999px; background: #e4d8c4; transition: background .15s, width .15s; }
+.work-surface-resizer:hover > span, .work-surface-resizer:focus-visible > span, .work-surface.is-resizing .work-surface-resizer > span { width: 4px; background: var(--accent); }
+.work-surface-resizer:focus-visible { outline-offset: -3px; }
+.work-surface.is-resizing { cursor: col-resize; user-select: none; }
+.work-surface.is-resizing :is(.work-queue, .work-detail-pane) { pointer-events: none; }
 .work-queue { position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .work-queue-header { flex: none; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 0 4px 10px 2px; }
 .work-queue-sort { flex: none; color: var(--faint); font-size: 10px; white-space: nowrap; }
@@ -1143,13 +1150,14 @@ button { touch-action: manipulation; }
 
 /* Responsive rules for the two-column surface sit after its base rules so they cascade over them. */
 @media (max-width: 1100px) {
-  .work-surface { grid-template-columns: minmax(0, 40fr) minmax(0, 60fr); }
+  .work-surface { --work-split: 40; }
   .queue-card-meta > .sep:last-of-type, .queue-card-meta > time { display: none; }
 }
 @media (max-width: 900px) {
   .main-content { height: auto; min-height: 100svh; }
   .page-content { display: block; overflow: visible; }
   .work-surface { display: block; min-height: 0; }
+  .work-surface-resizer { display: none; }
   .work-queue-list { flex: none; overflow: visible; padding: 2px; }
   .work-queue-fade-top, .work-queue-fade-bottom { display: none; }
   .work-detail-pane { display: none; }
@@ -1618,6 +1626,10 @@ html[data-theme="dark"] .queue-copy-button.is-copied {
   background: var(--violet-soft);
   border-color: var(--violet);
 }
+html[data-theme="dark"] .work-surface-resizer > span { background: var(--dark-border); }
+html[data-theme="dark"] .work-surface-resizer:hover > span,
+html[data-theme="dark"] .work-surface-resizer:focus-visible > span,
+html[data-theme="dark"] .work-surface.is-resizing .work-surface-resizer > span { background: var(--accent); }
 html[data-theme="dark"] .work-detail-pane {
   border-color: var(--dark-border);
   box-shadow: 0 5px 24px rgb(0 0 0 / .18);

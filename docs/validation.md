@@ -1,5 +1,32 @@
 # Mnemonic validation record
 
+## Adjustable work-surface split — 2026-09-03
+
+This entry covers the draggable divider between the work queue and the detail
+pane (dashboard `0.5.0`, no application/API/MCP, plugin, migration, or
+proxy-allowlist change). The queue's share of the surface is stored in
+`localStorage` under `mnemonic.work-split`, clamped to 20–70%, and applied as a
+CSS variable that the grid bounds so neither column drops below its readable
+minimum. Every figure below was observed in the session that recorded it, on a
+local Node v22.22.3 checkout of the topic branch (CI uses Node 24).
+
+- **Frontend unit tests (`npm test`): 180 passing, 0 failing.** The run adds
+  `tests/work-split.test.mjs` (bounds and rounding, stored-preference parsing,
+  pointer-to-share mapping, keyboard steps) and the preference-key and parser
+  assertions in `tests/dashboard-preferences.test.mjs`.
+- **TypeScript checking (`npm run typecheck`) and the production build
+  (`npm run build`): both pass.**
+- **Isolated Playwright stack (`npm run test:e2e:stack`): 81 executions, 80 passing,
+  1 skipped by design, 0 failing, 4.6 minutes** on a uniquely named disposable
+  Compose project (40 on desktop Chromium, 1 on the focused Firefox motion
+  project, 39 passing plus the skip on narrow Chromium); teardown left no
+  `mnemonic-e2e-*` container, volume, or network. The run
+  includes the new desktop divider test in
+  `tests/e2e/work-library-surface.spec.ts` (drag, stored share, reflow without
+  page overflow, reload persistence, keyboard steps to both bounds, double-click
+  reset); the narrow project skips it because the stacked layout has no divider.
+- **Gitleaks (`pre-commit run --all-files`): passed.**
+
 ## Work library two-column surface — 2026-09-03
 
 This entry covers dashboard `0.5.0` over unchanged application/API/MCP `0.4.0`,
