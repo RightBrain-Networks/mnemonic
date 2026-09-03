@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, request, test, type APIRequestContext } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
+import { closeDetail, openTab, selectWork, workCard } from "./surface";
 
 let state: E2EState;
 
@@ -165,12 +166,12 @@ test("activity is live, safe text, actor-attributed, and usable at both viewport
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
     await page.getByLabel("Search work items").fill(title);
-    const card = page.locator("article.work-item-card").filter({ hasText: title });
+    const card = workCard(page, title);
     await expect(card).toHaveCount(1);
-    await card.getByRole("button", { name: title, exact: true }).click();
+    const pane = await selectWork(page, title);
 
-    const detail = page.getByRole("dialog", { name: "Work context" });
-    const activity = detail.locator(".event-timeline");
+    // Activity lives in its own tab of the detail pane; the panel is mounted only while selected.
+    const activity = (await openTab(pane, "Activity")).locator(".event-timeline");
     await expect(activity.getByRole("heading", { name: "Activity" })).toBeVisible();
     await expect(activity.locator(".event-list").getByText("Created work", { exact: true })).toBeVisible();
     await expect(activity.locator(".event-list")).not.toContainText("Initial checkpoint text must stay out of activity rows");
@@ -217,37 +218,41 @@ test("activity is live, safe text, actor-attributed, and usable at both viewport
     await expect(activity.locator(".event-list").getByText("Created work", { exact: true })).toBeVisible();
     await expect(activity.locator("article.work-event").filter({ hasText: counterpartTitle })).toHaveCount(1);
 
-    await detail.getByRole("button", { name: "Edit work item" }).click();
-    const editDialog = page.getByRole("dialog", { name: "Edit work item" });
-    await editDialog.getByLabel("Summary").fill("Updated by the Phase 5 actor-provenance acceptance test.");
-    await editDialog.getByRole("button", { name: "Save changes" }).click();
-    await expect(page.getByRole("dialog", { name: "Work context" })).toContainText(
+    // Edit is inline: it replaces the Context tab body until the form is saved or cancelled.
+    await pane.getByRole("button", { name: "Edit work item" }).click();
+    const editor = pane.locator(".detail-edit");
+    await editor.getByLabel("Summary").fill("Updated by the Phase 5 actor-provenance acceptance test.");
+    await editor.getByRole("button", { name: "Save changes" }).click();
+    await expect(pane.locator(".detail-summary")).toHaveText(
       "Updated by the Phase 5 actor-provenance acceptance test."
     );
+    await expect(editor).toHaveCount(0);
     expect(patchRequests).toHaveLength(1);
     expect(patchRequests[0]).toMatchObject({
       actor: { actor_client: "dashboard" }
     });
     expect((patchRequests[0] as { actor: { actor_session_id?: string } }).actor.actor_session_id).toBeTruthy();
 
-    const relatedGroup = detail.getByRole("heading", { name: "Related", exact: true }).locator("xpath=..");
+    const graph = await openTab(pane, "Graph");
+    const relatedGroup = graph.getByRole("heading", { name: "Related", exact: true }).locator("xpath=..");
     await relatedGroup.getByRole("button", { name: "Remove" }).click();
-    await expect(detail.getByRole("heading", { name: "Related", exact: true })).toHaveCount(0);
+    await expect(graph.getByRole("heading", { name: "Related", exact: true })).toHaveCount(0);
     expect(relationshipDeleteRequests).toHaveLength(1);
     expect(relationshipDeleteRequests[0]).toMatchObject({
       actor: { actor_client: "dashboard" }
     });
     expect((relationshipDeleteRequests[0] as { actor: { actor_session_id?: string } }).actor.actor_session_id).toBeTruthy();
 
-    const box = await detail.boundingBox();
+    const box = await pane.boundingBox();
     expect(box).not.toBeNull();
     expect(box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await openTab(pane, "Activity");
     await activity.getByLabel("Progress text").focus();
     await expect(activity.getByLabel("Progress text")).toBeFocused();
 
-    await detail.getByRole("button", { name: "Close dialog" }).click();
-    await card.getByRole("button", { name: `Delete ${title}` }).click();
+    // Delete moved from the card to the pane; its confirmation stays a modal dialog.
+    await pane.getByRole("button", { name: "Delete work item" }).click();
     const deleteDialog = page.getByRole("dialog", { name: "Delete this work item?" });
     await deleteDialog.getByRole("button", { name: "Delete work item" }).click();
     await expect(card).toHaveCount(0);
@@ -353,12 +358,11 @@ test("activity pagination, refresh recovery, replay, and proxy denials stay cohe
     await expect.poll(() => Boolean(sendSync)).toBe(true);
     await page.locator("#project-select").selectOption(state.projectId);
     await page.getByLabel("Search work items").fill(title);
-    const card = page.locator("article.work-item-card").filter({ hasText: title });
+    const card = workCard(page, title);
     await expect(card).toHaveCount(1);
-    await card.getByRole("button", { name: title, exact: true }).click();
+    const pane = await selectWork(page, title);
 
-    const detail = page.getByRole("dialog", { name: "Work context" });
-    const activity = detail.locator(".event-timeline");
+    const activity = (await openTab(pane, "Activity")).locator(".event-timeline");
     await expect(activity.locator("article.work-event")).toHaveCount(20);
     await expect(activity.locator(".event-pagination")).toContainText("1–20 of 25");
     await expect(activity.locator(".event-list").getByText("Added relationship", { exact: true })).toHaveCount(1);
@@ -403,11 +407,15 @@ test("activity pagination, refresh recovery, replay, and proxy denials stay cohe
     await expect(activity.locator(".event-pagination")).toContainText("21–25 of 25");
     await expect(activity.getByText("Unattributed earlier action", { exact: true })).toBeVisible();
 
+    // A manual Refresh must surface the externally appended event and reset the activity page.
+    // On the narrow project the sheet has to close before Refresh is reachable; on desktop the
+    // pane stays open beside the queue and the refresh signal resets the timeline in place.
     const manualRefreshBody = "Manual refresh progress " + suffix;
     await appendProgress(client, state.projectId, workId, manualRefreshBody, suffix + "-manual");
-    await detail.getByRole("button", { name: "Close dialog" }).click();
+    await closeDetail(page);
     await page.getByRole("button", { name: "Refresh", exact: true }).click();
-    await card.getByRole("button", { name: title, exact: true }).click();
+    await selectWork(page, title);
+    await openTab(pane, "Activity");
     await expect(activity.locator("article.work-event").filter({ hasText: manualRefreshBody })).toHaveCount(1);
     await expect(activity.locator(".event-pagination")).toContainText("1–20 of 26");
 
@@ -536,11 +544,11 @@ test("reconstructed and discovered-from events retain bounded references", async
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
     await page.getByLabel("Search work items").fill(title);
-    const card = page.locator("article.work-item-card").filter({ hasText: title });
+    const card = workCard(page, title);
     await expect(card).toHaveCount(1);
-    await card.getByRole("button", { name: title, exact: true }).click();
+    const pane = await selectWork(page, title);
 
-    const activity = page.getByRole("dialog", { name: "Work context" }).locator(".event-timeline");
+    const activity = (await openTab(pane, "Activity")).locator(".event-timeline");
     await expect(activity.getByRole("note")).toContainText("Earlier history was reconstructed");
     await expect(activity.getByText("Reconstructed", { exact: true })).toBeVisible();
     await expect(activity.getByText("Unattributed earlier action", { exact: true })).toBeVisible();

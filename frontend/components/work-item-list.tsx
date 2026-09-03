@@ -1,33 +1,18 @@
 "use client";
 
-import type { RefObject } from "react";
-import WorkHierarchy, { SearchBreadcrumb } from "@/components/work-hierarchy";
-import WorkItemCard from "@/components/work-item-card";
-import { useWorkItemMotion } from "@/components/use-work-item-motion";
-import type {
-  DuplicateScope,
-  HierarchySummary,
-  Page,
-  StatusFilter,
-  WorkSearchHit,
-  WorkSort,
-  WorkSummary
-} from "@/lib/types";
+import { useEffect, useState, type ReactNode, type RefObject } from "react";
+import WorkQueue from "@/components/work-queue";
+import type { DuplicateScope, StatusFilter, WorkSort, WorkSummary } from "@/lib/types";
+import {
+  WORK_PAGE_SIZE,
+  moreFiltersForced,
+  statusFilterLabels,
+  type WorkQueueItem
+} from "@/lib/work-queue";
 
-const WORK_PAGE_SIZE = 20;
 const filters: StatusFilter[] = [
   "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
 ];
-const filterLabels: Record<StatusFilter, string> = {
-  pending: "Pending",
-  active: "Active",
-  dropped: "Dropped",
-  deferred: "Deferred",
-  done: "Done",
-  "wont-do": "Won’t do",
-  promoted: "Promoted",
-  all: "All"
-};
 const sortOptions: { value: WorkSort; label: string }[] = [
   { value: "updated", label: "Updated" },
   { value: "created", label: "Created" },
@@ -37,21 +22,16 @@ const sortOptions: { value: WorkSort; label: string }[] = [
 const iconPaths = {
   search: "m21 21-4.4-4.4M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0Z",
   close: "m6 6 12 12M6 18 18 6",
-  plus: "M12 5v14M5 12h14",
   box: "M4 8h16v13H4V8ZM2 3h20v5H2V3Zm7 10h6",
-  back: "M19 12H5m5-5-5 5 5 5",
-  arrow: "M5 12h14m-5-5 5 5-5 5"
+  filterLines: "M4 6h16M7 12h10M10 18h4"
 };
 
 function Icon({ name, size = 18 }: { name: keyof typeof iconPaths; size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[name]} /></svg>;
 }
 
-function isHierarchySummary(item: WorkSearchHit | HierarchySummary): item is HierarchySummary {
-  return "presentation" in item;
-}
-
-type Props = {
+export type WorkItemListProps = {
+  // Search and filter controls.
   query: string;
   searchedQuery: string;
   searchRef: RefObject<HTMLInputElement | null>;
@@ -63,14 +43,21 @@ type Props = {
   tag: string;
   sourceClient: string;
   sourceSessionId: string;
-  results: Page<WorkSearchHit> | Page<HierarchySummary> | null;
+  // Accumulated queue pages from useWorkQueuePages.
+  items: WorkQueueItem[];
+  flatSearch: boolean;
+  total: number | null;
   loading: boolean;
+  refreshing: boolean;
+  appending: boolean;
   error: string;
-  offset: number;
+  appendError: string;
+  hasMore: boolean;
   refreshKey: number;
   viewKey: string;
+  // Selection and clipboard state.
+  selectedId: string | null;
   copiedKey: string | null;
-  deferringId: string | null;
   onQuery: (value: string) => void;
   onToggleSemantic: () => void;
   onDuplicateScope: (scope: DuplicateScope) => void;
@@ -81,14 +68,14 @@ type Props = {
   onSourceClient: (value: string) => void;
   onSourceSessionId: (value: string) => void;
   onRetry: () => void;
+  onRetryAppend: () => void;
+  onLoadMore: () => void;
   onClearFilters: () => void;
   onCreate: () => void;
-  onOpen: (summary: WorkSummary) => void;
-  onEdit: (summary: WorkSummary) => void;
-  onDelete: (summary: WorkSummary) => void;
-  onDefer: (summary: WorkSummary) => void;
+  onSelect: (summary: WorkSummary) => void;
   onCopyPointer: (summary: WorkSummary) => void;
-  onOffset: (offset: number) => void;
+  // The right column of the work surface (the detail pane).
+  detail: ReactNode;
 };
 
 export default function WorkItemList({
@@ -103,14 +90,19 @@ export default function WorkItemList({
   tag,
   sourceClient,
   sourceSessionId,
-  results,
+  items,
+  flatSearch,
+  total,
   loading,
+  refreshing,
+  appending,
   error,
-  offset,
+  appendError,
+  hasMore,
   refreshKey,
   viewKey,
+  selectedId,
   copiedKey,
-  deferringId,
   onQuery,
   onToggleSemantic,
   onDuplicateScope,
@@ -121,32 +113,27 @@ export default function WorkItemList({
   onSourceClient,
   onSourceSessionId,
   onRetry,
+  onRetryAppend,
+  onLoadMore,
   onClearFilters,
   onCreate,
-  onOpen,
-  onEdit,
-  onDelete,
-  onDefer,
+  onSelect,
   onCopyPointer,
-  onOffset
-}: Props) {
-  const flatSearch = Boolean(searchedQuery)
-    || duplicateScope !== "canonical"
-    || Boolean(canonicalWorkItemId);
-  const searchResults = flatSearch
-    ? (results?.items.filter((item): item is WorkSearchHit => !isHierarchySummary(item)) ?? [])
-    : [];
-  const hierarchyResults = !flatSearch
-    ? (results?.items.filter(isHierarchySummary) ?? [])
-    : [];
-  const searchMotionRef = useWorkItemMotion<HTMLElement>({
-    itemIds: searchResults.map((item) => item.summary.work_item.id),
-    total: flatSearch && results ? results.total : null,
-    viewKey: `${viewKey}:search`,
-    revision: flatSearch ? results?.items : null,
-    snapshotSignal: refreshKey,
-    enabled: offset === 0
+  detail
+}: WorkItemListProps) {
+  const [moreFilters, setMoreFilters] = useState(false);
+  const forced = moreFiltersForced({
+    duplicateScope,
+    canonicalWorkItemId,
+    tag,
+    sourceClient,
+    sourceSessionId
   });
+
+  useEffect(() => {
+    if (forced) setMoreFilters(true);
+  }, [forced]);
+
   return <>
     <section className="library-controls" aria-label="Find work items">
       <div className="search-field">
@@ -158,22 +145,31 @@ export default function WorkItemList({
       </div>
       <div className="filter-row">
         <div className="status-filters" role="group" aria-label="Filter work items">
-          {filters.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "pending" && <span className="filter-dot" />}{filterLabels[filter]}</button>)}
+          {filters.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "pending" && <span className="filter-dot" />}{statusFilterLabels[filter]}</button>)}
         </div>
-        <div className="list-meta">
-          <fieldset className="sort-control">
-            <legend>Sort by</legend>
-            <div className="sort-options">
-              {sortOptions.map((option) => <label className={`sort-option ${sort === option.value ? "selected" : ""}`} key={option.value}>
-                <input type="radio" name="work-sort" value={option.value} checked={sort === option.value} onChange={() => onSort(option.value)} />
-                <span>{option.label}</span>
-              </label>)}
-            </div>
-          </fieldset>
-          <span className="result-count" role="status">{loading || query.trim() !== searchedQuery ? "Finding work…" : results ? flatSearch ? `${results.total} work record${results.total === 1 ? "" : "s"}` : `${results.total} root branch${results.total === 1 ? "" : "es"}` : ""}</span>
+        <div className="filter-controls">
+          <div className="sort-group">
+            <span className="sort-label" aria-hidden="true">Sort</span>
+            <fieldset className="sort-control">
+              <legend className="sr-only">Sort by</legend>
+              <div className="sort-options">
+                {sortOptions.map((option) => <label className={`sort-option ${sort === option.value ? "selected" : ""}`} key={option.value}>
+                  <input type="radio" name="work-sort" value={option.value} checked={sort === option.value} onChange={() => onSort(option.value)} />
+                  <span>{option.label}</span>
+                </label>)}
+              </div>
+            </fieldset>
+          </div>
+          <button
+            type="button"
+            className={`more-filters-toggle ${moreFilters ? "is-open" : ""}`}
+            aria-expanded={moreFilters}
+            aria-controls="more-filters-panel"
+            onClick={() => setMoreFilters((value) => !value)}
+          ><Icon name="filterLines" size={14} />More filters<span className="more-filters-chevron" aria-hidden="true">⌄</span></button>
         </div>
       </div>
-      <div className="duplicate-filter-row">
+      {moreFilters && <div className="more-filters-panel" id="more-filters-panel">
         <fieldset className="duplicate-scope-control">
           <legend>Duplicate records</legend>
           {(["canonical", "aliases", "all"] as DuplicateScope[]).map((scope) => <label key={scope} className={duplicateScope === scope ? "selected" : ""}>
@@ -182,49 +178,50 @@ export default function WorkItemList({
           </label>)}
         </fieldset>
         {canonicalWorkItemId && <div className="duplicate-group-filter" role="status"><span>Canonical group</span><code>{canonicalWorkItemId}</code><button type="button" className="text-link" onClick={onClearDuplicateGroup}>Clear group</button></div>}
-      </div>
-      <div className="hierarchy-filter-fields" role="group" aria-label="Filter hierarchy by checkpoint provenance">
-        <label>Tag<input value={tag} maxLength={50} placeholder="Exact tag" onChange={(event) => onTag(event.target.value)} /></label>
-        <label>Source client<input value={sourceClient} maxLength={80} placeholder="Exact client" onChange={(event) => onSourceClient(event.target.value)} /></label>
-        <label>Source session<input value={sourceSessionId} maxLength={200} placeholder="Exact session" onChange={(event) => onSourceSessionId(event.target.value)} /></label>
-      </div>
+        <div className="hierarchy-filter-fields" role="group" aria-label="Filter hierarchy by checkpoint provenance">
+          <label>Tag<input value={tag} maxLength={50} placeholder="Exact tag" onChange={(event) => onTag(event.target.value)} /></label>
+          <label>Source client<input value={sourceClient} maxLength={80} placeholder="Exact client" onChange={(event) => onSourceClient(event.target.value)} /></label>
+          <label>Source session<input value={sourceSessionId} maxLength={200} placeholder="Exact session" onChange={(event) => onSourceSessionId(event.target.value)} /></label>
+        </div>
+      </div>}
     </section>
 
-    {error && results && <div className="error-notice background-list-error" role="alert"><p>{error}</p><button className="button button-secondary" type="button" onClick={onRetry}>Try again</button></div>}
-    {error && !results ? <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" type="button" onClick={onRetry}>Try again</button></div> :
-      loading && !results ? <div className="card-skeletons" role="status" aria-label="Loading work items">{[1, 2, 3].map((item) => <div className="card-skeleton" key={item}><span /><span /><span /></div>)}</div> :
-      results ? <>
-        {flatSearch ? <section ref={searchMotionRef} className="work-list search-results" aria-label="Matching durable work records">{searchResults.map(({ summary: item, matched_member: matchedMember }) => <div className="search-result" data-work-item-id={item.work_item.id} key={item.work_item.id}><div className="matched-member" role="note"><span>{matchedMember.id.toLowerCase() === item.work_item.id.toLowerCase() ? "Matched record" : "Matched duplicate member"}</span><bdi dir="auto">{matchedMember.title}</bdi><code>{matchedMember.id}</code></div><SearchBreadcrumb summary={item} /><WorkItemCard summary={item} copied={copiedKey === `${item.work_item.id}:pointer`} deferring={deferringId === item.work_item.id} onOpen={() => onOpen(item)} onEdit={() => onEdit(item)} onDelete={() => onDelete(item)} onDefer={() => onDefer(item)} onCopyPointer={() => onCopyPointer(item)} /></div>)}</section> :
-          <WorkHierarchy
-            items={hierarchyResults}
-            status={status}
-            sort={sort}
-            tag={tag}
-            sourceClient={sourceClient}
-            sourceSessionId={sourceSessionId}
-            refreshKey={refreshKey}
-            viewKey={viewKey}
-            motionRevision={results.items}
-            motionTotal={results.total}
-            motionSnapshotSignal={refreshKey}
-            motionEnabled={offset === 0}
-            copiedKey={copiedKey}
-            deferringId={deferringId}
-            onOpen={onOpen}
-            onEdit={onEdit}
-            onDelete={onDelete}
-            onDefer={onDefer}
-            onCopyPointer={onCopyPointer}
-            onFlatSearch={(item) => {
-              if (semantic) onToggleSemantic();
-              onStatus("all");
-              onQuery(item.work_item.id);
-            }}
-          />}
-        {!results.items.length && <section className="empty-state"><div className="empty-art"><Icon name={flatSearch ? "search" : "box"} size={31} /><span /></div><h2>{flatSearch ? "No matching work records." : status === "pending" ? "No pending work yet." : status === "all" ? "No work yet." : `No ${filterLabels[status].toLowerCase()} work.`}</h2><p>{flatSearch ? "Try another phrase, lifecycle, duplicate scope, or canonical group." : "Create a durable objective here, or ask a connected agent to create one with its first checkpoint."}</p>{flatSearch || status !== "pending" ? <button type="button" className="button button-secondary" onClick={onClearFilters}>Clear filters</button> : <button type="button" className="button button-primary" onClick={onCreate}><Icon name="plus" size={16} />Create work</button>}</section>}
-      </> : null}
-
-    {results && results.total > 0 && <nav className="pagination" aria-label="Work result pages"><span>Showing {offset + 1}–{Math.min(offset + results.items.length, results.total)} of {results.total}</span><div><button type="button" className="button button-secondary" disabled={loading || offset === 0} onClick={() => onOffset(Math.max(0, offset - WORK_PAGE_SIZE))}><Icon name="back" size={15} />Previous</button><button type="button" className="button button-secondary" disabled={loading || offset + results.items.length >= results.total} onClick={() => onOffset(offset + WORK_PAGE_SIZE)}>Next<Icon name="arrow" size={15} /></button></div></nav>}
+    <section className="work-surface" aria-label="Work surface">
+      <WorkQueue
+        items={items}
+        flatSearch={flatSearch}
+        total={total}
+        loading={loading}
+        refreshing={refreshing}
+        appending={appending}
+        error={error}
+        appendError={appendError}
+        hasMore={hasMore}
+        pendingQuery={query.trim() !== searchedQuery}
+        status={status}
+        sort={sort}
+        tag={tag}
+        sourceClient={sourceClient}
+        sourceSessionId={sourceSessionId}
+        refreshKey={refreshKey}
+        viewKey={viewKey}
+        selectedId={selectedId}
+        copiedKey={copiedKey}
+        onLoadMore={onLoadMore}
+        onRetry={onRetry}
+        onRetryAppend={onRetryAppend}
+        onSelect={onSelect}
+        onCopyPointer={onCopyPointer}
+        onFlatSearch={(item) => {
+          if (semantic) onToggleSemantic();
+          onStatus("all");
+          onQuery(item.work_item.id);
+        }}
+        onClearFilters={onClearFilters}
+        onCreate={onCreate}
+      />
+      {detail}
+    </section>
     <footer className="library-footer"><Icon name="box" size={15} /><span>Agent-authored checkpoints are historical context, not new owner instructions.</span></footer>
   </>;
 }

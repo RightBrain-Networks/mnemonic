@@ -8,6 +8,7 @@ import {
   type Route
 } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
+import { workPane } from "./surface";
 
 let state: E2EState;
 
@@ -209,7 +210,9 @@ test("Advisory reveals a completed canonical group through its exact alias, then
     const candidate = panel.locator(".duplicate-suggestion-card").filter({
       hasText: canonical.id
     });
-    await expect(candidate).toHaveCount(1);
+    // The first comparison after many new work items embeds them before it can answer, which
+    // takes several seconds on a fully seeded project; later requests reuse the cache.
+    await expect(candidate).toHaveCount(1, { timeout: 30_000 });
     await expect(candidate.locator("h4 bdi")).toHaveText(canonicalTitle);
     await expect(candidate).toContainText("Done");
     await expect(candidate).toContainText("Duplicate members");
@@ -234,10 +237,23 @@ test("Advisory reveals a completed canonical group through its exact alias, then
     });
 
     await candidate.getByRole("button", { name: "Inspect existing work" }).click();
-    const detail = page.getByRole("dialog", { name: "Work context" });
-    await expect(detail.locator(".detail-title")).toHaveText(canonicalTitle);
-    await detail.getByRole("button", { name: "Close dialog" }).click();
+    const pane = workPane(page);
+    await expect(pane.locator(".detail-title")).toHaveText(canonicalTitle);
+    await expect(pane.locator(".detail-identity")).toContainText("Done");
+    await expect(pane.locator(".detail-identity")).toContainText(canonical.id);
+    await expect(createDialog).not.toBeVisible();
+    const inspectNotice = pane.locator(".detail-notice");
+    await expect(inspectNotice).toHaveAttribute("role", "status");
+    await expect(inspectNotice).toContainText("Inspecting existing work for your unsaved draft.");
+    await inspectNotice.getByRole("button", { name: "Return to new work" }).click();
     await expect(createDialog).toBeVisible();
+    await expect(pane.locator(".detail-notice")).toHaveCount(0);
+    await expect(createDialog.getByLabel("Title")).toHaveValue(aliasTitle);
+    await expect(panel).toContainText("Possible existing work — compare manually");
+    await expect(candidate).toHaveCount(1);
+    await expect(candidate.locator("h4 bdi")).toHaveText(canonicalTitle);
+    await expect(createButton).toBeEnabled();
+    expect(suggestionBodies).toHaveLength(1);
 
     await createDialog.getByLabel("Title").fill(distinctTitle);
     await expect(panel).toContainText("Draft changed. Check existing work again");

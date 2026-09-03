@@ -4,9 +4,11 @@ import {
   request,
   test,
   type APIRequestContext,
+  type Locator,
   type Page
 } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
+import { closeDetail, openTab, selectWork, workCard, workPane } from "./surface";
 
 let state: E2EState;
 
@@ -228,6 +230,14 @@ async function hideWork(client: APIRequestContext, workId: string): Promise<void
   expect(response.ok(), body).toBe(true);
 }
 
+async function openMoreFilters(page: Page): Promise<Locator> {
+  const toggle = page.getByRole("button", { name: "More filters" });
+  if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+  const panel = page.locator("#more-filters-panel");
+  await expect(panel).toBeVisible();
+  return panel;
+}
+
 async function installCommittedResponseLoss(page: Page, gatePath: string): Promise<LostResponseProbe> {
   const probe: LostResponseProbe = { requests: [], responses: [] };
   await page.route(`**/api/mnemonic${gatePath}`, async (route) => {
@@ -292,28 +302,27 @@ test("human questions stay visible and recover one exact durable resolution", as
 
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
-    await page.getByLabel("Tag").fill(tag);
-    await page.getByLabel("Source client").fill("playwright-api");
-    await page.getByLabel("Source session").fill(sessionId);
+    const moreFilters = await openMoreFilters(page);
+    await moreFilters.getByLabel("Tag").fill(tag);
+    await moreFilters.getByLabel("Source client").fill("playwright-api");
+    await moreFilters.getByLabel("Source session").fill(sessionId);
 
-    const card = page.locator("article.work-item-card").filter({ hasText: title });
+    const card = workCard(page, title);
     await expect(card).toHaveCount(1);
-    const branch = card.locator("xpath=ancestor::div[contains(@class,'hierarchy-node')][1]");
-    await expect(branch.getByRole("list", { name: "Branch totals" })).toContainText(
-      "1 unresolved human question needs attention"
-    );
+    await expect(card.locator(".queue-chip-attention")).toHaveText("1 needs attention");
     await expect(card.getByText("Needs attention", { exact: true })).toBeVisible();
 
-    await card.getByRole("button", { name: title, exact: true }).click();
-    const detail = page.getByRole("dialog", { name: "Work context" });
+    const pane = await selectWork(page, title);
+    const questionsTab = await openTab(pane, "Questions");
     await expect(
-      detail.getByRole("region", { name: "Questions and answers" })
+      questionsTab.getByRole("region", { name: "Questions and answers" })
         .getByText(question, { exact: true })
     ).toBeVisible();
+    const activityTab = await openTab(pane, "Activity");
     await expect(
-      detail.locator(".work-event-kind-human_attention_requested")
+      activityTab.locator(".work-event-kind-human_attention_requested")
     ).toHaveText("Requested human attention");
-    await detail.getByRole("button", { name: "Close dialog" }).click();
+    await closeDetail(page);
 
     await page.getByRole("link", { name: /Needs Attention/ }).click();
     const attentionCard = page.locator("article.attention-card").filter({ hasText: title });
@@ -760,19 +769,22 @@ test("a deep attention cursor and sibling drafts survive refresh and resolution"
     await page.locator("article.attention-card").filter({
       hasText: questions[0]
     }).getByRole("button", { name: "Open work context" }).click();
-    const detail = page.getByRole("dialog", { name: "Work context" });
-    await expect(detail.getByText(
+    await expect(page).toHaveURL(/\?work=/);
+    const detail = workPane(page);
+    await expect(detail.locator(".detail-title")).toHaveText(title);
+    const gatePanel = await openTab(detail, "Questions");
+    await expect(gatePanel.getByText(
       "12 additional unresolved questions are omitted from bounded recall. Use the filtered attention queue.",
       { exact: true }
     )).toBeVisible();
-    await expect(detail.getByText(
+    await expect(gatePanel.getByText(
       "1 older resolved decision is omitted from bounded recall.",
       { exact: true }
     )).toBeVisible();
-    await detail.getByRole("button", {
+    await gatePanel.getByRole("button", {
       name: "Browse full paired gate history"
     }).click();
-    const historyContent = detail.locator(".gate-history-content");
+    const historyContent = gatePanel.locator(".gate-history-content");
     const historyPager = historyContent.getByRole("navigation", {
       name: "Human-gate history pages"
     });
@@ -784,7 +796,9 @@ test("a deep attention cursor and sibling drafts survive refresh and resolution"
     await historyPager.getByRole("button", { name: "Newer" }).click();
     await expect(historyPager).toContainText("Page 1 · 53 retained");
     await expect(historyContent.locator("article.gate-fact")).toHaveCount(30);
-    await detail.getByRole("button", { name: "Close dialog" }).click();
+    await page.goto(`/attention?work_item_id=${workId}`);
+    await page.locator("#project-select").selectOption(state.projectId);
+    await expect(attentionTitle).toHaveText("32 waiting");
 
     const pager = page.getByRole("navigation", { name: "Human attention pages" });
     await pager.getByRole("button", { name: "Next" }).click();
@@ -892,9 +906,12 @@ test("detail reconciliation preserves sibling gate drafts and restores focus", a
     await expect(page.getByText("Live updates", { exact: true })).toBeVisible();
     await page.locator("article.attention-card").first()
       .getByRole("button", { name: "Open work context" }).click();
+    await expect(page).toHaveURL(/\?work=/);
 
-    const detail = page.getByRole("dialog", { name: "Work context" });
-    const panel = detail.getByRole("region", { name: "Questions and answers" });
+    const detail = workPane(page);
+    await expect(detail.locator(".detail-title")).toHaveText(title);
+    const questionsTab = await openTab(detail, "Questions");
+    const panel = questionsTab.getByRole("region", { name: "Questions and answers" });
     const firstGate = panel.locator(".gate-with-resolution").filter({ hasText: questions[0] });
     const siblingGate = panel.locator(".gate-with-resolution").filter({ hasText: questions[1] });
     const firstAnswer = firstGate.getByLabel("Durable answer");

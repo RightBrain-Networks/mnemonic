@@ -1,9 +1,5 @@
 import { formatDate, formatDateTime } from "@/lib/display-time";
-import type { LeasePublic, Readiness, WorkSummary, WorkStatus } from "@/lib/types";
-import {
-  terminalActionDisabled,
-  terminalActionGateExplanation
-} from "@/lib/work-item-view";
+import type { LeasePublic, Readiness, WorkStatus } from "@/lib/types";
 
 const statusLabels: Record<WorkStatus, string> = {
   pending: "Pending",
@@ -72,101 +68,13 @@ function ActiveLeaseSummary({ lease, detailed = false }: { lease: LeasePublic; d
   </section>;
 }
 
-type Props = {
-  summary: WorkSummary;
-  copied: boolean;
-  onOpen: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-  onDefer: () => void;
-  onCopyPointer: () => void;
-  deferring: boolean;
+export {
+  ActiveLeaseSummary,
+  OperationalBadge,
+  StatusBadge,
+  clientLabel,
+  effectiveCardStatus,
+  formatDate,
+  formatDateTime,
+  statusLabels
 };
-
-export default function WorkItemCard({
-  summary,
-  copied,
-  onOpen,
-  onEdit,
-  onDelete,
-  onDefer,
-  onCopyPointer,
-  deferring
-}: Props) {
-  const work = summary.work_item;
-  const context = summary.current_context;
-  const deleteExplanation = terminalActionGateExplanation(summary.readiness, "deletion");
-  const deleteExplanationId = `delete-gate-explanation-${work.id}`;
-  return <article className="work-item-card">
-    <div className="card-topline">
-      <StatusBadge status={work.status} readiness={summary.readiness} />
-      <OperationalBadge readiness={summary.readiness} />
-      <span className="card-source">
-        Current context · {clientLabel(context.source_client)}
-        <span>·</span>
-        Last activity
-        <time dateTime={work.updated_at} title={formatDateTime(work.updated_at)}>
-          {formatDateTime(work.updated_at)}
-        </time>
-      </span>
-      <span className="card-version">v{work.version}</span>
-    </div>
-    <button className="card-title" type="button" onClick={onOpen}>
-      <h2>{work.title}</h2><span aria-hidden="true">→</span>
-    </button>
-    <p className="card-summary">{work.summary}</p>
-    <div className="work-card-facts" aria-label="Work item facts">
-      <span>{summary.checkpoint_count} checkpoint{summary.checkpoint_count === 1 ? "" : "s"}</span>
-      <span>Priority {work.priority}</span>
-      <span className="mono" title={context.source_session_id}>session {context.source_session_id}</span>
-    </div>
-    {summary.readiness.active_lease && <ActiveLeaseSummary lease={summary.readiness.active_lease} />}
-    <div className="card-footer">
-      <div className="card-context">
-        {context.tags.slice(0, 3).map((tag) => <span className="tag" key={tag}>{tag}</span>)}
-        {context.tags.length > 3 && <span className="extra-tags">+{context.tags.length - 3}</span>}
-        {context.migration_origin === "legacy-handoff-snapshot" &&
-          <span className="migration-chip">Migrated snapshot</span>}
-      </div>
-      <div className="card-action-stack">
-        {deleteExplanation && <p className="terminal-action-note" id={deleteExplanationId}>
-          {deleteExplanation}
-        </p>}
-        <div className="card-actions">
-        {(work.status === "pending" || work.status === "deferred") && <button
-          className="button defer-button"
-          type="button"
-          disabled={deferring || summary.readiness.has_active_lease || summary.readiness.is_duplicate}
-          aria-label={work.status === "deferred" ? `Move ${work.title} to Pending` : `Defer ${work.title}`}
-          title={summary.readiness.is_duplicate
-            ? "Duplicate audit records are immutable. Open it to navigate to canonical work."
-            : summary.readiness.has_active_lease
-            ? "Active work cannot be deferred until its lease is released or expires."
-            : work.status === "deferred"
-              ? "Move this work item back to Pending; blockers and human gates still apply"
-              : "Hold this work item out of the work queue"}
-          onClick={onDefer}
-        >{deferring ? "Saving…" : work.status === "deferred" ? "Move to Pending" : "Defer"}</button>}
-        <button className="icon-button" type="button" aria-label={`Edit ${work.title}`} title={summary.readiness.is_duplicate ? "Duplicate audit records are immutable" : "Edit work item"} disabled={summary.readiness.is_duplicate} onClick={onEdit}>✎</button>
-        <button
-          className="icon-button danger-hover"
-          type="button"
-          aria-label={`Delete ${work.title}`}
-          title={summary.readiness.is_gated
-            ? "Resolve every human question before deleting this work item."
-            : "Delete work item"}
-          aria-describedby={deleteExplanation ? deleteExplanationId : undefined}
-          disabled={terminalActionDisabled(summary.readiness)}
-          onClick={onDelete}
-        >⌫</button>
-        <span className="action-divider" />
-        <button className={`button copy-button ${copied ? "is-copied" : ""}`} type="button" onClick={onCopyPointer}>
-          {copied ? "Copied" : "Copy recall pointer"}
-        </button>
-        </div>
-      </div>
-    </div>
-  </article>;
-}
-
-export { ActiveLeaseSummary, OperationalBadge, StatusBadge, clientLabel, formatDate, formatDateTime, statusLabels };

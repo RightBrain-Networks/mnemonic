@@ -15,21 +15,16 @@ import ThemeSelector from "@/components/theme-selector";
 import ProjectSettingsPanel from "@/components/project-settings";
 import DuplicateSuggestionPanel from "@/components/duplicate-suggestion-panel";
 import HumanAttentionList from "@/components/human-attention-list";
-import WorkItemDetail from "@/components/work-item-detail";
-import WorkItemList, { WORK_PAGE_SIZE } from "@/components/work-item-list";
-import WorkMergeDialog from "@/components/work-merge-dialog";
+import WorkDetailPane from "@/components/work-detail-pane";
+import WorkItemList from "@/components/work-item-list";
+import { useWorkQueuePages } from "@/components/use-work-queue-pages";
 import { StatusBadge, formatDate } from "@/components/work-item-card";
 import { setDisplayTimeZone } from "@/lib/display-time";
 import { draftFromWork, type WorkEditDraft } from "@/components/work-item-editor";
 import { api, ApiError, errorMessage, isVersionConflict, workItemPath } from "@/lib/api";
 import { currentContext } from "@/lib/current-context";
 import { dashboardSessionId } from "@/lib/dashboard-session";
-import {
-  decodeWorkContext,
-  decodeWorkItemDetail,
-  decodeWorkSearchPage
-} from "@/lib/duplicate-handling";
-import { decodeHierarchyPage } from "@/lib/hierarchy-presentation";
+import { decodeWorkContext, decodeWorkItemDetail } from "@/lib/duplicate-handling";
 import { decodeHumanAttentionPage, humanAttentionSearchParams } from "@/lib/human-gates";
 import {
   MutationIntentProvider,
@@ -58,7 +53,6 @@ import type {
   CompletionResult,
   DeletionResult,
   DuplicateScope,
-  HierarchySummary,
   Page,
   Project,
   ProjectSettings,
@@ -71,16 +65,13 @@ import type {
   WorkMergeResult,
   WorkPatch,
   WorkSort,
-  WorkSearchHit,
   WorkSummary
 } from "@/lib/types";
+import { validUuid } from "@/lib/wire-guards";
+import type { DetailTab } from "@/lib/work-detail-tabs";
 import { editableLifecycleStatuses, normalizedTags } from "@/lib/work-item-view";
 import { dashboardMutationActor } from "@/lib/work-events";
-import {
-  scheduleHierarchyFilterCommit,
-  isFlatWorkSearch,
-  workSearchParams
-} from "@/lib/work-item-search";
+import { scheduleHierarchyFilterCommit } from "@/lib/work-item-search";
 import { workRecallPointer } from "@/lib/work-recall-pointer";
 
 const mutationLabels: Record<MutationIntentSummary["kind"], string> = {
@@ -164,7 +155,8 @@ function Dialog({
   onClose,
   recovery,
   wide = false,
-  busy = false
+  busy = false,
+  suspended = false
 }: {
   title: string;
   children: ReactNode;
@@ -172,14 +164,22 @@ function Dialog({
   recovery?: ReactNode;
   wide?: boolean;
   busy?: boolean;
+  // A suspended dialog is closed but keeps its children mounted, so an unsaved
+  // draft survives while the user inspects something behind it.
+  suspended?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   useEffect(() => {
     const dialog = ref.current;
-    if (dialog && !dialog.open) dialog.showModal();
-    return () => { if (dialog?.open) dialog.close(); };
-  }, []);
+    if (!dialog) return;
+    if (suspended) {
+      if (dialog.open) dialog.close();
+      return;
+    }
+    if (!dialog.open) dialog.showModal();
+    return () => { if (dialog.open) dialog.close(); };
+  }, [suspended]);
   return <dialog ref={ref} className={`dialog ${wide ? "dialog-wide" : ""}`} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
     <div className="dialog-header"><h2 id={titleId}>{title}</h2><button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose} disabled={busy}><Icon name="close" /></button></div>
     {recovery}
@@ -223,7 +223,13 @@ function summaryWithContext(base: WorkSummary, context: WorkContext): WorkSummar
   };
 }
 
+function locationWorkSelection(): string | null {
+  const value = new URLSearchParams(window.location.search).get("work");
+  return value && validUuid(value) ? value : null;
+}
+
 type ContextLoadResult = "loaded" | "superseded" | "failed";
+type WorkDialogState = "closed" | "open" | "suspended";
 
 export default function Dashboard({ view = "library", timeZone }: { view?: "library" | "attention" | "settings"; timeZone?: string | null; }) {
   setDisplayTimeZone(timeZone);
@@ -259,22 +265,12 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [sourceClientFilter, setSourceClientFilter] = useState("");
   const [sourceSessionFilter, setSourceSessionFilter] = useState("");
   const [preferencesReady, setPreferencesReady] = useState(false);
-  const [offset, setOffset] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const [attentionRefresh, setAttentionRefresh] = useState(0);
   const [attentionCount, setAttentionCount] = useState<number | null>(null);
-  const [results, setResults] = useState<
-    Page<WorkSearchHit> | Page<HierarchySummary> | null
-  >(null);
-  const [resultsViewKey, setResultsViewKey] = useState("");
-  const [listLoading, setListLoading] = useState(false);
-  const [listFailure, setListFailure] = useState<{
-    viewKey: string;
-    message: string;
-  } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const [workDialog, setWorkDialog] = useState(false);
+  const [workDialog, setWorkDialog] = useState<WorkDialogState>("closed");
   const [workSaving, setWorkSaving] = useState(false);
   const [newWorkError, setNewWorkError] = useState("");
   const [suggestionDraftGeneration, setSuggestionDraftGeneration] = useState(0);
@@ -285,7 +281,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [contextError, setContextError] = useState("");
   const [contextReconciliationRequired, setContextReconciliationRequired] = useState(false);
   const [contextRefresh, setContextRefresh] = useState(0);
-  const [mergeSource, setMergeSource] = useState<WorkContext | null>(null);
+  const [tab, setTab] = useState<DetailTab>("context");
+  const [mergeOpen, setMergeOpen] = useState(false);
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [editDraft, setEditDraft] = useState<WorkEditDraft | null>(null);
   const [editSaving, setEditSaving] = useState(false);
@@ -294,6 +291,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const recordRequest = useRef(0);
   const lastLoadedContextRequest = useRef(0);
   const exactContextTarget = useRef<{ projectId: string; workItemId: string } | null>(null);
+  // undefined until the address has been read once; then the pending `?work=` restore or null.
+  const urlWorkRestore = useRef<string | null | undefined>(undefined);
 
   const [checkpointPage, setCheckpointPage] = useState<Page<Checkpoint> | null>(null);
   const [checkpointOffset, setCheckpointOffset] = useState(0);
@@ -317,33 +316,33 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [notice, setNotice] = useState<{ message: string; error?: boolean } | null>(null);
   const [liveSyncStatus, setLiveSyncStatus] = useState<LiveSyncStatus>("connecting");
   const project = projects.find((item) => item.id === activeId);
-  const listViewKey = JSON.stringify([
-    activeId,
+  const queue = useWorkQueuePages({
+    enabled: view === "library" && Boolean(activeId) && preferencesReady,
+    projectId: activeId,
     status,
     sort,
-    offset,
     search,
     semantic,
     duplicateScope,
     canonicalWorkItemId,
-    tagFilter,
-    sourceClientFilter,
-    sourceSessionFilter
-  ]);
-  const visibleResults = resultsViewKey === listViewKey ? results : null;
-  const visibleListError = listFailure?.viewKey === listViewKey ? listFailure.message : "";
+    tag: tagFilter,
+    sourceClient: sourceClientFilter,
+    sourceSessionId: sourceSessionFilter,
+    refresh
+  });
   const activeIdRef = useRef(activeId);
   const openedRef = useRef(opened);
   const settingsLoadController = useRef<AbortController | null>(null);
   const settingsLoadGeneration = useRef(0);
   const lastContextRefresh = useRef(0);
+  const openedId = opened?.work_item.id ?? null;
   const nextLeaseExpiry = earliestLeaseExpiry([
-    ...(visibleResults?.items.flatMap((item) => [
+    ...queue.items.flatMap((item) => [
       item.summary.readiness.active_lease?.expires_at,
       "presentation" in item
         ? item.presentation.next_active_descendant_lease_expires_at
         : null
-    ]) ?? []),
+    ]),
     context?.readiness.active_lease?.expires_at
   ]);
 
@@ -476,7 +475,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   }, [activeId, settingsRefresh]);
 
   useEffect(() => {
-    const timer = setTimeout(() => { setSearch(query.trim()); setOffset(0); }, 300);
+    const timer = setTimeout(() => setSearch(query.trim()), 300);
     return () => clearTimeout(timer);
   }, [query]);
 
@@ -493,82 +492,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       setTagFilter(next.tag);
       setSourceClientFilter(next.sourceClient);
       setSourceSessionFilter(next.sourceSessionId);
-      setOffset(0);
     });
   }, [sourceClientInput, sourceSessionInput, tagInput]);
-
-  useEffect(() => {
-    if (view !== "library" || !activeId || !preferencesReady) {
-      setResults(null);
-      setResultsViewKey("");
-      setListFailure(null);
-      return;
-    }
-    const controller = new AbortController();
-    const requestedViewKey = listViewKey;
-    setListLoading(true);
-    setListFailure(null);
-    const params = workSearchParams({
-      status,
-      sort,
-      limit: WORK_PAGE_SIZE,
-      offset,
-      query: search,
-      semantic,
-      tag: tagFilter,
-      sourceClient: sourceClientFilter,
-      sourceSessionId: sourceSessionFilter,
-      duplicateScope,
-      ...(canonicalWorkItemId ? { canonicalWorkItemId } : {})
-    });
-    const flatSearch = isFlatWorkSearch({
-      query: search,
-      duplicateScope,
-      canonicalWorkItemId
-    });
-    api<unknown>(`${workItemPath(activeId)}?${params}`, { signal: controller.signal })
-      .then((value) => {
-        if (controller.signal.aborted) return;
-        const page = flatSearch
-          ? decodeWorkSearchPage(value, activeId, {
-            duplicateScope,
-            canonicalWorkItemId: canonicalWorkItemId || undefined,
-            query: search,
-            expectedLimit: WORK_PAGE_SIZE,
-            expectedOffset: offset
-          })
-          : decodeHierarchyPage(value, activeId, WORK_PAGE_SIZE, offset);
-        if (offset > 0 && offset >= page.total) {
-          setOffset(Math.max(0, Math.floor((page.total - 1) / WORK_PAGE_SIZE) * WORK_PAGE_SIZE));
-          return;
-        }
-        setResults(page);
-        setResultsViewKey(requestedViewKey);
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) {
-          setListFailure({ viewKey: requestedViewKey, message: errorMessage(error) });
-        }
-      })
-      .finally(() => { if (!controller.signal.aborted) setListLoading(false); });
-    return () => controller.abort();
-  }, [
-    activeId,
-    canonicalWorkItemId,
-    duplicateScope,
-    listViewKey,
-    offset,
-    preferencesReady,
-    refresh,
-    search,
-    semantic,
-    sort,
-    sourceClientFilter,
-    sourceSessionFilter,
-    status,
-    tagFilter,
-    view
-  ]);
 
   useEffect(() => {
     if (!opened) { setCheckpointPage(null); return; }
@@ -650,9 +575,12 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       return;
     }
     if (mode === "edit") return;
+    // A live-sync refresh must not supersede a context load already in flight (an exact audit
+    // load, a ?work= restore, or a post-mutation reconcile); it runs once that load settles.
+    if (contextLoading) return;
     lastContextRefresh.current = contextRefresh;
     void loadContext(opened, ++recordRequest.current);
-  }, [contextRefresh, mode, opened]);
+  }, [contextLoading, contextRefresh, mode, opened]);
 
   useEffect(() => {
     if (!notice || notice.error) return;
@@ -688,6 +616,30 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     return () => window.removeEventListener("keydown", focusSearch);
   }, [view]);
 
+  // The address is read once so a reload restores the selection; it is captured
+  // before the mirror below could rewrite it.
+  useEffect(() => {
+    if (view !== "library" || urlWorkRestore.current !== undefined) return;
+    urlWorkRestore.current = locationWorkSelection();
+  }, [view]);
+
+  useEffect(() => {
+    if (view !== "library" || !activeId || opened) return;
+    const target = urlWorkRestore.current;
+    if (!target) return;
+    urlWorkRestore.current = null;
+    void openExactWork(activeId, target);
+  }, [activeId, opened, view]);
+
+  useEffect(() => {
+    if (view !== "library" || urlWorkRestore.current !== null) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("work") === openedId) return;
+    if (openedId) url.searchParams.set("work", openedId);
+    else url.searchParams.delete("work");
+    window.history.replaceState(window.history.state, "", url);
+  }, [openedId, view]);
+
   function chooseProject(id: string) {
     if (
       id !== activeId
@@ -700,22 +652,23 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       });
       return;
     }
+    if (id !== activeId && opened) {
+      if (!leavingOpenedWorkAllowed()) return;
+      clearSelection();
+    }
     setActiveId(id);
-    setOffset(0);
     setQuery("");
     setSearch("");
     setSemantic(false);
     setDuplicateScope("canonical");
     setCanonicalWorkItemId("");
-    setMergeSource(null);
+    setMergeOpen(false);
     setTagInput("");
     setSourceClientInput("");
     setSourceSessionInput("");
     setTagFilter("");
     setSourceClientFilter("");
     setSourceSessionFilter("");
-    setResults(null);
-    setResultsViewKey("");
   }
 
   async function createProject(event: FormEvent<HTMLFormElement>) {
@@ -742,6 +695,15 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     } finally {
       setProjectSaving(false);
     }
+  }
+
+  function openWorkDialog(): void {
+    if (workDialog === "suspended") {
+      setWorkDialog("open");
+      return;
+    }
+    setNewWorkError("");
+    setWorkDialog("open");
   }
 
   async function createWork(event: FormEvent<HTMLFormElement>) {
@@ -774,15 +736,24 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         path: workItemPath(project.id),
         payload
       });
-      setWorkDialog(false);
+      setWorkDialog("closed");
       setStatus("pending");
-      setOffset(0);
       setRefresh((value) => value + 1);
       setNotice({ message: `“${created.work_item.title}” now has its first immutable checkpoint.` });
+      void openExactWork(project.id, created.work_item.id);
     } catch (error) {
       setNewWorkError(errorMessage(error));
     } finally {
       setWorkSaving(false);
+    }
+  }
+
+  async function inspectExistingWork(projectId: string, workItemId: string): Promise<void> {
+    setWorkDialog("suspended");
+    const loaded = await openExactWork(projectId, workItemId);
+    // With nothing selected the pane cannot show the failure, so the draft comes back.
+    if (!loaded && !openedRef.current) {
+      setWorkDialog((value) => value === "suspended" ? "open" : value);
     }
   }
 
@@ -826,33 +797,15 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     }
   }
 
-  function openWork(summary: WorkSummary, editing = false) {
-    if (editing && summary.readiness.is_duplicate) {
-      setNotice({
-        message: "Duplicate audit records are immutable. Open the record to review its canonical destination.",
-        error: true
-      });
-      return;
-    }
-    if (
-      editing
-      && mutationRegistry.blocks([
-        mutationWorkKey(summary.work_item.project_id, summary.work_item.id)
-      ])
-    ) {
-      setNotice({
-        message: "Resolve the pending mutation for this work item before editing it.",
-        error: true
-      });
-      return;
-    }
+  function openWork(summary: WorkSummary) {
     const requestId = ++recordRequest.current;
     exactContextTarget.current = null;
     setOpened(summary);
     setContext(null);
     setContextReconciliationRequired(false);
     setContextError("");
-    setMode(editing ? "edit" : "view");
+    setMode("view");
+    setMergeOpen(false);
     setEditDraft(draftFromWork(summary.work_item));
     setEditError("");
     setConflict(null);
@@ -876,6 +829,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setContextLoading(true);
     setContextError("");
     setMode("view");
+    setMergeOpen(false);
     setEditError("");
     setConflict(null);
     setCheckpointOffset(0);
@@ -905,34 +859,47 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       setEventRefresh((value) => value + 1);
       return true;
     } catch (cause) {
-      if (recordRequest.current === requestId) setContextError(errorMessage(cause));
+      if (recordRequest.current === requestId) {
+        const message = errorMessage(cause);
+        setContextError(message);
+        // The pane only renders a failure beneath a selection; without one the toast carries it.
+        if (!openedRef.current) setNotice({ message, error: true });
+      }
       return false;
     } finally {
       if (recordRequest.current === requestId) setContextLoading(false);
     }
   }
 
-  function viewDuplicateGroup(canonicalId: string): void {
+  function clearSelection(): void {
     ++recordRequest.current;
+    exactContextTarget.current = null;
     setOpened(null);
+    setMergeOpen(false);
     setContext(null);
-    setMergeSource(null);
+    setContextLoading(false);
+    setContextReconciliationRequired(false);
+    setCheckpointPage(null);
+    setCheckpointBody("");
+  }
+
+  function viewDuplicateGroup(canonicalId: string): void {
+    clearSelection();
     setQuery("");
     setSearch("");
     setSemantic(false);
     setStatus("all");
     setDuplicateScope("all");
     setCanonicalWorkItemId(canonicalId);
-    setOffset(0);
   }
 
   async function merged(result: WorkMergeResult): Promise<void> {
-    setMergeSource(null);
+    setMergeOpen(false);
     setRefresh((value) => value + 1);
     setAttentionRefresh((value) => value + 1);
     setCheckpointRefresh((value) => value + 1);
     setEventRefresh((value) => value + 1);
-    setContextRefresh((value) => value + 1);
+    // The exact audit load below replaces the open context; a separate refresh would race it.
     const auditLoaded = await openExactWork(
       result.merge.project_id,
       result.merge.source_work_item_id
@@ -945,8 +912,20 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       });
   }
 
-  function closeWork() {
-    if (editSaving || checkpointSaving) return;
+  async function mergeSourceChanged(): Promise<void> {
+    const changedSource = context?.work_item ?? openedRef.current?.work_item;
+    setMergeOpen(false);
+    if (changedSource) await openExactWork(changedSource.project_id, changedSource.id);
+  }
+
+  function unsavedEditsKept(): boolean {
+    if (mode !== "edit" || !context || !editDraft) return false;
+    if (JSON.stringify(editDraft) === JSON.stringify(draftFromWork(context.work_item))) return false;
+    return !window.confirm("Discard your unsaved work-item edits?");
+  }
+
+  function leavingOpenedWorkAllowed(): boolean {
+    if (editSaving || checkpointSaving) return false;
     if (
       opened
       && mutationRegistry.blocks([
@@ -957,18 +936,23 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         message: "Resolve the pending mutation before closing this work view.",
         error: true
       });
-      return;
+      return false;
     }
-    if (checkpointBody.trim() && !window.confirm("Discard your unsaved checkpoint?")) return;
-    if (mode === "edit" && context && editDraft && JSON.stringify(editDraft) !== JSON.stringify(draftFromWork(context.work_item)) && !window.confirm("Discard your unsaved work-item edits?")) return;
-    ++recordRequest.current;
-    exactContextTarget.current = null;
-    setOpened(null);
-    setMergeSource(null);
-    setContext(null);
-    setContextReconciliationRequired(false);
-    setCheckpointPage(null);
-    setCheckpointBody("");
+    if (checkpointBody.trim() && !window.confirm("Discard your unsaved checkpoint?")) return false;
+    if (unsavedEditsKept()) return false;
+    return true;
+  }
+
+  function closeWork() {
+    if (!leavingOpenedWorkAllowed()) return;
+    clearSelection();
+  }
+
+  function selectWork(summary: WorkSummary) {
+    if (opened?.work_item.id === summary.work_item.id) return;
+    if (!leavingOpenedWorkAllowed()) return;
+    setMergeOpen(false);
+    openWork(summary);
   }
 
   function retryOpenedContext(): void {
@@ -998,6 +982,48 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   async function reloadOpenContext(preserveEditDraft = false): Promise<boolean> {
     const current = openedRef.current;
     return current ? reconcileContext(current, preserveEditDraft) : false;
+  }
+
+  function startEdit(): void {
+    if (!context) return;
+    if (context.canonical.is_duplicate) {
+      setNotice({
+        message: "Duplicate audit records are immutable. Open the record to review its canonical destination.",
+        error: true
+      });
+      return;
+    }
+    if (mutationRegistry.blocks([
+      mutationWorkKey(context.work_item.project_id, context.work_item.id)
+    ])) {
+      setNotice({
+        message: "Resolve the pending mutation for this work item before editing it.",
+        error: true
+      });
+      return;
+    }
+    setEditDraft(draftFromWork(context.work_item));
+    setEditError("");
+    setConflict(null);
+    setTab("context");
+    setMergeOpen(false);
+    setMode("edit");
+  }
+
+  function cancelEdit(): void {
+    if (detailMutationBlocked) return;
+    setMode("view");
+    if (context) setEditDraft(draftFromWork(context.work_item));
+    setEditError("");
+    setConflict(null);
+  }
+
+  function openMerge(): void {
+    if (!context || context.canonical.is_duplicate) return;
+    if (unsavedEditsKept()) return;
+    setTab("graph");
+    setMode("view");
+    setMergeOpen(true);
   }
 
   async function saveWorkEdits(event: FormEvent<HTMLFormElement>) {
@@ -1186,10 +1212,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         path: `${workItemPath(deleteTarget.project_id, deleteTarget.id)}/delete`,
         payload
       });
-      if (opened?.work_item.id === deleteTarget.id) {
-        setOpened(null);
-        setContext(null);
-      }
+      if (opened?.work_item.id === deleteTarget.id) clearSelection();
       setDeleteTarget(null);
       setRefresh((value) => value + 1);
       setNotice({ message: "Work item removed from ordinary project views. Its history remains recoverable." });
@@ -1270,6 +1293,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         setNotice({ message: `“${work.title}” is Deferred and held out of the work queue.` });
       }
       setRefresh((value) => value + 1);
+      if (openedRef.current?.work_item.id === work.id) void reloadOpenContext();
     } catch (error) {
       if (isVersionConflict(error)) setRefresh((value) => value + 1);
       setNotice({ message: errorMessage(error), error: true });
@@ -1305,15 +1329,12 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       setCheckpointRefresh((value) => value + 1);
       setEventRefresh((value) => value + 1);
       setContextRefresh((value) => value + 1);
-      if (intent.kind === "create_work") setWorkDialog(false);
+      if (intent.kind === "create_work") setWorkDialog("closed");
       if (intent.kind === "delete_work") {
         setDeleteTarget(null);
         if (opened && intent.conflictKeys.includes(
           mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
-        )) {
-          setOpened(null);
-          setContext(null);
-        }
+        )) clearSelection();
       } else if (
         opened
         && intent.conflictKeys.includes(
@@ -1422,6 +1443,17 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     });
   }
 
+  function openAttentionWork(summary: WorkSummary): void {
+    if (activeProjectMutationBlocked) {
+      setNotice({
+        message: "Resolve pending mutations before leaving this dashboard document.",
+        error: true
+      });
+      return;
+    }
+    window.location.assign(`/?work=${encodeURIComponent(summary.work_item.id)}`);
+  }
+
   async function afterWorkMutation(
     failureMessage: string,
     { refreshAttention = false, refreshEvents = false } = {}
@@ -1437,17 +1469,18 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const activeProjectMutationBlocked = Boolean(
     activeId && mutationRegistry.hasDispatchedForProject(activeId)
   );
+  const openedWorkKey = opened
+    ? mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
+    : null;
   const openedWorkMutationBlocked = Boolean(
-    opened && mutationRegistry.blocks([
-      mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
-    ])
+    openedWorkKey && mutationRegistry.blocks([openedWorkKey])
   );
   const detailMutationBlocked = openedWorkMutationBlocked
     || contextReconciliationRequired && contextLoading;
   const createWorkMutationBlocked = Boolean(
     project && mutationRegistry.blocks([mutationCreateKey(project.id)])
   );
-  const createDialogMutationIntents = workDialog && project
+  const createDialogMutationIntents = workDialog !== "closed" && project
     ? dispatchedMutationIntents.filter((intent) => (
       intent.kind === "create_work"
       && intent.conflictKeys.includes(mutationCreateKey(project.id))
@@ -1464,31 +1497,30 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const deleteDialogMutationSlots = new Set(
     deleteDialogMutationIntents.map((intent) => intent.slot)
   );
-  const mergeDialogMutationIntents = mergeSource
+  // The merge panel renders its own recovery block for the open item's merge.
+  const mergePanelMutationIntents = openedWorkKey && mergeOpen
     ? dispatchedMutationIntents.filter((intent) => (
-      intent.kind === "merge_work"
-      && intent.conflictKeys.includes(mutationWorkKey(
-        mergeSource.work_item.project_id,
-        mergeSource.work_item.id
-      ))
+      intent.kind === "merge_work" && intent.conflictKeys.includes(openedWorkKey)
     ))
     : [];
-  const openedDialogMutationIntents = opened && !mergeSource
+  const mergePanelMutationSlots = new Set(
+    mergePanelMutationIntents.map((intent) => intent.slot)
+  );
+  const openedPaneMutationIntents = openedWorkKey
     ? dispatchedMutationIntents.filter((intent) => (
       !deleteDialogMutationSlots.has(intent.slot)
-      && intent.conflictKeys.includes(
-        mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
-      )
+      && !mergePanelMutationSlots.has(intent.slot)
+      && intent.conflictKeys.includes(openedWorkKey)
     ))
     : [];
-  const modalMutationSlots = new Set([
+  const localMutationSlots = new Set([
     ...createDialogMutationIntents,
-    ...mergeDialogMutationIntents,
-    ...openedDialogMutationIntents,
+    ...mergePanelMutationIntents,
+    ...openedPaneMutationIntents,
     ...deleteDialogMutationIntents
   ].map((intent) => intent.slot));
   const globalMutationIntents = dispatchedMutationIntents.filter(
-    (intent) => !modalMutationSlots.has(intent.slot)
+    (intent) => !localMutationSlots.has(intent.slot)
   );
   const modalRecovery = (intents: readonly MutationIntentSummary[]) => (
     intents.length
@@ -1567,7 +1599,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
             <HumanAttentionList
               project={project}
               refreshSignal={attentionRefresh}
-              onOpen={(item) => openWork(item)}
+              onOpen={openAttentionWork}
               onResolved={() => {
                 setRefresh((value) => value + 1);
                 setContextRefresh((value) => value + 1);
@@ -1587,7 +1619,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
               setEventRefresh((value) => value + 1);
               setContextRefresh((value) => value + 1);
             }}
-            actions={project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={() => { setNewWorkError(""); setWorkDialog(true); }}><Icon name="plus" size={16} />New work</button>}
+            actions={project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}
           />
 
           {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
@@ -1605,31 +1637,34 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 tag={tagInput}
                 sourceClient={sourceClientInput}
                 sourceSessionId={sourceSessionInput}
-                results={visibleResults}
-                loading={listLoading || (!visibleResults && !visibleListError)}
-                error={visibleListError}
-                offset={offset}
+                items={queue.items}
+                flatSearch={queue.flatSearch}
+                total={queue.total}
+                loading={queue.loading}
+                refreshing={queue.refreshing}
+                appending={queue.appending}
+                error={queue.error}
+                appendError={queue.appendError}
+                hasMore={queue.hasMore}
                 refreshKey={refresh}
-                viewKey={listViewKey}
+                viewKey={queue.viewKey}
+                selectedId={openedId}
                 copiedKey={copied}
-                deferringId={deferringId}
                 onQuery={setQuery}
-                onToggleSemantic={() => { setSemantic((value) => !value); setOffset(0); }}
+                onToggleSemantic={() => setSemantic((value) => !value)}
                 onDuplicateScope={(value) => {
                   setDuplicateScope(value);
                   if (value === "canonical") setCanonicalWorkItemId("");
-                  setOffset(0);
                 }}
-                onClearDuplicateGroup={() => {
-                  setCanonicalWorkItemId("");
-                  setOffset(0);
-                }}
-                onStatus={(value) => { setStatus(value); setOffset(0); }}
-                onSort={(value) => { setSort(value); setOffset(0); }}
+                onClearDuplicateGroup={() => setCanonicalWorkItemId("")}
+                onStatus={setStatus}
+                onSort={setSort}
                 onTag={setTagInput}
                 onSourceClient={setSourceClientInput}
                 onSourceSessionId={setSourceSessionInput}
-                onRetry={() => setRefresh((value) => value + 1)}
+                onRetry={queue.retry}
+                onRetryAppend={queue.retryAppend}
+                onLoadMore={queue.loadMore}
                 onClearFilters={() => {
                   setQuery("");
                   setSearch("");
@@ -1642,15 +1677,89 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                   setTagFilter("");
                   setSourceClientFilter("");
                   setSourceSessionFilter("");
-                  setOffset(0);
                 }}
-                onCreate={() => setWorkDialog(true)}
-                onOpen={(item) => openWork(item)}
-                onEdit={(item) => openWork(item, true)}
-                onDelete={(item) => openDeletion(item.work_item)}
-                onDefer={(item) => void toggleDeferral(item)}
+                onCreate={openWorkDialog}
+                onSelect={selectWork}
                 onCopyPointer={(item) => void copyRecallPointer(item)}
-                onOffset={setOffset}
+                detail={<WorkDetailPane
+                  opened={opened}
+                  context={context}
+                  contextLoading={contextLoading}
+                  contextError={contextError}
+                  reconciliationRequired={contextReconciliationRequired}
+                  onRetryContext={retryOpenedContext}
+                  tab={tab}
+                  onTab={setTab}
+                  mode={mode}
+                  editDraft={editDraft}
+                  editSaving={editSaving}
+                  mutationBlocked={detailMutationBlocked}
+                  editError={editError}
+                  conflict={conflict}
+                  setEditDraft={(updater) => setEditDraft((draft) => draft ? updater(draft) : draft)}
+                  onSaveEdits={(event) => void saveWorkEdits(event)}
+                  onCancelEdit={cancelEdit}
+                  onLoadCurrent={() => void loadLatestWork()}
+                  onUseCurrentVersion={useCurrentVersion}
+                  onEdit={startEdit}
+                  mergeOpen={mergeOpen}
+                  onOpenMerge={openMerge}
+                  onCloseMerge={() => setMergeOpen(false)}
+                  onMerged={merged}
+                  onMergeSourceChanged={mergeSourceChanged}
+                  onDelete={() => { if (context) openDeletion(context.work_item); }}
+                  onDefer={(item) => void toggleDeferral(item)}
+                  deferring={Boolean(openedId && deferringId === openedId)}
+                  onOpenCanonical={(workItemId) => {
+                    if (opened) void openExactWork(opened.work_item.project_id, workItemId);
+                  }}
+                  onViewDuplicateGroup={viewDuplicateGroup}
+                  onCopy={(value, key, success) => void copyText(value, key, success)}
+                  onCopyPointer={(item) => void copyRecallPointer(item)}
+                  copiedKey={copied}
+                  checkpointPage={checkpointPage}
+                  checkpointOffset={checkpointOffset}
+                  checkpointLoading={checkpointLoading}
+                  checkpointLoadError={checkpointLoadError}
+                  checkpointActionError={checkpointActionError}
+                  checkpointKind={checkpointKind}
+                  checkpointBody={checkpointBody}
+                  checkpointBranch={checkpointBranch}
+                  checkpointCommit={checkpointCommit}
+                  checkpointTags={checkpointTags}
+                  checkpointSaving={checkpointSaving}
+                  onCheckpointKind={setCheckpointKind}
+                  onCheckpointBody={setCheckpointBody}
+                  onCheckpointBranch={setCheckpointBranch}
+                  onCheckpointCommit={setCheckpointCommit}
+                  onCheckpointTags={setCheckpointTags}
+                  onAppend={() => void saveCheckpoint(false)}
+                  onComplete={() => void saveCheckpoint(true)}
+                  onRelationshipsChanged={async () => {
+                    const reconciled = await reloadOpenContext();
+                    setEventRefresh((value) => value + 1);
+                    setRefresh((value) => value + 1);
+                    return reconciled;
+                  }}
+                  onCheckpointOffset={setCheckpointOffset}
+                  onReloadCheckpoints={() => setCheckpointRefresh((value) => value + 1)}
+                  onEventAppended={() => afterWorkMutation(
+                    "Progress was saved, but current work context could not be reloaded. Use Refresh before continuing."
+                  )}
+                  onGateResolved={async () => {
+                    await afterWorkMutation(
+                      "The answer was recorded, but current work context could not be reloaded. Use Refresh before continuing.",
+                      { refreshAttention: true, refreshEvents: true }
+                    );
+                  }}
+                  eventRefreshSignal={eventRefresh}
+                  recovery={modalRecovery(openedPaneMutationIntents)}
+                  notice={workDialog === "suspended"
+                    ? <div className="detail-notice" role="status"><span>Inspecting existing work for your unsaved draft.</span><button type="button" className="button button-secondary" onClick={() => setWorkDialog("open")}>Return to new work</button></div>
+                    : undefined}
+                  onBack={closeWork}
+                  backDisabled={editSaving || checkpointSaving || detailMutationBlocked}
+                />}
               />
             </>}
         </>}
@@ -1674,7 +1783,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={projectSaving} onClick={() => setProjectDialog(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={projectSaving}>{projectSaving ? "Creating…" : "Create project"}</button></div>
     </form></Dialog>}
 
-    {workDialog && project && <Dialog title="Create durable work" onClose={() => { if (!workSaving && !createWorkMutationBlocked) setWorkDialog(false); }} recovery={modalRecovery(createDialogMutationIntents)} wide busy={workSaving || createWorkMutationBlocked}><form className="form-stack" onSubmit={(event) => void createWork(event)}>
+    {workDialog !== "closed" && project && <Dialog title="Create durable work" onClose={() => { if (!workSaving && !createWorkMutationBlocked) setWorkDialog("closed"); }} recovery={modalRecovery(createDialogMutationIntents)} wide busy={workSaving || createWorkMutationBlocked} suspended={workDialog === "suspended"}><form className="form-stack" onSubmit={(event) => void createWork(event)}>
       <p className="dialog-intro">The objective remains editable. Its initial checkpoint is immutable and attributed to this dashboard session.</p>
       <label className="field">Title<input name="title" required disabled={createWorkMutationBlocked} maxLength={200} autoFocus placeholder="What durable objective should survive this session?" onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /></label>
       <label className="field">Summary<textarea name="summary" required disabled={createWorkMutationBlocked} rows={3} maxLength={1000} placeholder="When is this work relevant?" onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /></label>
@@ -1685,104 +1794,11 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         projectId={project.id}
         draftGeneration={suggestionDraftGeneration}
         disabled={createWorkMutationBlocked}
-        onInspect={(workItemId) => { void openExactWork(project.id, workItemId); }}
+        onInspect={(workItemId) => { void inspectExistingWork(project.id, workItemId); }}
       />
       {newWorkError && <ErrorNotice message={newWorkError} />}
-      <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={workSaving || createWorkMutationBlocked} onClick={() => setWorkDialog(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={workSaving || createWorkMutationBlocked}>{workSaving ? "Creating…" : "Create work and checkpoint"}</button></div>
+      <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={workSaving || createWorkMutationBlocked} onClick={() => setWorkDialog("closed")}>Cancel</button><button type="submit" className="button button-primary" disabled={workSaving || createWorkMutationBlocked}>{workSaving ? "Creating…" : "Create work and checkpoint"}</button></div>
     </form></Dialog>}
-
-    {opened && !mergeSource && <Dialog title={mode === "edit" ? "Edit work item" : context?.canonical.is_duplicate ? "Duplicate audit" : "Work context"} onClose={closeWork} recovery={modalRecovery(openedDialogMutationIntents)} wide busy={editSaving || checkpointSaving || detailMutationBlocked}>
-      {contextReconciliationRequired && !contextLoading && contextError ? <ErrorNotice message={contextError}><button className="button button-secondary" onClick={retryOpenedContext}>Try again</button></ErrorNotice> :
-        contextReconciliationRequired && !context ? contextLoading ? <div className="loading-state" role="status"><span className="spinner" />Reconciling saved work context…</div> : <ErrorNotice message={contextError || "The saved mutation could not be reconciled with current work context."}><button className="button button-secondary" onClick={retryOpenedContext}>Try again</button></ErrorNotice> :
-        contextLoading && !context ? <div className="loading-state" role="status"><span className="spinner" />Recalling work context…</div> :
-        contextError && !context ? <ErrorNotice message={contextError}><button className="button button-secondary" onClick={retryOpenedContext}>Try again</button></ErrorNotice> :
-        context && <>
-          {contextReconciliationRequired && contextLoading && <div className="detail-reconciliation-status" role="status"><span className="spinner" />Reconciling saved work context…</div>}
-          <div className="detail-reconciliation-frame" aria-busy={contextReconciliationRequired && contextLoading} inert={contextReconciliationRequired && contextLoading}>
-          {contextError && <ErrorNotice message={contextError}><button className="button button-secondary" onClick={retryOpenedContext}>Try again</button></ErrorNotice>}
-          <WorkItemDetail
-          opened={opened}
-          context={context}
-          mode={mode}
-          editDraft={editDraft}
-          editSaving={editSaving}
-          mutationBlocked={detailMutationBlocked}
-          editError={editError}
-          conflict={conflict}
-          copiedKey={copied}
-          checkpointPage={checkpointPage}
-          checkpointOffset={checkpointOffset}
-          checkpointLoading={checkpointLoading}
-          checkpointLoadError={checkpointLoadError}
-          checkpointActionError={checkpointActionError}
-          checkpointKind={checkpointKind}
-          checkpointBody={checkpointBody}
-          checkpointBranch={checkpointBranch}
-          checkpointCommit={checkpointCommit}
-          checkpointTags={checkpointTags}
-          checkpointSaving={checkpointSaving}
-          eventRefreshSignal={eventRefresh}
-          setEditDraft={(updater) => setEditDraft((draft) => draft ? updater(draft) : draft)}
-          onSaveEdits={(event) => void saveWorkEdits(event)}
-          onCancelEdit={() => {
-            if (detailMutationBlocked) return;
-            setMode("view");
-            setEditDraft(draftFromWork(context.work_item));
-            setEditError("");
-            setConflict(null);
-          }}
-          onLoadCurrent={() => void loadLatestWork()}
-          onUseCurrentVersion={useCurrentVersion}
-          onEdit={() => { setEditDraft(draftFromWork(context.work_item)); setEditError(""); setConflict(null); setMode("edit"); }}
-          onDelete={() => openDeletion(context.work_item)}
-          onMerge={() => {
-            if (!context.canonical.is_duplicate) setMergeSource(context);
-          }}
-          onOpenCanonical={(workItemId) => {
-            void openExactWork(context.work_item.project_id, workItemId);
-          }}
-          onViewDuplicateGroup={viewDuplicateGroup}
-          onCopy={(value, key, success) => void copyText(value, key, success)}
-          onCopyPointer={(item) => void copyRecallPointer(item)}
-          onCheckpointKind={setCheckpointKind}
-          onCheckpointBody={setCheckpointBody}
-          onCheckpointBranch={setCheckpointBranch}
-          onCheckpointCommit={setCheckpointCommit}
-          onCheckpointTags={setCheckpointTags}
-          onAppend={() => void saveCheckpoint(false)}
-          onComplete={() => void saveCheckpoint(true)}
-          onRelationshipsChanged={async () => {
-            const reconciled = await reloadOpenContext();
-            setEventRefresh((value) => value + 1);
-            setRefresh((value) => value + 1);
-            return reconciled;
-          }}
-          onCheckpointOffset={setCheckpointOffset}
-          onReloadCheckpoints={() => setCheckpointRefresh((value) => value + 1)}
-          onEventAppended={() => afterWorkMutation(
-            "Progress was saved, but current work context could not be reloaded. Use Refresh before continuing."
-          )}
-          onGateResolved={async () => {
-            await afterWorkMutation(
-              "The answer was recorded, but current work context could not be reloaded. Use Refresh before continuing.",
-              { refreshAttention: true, refreshEvents: true }
-            );
-          }}
-        />
-          </div>
-        </>}
-    </Dialog>}
-
-    {mergeSource && <WorkMergeDialog
-      source={mergeSource}
-      onClose={() => setMergeSource(null)}
-      onMerged={merged}
-      onSourceChanged={async () => {
-        const changedSource = mergeSource.work_item;
-        setMergeSource(null);
-        await openExactWork(changedSource.project_id, changedSource.id);
-      }}
-    />}
 
     {deleteTarget && <Dialog title="Delete this work item?" onClose={() => { if (!deleting && !mutationRegistry.blocks([mutationWorkKey(deleteTarget.project_id, deleteTarget.id)])) setDeleteTarget(null); }} recovery={modalRecovery(deleteDialogMutationIntents)} busy={deleting || mutationRegistry.blocks([mutationWorkKey(deleteTarget.project_id, deleteTarget.id)])}>
       <p className="dialog-intro">This hides the objective and all checkpoints from ordinary reads. Immutable history remains recoverable in the database.</p>
