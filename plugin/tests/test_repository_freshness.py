@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -422,7 +423,7 @@ class RepositoryFreshnessTests(unittest.TestCase):
         result, fields, _, paths = self.assess("tracked.txt", baseline=baseline)
         self.assertEqual((result.returncode, fields["state"]), (10, "changed"))
         self.assertEqual(paths, ["tracked.txt"])
-        self.assertIn(b"ls-files --unmerged -z", self.git_log.read_bytes())
+        self.assertIn(b"ls-files --unmerged --sparse -z", self.git_log.read_bytes())
 
     def test_divergent_commit_is_not_an_ancestor(self) -> None:
         tree = run([REAL_GIT, "rev-parse", "HEAD^{tree}"], cwd=self.repo).stdout.decode().strip()
@@ -677,7 +678,7 @@ class RepositoryFreshnessTests(unittest.TestCase):
         )
         self.assertEqual((details, paths), (["pattern_index:0"], []))
 
-    def test_persisted_sparse_index_directory_is_not_misclassified(self) -> None:
+    def test_active_sparse_index_directory_is_not_misclassified(self) -> None:
         (self.repo / "kept").mkdir()
         (self.repo / "kept" / "inside.txt").write_text("kept\n")
         (self.repo / "collapsed").mkdir()
@@ -687,18 +688,78 @@ class RepositoryFreshnessTests(unittest.TestCase):
         baseline = run([REAL_GIT, "rev-parse", "HEAD"], cwd=self.repo).stdout.decode().strip()
         run([REAL_GIT, "sparse-checkout", "init", "--cone", "--sparse-index"], cwd=self.repo)
         run([REAL_GIT, "sparse-checkout", "set", "kept"], cwd=self.repo)
-        run([REAL_GIT, "config", "core.sparseCheckout", "false"], cwd=self.repo)
-        run([REAL_GIT, "config", "index.sparse", "false"], cwd=self.repo)
+        self.assertEqual(
+            run(
+                [REAL_GIT, "config", "--bool", "--get", "core.sparseCheckout"],
+                cwd=self.repo,
+            ).stdout,
+            b"true\n",
+        )
+        self.assertEqual(
+            run(
+                [REAL_GIT, "config", "--bool", "--get", "index.sparse"],
+                cwd=self.repo,
+            ).stdout,
+            b"true\n",
+        )
         sparse_stage = run(
             [REAL_GIT, "ls-files", "--stage", "--sparse", "--", "collapsed/**"],
             cwd=self.repo,
         ).stdout
         self.assertTrue(sparse_stage.startswith(b"040000 "), sparse_stage)
 
+        repository_before = snapshot_tree(self.repo)
         result, fields, details, paths = self.assess("collapsed/**", baseline=baseline)
         self.assertEqual(result.returncode, 20)
         self.assertEqual(fields["reason"], "sparse_checkout_unsupported")
         self.assertEqual((details, paths), ([], []))
+        self.assertEqual(snapshot_tree(self.repo), repository_before)
+
+    def test_dormant_sparse_index_fails_closed_without_mutation(self) -> None:
+        (self.repo / "kept").mkdir()
+        (self.repo / "kept" / "inside.txt").write_text("kept\n")
+        (self.repo / "collapsed").mkdir()
+        (self.repo / "collapsed" / "inside.txt").write_text("collapsed\n")
+        run([REAL_GIT, "add", "--", "kept", "collapsed"], cwd=self.repo)
+        run([REAL_GIT, "commit", "-q", "-m", "dormant sparse fixture"], cwd=self.repo)
+        baseline = run([REAL_GIT, "rev-parse", "HEAD"], cwd=self.repo).stdout.decode().strip()
+        run([REAL_GIT, "sparse-checkout", "init", "--cone", "--sparse-index"], cwd=self.repo)
+        run([REAL_GIT, "sparse-checkout", "set", "kept"], cwd=self.repo)
+        sparse_stage = run(
+            [REAL_GIT, "ls-files", "--stage", "--sparse", "--", "collapsed/**"],
+            cwd=self.repo,
+        ).stdout
+        self.assertTrue(sparse_stage.startswith(b"040000 "), sparse_stage)
+
+        run([REAL_GIT, "config", "--worktree", "core.sparseCheckout", "false"], cwd=self.repo)
+        run([REAL_GIT, "config", "--worktree", "index.sparse", "false"], cwd=self.repo)
+        self.assertEqual(
+            run(
+                [REAL_GIT, "config", "--bool", "--get", "core.sparseCheckout"],
+                cwd=self.repo,
+            ).stdout,
+            b"false\n",
+        )
+        self.assertEqual(
+            run(
+                [REAL_GIT, "config", "--bool", "--get", "index.sparse"],
+                cwd=self.repo,
+            ).stdout,
+            b"false\n",
+        )
+
+        repository_before = snapshot_tree(self.repo)
+        result, fields, details, paths = self.assess("collapsed/**", baseline=baseline)
+        self.assertEqual(snapshot_tree(self.repo), repository_before)
+        self.assertEqual(result.returncode, 20)
+        self.assertIn(
+            (fields["reason"], tuple(details)),
+            {
+                ("git_failed", ("lane:index",)),
+                ("skip_worktree_scope_unsupported", ("pattern_index:0",)),
+            },
+        )
+        self.assertEqual(paths, [])
 
     def test_configured_fsmonitor_fails_closed_without_hook_execution(self) -> None:
         sentinel = self.root / "fsmonitor-hook-ran"
@@ -1426,9 +1487,19 @@ class RepositoryFreshnessTests(unittest.TestCase):
         filename = bytes(value for value in range(1, 256) if value != ord("/"))
         self.assertEqual(len(filename), 254)
         odd_name = os.fsencode(byte_directory) + b"/" + filename
-        descriptor = os.open(odd_name, os.O_WRONLY | os.O_CREAT, 0o600)
-        os.write(descriptor, b"odd\n")
-        os.close(descriptor)
+        try:
+            descriptor = os.open(odd_name, os.O_WRONLY | os.O_CREAT, 0o600)
+        except OSError as error:
+            if error.errno != errno.EILSEQ:
+                raise
+            filename = bytes(value for value in range(1, 128) if value != ord("/"))
+            filename += "界🙂".encode()
+            odd_name = os.fsencode(byte_directory) + b"/" + filename
+            descriptor = os.open(odd_name, os.O_WRONLY | os.O_CREAT, 0o600)
+        try:
+            self.assertEqual(os.write(descriptor, b"odd\n"), 4)
+        finally:
+            os.close(descriptor)
         result, fields, details, paths = self.assess("byte-fixtures/**")
         self.assertEqual(
             (result.returncode, fields["state"]),

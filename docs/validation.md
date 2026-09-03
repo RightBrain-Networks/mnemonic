@@ -49,12 +49,25 @@ cutover.
   historical omission at desktop and narrow widths. The first full run exposed
   an accessible-name collision between the affected-path hint and baseline
   field; a dedicated label plus regression fixed it before the clean rerun.
-- **The repository helper ran 71 default tests: 70 passed and only its opt-in
-  authentic-runtime case skipped; that case then passed with real Bash 3.2.57 and Git
-  2.45.4.** Real Git 2.44.4 was rejected before repository access. The matrix
-  covers object topology, every change lane, per-pattern matching, hostile
-  environment/config/filter sentinels, normalization and index blockers, races,
-  exact protocol/exit behavior, byte quoting and caps, and absence of configured
+- **The repository helper ran 72 default tests: 71 passed and only its opt-in
+  authentic-runtime case skipped; that case then passed with real Bash 3.2.57
+  and Git 2.45.4.** Real Git 2.44.4 was rejected before repository access. The
+  first hosted PR run then exposed two supported-platform drift cases: Git
+  2.55 diagnosed expansion of an active sparse index during the unmerged scan,
+  and macOS rejected the exhaustive invalid-UTF-8 filename fixture with
+  `EILSEQ` before helper execution. Follow-up adversarial isolation proved the
+  Git expansion could also write a loose tree object despite optional locks
+  being disabled. The delivered fix makes unmerged enumeration sparse-aware
+  with `--sparse`; it does not suppress the diagnostic or relax fail-closed
+  stderr handling. Active and config-disabled on-disk sparse fixtures now prove
+  both accepted indeterminate taxonomies and byte-for-byte repository
+  preservation. The filename test falls back to a valid UTF-8 control/
+  punctuation/multibyte corpus only on `EILSEQ`, while Linux retains exhaustive
+  bytes `01` through `FF`. Complete discovery subsequently passed all 72 tests
+  locally with authentic Bash 3.2.57 and Git 2.55.0. The matrix covers object
+  topology, every change lane, per-pattern matching, hostile environment/
+  config/filter sentinels, normalization and index blockers, races, exact
+  protocol/exit behavior, byte quoting and caps, and absence of configured
   process, network, or repository mutation. A required `macos-15` authentic
   runtime job is part of the aggregate CI gate.
 - **Plugin source and installed packaging passed validation.** A fresh isolated

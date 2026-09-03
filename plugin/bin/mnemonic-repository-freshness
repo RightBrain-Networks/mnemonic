@@ -1640,7 +1640,7 @@ run_sweep() {
     *) OBS_FAILURE_LANE=index; return 1 ;;
   esac
 
-  git_stream unmerged_record ls-files --unmerged -z -- "${PATHSPECS[@]}" || {
+  git_stream unmerged_record ls-files --unmerged --sparse -z -- "${PATHSPECS[@]}" || {
     OBS_FAILURE_LANE=index
     return 1
   }

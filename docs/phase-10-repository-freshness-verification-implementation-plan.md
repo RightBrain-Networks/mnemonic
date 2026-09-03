@@ -710,6 +710,7 @@ Every repository-aware call uses an absolute resolved Git executable,
 -c core.quotePath=true
 -c core.attributesFile=/dev/null
 -c core.excludesFile=/dev/null
+-c advice.graftFileDeprecated=false
 --no-ext-diff
 --no-textconv
 --no-renames
@@ -719,8 +720,10 @@ Every repository-aware call uses an absolute resolved Git executable,
 
 Repository `.gitignore` and `.git/info/exclude` still define nonignored
 untracked content. User-global ignore/attribute files are disabled for
-determinism. Do not force `core.fileMode`: read it safely, use it when true,
-and apply `core_filemode_scope_unsupported` before a zero result when false.
+determinism. Only the known non-error graft deprecation advisory is suppressed;
+every other Git stderr byte remains a fail-closed error. Do not force
+`core.fileMode`: read it safely, use it when true, and apply
+`core_filemode_scope_unsupported` before a zero result when false.
 
 
 Raw Git stderr is captured/suppressed and mapped to a reason; it never reaches
@@ -807,9 +810,12 @@ extra runtime, process sandbox, or temporary persistence returns to review.
    requires `directory/**`.
 7. Independently detect gitlink prefix intersections at baseline, HEAD, and
    index. Stable gitlink OID cannot prove interior.
-8. Globally enabled sparse checkout/index and a scoped persisted sparse-directory
-   index entry are zero-result blockers, even when sparse config was later
-   disabled.
+8. Globally enabled sparse checkout/index and a scoped persisted
+   sparse-directory index entry are zero-result blockers. If sparse settings
+   are manually disabled while a sparse index remains on disk, a supported Git
+   version may instead diagnose its required expansion; strict stderr handling
+   returns `git_failed` on the index lane without asserting zero or writing the
+   repository.
 9. Inspect scoped `git ls-files -v --sparse -z`: lowercase assume-unchanged and
    uppercase `S` skip-worktree are separate zero-result blockers even when
    sparse config is off. Classify an `S` sparse-directory record ending in `/`
@@ -847,7 +853,8 @@ Each sweep, using captured OIDs rather than symbolic `HEAD`, records:
 
 1. baseline-to-HEAD committed changes with renames off;
 2. HEAD-to-index staged/type changes;
-3. unmerged stages;
+3. unmerged stages through `git ls-files --unmerged --sparse -z`, which avoids
+   expanding and writing an active sparse index;
 4. the raw filter-free content comparison and fixed no-index raw mode
    observation in section 8.4;
 5. nonignored untracked paths.
@@ -885,9 +892,12 @@ All `detail` lines precede all path lines. A byte encoder emits bytes from
 `A-Z a-z 0-9 . _ / @ + = , ~ -` unchanged and every other filename byte as
 uppercase `\xHH`. It operates under `LC_ALL=C`, is used for actual Git
 filenames only, and is tested for every byte `01` through `FF`; Git filenames
-cannot contain NUL. Encoded values are display-only and never decoded,
-evaluated, or passed back to a command. Branch is intentionally absent from the
-protocol.
+cannot contain NUL. Filesystems that reject the exhaustive non-UTF-8 filename
+with `EILSEQ` retain coverage through a valid UTF-8 corpus containing controls,
+punctuation, DEL, and stable multibyte characters; the Linux lane retains the
+exhaustive raw-byte corpus. Encoded values are display-only and never decoded,
+evaluated, or passed back to a command. Branch is intentionally absent from
+the protocol.
 
 Path order is first observation by lane (committed, staged, unmerged,
 unstaged, untracked) and Git byte order within a lane, deduplicated by first
@@ -1126,7 +1136,8 @@ Index/worktree:
 - assume-unchanged modified bytes, `core.ignoreStat`, enabled/path-valued
   `core.fsmonitor`, and dormant valid bits with fsmonitor disabled;
 - `core.fileMode=false` plus executable-bit-only drift;
-- sparse index plus fail-closed, zero-write split-index rejection;
+- active and config-disabled on-disk sparse indexes with fail-closed,
+  zero-write snapshots, plus zero-write split-index rejection;
 - regular raw hash equality/difference;
 - CRLF/text/eol/ident/working-tree-encoding normalization;
 - external clean/process filter attempts to write/connect, proving no filter
@@ -1634,3 +1645,24 @@ The complete observed matrix and the production-shaped disposable
 upgrade/backup/restore rehearsal are recorded in `docs/validation.md`. They do
 not claim a production backup, deployment approval, or live service-fleet
 cutover.
+
+### 19.10 Hosted CI compatibility and final adversarial closure
+
+The first pull-request CI run exposed two supported-platform defects, and a
+renewed cold review deliberately reopened the prior acceptance:
+
+| Finding | Disposition |
+| --- | --- |
+| Git 2.55 diagnosed expansion during `ls-files --unmerged`; follow-up isolation proved the command also wrote a loose tree object | Use the command's native `--sparse` mode. Keep arbitrary stderr fatal and prove the entire active sparse repository remains byte-identical. |
+| The original sparse fixture wrote repository-local false values underneath higher-precedence worktree configuration | Split active and genuinely config-disabled on-disk sparse fixtures, assert effective configuration, accept only their bounded fail-closed taxonomies, and snapshot both repositories. |
+| macOS rejected the exhaustive invalid-UTF-8 filename with `EILSEQ` before helper execution | Retain exhaustive `01`-through-`FF` coverage where supported and use a valid UTF-8 control, punctuation, DEL, and multibyte corpus only on `EILSEQ`. |
+| A test-only file descriptor was not protected if its write raised | Close it in `finally` and assert the complete fixture write. |
+
+An intermediate proposal to suppress `advice.sparseIndexExpanded` was rejected:
+it would have hidden the only diagnostic for the unsafe expansion. The final
+tree instead prevents that expansion. Default discovery passed 71 tests with
+the opt-in authentic case skipped; exact discovery passed all 72 tests on Bash
+3.2.57 and Git 2.55.0, and focused sparse/conflict plus installed-payload tests
+passed on Git 2.45.4. The renewed cold review returned **ACCEPT** with no
+unresolved blocker, high-, or medium-severity finding. Hosted required checks
+remain the merge gate.
