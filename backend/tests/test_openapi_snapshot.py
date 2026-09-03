@@ -47,6 +47,15 @@ FRONTEND_PROPERTY_SETS = {
     "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": (
         "Page_Union_WorkSearchHit__HierarchySummary__"
     ),
+    "frontend/lib/duplicate-suggestions.ts:decodeDuplicateCandidateSummary": (
+        "DuplicateCandidateSummary"
+    ),
+    "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestion:item": (
+        "DuplicateSuggestion"
+    ),
+    "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestionPage": (
+        "DuplicateSuggestionPage"
+    ),
     "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage": (
         "Page_Union_WorkSearchHit__HierarchySummary__"
     ),

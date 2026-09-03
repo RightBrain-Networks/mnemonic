@@ -38,6 +38,10 @@ export const DEFINITIVE_PROXY_ERRORS = {
     status: 400,
     detail: "The work-creation body does not match the dashboard allowlist."
   },
+  invalidDuplicateSuggestion: {
+    status: 400,
+    detail: "The duplicate-suggestion body does not match the dashboard allowlist."
+  },
   invalidCheckpoint: {
     status: 400,
     detail: "The checkpoint body does not match the dashboard allowlist."
@@ -125,6 +129,7 @@ const UUID = UUID_PATTERN.source.slice(1, -1);
 const PROJECT = new RegExp(`^projects/${UUID}$`);
 const PROJECT_SETTINGS = new RegExp(`^projects/${UUID}/settings$`);
 const WORK_ITEMS = new RegExp(`^projects/${UUID}/work-items$`);
+const DUPLICATE_SUGGESTIONS = new RegExp(`^projects/${UUID}/duplicate-suggestions$`);
 const WORK_ITEM = new RegExp(`^projects/${UUID}/work-items/${UUID}$`);
 const CHECKPOINTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/checkpoints$`);
 const WORK_CONTEXT = new RegExp(`^projects/${UUID}/work-items/${UUID}/context$`);
@@ -180,6 +185,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   }
   if (PROJECT.test(path) && (method === "GET" || method === "PATCH")) return [];
   if (PROJECT_SETTINGS.test(path) && (method === "GET" || method === "PATCH")) return [];
+  if (DUPLICATE_SUGGESTIONS.test(path) && method === "POST") return [];
   if (WORK_ITEMS.test(path)) {
     if (method === "GET") {
       return [
@@ -424,6 +430,21 @@ export function invalidMutationBody(path: string, method: string, value: unknown
     return DEFINITIVE_PROXY_ERRORS.invalidClientOperation.detail;
   }
 
+  if (DUPLICATE_SUGGESTIONS.test(path) && method === "POST") {
+    if (
+      !allowedKeys(body, [
+        "title", "summary", "initial_prompt", "tags", "exclude_work_item_id", "limit"
+      ])
+      || !boundedText(body.title, 200)
+      || !boundedText(body.summary, 1_000)
+      || !boundedText(body.initial_prompt, 100_000)
+      || !(body.tags === undefined || validStringArray(body.tags, 20, 50))
+      || !(body.exclude_work_item_id === undefined
+        || body.exclude_work_item_id === null
+        || validUuid(body.exclude_work_item_id))
+      || !(body.limit === undefined || finiteInteger(body.limit, 1, 10))
+    ) return DEFINITIVE_PROXY_ERRORS.invalidDuplicateSuggestion.detail;
+  }
   if (WORK_ITEMS.test(path) && method === "POST") {
     if (
       !allowedKeys(body, [
@@ -574,13 +595,80 @@ export function browserTransportEffect(
   path: string,
   method: string
 ): BrowserTransportEffect | null {
+  if (method === "POST" && DUPLICATE_SUGGESTIONS.test(path)) return "safe_read";
   if (LEASE_CAPABILITY.test(path)) return "lease_claim";
   if (method === "GET" && allowedQueryKeys(path, method) !== null) return "safe_read";
   if (coveredMutation(path, method)) return "receipt_protected_write";
   return null;
 }
-export function upstreamTimeoutMs(query: URLSearchParams): number {
-  return query.get("semantic") === "true" && Boolean(query.get("q")?.trim()) ? 60_000 : 15_000;
+export function upstreamTimeoutMs(
+  query: URLSearchParams,
+  path = "",
+  method = "GET"
+): number {
+  return method === "POST" && DUPLICATE_SUGGESTIONS.test(path)
+    || query.get("semantic") === "true" && Boolean(query.get("q")?.trim())
+    ? 60_000
+    : 15_000;
+}
+
+export function upstreamAbortSignal(
+  requestSignal: AbortSignal,
+  query: URLSearchParams,
+  path = "",
+  method = "GET"
+): AbortSignal {
+  return AbortSignal.any([
+    requestSignal,
+    AbortSignal.timeout(upstreamTimeoutMs(query, path, method))
+  ]);
+}
+
+export async function readBodyChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal: AbortSignal
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  return await new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+    let settled = false;
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", abort);
+      void reader.cancel(signal.reason).catch(() => undefined);
+      reject(signal.reason ?? new Error("Proxy request aborted."));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    void reader.read().then(
+      (result) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        resolve(result);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      }
+    );
+  });
+}
+
+export function proxyBodyLimitBytes(path: string): number {
+  return DUPLICATE_SUGGESTIONS.test(path) ? 2_097_152 : 1_048_576;
+}
+
+export function forwardedRetryAfter(status: number, headers: Headers): string | null {
+  if (status !== 429) return null;
+  const value = headers.get("retry-after");
+  if (!value || value.length > 128) return null;
+  if (/^\d+$/.test(value)) return value;
+  return Number.isNaN(Date.parse(value)) ? null : value;
 }
 
 export function configuredOrigins(value?: string): Set<string> {

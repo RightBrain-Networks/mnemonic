@@ -1,5 +1,6 @@
 """HTTP boundary: no database driver, database credentials, or API imports."""
 
+import asyncio
 import json
 from collections.abc import Callable
 from datetime import datetime
@@ -98,6 +99,18 @@ _APPLICATION_ERRORS = {
         "Mnemonic's canonical duplicate graph is invalid. Stop authority-changing work and "
         "ask an operator to run the local integrity audit."
     ),
+    "duplicate_suggestion_busy": (
+        "Mnemonic duplicate suggestions are busy. Retry after one second, or continue creating "
+        "the distinct work item without suggestions."
+    ),
+    "request_body_too_large": (
+        "The duplicate-suggestion draft exceeded the request limit. Reduce its valid draft fields "
+        "before retrying; creation remains independent."
+    ),
+    "duplicate_suggestion_unavailable": (
+        "Mnemonic duplicate suggestions are unavailable. Retry later, or continue creating the "
+        "distinct work item without suggestions."
+    ),
 }
 UNKNOWN_CLAIM_OUTCOME = (
     "Mnemonic API could not confirm the response; the claim outcome is unknown. Retry promptly "
@@ -116,6 +129,11 @@ _CLIENT_OPERATION_CONFLICT = (
     "successful request. On an asserted exact retry, treat this as a caller-safety incident: "
     "do not retry or generate a replacement UUID; stop and request direction."
 )
+_SAFE_READ_FAILURE = (
+    "Mnemonic API is unavailable; it could not complete this safe read. "
+    "Check service health and try again."
+)
+_EXTENDED_READ_TIMEOUT_SECONDS = 60.0
 
 
 _NOT_FOUND_MESSAGES = {
@@ -213,7 +231,9 @@ def _application_error_message(code: str, context: dict[str, object]) -> str | N
 
 
 def _raise_request_error(method: str, *, effect: TransportEffect | None) -> NoReturn:
-    if effect == TransportEffect.SAFE_READ or method not in {"POST", "PATCH", "DELETE"}:
+    if effect == TransportEffect.SAFE_READ:
+        raise ToolError(_SAFE_READ_FAILURE) from None
+    if method not in {"POST", "PATCH", "DELETE"}:
         raise ToolError(
             "Mnemonic API is unavailable. Check service health and try again."
         ) from None
@@ -269,6 +289,8 @@ def _raise_application_error_response(
     message = _application_error_message(error_code, error_context)
     if message is not None:
         raise ToolError(message)
+    if effect == TransportEffect.SAFE_READ:
+        raise ToolError(_SAFE_READ_FAILURE)
     raise ToolError(
         "Mnemonic could not complete this operation. Recall the current work state "
         "before retrying."
@@ -305,6 +327,8 @@ def _raise_remaining_response_error(
         raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
     if effect == TransportEffect.LEASE_CLAIM:
         raise ToolError(UNKNOWN_CLAIM_OUTCOME)
+    if effect == TransportEffect.SAFE_READ:
+        raise ToolError(_SAFE_READ_FAILURE)
     raise ToolError(
         "Mnemonic API could not complete this request. Check service health before retrying."
     )
@@ -349,12 +373,9 @@ def _validate_expected_status(
     effect: TransportEffect | None,
     expected_status_code: int | None,
 ) -> None:
-    if (
-        effect == TransportEffect.RECEIPT_PROTECTED_WRITE
-        and expected_status_code is not None
-        and response.status_code != expected_status_code
-    ):
-        raise ToolError(UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME)
+    if expected_status_code is None or response.status_code == expected_status_code:
+        return
+    _raise_unexpected_response("", "", effect=effect)
 
 
 def _validated_response_body[ModelT: BaseModel](
@@ -363,24 +384,29 @@ def _validated_response_body[ModelT: BaseModel](
     *,
     effect: TransportEffect | None,
     response_validator: ResponseValidator | None,
+    strict_wire_response: bool,
 ) -> ModelT:
     wire_response = response.json()
-    if effect != TransportEffect.RECEIPT_PROTECTED_WRITE:
-        return response_model.model_validate(wire_response)
-    # A completed receipt is a frozen wire snapshot. Do not let Pydantic
-    # coerce values, synthesize defaults, or silently normalize a malformed
-    # success into something that looks authoritative to the caller.
-    encoded_response = json.dumps(
-        wire_response,
-        ensure_ascii=False,
-        allow_nan=False,
-        separators=(",", ":"),
+    strict_wire = (
+        effect == TransportEffect.RECEIPT_PROTECTED_WRITE or strict_wire_response
     )
-    parsed = response_model.model_validate_json(encoded_response, strict=True)
-    if parsed.model_dump(mode="json") != wire_response:
-        raise ValueError("non-canonical idempotent mutation response")
+    if not strict_wire:
+        parsed = response_model.model_validate(wire_response)
+    else:
+        # Completed receipts and explicitly classified safe reads use canonical
+        # wire validation. Do not coerce values, synthesize defaults, or silently
+        # normalize a malformed success into something authoritative-looking.
+        encoded_response = json.dumps(
+            wire_response,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        parsed = response_model.model_validate_json(encoded_response, strict=True)
+        if parsed.model_dump(mode="json") != wire_response:
+            raise ValueError("non-canonical response")
     if response_validator is not None and not response_validator(parsed):
-        raise ValueError("incoherent idempotent mutation response")
+        raise ValueError("incoherent response")
     return parsed
 
 
@@ -407,6 +433,7 @@ def _parse_success_response[ModelT: BaseModel](
     *,
     effect: TransportEffect | None,
     response_validator: ResponseValidator | None,
+    strict_wire_response: bool,
 ) -> ModelT | None:
     if response_model is None:
         if response.status_code != 204:
@@ -420,6 +447,7 @@ def _parse_success_response[ModelT: BaseModel](
             response_model,
             effect=effect,
             response_validator=response_validator,
+            strict_wire_response=strict_wire_response,
         )
     except (RecursionError, TypeError, ValueError, ValidationError):
         _raise_unexpected_response(method, path, effect=effect)
@@ -441,23 +469,46 @@ class MnemonicAPI:
         effect: TransportEffect | None = None,
         expected_status_code: int | None = None,
         response_validator: ResponseValidator | None = None,
+        extended_read_timeout: bool = False,
+        strict_wire_response: bool = False,
     ) -> ResponseModel | None:
         # A request-scoped client avoids sharing event-loop state across SDK
         # stateless HTTP sessions or stdio clients. No automatic write retries.
         semantic_read = method == "GET" and params is not None and params.get("semantic") is True
+        if extended_read_timeout and effect != TransportEffect.SAFE_READ:
+            raise ValueError("Extended read timeout requires an explicit safe-read effect.")
+        if strict_wire_response and effect != TransportEffect.SAFE_READ:
+            raise ValueError("Explicit strict wire validation requires a safe-read effect.")
         try:
             async with httpx.AsyncClient(
                 base_url=f"{self.settings.api_url.rstrip('/')}/api/v1/",
                 headers={"Authorization": f"Bearer {self.settings.api_key}"},
                 # The first opt-in semantic query can populate the API's derived
                 # embedding cache. Ordinary reads and writes keep the shorter timeout.
-                timeout=httpx.Timeout(60.0 if semantic_read else 20.0, connect=5.0),
+                timeout=httpx.Timeout(
+                    (
+                        _EXTENDED_READ_TIMEOUT_SECONDS
+                        if semantic_read or extended_read_timeout
+                        else 20.0
+                    ),
+                    connect=5.0,
+                ),
                 follow_redirects=False,
                 trust_env=False,
                 transport=self._transport,
             ) as client:
-                response = await client.request(method, path, params=params, json=payload)
-        except httpx.RequestError:
+                if semantic_read or extended_read_timeout:
+                    # httpx timeouts bound individual transport phases. The
+                    # outer deadline is the actual end-to-end request ceiling.
+                    async with asyncio.timeout(_EXTENDED_READ_TIMEOUT_SECONDS):
+                        response = await client.request(
+                            method, path, params=params, json=payload
+                        )
+                else:
+                    response = await client.request(
+                        method, path, params=params, json=payload
+                    )
+        except (TimeoutError, httpx.RequestError):
             _raise_request_error(method, effect=effect)
 
         _raise_for_response_error(
@@ -479,4 +530,5 @@ class MnemonicAPI:
             path,
             effect=effect,
             response_validator=response_validator,
+            strict_wire_response=strict_wire_response,
         )

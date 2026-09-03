@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
 """Read-only, aggregate-only preflight and integrity audit for Phase 9.
 
-Run this with the backend environment. The default expected head is the Phase 9
-Core head; a preflight against Phase 8 must pass
+Run this with the backend environment. The default expected head is the final
+Phase 9 Advisory head. A Core-only or Phase 8 preflight must pass
+``--expected-head 0016_duplicate_handling`` or
 ``--expected-head 0015_gate_review_fixes`` explicitly.
 """
 
@@ -19,25 +19,34 @@ from typing import Any
 
 from sqlalchemy import Connection, create_engine, text
 
-AUDIT_VERSION = "duplicate-handling-v1"
+AUDIT_VERSION = "duplicate-handling-v2"
+PHASE8_HEAD = "0015_gate_review_fixes"
 CORE_HEAD = "0016_duplicate_handling"
+FINAL_HEAD = "0017_duplicate_suggestion_title_key"
+SUPPORTED_HEADS = (PHASE8_HEAD, CORE_HEAD, FINAL_HEAD)
 MIB = 1024 * 1024
 
 BASE_FUNCTIONS = frozenset(
     {
-        "mnemonic_has_non_whitespace",
-        "mnemonic_work_event_metadata_v2_is_valid",
-        "mnemonic_phase6_progress_metadata_is_valid",
+        "mnemonic_has_non_whitespace(text)",
+        (
+            "mnemonic_work_event_metadata_v2_is_valid("
+            "text, text, uuid, uuid, uuid, uuid, uuid, uuid, uuid, uuid, uuid, smallint, jsonb)"
+        ),
+        "mnemonic_phase6_progress_metadata_is_valid(jsonb)",
     }
 )
 CORE_FUNCTIONS = frozenset(
     {
-        "mnemonic_duplicate_component_state",
-        "mnemonic_duplicate_merge_is_complete",
-        "mnemonic_guard_duplicate_merge_insert",
-        "mnemonic_work_merged_metadata_v1_is_valid",
+        "mnemonic_duplicate_component_state(uuid, uuid)",
+        "mnemonic_duplicate_merge_is_complete(uuid, uuid)",
+        "mnemonic_guard_duplicate_merge_insert()",
+        "mnemonic_work_merged_metadata_v1_is_valid(uuid, uuid, smallint, jsonb)",
     }
 )
+ADVISORY_FUNCTIONS = frozenset({"mnemonic_duplicate_title_key_v1(text)"})
+ADVISORY_INDEXES = frozenset({"ix_work_items_duplicate_title_key_v1"})
+CORE_TABLES = frozenset({"work_duplicate_merges"})
 
 
 def _local_settings() -> dict[str, str]:
@@ -64,12 +73,21 @@ def _scalar(connection: Connection, statement: str) -> int:
     return int(value or 0)
 
 
-def _table_exists(connection: Connection, name: str) -> bool:
+def _ordinary_table_exists(connection: Connection, name: str) -> bool:
     return bool(
         connection.scalar(
             text(
-                "SELECT to_regclass(format('%I.%I', current_schema(), "
-                "CAST(:name AS text))) IS NOT NULL"
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_class AS relation
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = relation.relnamespace
+                    WHERE namespace.nspname = current_schema()
+                      AND relation.relname = CAST(:name AS text)
+                      AND relation.relkind IN ('r', 'p')
+                )
+                """
             ),
             {"name": name},
         )
@@ -173,7 +191,7 @@ def _base_counts(connection: Connection) -> dict[str, int]:
                 OR created_for_duplicate_merge_id IS NULL
               )
             """
-            if _table_exists(connection, "work_duplicate_merges")
+            if _ordinary_table_exists(connection, "work_duplicate_merges")
             else "SELECT count(*) FROM work_relationships WHERE relationship_type = 'duplicate-of'",
         ),
         "weak_duplicate_multi_targets": _scalar(
@@ -457,30 +475,136 @@ def _core_counts(connection: Connection) -> dict[str, int]:
 
 def _required_functions(expected_head: str) -> frozenset[str]:
     required = set(BASE_FUNCTIONS)
-    if expected_head == CORE_HEAD:
+    if expected_head in {CORE_HEAD, FINAL_HEAD}:
         required.update(CORE_FUNCTIONS)
+    if expected_head == FINAL_HEAD:
+        required.update(ADVISORY_FUNCTIONS)
     return frozenset(required)
+
+
+def _required_tables(expected_head: str) -> frozenset[str]:
+    return CORE_TABLES if expected_head in {CORE_HEAD, FINAL_HEAD} else frozenset()
+
+
+def _migration_head_status(connection: Connection, expected_head: str) -> tuple[bool, int]:
+    head_count = _scalar(connection, "SELECT count(*) FROM alembic_version")
+    expected_count = int(
+        connection.scalar(
+            text("SELECT count(*) FROM alembic_version WHERE version_num = :expected_head"),
+            {"expected_head": expected_head},
+        )
+        or 0
+    )
+    return head_count == 1 and expected_count == 1, head_count
 
 
 def _catalog(connection: Connection, expected_head: str) -> dict[str, int]:
     required = _required_functions(expected_head)
+    required_tables = _required_tables(expected_head)
+    required_names = {signature.partition("(")[0] for signature in required}
     present = set(
         connection.scalars(
             text(
                 """
-                SELECT routine_name
-                FROM information_schema.routines
-                WHERE routine_schema = current_schema()
-                  AND routine_name = ANY(:names)
+                SELECT procedure.proname || '('
+                       || pg_catalog.oidvectortypes(procedure.proargtypes) || ')'
+                FROM pg_catalog.pg_proc AS procedure
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = procedure.pronamespace
+                JOIN pg_catalog.pg_language AS language
+                  ON language.oid = procedure.prolang
+                WHERE namespace.nspname = current_schema()
+                  AND procedure.proname = ANY(:names)
+                  AND (
+                      procedure.proname <> 'mnemonic_duplicate_title_key_v1'
+                      OR (
+                          procedure.provolatile = 'i'
+                          AND procedure.proparallel = 's'
+                          AND procedure.proisstrict
+                          AND procedure.prorettype = 'text'::pg_catalog.regtype
+                          AND language.lanname = 'sql'
+                          AND procedure.proconfig @> ARRAY['search_path=pg_catalog']
+                      )
+                  )
                 """
             ),
-            {"names": list(required)},
+            {"names": list(required_names)},
         )
     )
+    title_key_contract_failure_count = 0
+    title_key_signature = "mnemonic_duplicate_title_key_v1(text)"
+    if expected_head == FINAL_HEAD and title_key_signature in present:
+        title_key_contract_valid = connection.scalar(
+            text(
+                """
+                SELECT mnemonic_duplicate_title_key_v1(:wide) = 'cache repair'
+                   AND mnemonic_duplicate_title_key_v1(:spacing) = 'alpha beta'
+                   AND mnemonic_duplicate_title_key_v1(:dotted_i) = :dotted_i
+                   AND mnemonic_duplicate_title_key_v1(:sharp_s) = :sharp_s
+                   AND mnemonic_duplicate_title_key_v1(:line_separator) = :line_separator
+                   AND mnemonic_duplicate_title_key_v1(NULL) IS NULL
+                """
+            ),
+            {
+                "wide": "  ＣＡＣＨＥ\t Repair ",
+                "spacing": "\tALPHA\n  BETA\r",
+                "dotted_i": "İ",
+                "sharp_s": "ß",
+                "line_separator": "alpha\u2028beta",
+            },
+        )
+        title_key_contract_failure_count = int(title_key_contract_valid is not True)
+    required_indexes = ADVISORY_INDEXES if expected_head == FINAL_HEAD else frozenset()
+    present_indexes: set[str] = set()
+    if required_indexes:
+        present_indexes.update(
+            connection.scalars(
+                text(
+                    """
+                    SELECT index_relation.relname
+                    FROM pg_catalog.pg_index AS index
+                    JOIN pg_catalog.pg_class AS index_relation
+                      ON index_relation.oid = index.indexrelid
+                    JOIN pg_catalog.pg_class AS table_relation
+                      ON table_relation.oid = index.indrelid
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = index_relation.relnamespace
+                    JOIN pg_catalog.pg_am AS access_method
+                      ON access_method.oid = index_relation.relam
+                    WHERE namespace.nspname = current_schema()
+                      AND index_relation.relname = ANY(:names)
+                      AND table_relation.relname = 'work_items'
+                      AND access_method.amname = 'btree'
+                      AND index.indisvalid
+                      AND index.indisready
+                      AND NOT index.indisunique
+                      AND index.indnkeyatts = 3
+                      AND pg_catalog.pg_get_indexdef(index.indexrelid, 1, true)
+                          = 'project_id'
+                      AND pg_catalog.pg_get_indexdef(index.indexrelid, 2, true)
+                          = 'mnemonic_duplicate_title_key_v1(title::text)'
+                      AND pg_catalog.pg_get_indexdef(index.indexrelid, 3, true)
+                          = 'id'
+                      AND pg_catalog.pg_get_expr(
+                          index.indpred, index.indrelid, true
+                      ) IN ('deleted_at IS NULL', '(deleted_at IS NULL)')
+                    """
+                ),
+                {"names": list(required_indexes)},
+            )
+        )
     return {
         "server_version_num": _scalar(connection, "SELECT current_setting('server_version_num')"),
+        "required_table_count": len(required_tables),
+        "missing_table_count": sum(
+            not _ordinary_table_exists(connection, table_name)
+            for table_name in required_tables
+        ),
         "required_function_count": len(required),
         "missing_function_count": len(required - present),
+        "title_key_contract_failure_count": title_key_contract_failure_count,
+        "required_index_count": len(required_indexes),
+        "missing_index_count": len(required_indexes - present_indexes),
         "database_bytes": _scalar(connection, "SELECT pg_database_size(current_database())"),
     }
 
@@ -500,6 +624,33 @@ def _blocking_counts(counts: Mapping[str, int]) -> dict[str, int]:
     return {name: value for name, value in counts.items() if name not in informational and value}
 
 
+def _catalog_blocking_counts(catalog: Mapping[str, int]) -> dict[str, int]:
+    blocking: dict[str, int] = {}
+    if catalog["server_version_num"] < 170000:
+        blocking["postgres_version_too_old"] = 1
+    if catalog["missing_table_count"]:
+        blocking["missing_required_tables"] = catalog["missing_table_count"]
+    if catalog["missing_function_count"]:
+        blocking["missing_required_functions"] = catalog["missing_function_count"]
+    if catalog["missing_index_count"]:
+        blocking["missing_required_indexes"] = catalog["missing_index_count"]
+    if catalog["title_key_contract_failure_count"]:
+        blocking["duplicate_title_key_contract_failures"] = catalog[
+            "title_key_contract_failure_count"
+        ]
+    return blocking
+
+
+def _nonnegative_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be an integer") from error
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be zero or greater")
+    return parsed
+
+
 def _parse_args(settings: Mapping[str, str]) -> argparse.Namespace:
     repository_root = Path(__file__).resolve().parents[1]
     configured_backup = Path(settings.get("MNEMONIC_BACKUP_DIR", "./backups"))
@@ -507,7 +658,7 @@ def _parse_args(settings: Mapping[str, str]) -> argparse.Namespace:
         configured_backup = repository_root / configured_backup
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database-url", default=settings.get("DATABASE_URL"))
-    parser.add_argument("--expected-head", default=CORE_HEAD)
+    parser.add_argument("--expected-head", choices=SUPPORTED_HEADS, default=FINAL_HEAD)
     parser.add_argument(
         "--backup-directory",
         type=Path,
@@ -515,7 +666,7 @@ def _parse_args(settings: Mapping[str, str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--minimum-backup-free-bytes",
-        type=int,
+        type=_nonnegative_int,
         default=0,
         help="Override the default of max(2x database size, 512 MiB).",
     )
@@ -540,9 +691,11 @@ def main() -> int:
                 text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
             )
             connection.execute(text("SET LOCAL statement_timeout = '60s'"))
-            observed_head = connection.scalar(text("SELECT version_num FROM alembic_version"))
+            head_matches, head_count = _migration_head_status(
+                connection, args.expected_head
+            )
             counts = _base_counts(connection)
-            if _table_exists(connection, "work_duplicate_merges"):
+            if _ordinary_table_exists(connection, "work_duplicate_merges"):
                 counts.update(_core_counts(connection))
             catalog = _catalog(connection, args.expected_head)
             connection.rollback()
@@ -555,18 +708,16 @@ def main() -> int:
             catalog["database_bytes"] * 2, 512 * MIB
         )
         blocking = _blocking_counts(counts)
-        if catalog["server_version_num"] < 170000:
-            blocking["postgres_version_too_old"] = 1
-        if catalog["missing_function_count"]:
-            blocking["missing_required_functions"] = catalog["missing_function_count"]
-        if observed_head != args.expected_head:
+        blocking.update(_catalog_blocking_counts(catalog))
+        if not head_matches:
             blocking["migration_head_mismatch"] = 1
         if free_bytes < required_free:
             blocking["backup_capacity_insufficient"] = 1
         report.update(
             {
                 "expected_head": args.expected_head,
-                "migration_head_matches": observed_head == args.expected_head,
+                "migration_head_count": head_count,
+                "migration_head_matches": head_matches,
                 "counts": counts,
                 "catalog": catalog,
                 "backup_capacity": {
@@ -578,7 +729,7 @@ def main() -> int:
                 "result": "pass" if not blocking else "blocked",
             }
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - audits fail closed without exposing database details.
         report.update({"result": "blocked", "audit_runtime_failure": True})
         print(json.dumps(report, sort_keys=True, separators=(",", ":")))
         return 2

@@ -82,6 +82,9 @@ def test_mutation_events_are_scoped_without_record_contents():
     assert mutation_event("POST", "/healthz") is None
     assert mutation_event("GET", f"/api/v1/projects/{project_id}/settings") is None
     assert mutation_event("POST", f"/api/v1/projects/{project_id}/settings") is None
+    assert mutation_event(
+        "POST", f"/api/v1/projects/{project_id}/duplicate-suggestions"
+    ) is None
     assert mutation_event("POST", "/api/v1/projects/not-a-uuid/work-items") is None
     assert mutation_event("POST", f"/api/v1/projects/{project_id}/unknown") is None
 

@@ -42,6 +42,17 @@ evidence that the project has no saved work.
    checkpoint count, and relevant age. Do not fetch every checkpoint, event, or
    question body into unrelated work.
 
+For an explicit compare-before-create request, use `suggest_duplicate_work`
+with the complete draft rather than trying to reconstruct its ranking from
+`search_work`. Suggestions group every matching member under one canonical
+root, identify the exact matched member, and return only ordered categorical
+signals—not scores. Exact-title candidates are globally reserved before other
+lanes. `hybrid_full`, `hybrid_shortlist`, and `lexical` describe retrieval
+coverage, not confidence; `semantic_scope=lexical_shortlist` means semantic
+comparison covered only the lexical shortlist. Recall plausible candidates and
+keep Create anyway available. Never turn a suggestion into an automatic merge,
+redirect, relationship, or hidden creation veto.
+
 ## Discover actionable candidates
 
 6. Call `list_ready_work` with only the needed `min_priority`, exact normalized
@@ -93,7 +104,7 @@ current human instruction explicitly selects that item.
 
 ## Keep reads read-only
 
-Search, ready listing, and attention reads take no `client_operation_id`; do
+Search, duplicate suggestion, ready listing, and attention reads take no `client_operation_id`; do
 not generate a mutation UUID while browsing or attach one to a read. If the
 user later authorizes a protected write such as `create_work`,
 `add_relationship`, `update_work`, `remove_relationship`, or

@@ -31,6 +31,88 @@ class Settings(BaseSettings):
             "client_operation_wait_seconds",
         ),
     )
+    duplicate_suggestion_body_max_bytes: int = Field(
+        default=2_097_152,
+        ge=2_097_152,
+        le=2_097_152,
+        validation_alias=AliasChoices(
+            "MNEMONIC_DUPLICATE_SUGGESTION_BODY_MAX_BYTES",
+            "duplicate_suggestion_body_max_bytes",
+        ),
+    )
+    duplicate_suggestion_request_slots: int = Field(
+        default=4,
+        ge=1,
+        le=4,
+        validation_alias=AliasChoices(
+            "MNEMONIC_DUPLICATE_SUGGESTION_REQUEST_SLOTS",
+            "duplicate_suggestion_request_slots",
+        ),
+    )
+    duplicate_suggestion_request_wait_ms: int = Field(
+        default=250,
+        ge=1,
+        le=250,
+        validation_alias=AliasChoices(
+            "MNEMONIC_DUPLICATE_SUGGESTION_REQUEST_WAIT_MS",
+            "duplicate_suggestion_request_wait_ms",
+        ),
+    )
+    duplicate_suggestion_inference_slots: int = Field(
+        default=1,
+        ge=1,
+        le=1,
+        validation_alias=AliasChoices(
+            "MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_SLOTS",
+            "duplicate_suggestion_inference_slots",
+        ),
+    )
+    duplicate_suggestion_inference_wait_ms: int = Field(
+        default=50,
+        ge=1,
+        le=50,
+        validation_alias=AliasChoices(
+            "MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_WAIT_MS",
+            "duplicate_suggestion_inference_wait_ms",
+        ),
+    )
+    duplicate_suggestion_lexical_shortlist: int = Field(
+        default=200,
+        ge=1,
+        le=200,
+        validation_alias=AliasChoices(
+            "MNEMONIC_DUPLICATE_SUGGESTION_LEXICAL_SHORTLIST",
+            "duplicate_suggestion_lexical_shortlist",
+        ),
+    )
+    duplicate_suggestion_missing_vector_limit: int = Field(
+        default=128,
+        ge=1,
+        le=128,
+        validation_alias=AliasChoices(
+            "MNEMONIC_DUPLICATE_SUGGESTION_MISSING_VECTOR_LIMIT",
+            "duplicate_suggestion_missing_vector_limit",
+        ),
+    )
+    duplicate_suggestion_full_population_ceiling: int = Field(
+        default=10_000,
+        ge=1,
+        le=10_000,
+        validation_alias=AliasChoices(
+            "MNEMONIC_DUPLICATE_SUGGESTION_FULL_POPULATION_CEILING",
+            "duplicate_suggestion_full_population_ceiling",
+        ),
+    )
+    duplicate_suggestion_timeout_seconds: int = Field(
+        default=60,
+        ge=1,
+        le=60,
+        validation_alias=AliasChoices(
+            "MNEMONIC_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS",
+            "duplicate_suggestion_timeout_seconds",
+        ),
+    )
+
     @field_validator("api_key")
     @classmethod
     def strong_enough_key(cls, value: SecretStr) -> SecretStr:

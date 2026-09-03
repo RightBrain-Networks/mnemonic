@@ -1,5 +1,67 @@
 # Mnemonic validation record
 
+## Phase 9 Advisory implementation checkpoint — 2026-09-02
+
+This checkpoint covers application/API/MCP/dashboard `0.4.0`, plugin `0.8.0`,
+and Alembic head `0017_duplicate_suggestion_title_key`. It records the
+separately versioned Advisory duplicate-suggestion implementation; the Core
+checkpoint remains below. Only observed results are stated.
+
+- **The complete backend suite passed 525 tests against PostgreSQL 17; backend
+  Ruff and whole-source `ty` passed.** The suite includes the committed OpenAPI
+  `0.4.0` freshness guard, suggestion selection, resource, deadline, and cache
+  regressions, and the shared ordinary-search/suggestion inference gate.
+- **The focused Advisory migration, audit, and schema-parity batch passed seven
+  PostgreSQL tests.** A read-only aggregate audit also completed with zero
+  blockers on an isolated schema at head 0017. This is repository and
+  fresh-schema evidence, not a populated-production preflight or restore
+  rehearsal.
+- **A separate populated Core database passed the aggregate audit at exactly
+  head 0016 with zero blocking or violation counts.** Its disposable fixture
+  contained one project, three work items, and one complete authoritative
+  merge. The exact database was dropped afterward; this is not a target-system
+  audit or backup/restore evidence.
+- **The complete MCP suite passed 288 tests; MCP Ruff and `ty` passed.** The
+  catalog contains exactly 27 tools and 11 protected writes;
+  `suggest_duplicate_work` is a strict `safe_read` with a bounded hard timeout
+  and value-free failure handling.
+- **Under Node 24, the frontend passed all 152 unit tests, TypeScript checking,
+  and the production build.** The final production image also built
+  successfully. The explicit Check Existing action remains separate from
+  Create, and suggestions remain memory-only.
+- **The final isolated Node 24 browser stack passed all 57 Playwright
+  executions in 2.6 minutes:** 28 in desktop Chromium, one in the focused
+  Firefox motion project, and 28 in narrow Chromium. The total includes four
+  Advisory executions and eight Core duplicate executions. Teardown left no
+  containers, network, or volumes for the uniquely named stack.
+- **The isolated production-shaped checker passed both its read-only and
+  authorized writable checks.** Its intentional durable effect was exactly one
+  authoritative merge over two synthetic work items. The post-check aggregate
+  audit reported head 0017, `authoritative_merges=1`, `pending_receipts=0`, and
+  zero blocking or violation counts. The exact checker stack and volume were
+  then destroyed; this was disposable evidence, not a production merge.
+- **The plugin passed fresh and sequential installation drills.** A fresh
+  `0.8.0` install was byte-identical to its source, and a separate
+  `0.6.1 -> 0.7.0 -> 0.8.0` update left only 0.8.0 active with three skills,
+  two shared references, and no compatibility skill tree.
+- **A cold adversarial review found two release-blocking issues in concurrency
+  and normalization handling.** Both were fixed and covered by regressions
+  before the complete suites and final acceptance stack passed; the closure
+  review found no remaining blocker.
+- **`pre-commit run --all-files` passed**, including the required hardcoded
+  secret scan.
+- **The application, MCP, frontend, and plugin metadata align at the Advisory
+  boundary.** Application packages and the dashboard are `0.4.0`; the plugin
+  is `0.8.0`; OpenAPI is `0.4.0`; the migration head is 0017; and the catalogs
+  contain 27 MCP tools, 11 protected writes, 13 REST receipt kinds, and 11
+  browser mutations.
+
+No production database, populated-production audit, cutover, backup/restore
+rehearsal, frozen numeric performance fixture, recovery-point proof, or
+product/operator permanence signoff is recorded here. The disposable writable
+check does not fill any of those gates. They remain explicit prerequisites
+before production traffic is enabled.
+
 ## Phase 9 Core implementation checkpoint — 2026-09-02
 
 This checkpoint covers application/API/MCP/dashboard `0.3.0`, plugin `0.7.0`,

@@ -12,8 +12,11 @@ from sqlalchemy import ColumnElement, String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.application.state import embedder_of
+from mnemonic_api.application.suggestion_resources import (
+    semantic_search_inference_acquired,
+)
 from mnemonic_api.database import Database, begin_coherent_read
-from mnemonic_api.errors import ApplicationError, work_duplicate
+from mnemonic_api.errors import ApplicationError, semantic_unavailable, work_duplicate
 from mnemonic_api.models import Checkpoint, WorkItem, WorkLease
 from mnemonic_api.schemas import (
     HierarchySummary,
@@ -84,6 +87,8 @@ def search_work(
     embedder = embedder_of(request)
     query_vector: tuple[float, ...] | None = None
     if filters.semantic:
+        if not semantic_search_inference_acquired(request.scope):
+            raise semantic_unavailable()
         try:
             query_vector = semantic_query_vector(embedder, query)
         except Exception as exc:
@@ -434,8 +439,4 @@ def _page(
 
 def _semantic_unavailable(exc: Exception) -> ApplicationError:
     logger.error("Semantic search failed (%s)", type(exc).__name__)
-    return ApplicationError(
-        503,
-        "semantic_unavailable",
-        "Semantic search is unavailable. Turn it off to use lexical search.",
-    )
+    return semantic_unavailable()

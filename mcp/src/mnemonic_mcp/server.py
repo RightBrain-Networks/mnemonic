@@ -3,6 +3,8 @@
 import argparse
 import json
 import logging
+import re
+import unicodedata
 from typing import Annotated, cast
 from uuid import UUID
 
@@ -11,7 +13,14 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
-from pydantic import AfterValidator, BeforeValidator, Field, SecretStr, WithJsonSchema
+from pydantic import (
+    AfterValidator,
+    BeforeValidator,
+    Field,
+    SecretStr,
+    StrictInt,
+    WithJsonSchema,
+)
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -32,6 +41,12 @@ from .models import (
     ClaimAndRecall,
     ClaimReceipt,
     DuplicateScope,
+    DuplicateSuggestionPage,
+    DuplicateSuggestionPrompt,
+    DuplicateSuggestionRequest,
+    DuplicateSuggestionSummary,
+    DuplicateSuggestionTags,
+    DuplicateSuggestionTitle,
     EventOrder,
     EventType,
     HierarchySummary,
@@ -73,6 +88,11 @@ from .models import (
 )
 from .security import LocalAccessMiddleware
 from .validation import SanitizedFastMCP, install_sdk_validation_log_filter
+
+_DUPLICATE_POSIX_WHITESPACE = re.compile(r"[\t\n\v\f\r ]+")
+_ASCII_LOWERCASE = str.maketrans(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"
+)
 
 
 def _validated_lease_token(value: object) -> SecretStr:
@@ -166,7 +186,8 @@ INSTRUCTIONS = (
     "canonical discovery, list_ready_work only for actionable candidates, recall_work for bounded "
     "read-only context, and claim_and_recall before authorized execution. A duplicate is a frozen "
     "audit record: never substitute its canonical ID silently. Review both exact contexts before "
-    "the permanent merge_work operation. A waiting item has unresolved human gates and cannot be "
+    "the permanent merge_work operation. Duplicate suggestions are advisory evidence and never "
+    "prevent creating distinct work. A waiting item has unresolved human gates and cannot be "
     "newly claimed; never infer, time out, self-approve, or resolve a gate because resolution belongs "
     "in the human dashboard. Use request_human_input only for a concrete human decision and the gate "
     "list tools for audit. Use add_checkpoint for resumable context and append_event for progress. "
@@ -1370,7 +1391,71 @@ def _register_relationship_tools(server: FastMCP, api: MnemonicAPI) -> None:
         )
 
 
+def _duplicate_title_key(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value)
+    collapsed = _DUPLICATE_POSIX_WHITESPACE.sub(
+        " ", normalized.strip("\t\n\v\f\r ")
+    )
+    return collapsed.translate(_ASCII_LOWERCASE)
+
+
+def _suggestion_matches_request(
+    page: DuplicateSuggestionPage,
+    request: DuplicateSuggestionRequest,
+) -> bool:
+    excluded = request.exclude_work_item_id
+    for item in page.items:
+        if excluded is not None and excluded in {
+            item.canonical_work.work_item_id,
+            item.matched_member.id,
+        }:
+            return False
+        if (
+            "exact_title" in item.signals
+            and _duplicate_title_key(item.matched_member.title)
+            != _duplicate_title_key(request.title)
+        ):
+            return False
+    return page.limit == request.limit
+
+
 def _register_duplicate_tools(server: FastMCP, api: MnemonicAPI) -> None:
+    @server.tool(annotations=READ)
+    async def suggest_duplicate_work(
+        project_id: UUID,
+        title: DuplicateSuggestionTitle,
+        summary: DuplicateSuggestionSummary,
+        initial_prompt: DuplicateSuggestionPrompt,
+        tags: DuplicateSuggestionTags = [],  # noqa: B006
+        exclude_work_item_id: UUID | None = None,
+        limit: Annotated[StrictInt, Field(ge=1, le=10)] = 5,
+    ) -> DuplicateSuggestionPage:
+        """Compare one complete in-memory creation draft with visible work only after an explicit user or client action. Results are advisory, canonical-grouped evidence across every lifecycle state: exact_title, lexical, and semantic are categorical signals, never confidence, merge authority, current authorization, or permission to substitute the matched member for its canonical root. Inspect an exact candidate separately before acting. A busy, unavailable, empty, stale, or failed comparison never blocks create_work and never changes or persists the draft. This POST is an explicit safe read with no operation UUID or structural uncertainty; after a timeout or service failure, retry the same comparison ordinarily or continue creating distinct work."""
+        request = DuplicateSuggestionRequest(
+            title=title,
+            summary=summary,
+            initial_prompt=initial_prompt,
+            tags=tags,
+            exclude_work_item_id=exclude_work_item_id,
+            limit=limit,
+        )
+        return cast(
+            DuplicateSuggestionPage,
+            await api.request(
+                "POST",
+                f"projects/{project_id}/duplicate-suggestions",
+                payload=request.model_dump(mode="json"),
+                response_model=DuplicateSuggestionPage,
+                effect=TransportEffect.SAFE_READ,
+                expected_status_code=200,
+                response_validator=lambda result: _suggestion_matches_request(
+                    cast(DuplicateSuggestionPage, result), request
+                ),
+                extended_read_timeout=True,
+                strict_wire_response=True,
+            ),
+        )
+
     @server.tool(annotations=IDEMPOTENT_DESTRUCTIVE_MUTATE)
     async def merge_work(
         project_id: UUID,

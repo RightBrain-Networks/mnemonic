@@ -90,6 +90,12 @@ graph facts from search results.
 
 ## Duplicate marks are not authoritative merges
 
+Likewise, a `suggest_duplicate_work` candidate is not a graph fact. Its
+canonical root, exact matched member, and categorical exact-title, lexical, or
+semantic signals are bounded retrieval evidence for a human or agent to review.
+They create no edge, merge, alias, receipt, checkpoint, event, or authority and
+must never suppress the independent create operation.
+
 An existing `A duplicate-of B` relationship is only retained evidence. It does not redirect A,
 make B canonical, freeze either endpoint, or authorize `merge_work`. Fresh generic duplicate-of
 writes through `create_work` or `add_relationship` are closed; those tools still accept the literal

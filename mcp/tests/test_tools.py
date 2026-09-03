@@ -586,6 +586,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "list_human_attention",
         "list_work_gates",
         "merge_work",
+        "suggest_duplicate_work",
     }
     assert all(tool.outputSchema for tool in tools.values())
     assert all(
@@ -603,6 +604,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "list_work_events",
         "list_human_attention",
         "list_work_gates",
+        "suggest_duplicate_work",
     ):
         assert tools[name].annotations.readOnlyHint is True
     for name in (
@@ -653,7 +655,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 26
+    assert len(tools) == 27
     for name in mutating:
         assert tools[name].annotations.idempotentHint is (name in protected)
     for name in tools.keys() - mutating:

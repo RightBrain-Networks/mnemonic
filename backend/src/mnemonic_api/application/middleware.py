@@ -1,9 +1,10 @@
 """What wraps every request, and in which order.
 
 Starlette nests middleware in reverse registration order: the last one added
-runs outermost. ``install_middleware`` registers authentication first so it
-sits inside the broadcast layer, which therefore observes every response,
-including a 401, and publishes for none of the failures.
+runs outermost. Broadcast wraps authentication, which wraps the route-specific
+suggestion resource/body control. Authentication therefore rejects unauthorized
+requests before Advisory work, while broadcast observes every response, including
+a 401, and publishes for none of the failures.
 """
 
 import logging
@@ -14,14 +15,19 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from mnemonic_api.application.auth import request_has_valid_bearer, unauthenticated_response
 from mnemonic_api.application.mutations import MutationTrace, mutation_trace
 from mnemonic_api.application.state import live_sync_hub_of
+from mnemonic_api.application.suggestion_resources import (
+    DuplicateSuggestionControlMiddleware,
+    DuplicateSuggestionResources,
+)
 from mnemonic_api.live_sync import mutation_event
 
 logger = logging.getLogger(__name__)
 API_PREFIX = "/api/v1"
 
 
-def install_middleware(app: FastAPI) -> None:
-    """Register both layers; the second registration wraps the first."""
+def install_middleware(app: FastAPI, resources: DuplicateSuggestionResources) -> None:
+    """Register suggestion control, authentication, then outer broadcast."""
+    app.add_middleware(DuplicateSuggestionControlMiddleware, resources=resources)
     app.add_middleware(BaseHTTPMiddleware, dispatch=authenticate_rest_before_routing)
     app.add_middleware(BaseHTTPMiddleware, dispatch=broadcast_successful_mutations)
 

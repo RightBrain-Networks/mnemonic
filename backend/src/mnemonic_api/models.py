@@ -189,6 +189,13 @@ class WorkItem(Base):
             text("id ASC"),
             postgresql_where=text("deleted_at IS NULL AND status = 'pending'"),
         ),
+        Index(
+            "ix_work_items_duplicate_title_key_v1",
+            "project_id",
+            text("mnemonic_duplicate_title_key_v1(title)"),
+            "id",
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
         Index("ix_work_items_search_vector", "search_vector", postgresql_using="gin"),
     )
 

@@ -477,6 +477,49 @@ export interface WorkMergeResult {
   merge_events: WorkEventRead[];
 }
 
+export type DuplicateSuggestionMode = "hybrid_full" | "hybrid_shortlist" | "lexical";
+export type DuplicateSuggestionSemanticScope =
+  | "full_project"
+  | "lexical_shortlist"
+  | "unavailable";
+export type DuplicateSuggestionSignal = "exact_title" | "lexical" | "semantic";
+
+export interface DuplicateSuggestionInput {
+  title: string;
+  summary: string;
+  initial_prompt: string;
+  tags: string[];
+  exclude_work_item_id: string | null;
+  limit: number;
+}
+
+export interface DuplicateCandidateSummary {
+  work_item_id: string;
+  title: string;
+  summary: string;
+  status: WorkStatus;
+  updated_at: string;
+  duplicate_member_count: number;
+}
+
+export interface DuplicateSuggestion {
+  canonical_work: DuplicateCandidateSummary;
+  matched_member: WorkIdentityPointer;
+  rank: number;
+  signals: DuplicateSuggestionSignal[];
+}
+
+export interface DuplicateSuggestionPage {
+  items: DuplicateSuggestion[];
+  limit: number;
+  mode: DuplicateSuggestionMode;
+  semantic_available: boolean;
+  semantic_scope: DuplicateSuggestionSemanticScope;
+  composition_version: string;
+  exact_title_group_total: number;
+  omitted_exact_title_group_count: number;
+}
+
 export interface WorkCreateInput extends ClientOperationInput {
   title: string;
   summary: string;

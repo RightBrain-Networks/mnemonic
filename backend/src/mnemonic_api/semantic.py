@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import os
 from collections.abc import Sequence
@@ -11,11 +12,13 @@ from threading import Lock
 from typing import Protocol
 from uuid import UUID
 
-from sqlalchemy import func, literal, select
-from sqlalchemy.dialects.postgresql import aggregate_order_by, insert
+from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
-from mnemonic_api.models import Checkpoint, WorkItem, WorkItemEmbedding
+from mnemonic_api.database import database_sqlstate
+from mnemonic_api.models import WorkItem, WorkItemEmbedding
 
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 EMBED_BODY_CHARS = 1500
@@ -28,6 +31,53 @@ EMBED_CONFIG = (
 BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 RRF_K = 60
 RRF_LEXICAL_WEIGHT = 3.0
+EMBED_CACHE_LOCK_TIMEOUT_MS = 50
+EMBED_CACHE_STATEMENT_TIMEOUT_MS = 5_000
+
+logger = logging.getLogger(__name__)
+
+_BOUNDED_EMBEDDING_TEXTS_SQL = """
+SELECT work.id,
+       pg_catalog.left(initial_checkpoint.prompt, :body_chars) AS initial_prompt,
+       COALESCE((
+           SELECT pg_catalog.right(
+               pg_catalog.string_agg(
+                   tail_checkpoint.prompt,
+                   E'\\n' ORDER BY tail_checkpoint.created_at, tail_checkpoint.id
+               ),
+               :tail_chars
+           )
+           FROM (
+               SELECT pg_catalog.right(
+                          later.prompt,
+                          CAST(:tail_chars AS integer)
+                      ) AS prompt,
+                      later.created_at,
+                      later.id,
+                      pg_catalog.sum(
+                          LEAST(
+                              pg_catalog.length(later.prompt),
+                              CAST(:tail_chars AS integer)
+                          ) + 1
+                      ) OVER (
+                          ORDER BY later.created_at DESC, later.id DESC
+                      ) AS reverse_characters
+               FROM checkpoints AS later
+               WHERE later.work_item_id = work.id
+                 AND later.id <> work.initial_checkpoint_id
+           ) AS tail_checkpoint
+           WHERE tail_checkpoint.reverse_characters
+                 - (LEAST(
+                     pg_catalog.length(tail_checkpoint.prompt),
+                     CAST(:tail_chars AS integer)
+                 ) + 1) <= CAST(:tail_chars AS integer)
+       ), '') AS checkpoint_tail
+FROM work_items AS work
+JOIN checkpoints AS initial_checkpoint
+  ON initial_checkpoint.id = work.initial_checkpoint_id
+ AND initial_checkpoint.work_item_id = work.id
+WHERE work.id = ANY(CAST(:work_item_ids AS uuid[]))
+"""
 
 
 class Embedder(Protocol):
@@ -104,49 +154,25 @@ def _embedding_texts(
     ids = [work_item.id for work_item in work_items]
     if not ids:
         return {}
-    initial_ids = {work_item.initial_checkpoint_id for work_item in work_items}
-    initial_prompts = dict(
-        database.execute(
-            select(
-                Checkpoint.id,
-                func.left(Checkpoint.prompt, EMBED_BODY_CHARS),
-            ).where(Checkpoint.id.in_(initial_ids))
-        )
-        .tuples()
-        .all()
-    )
-    later_texts = dict(
-        database.execute(
-            select(
-                Checkpoint.work_item_id,
-                func.right(
-                    func.string_agg(
-                        func.right(Checkpoint.prompt, EMBED_COMMENT_CHARS),
-                        aggregate_order_by(
-                            literal("\n"),
-                            Checkpoint.created_at,
-                            Checkpoint.id,
-                        ),
-                    ),
-                    EMBED_COMMENT_CHARS,
-                ),
-            )
-            .where(
-                Checkpoint.work_item_id.in_(ids),
-                Checkpoint.id.not_in(initial_ids),
-            )
-            .group_by(Checkpoint.work_item_id)
-        )
-        .tuples()
-        .all()
-    )
-    if set(initial_prompts) != initial_ids:
+    rows = database.execute(
+        text(_BOUNDED_EMBEDDING_TEXTS_SQL),
+        {
+            "work_item_ids": ids,
+            "body_chars": EMBED_BODY_CHARS,
+            "tail_chars": EMBED_COMMENT_CHARS,
+        },
+    ).mappings()
+    captured = {
+        row["id"]: (str(row["initial_prompt"]), str(row["checkpoint_tail"]))
+        for row in rows
+    }
+    if set(captured) != set(ids):
         raise ValueError("A semantic candidate is missing its initial checkpoint")
     return {
         work_item.id: embedding_text(
             work_item,
-            initial_prompts[work_item.initial_checkpoint_id],
-            (later_texts.get(work_item.id, ""),),
+            captured[work_item.id][0],
+            (captured[work_item.id][1],),
         )
         for work_item in work_items
     }
@@ -294,42 +320,58 @@ def persist_embedding_updates(
     # The response session retains its repeatable-read identity map after commit.
     # A distinct session is required both to observe committed writers and to
     # leave the captured response objects untouched for later serialization.
-    with Session(bind=database.get_bind()) as cache_database:
-        current_work = list(
-            cache_database.scalars(
-                select(WorkItem)
-                .where(
-                    WorkItem.id.in_(updates_by_id),
-                    WorkItem.deleted_at.is_(None),
-                )
-                .order_by(WorkItem.id)
-                .with_for_update()
-            )
-        )
-        current_texts = _embedding_texts(cache_database, current_work)
-        rows = [
-            {
-                "work_item_id": work_item.id,
-                "model": EMBED_CONFIG,
-                "digest": update.digest,
-                "vector": list(update.vector),
-            }
-            for work_item in current_work
-            if (update := updates_by_id[work_item.id]).project_id == work_item.project_id
-            and update.work_version == work_item.version
-            and update.digest == _digest(current_texts[work_item.id])
-        ]
-        if rows:
-            statement = insert(WorkItemEmbedding).values(rows)
+    try:
+        with Session(bind=database.get_bind()) as cache_database:
             cache_database.execute(
-                statement.on_conflict_do_update(
-                    index_elements=[WorkItemEmbedding.work_item_id],
-                    set_={
-                        "model": statement.excluded.model,
-                        "digest": statement.excluded.digest,
-                        "vector": statement.excluded.vector,
-                        "updated_at": statement.excluded.updated_at,
-                    },
+                text(
+                    "SELECT set_config('lock_timeout', :lock_timeout, true), "
+                    "set_config('statement_timeout', :statement_timeout, true)"
+                ),
+                {
+                    "lock_timeout": f"{EMBED_CACHE_LOCK_TIMEOUT_MS}ms",
+                    "statement_timeout": f"{EMBED_CACHE_STATEMENT_TIMEOUT_MS}ms",
+                },
+            )
+            current_work = list(
+                cache_database.scalars(
+                    select(WorkItem)
+                    .where(
+                        WorkItem.id.in_(updates_by_id),
+                        WorkItem.deleted_at.is_(None),
+                    )
+                    .order_by(WorkItem.id)
+                    .with_for_update(skip_locked=True)
                 )
             )
-        cache_database.commit()
+            current_texts = _embedding_texts(cache_database, current_work)
+            rows = [
+                {
+                    "work_item_id": work_item.id,
+                    "model": EMBED_CONFIG,
+                    "digest": update.digest,
+                    "vector": list(update.vector),
+                }
+                for work_item in current_work
+                if (update := updates_by_id[work_item.id]).project_id
+                == work_item.project_id
+                and update.work_version == work_item.version
+                and update.digest == _digest(current_texts[work_item.id])
+            ]
+            if rows:
+                statement = insert(WorkItemEmbedding).values(rows)
+                cache_database.execute(
+                    statement.on_conflict_do_update(
+                        index_elements=[WorkItemEmbedding.work_item_id],
+                        set_={
+                            "model": statement.excluded.model,
+                            "digest": statement.excluded.digest,
+                            "vector": statement.excluded.vector,
+                            "updated_at": statement.excluded.updated_at,
+                        },
+                    )
+                )
+            cache_database.commit()
+    except DBAPIError as error:
+        if database_sqlstate(error) not in {"55P03", "57014"}:
+            raise
+        logger.warning("Semantic cache refresh skipped after bounded database wait")

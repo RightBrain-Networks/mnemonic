@@ -53,7 +53,7 @@ def reject_client_operation_transport(request: Request) -> None:
 
 
 def reject_registered_mutation_query(request: Request) -> None:
-    """Keep the twelve receipt-protected mutation routes query-free."""
+    """Keep the thirteen receipt-protected mutation routes query-free."""
     if request.query_params:
         raise transport_rejection(
             "query", None, "Query parameters are not accepted for registered mutations."

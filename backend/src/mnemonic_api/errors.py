@@ -39,6 +39,7 @@ class ApplicationError(HTTPException):
         message: str,
         *,
         context: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(
             status_code=status_code,
@@ -47,6 +48,7 @@ class ApplicationError(HTTPException):
                 "message": message,
                 "context": _safe_context(context),
             },
+            headers=headers,
         )
 
 
@@ -197,4 +199,37 @@ def duplicate_graph_invalid() -> ApplicationError:
         503,
         "duplicate_graph_invalid",
         "The authoritative duplicate graph is invalid. Authority-changing work is unavailable.",
+    )
+
+
+def request_body_too_large() -> ApplicationError:
+    return ApplicationError(
+        413,
+        "request_body_too_large",
+        "The duplicate-suggestion request body exceeds the allowed size.",
+    )
+
+
+def duplicate_suggestion_busy() -> ApplicationError:
+    return ApplicationError(
+        429,
+        "duplicate_suggestion_busy",
+        "Duplicate suggestions are busy. Retry this safe read later.",
+        headers={"Retry-After": "1"},
+    )
+
+
+def duplicate_suggestion_unavailable() -> ApplicationError:
+    return ApplicationError(
+        503,
+        "duplicate_suggestion_unavailable",
+        "Duplicate suggestions are unavailable. Work creation remains available.",
+    )
+
+
+def semantic_unavailable() -> ApplicationError:
+    return ApplicationError(
+        503,
+        "semantic_unavailable",
+        "Semantic search is unavailable. Turn it off to use lexical search.",
     )

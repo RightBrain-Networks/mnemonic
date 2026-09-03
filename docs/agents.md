@@ -1,8 +1,8 @@
 # Agent workflow
 
-Mnemonic Phase 9 Core adds permanent authoritative duplicate merges and
-retained canonical aliases to the durable work/checkpoint/event/lease/
-relationship/gate model. An alias keeps exact source-owned audit history but is
+Mnemonic Phase 9 adds permanent authoritative duplicate merges, retained
+canonical aliases, and explicit evidence-only draft comparison to the durable
+work/checkpoint/event/lease/relationship/gate model. An alias keeps exact source-owned audit history but is
 never actionable; its canonical continuation is an explicit separate pointer,
 not a redirect. Similarity and historical `duplicate-of` marks remain evidence,
 never merge authority. Durable mutation receipts make exact retries safe for
@@ -20,14 +20,21 @@ client operation intent described below before every protected MCP mutation.
    audit scope when the likely duplicate may be Deferred, complete, or merged.
 3. If one durable objective already exists, recall it and append a checkpoint;
    do not create another item merely because this is a new session.
-4. For genuinely new work, prepare a protected mutation intent, then call
+4. When an explicit compare-before-create action is appropriate, call
+   `suggest_duplicate_work` with the complete stable title, summary, initial
+   prompt, tags, optional excluded work ID, and limit. It returns one canonical
+   root per candidate group plus the exact matched member and categorical
+   exact-title/lexical/semantic signals. Recall plausible candidates. Results,
+   order, and semantic coverage are evidence only; never infer identity, merge
+   direction, or authority, and never suppress Create.
+5. For genuinely new work, prepare a protected mutation intent, then call
    `create_work` with its title, retrieval summary, optional priority/status, a
    complete nested initial checkpoint, and any relationships that must exist
    atomically with the new record.
-5. Supply the actual `source_client` and `source_session_id` for the session
+6. Supply the actual `source_client` and `source_session_id` for the session
    writing that checkpoint. Add model, session URL, branch, checked commit,
    useful tags, and JSON metadata only when known.
-6. Report the stored project, work-item, checkpoint, and created relationship
+7. Report the stored project, work-item, checkpoint, and created relationship
    IDs. A successful tool response—not prose claiming something was saved—is
    the durable record.
 
@@ -35,6 +42,15 @@ A complete context checkpoint should contain an agent-authored provenance
 warning, what and why, verified context and durable references, cautions and
 scope, and concrete verification. The server preserves exact text; it does not
 generate or rewrite the packet.
+
+`suggest_duplicate_work` is a safe read, not one of the eleven protected
+mutations. It takes no operation UUID, does not persist the draft or result, and
+may be retried normally after a timeout, `duplicate_suggestion_busy`, or
+`duplicate_suggestion_unavailable`. Busy responses advise a one-second retry;
+semantic failure can instead return lexical success. Do not copy draft or
+candidate content into logs, URLs, durable checkpoints, or client storage merely
+to recover this read. If comparison stays unavailable, disclose that and keep
+the independent create workflow available.
 
 The installable [skills](../plugin/skills/) contain the complete capture/search/recall
 workflows. Claude Code expands `${CLAUDE_SESSION_ID}` in skill text. Other

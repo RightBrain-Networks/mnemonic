@@ -24,12 +24,12 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 ## Delivery Snapshot
 
-As of 2026-09-02, Phases 1–8 are shipped and the Phase 9 Core implementation is
-present at application/API/MCP `0.3.0`, plugin `0.7.0`, and migration 0016.
-Phase 9 as a whole remains in progress until its separately versioned Advisory
-release and remaining release gates pass; Phases 10–13 remain planned. The phase
-sections retain the original design rationale and distinguish implemented Core
-from unshipped work.
+As of 2026-09-02, Phases 1–9 are shipped at application/API/MCP `0.4.0`,
+plugin `0.8.0`, and migration `0017_duplicate_suggestion_title_key`; Phases
+10–13 remain planned. Phase 9's Core and Advisory implementations passed their
+repository implementation gates. Production cutover, backup restore rehearsal, and
+product/operator permanence signoff remain deployment prerequisites rather
+than claims made by this repository snapshot.
 
 | Roadmap element | Status | Implemented functionality |
 | --- | --- | --- |
@@ -38,10 +38,10 @@ from unshipped work.
 | Phase 3 — Typed relationships | Shipped | Five project-local edge types, blocker and parent-cycle protection, one-parent enforcement, atomic linked creation, graph-aware recall, and hierarchy browsing. |
 | Phase 4 — Ready-work discovery | Shipped | A deterministic, filtered REST/MCP ready queue derived from lifecycle, blockers, leases, and human gates, with claim-time revalidation. |
 | Phase 5 — Work event timeline | Shipped | Immutable typed per-work events, conservative historical backfill, atomic mutation events, explicit progress events, bounded recall, and a paged dashboard timeline. |
-| Phase 6 — Idempotent mutations | Shipped | Durable project-scoped success receipts established exact unknown-outcome recovery; Phase 9 Core extends the registry to 13 REST kinds, 11 canonical MCP writes, and 11 dashboard actions. |
+| Phase 6 — Idempotent mutations | Shipped | Durable project-scoped success receipts established exact unknown-outcome recovery; Phase 9 extends the registry to 13 REST kinds, 11 canonical MCP writes, and 11 dashboard actions. |
 | Phase 7 — Human gates | Shipped | Immutable question/answer history, drift-aware review, readiness and lifecycle guards, bounded recall, and a dedicated Needs Attention queue. |
 | Phase 8 — Hierarchical presentation | Shipped | Collapsed root workstreams, lazy child paging, subtree-aware filtering, breadcrumbs, discovery labels, and exact branch aggregates. |
-| Phase 9 — Duplicate handling | Core implemented; phase incomplete | Core adds immutable authoritative merges, retained non-actionable aliases, canonical-aware reads/search/hierarchy, recovery, audits, and coordinated 0.3.0/0.7.0 clients. Advisory duplicate suggestions have not shipped, and Core cutover/recovery gates remain explicit. |
+| Phase 9 — Duplicate handling | Shipped | Immutable authoritative merges, retained non-actionable aliases, canonical-aware reads/search/hierarchy, explicit draft duplicate suggestions, resource controls, and coordinated 0.4.0/0.8.0 clients. Production cutover and recovery gates remain explicit. |
 | Phase 10 — Freshness verification | Planned | Checkpoints retain caller-asserted `verified_against` commits; Mnemonic does not yet verify repository freshness. |
 | Phase 11 — Completion evidence | Planned | Completion checkpoints and completion events exist; structured verification results and artifact references have not shipped. |
 | Phase 12 — Project activity feed | Planned | Per-work timelines and data-free dashboard invalidations exist; a durable project-wide cursor/feed, SSE, and webhooks have not shipped. |
@@ -569,7 +569,7 @@ promotion_requested
 work_merged
 ```
 
-Phase 9 Core implements `work_merged` as a paired server event backed by an
+Phase 9 implements `work_merged` as a paired server event backed by an
 immutable merge, rather than treating a generic relationship mark as identity.
 
 Not every event needs a free-form body.
@@ -898,11 +898,11 @@ tree walk, per-branch query, or load-all-descendants fallback.
 
 # Phase 9 - Structural Duplicate Handling
 
-**Status: Core implemented; Phase 9 incomplete.** Application/API/MCP/dashboard
-`0.3.0`, plugin `0.7.0`, and migration `0016_duplicate_handling` implement the
-authoritative merge. The separate Advisory suggestion release has not shipped.
-The validation record does not claim production cutover, backup rehearsal, or
-product/operator permanence signoff.
+**Status: Shipped.** Application/API/MCP/dashboard `0.4.0`, plugin `0.8.0`, and
+migration `0017_duplicate_suggestion_title_key` implement both the Core
+authoritative merge and Advisory duplicate suggestions. The validation record
+does not claim production cutover, backup rehearsal, or product/operator
+permanence signoff.
 
 ## Objective
 
@@ -954,21 +954,27 @@ A mistaken merge requires a complete pre-merge database restore that discards
 every later write, or a future separately designed append-only correction
 release.
 
-## Unshipped Advisory suggestions
+## Implemented Advisory suggestions
 
-During work creation, semantic search may suggest:
+On explicit action from a valid creation draft, Mnemonic can show:
 
 ```text
 Possible existing work
 ```
 
-but should never automatically merge or suppress creation.
+without automatically merging, persisting the draft/result, or suppressing
+creation. Exact-title candidates are reserved first, lexical retrieval supplies
+a bounded shortlist, and local embeddings either cover the full eligible
+project or that disclosed shortlist. Results group aliases under one canonical
+candidate and expose only categorical signals and semantic coverage.
 
 Embeddings should produce candidates, not truth.
 
-This is planned for application/API `0.4.0` and plugin `0.8.0`; it is absent
-from Core. Ordinary search remains available and similarity never disables
-Create or authorizes `merge_work`.
+The `suggest_duplicate_work` safe read has bounded body, request, inference,
+shortlist, fill, population, response, and timeout budgets. Saturated or failed
+model work falls back to lexical results; database/system failures are explicit.
+Ordinary search and Create remain independent, and similarity never authorizes
+`merge_work`.
 
 ## Acceptance Criteria
 
@@ -980,8 +986,8 @@ Create or authorizes `merge_work`.
   coalescing occurs.
 - Same-key merge recovery returns one historical result without another
   durable effect.
-- Phase 9 moves to **Shipped** only after both Core and Advisory release gates
-  have concrete evidence.
+- Both separately versioned Core and Advisory repository implementation gates have
+  concrete evidence; deployment recovery gates remain operator work.
 
 ---
 
@@ -1343,7 +1349,7 @@ list_verification_results
 
 ```text
 merge_work
-suggest_duplicate_work  # future Advisory release
+suggest_duplicate_work
 ```
 
 There is no generic `mark_duplicate` tool. Historical marks remain evidence;
@@ -1393,9 +1399,8 @@ At this point multiple agents can safely share a project.
 ## Milestone 3 - Durable Collaboration History
 
 **Status: Partially shipped.** Phase 5 delivered append-only per-work events and
-the timeline UI, and Phase 9 Core implements the authoritative duplicate
-workflow. Phase 9 Advisory and the Phase 12 project activity feed remain
-planned.
+the timeline UI, and Phase 9 implements authoritative duplicate merging plus
+advisory comparison. The Phase 12 project activity feed remains planned.
 
 1. Add append-only work events.
 2. Add project activity feed.

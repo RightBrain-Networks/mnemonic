@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { HUMAN_GATE_DECODER_FIELDS } from "../lib/human-gates.ts";
 import { DUPLICATE_HANDLING_DECODER_FIELDS } from "../lib/duplicate-handling.ts";
+import { DUPLICATE_SUGGESTION_DECODER_FIELDS } from "../lib/duplicate-suggestions.ts";
 import { HIERARCHY_DECODER_FIELDS } from "../lib/hierarchy-presentation.ts";
 import { MUTATION_RESPONSE_DECODER_FIELDS } from "../lib/mutation-responses.ts";
 import { WORK_EVENT_DECODER_FIELDS } from "../lib/work-events.ts";
@@ -43,6 +44,7 @@ test("strict frontend decoders match the committed OpenAPI component contracts",
   const decoderFields = {
     ...qualifiedFields("frontend/lib/human-gates.ts", HUMAN_GATE_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/duplicate-handling.ts", DUPLICATE_HANDLING_DECODER_FIELDS),
+    ...qualifiedFields("frontend/lib/duplicate-suggestions.ts", DUPLICATE_SUGGESTION_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/hierarchy-presentation.ts", HIERARCHY_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/mutation-responses.ts", MUTATION_RESPONSE_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/work-events.ts", WORK_EVENT_DECODER_FIELDS)

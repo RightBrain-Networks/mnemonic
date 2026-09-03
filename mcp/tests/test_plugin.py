@@ -22,7 +22,7 @@ def test_plugin_manifest_and_inventory_are_exact():
     )
 
     assert inner["name"] == "mnemonic"
-    assert inner["version"] == "0.7.0"
+    assert inner["version"] == "0.8.0"
     assert "duplicate merges" in inner["description"]
     assert marketplace["plugins"] == [
         {
@@ -84,3 +84,16 @@ def test_shared_references_freeze_eleven_writes_and_permanent_merge():
     assert "sole authoritative operation" in graph
     assert "never replace" in graph.lower()
     assert "Fresh generic duplicate-of" in graph
+
+
+def test_advisory_guidance_preserves_create_anyway_and_categorical_evidence():
+    save = SKILL_FILES["mnemonic-save"].read_text()
+    authority = (PLUGIN_ROOT / "reference" / "authority-and-provenance.md").read_text()
+
+    assert "suggest_duplicate_work" in save
+    assert "exact_title" in save
+    assert "lexical" in save
+    assert "semantic" in save
+    assert re.search(r"create\s+anyway", save, re.IGNORECASE)
+    assert "suggest_duplicate_work" in authority
+    assert "evidence-only" in authority

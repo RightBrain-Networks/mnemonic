@@ -11,6 +11,13 @@ results. If only a description is known, use `list_projects` plus `search_work`
 for relevance or `list_ready_work` for actionable candidates. Never substitute
 an ID from another project or act on either compact pointer alone.
 
+When selection starts from `suggest_duplicate_work`, keep
+`canonical_work.work_item_id` and `matched_member.id` distinct. Recall the
+canonical candidate to compare its current objective; when the matched member
+is an alias and its evidence matters, recall that exact audit ID separately.
+Categorical suggestion signals and rank are transient retrieval evidence, not
+authority to continue, merge, redirect, or suppress a distinct creation.
+
 ## View, or claim before continuing
 
 Call `recall_work(project_id, work_item_id)` when the user only wants to view,

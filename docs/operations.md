@@ -27,6 +27,18 @@ Important API settings are:
   exact retry of the privately retained intent is safe.
 - `MNEMONIC_EMBEDDING_CACHE`, the model-cache path used by semantic search.
 - `MNEMONIC_DASHBOARD_ORIGINS`, a comma-separated exact-origin allowlist.
+- `MNEMONIC_DUPLICATE_SUGGESTION_BODY_MAX_BYTES`, default 2097152.
+- `MNEMONIC_DUPLICATE_SUGGESTION_REQUEST_SLOTS` and
+  `MNEMONIC_DUPLICATE_SUGGESTION_REQUEST_WAIT_MS`, defaults 4 and 250.
+- `MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_SLOTS` and
+  `MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_WAIT_MS`, defaults 1 and 50. This
+  process-wide model gate is shared by suggestions and ordinary semantic
+  search.
+- `MNEMONIC_DUPLICATE_SUGGESTION_LEXICAL_SHORTLIST`,
+  `MNEMONIC_DUPLICATE_SUGGESTION_MISSING_VECTOR_LIMIT`, and
+  `MNEMONIC_DUPLICATE_SUGGESTION_FULL_POPULATION_CEILING`, defaults 200, 128,
+  and 10000.
+- `MNEMONIC_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS`, default 60.
 
 Never put credentials in browser-public environment variables. The dashboard's
 API key is server-only. The PostgreSQL password must be URL-safe because it is
@@ -41,12 +53,50 @@ Semantic search is opt-in. Ordinary dashboard and MCP queries use PostgreSQL
 lexical search. A nonblank semantic query runs `BAAI/bge-small-en-v1.5` inside
 the API container and lazily refreshes derived `work_item_embeddings` rows in
 batches of 16, so a first query after canonical content changes may take longer.
+It waits up to 50 ms for the shared process-wide inference slot; saturation
+returns `semantic_unavailable`, while lexical search remains available.
 
 The image build downloads model artifacts into `/app/.embedding-cache`; runtime
 uses offline mode and never sends prompt or query text to a hosted model API.
 Embedding rows are derived cache: canonical work and checkpoints are sufficient
-to rebuild them. On `semantic_unavailable`, turn semantic mode off and continue
-with lexical search.
+to rebuild them. Composition reads only the first 1,500 characters of the
+initial prompt and a SQL-bounded 1,500-character tail across later checkpoints.
+Cache refresh runs after the response snapshot, skips locked work rows, and
+uses a 50 ms lock timeout and five-second statement timeout. Those bounded
+cache expirations leave the computed ranking usable. On other
+`semantic_unavailable` failures, turn semantic mode off and continue with
+lexical search.
+
+## Duplicate suggestions
+
+Duplicate comparison runs only after an explicit request with a complete
+creation draft. Its default per-process limits are a 2,097,152-byte
+authenticated streaming body cap, four concurrent request slots with a 250 ms
+wait, a shared inference slot with a 50 ms wait, a 200-group lexical shortlist,
+at most 30 recent distinct normalized tags composed per existing work item, at
+most 128 missing vectors computed per request, a 10,000-visible-member ceiling
+for full semantic scope, ten returned candidates, and an absolute 60-second
+transport budget that starts before body handling.
+
+`429 duplicate_suggestion_busy` includes `Retry-After: 1` and is safe to retry.
+Model saturation, loading, inference, or vector/cache trouble returns a normal
+lexical response with semantic availability false; do not page an operator for
+that isolated fallback. `503 duplicate_suggestion_unavailable` means the
+database/system suggestion path failed. Repeated 429 or 503 responses are an
+aggregate capacity or availability incident, but neither implies a write,
+unknown mutation outcome, lost create request, or permission to disable Create
+anyway.
+
+On PostgreSQL 17, suggestion snapshot and cache transactions set transaction,
+statement, and lock timeouts from the remaining route budget. Cache refresh is
+post-snapshot and derived: it skips locked work rows and caps cache lock waits at
+50 ms. Contention can force a lexical fallback, but cannot turn a cache refresh
+into an unbounded request.
+
+Draft text, query vectors, candidate text, IDs, scores, and results do not belong
+in logs or metric labels. Suggestion cache rows are derived existing-work data
+and may be rebuilt; the draft and result are never persisted. Routine probes
+must verify only aggregate behavior and must not commit a merge.
 
 ## Upgrading the single-host Compose stack
 
@@ -109,7 +159,8 @@ newer contract.
 Application rollback means redeploying a compatible fixed image while leaving
 the database at head. Prefer a forward fix. Migrations
 `0015_gate_review_fixes` and `0016_duplicate_handling` have no supported
-Alembic downgrade path. Once 0016 has been applied, the only data rollback
+Alembic downgrade path.
+Once 0016 has been applied, the only data rollback
 boundary is a complete restore of a chosen pre-upgrade archive, explicitly
 accepting loss of every later write. Never
 truncate receipts, edit events, resolve/delete gates, or disable constraints to
@@ -171,6 +222,43 @@ read-only transaction, emits aggregate JSON without IDs or content, checks
 schema/functions/capacity and Core invariants, and returns nonzero when blocked.
 An audit runtime failure is not a pass. Keep raw diagnostic IDs out of ordinary
 logs and tickets.
+
+### Final Phase 9 Advisory 0.4.0 cutover
+
+Advisory is the next coordinated boundary: API, MCP, and dashboard `0.4.0`,
+plugin `0.8.0`, and migration `0017_duplicate_suggestion_title_key`. Migration
+0017 preserves every row, rewrites no work text, and creates no canonical fact;
+it adds only the versioned title-key function and visible-work expression
+index. Do not expose an older API, MCP adapter, or dashboard against head 0017.
+Migration 0017 can be downgraded to Core: it drops only those derived objects,
+preserves all domain rows, and intentionally leaves the Alembic revision column
+widened to hold the descriptive 0017 identifier. That does not reverse any
+Core merge; application artifacts must still be changed as one boundary.
+
+After the Core prerequisites above are satisfied:
+
+1. Quiesce every writer, take a named pre-0017 custom-format dump, validate its
+   archive listing, copy it off-machine, and prove it restores in isolation.
+2. Run the aggregate audit with
+   `--expected-head 0016_duplicate_handling`; a runtime failure or blocking
+   result stops the rollout.
+3. Apply exactly 0017 with
+   `docker compose run --rm api alembic upgrade 0017_duplicate_suggestion_title_key`.
+4. Verify the migrated function and partial expression index against ORM
+   metadata and PostgreSQL-17 catalog definitions. Verify OpenAPI `0.4.0`, exact
+   27 MCP tools/11 protected writes, 11 browser mutations, direct and chunked
+   body caps, request saturation, lexical fallback, safe-read retry, and Create
+   anyway before reopening traffic. No production probe persists a draft or
+   commits a merge.
+5. Run `scripts/audit_duplicate_handling.py` at its default 0017 head with zero
+   blocking findings. Take a post-0017 backup, restore it in isolation, rerun
+   the audit and representative Core receipt replays, and confirm suggestions
+   create no domain or receipt facts.
+6. Start API for authenticated read-only probes, then MCP and dashboard. Reopen
+   writers only after the coordinated artifacts and restored data checks pass.
+
+Passing repository tests does not claim that this production cutover, either
+restore rehearsal, or product/operator permanence signoff occurred.
 
 ## Durable runtime invariants
 
@@ -311,8 +399,8 @@ or weaken hierarchy constraints.
 
 ### Identifier-free aggregate monitoring
 
-Run `scripts/audit_duplicate_handling.py` regularly with
-`--expected-head 0016_duplicate_handling` from a private environment that can
+Run `scripts/audit_duplicate_handling.py` regularly with its default
+`--expected-head 0017_duplicate_suggestion_title_key` from a private environment that can
 reach PostgreSQL and the backup directory. Alert on any blocking finding. Its
 weak-mark counts are inventory, not merge decisions: cycles, multiple targets,
 leases, gates, or structural adjacency on historical descriptive marks do not
@@ -566,7 +654,9 @@ before becoming ready. Do not expose API, MCP, or dashboard traffic until
 readiness succeeds and the restored schema/data checks pass. Rehearse a restore
 from before a schema change on an isolated instance first. Restore is not a
 substitute for schema downgrade; downgrade is explicitly unsupported beginning
-with migration 0015 and remains unsupported for 0016. A pre-Phase-3 archive cannot recover later graph facts, a
+with migration 0015 and remains unsupported for 0016. Downgrading 0017 only
+removes its derived suggestion function/index and leaves Core domain facts in
+place. A pre-Phase-3 archive cannot recover later graph facts, a
 pre-Phase-5 archive cannot recover later event history, a pre-Phase-6 archive
 cannot recover later client-operation receipts, and a pre-Phase-7 archive cannot
 recover later gates, gate events, attention order, or gate-operation receipts.

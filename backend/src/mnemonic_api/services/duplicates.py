@@ -74,6 +74,14 @@ class CanonicalGraph:
     pointers: dict[UUID, WorkIdentityPointer]
 
 
+@dataclass(frozen=True)
+class CanonicalGroupSnapshot:
+    """Validated root membership without repeatedly traversing reverse subtrees."""
+
+    root_by_member: dict[UUID, UUID]
+    duplicate_member_count_by_root: dict[UUID, int]
+
+
 def _identity_pointer(work_item: WorkItem | WorkItemRead) -> WorkIdentityPointer:
     return WorkIdentityPointer(id=work_item.id, title=work_item.title, status=work_item.status)
 
@@ -191,6 +199,27 @@ def canonical_projections(
         work_item.id: canonical_projection(database, project_id, work_item, graph=graph)
         for work_item in work_items
     }
+
+
+def canonical_group_snapshot(
+    database: Session,
+    project_id: UUID,
+    work_items: Sequence[WorkItem],
+) -> CanonicalGroupSnapshot:
+    graph = _load_graph(database, project_id, work_items)
+    root_by_member: dict[UUID, UUID] = {}
+    member_counts: dict[UUID, int] = defaultdict(int)
+    for work_item in work_items:
+        path = _canonical_path(graph, work_item.id)
+        root_id = path[-1] if path else work_item.id
+        root_by_member[work_item.id] = root_id
+        member_counts.setdefault(root_id, 0)
+        if work_item.id != root_id:
+            member_counts[root_id] += 1
+    return CanonicalGroupSnapshot(
+        root_by_member=root_by_member,
+        duplicate_member_count_by_root=dict(member_counts),
+    )
 
 
 def canonical_work_item_ids(

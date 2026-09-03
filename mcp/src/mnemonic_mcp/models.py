@@ -15,6 +15,8 @@ from pydantic import (
     SecretStr,
     StrictBool,
     StrictInt,
+    StringConstraints,
+    field_validator,
     model_serializer,
     model_validator,
 )
@@ -230,6 +232,59 @@ OpaqueCursor = Annotated[
     Field(min_length=1, max_length=4096),
     AfterValidator(_validated_event_text),
 ]
+
+
+def _normalized_suggestion_tag(value: str) -> str:
+    normalized = _validated_event_text(value).lower()
+    if len(normalized) > 50:
+        raise ValueError("Normalized tags must contain at most 50 characters.")
+    return normalized
+
+
+DuplicateSuggestionTitle = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+    AfterValidator(_validated_event_text),
+]
+DuplicateSuggestionSummary = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=1000),
+    AfterValidator(_validated_event_text),
+]
+DuplicateSuggestionPrompt = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=100000),
+    AfterValidator(_validated_event_text),
+]
+DuplicateSuggestionTag = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=50),
+    AfterValidator(_normalized_suggestion_tag),
+]
+DuplicateSuggestionTags = Annotated[list[DuplicateSuggestionTag], Field(max_length=20)]
+DuplicateSuggestionSignal = Literal["exact_title", "lexical", "semantic"]
+DuplicateSuggestionMode = Literal["hybrid_full", "hybrid_shortlist", "lexical"]
+DuplicateSuggestionSemanticScope = Literal[
+    "full_project", "lexical_shortlist", "unavailable"
+]
+
+
+class DuplicateSuggestionRequest(BaseModel):
+    """Strict non-persistent creation draft used only for advisory comparison."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: DuplicateSuggestionTitle
+    summary: DuplicateSuggestionSummary
+    initial_prompt: DuplicateSuggestionPrompt
+    tags: DuplicateSuggestionTags = Field(default_factory=list)
+    exclude_work_item_id: UUID | None = Field(default_factory=lambda: None)
+    limit: StrictInt = Field(default=5, ge=1, le=10)
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(tag.lower() for tag in value))
 
 
 class CanonicalResponse(BaseModel):
@@ -554,6 +609,91 @@ class WorkIdentityPointer(CanonicalResponse):
     id: UUID
     title: str
     status: Status
+
+
+class DuplicateCandidateSummary(CanonicalResponse):
+    work_item_id: UUID
+    title: TitleEventText
+    summary: SummaryEventText
+    status: Status
+    updated_at: UTCDateTime
+    duplicate_member_count: StrictInt = Field(ge=0)
+
+
+class DuplicateSuggestion(CanonicalResponse):
+    canonical_work: DuplicateCandidateSummary
+    matched_member: WorkIdentityPointer
+    rank: StrictInt = Field(ge=1, le=10)
+    signals: list[DuplicateSuggestionSignal] = Field(min_length=1, max_length=3)
+
+    @model_validator(mode="after")
+    def enforce_candidate_contract(self) -> Self:
+        signal_order = {"exact_title": 0, "lexical": 1, "semantic": 2}
+        signal_positions = [signal_order[signal] for signal in self.signals]
+        if signal_positions != sorted(set(signal_positions)):
+            raise ValueError("Suggestion signals must be unique and canonically ordered.")
+        canonical = self.canonical_work
+        matched = self.matched_member
+        if matched.id == canonical.work_item_id and (
+            matched.title != canonical.title or matched.status != canonical.status
+        ):
+            raise ValueError("A root match must identify the canonical candidate exactly.")
+        if (
+            matched.id != canonical.work_item_id
+            and canonical.duplicate_member_count == 0
+        ):
+            raise ValueError("An alias match requires a duplicate group member.")
+        return self
+
+
+class DuplicateSuggestionPage(CanonicalResponse):
+    items: list[DuplicateSuggestion] = Field(max_length=10)
+    limit: StrictInt = Field(ge=1, le=10)
+    mode: DuplicateSuggestionMode
+    semantic_available: StrictBool
+    semantic_scope: DuplicateSuggestionSemanticScope
+    composition_version: Literal["duplicate-suggestion-v1"]
+    exact_title_group_total: StrictInt = Field(ge=0)
+    omitted_exact_title_group_count: StrictInt = Field(ge=0)
+
+    @model_validator(mode="after")
+    def enforce_page_contract(self) -> Self:
+        if len(self.items) > self.limit:
+            raise ValueError("Suggestion items cannot exceed the requested limit.")
+        if [item.rank for item in self.items] != list(range(1, len(self.items) + 1)):
+            raise ValueError("Suggestion ranks must be contiguous and ordered.")
+
+        canonical_ids = [item.canonical_work.work_item_id for item in self.items]
+        if len(canonical_ids) != len(set(canonical_ids)):
+            raise ValueError("Suggestion candidates must have unique canonical roots.")
+        matched_ids = [item.matched_member.id for item in self.items]
+        if len(matched_ids) != len(set(matched_ids)):
+            raise ValueError("Suggestion candidates must have unique matched members.")
+
+        visible_exact = min(self.exact_title_group_total, self.limit)
+        if len(self.items) < visible_exact:
+            raise ValueError("Exact-title groups must fill available response slots first.")
+        exact_items = [item for item in self.items if "exact_title" in item.signals]
+        if self.items[:visible_exact] != exact_items:
+            raise ValueError("Exact-title suggestion groups must be returned first.")
+        if len(exact_items) != visible_exact or (
+            self.omitted_exact_title_group_count
+            != self.exact_title_group_total - visible_exact
+        ):
+            raise ValueError("Exact-title suggestion counts are incoherent.")
+
+        expected_mode = {
+            "hybrid_full": (True, "full_project"),
+            "hybrid_shortlist": (True, "lexical_shortlist"),
+            "lexical": (False, "unavailable"),
+        }[self.mode]
+        if (self.semantic_available, self.semantic_scope) != expected_mode:
+            raise ValueError("Suggestion semantic mode and scope are incoherent.")
+        if not self.semantic_available and any(
+            "semantic" in item.signals for item in self.items
+        ):
+            raise ValueError("Lexical suggestions cannot claim semantic evidence.")
+        return self
 
 
 class CanonicalWorkProjection(CanonicalResponse):

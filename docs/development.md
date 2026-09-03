@@ -42,7 +42,7 @@ and to reject force pushes and branch deletion. That aggregate status fails
 unless Gitleaks, Ruff, `ty`, backend tests, MCP tests, and frontend checks all
 succeed.
 
-## Backend verification through Phase 9 Core
+## Backend verification through Phase 9
 
 The database suite needs a real PostgreSQL instance because the system depends
 on PostgreSQL search, row locking, database time, receipt reservation/waiting,
@@ -200,6 +200,34 @@ The Phase 9 Core additions verify:
   and
 - the read-only aggregate audit at head 0016 with zero blocking findings.
 
+The Advisory additions verify:
+
+- fresh and populated `0016_duplicate_handling` to
+  `0017_duplicate_suggestion_title_key` upgrades preserve every application row
+  and add only the immutable title-key function and matching partial expression
+  index, with PostgreSQL-17 normalization and plan-use coverage;
+- strict six-field request and purpose-built response validation, global exact
+  title groups, lifecycle/project/deleted/excluded-group isolation, canonical
+  grouping before every cap, deterministic member/root ordering, contiguous
+  ranks, categorical signals, and exact omission counts;
+- SQL-bounded initial/later-checkpoint composition, recent-30 distinct tag
+  selection that retains a newly relevant tag beyond 30 historical values, the
+  200-group lexical lane, full-project versus shortlist semantic scope, the
+  10,000-member ceiling, 128-vector fill cap, malformed/stale-vector handling,
+  deterministic RRF, and lexical fallback;
+- authentication-before-work, direct/chunked 2 MiB body enforcement,
+  request/inference acquisition before sessions, the process-wide inference
+  gate shared with ordinary semantic search, suggestion lexical fallback versus
+  semantic-search 503, bounded saturation waits, typed 413/429/503 behavior,
+  and one absolute 60-second safe-read deadline;
+- route-relative PostgreSQL-17 transaction/statement timeouts, skip-locked
+  cache rows, 50 ms cache lock bounds, ordinary semantic search's SQL-bounded
+  legacy text composition and best-effort post-snapshot cache refresh, and
+  exact stored candidate title/summary preservation; and
+- zero persisted draft/result/query vector and zero work, relationship, event,
+  receipt, version, activity, publication, or live-sync effect, with existing
+  cache CAS writes isolated after the coherent read snapshot.
+
 For a focused Core iteration, run:
 
 ```sh
@@ -242,7 +270,7 @@ do not contact a model service.
 Without `TEST_DATABASE_URL`, PostgreSQL tests explicitly skip. Such a run still
 checks pure validation helpers but is not proof of migration, transaction,
 trigger, concurrency, receipt replay, or PostgreSQL retrieval behavior. Any
-skipped PostgreSQL-marked test makes the Phase 9 Core release gate incomplete.
+skipped PostgreSQL-marked test makes the Phase 9 release gate incomplete.
 
 Stop the disposable database afterward from the repository root:
 
@@ -250,7 +278,7 @@ Stop the disposable database afterward from the repository root:
 docker compose -f compose.test.yaml down
 ```
 
-## MCP verification through Phase 9 Core
+## MCP verification through Phase 9
 
 Run from `mcp`:
 
@@ -261,7 +289,7 @@ uv run ruff check .
 uv run ty check src/mnemonic_mcp
 ```
 
-The MCP suite verifies the exact 26-tool canonical catalog, strict unknown-field
+The MCP suite verifies the exact 27-tool canonical catalog, strict unknown-field
 rejection, nested checkpoint request bodies, canonical/grouped search hits,
 compact ready results, bounded recall, deterministic checkpoint/event
 pagination, versioned mutation receipts, typed graph and lease behavior, the
@@ -282,8 +310,11 @@ revisions, exact direction, optional source lease token, mandatory operation
 UUID, single outbound attempt, strict result/event/relationship coherence,
 same-key recovery, and sanitized alias/merge errors. Search/resource/prompt
 tests pin canonical grouping, explicit alias audit scopes, matched-member
-pointers, exact source-owned alias context, and the absence of any suggestion
-tool or automatic canonical substitution.
+pointers, exact source-owned alias context, and no automatic canonical
+substitution. Advisory tests pin the strict six-field suggestion tool, unique
+groups/members, contiguous ranks, signal/count/mode coherence, literal
+composition version, 60-second safe-read request, ordinary retry guidance, and
+continued exclusion from the eleven protected writes.
 
 Phase 7–8 assertions cover exact request arguments and revision projections,
 unknown-outcome guidance, model-valid request coherence injections, reachable
@@ -298,9 +329,9 @@ names at that historical Phase 7–8 boundary; Core exposes 26.
 `get_activity`, `resolve_human_input`, and removed hand-off surfaces
 remain absent.
 
-The inner plugin manifest is `0.7.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.7.0` install
-plus a sequential `0.6.1 -> 0.7.0` marketplace update. Use an isolated
+The inner plugin manifest is `0.8.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.8.0` install
+plus a sequential `0.6.1 -> 0.7.0 -> 0.8.0` marketplace update. Use an isolated
 `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that the cached
 installed skill bytes changed, and a compatibility copy of the old prerelease
 tool schema is not a valid substitute.
@@ -312,7 +343,7 @@ repository root over the MCP and live-check code:
 uv run --project backend ruff check mcp/src/mnemonic_mcp mcp/tests scripts/check-stack.py
 ```
 
-## Dashboard verification through Phase 9 Core
+## Dashboard verification through Phase 9
 
 Run from `frontend`:
 
@@ -364,6 +395,15 @@ ambiguous retry, stale-review replacement, and current-root refetch after
 success. The browser registry remains exactly eleven kinds and admits no lease
 token.
 
+Advisory Node tests cover exact request construction and strict response
+decoding; rank/root/member/signal/count/mode coherence; the sole six-field
+safe-POST proxy allowlist; route-specific 2 MiB cap, 60-second timeout, and
+busy-only `Retry-After` forwarding; explicit-action loading/empty/lexical/error
+states; generation/abort handling; stale marking after every compared draft
+field changes; bidi-isolated candidate text; and the guarantee that suggestions
+never enter browser storage, the mutation registry, or the valid form's Create
+path.
+
 Playwright renders hostile literal questions and answers, exact ambiguous retry,
 B-to-C drift rejection and fresh intent, attention empty/error recovery,
 filtered and unfiltered attention, nonzero omission messages, attention and
@@ -412,7 +452,9 @@ services itself.
 Phase 9 browser acceptance additionally exercises source/destination direction,
 alias audit-to-canonical navigation, canonical/group search, branch merged
 counts, active-lease merge refusal, drift rejection, exact lost-response replay,
-and live convergence of both endpoints. This acceptance run is a release gate;
+live convergence of both endpoints, explicit suggestion action, exact-title and
+matched-alias candidates, stale draft results, lexical/busy/unavailable states,
+and successful Create anyway throughout. This acceptance run is a release gate;
 unit/type/build success alone does not substitute for it.
 
 For native dashboard development, keep the container API running, stop the
@@ -442,7 +484,7 @@ Run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 26-tool
+Read-only mode verifies REST/MCP health, authentication, the exact 27-tool
 catalog, the exact eleven protected schemas and annotations, the absence of an MCP
 resolution tool, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, and the shipped WOFF2 font assets. It does
@@ -462,9 +504,10 @@ The write path performs the combined canonical lifecycle:
 1. prepares and retains one UUID plus exact arguments for every protected call,
    deliberately discards the first create result, and recovers the original IDs
    through exact same-key replay without duplicate events;
-2. proves canonical/grouped search with exact matched-member identity, bounded
-   recall, resource/prompt behavior, and request-known credential/capability
-   rejection;
+2. proves the exact-title suggestion group through the 27th safe-read tool with
+   no version/event effect or prompt exposure, then proves canonical/grouped
+   search with exact matched-member identity, bounded recall, resource/prompt
+   behavior, and request-known credential/capability rejection;
 3. claims one candidate, discards a completed `request_human_input` response,
    and recovers the same unresolved gate through exact MCP replay;
 4. proves active-plus-waiting context, text-free attention count, attention and
@@ -513,10 +556,10 @@ Add `--other-project-id` to prove the new ID cannot be read through a second
 project. Do not pass either project option without authorization to write in the
 named project. Prefer a disposable full stack for automated write-path checks.
 
-## Phase 9 Core release gate
+## Phase 9 implementation and deployment gates
 
-The authoritative duplicate Core release is incomplete until all of these pass
-together:
+The authoritative Core and evidence-only Advisory repository implementation is
+incomplete until all of these pass together:
 
 1. the full backend suite against isolated PostgreSQL with no database skips,
    then backend Ruff;
@@ -524,32 +567,39 @@ together:
    for MCP and `scripts/check-stack.py`;
 3. frontend unit tests, typecheck, production build, and the isolated Playwright
    stack;
-4. fresh head plus populated `0015_gate_review_fixes -> 0016_duplicate_handling`
+4. fresh head plus populated `0015_gate_review_fixes` to
+   `0016_duplicate_handling` to `0017_duplicate_suggestion_title_key`
    preservation, zero inferred merges/witnesses,
    exact legacy event/receipt/gate projection parity, direct-SQL completeness
    and alias guards, schema parity, depth boundaries, and concurrency races;
-5. the aggregate duplicate audit before and after 0016, plus isolated pre- and
-   post-0016 backup restores covering ordinary/gate/merge receipts and
-   authoritative merge/event/witness facts;
-6. representative canonical search/context/hierarchy/ready/claim
-   `EXPLAIN (ANALYZE, BUFFERS)` fixtures and bounded query/RSS/latency evidence;
-7. plugin manifest parsing plus disposable fresh `0.7.0` and sequential
-   `0.6.1 -> 0.7.0` installation;
-8. read-only and authorized writable stack checks against a disposable project,
-   including the exact 26-tool/eleven-protected contract, gate lifecycle,
-   receipt recovery, and irreversible merge/alias lifecycle; and
-9. `git diff --check`, repository Markdown link/path validation, schema/tool
+5. the aggregate duplicate audit at both Phase 9 heads on disposable populated
+   data, with zero blocking findings;
+6. plugin manifest parsing plus disposable fresh `0.8.0` and sequential
+   `0.6.1 -> 0.7.0 -> 0.8.0` installation;
+7. read-only and authorized writable stack checks against a disposable project,
+   including the exact 27-tool/eleven-protected contract, safe duplicate
+   suggestion, gate lifecycle, receipt recovery, and irreversible merge/alias
+   lifecycle; and
+8. `git diff --check`, repository Markdown link/path validation, schema/tool
    snapshots, and cold adversarial review.
 
-Do not treat a focused suite, PostgreSQL-skipped run, read-only smoke, stale
-Phase 6/8 validation count, or marketplace refresh by itself as a Phase 9 Core
-release result. Do not claim completion from the Core checks until isolated E2E,
-full pre-commit, permanence signoff, and backup rehearsal are actually recorded.
-Deploy application/API/MCP/dashboard `0.3.0`, plugin `0.7.0`, migration 0016,
-and the operational guidance as one compatible release boundary. Advisory
-suggestions remain a separate unshipped release.
+Deployment approval is a separate operator-owned gate. It requires named
+pre/post-0016 and pre/post-0017 backups restored in isolation with ordinary,
+gate, merge, event, witness, and receipt parity; representative canonical and
+Advisory `EXPLAIN (ANALYZE, BUFFERS)` fixtures plus the frozen query, RSS,
+latency, request, and inference ceilings; a populated target audit; and explicit
+product/operator permanence signoff. Repository tests and disposable-stack
+evidence do not prove those target-environment results.
 
-## Manual browser pass through Phase 9 Core
+Do not treat a focused suite, PostgreSQL-skipped run, read-only smoke, stale
+Phase 6/8 validation count, or marketplace refresh by itself as a Phase 9
+implementation result. Repository completion requires isolated E2E, full
+pre-commit, and cold adversarial review. It must not be described as deployment
+approval. When operators do deploy, application/API/MCP/dashboard `0.4.0`,
+plugin `0.8.0`, migration 0017, and the operational guidance form one compatible
+final boundary.
+
+## Manual browser pass through Phase 9
 
 Exercise project empty state and switching, root browsing, lazy child expansion,
 subtree-aware filters, flat-search breadcrumbs, Pending/Active/Dropped/Deferred
@@ -560,6 +610,16 @@ timeline paging, progress-event creation, prompt copy, identity editing,
 checkpoint creation, completion, deletion, and stale-version recovery. At a
 narrow viewport, confirm lists, hierarchy, detail panes, editors, dialogs, long
 IDs, and defensive depth/cycle fallbacks remain usable.
+
+Open the valid create dialog and confirm no suggestion request occurs while
+typing. Use **Check existing work** once, inspect canonical and matched-member
+IDs plus categorical signals and disclosed semantic scope, then change each of
+title, summary, prompt, and tags and confirm the result becomes stale. Exercise
+empty, lexical-fallback, busy, unavailable, aborted, and delayed-response states
+without losing the draft. In every state, confirm **Create work** remains
+enabled whenever the ordinary form is valid and creates the unchanged draft.
+Inspect browser storage, URLs, logs, and live frames to confirm neither drafts
+nor candidates are persisted or published.
 
 Add and remove every relationship type through the editor with exact stored
 direction and truthful provenance. Confirm repeated identical non-`duplicate-of`

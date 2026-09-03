@@ -12,6 +12,7 @@ import {
 import { CHECKPOINT_PAGE_SIZE } from "@/components/checkpoint-timeline";
 import DashboardViewChrome from "@/components/dashboard-view-chrome";
 import ProjectSettingsPanel from "@/components/project-settings";
+import DuplicateSuggestionPanel from "@/components/duplicate-suggestion-panel";
 import HumanAttentionList from "@/components/human-attention-list";
 import WorkItemDetail from "@/components/work-item-detail";
 import WorkItemList, { WORK_PAGE_SIZE } from "@/components/work-item-list";
@@ -275,6 +276,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [workDialog, setWorkDialog] = useState(false);
   const [workSaving, setWorkSaving] = useState(false);
   const [newWorkError, setNewWorkError] = useState("");
+  const [suggestionDraftGeneration, setSuggestionDraftGeneration] = useState(0);
 
   const [opened, setOpened] = useState<WorkSummary | null>(null);
   const [context, setContext] = useState<WorkContext | null>(null);
@@ -1673,11 +1675,17 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
 
     {workDialog && project && <Dialog title="Create durable work" onClose={() => { if (!workSaving && !createWorkMutationBlocked) setWorkDialog(false); }} recovery={modalRecovery(createDialogMutationIntents)} wide busy={workSaving || createWorkMutationBlocked}><form className="form-stack" onSubmit={(event) => void createWork(event)}>
       <p className="dialog-intro">The objective remains editable. Its initial checkpoint is immutable and attributed to this dashboard session.</p>
-      <label className="field">Title<input name="title" required disabled={createWorkMutationBlocked} maxLength={200} autoFocus placeholder="What durable objective should survive this session?" /></label>
-      <label className="field">Summary<textarea name="summary" required disabled={createWorkMutationBlocked} rows={3} maxLength={1000} placeholder="When is this work relevant?" /></label>
+      <label className="field">Title<input name="title" required disabled={createWorkMutationBlocked} maxLength={200} autoFocus placeholder="What durable objective should survive this session?" onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /></label>
+      <label className="field">Summary<textarea name="summary" required disabled={createWorkMutationBlocked} rows={3} maxLength={1000} placeholder="When is this work relevant?" onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /></label>
       <label className="field field-half">Priority<input name="priority" type="number" disabled={createWorkMutationBlocked} min={0} max={100} defaultValue={0} /></label>
-      <label className="field">Initial context checkpoint<textarea className="prompt-editor" name="prompt" required disabled={createWorkMutationBlocked} rows={14} maxLength={100000} spellCheck={false} placeholder="Context, intended outcome, references, hazards, and verification…" /><span className="field-hint">Saved exactly as entered. Corrections become new checkpoints.</span></label>
-      <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input name="repository_branch" disabled={createWorkMutationBlocked} maxLength={200} /></label><label className="field">Verified commit<input name="verified_against" disabled={createWorkMutationBlocked} className="mono" maxLength={64} /></label><label className="field">Tags <span className="optional">Comma separated</span><input name="tags" disabled={createWorkMutationBlocked} /></label></div></details>
+      <label className="field">Initial context checkpoint<textarea className="prompt-editor" name="prompt" required disabled={createWorkMutationBlocked} rows={14} maxLength={100000} spellCheck={false} placeholder="Context, intended outcome, references, hazards, and verification…" onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /><span className="field-hint">Saved exactly as entered. Corrections become new checkpoints.</span></label>
+      <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input name="repository_branch" disabled={createWorkMutationBlocked} maxLength={200} /></label><label className="field">Verified commit<input name="verified_against" disabled={createWorkMutationBlocked} className="mono" maxLength={64} /></label><label className="field">Tags <span className="optional">Comma separated</span><input name="tags" disabled={createWorkMutationBlocked} onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /></label></div></details>
+      <DuplicateSuggestionPanel
+        projectId={project.id}
+        draftGeneration={suggestionDraftGeneration}
+        disabled={createWorkMutationBlocked}
+        onInspect={(workItemId) => { void openExactWork(project.id, workItemId); }}
+      />
       {newWorkError && <ErrorNotice message={newWorkError} />}
       <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={workSaving || createWorkMutationBlocked} onClick={() => setWorkDialog(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={workSaving || createWorkMutationBlocked}>{workSaving ? "Creating…" : "Create work and checkpoint"}</button></div>
     </form></Dialog>}

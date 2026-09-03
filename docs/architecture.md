@@ -1,9 +1,8 @@
-# Mnemonic architecture through Phase 9 Core
+# Mnemonic architecture through Phase 9
 
-This architecture describes application/API/MCP `0.3.0`, Claude plugin `0.7.0`,
-and Alembic head `0016_duplicate_handling`. Phase 9 Advisory suggestions are not
-part of this release. The longer-term direction and later-phase boundaries are
-in [`roadmap.md`](roadmap.md).
+This architecture describes application/API/MCP `0.4.0`, Claude plugin `0.8.0`,
+and Alembic head `0017_duplicate_suggestion_title_key`. The longer-term
+direction and later-phase boundaries are in [`roadmap.md`](roadmap.md).
 
 ## Product model
 
@@ -35,6 +34,8 @@ flowchart LR
     WorkItem --> Merge[Immutable duplicate merge]
     Merge --> Alias[Retained source alias]
     Merge --> Canonical[Direct destination]
+    Draft[Transient creation draft] -. explicit safe read .-> Suggestion[Grouped duplicate suggestions]
+    Suggestion -. evidence only .-> WorkItem
 ```
 
 A work item owns only mutable identity and lifecycle: title, summary, status,
@@ -216,9 +217,10 @@ routes. `routes/` has one module per concept: `projects`, `work_search`,
 The MCP service is a typed HTTP adapter. Its eleven protected mutation tools
 require the caller to prepare and retain one operation UUID plus the complete
 arguments; the adapter sends only one HTTP attempt. Its other tools use work,
-checkpoint, lease, relationship, human-gate, and duplicate terminology. Its exact 26-tool
+checkpoint, lease, relationship, human-gate, and duplicate terminology. Its exact 27-tool
 catalog includes request, attention, and gate-history operations but deliberately
-no resolution tool; `merge_work` is its only authoritative duplicate mutation.
+no resolution tool; `merge_work` is its only authoritative duplicate mutation,
+while `suggest_duplicate_work` is an independently retryable safe read.
 The dashboard calls only an exact same-origin proxy
 allowlist, including attention/history reads, gate resolution, event
 list/progress append, and actor-bearing work or relationship writes. A dashboard-lifetime in-memory
@@ -378,6 +380,17 @@ binaries; after any merge or Core receipt, correction is a whole-database
 restore that knowingly loses every later write, or a future reviewed append-only
 correction release.
 
+`0017_duplicate_suggestion_title_key` rewrites no work content and creates no
+canonical fact. It adds the immutable PostgreSQL-17
+`mnemonic_duplicate_title_key_v1(text)` function—NFKC normalization, POSIX
+whitespace trim/collapse, and lowercase under C collation—and a partial
+expression index over visible work `(project_id, title_key, id)`. SQLAlchemy
+metadata declares the same index expression. Unlike 0016, 0017 supports a
+schema-only downgrade to Core by dropping those derived objects; it has no
+domain facts to reverse. The widened Alembic revision column remains at
+64 characters because the mandated 0017 revision ID exceeds the historical
+32-character capacity; no application content changes.
+
 ## Idempotent mutation execution
 
 The thirteen enrolled REST operations are create work, add checkpoint, append
@@ -430,7 +443,7 @@ and token are excluded. `claim_and_recall` acquires or replays a claim and
 assembles the same bounded context before one commit. Recall includes immediate
 incoming, outgoing, and undirected relationships with counts and pointer-only
 counterparts; it never recursively injects the graph. Ordinary recall caps each
-relationship direction at 100 in Phase 9 Core. It also returns an exact
+relationship direction at 100 in Phase 9. It also returns an exact
 `MergeReviewRevision`, canonical projection, at most 20 duplicate member
 pointers, exact member/omission totals, omitted relationship counts, and source
 merge-eligibility facts. An alias response retains only that alias's checkpoint,
@@ -451,11 +464,49 @@ identifiers/provenance/tags participate without multiplying result rows.
 Canonical source and tag filters match any checkpoint.
 
 Lexical PostgreSQL search remains the default. Opt-in semantic search embeds a
-bounded composition of work identity, initial context, and recent checkpoint
-text using the offline local model. The cache is keyed by work item and its
-digest changes after either a work identity edit or checkpoint append. Hybrid
-search preserves the established candidate-total semantics and never becomes a
-work scheduler.
+bounded composition of work identity, the first 1,500 initial-prompt
+characters, and a SQL-bounded 1,500-character tail across later checkpoints
+using the offline local model. Its derived cache is keyed by work item and its
+digest changes after either a work identity edit or checkpoint append. Cache
+refresh happens after the response snapshot, skips locked work rows, and uses a
+50 ms lock timeout plus a five-second statement timeout. Those bounded cache
+timeouts preserve the computed ranking; other semantic failures remain typed
+`semantic_unavailable`. Hybrid search preserves the established
+candidate-total semantics and never becomes a work scheduler.
+
+Duplicate suggestions are a separate safe-read POST over one complete,
+transient creation draft. The response reserves globally indexed exact-title
+groups before other lanes, retains at most 200 non-exact lexical canonical
+groups, and optionally fuses local semantic rank with lexical rank using the
+versioned `duplicate-suggestion-v1` composition. Existing-work text includes
+at most the 30 most-recent distinct normalized tags, selected by latest
+checkpoint occurrence and emitted lexicographically; `tags=recent-30` is part
+of the disposable cache version. A full-project semantic claim
+requires at most 10,000 visible members and current cached vectors for all of
+them; otherwise the response declares shortlist-only coverage and computes at
+most 128 missing vectors. Model load, capacity, inference, vector, or derived
+cache failure falls back to deterministic lexical success.
+
+Each result is one canonical group with the exact matched member, rank, and an
+ordered subset of categorical `exact_title`, `lexical`, and `semantic` signals.
+It exposes no scores, vectors, checkpoint bodies, provenance, readiness
+capability, merge control, or lease/gate detail. The query vector and result are
+never stored. Candidate title and summary retain their exact stored string values;
+create-draft trimming is not reapplied. Existing-work vector cache writes occur
+after the coherent candidate snapshot in a separate digest-checked transaction,
+skip locked work rows, and publish no event or live-sync invalidation.
+
+The authenticated route has a 2,097,152-byte streaming body cap, four request
+slots with a 250 ms wait, a ten-result maximum, and an absolute 60-second
+transport budget. A single process-wide inference slot is shared with ordinary
+semantic search. Suggestions wait 50 ms for it and then use lexical results;
+saturated ordinary semantic search returns typed `semantic_unavailable`.
+Capacity is acquired before a database session. PostgreSQL-17 suggestion
+transactions derive transaction, statement, and lock timeouts from the
+remaining request budget, and post-snapshot cache lock waits are further capped
+at 50 ms. Request saturation returns typed 429 with `Retry-After: 1`;
+database/system failure returns typed 503. Neither state changes or disables
+the ordinary creation path.
 
 ## Hierarchical human presentation
 
@@ -486,7 +537,7 @@ explicit cycle and depth fallbacks instead of silently hiding corrupt or
 unexpectedly deep branches, and schedules passive refresh from the earliest
 visible descendant lease expiry.
 
-## Deliberate Phase 9 Core limits
+## Deliberate Phase 9 limits
 
 Ready discovery is not automatic scheduling and there is no
 `claim_next_ready_work`. The receipt ledger still excludes project
@@ -497,11 +548,11 @@ or agent-facing resolution operation exists. A stored question/answer is
 untrusted context under a shared bearer, not verified human identity or renewed
 execution authority.
 
-Core adds only explicit authoritative duplicate merging. A bare `duplicate-of`
+Only explicit authoritative merging changes duplicate identity. A bare `duplicate-of`
 mark, `related`, `parent-child`, and `discovered-from` remain descriptive; only
-an authoritative merge makes its source a non-actionable alias. The release has
-no automatic merge, duplicate-suggestion endpoint or create-form suggestion,
-creation suppression, unmerge/split/retarget, ID redirect, claim substitution,
+an authoritative merge makes its source a non-actionable alias. Suggestions are
+explicit, transient, and evidence-only. The release has no automatic merge,
+per-keystroke suggestion, creation suppression, unmerge/split/retarget, ID redirect, claim substitution,
 relationship transfer, content or lifecycle coalescing, repository freshness
 verification, resource reservation, or automatic execution. No relationship,
 merge, or human answer may be inferred from similarity or checkpoint prose.

@@ -31,6 +31,29 @@ claim durability from a draft or bypass the MCP connection.
    not merge authority. Never create a fresh generic `duplicate-of` relationship from search;
    authoritative deduplication uses the separately reviewed `merge_work` workflow below.
 
+## Compare a complete draft before creating
+
+Once a proposed new item's title, summary, initial prompt, and tags are stable,
+call `suggest_duplicate_work` only when the user or workflow explicitly asks to
+check for existing work. Pass exactly that draft, the resolved `project_id`, an
+optional exact `exclude_work_item_id`, and a bounded `limit`. Do not call it on
+each keystroke, send operation or lease identifiers, or treat it as part of the
+later `create_work` intent. It is a safe read: an ordinary retry after timeout,
+`duplicate_suggestion_busy`, or `duplicate_suggestion_unavailable` cannot
+duplicate a write. If suggestions remain unavailable, report that comparison
+could not run and leave creation available.
+
+The response contains one current canonical root per candidate group and the
+exact member that matched. Read categorical `signals` only: `exact_title`,
+`lexical`, and `semantic`. `semantic_available=false` or
+`semantic_scope=unavailable` means lexical comparison still ran; a shortlist
+scope is not a full-project semantic scan. Candidate order, an exact title, a
+matched alias, or model similarity is retrieval evidence—not proof of identity,
+merge direction, or permission to suppress creation. Recall plausible items
+before choosing. If none is the same objective, or the user deliberately wants
+a distinct item, proceed with `create_work` unchanged. There is always a Create
+anyway path.
+
 ## Establish truthful provenance
 
 Claude Code's supplied session value: `${CLAUDE_SESSION_ID}`.
@@ -43,10 +66,11 @@ by the user. Full rules for session, client, model, branch, and
 
 ## Prepare each protected write once
 
-`create_work`, `add_checkpoint`, `append_event`, `add_relationship`,
-`update_work`, `request_human_input`, and `merge_work` are protected mutations. Prepare each
-complete intent once and follow the canonical retention, exact-retry, conflict,
-and lost-intent rules in
+The eleven protected mutations are `create_work`, `add_checkpoint`,
+`append_event`, `add_relationship`, `update_work`, `complete_work`,
+`delete_work`, `remove_relationship`, `release_claim`, `request_human_input`,
+and `merge_work`. Prepare each complete intent once and follow the canonical
+retention, exact-retry, conflict, and lost-intent rules in
 [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md)
 under "Retain protected mutation intents privately". Never put an operation
 UUID or retained arguments in Mnemonic content, chat, or logs.

@@ -1,5 +1,11 @@
-import pytest
+from time import monotonic
+from uuid import UUID
 
+import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from mnemonic_api.models import WorkItemEmbedding
 from mnemonic_api.semantic import BGE_QUERY_PREFIX
 
 pytestmark = pytest.mark.postgres
@@ -110,6 +116,90 @@ def test_semantic_search_finds_dense_only_matches_and_reuses_digest_cache(
         "[dense-target] Verified the durable progress path."
         in embedder.document_batches[-1][0]
     )
+
+
+def test_semantic_checkpoint_tail_keeps_exact_bounded_recent_text(
+    api, project, work_payload
+):
+    target = save(
+        api,
+        project,
+        work_payload,
+        title="Bounded semantic composition",
+        summary="Capture only the exact recent checkpoint tail.",
+        prompt="Initial bounded semantic context.",
+    )
+    later_prompts = [character * 1_000 for character in ("A", "B", "C")]
+    for index, prompt in enumerate(later_prompts):
+        response = api.post(
+            f"{path(project)}/{target['id']}/checkpoints",
+            json={
+                "kind": "progress",
+                "prompt": prompt,
+                "source_client": "semantic-tail-test",
+                "source_session_id": f"semantic-tail-{index}",
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    embedder = DeterministicEmbedder()
+    api.app.state.semantic_embedder = embedder
+    result = api.get(
+        path(project),
+        params={"q": "bounded composition", "semantic": "true"},
+    )
+
+    assert result.status_code == 200, result.text
+    expected_tail = "\n".join(later_prompts)[-1_500:]
+    assert embedder.document_batches[0][0].endswith("\n" + expected_tail)
+    assert "A" not in expected_tail
+
+
+def test_semantic_cache_lock_wait_is_bounded_and_does_not_discard_ranking(
+    api, project, work_payload, postgres_engine
+):
+    target = save(
+        api,
+        project,
+        work_payload,
+        title="Semantic cache contention",
+        summary="Keep a ranked result when derived cache persistence is busy.",
+        prompt="[dense-target] Original semantic cache input.",
+    )
+    embedder = DeterministicEmbedder()
+    api.app.state.semantic_embedder = embedder
+    query = "semantic cache contention"
+    initial = api.get(path(project), params={"q": query, "semantic": "true"})
+    assert initial.status_code == 200, initial.text
+
+    changed = api.post(
+        f"{path(project)}/{target['id']}/checkpoints",
+        json={
+            "kind": "progress",
+            "prompt": "[dense-target] Changed while the cache row is retained.",
+            "source_client": "semantic-cache-test",
+            "source_session_id": "semantic-cache-change",
+        },
+    )
+    assert changed.status_code == 201, changed.text
+
+    with Session(postgres_engine) as locker:
+        cache_row = locker.scalar(
+            select(WorkItemEmbedding)
+            .where(WorkItemEmbedding.work_item_id == UUID(target["id"]))
+            .with_for_update()
+        )
+        assert cache_row is not None
+        started_at = monotonic()
+        contended = api.get(
+            path(project), params={"q": query, "semantic": "true"}
+        )
+        elapsed = monotonic() - started_at
+
+    assert contended.status_code == 200, contended.text
+    assert contended.json()["items"][0]["summary"]["work_item"]["id"] == target["id"]
+    assert elapsed < 1.0
+    assert [len(batch) for batch in embedder.document_batches] == [1, 1]
 
 
 def test_semantic_search_preserves_strong_lexical_results(api, project, work_payload):

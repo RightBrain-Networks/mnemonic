@@ -38,3 +38,16 @@ def test_strict_response_models_match_openapi_properties_and_required_sets():
         assert set(model_schema.get("required", [])) == set(
             component_schema.get("required", [])
         ), name
+
+
+def test_duplicate_suggestion_request_matches_openapi_shape():
+    document = json.loads(
+        (REPOSITORY_ROOT / "docs" / "openapi.json").read_text(encoding="utf-8")
+    )
+    component = document["components"]["schemas"]["DuplicateSuggestionRequest"]
+    model_schema = response_models.DuplicateSuggestionRequest.model_json_schema()
+
+    assert set(model_schema["properties"]) == set(component["properties"])
+    assert set(model_schema["required"]) == set(component["required"])
+    for name in model_schema["properties"]:
+        assert model_schema["properties"][name] == component["properties"][name]

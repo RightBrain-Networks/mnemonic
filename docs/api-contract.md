@@ -1,8 +1,8 @@
-# Phase 9 Core API contract
+# Phase 9 API contract
 
-This is the application/API/MCP `0.3.0`, plugin `0.7.0`, and migration
-`0016_duplicate_handling` contract. It includes authoritative duplicate merges
-but not the separately versioned Advisory suggestion endpoint or UI.
+This is the application/API/MCP `0.4.0`, plugin `0.8.0`, and migration
+`0017_duplicate_suggestion_title_key` contract. It includes both authoritative
+duplicate merges and evidence-only duplicate suggestions.
 
 All application routes use `/api/v1` and
 `Authorization: Bearer <MNEMONIC_API_KEY>`. `GET /healthz` and
@@ -60,6 +60,11 @@ authoritative graph returns `503 duplicate_graph_invalid` and disables
 canonical-sensitive authority changes. Only `work_duplicate` may expose the
 current `canonical_work_item_id`; errors never expose rationale, history,
 reviewed revisions, tokens, operation IDs, or arbitrary endpoint IDs.
+Suggestion-specific failures are `request_body_too_large` (413),
+`duplicate_suggestion_busy` (429 with `Retry-After: 1`), and
+`duplicate_suggestion_unavailable` (503). The suggestion operation is a safe
+read: its timeout/429/503 may be retried normally and never imply an unknown
+structural write. Creation remains independent.
 
 ## Idempotent mutation receipts
 
@@ -196,6 +201,9 @@ Base path: `/projects/{project_id}/work-items`.
   root into one reviewed destination root and returns `WorkMergeResult` (201).
 - `GET /projects/{project_id}/human-attention` cursor-pages unresolved gates and
   their work summaries; `limit=0` returns the exact text-free count.
+- `POST /projects/{project_id}/duplicate-suggestions` compares one transient
+  creation draft and returns canonical-grouped evidence without creating a
+  receipt or domain event.
 
 There are no checkpoint update/delete routes. PostgreSQL also rejects direct
 `UPDATE` and `DELETE` against checkpoint rows.
@@ -451,6 +459,15 @@ relevance controls its page order, with the selected sort as a deterministic
 tie-breaker. Search results never contain prompt or
 source-metadata bodies.
 
+Opt-in semantic search acquires the same one-slot process-wide inference gate
+as duplicate suggestions before opening its database snapshot. If the 50 ms
+capacity wait expires, a valid semantic request returns typed 503
+`semantic_unavailable`; clients can retry as lexical search. Existing-work
+semantic text is SQL-bounded to the first 1,500 initial-prompt characters and a
+1,500-character tail across later checkpoints. Derived cache refresh occurs in
+a separate post-snapshot transaction, skips locked work rows, and bounds cache
+lock and statement waits; a bounded cache timeout retains the computed ranking.
+
 `view=full` returns flat `WorkSearchHit` pages. Each hit has `summary`, the
 returned root or explicitly scoped member's full `WorkSummary`, and
 `matched_member`, the exact member whose stored text supplied that match. A
@@ -469,6 +486,90 @@ Child pages inherit `status`, `sort`, `tag`, `source_client`, and `source_sessio
 with `limit` defaulting to 50 (maximum 100) and `offset=0`; totals count
 qualifying direct child branches. Relationship pages use the filters documented
 in the relationship contract below.
+
+### Duplicate suggestions
+
+`POST /projects/{project_id}/duplicate-suggestions` accepts exactly:
+
+```json
+{
+  "title": "Verify backup restoration",
+  "summary": "Check that the backup restores durable work.",
+  "initial_prompt": "Restore into an isolated database and verify the selected records.",
+  "tags": ["backup", "verification"],
+  "exclude_work_item_id": null,
+  "limit": 5
+}
+```
+
+Text and tag limits and normalization match the valid creation fields. `tags`
+defaults to `[]`, `exclude_work_item_id` to `null`, and `limit` to 5 with a
+maximum of 10. No provenance, operation UUID, lease token, relationship,
+canonical choice, create flag, unknown field, or silent truncation is accepted.
+An exclusion must name visible same-project work and removes its complete
+canonical group.
+
+The strict response is:
+
+```text
+DuplicateSuggestionPage {
+  items: [{
+    canonical_work: {
+      work_item_id, title, summary, status, updated_at,
+      duplicate_member_count
+    },
+    matched_member: {id, title, status},
+    rank,
+    signals: [exact_title | lexical | semantic]
+  }],
+  limit,
+  mode: hybrid_full | hybrid_shortlist | lexical,
+  semantic_available,
+  semantic_scope: full_project | lexical_shortlist | unavailable,
+  composition_version,
+  exact_title_group_total,
+  omitted_exact_title_group_count
+}
+```
+
+Ranks are contiguous from one; roots are unique; signals use the displayed
+closed order with no duplicates. The mode, semantic availability, and scope
+must agree. The candidate summary exposes no readiness, checkpoint body or
+provenance, lease holder/session, gate detail, raw score, vector, merge control,
+or operation capability. Candidate titles and summaries are returned exactly
+as stored, including boundary whitespace; create-draft trimming and
+normalization are not reapplied to retained work.
+
+Selection is `duplicate-suggestion-v1`. The immutable PostgreSQL-17 title key
+applies NFKC, trims and collapses POSIX whitespace, and lowercases under C
+collation. All visible members participate in the indexed exact-title lane;
+canonical groups reserve result slots before other lanes and exact total/omitted
+counts describe the global lane. Weighted lexical search uses title, summary,
+the 30 most-recent distinct normalized tags (chosen by latest checkpoint
+occurrence and emitted lexicographically), the first 1,500 characters of the
+initial prompt, and a SQL-bounded 1,500-character tail from later checkpoints,
+then retains at most 200 non-exact groups. Optional local
+`BAAI/bge-small-en-v1.5` rank uses RRF K=60 with lexical weight 3.0 and groups
+before the public limit. The cache version includes `tags=recent-30` alongside
+the composition, title-key, model, dimensions, text bounds, and rank weights.
+
+Full semantic scope is reported only for a project of at most 10,000 visible
+members when all current vectors are cached. Otherwise semantic work is limited
+to the lexical shortlist and at most 128 missing vectors. The process-wide
+inference gate is shared with ordinary semantic search. Suggestions wait at
+most 50 ms for capacity, then fall back to deterministic lexical 200; model
+load, inference, vector, or derived-cache failure has the same fallback.
+Database/system failure returns the typed 503.
+
+One absolute 60-second request deadline begins before body handling and spans
+inference and application work. The PostgreSQL-17 snapshot transaction sets
+transaction, statement, and lock timeouts from the remaining route budget.
+Existing-work cache updates occur afterward in a separate digest-checked
+transaction, skip locked work rows, and cap cache lock waits at 50 ms within
+that remaining budget. A cache-row lock timeout therefore falls back without
+extending the transport deadline. The draft vector and result are never
+persisted. The request creates no work, relationship, event, receipt,
+version/activity change, or live invalidation.
 
 ### Ready-work discovery
 
@@ -497,7 +598,7 @@ Ready discovery is advisory. It is separate from lexical/semantic retrieval,
 does not reserve work, and cannot bypass the atomic readiness recheck performed
 by `claim_work` or `claim_and_recall`.
 
-### Core response shapes
+### Phase 9 response shapes
 
 `WorkItemRead` contains:
 
@@ -740,7 +841,7 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 26 tools:
+The catalog is exactly 27 tools:
 
 ```text
 list_projects, create_project,
@@ -750,7 +851,7 @@ list_work_gates, append_event, list_work_events,
 update_work, complete_work, delete_work,
 claim_work, claim_and_recall, renew_claim, release_claim,
 add_relationship, get_relationship, list_relationships, remove_relationship,
-merge_work
+merge_work, suggest_duplicate_work
 ```
 
 Exactly `create_work`, `add_checkpoint`, `append_event`, `add_relationship`,
@@ -771,6 +872,16 @@ root-to-parent `ancestor_path`, including blank-query pages. `list_ready_work`
 returns strict compact pointers and directs an already-authorized selection to
 `claim_and_recall`; it is not retrieval, reservation, or authority, and excludes
 waiting work.
+
+`suggest_duplicate_work` accepts the resolved project plus exactly the six
+draft fields documented above. It is read-only, closed-world, and explicitly
+classified `safe_read`; it takes no `client_operation_id` and sends one request
+with the 60-second Advisory budget. A timeout, transport failure, 429, or 503
+permits an ordinary retry because no structural outcome is uncertain. Its
+strict response validator binds project-independent candidate fields, unique
+canonical groups, contiguous ranks, signal order, exact counts, and coherent
+mode/scope/semantic state. It never exposes scores or turns a candidate into an
+automatic create, redirect, relationship, or merge.
 
 The `request_human_input` tool description requires its caller to check existing
 open questions and write supporting context first. It sends one attempt; after an unknown outcome, retry only the exact retained UUID
@@ -806,10 +917,12 @@ error kinds. Unknown/string-detail conflicts are not guessed as slug or version
 conflicts. No adapter error renders caller values, request IDs, operation IDs,
 lease tokens, prompts, or upstream detail.
 
-Every top-level input rejects unknown fields. A timeout/reset, upstream 5xx,
-malformed protected success, or `client_operation_unavailable` is an unknown
-outcome and causes no second outbound attempt, except that a typed
-`duplicate_graph_invalid` is a definitive stop. MCP validates protected success
+Every top-level input rejects unknown fields. For a protected write, a
+timeout/reset, upstream 5xx, malformed success, or
+`client_operation_unavailable` is an unknown outcome and causes no second
+outbound attempt, except that a typed `duplicate_graph_invalid` is a definitive
+stop. Safe-read suggestion failures use the separate ordinary-retry rule above.
+MCP validates protected success
 against strict OpenAPI-aligned response properties, required fields, requested
 scope, and request coherence. Its server and `httpx` logger run at WARNING so
 query text, cursors, and URL identifiers are not emitted at INFO.
@@ -834,6 +947,14 @@ no lease-token surface, so it disables merge while the source has an active
 lease and directs the person to release or finish that lease through an
 authorized client. It never strips or invents a token.
 
+The exact duplicate-suggestion route is the sole safe POST in this area. Its
+body allowlist is only `title`, `summary`, `initial_prompt`, `tags`,
+`exclude_work_item_id`, and `limit`; operation IDs, lease tokens, headers,
+cookies, query parameters, and nested additions are rejected. Only this route
+raises the streaming proxy body cap to 2,097,152 bytes and the transport budget
+to 60 seconds. It forwards `Retry-After: 1` only for the typed busy response,
+never enters the protected-intent registry, and publishes no live invalidation.
+
 The eleven covered browser writes require one top-level operation UUID and a frozen body.
 Event POST accepts `{event_type,body,metadata,actor,client_operation_id}` and
 rejects `lease_token` rather than stripping it. Relationship DELETE carries the
@@ -841,7 +962,7 @@ serialized actor/key body. Project relationship GET-by-ID, project ready-work,
 claim, renew, release, and every capability-bearing body are denied.
 
 The proxy rejects arbitrary paths, unknown query keys, untrusted hosts/origins,
-bodies over 1 MiB, a `lease_token` at any depth, operation IDs outside their
+bodies over the route-specific cap, a `lease_token` at any depth, operation IDs outside their
 allowed top-level bodies, and gate IDs outside typed path segments. Invalid UUIDs
 and values equal to the server bearer are rejected without echo.
 
@@ -876,7 +997,13 @@ API: `DATABASE_URL`, `MNEMONIC_API_KEY` (required, at least 32 characters),
 `MNEMONIC_LEASE_TTL_SECONDS` (default 900, allowed 60 through 3600),
 `MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS` (default 10, allowed 1 through 10),
 `MNEMONIC_EMBEDDING_CACHE`, and `MNEMONIC_DASHBOARD_ORIGINS` for exact
-browser/WebSocket origins.
+browser/WebSocket origins. Advisory settings are
+`MNEMONIC_DUPLICATE_SUGGESTION_BODY_MAX_BYTES`, `_REQUEST_SLOTS`,
+`_REQUEST_WAIT_MS`, `_INFERENCE_SLOTS`, `_INFERENCE_WAIT_MS`,
+`_LEXICAL_SHORTLIST`, `_MISSING_VECTOR_LIMIT`,
+`_FULL_POPULATION_CEILING`, and `_TIMEOUT_SECONDS`, where every abbreviated
+name retains the `MNEMONIC_DUPLICATE_SUGGESTION` prefix. Their defaults are the
+2 MiB/4/250 ms/1/50 ms/200/128/10000/60-second limits documented above.
 
 MCP: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, `MNEMONIC_MCP_HOST`,
 `MNEMONIC_MCP_PORT`, `MNEMONIC_MCP_ALLOWED_HOSTS`, and

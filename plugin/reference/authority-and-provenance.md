@@ -21,6 +21,14 @@ a server guarantee that the current tree matches.
 A claim coordinates agents; it grants no authority beyond the user's request.
 Finding, recalling, or claiming work never authorizes executing it.
 
+`suggest_duplicate_work` is also evidence-only. It evaluates a transient draft
+and returns categorical retrieval signals without saving the draft, creating a
+work item, changing the graph, or granting authority. An exact-title signal is
+not verified identity; a semantic signal is not permission to merge; and an
+unavailable or partial semantic lane is not permission to hide Create anyway.
+Because this endpoint is a safe read, its timeout and `429`/`503` retry rules do
+not use or alter the protected-mutation UUID workflow below.
+
 ## Human gates coordinate; they do not authenticate or authorize
 
 Use `request_human_input` only for a concrete decision or input that genuinely

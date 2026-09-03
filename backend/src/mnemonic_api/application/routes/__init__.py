@@ -12,6 +12,7 @@
 - ``human_gates``: ``/projects/{id}/human-attention``, ``/work-items/{id}/gates``,
   and ``/gates/{id}/resolve`` and ``/gates/{id}/context`` beneath it.
 - ``leases``: ``/claim``, ``/claim-and-recall``, ``/renew-claim``, ``/release-claim``.
+- ``duplicates``: irreversible ``/merge`` and safe-read ``/duplicate-suggestions``.
 
 Outside ``api_router``: ``dashboard_sync`` (the origin-checked WebSocket at
 ``/api/v1/sync``, no bearer) and ``health`` (``/healthz``, ``/readyz``).

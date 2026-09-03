@@ -95,6 +95,8 @@ Summary = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1, max_length=1000),
     AfterValidator(nonblank),
 ]
+StoredTitle = Annotated[str, StringConstraints(min_length=1, max_length=200)]
+StoredSummary = Annotated[str, StringConstraints(min_length=1, max_length=1000)]
 Prompt = Annotated[
     str, StringConstraints(min_length=1, max_length=100000), AfterValidator(nonblank)
 ]
@@ -941,6 +943,133 @@ class WorkSummary(APIModel):
 class WorkSearchHit(APIModel):
     summary: WorkSummary
     matched_member: WorkIdentityPointer
+
+
+DuplicateSuggestionSignal = Literal["exact_title", "lexical", "semantic"]
+DuplicateSuggestionMode = Literal["hybrid_full", "hybrid_shortlist", "lexical"]
+DuplicateSuggestionSemanticScope = Literal[
+    "full_project", "lexical_shortlist", "unavailable"
+]
+_DUPLICATE_SUGGESTION_SIGNAL_ORDER = ("exact_title", "lexical", "semantic")
+
+
+class DuplicateSuggestionRequest(APIModel):
+    """An ephemeral create draft; no authority or mutation control is accepted."""
+
+    title: Title
+    summary: Summary
+    initial_prompt: Prompt
+    tags: Tags = Field(default_factory=list)
+    exclude_work_item_id: UUID | None = None
+    limit: Annotated[StrictInt, Field(ge=1, le=10)] = 5
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(tag.lower() for tag in value))
+
+
+class DuplicateCandidateSummary(APIModel):
+    work_item_id: UUID
+    title: StoredTitle
+    summary: StoredSummary
+    status: Status
+    updated_at: datetime
+    duplicate_member_count: Annotated[StrictInt, Field(ge=0)]
+
+    @model_validator(mode="after")
+    def aware_timestamp(self) -> Self:
+        if self.updated_at.tzinfo is None or self.updated_at.utcoffset() != timedelta(0):
+            raise ValueError("Candidate timestamps must use UTC")
+        return self
+
+    @field_serializer("updated_at")
+    def utc_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class DuplicateSuggestion(APIModel):
+    canonical_work: DuplicateCandidateSummary
+    matched_member: WorkIdentityPointer
+    rank: Annotated[StrictInt, Field(ge=1, le=10)]
+    signals: list[DuplicateSuggestionSignal] = Field(min_length=1, max_length=3)
+
+    @model_validator(mode="after")
+    def ordered_unique_signals(self) -> Self:
+        expected = sorted(
+            set(self.signals),
+            key=_DUPLICATE_SUGGESTION_SIGNAL_ORDER.index,
+        )
+        if self.signals != expected:
+            raise ValueError("Suggestion signals must be unique and in canonical order")
+        if self.matched_member.id == self.canonical_work.work_item_id and (
+            self.matched_member.title != self.canonical_work.title
+            or self.matched_member.status != self.canonical_work.status
+        ):
+            raise ValueError("A root match must identify the canonical candidate exactly")
+        if (
+            self.matched_member.id != self.canonical_work.work_item_id
+            and self.canonical_work.duplicate_member_count == 0
+        ):
+            raise ValueError("An alias match requires a duplicate group member")
+        return self
+
+
+class DuplicateSuggestionPage(APIModel):
+    items: list[DuplicateSuggestion] = Field(max_length=10)
+    limit: Annotated[StrictInt, Field(ge=1, le=10)]
+    mode: DuplicateSuggestionMode
+    semantic_available: StrictBool
+    semantic_scope: DuplicateSuggestionSemanticScope
+    composition_version: Literal["duplicate-suggestion-v1"]
+    exact_title_group_total: Annotated[StrictInt, Field(ge=0)]
+    omitted_exact_title_group_count: Annotated[StrictInt, Field(ge=0)]
+
+    @model_validator(mode="after")
+    def page_is_coherent(self) -> Self:
+        self._require_rank_and_group_identity()
+        self._require_semantic_mode()
+        self._require_exact_lane()
+        return self
+
+    def _require_rank_and_group_identity(self) -> None:
+        if len(self.items) > self.limit:
+            raise ValueError("Suggestion items cannot exceed the requested limit")
+        if [item.rank for item in self.items] != list(range(1, len(self.items) + 1)):
+            raise ValueError("Suggestion ranks must be contiguous and ordered")
+        root_ids = [item.canonical_work.work_item_id for item in self.items]
+        if len(root_ids) != len(set(root_ids)):
+            raise ValueError("Suggestion canonical groups must be unique")
+        member_ids = [item.matched_member.id for item in self.items]
+        if len(member_ids) != len(set(member_ids)):
+            raise ValueError("Suggestion matched members must be unique")
+
+    def _require_semantic_mode(self) -> None:
+        expected = {
+            "hybrid_full": (True, "full_project"),
+            "hybrid_shortlist": (True, "lexical_shortlist"),
+            "lexical": (False, "unavailable"),
+        }[self.mode]
+        if (self.semantic_available, self.semantic_scope) != expected:
+            raise ValueError("Suggestion mode and semantic scope are inconsistent")
+        if not self.semantic_available and any(
+            "semantic" in item.signals for item in self.items
+        ):
+            raise ValueError("Lexical fallback cannot report semantic evidence")
+
+    def _require_exact_lane(self) -> None:
+        visible_exact = min(self.exact_title_group_total, self.limit)
+        if len(self.items) < visible_exact:
+            raise ValueError("Exact-title groups must fill available response slots first")
+        actual_exact = sum("exact_title" in item.signals for item in self.items)
+        if actual_exact != visible_exact:
+            raise ValueError("Exact-title group totals are inconsistent")
+        if any(
+            "exact_title" not in item.signals for item in self.items[:visible_exact]
+        ) or any("exact_title" in item.signals for item in self.items[visible_exact:]):
+            raise ValueError("Exact-title suggestions must form the response prefix")
+        if self.omitted_exact_title_group_count != self.exact_title_group_total - visible_exact:
+            raise ValueError("Omitted exact-title group count is inconsistent")
 
 
 class HumanAttentionItem(APIModel):
