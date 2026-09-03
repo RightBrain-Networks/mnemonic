@@ -1127,7 +1127,7 @@ button { touch-action: manipulation; }
 }
 .sidebar-footer > span:nth-child(2) { white-space: nowrap; }
 .theme-selector label:hover span { color: #fff; background: #4b213c; }
-.theme-selector input:checked + span { color: #fff; background: #c74708; }
+.theme-selector input:checked + span { color: #fff; background: #b83d00; }
 .theme-selector input:focus-visible + span {
   outline: 2px solid var(--lime);
   outline-offset: 2px;
@@ -1145,43 +1145,56 @@ html[data-theme="dark"] {
   color-scheme: dark;
   --paper: #1b1024;
   --surface: #251130;
-  --ink: #f5eddc;
-  --muted: #c7bdc8;
-  --faint: #a99dab;
+  --ink: #a098a1;
+  --muted: #9f95a1;
+  --faint: #958b97;
   --line: #4b344f;
-  --accent: #ff6c27;
-  --accent-deep: #ff9b6b;
+  --accent: #e2784c;
+  --accent-deep: #cf8469;
   --accent-soft: #48231f;
-  --accent-fill: #c74708;
+  --accent-fill: #b83d00;
   --violet: #aa83ff;
   --violet-soft: #35254a;
   --lime: #9de500;
   --plum: #251130;
   --plum-deep: #140a1c;
   --cream: #35283c;
-  --danger: #ff8e80;
+  --danger: #d3918b;
   --danger-soft: #44211f;
   --dark-raised: #2b1835;
   --dark-muted: #302239;
   --dark-border: #5a405f;
-  --dark-text: #e8e0e7;
-  --dark-violet-text: #cbb5ff;
+  --dark-text: #a098a1;
+  --dark-violet-text: #a58cd3;
   --dark-violet-line: #76569f;
-  --dark-success-text: #b9ea7b;
+  --dark-success-text: #87a861;
   --dark-success-bg: #24331f;
   --dark-success-line: #58783c;
-  --dark-warning-text: #f0d47d;
+  --dark-warning-text: #b29b60;
   --dark-warning-bg: #3a301d;
   --dark-warning-line: #806b35;
-  --dark-danger-text: #ffb0a7;
+  --dark-danger-text: #c7837e;
   --dark-danger-bg: #44211f;
   --dark-danger-line: #8d4b43;
-  --dark-accent-text: #ffb08a;
+  --dark-accent-text: #cf8469;
   --dark-accent-bg: #48231f;
   --dark-accent-line: #9b5034;
 }
 
-html[data-theme="dark"] ::selection { color: #fff; background: #8d54ff; }
+html[data-theme="dark"] ::selection { color: var(--plum-deep); background: var(--violet); }
+html[data-theme="dark"] .skip-link { color: var(--ink); background: var(--plum-deep); }
+html[data-theme="dark"] .sidebar,
+html[data-theme="dark"] .sidebar .brand { color: var(--ink); }
+html[data-theme="dark"] :is(.logo-mark, .brand-period) { color: var(--accent); }
+html[data-theme="dark"] .sidebar :is(.section-label, .select-chevron, .new-project-button,
+  .copy-project-button, .sidebar-note p, .sidebar-footer) { color: var(--muted); }
+html[data-theme="dark"] .select-wrap select,
+html[data-theme="dark"] .nav-item { color: var(--dark-text); }
+html[data-theme="dark"] .sidebar :is(.new-project-button:hover,
+  .copy-project-button:hover) { color: var(--accent-deep); }
+html[data-theme="dark"] .theme-selector span { color: var(--muted); }
+html[data-theme="dark"] .theme-selector label:hover span { color: var(--dark-text); }
+html[data-theme="dark"] .theme-selector input:checked + span { color: #fff; }
 html[data-theme="dark"] .main-content::before {
   opacity: .62;
   filter: drop-shadow(2px 3px 3px rgb(141 84 255 / .28));
@@ -1209,9 +1222,19 @@ html[data-theme="dark"] .button-secondary:hover:not(:disabled),
 html[data-theme="dark"] .copy-button:hover:not(:disabled),
 html[data-theme="dark"] .copy-button.is-copied,
 html[data-theme="dark"] .button-secondary.is-copied {
-  color: #eadfff;
+  color: var(--dark-violet-text);
   background: var(--violet-soft);
   border-color: var(--violet);
+}
+html[data-theme="dark"] .button-danger {
+  color: var(--dark-danger-text);
+  background: var(--dark-danger-bg);
+  border-color: var(--dark-danger-line);
+}
+html[data-theme="dark"] .button-danger:hover:not(:disabled) {
+  color: var(--dark-danger-text);
+  background: #351923;
+  border-color: var(--danger);
 }
 html[data-theme="dark"] .icon-button:hover:not(:disabled),
 html[data-theme="dark"] .filter-button:hover { background: var(--dark-muted); }
@@ -1226,6 +1249,7 @@ html[data-theme="dark"] .sync-status-dot {
   box-shadow: 0 0 0 3px rgb(169 157 171 / .18);
 }
 html[data-theme="dark"] :is(.nav-item.active, .button-primary, .attention-nav-count) {
+  color: #fff;
   background: var(--accent-fill);
   border-color: var(--accent-fill);
 }
@@ -1343,21 +1367,45 @@ html[data-theme="dark"] :is(.field, .comment > p, .metadata-grid dd, .checkpoint
   .merge-direction-panel > p, .duplicate-suggestion-summary, .duplicate-suggestion-match) {
   color: var(--dark-text);
 }
+html[data-theme="dark"] :is(.detail-summary, .checkpoint-provenance dd,
+  .relationship-direction legend) {
+  color: var(--dark-text);
+}
+html[data-theme="dark"] :is(.field input, .field textarea,
+  .hierarchy-filter-fields input)::placeholder {
+  color: var(--faint);
+}
+html[data-theme="dark"] :is(.scaffold-label, .merge-full-id) { color: var(--muted); }
+html[data-theme="dark"] :is(.card-source > span,
+  .search-ancestry > span > span) { color: var(--faint); }
 html[data-theme="dark"] :is(.macro-legend code, .settings-state.custom,
   .edit-context > summary, .metadata-details > summary, .active-lease-holder .lease-label,
   .readonly-lifecycle, .hierarchy-toggle, .duplicate-scope-control label:hover span,
-  .duplicate-scope-control label.selected span, .duplicate-group-filter) {
+  .duplicate-scope-control label.selected span, .duplicate-group-filter,
+  .search-ancestry > span:last-child, .relationship-group h5,
+  .relationship-editor > summary, .work-event-references dd, .hierarchy-origin) {
   color: var(--dark-violet-text);
   border-color: var(--dark-violet-line);
 }
+html[data-theme="dark"] :is(.gate-changes, .duplicate-suggestion-state.is-error) {
+  color: var(--dark-danger-text);
+}
+html[data-theme="dark"] :is(.terminal-action-note,
+  .duplicate-suggestions-stale .duplicate-suggestion-state) {
+  color: var(--dark-warning-text);
+}
+html[data-theme="dark"] .matched-member > span { color: var(--dark-accent-text); }
+html[data-theme="dark"] .hierarchy-scaffold > .hierarchy-node-row > .hierarchy-card
+  > .work-item-card :is(.card-summary, .card-source) { color: var(--muted); }
 html[data-theme="dark"] .hierarchy-filter-override { background: var(--dark-muted); }
 html[data-theme="dark"] .checkpoint-body,
 html[data-theme="dark"] .work-event-body,
 html[data-theme="dark"] .attention-question,
 html[data-theme="dark"] .gate-question { background: var(--dark-muted); }
+html[data-theme="dark"] .comment.work-summary .comment-session { color: var(--muted); }
 html[data-theme="dark"] .prompt-body,
 html[data-theme="dark"] .gate-context-review pre {
-  color: #f5eddc;
+  color: var(--dark-text);
   background: var(--plum-deep);
   border-color: var(--dark-violet-line);
 }
