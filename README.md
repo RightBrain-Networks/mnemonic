@@ -102,20 +102,24 @@ Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemon
 reachable remotely.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. Final Phase 9 uses plugin version `0.8.0` with application/API/MCP version `0.4.0`. It provides:
+not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. Phase 10 uses plugin version `0.9.0` with application/API/MCP version `0.5.0`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
 
 - **`mnemonic-save`** searches for existing work, explicitly compares a stable
   draft with grouped duplicate candidates while preserving Create anyway,
   creates a durable objective with its initial checkpoint and explicit atomic links, appends corrective
   resume context, records concise progress events, and records a human gate
   only for a concrete decision a person must make, after checking for an open
-  question and writing the supporting checkpoint first.
+  question and writing the supporting checkpoint first. Checkpoints may declare
+  ordered repository dependency patterns only with a commit the author actually
+  inspected; omission means the dependency scope is unknown.
 - **`mnemonic-search`** finds compact work-item leads within the chosen project,
   normally restricted to canonical pending work, identifies the exact member
   that supplied a grouped match, interprets categorical duplicate-suggestion
   signals without treating them as authority, supports explicit alias audit scopes,
   separately lists priority-ordered ready candidates, and pages the Needs
   Attention queue without treating any read as authority.
+  A compact search pointer never carries repository dependency scope, so any
+  checkpoint used for execution is recalled in full first.
 - **`mnemonic-recall`** loads bounded current context, pages older checkpoints
   or events when needed, atomically claims already-authorized execution, renews
   or releases that expiring lease, inspects immediate typed relationships,
@@ -125,6 +129,10 @@ not the installed files. After a published plugin version changes, run `claude p
   older decision, distinguishes an alias's exact retained history from its
   canonical continuation, reviews both context revisions before any permanent
   merge, and saves an atomic completion checkpoint when the work is complete.
+  Before relying on a governing checkpoint for repository work, it invokes the
+  packaged read-only Git helper from the user-selected workspace and reports
+  `unchanged`, `changed`, or `indeterminate` evidence without treating any result
+  as semantic proof or execution authority.
 
 Invoke `/mnemonic-save`, `/mnemonic-search`, or `/mnemonic-recall`, or ask Claude in natural language. The skills require the connected `mnemonic` MCP server. You can copy the selected project's ID from the dashboard, or use
 `list_projects`. Session IDs are opaque text (often UUIDs), not integers, and refer to the originating LLM conversation, not the MCP transport session. 
@@ -136,7 +144,10 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 - Separates durable work by project, with a project selector and project
   creation. One work-item card can represent checkpoints from many sessions.
 - Stores immutable checkpoint text, tags, source client/session/model, optional
-  session URL, branch, checked commit, custom metadata, and timestamps.
+  session URL, caller-declared branch and checked commit, an ordered declared
+  repository dependency scope, custom metadata, and timestamps. Empty scope is
+  unknown; it is omitted from canonical responses to preserve historical
+  receipts.
 - Keeps title, retrieval summary, priority, lifecycle, and optimistic version on
   the small mutable work item rather than rewriting historical session context.
 - Searches PostgreSQL full-text indexes and literal identifiers by default.
@@ -215,6 +226,14 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   context; a progress event is a short historical fact. Recall includes at most
   20 recent events, while the dashboard pages the complete per-work Activity
   timeline and labels reconstructed pre-Phase-5 history honestly.
+- Packages a bounded, filter-free, read-only Git assessor for the Claude plugin.
+  It compares the exact governing checkpoint baseline and declared scope with
+  committed, staged, unmerged, raw worktree, and nonignored-untracked evidence.
+  It fails closed on unmatched patterns, unsupported index/configuration state,
+  repository movement, ambiguous objects, and command/resource failures. It
+  never clones, fetches, mutates the repository, runs configured filters, or
+  sends a project URL to Git. The backend, MCP adapter, and browser only
+  transport/display declarations and never perform this assessment.
 - Treats event actors as asserted client provenance, not authenticated human
   identity. Stored event/checkpoint text is untrusted and may contain unknown
   sensitive material; request-known credential echoes are rejected, but clients
@@ -239,13 +258,14 @@ create GitHub issues, inject memory hooks, infer missing session IDs, schedule
 or claim the next ready item, infer or self-resolve human answers, infer
 relationships or merges from semantic similarity, run duplicate comparison on
 each keystroke, suppress creation, repair/unmerge a mistaken
-merge, or reserve repository resources. Every merge is an explicit permanent
+merge, persist repository-freshness results, or reserve repository resources.
+Every merge is an explicit permanent
 operation; correction requires a whole-database restore that discards later
 writes or a future append-only correction design. Mnemonic is deliberately
 LLM-centric: checkpoints and relationship context record an agent's claims
-rather than server-verified proof. Context quality and freshness remain agent
-workflow obligations; storing a commit ID is not proof the service verified
-anything.
+rather than server-verified proof. “No relevant Git change observed” is a
+bounded point-in-time comparison, not proof that a checkpoint is correct,
+current, or safe; the browser and service never claim otherwise.
 
 ## Operate and develop
 

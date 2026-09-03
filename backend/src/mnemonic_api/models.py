@@ -239,6 +239,15 @@ class Checkpoint(Base):
             name="commit_format",
         ),
         CheckConstraint(
+            "mnemonic_affected_paths_valid_v1(affected_paths)",
+            name="affected_paths_valid_v1",
+        ),
+        CheckConstraint(
+            "pg_catalog.cardinality(affected_paths) "
+            "OPERATOR(pg_catalog.=) 0 OR verified_against IS NOT NULL",
+            name="affected_paths_require_commit",
+        ),
+        CheckConstraint(
             "(migration_origin IS NULL AND legacy_record_id IS NULL) OR "
             "(migration_origin IN ('legacy-handoff-snapshot', 'legacy-comment') "
             "AND legacy_record_id IS NOT NULL)",
@@ -268,6 +277,9 @@ class Checkpoint(Base):
     source_session_url: Mapped[str | None] = mapped_column(String(2000))
     repository_branch: Mapped[str | None] = mapped_column(String(200))
     verified_against: Mapped[str | None] = mapped_column(String(64))
+    affected_paths: Mapped[list[str]] = mapped_column(
+        ARRAY(String(512)), default=list, server_default=text("'{}'::varchar[]")
+    )
     tags: Mapped[list[str]] = mapped_column(
         ARRAY(String(50)), default=list, server_default=text("'{}'::varchar[]")
     )

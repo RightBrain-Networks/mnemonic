@@ -146,6 +146,60 @@ test("merge ambiguity freezes both work keys, both revisions, and byte-identical
   assert.deepEqual(calls[0], calls[1]);
 });
 
+test("checkpoint ambiguity freezes ordered affected paths into the exact retry intent", async () => {
+  const calls = [];
+  const registry = new MutationIntentRegistry(async (url, init) => {
+    calls.push({ url: String(url), method: init.method, body: init.body });
+    return new Response(JSON.stringify({ detail: "Lost checkpoint response." }), { status: 502 });
+  }, () => operation);
+  const affectedPaths = ["src/**", "Tests/test_*.py", "README.md"];
+  const slot = `add-checkpoint:${project}:${work}`;
+  const input = {
+    kind: "add_checkpoint",
+    slot,
+    projectId: project,
+    conflictKeys: [mutationWorkKey(project, work)],
+    method: "POST",
+    path: `/projects/${project}/work-items/${work}/checkpoints`,
+    payload: {
+      kind: "context",
+      prompt: "Exact scoped context",
+      source_client: "dashboard",
+      source_session_id: "tab-1",
+      source_model: null,
+      source_session_url: null,
+      repository_branch: "work/phase10",
+      verified_against: "abcdef1234567",
+      affected_paths: affectedPaths,
+      tags: [],
+      source_metadata: {}
+    }
+  };
+
+  await assert.rejects(
+    registry.execute(input),
+    (error) => error instanceof MutationIntentError && error.state === "unresolved"
+  );
+  affectedPaths.reverse();
+  const retained = registry.get(slot);
+  assert.deepEqual(JSON.parse(retained.body).affected_paths, [
+    "src/**",
+    "Tests/test_*.py",
+    "README.md"
+  ]);
+  assert.equal(JSON.parse(retained.body).client_operation_id, operation);
+
+  await assert.rejects(
+    registry.execute(input),
+    (error) => error instanceof MutationIntentError && error.state === "blocked"
+  );
+  await assert.rejects(
+    registry.retry(slot),
+    (error) => error instanceof MutationIntentError && error.state === "unresolved"
+  );
+  assert.deepEqual(calls[0], calls[1]);
+});
+
 test("double submission coalesces one in-flight request", async () => {
   let fetchCount = 0;
   let release;

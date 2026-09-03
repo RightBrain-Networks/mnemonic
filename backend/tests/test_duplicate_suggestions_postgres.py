@@ -1267,5 +1267,5 @@ def test_title_key_function_and_partial_expression_index_are_frozen(postgres_eng
                 """
             )
         ).one()
-        assert head == "0017_duplicate_suggestion_title_key"
+        assert head == "0018_repository_freshness"
         assert capacity == 64

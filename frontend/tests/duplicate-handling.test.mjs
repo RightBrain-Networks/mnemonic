@@ -252,6 +252,30 @@ test("canonical projections preserve exact direction and reject ambiguous or cor
   }, alias.work_item), /invalid canonical/);
 });
 
+test("direct work context accepts sparse or non-empty scope and rejects explicit empty", () => {
+  const historical = decodeWorkContext(context(), project, work);
+  assert.deepEqual(historical.initial_checkpoint.affected_paths, []);
+
+  const scoped = context();
+  scoped.initial_checkpoint = {
+    ...scoped.initial_checkpoint,
+    verified_against: "abcdef1",
+    affected_paths: ["src/**", "tests/test_*.py"]
+  };
+  const decoded = decodeWorkContext(scoped, project, work);
+  assert.deepEqual(decoded.initial_checkpoint.affected_paths, ["src/**", "tests/test_*.py"]);
+
+  const explicitEmpty = context();
+  explicitEmpty.initial_checkpoint = {
+    ...explicitEmpty.initial_checkpoint,
+    affected_paths: []
+  };
+  assert.throws(
+    () => decodeWorkContext(explicitEmpty, project, work),
+    /invalid mutation response/
+  );
+});
+
 test("direct detail remains a strict wrapper without widening the receipt-safe work item", () => {
   const decoded = decodeWorkItemDetail({ work_item: workItem(), canonical: projection() }, project, work);
   assert.equal(decoded.work_item.id, work);

@@ -1,0 +1,1978 @@
+#!/bin/bash -p
+
+# Mnemonic repository freshness verifier.
+# Runtime dependencies: Bash >= 3.2 and Git >= 2.45.0.
+
+set +e
+set +u
+set +x
+set +o verbose
+set +o pipefail
+set +H
+set -f
+IFS=$' \t\n'
+shopt -u dotglob extglob failglob nocasematch nullglob 2>/dev/null
+exec 2>/dev/null
+
+readonly PROTOCOL="mnemonic-repository-freshness-v1"
+readonly DISCLAIMER="git-state-only-not-semantic-proof"
+readonly MAX_PATTERNS=64
+readonly MAX_PATTERN_BYTES=512
+readonly MAX_AGGREGATE_BYTES=16384
+readonly MAX_DISPLAY_PATHS=100
+readonly MAX_RETAINED_PATH_BYTES=8192
+readonly MAX_PROTOCOL_BYTES=32768
+readonly GIT_STATUS_MARKER=mnemonic-git-status:
+readonly STREAM_RECORD_LIMIT=$((MAX_RETAINED_PATH_BYTES + 1025))
+
+emit_runtime_failure() {
+  local reason=$1
+  printf '%s\n' \
+    "protocol=${PROTOCOL}" \
+    "state=indeterminate" \
+    "reason=${reason}" \
+    "baseline_oid=-" \
+    "head_oid=-" \
+    "pattern_count=0" \
+    "matched_pattern_count=0" \
+    "displayed_path_count=0" \
+    "paths_truncated=0" \
+    "disclaimer=${DISCLAIMER}"
+  exit 20
+}
+
+if ((BASH_VERSINFO[0] < 3 || (BASH_VERSINFO[0] == 3 && BASH_VERSINFO[1] < 2))); then
+  emit_runtime_failure unsupported_bash_version
+fi
+
+unset_prefix() {
+  local prefix=$1 name
+  while IFS= read -r name; do
+    [[ -n $name ]] && unset "$name"
+  done < <(compgen -A variable "$prefix")
+}
+
+# Remove repository, configuration, process, network, trace, and pathspec steering.
+unset_prefix GIT_
+unset SSH_ASKPASS SSH_ASKPASS_REQUIRE PAGER EDITOR VISUAL
+unset BASH_ENV ENV GLOBIGNORE PS4 BASH_XTRACEFD
+unset_prefix GCM_
+
+GIT_BIN=$(type -P git 2>/dev/null)
+if [[ -z $GIT_BIN || $GIT_BIN != /* || ! -x $GIT_BIN ]]; then
+  emit_runtime_failure unsupported_git_version
+fi
+readonly GIT_BIN
+
+export LC_ALL=C
+export LANG=C
+export GIT_OPTIONAL_LOCKS=0
+export GIT_NO_LAZY_FETCH=1
+export GIT_NO_REPLACE_OBJECTS=1
+export GIT_GRAFT_FILE=/dev/null
+export GIT_CONFIG_NOSYSTEM=1
+export GIT_CONFIG_SYSTEM=/dev/null
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_ATTR_NOSYSTEM=1
+export GIT_TERMINAL_PROMPT=0
+export GCM_INTERACTIVE=never
+export GIT_PAGER=cat
+
+readonly -a GIT_FIXED_CONFIG=(
+  -c core.fsmonitor=false
+  -c core.ignoreStat=false
+  -c core.checkStat=default
+  -c core.trustctime=true
+  -c core.quotePath=true
+  -c core.attributesFile=/dev/null
+  -c core.excludesFile=/dev/null
+  -c advice.graftFileDeprecated=false
+)
+
+drain_git_stderr() {
+  local chunk= seen=0
+  while IFS= read -r -n 4096 chunk; do
+    seen=1
+    chunk=
+  done
+  [[ -z $chunk ]] || seen=1
+  return "$seen"
+}
+
+git_hardened() {
+  local frame frame_status git_status stderr_status
+  local -a command statuses
+
+  if (($# == 1)) && [[ $1 == --version ]]; then
+    command=("$GIT_BIN" --version)
+  else
+    command=("$GIT_BIN" --no-replace-objects --no-pager "${GIT_FIXED_CONFIG[@]}" "$@")
+  fi
+
+  # Keep Git stdout on our stdout while a bounded-memory Bash reader drains
+  # stderr. The captured frame contains only statuses, never Git diagnostics.
+  exec 9>&1
+  frame=$(
+    "${command[@]}" 2>&1 1>&9 | drain_git_stderr
+    statuses=("${PIPESTATUS[@]}")
+    printf '%s:%s' "${statuses[0]}" "${statuses[1]}"
+  )
+  frame_status=$?
+  exec 9>&-
+  ((frame_status == 0)) || return 125
+  [[ $frame == *:* && $frame != *:*:* ]] || return 125
+  git_status=${frame%%:*}
+  stderr_status=${frame#*:}
+  case $git_status:$stderr_status in
+    *[!0-9:]*|:*|*:|*::* ) return 125 ;;
+  esac
+  ((stderr_status == 0)) || return 125
+  return "$git_status"
+}
+
+git_version_output=$(git_hardened --version)
+git_version_status=$?
+if ((git_version_status != 0)) || [[ $git_version_output != "git version "* ]]; then
+  emit_runtime_failure unsupported_git_version
+fi
+git_version=${git_version_output#git version }
+git_major=${git_version%%.*}
+git_version_rest=${git_version#*.}
+if [[ $git_version_rest == "$git_version" ]]; then
+  emit_runtime_failure unsupported_git_version
+fi
+git_minor=${git_version_rest%%.*}
+git_patch_rest=${git_version_rest#*.}
+if [[ $git_patch_rest == "$git_version_rest" ]]; then
+  emit_runtime_failure unsupported_git_version
+fi
+git_patch=${git_patch_rest%%[!0-9]*}
+case $git_major:$git_minor in
+  *[!0-9:]*|:|*:)
+    emit_runtime_failure unsupported_git_version
+    ;;
+esac
+[[ -n $git_patch ]] || emit_runtime_failure unsupported_git_version
+case $git_version in
+  *.rc*|*-rc*)
+    emit_runtime_failure unsupported_git_version
+    ;;
+esac
+if ((git_major < 2 || (git_major == 2 && git_minor < 45))); then
+  emit_runtime_failure unsupported_git_version
+fi
+
+BASELINE=
+BASELINE_SEEN=0
+declare -a PATTERNS=()
+
+while (($#)); do
+  case $1 in
+    --baseline)
+      (($# >= 2)) || exit 64
+      ((BASELINE_SEEN == 0)) || exit 64
+      BASELINE_SEEN=1
+      BASELINE=$2
+      shift 2
+      ;;
+    --path)
+      (($# >= 2)) || exit 64
+      PATTERNS[${#PATTERNS[@]}]=$2
+      shift 2
+      ;;
+    *)
+      exit 64
+      ;;
+  esac
+done
+
+[[ -n $BASELINE && ${#PATTERNS[@]} -gt 0 ]] || exit 64
+
+PATTERN_COUNT=${#PATTERNS[@]}
+MATCHED_PATTERN_COUNT=0
+BASELINE_OID=-
+HEAD_OID=-
+PATHS_TRUNCATED=0
+declare -a DETAILS=()
+declare -a FINAL_PATHS=()
+declare -a FINAL_PATHS_ENCODED=()
+
+emit_protocol() {
+  local state=$1 reason=$2 exit_status=$3 detail path
+  printf '%s\n' \
+    "protocol=${PROTOCOL}" \
+    "state=${state}" \
+    "reason=${reason}" \
+    "baseline_oid=${BASELINE_OID}" \
+    "head_oid=${HEAD_OID}" \
+    "pattern_count=${PATTERN_COUNT}" \
+    "matched_pattern_count=${MATCHED_PATTERN_COUNT}" \
+    "displayed_path_count=${#FINAL_PATHS_ENCODED[@]}" \
+    "paths_truncated=${PATHS_TRUNCATED}"
+  for detail in "${DETAILS[@]}"; do
+    printf 'detail=%s\n' "$detail"
+  done
+  for path in "${FINAL_PATHS_ENCODED[@]}"; do
+    printf 'path_byte_q=%s\n' "$path"
+  done
+  printf 'disclaimer=%s\n' "$DISCLAIMER"
+  exit "$exit_status"
+}
+
+invalid_declaration() {
+  MATCHED_PATTERN_COUNT=0
+  BASELINE_OID=-
+  HEAD_OID=-
+  DETAILS=()
+  FINAL_PATHS_ENCODED=()
+  PATHS_TRUNCATED=0
+  emit_protocol indeterminate invalid_declaration 20
+}
+
+valid_scope_component() {
+  local component=$1
+  [[ -n $component && $component != . && $component != .. ]] || return 1
+  if [[ $component == *"**"* && $component != "**" ]]; then
+    return 1
+  fi
+  return 0
+}
+
+validate_pattern() {
+  local value=$1 rest component
+  ((${#value} > 0 && ${#value} <= MAX_PATTERN_BYTES)) || return 1
+  [[ $value != /* && $value != */ && $value != *//* ]] || return 1
+  [[ $value != *[!A-Za-z0-9._@+=,~*/-]* ]] || return 1
+  rest=$value
+  while :; do
+    if [[ $rest == */* ]]; then
+      component=${rest%%/*}
+      rest=${rest#*/}
+    else
+      component=$rest
+      rest=
+    fi
+    valid_scope_component "$component" || return 1
+    [[ -n $rest ]] || break
+  done
+  return 0
+}
+
+case $BASELINE in
+  *[!0-9A-Fa-f]*) invalid_declaration ;;
+esac
+((${#BASELINE} >= 7 && ${#BASELINE} <= 64)) || invalid_declaration
+((PATTERN_COUNT >= 1 && PATTERN_COUNT <= MAX_PATTERNS)) || invalid_declaration
+
+aggregate_bytes=0
+for ((i = 0; i < PATTERN_COUNT; i++)); do
+  validate_pattern "${PATTERNS[i]}" || invalid_declaration
+  ((aggregate_bytes += ${#PATTERNS[i]}))
+  ((aggregate_bytes <= MAX_AGGREGATE_BYTES)) || invalid_declaration
+  for ((j = 0; j < i; j++)); do
+    [[ ${PATTERNS[i]} != "${PATTERNS[j]}" ]] || invalid_declaration
+  done
+done
+
+declare -a PATHSPECS=()
+for ((i = 0; i < PATTERN_COUNT; i++)); do
+  if [[ ${PATTERNS[i]} == *'*'* ]]; then
+    PATHSPECS[i]=":(top,glob)${PATTERNS[i]}"
+  else
+    PATHSPECS[i]=":(top,literal)${PATTERNS[i]}"
+  fi
+done
+
+TOP=
+REPO_GIT_DIR=
+git_repo() {
+  git_hardened --git-dir="$REPO_GIT_DIR" --work-tree="$TOP" -C "$TOP" "$@"
+}
+
+pre_anchor_failure() {
+  local reason=$1
+  BASELINE_OID=-
+  HEAD_OID=-
+  MATCHED_PATTERN_COUNT=0
+  DETAILS=()
+  FINAL_PATHS_ENCODED=()
+  PATHS_TRUNCATED=0
+  emit_protocol indeterminate "$reason" 20
+}
+
+git_failure() {
+  local lane=$1 anchored=${2:-0}
+  if ((anchored == 0)); then
+    BASELINE_OID=-
+    HEAD_OID=-
+    MATCHED_PATTERN_COUNT=0
+  fi
+  DETAILS=("lane:${lane}")
+  FINAL_PATHS_ENCODED=()
+  PATHS_TRUNCATED=0
+  emit_protocol indeterminate git_failed 20
+}
+
+valid_full_oid() {
+  local oid=$1
+  ((${#oid} == 40 || ${#oid} == 64)) || return 1
+  [[ $oid != *[!0-9a-f]* ]]
+}
+
+CALLER_CWD=$(builtin pwd -P)
+caller_cwd_status=$?
+if ((caller_cwd_status != 0)) || [[ $CALLER_CWD != /* || $CALLER_CWD == *$'\n'* || \
+  $CALLER_CWD == *$'\r'* ]]; then
+  pre_anchor_failure not_a_worktree
+fi
+
+bare_value=$(git_hardened rev-parse --is-bare-repository)
+bare_status=$?
+((bare_status == 0)) || pre_anchor_failure not_a_worktree
+[[ $bare_value == false ]] || {
+  [[ $bare_value == true ]] && pre_anchor_failure bare_repository
+  pre_anchor_failure not_a_worktree
+}
+
+git_hardened config --includes --get-all core.worktree >/dev/null
+core_worktree_status=$?
+case $core_worktree_status in
+  1) ;;
+  0) git_failure repository 0 ;;
+  *) git_failure repository 0 ;;
+esac
+
+top_capture=$(
+  git_hardened rev-parse --path-format=absolute --show-toplevel
+  top_status=$?
+  printf .
+  exit "$top_status"
+)
+top_status=$?
+((top_status == 0)) || pre_anchor_failure not_a_worktree
+[[ $top_capture == *$'\n.' ]] || pre_anchor_failure not_a_worktree
+top_capture=${top_capture%.}
+TOP=${top_capture%$'\n'}
+[[ $TOP == /* && $TOP != *$'\n'* && $TOP != *$'\r'* ]] || pre_anchor_failure not_a_worktree
+[[ $CALLER_CWD == "$TOP" || $CALLER_CWD == "$TOP/"* ]] || pre_anchor_failure not_a_worktree
+
+git_dir_capture=$(
+  git_hardened -C "$TOP" rev-parse --path-format=absolute --absolute-git-dir
+  git_dir_status=$?
+  printf .
+  exit "$git_dir_status"
+)
+git_dir_status=$?
+((git_dir_status == 0)) || git_failure repository 0
+[[ $git_dir_capture == *$'\n.' ]] || git_failure repository 0
+git_dir_capture=${git_dir_capture%.}
+REPO_GIT_DIR=${git_dir_capture%$'\n'}
+[[ $REPO_GIT_DIR == /* && $REPO_GIT_DIR != *$'\n'* && \
+  $REPO_GIT_DIR != *$'\r'* ]] || git_failure repository 0
+readonly TOP REPO_GIT_DIR
+
+glob_escape() {
+  local input=$1 output= character index
+  for ((index = 0; index < ${#input}; index++)); do
+    character=${input:index:1}
+    case $character in
+      '['|']'|'?'|'*'|'\') output="${output}\\${character}" ;;
+      *) output=${output}${character} ;;
+    esac
+  done
+  GLOB_ESCAPED=$output
+}
+
+split_index_artifact_present() {
+  glob_escape "$REPO_GIT_DIR"
+  compgen -G "${GLOB_ESCAPED}/sharedindex.*" >/dev/null
+}
+
+# Git 2.45 unconditionally refreshes a live split index's shared-file mtime on
+# every index read, even with optional locks disabled. A Bash/Git-only helper
+# cannot both inspect that index and honor the no-repository-write contract.
+# Fail before the first index-aware command. Stale shared-index artifacts are
+# intentionally conservative because safely parsing the binary index would add
+# another runtime or require temporary persistence.
+[[ -r $REPO_GIT_DIR && -x $REPO_GIT_DIR ]] || git_failure repository 0
+split_index_artifact_present
+split_index_status=$?
+case $split_index_status in
+  0) pre_anchor_failure split_index_unsupported ;;
+  1) ;;
+  *) git_failure repository 0 ;;
+esac
+
+# Pin every remaining Git process to the discovered pair. Reject core.worktree
+# both before and after pinning so config/include races cannot silently rebind it.
+git_repo config --includes --get-all core.worktree >/dev/null
+core_worktree_status=$?
+case $core_worktree_status in
+  1) ;;
+  0) git_failure repository 0 ;;
+  *) git_failure repository 0 ;;
+esac
+
+head_candidate=$(git_repo rev-parse --verify --end-of-options 'HEAD^{commit}')
+head_status=$?
+((head_status == 0)) || pre_anchor_failure unborn_head
+valid_full_oid "$head_candidate" || git_failure repository 0
+
+baseline_match_count=0
+baseline_candidate=
+baseline_stream_invalid=0
+object_candidate=
+baseline_pending=
+baseline_have_pending=0
+exec 8< <(
+  git_repo rev-parse --disambiguate="$BASELINE"
+  printf '%s%s\n' "$GIT_STATUS_MARKER" "$?"
+)
+while IFS= read -r -n 129 object_candidate <&8; do
+  if ((baseline_have_pending)); then
+    valid_full_oid "$baseline_pending" || baseline_stream_invalid=1
+    if ((baseline_match_count == 0)); then
+      baseline_candidate=$baseline_pending
+    fi
+    ((baseline_match_count < 2)) && ((baseline_match_count += 1))
+  fi
+  baseline_pending=$object_candidate
+  baseline_have_pending=1
+  object_candidate=
+done
+[[ -z $object_candidate ]] || baseline_stream_invalid=1
+exec 8<&-
+((baseline_have_pending)) || git_failure object 0
+case $baseline_pending in
+  "$GIT_STATUS_MARKER"*) baseline_match_status=${baseline_pending#"$GIT_STATUS_MARKER"} ;;
+  *) baseline_match_status=invalid ;;
+esac
+case $baseline_match_status in
+  ''|*[!0-9]*) baseline_stream_invalid=1 ;;
+esac
+((baseline_match_status == 0 && baseline_stream_invalid == 0)) || git_failure object 0
+if ((baseline_match_count == 0)); then
+  pre_anchor_failure baseline_missing
+elif ((baseline_match_count > 1)); then
+  pre_anchor_failure baseline_ambiguous
+fi
+
+baseline_type=$(git_repo cat-file -t -- "$baseline_candidate")
+baseline_type_status=$?
+((baseline_type_status == 0)) || pre_anchor_failure baseline_missing
+[[ $baseline_type == commit ]] || pre_anchor_failure baseline_not_commit
+
+BASELINE_OID=$baseline_candidate
+
+capture_head() {
+  CAPTURED_HEAD=$(git_repo rev-parse --verify --end-of-options 'HEAD^{commit}')
+  local status=$?
+  ((status == 0)) || return 1
+  valid_full_oid "$CAPTURED_HEAD"
+}
+
+hash_index_stream() {
+  local kind=$1 output status
+  case $kind in
+    stage)
+      output=$(
+        git_repo ls-files --stage --sparse -z -- | git_repo hash-object --no-filters --stdin
+        statuses=("${PIPESTATUS[@]}")
+        ((statuses[0] == 0 && statuses[1] == 0)) || exit 1
+      )
+      status=$?
+      ;;
+    assume)
+      output=$(
+        git_repo ls-files -v --sparse -z -- | git_repo hash-object --no-filters --stdin
+        statuses=("${PIPESTATUS[@]}")
+        ((statuses[0] == 0 && statuses[1] == 0)) || exit 1
+      )
+      status=$?
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  ((status == 0)) || return 1
+  valid_full_oid "$output" || return 1
+  INDEX_STREAM_HASH=$output
+  return 0
+}
+
+capture_index_identity() {
+  local stage_hash assume_hash
+  hash_index_stream stage || return 1
+  stage_hash=$INDEX_STREAM_HASH
+  hash_index_stream assume || return 1
+  assume_hash=$INDEX_STREAM_HASH
+  INDEX_IDENTITY="${stage_hash}:${assume_hash}"
+  return 0
+}
+
+STREAM_PARTIAL=0
+BOUNDED_RECORD=
+BOUNDED_OVERFLOW=0
+BOUNDED_PARTIAL=0
+read_bounded_nul_record() {
+  local fd=$1 status chunk=
+  BOUNDED_RECORD=
+  BOUNDED_OVERFLOW=0
+  BOUNDED_PARTIAL=0
+  IFS= read -r -d '' -n "$STREAM_RECORD_LIMIT" -u "$fd" BOUNDED_RECORD
+  status=$?
+  if ((status != 0)); then
+    [[ -z $BOUNDED_RECORD ]] || BOUNDED_PARTIAL=1
+    return 1
+  fi
+  ((${#BOUNDED_RECORD} < STREAM_RECORD_LIMIT)) && return 0
+
+  BOUNDED_OVERFLOW=1
+  while :; do
+    chunk=
+    IFS= read -r -d '' -n "$STREAM_RECORD_LIMIT" -u "$fd" chunk
+    status=$?
+    if ((status != 0)); then
+      BOUNDED_PARTIAL=1
+      return 0
+    fi
+    ((${#chunk} < STREAM_RECORD_LIMIT)) && return 0
+  done
+}
+
+git_stream() {
+  local callback=$1 git_status callback_status=0 record= pending= have_pending=0
+  local overflow=0 pending_overflow=0
+  shift
+  STREAM_PARTIAL=0
+  exec 8< <(
+    git_repo "$@"
+    printf '%s%s\0' "$GIT_STATUS_MARKER" "$?"
+  )
+  while read_bounded_nul_record 8; do
+    record=$BOUNDED_RECORD
+    overflow=$BOUNDED_OVERFLOW
+    ((BOUNDED_PARTIAL == 0)) || STREAM_PARTIAL=1
+    if ((have_pending && callback_status == 0)); then
+      "$callback" "$pending" "$pending_overflow"
+      callback_status=$?
+    fi
+    pending=$record
+    pending_overflow=$overflow
+    have_pending=1
+    record=
+  done
+  ((BOUNDED_PARTIAL == 0)) || STREAM_PARTIAL=1
+  exec 8<&-
+  ((have_pending)) || return 1
+  ((pending_overflow == 0)) || STREAM_PARTIAL=1
+  case $pending in
+    "$GIT_STATUS_MARKER"*) git_status=${pending#"$GIT_STATUS_MARKER"} ;;
+    *) git_status=invalid ;;
+  esac
+  case $git_status in
+    ''|*[!0-9]*) STREAM_PARTIAL=1 ;;
+  esac
+  ((git_status == 0 && callback_status == 0 && STREAM_PARTIAL == 0))
+}
+
+git_stream_nested() {
+  local callback=$1 git_status callback_status=0 record= pending= have_pending=0 partial=0
+  local overflow=0 pending_overflow=0
+  shift
+  exec 7< <(
+    git_repo "$@"
+    printf '%s%s\0' "$GIT_STATUS_MARKER" "$?"
+  )
+  while read_bounded_nul_record 7; do
+    record=$BOUNDED_RECORD
+    overflow=$BOUNDED_OVERFLOW
+    ((BOUNDED_PARTIAL == 0)) || partial=1
+    if ((have_pending && callback_status == 0)); then
+      "$callback" "$pending" "$pending_overflow"
+      callback_status=$?
+    fi
+    pending=$record
+    pending_overflow=$overflow
+    have_pending=1
+    record=
+  done
+  ((BOUNDED_PARTIAL == 0)) || partial=1
+  exec 7<&-
+  ((have_pending)) || return 1
+  ((pending_overflow == 0)) || partial=1
+  case $pending in
+    "$GIT_STATUS_MARKER"*) git_status=${pending#"$GIT_STATUS_MARKER"} ;;
+    *) git_status=invalid ;;
+  esac
+  case $git_status in
+    ''|*[!0-9]*) partial=1 ;;
+  esac
+  ((git_status == 0 && callback_status == 0 && partial == 0))
+}
+
+CONFIG_CAPTURE=
+CONFIG_CAPTURE_STATUS=
+CONFIG_CAPTURE_OVERFLOW=0
+capture_config_value() {
+  local record= pending= have_pending=0 overflow=0 pending_overflow=0
+  local value_count=0 partial=0 git_status
+  CONFIG_CAPTURE=
+  CONFIG_CAPTURE_STATUS=
+  CONFIG_CAPTURE_OVERFLOW=0
+  exec 8< <(
+    git_repo config -z "$@"
+    printf '%s%s\0' "$GIT_STATUS_MARKER" "$?"
+  )
+  while read_bounded_nul_record 8; do
+    record=$BOUNDED_RECORD
+    overflow=$BOUNDED_OVERFLOW
+    ((BOUNDED_PARTIAL == 0)) || partial=1
+    if ((have_pending)); then
+      ((value_count += 1))
+      if ((pending_overflow != 0)); then
+        CONFIG_CAPTURE_OVERFLOW=1
+      elif ((value_count == 1)); then
+        CONFIG_CAPTURE=$pending
+      else
+        partial=1
+      fi
+    fi
+    pending=$record
+    pending_overflow=$overflow
+    have_pending=1
+    record=
+  done
+  ((BOUNDED_PARTIAL == 0)) || partial=1
+  exec 8<&-
+  ((have_pending)) || return 1
+  ((pending_overflow == 0)) || partial=1
+  case $pending in
+    "$GIT_STATUS_MARKER"*) git_status=${pending#"$GIT_STATUS_MARKER"} ;;
+    *) git_status=invalid ;;
+  esac
+  case $git_status in
+    ''|*[!0-9]*) partial=1 ;;
+  esac
+  if ((git_status == 0)); then
+    ((value_count == 1)) || partial=1
+  elif ((git_status == 1)); then
+    ((value_count == 0)) || partial=1
+  else
+    partial=1
+  fi
+  ((partial == 0)) || return 1
+  CONFIG_CAPTURE_STATUS=$git_status
+  return 0
+}
+
+HAS_RECORD=0
+mark_record() {
+  HAS_RECORD=1
+  return 0
+}
+
+git_has_records() {
+  HAS_RECORD=0
+  git_stream mark_record "$@" || return 2
+  ((HAS_RECORD == 1))
+}
+
+declare -a SPLIT_RESULT=()
+split_components() {
+  local rest=$1 component
+  SPLIT_RESULT=()
+  while :; do
+    if [[ $rest == */* ]]; then
+      component=${rest%%/*}
+      rest=${rest#*/}
+    else
+      component=$rest
+      rest=
+    fi
+    SPLIT_RESULT[${#SPLIT_RESULT[@]}]=$component
+    [[ -n $rest ]] || break
+  done
+}
+
+declare -a MATCH_PATTERN_COMPONENTS=()
+declare -a MATCH_PATH_COMPONENTS=()
+declare -a DP_STATES=()
+declare -a DP_CLOSED=()
+declare -a DP_NEXT=()
+
+add_unique_number() {
+  local value=$1 existing
+  for existing in "${DP_NEXT[@]}"; do
+    ((existing == value)) && return 0
+  done
+  DP_NEXT[${#DP_NEXT[@]}]=$value
+}
+
+epsilon_close() {
+  local state cursor existing
+  DP_CLOSED=()
+  for state in "${DP_STATES[@]}"; do
+    DP_NEXT=("${DP_CLOSED[@]}")
+    add_unique_number "$state"
+    DP_CLOSED=("${DP_NEXT[@]}")
+  done
+  cursor=0
+  while ((cursor < ${#DP_CLOSED[@]})); do
+    state=${DP_CLOSED[cursor]}
+    if ((state < ${#MATCH_PATTERN_COMPONENTS[@]})) && \
+      [[ ${MATCH_PATTERN_COMPONENTS[state]} == '**' ]]; then
+      DP_NEXT=("${DP_CLOSED[@]}")
+      add_unique_number "$((state + 1))"
+      DP_CLOSED=("${DP_NEXT[@]}")
+    fi
+    ((cursor += 1))
+  done
+  DP_STATES=("${DP_CLOSED[@]}")
+}
+
+prepare_match_components() {
+  split_components "$1"
+  MATCH_PATTERN_COMPONENTS=("${SPLIT_RESULT[@]}")
+  split_components "$2"
+  MATCH_PATH_COMPONENTS=("${SPLIT_RESULT[@]}")
+}
+
+consume_path_prefix() {
+  local text state pattern
+  DP_STATES=(0)
+  epsilon_close
+  for text in "${MATCH_PATH_COMPONENTS[@]}"; do
+    DP_NEXT=()
+    for state in "${DP_STATES[@]}"; do
+      ((state < ${#MATCH_PATTERN_COMPONENTS[@]})) || continue
+      pattern=${MATCH_PATTERN_COMPONENTS[state]}
+      if [[ $pattern == '**' ]]; then
+        add_unique_number "$state"
+      elif [[ $text == $pattern ]]; then
+        add_unique_number "$((state + 1))"
+      fi
+    done
+    DP_STATES=("${DP_NEXT[@]}")
+    ((${#DP_STATES[@]} > 0)) || return 1
+    epsilon_close
+  done
+  return 0
+}
+
+path_matches_pattern() {
+  local pattern=$1 path=$2 state
+  if [[ $pattern == */'**' ]]; then
+    trailing_double_star_matches "$pattern" "$path"
+    return $?
+  fi
+  prepare_match_components "$pattern" "$path"
+  consume_path_prefix || return 1
+  for state in "${DP_STATES[@]}"; do
+    ((state == ${#MATCH_PATTERN_COMPONENTS[@]})) && return 0
+  done
+  return 1
+}
+
+trailing_double_star_matches() {
+  local pattern=$1 path=$2 state text last_index
+  prepare_match_components "$pattern" "$path"
+  last_index=$((${#MATCH_PATTERN_COMPONENTS[@]} - 1))
+  unset "MATCH_PATTERN_COMPONENTS[$last_index]"
+  MATCH_PATTERN_COMPONENTS=("${MATCH_PATTERN_COMPONENTS[@]}")
+  DP_STATES=(0)
+  epsilon_close
+  for text in "${MATCH_PATH_COMPONENTS[@]}"; do
+    for state in "${DP_STATES[@]}"; do
+      ((state == ${#MATCH_PATTERN_COMPONENTS[@]})) && return 0
+    done
+    DP_NEXT=()
+    for state in "${DP_STATES[@]}"; do
+      ((state < ${#MATCH_PATTERN_COMPONENTS[@]})) || continue
+      pattern=${MATCH_PATTERN_COMPONENTS[state]}
+      if [[ $pattern == '**' ]]; then
+        add_unique_number "$state"
+      elif [[ $text == $pattern ]]; then
+        add_unique_number "$((state + 1))"
+      fi
+    done
+    DP_STATES=("${DP_NEXT[@]}")
+    ((${#DP_STATES[@]} > 0)) || return 1
+    epsilon_close
+  done
+  return 1
+}
+
+pattern_intersects_gitlink() {
+  local pattern=$1 path=$2
+  prepare_match_components "$pattern" "$path"
+  consume_path_prefix || return 1
+  ((${#DP_STATES[@]} > 0))
+}
+
+path_matches_declared_scope() {
+  local path=$1 index
+  for ((index = 0; index < PATTERN_COUNT; index++)); do
+    path_matches_pattern "${PATTERNS[index]}" "$path" && return 0
+  done
+  return 1
+}
+
+overflow_prefix_definitely_matches_scope() {
+  local path_prefix=$1 index pattern
+  for ((index = 0; index < PATTERN_COUNT; index++)); do
+    pattern=${PATTERNS[index]}
+    if [[ $pattern == '**' ]]; then
+      return 0
+    fi
+    if [[ $pattern == */'**' ]] && trailing_double_star_matches "$pattern" "$path_prefix"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+declaration_has_glob() {
+  local index
+  for ((index = 0; index < PATTERN_COUNT; index++)); do
+    [[ ${PATTERNS[index]} != *'*'* ]] || return 0
+  done
+  return 1
+}
+
+declare -a B_PATTERN_UNMATCHED=()
+declare -a B_EXACT_DIRECTORY=()
+declare -a B_ASSUME_UNCHANGED=()
+declare -a B_SKIP_WORKTREE=()
+declare -a B_FSMONITOR_CONFIG=()
+declare -a B_SUBMODULE=()
+declare -a B_EXTERNAL_FILTER=()
+declare -a B_NORMALIZATION=()
+declare -a B_SYMLINK=()
+
+mark_patterns_for_path() {
+  local blocker=$1 path=$2 index
+  for ((index = 0; index < PATTERN_COUNT; index++)); do
+    path_matches_pattern "${PATTERNS[index]}" "$path" || continue
+    case $blocker in
+      assume) B_ASSUME_UNCHANGED[index]=1 ;;
+      skip) B_SKIP_WORKTREE[index]=1 ;;
+      filter) B_EXTERNAL_FILTER[index]=1 ;;
+      normalization) B_NORMALIZATION[index]=1 ;;
+      symlink) B_SYMLINK[index]=1 ;;
+    esac
+  done
+}
+
+reset_sweep() {
+  B_PATTERN_UNMATCHED=()
+  B_EXACT_DIRECTORY=()
+  B_ASSUME_UNCHANGED=()
+  B_SKIP_WORKTREE=()
+  B_FSMONITOR_CONFIG=()
+  B_SUBMODULE=()
+  B_EXTERNAL_FILTER=()
+  B_NORMALIZATION=()
+  B_SYMLINK=()
+  OBS_SPARSE=0
+  OBS_COREFILEMODE=0
+  OBS_CORE_FILEMODE_TRUE=1
+  OBS_CORE_SYMLINKS_FALSE=0
+  OBS_AUTOCRLF=0
+  OBS_FSMONITOR_CONFIG=0
+  OBS_MATCHED_COUNT=0
+  OBS_COMMITTED=0
+  OBS_STAGED=0
+  OBS_UNMERGED=0
+  OBS_WORKTREE=0
+  OBS_UNTRACKED=0
+  OBS_STATE_CHANGED=0
+  OBS_FAILURE_LANE=
+  OBS_ANY_POSITIVE=0
+  OBS_PATHS_TRUNCATED=0
+  OBS_COMMITTED_TRUNCATED=0
+  OBS_STAGED_TRUNCATED=0
+  OBS_UNMERGED_TRUNCATED=0
+  OBS_COMMITTED_PATHS=()
+  OBS_STAGED_PATHS=()
+  OBS_UNMERGED_PATHS=()
+  OBS_WORK_PATHS=()
+  OBS_WORK_KINDS=()
+  OBS_WORK_OIDS=()
+  OBS_UNTRACKED_PATHS=()
+}
+
+read_bool_config() {
+  local key=$1 output status
+  capture_config_value --type=bool --get "$key" || return 1
+  ((CONFIG_CAPTURE_OVERFLOW == 0)) || return 1
+  output=$CONFIG_CAPTURE
+  status=$CONFIG_CAPTURE_STATUS
+  if ((status == 1)); then
+    CONFIG_VALUE=unset
+    return 0
+  fi
+  ((status == 0)) || return 1
+  case $output in
+    true|false) CONFIG_VALUE=$output ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+
+read_autocrlf_config() {
+  local output status
+  capture_config_value --type=bool-or-str --get core.autocrlf || return 1
+  output=$CONFIG_CAPTURE
+  status=$CONFIG_CAPTURE_STATUS
+  if ((status == 1)); then
+    OBS_AUTOCRLF=0
+    return 0
+  fi
+  ((status == 0)) || return 1
+  if ((CONFIG_CAPTURE_OVERFLOW != 0)); then
+    OBS_AUTOCRLF=1
+    return 0
+  fi
+  case $output in
+    false) OBS_AUTOCRLF=0 ;;
+    *) OBS_AUTOCRLF=1 ;;
+  esac
+  return 0
+}
+
+read_fsmonitor_config() {
+  local output status overflow=0 worktree_config=0
+  # Source selection excludes the command-scope false override while the Git
+  # process itself retains that override.
+  capture_config_value --includes --local --type=bool \
+    --get extensions.worktreeConfig || return 1
+  ((CONFIG_CAPTURE_OVERFLOW == 0)) || return 1
+  output=$CONFIG_CAPTURE
+  status=$CONFIG_CAPTURE_STATUS
+  if ((status == 0)); then
+    [[ $output == true || $output == false ]] || return 1
+    [[ $output != true ]] || worktree_config=1
+  elif ((status != 1)); then
+    return 1
+  fi
+  if ((worktree_config == 1)); then
+    capture_config_value --includes --worktree --type=bool-or-str \
+      --get core.fsmonitor || return 1
+    output=$CONFIG_CAPTURE
+    status=$CONFIG_CAPTURE_STATUS
+    overflow=$CONFIG_CAPTURE_OVERFLOW
+    if ((status == 0)); then
+      :
+    elif ((status != 1)); then
+      return 1
+    else
+      capture_config_value --includes --local --type=bool-or-str \
+        --get core.fsmonitor || return 1
+      output=$CONFIG_CAPTURE
+      status=$CONFIG_CAPTURE_STATUS
+      overflow=$CONFIG_CAPTURE_OVERFLOW
+    fi
+  else
+    capture_config_value --includes --local --type=bool-or-str \
+      --get core.fsmonitor || return 1
+    output=$CONFIG_CAPTURE
+    status=$CONFIG_CAPTURE_STATUS
+    overflow=$CONFIG_CAPTURE_OVERFLOW
+  fi
+  if ((status == 1)); then OBS_FSMONITOR_CONFIG=0; return 0; fi
+  ((status == 0)) || return 1
+  if ((overflow != 0)); then
+    OBS_FSMONITOR_CONFIG=1
+    return 0
+  fi
+  case $output in
+    false) OBS_FSMONITOR_CONFIG=0 ;;
+    *) OBS_FSMONITOR_CONFIG=1 ;;
+  esac
+  return 0
+}
+
+CURRENT_SCOPE_PATTERN=
+CURRENT_SCOPE_EXACT=0
+tree_scope_record() {
+  local path=$1 overflow=${2:-0}
+  if ((overflow != 0)); then
+    if [[ $CURRENT_SCOPE_PATTERN == '**' ]] || \
+      { [[ $CURRENT_SCOPE_PATTERN == */'**' ]] && \
+        trailing_double_star_matches "$CURRENT_SCOPE_PATTERN" "$path"; }; then
+      HAS_RECORD=1
+      return 0
+    fi
+    if ((CURRENT_SCOPE_EXACT == 1)) && [[ $path == "$CURRENT_SCOPE_PATTERN/"* ]]; then
+      HAS_RECORD=1
+      return 0
+    fi
+    return 1
+  fi
+  if path_matches_pattern "$CURRENT_SCOPE_PATTERN" "$path"; then
+    HAS_RECORD=1
+  elif ((CURRENT_SCOPE_EXACT == 1)) && [[ $path == "$CURRENT_SCOPE_PATTERN/"* ]]; then
+    # Git treats a literal tree path as a recursive traversal prefix. Count it
+    # as a match here; the exact-directory preflight supplies the blocker.
+    HAS_RECORD=1
+  fi
+  return 0
+}
+
+tree_pattern_has_match() {
+  local oid=$1
+  HAS_RECORD=0
+  git_stream tree_scope_record ls-tree -r -z --name-only "$oid" -- || return 2
+  ((HAS_RECORD == 1))
+}
+
+pattern_has_match() {
+  local index pathspec result
+  index=$1
+  pathspec=${PATHSPECS[index]}
+  CURRENT_SCOPE_PATTERN=${PATTERNS[index]}
+  CURRENT_SCOPE_EXACT=0
+  [[ $CURRENT_SCOPE_PATTERN == *'*'* ]] || CURRENT_SCOPE_EXACT=1
+  tree_pattern_has_match "$BASELINE_OID"
+  result=$?
+  ((result != 2)) || return 2
+  ((result == 0)) && return 0
+  tree_pattern_has_match "$HEAD_OID"
+  result=$?
+  ((result != 2)) || return 2
+  ((result == 0)) && return 0
+  git_has_records ls-files -z -- "$pathspec"
+  result=$?
+  ((result != 2)) || return 2
+  ((result == 0)) && return 0
+  git_has_records ls-files --others --exclude-standard -z -- "$pathspec"
+  result=$?
+  ((result != 2)) || return 2
+  ((result == 0))
+}
+
+EXACT_DIRECTORY_FOUND=0
+exact_tree_record() {
+  local record overflow mode
+  record=$1
+  overflow=${2:-0}
+  mode=${record%% *}
+  ((overflow == 0)) || return 1
+  [[ $mode == 040000 ]] && EXACT_DIRECTORY_FOUND=1
+  return 0
+}
+
+CURRENT_EXACT_PATH=
+exact_index_record() {
+  local path=$1
+  [[ $path == "$CURRENT_EXACT_PATH/"* ]] && EXACT_DIRECTORY_FOUND=1
+  return 0
+}
+
+exact_path_is_directory() {
+  local index=$1 path pathspec
+  path=${PATTERNS[index]}
+  pathspec=${PATHSPECS[index]}
+  EXACT_DIRECTORY_FOUND=0
+  git_stream exact_tree_record ls-tree -z "$BASELINE_OID" -- "$pathspec" || return 2
+  ((EXACT_DIRECTORY_FOUND == 0)) || return 0
+  git_stream exact_tree_record ls-tree -z "$HEAD_OID" -- "$pathspec" || return 2
+  ((EXACT_DIRECTORY_FOUND == 0)) || return 0
+  CURRENT_EXACT_PATH=$path
+  git_stream exact_index_record ls-files -z -- "$pathspec" || return 2
+  ((EXACT_DIRECTORY_FOUND == 0)) || return 0
+  if [[ -d $TOP/$path && ! -L $TOP/$path ]]; then
+    return 0
+  fi
+  return 1
+}
+
+gitlink_record() {
+  local record=$1 overflow=${2:-0} mode path index
+  ((overflow == 0)) || return 1
+  mode=${record%% *}
+  [[ $mode == 160000 ]] || return 0
+  if [[ $record == *$'\t'* ]]; then
+    path=${record#*$'\t'}
+  else
+    return 1
+  fi
+  for ((index = 0; index < PATTERN_COUNT; index++)); do
+    if pattern_intersects_gitlink "${PATTERNS[index]}" "$path"; then
+      B_SUBMODULE[index]=1
+      if [[ ${B_PATTERN_UNMATCHED[index]:-0} == 1 ]]; then
+        B_PATTERN_UNMATCHED[index]=0
+        ((OBS_MATCHED_COUNT += 1))
+      fi
+    fi
+  done
+  return 0
+}
+
+scan_gitlinks() {
+  git_stream gitlink_record ls-tree -r -z "$BASELINE_OID" -- || return 1
+  git_stream gitlink_record ls-tree -r -z "$HEAD_OID" -- || return 1
+  git_stream gitlink_record ls-files --stage --sparse -z -- || return 1
+  return 0
+}
+
+flag_record_v() {
+  local record=$1 overflow=${2:-0} tag path
+  ((overflow == 0)) || return 1
+  tag=${record:0:1}
+  path=${record:2}
+  [[ ${record:1:1} == ' ' ]] || return 1
+  if [[ $tag == [a-z] ]]; then
+    mark_patterns_for_path assume "$path"
+    [[ $tag != s ]] || mark_patterns_for_path skip "$path"
+  elif [[ $tag == S ]]; then
+    mark_patterns_for_path skip "$path"
+    [[ $path != */ ]] || OBS_SPARSE=1
+  fi
+  return 0
+}
+
+scan_index_flags() {
+  git_stream flag_record_v ls-files -v --sparse -z -- "${PATHSPECS[@]}" || return 1
+  return 0
+}
+
+append_lane_path() {
+  local lane=$1 path=$2 existing count
+  if ((${#path} > MAX_RETAINED_PATH_BYTES)); then
+    OBS_PATHS_TRUNCATED=1
+    case $lane in
+      committed) OBS_COMMITTED_TRUNCATED=1 ;;
+      staged) OBS_STAGED_TRUNCATED=1 ;;
+      unmerged) OBS_UNMERGED_TRUNCATED=1 ;;
+    esac
+    return 0
+  fi
+  case $lane in
+    committed)
+      for existing in "${OBS_COMMITTED_PATHS[@]}"; do [[ $existing == "$path" ]] && return; done
+      count=${#OBS_COMMITTED_PATHS[@]}
+      if ((count < MAX_DISPLAY_PATHS)); then
+        OBS_COMMITTED_PATHS[count]=$path
+      else
+        OBS_PATHS_TRUNCATED=1
+        OBS_COMMITTED_TRUNCATED=1
+      fi
+      ;;
+    staged)
+      for existing in "${OBS_STAGED_PATHS[@]}"; do [[ $existing == "$path" ]] && return; done
+      count=${#OBS_STAGED_PATHS[@]}
+      if ((count < MAX_DISPLAY_PATHS)); then
+        OBS_STAGED_PATHS[count]=$path
+      else
+        OBS_PATHS_TRUNCATED=1
+        OBS_STAGED_TRUNCATED=1
+      fi
+      ;;
+    unmerged)
+      for existing in "${OBS_UNMERGED_PATHS[@]}"; do [[ $existing == "$path" ]] && return; done
+      count=${#OBS_UNMERGED_PATHS[@]}
+      if ((count < MAX_DISPLAY_PATHS)); then
+        OBS_UNMERGED_PATHS[count]=$path
+      else
+        OBS_PATHS_TRUNCATED=1
+        OBS_UNMERGED_TRUNCATED=1
+      fi
+      ;;
+    untracked)
+      for existing in "${OBS_UNTRACKED_PATHS[@]}"; do [[ $existing == "$path" ]] && return; done
+      count=${#OBS_UNTRACKED_PATHS[@]}
+      if ((count < MAX_DISPLAY_PATHS)); then OBS_UNTRACKED_PATHS[count]=$path; else OBS_PATHS_TRUNCATED=1; fi
+      ;;
+  esac
+}
+
+CURRENT_PATH_LANE=
+CURRENT_LANE_RAW_RECORDS=0
+CURRENT_LANE_MATCHED_RECORDS=0
+plain_path_record() {
+  local path=$1 overflow=${2:-0}
+  ((CURRENT_LANE_RAW_RECORDS += 1))
+  if ((overflow != 0)); then
+    if overflow_prefix_definitely_matches_scope "$path"; then
+      ((CURRENT_LANE_MATCHED_RECORDS += 1))
+      OBS_ANY_POSITIVE=1
+      OBS_PATHS_TRUNCATED=1
+      case $CURRENT_PATH_LANE in
+        committed) OBS_COMMITTED=1; OBS_COMMITTED_TRUNCATED=1 ;;
+        staged) OBS_STAGED=1; OBS_STAGED_TRUNCATED=1 ;;
+      esac
+    elif declaration_has_glob; then
+      OBS_STATE_CHANGED=1
+    fi
+    return 0
+  fi
+  path_matches_declared_scope "$path" || return 0
+  ((CURRENT_LANE_MATCHED_RECORDS += 1))
+  OBS_ANY_POSITIVE=1
+  case $CURRENT_PATH_LANE in
+    committed) OBS_COMMITTED=1 ;;
+    staged) OBS_STAGED=1 ;;
+  esac
+  append_lane_path "$CURRENT_PATH_LANE" "$path"
+  return 0
+}
+
+unmerged_record() {
+  local record=$1 overflow=${2:-0} path
+  [[ $record == *$'\t'* ]] || return 1
+  path=${record#*$'\t'}
+  if ((overflow != 0)); then
+    if overflow_prefix_definitely_matches_scope "$path"; then
+      OBS_UNMERGED=1
+      OBS_ANY_POSITIVE=1
+      OBS_PATHS_TRUNCATED=1
+      OBS_UNMERGED_TRUNCATED=1
+    elif declaration_has_glob; then
+      OBS_STATE_CHANGED=1
+    fi
+    return 0
+  fi
+  path_matches_declared_scope "$path" || return 0
+  OBS_UNMERGED=1
+  OBS_ANY_POSITIVE=1
+  append_lane_path unmerged "$path"
+  return 0
+}
+
+ATTR_FIELD=0
+ATTR_NAME=
+ATTR_FILTER_FOUND=0
+ATTR_NORMALIZATION_FOUND=0
+attribute_field_record() {
+  local value=$1 overflow=${2:-0}
+  ((overflow == 0)) || return 1
+  case $ATTR_FIELD in
+    0) ATTR_FIELD=1 ;;
+    1) ATTR_NAME=$value; ATTR_FIELD=2 ;;
+    2)
+      case $ATTR_NAME in
+        filter) ATTR_FILTER_FOUND=1 ;;
+        text|eol|crlf|ident|working-tree-encoding)
+          ATTR_NORMALIZATION_FOUND=1
+          ;;
+      esac
+      ATTR_FIELD=0
+      ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+
+read_path_attributes() {
+  local path=$1
+  ATTR_FIELD=0
+  ATTR_NAME=
+  ATTR_FILTER_FOUND=0
+  ATTR_NORMALIZATION_FOUND=0
+  # Named check-attr output cannot distinguish literal values "unset" and
+  # "unspecified" from its false/absent sentinels. --all omits truly absent or
+  # reset attributes and exposes every explicit relevant declaration. Treat
+  # even a negative declaration as a conservative blocker: this preserves the
+  # contract that any configured conversion attribute prevents a zero claim.
+  git_stream_nested attribute_field_record check-attr -z --all -- "$path" || return 1
+  ((ATTR_FIELD == 0))
+}
+
+append_work_observation() {
+  local path=$1 kind=$2 oid=$3 index
+  OBS_WORKTREE=1
+  OBS_ANY_POSITIVE=1
+  if ((${#path} > MAX_RETAINED_PATH_BYTES)); then
+    OBS_PATHS_TRUNCATED=1
+    return 0
+  fi
+  for ((index = 0; index < ${#OBS_WORK_PATHS[@]}; index++)); do
+    if [[ ${OBS_WORK_PATHS[index]} == "$path" && \
+      ${OBS_WORK_KINDS[index]} == "$kind" && ${OBS_WORK_OIDS[index]} == "$oid" ]]; then
+      return 0
+    fi
+  done
+  index=${#OBS_WORK_PATHS[@]}
+  if ((index < MAX_DISPLAY_PATHS)); then
+    OBS_WORK_PATHS[index]=$path
+    OBS_WORK_KINDS[index]=$kind
+    OBS_WORK_OIDS[index]=$oid
+  else
+    OBS_PATHS_TRUNCATED=1
+  fi
+}
+
+WORKTREE_MODE=
+capture_worktree_mode() {
+  local absolute=$1 record= pending= have_pending=0
+  local overflow=0 pending_overflow=0 value_count=0 partial=0 git_status
+  local metadata= reported_path= old_field old_oid new_oid status
+  WORKTREE_MODE=
+  exec 6< <(
+    git_repo diff --no-index --raw -z --no-abbrev --no-ext-diff --no-textconv --no-renames --no-relative -O/dev/null -- /dev/null "$absolute"
+    printf '%s%s\0' "$GIT_STATUS_MARKER" "$?"
+  )
+  while read_bounded_nul_record 6; do
+    record=$BOUNDED_RECORD
+    overflow=$BOUNDED_OVERFLOW
+    ((BOUNDED_PARTIAL == 0)) || partial=1
+    if ((have_pending)); then
+      ((value_count += 1))
+      if ((pending_overflow != 0)); then
+        partial=1
+      elif ((value_count == 1)); then
+        metadata=$pending
+      elif ((value_count == 2)); then
+        reported_path=$pending
+      else
+        partial=1
+      fi
+    fi
+    pending=$record
+    pending_overflow=$overflow
+    have_pending=1
+    record=
+  done
+  ((BOUNDED_PARTIAL == 0)) || partial=1
+  exec 6<&-
+  ((have_pending)) || return 1
+  ((pending_overflow == 0)) || partial=1
+  case $pending in
+    "$GIT_STATUS_MARKER"*) git_status=${pending#"$GIT_STATUS_MARKER"} ;;
+    *) git_status=invalid ;;
+  esac
+  [[ $git_status == 1 && $value_count == 2 && $reported_path == "$absolute" ]] || {
+    partial=1
+  }
+  ((partial == 0)) || return 1
+
+  set -- $metadata
+  (($# == 5)) || return 1
+  old_field=$1
+  WORKTREE_MODE=$2
+  old_oid=$3
+  new_oid=$4
+  status=$5
+  [[ $old_field == :000000 ]] || return 1
+  [[ $WORKTREE_MODE == 100644 || $WORKTREE_MODE == 100755 ]] || return 1
+  valid_full_oid "$old_oid" || return 1
+  valid_full_oid "$new_oid" || return 1
+  [[ $old_oid != *[!0]* && $new_oid != *[!0]* ]] || return 1
+  [[ $status == A ]]
+}
+
+path_has_symlink_ancestor() {
+  local path=$1 rest component prefix=
+  rest=$path
+  while [[ $rest == */* ]]; do
+    component=${rest%%/*}
+    rest=${rest#*/}
+    if [[ -n $prefix ]]; then
+      prefix=$prefix/$component
+    else
+      prefix=$component
+    fi
+    [[ ! -L $TOP/$prefix ]] || return 0
+  done
+  return 1
+}
+
+worktree_index_record() {
+  local record=$1 overflow=${2:-0}
+  local meta path tag mode oid stage absolute raw_oid hash_status
+  [[ $record == *$'\t'* ]] || return 1
+  meta=${record%%$'\t'*}
+  path=${record#*$'\t'}
+  set -- $meta
+  (($# == 4)) || return 1
+  tag=$1
+  mode=$2
+  oid=$3
+  stage=$4
+  [[ $stage == 0 ]] || return 0
+  if ((overflow != 0)); then
+    if overflow_prefix_definitely_matches_scope "$path"; then
+      OBS_WORKTREE=1
+      OBS_ANY_POSITIVE=1
+      OBS_PATHS_TRUNCATED=1
+    elif declaration_has_glob; then
+      OBS_STATE_CHANGED=1
+    fi
+    return 0
+  fi
+  path_matches_declared_scope "$path" || return 0
+  [[ $tag != S && $tag != s ]] || return 0
+  absolute=$TOP/$path
+
+  case $mode in
+    100644|100755)
+      ;;
+    120000)
+      if [[ ! -e $absolute && ! -L $absolute ]]; then
+        append_work_observation "$path" delete -
+      elif [[ ! -L $absolute && $OBS_CORE_SYMLINKS_FALSE == 0 ]]; then
+        append_work_observation "$path" type -
+      fi
+      mark_patterns_for_path symlink "$path"
+      return 0
+      ;;
+    160000)
+      return 0
+      ;;
+    040000)
+      OBS_SPARSE=1
+      return 0
+      ;;
+    *)
+      mark_patterns_for_path symlink "$path"
+      return 0
+      ;;
+  esac
+
+  if [[ ! -e $absolute && ! -L $absolute ]]; then
+    append_work_observation "$path" delete -
+    return 0
+  fi
+  if path_has_symlink_ancestor "$path"; then
+    append_work_observation "$path" type -
+    mark_patterns_for_path symlink "$path"
+    return 0
+  fi
+  if [[ -L $absolute || ! -f $absolute ]]; then
+    append_work_observation "$path" type -
+    mark_patterns_for_path symlink "$path"
+    return 0
+  fi
+
+  read_path_attributes "$path" || {
+    OBS_FAILURE_LANE=attributes
+    return 1
+  }
+  ((ATTR_FILTER_FOUND == 0)) || mark_patterns_for_path filter "$path"
+  if ((ATTR_NORMALIZATION_FOUND != 0 || OBS_AUTOCRLF != 0)); then
+    mark_patterns_for_path normalization "$path"
+  fi
+
+  if path_has_symlink_ancestor "$path" || [[ ! -f $absolute || -L $absolute ]]; then
+    OBS_STATE_CHANGED=1
+    return 0
+  fi
+  raw_oid=$(git_repo hash-object --no-filters --stdin < "$absolute")
+  hash_status=$?
+  if ((hash_status != 0)) || ! valid_full_oid "$raw_oid"; then
+    OBS_FAILURE_LANE=worktree
+    return 1
+  fi
+  if path_has_symlink_ancestor "$path" || [[ ! -f $absolute || -L $absolute ]]; then
+    OBS_STATE_CHANGED=1
+    return 0
+  fi
+  if [[ $raw_oid != "$oid" && $ATTR_FILTER_FOUND == 0 && \
+    $ATTR_NORMALIZATION_FOUND == 0 && $OBS_AUTOCRLF == 0 ]]; then
+    append_work_observation "$path" content "$raw_oid"
+  fi
+  if ((OBS_CORE_FILEMODE_TRUE == 1)); then
+    capture_worktree_mode "$absolute" || {
+      OBS_FAILURE_LANE=worktree
+      return 1
+    }
+    if path_has_symlink_ancestor "$path" || [[ ! -f $absolute || -L $absolute ]]; then
+      OBS_STATE_CHANGED=1
+      return 0
+    fi
+    if [[ $mode != "$WORKTREE_MODE" ]]; then
+      append_work_observation "$path" mode "$WORKTREE_MODE"
+    fi
+  fi
+  return 0
+}
+
+untracked_record() {
+  local path=$1 overflow=${2:-0} absolute
+  if ((overflow != 0)); then
+    if overflow_prefix_definitely_matches_scope "$path"; then
+      OBS_UNTRACKED=1
+      OBS_ANY_POSITIVE=1
+      OBS_PATHS_TRUNCATED=1
+    elif declaration_has_glob; then
+      OBS_STATE_CHANGED=1
+    fi
+    return 0
+  fi
+  path_matches_declared_scope "$path" || return 0
+  absolute=$TOP/$path
+  if [[ ! -e $absolute && ! -L $absolute ]]; then
+    OBS_STATE_CHANGED=1
+    return 0
+  fi
+  if [[ -L $absolute || ! -f $absolute ]]; then
+    mark_patterns_for_path symlink "$path"
+    return 0
+  fi
+  OBS_UNTRACKED=1
+  OBS_ANY_POSITIVE=1
+  append_lane_path untracked "$path"
+  return 0
+}
+
+index_set_signature() {
+  local array_name=$1 index result=
+  for ((index = 0; index < PATTERN_COUNT; index++)); do
+    case $array_name in
+      unmatched) [[ ${B_PATTERN_UNMATCHED[index]:-0} == 1 ]] || continue ;;
+      exact) [[ ${B_EXACT_DIRECTORY[index]:-0} == 1 ]] || continue ;;
+      assume) [[ ${B_ASSUME_UNCHANGED[index]:-0} == 1 ]] || continue ;;
+      skip) [[ ${B_SKIP_WORKTREE[index]:-0} == 1 ]] || continue ;;
+      fsmonitor) [[ ${B_FSMONITOR_CONFIG[index]:-0} == 1 ]] || continue ;;
+      submodule) [[ ${B_SUBMODULE[index]:-0} == 1 ]] || continue ;;
+      filter) [[ ${B_EXTERNAL_FILTER[index]:-0} == 1 ]] || continue ;;
+      normalization) [[ ${B_NORMALIZATION[index]:-0} == 1 ]] || continue ;;
+      symlink) [[ ${B_SYMLINK[index]:-0} == 1 ]] || continue ;;
+    esac
+    result="${result},${index}"
+  done
+  SET_SIGNATURE=$result
+}
+
+build_blocker_signature() {
+  local name
+  OBS_BLOCKER_SIGNATURE=
+  for name in unmatched exact assume skip fsmonitor submodule filter normalization symlink; do
+    index_set_signature "$name"
+    OBS_BLOCKER_SIGNATURE="${OBS_BLOCKER_SIGNATURE}|${name}:${SET_SIGNATURE}"
+  done
+  OBS_BLOCKER_SIGNATURE="${OBS_BLOCKER_SIGNATURE}|sparse:${OBS_SPARSE}|filemode:${OBS_COREFILEMODE}"
+}
+
+run_sweep() {
+  local index result diff_status
+  reset_sweep
+
+  read_bool_config core.sparseCheckout || { OBS_FAILURE_LANE=repository; return 1; }
+  [[ $CONFIG_VALUE != true ]] || OBS_SPARSE=1
+  read_bool_config index.sparse || { OBS_FAILURE_LANE=repository; return 1; }
+  [[ $CONFIG_VALUE != true ]] || OBS_SPARSE=1
+  read_bool_config core.fileMode || { OBS_FAILURE_LANE=repository; return 1; }
+  if [[ $CONFIG_VALUE == false ]]; then
+    OBS_COREFILEMODE=1
+    OBS_CORE_FILEMODE_TRUE=0
+  fi
+  read_bool_config core.symlinks || { OBS_FAILURE_LANE=repository; return 1; }
+  [[ $CONFIG_VALUE != false ]] || OBS_CORE_SYMLINKS_FALSE=1
+  read_autocrlf_config || { OBS_FAILURE_LANE=repository; return 1; }
+  read_fsmonitor_config || { OBS_FAILURE_LANE=repository; return 1; }
+
+  for ((index = 0; index < PATTERN_COUNT; index++)); do
+    pattern_has_match "$index"
+    result=$?
+    if ((result == 2)); then
+      OBS_FAILURE_LANE=scope
+      return 1
+    elif ((result == 0)); then
+      ((OBS_MATCHED_COUNT += 1))
+    else
+      B_PATTERN_UNMATCHED[index]=1
+    fi
+    if ((OBS_FSMONITOR_CONFIG == 1)); then
+      # Disabling the configured monitor is mandatory to prevent hook/daemon
+      # execution. Treat the enabled facility itself as the conservative
+      # scoped blocker; dormant valid bits cannot suppress raw hashing.
+      B_FSMONITOR_CONFIG[index]=1
+    fi
+    if [[ ${PATTERNS[index]} != *'*'* ]]; then
+      exact_path_is_directory "$index"
+      result=$?
+      if ((result == 2)); then
+        OBS_FAILURE_LANE=scope
+        return 1
+      elif ((result == 0)); then
+        B_EXACT_DIRECTORY[index]=1
+      fi
+    fi
+  done
+
+  scan_gitlinks || { OBS_FAILURE_LANE=scope; return 1; }
+  scan_index_flags || { OBS_FAILURE_LANE=index; return 1; }
+
+  git_repo diff-tree --quiet -r --no-ext-diff --no-textconv --no-renames \
+    --ignore-submodules=none "$BASELINE_OID" "$HEAD_OID" -- "${PATHSPECS[@]}"
+  diff_status=$?
+  case $diff_status in
+    0) ;;
+    1)
+      CURRENT_PATH_LANE=committed
+      CURRENT_LANE_RAW_RECORDS=0
+      CURRENT_LANE_MATCHED_RECORDS=0
+      git_stream plain_path_record diff-tree --no-commit-id --name-only -r -z \
+        --no-ext-diff --no-textconv --no-renames --ignore-submodules=none \
+        "$BASELINE_OID" "$HEAD_OID" -- "${PATHSPECS[@]}" || {
+          OBS_FAILURE_LANE=repository
+          return 1
+        }
+      if ((CURRENT_LANE_RAW_RECORDS == 0)); then
+        OBS_STATE_CHANGED=1
+      fi
+      ;;
+    *) OBS_FAILURE_LANE=repository; return 1 ;;
+  esac
+
+  git_repo diff-index --cached --quiet --no-ext-diff --no-textconv --no-renames \
+    --ita-visible-in-index --ignore-submodules=none "$HEAD_OID" -- "${PATHSPECS[@]}"
+  diff_status=$?
+  case $diff_status in
+    0) ;;
+    1)
+      CURRENT_PATH_LANE=staged
+      CURRENT_LANE_RAW_RECORDS=0
+      CURRENT_LANE_MATCHED_RECORDS=0
+      git_stream plain_path_record diff-index --cached --name-only -z \
+        --no-ext-diff --no-textconv --no-renames --ita-visible-in-index \
+        --ignore-submodules=none "$HEAD_OID" -- "${PATHSPECS[@]}" || {
+          OBS_FAILURE_LANE=index
+          return 1
+        }
+      if ((CURRENT_LANE_RAW_RECORDS == 0)); then
+        OBS_STATE_CHANGED=1
+      fi
+      ;;
+    *) OBS_FAILURE_LANE=index; return 1 ;;
+  esac
+
+  git_stream unmerged_record ls-files --unmerged --sparse -z -- "${PATHSPECS[@]}" || {
+    OBS_FAILURE_LANE=index
+    return 1
+  }
+
+  git_stream worktree_index_record ls-files -v --stage --sparse -z -- \
+    "${PATHSPECS[@]}" || {
+    [[ -n $OBS_FAILURE_LANE ]] || OBS_FAILURE_LANE=worktree
+    return 1
+  }
+
+  git_stream untracked_record ls-files --others --exclude-standard -z -- \
+    "${PATHSPECS[@]}" || {
+      OBS_FAILURE_LANE=untracked
+      return 1
+    }
+
+  build_blocker_signature
+  return 0
+}
+
+copy_sweep_one() {
+  local index
+  S1_MATCHED_COUNT=$OBS_MATCHED_COUNT
+  S1_COMMITTED=$OBS_COMMITTED
+  S1_STAGED=$OBS_STAGED
+  S1_UNMERGED=$OBS_UNMERGED
+  S1_WORKTREE=$OBS_WORKTREE
+  S1_UNTRACKED=$OBS_UNTRACKED
+  S1_ANY_POSITIVE=$OBS_ANY_POSITIVE
+  S1_BLOCKER_SIGNATURE=$OBS_BLOCKER_SIGNATURE
+  S1_TRUNCATED=$OBS_PATHS_TRUNCATED
+  S1_COMMITTED_TRUNCATED=$OBS_COMMITTED_TRUNCATED
+  S1_STAGED_TRUNCATED=$OBS_STAGED_TRUNCATED
+  S1_UNMERGED_TRUNCATED=$OBS_UNMERGED_TRUNCATED
+  S1_COMMITTED_PATHS=("${OBS_COMMITTED_PATHS[@]}")
+  S1_STAGED_PATHS=("${OBS_STAGED_PATHS[@]}")
+  S1_UNMERGED_PATHS=("${OBS_UNMERGED_PATHS[@]}")
+  S1_WORK_PATHS=("${OBS_WORK_PATHS[@]}")
+  S1_WORK_KINDS=("${OBS_WORK_KINDS[@]}")
+  S1_WORK_OIDS=("${OBS_WORK_OIDS[@]}")
+  S1_UNTRACKED_PATHS=("${OBS_UNTRACKED_PATHS[@]}")
+  S1_B_PATTERN_UNMATCHED=()
+  S1_B_EXACT_DIRECTORY=()
+  S1_B_ASSUME_UNCHANGED=()
+  S1_B_SKIP_WORKTREE=()
+  S1_B_FSMONITOR_CONFIG=()
+  S1_B_SUBMODULE=()
+  S1_B_EXTERNAL_FILTER=()
+  S1_B_NORMALIZATION=()
+  S1_B_SYMLINK=()
+  for ((index = 0; index < PATTERN_COUNT; index++)); do
+    S1_B_PATTERN_UNMATCHED[index]=${B_PATTERN_UNMATCHED[index]:-0}
+    S1_B_EXACT_DIRECTORY[index]=${B_EXACT_DIRECTORY[index]:-0}
+    S1_B_ASSUME_UNCHANGED[index]=${B_ASSUME_UNCHANGED[index]:-0}
+    S1_B_SKIP_WORKTREE[index]=${B_SKIP_WORKTREE[index]:-0}
+    S1_B_FSMONITOR_CONFIG[index]=${B_FSMONITOR_CONFIG[index]:-0}
+    S1_B_SUBMODULE[index]=${B_SUBMODULE[index]:-0}
+    S1_B_EXTERNAL_FILTER[index]=${B_EXTERNAL_FILTER[index]:-0}
+    S1_B_NORMALIZATION[index]=${B_NORMALIZATION[index]:-0}
+    S1_B_SYMLINK[index]=${B_SYMLINK[index]:-0}
+  done
+  S1_SPARSE=$OBS_SPARSE
+  S1_COREFILEMODE=$OBS_COREFILEMODE
+}
+
+arrays_equal() {
+  local lane=$1 left_count right_count index
+  case $lane in
+    committed)
+      left_count=${#S1_COMMITTED_PATHS[@]}; right_count=${#OBS_COMMITTED_PATHS[@]}
+      ((left_count == right_count)) || return 1
+      for ((index = 0; index < left_count; index++)); do
+        [[ ${S1_COMMITTED_PATHS[index]} == "${OBS_COMMITTED_PATHS[index]}" ]] || return 1
+      done
+      ;;
+    staged)
+      left_count=${#S1_STAGED_PATHS[@]}; right_count=${#OBS_STAGED_PATHS[@]}
+      ((left_count == right_count)) || return 1
+      for ((index = 0; index < left_count; index++)); do
+        [[ ${S1_STAGED_PATHS[index]} == "${OBS_STAGED_PATHS[index]}" ]] || return 1
+      done
+      ;;
+    unmerged)
+      left_count=${#S1_UNMERGED_PATHS[@]}; right_count=${#OBS_UNMERGED_PATHS[@]}
+      ((left_count == right_count)) || return 1
+      for ((index = 0; index < left_count; index++)); do
+        [[ ${S1_UNMERGED_PATHS[index]} == "${OBS_UNMERGED_PATHS[index]}" ]] || return 1
+      done
+      ;;
+  esac
+  return 0
+}
+
+lane_paths_stable() {
+  local lane=$1
+  case $lane in
+    committed)
+      ((S1_COMMITTED_TRUNCATED == 1 && OBS_COMMITTED_TRUNCATED == 1)) && return 0
+      ;;
+    staged)
+      ((S1_STAGED_TRUNCATED == 1 && OBS_STAGED_TRUNCATED == 1)) && return 0
+      ;;
+    unmerged)
+      ((S1_UNMERGED_TRUNCATED == 1 && OBS_UNMERGED_TRUNCATED == 1)) && return 0
+      ;;
+  esac
+  arrays_equal "$lane"
+}
+
+work_observation_in_second() {
+  local first_index=$1 second_index
+  for ((second_index = 0; second_index < ${#OBS_WORK_PATHS[@]}; second_index++)); do
+    if [[ ${S1_WORK_PATHS[first_index]} == "${OBS_WORK_PATHS[second_index]}" && \
+      ${S1_WORK_KINDS[first_index]} == "${OBS_WORK_KINDS[second_index]}" && \
+      ${S1_WORK_OIDS[first_index]} == "${OBS_WORK_OIDS[second_index]}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+untracked_path_in_second() {
+  local path=$1 candidate
+  for candidate in "${OBS_UNTRACKED_PATHS[@]}"; do
+    [[ $candidate == "$path" ]] && return 0
+  done
+  return 1
+}
+
+byte_quote() {
+  local input=$1 output= character code hex index
+  for ((index = 0; index < ${#input}; index++)); do
+    character=${input:index:1}
+    case $character in
+      [A-Za-z0-9._/@+=,~-]) output=${output}${character} ;;
+      *)
+        printf -v code '%d' "'$character"
+        ((code &= 255))
+        printf -v hex '%02X' "$code"
+        output="${output}\\x${hex}"
+        ;;
+    esac
+  done
+  BYTE_QUOTED=$output
+}
+
+FINAL_PROTOCOL_ESTIMATE=2048
+add_final_path() {
+  local path=$1 existing encoded_size
+  for existing in "${FINAL_PATHS[@]}"; do
+    [[ $existing == "$path" ]] && return 0
+  done
+  if ((${#FINAL_PATHS[@]} >= MAX_DISPLAY_PATHS)); then
+    PATHS_TRUNCATED=1
+    return 0
+  fi
+  byte_quote "$path"
+  encoded_size=$((${#BYTE_QUOTED} + 13))
+  if ((FINAL_PROTOCOL_ESTIMATE + encoded_size > MAX_PROTOCOL_BYTES)); then
+    PATHS_TRUNCATED=1
+    return 0
+  fi
+  FINAL_PATHS[${#FINAL_PATHS[@]}]=$path
+  FINAL_PATHS_ENCODED[${#FINAL_PATHS_ENCODED[@]}]=$BYTE_QUOTED
+  ((FINAL_PROTOCOL_ESTIMATE += encoded_size))
+}
+
+set_details_from_first_blocker() {
+  local reason=$1 index
+  DETAILS=()
+  for ((index = 0; index < PATTERN_COUNT; index++)); do
+    case $reason in
+      pattern_unmatched) [[ ${S1_B_PATTERN_UNMATCHED[index]:-0} == 1 ]] || continue ;;
+      exact_directory_requires_recursive_glob) [[ ${S1_B_EXACT_DIRECTORY[index]:-0} == 1 ]] || continue ;;
+      assume_unchanged_scope_unsupported) [[ ${S1_B_ASSUME_UNCHANGED[index]:-0} == 1 ]] || continue ;;
+      skip_worktree_scope_unsupported) [[ ${S1_B_SKIP_WORKTREE[index]:-0} == 1 ]] || continue ;;
+      fsmonitor_scope_unsupported) [[ ${S1_B_FSMONITOR_CONFIG[index]:-0} == 1 ]] || continue ;;
+      submodule_scope_unsupported) [[ ${S1_B_SUBMODULE[index]:-0} == 1 ]] || continue ;;
+      external_filter_scope_unsupported) [[ ${S1_B_EXTERNAL_FILTER[index]:-0} == 1 ]] || continue ;;
+      normalization_scope_unsupported) [[ ${S1_B_NORMALIZATION[index]:-0} == 1 ]] || continue ;;
+      symlink_scope_unsupported) [[ ${S1_B_SYMLINK[index]:-0} == 1 ]] || continue ;;
+    esac
+    DETAILS[${#DETAILS[@]}]="pattern_index:${index}"
+  done
+}
+
+first_pattern_blocker() {
+  local index
+  for index in \
+    pattern_unmatched exact_directory_requires_recursive_glob \
+    assume_unchanged_scope_unsupported skip_worktree_scope_unsupported \
+    fsmonitor_scope_unsupported submodule_scope_unsupported \
+    external_filter_scope_unsupported normalization_scope_unsupported \
+    symlink_scope_unsupported; do
+    set_details_from_first_blocker "$index"
+    if ((${#DETAILS[@]} > 0)); then
+      FIRST_BLOCKER=$index
+      return 0
+    fi
+  done
+  if ((S1_SPARSE == 1)); then
+    FIRST_BLOCKER=sparse_checkout_unsupported
+    DETAILS=()
+    return 0
+  fi
+  if ((S1_COREFILEMODE == 1)); then
+    FIRST_BLOCKER=core_filemode_scope_unsupported
+    DETAILS=()
+    return 0
+  fi
+  return 1
+}
+
+emit_state_changed() {
+  local anchor=$1
+  DETAILS=("anchor:${anchor}")
+  FINAL_PATHS=()
+  FINAL_PATHS_ENCODED=()
+  PATHS_TRUNCATED=0
+  emit_protocol indeterminate state_changed_during_check 20
+}
+
+attempt=0
+while ((attempt < 2)); do
+  capture_head || pre_anchor_failure unborn_head
+  HEAD_OID=$CAPTURED_HEAD
+  if [[ $BASELINE_OID != "$HEAD_OID" ]]; then
+    git_repo merge-base --is-ancestor "$BASELINE_OID" "$HEAD_OID"
+    ancestry_status=$?
+    case $ancestry_status in
+      0) ;;
+      1) pre_anchor_failure baseline_not_ancestor ;;
+      *) git_failure ancestry 0 ;;
+    esac
+  fi
+
+  capture_index_identity || git_failure index 1
+  index_before=$INDEX_IDENTITY
+  run_sweep || git_failure "${OBS_FAILURE_LANE:-repository}" 1
+  sweep_one_state_changed=$OBS_STATE_CHANGED
+  copy_sweep_one
+  MATCHED_PATTERN_COUNT=$S1_MATCHED_COUNT
+  capture_head || emit_state_changed head
+  head_after_one=$CAPTURED_HEAD
+  capture_index_identity || git_failure index 1
+  index_after_one=$INDEX_IDENTITY
+  if [[ $index_before != "$index_after_one" ]]; then
+    emit_state_changed index
+  fi
+  if [[ $HEAD_OID != "$head_after_one" ]]; then
+    if ((attempt == 0)); then
+      ((attempt += 1))
+      continue
+    fi
+    emit_state_changed head
+  fi
+  ((sweep_one_state_changed == 0)) || emit_state_changed worktree
+
+  run_sweep || git_failure "${OBS_FAILURE_LANE:-repository}" 1
+  sweep_two_state_changed=$OBS_STATE_CHANGED
+  capture_head || emit_state_changed head
+  head_after_two=$CAPTURED_HEAD
+  capture_index_identity || git_failure index 1
+  index_after_two=$INDEX_IDENTITY
+  if [[ $index_after_one != "$index_after_two" ]]; then
+    emit_state_changed index
+  fi
+  if [[ $HEAD_OID != "$head_after_two" ]]; then
+    if ((attempt == 0)); then
+      ((attempt += 1))
+      continue
+    fi
+    emit_state_changed head
+  fi
+  ((sweep_two_state_changed == 0)) || emit_state_changed worktree
+
+  MATCHED_PATTERN_COUNT=$OBS_MATCHED_COUNT
+  stable_change=0
+  FINAL_PATHS=()
+  FINAL_PATHS_ENCODED=()
+  FINAL_PROTOCOL_ESTIMATE=2048
+  PATHS_TRUNCATED=0
+
+  if ((S1_COMMITTED == 1 && OBS_COMMITTED == 1)) && lane_paths_stable committed; then
+    stable_change=1
+    for path in "${S1_COMMITTED_PATHS[@]}"; do add_final_path "$path"; done
+  fi
+  if ((S1_STAGED == 1 && OBS_STAGED == 1)) && lane_paths_stable staged; then
+    stable_change=1
+    for path in "${S1_STAGED_PATHS[@]}"; do add_final_path "$path"; done
+  fi
+  if ((S1_UNMERGED == 1 && OBS_UNMERGED == 1)) && lane_paths_stable unmerged; then
+    stable_change=1
+    for path in "${S1_UNMERGED_PATHS[@]}"; do add_final_path "$path"; done
+  fi
+  for ((i = 0; i < ${#S1_WORK_PATHS[@]}; i++)); do
+    if work_observation_in_second "$i"; then
+      stable_change=1
+      add_final_path "${S1_WORK_PATHS[i]}"
+    fi
+  done
+  for path in "${S1_UNTRACKED_PATHS[@]}"; do
+    if untracked_path_in_second "$path"; then
+      stable_change=1
+      add_final_path "$path"
+    fi
+  done
+
+  if ((stable_change == 1)); then
+    ((S1_TRUNCATED == 0 && OBS_PATHS_TRUNCATED == 0)) || PATHS_TRUNCATED=1
+    DETAILS=()
+    emit_protocol changed relevant_change_observed 10
+  fi
+
+  if ((S1_ANY_POSITIVE == 1 || OBS_ANY_POSITIVE == 1)); then
+    emit_state_changed worktree
+  fi
+  if [[ $S1_BLOCKER_SIGNATURE != "$OBS_BLOCKER_SIGNATURE" || \
+    $S1_MATCHED_COUNT != "$OBS_MATCHED_COUNT" ]]; then
+    emit_state_changed worktree
+  fi
+
+  if first_pattern_blocker; then
+    FINAL_PATHS_ENCODED=()
+    PATHS_TRUNCATED=0
+    emit_protocol indeterminate "$FIRST_BLOCKER" 20
+  fi
+
+  DETAILS=()
+  FINAL_PATHS_ENCODED=()
+  PATHS_TRUNCATED=0
+  emit_protocol unchanged no_relevant_change_observed 0
+done
+
+exit 70

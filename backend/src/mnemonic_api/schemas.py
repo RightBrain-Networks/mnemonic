@@ -18,11 +18,27 @@ from pydantic import (
     StrictBool,
     StrictInt,
     StringConstraints,
+    ValidationInfo,
     computed_field,
     field_serializer,
     field_validator,
     model_serializer,
     model_validator,
+)
+
+AFFECTED_PATH_MAX_COUNT = 64
+AFFECTED_PATH_MAX_BYTES = 512
+AFFECTED_PATHS_MAX_BYTES = 16384
+_AFFECTED_PATH_COMPONENT_CHARACTERS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._@+=,~-*"
+)
+AFFECTED_PATHS_DESCRIPTION = (
+    "Ordered caller-declared repository dependency patterns. Entries use a narrow ASCII "
+    "root-relative grammar: slash-separated components containing letters, digits, . _ @ + = , "
+    "~ - and single-component * wildcards; ** is allowed only as a complete component. "
+    "At most 64 entries, 512 bytes each, and 16384 bytes total. A non-empty list requires "
+    "verified_against. Omitted or empty means no dependency scope was declared and is omitted "
+    "from canonical responses; ** explicitly declares all eligible repository paths."
 )
 
 
@@ -59,6 +75,51 @@ def normalized_tag(value: str) -> str:
     value = nonblank(value).lower()
     if len(value) > 50:
         raise ValueError("Normalized tags must contain at most 50 characters")
+    return value
+
+
+def affected_path_is_valid(value: str) -> str:
+    """Validate one stored scope pattern without normalizing caller provenance."""
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError("Affected paths must contain valid ASCII") from exc
+    if len(encoded) > AFFECTED_PATH_MAX_BYTES:
+        raise ValueError("Affected paths must be at most 512 bytes")
+    if not value.isascii():
+        raise ValueError("Affected paths must contain only supported ASCII characters")
+
+    components = value.split("/")
+    if any(component in {"", ".", ".."} for component in components):
+        raise ValueError("Affected paths must contain non-empty root-relative components")
+    for component in components:
+        if any(character not in _AFFECTED_PATH_COMPONENT_CHARACTERS for character in component):
+            raise ValueError("Affected paths contain an unsupported character")
+        if "**" in component and component != "**":
+            raise ValueError("Double star must be a complete affected-path component")
+    return value
+
+
+AffectedPath = Annotated[
+    str,
+    StringConstraints(
+        min_length=1,
+        max_length=AFFECTED_PATH_MAX_BYTES,
+        pattern=r"^[A-Za-z0-9._@+=,~*/-]+$",
+    ),
+    AfterValidator(affected_path_is_valid),
+]
+AffectedPaths = Annotated[list[AffectedPath], Field(max_length=AFFECTED_PATH_MAX_COUNT)]
+
+
+def affected_paths_are_valid(value: list[str], info: ValidationInfo) -> list[str]:
+    """Apply list-wide bounds and the baseline dependency after entry validation."""
+    if len(value) != len(set(value)):
+        raise ValueError("Affected paths must not contain duplicates")
+    if sum(len(path.encode("utf-8")) for path in value) > AFFECTED_PATHS_MAX_BYTES:
+        raise ValueError("Affected paths must be at most 16384 bytes in total")
+    if value and info.data.get("verified_against") is None:
+        raise ValueError("Affected paths require verified_against")
     return value
 
 
@@ -353,8 +414,21 @@ class CheckpointPayload(APIModel):
     source_session_url: HTTPURL | None = None
     repository_branch: BranchName | None = None
     verified_against: CommitID | None = None
+    affected_paths: AffectedPaths = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+        description=AFFECTED_PATHS_DESCRIPTION,
+        examples=[["src/**", "tests/test_*.py"]],
+    )
     tags: Tags = Field(default_factory=list)
     source_metadata: Metadata = Field(default_factory=dict)
+
+    @field_validator("affected_paths")
+    @classmethod
+    def validate_affected_paths(
+        cls, value: list[str], info: ValidationInfo
+    ) -> list[str]:
+        return affected_paths_are_valid(value, info)
 
     @field_validator("tags")
     @classmethod
@@ -717,11 +791,24 @@ class CheckpointRead(APIModel):
     source_session_url: str | None
     repository_branch: str | None
     verified_against: str | None
+    affected_paths: AffectedPaths = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+        description=AFFECTED_PATHS_DESCRIPTION,
+        examples=[["src/**", "tests/test_*.py"]],
+    )
     tags: list[str]
     source_metadata: dict[str, JsonValue]
     migration_origin: MigrationOrigin | None
     legacy_record_id: UUID | None
     created_at: datetime
+
+    @field_validator("affected_paths")
+    @classmethod
+    def validate_affected_paths(
+        cls, value: list[str], info: ValidationInfo
+    ) -> list[str]:
+        return affected_paths_are_valid(value, info)
 
     @field_serializer("created_at")
     def utc_time(self, value: datetime) -> str:

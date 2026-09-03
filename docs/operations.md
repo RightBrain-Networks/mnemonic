@@ -166,6 +166,14 @@ accepting loss of every later write. Never
 truncate receipts, edit events, resolve/delete gates, or disable constraints to
 force an application or schema rollback.
 
+Migration `0018_repository_freshness` has one narrower guarded downgrade: it can
+return to 0017 only while every checkpoint scope is empty. It takes an
+`ACCESS EXCLUSIVE` lock and refuses before any DDL when a non-empty declaration
+exists, so no concurrent insert can race the check. Once scoped data exists,
+serve only 0.5-compatible binaries and fix forward or restore the complete
+database with matching binaries. There is no force option, metadata shadow copy,
+old-backend bridge, response projection shim, or receipt rewrite.
+
 A Phase 9 Core restore rehearsal must also cover authoritative merge rows,
 supporting relationship witnesses, paired relationship and `work_merged`
 events, alias readiness/mutation guards, merge receipts, and same-key replay
@@ -215,7 +223,7 @@ The release procedure is:
    and representative old/merge receipt replays on that restore, and only then
    reopen writers.
 
-The audit defaults to the later final Phase 9 head, so Core operators must pass
+The current audit defaults to the Phase 10 head, so Core operators must pass
 `--expected-head 0015_gate_review_fixes` before migration and
 `--expected-head 0016_duplicate_handling` afterward. It opens a repeatable-read,
 read-only transaction, emits aggregate JSON without IDs or content, checks
@@ -250,17 +258,168 @@ After the Core prerequisites above are satisfied:
    body caps, request saturation, lexical fallback, safe-read retry, and Create
    anyway before reopening traffic. No production probe persists a draft or
    commits a merge.
-5. Run `scripts/audit_duplicate_handling.py` at its default 0017 head with zero
-   blocking findings. Take a post-0017 backup, restore it in isolation, rerun
-   the audit and representative Core receipt replays, and confirm suggestions
-   create no domain or receipt facts.
+5. Run `scripts/audit_duplicate_handling.py` with
+   `--expected-head 0017_duplicate_suggestion_title_key` and zero blocking
+   findings. Take a post-0017 backup, restore it in isolation, rerun the audit
+   and representative Core receipt replays, and confirm suggestions create no
+   domain or receipt facts.
 6. Start API for authenticated read-only probes, then MCP and dashboard. Reopen
    writers only after the coordinated artifacts and restored data checks pass.
 
 Passing repository tests does not claim that this production cutover, either
 restore rehearsal, or product/operator permanence signoff occurred.
 
+### Phase 10 repository freshness 0.5.0 cutover
+
+Phase 10 is one coordinated prerelease boundary: API, MCP, and dashboard
+`0.5.0`, plugin `0.9.0`, and migration `0018_repository_freshness`. Migration
+0018 adds only the ordered `checkpoints.affected_paths` declaration, its
+versioned validator, and two constraints. Every historical row receives an
+empty array; no prompt, metadata, tag, branch, commit, relationship, event,
+duplicate fact, or checkout is used to infer a scope. Canonical sparse
+serialization keeps that empty history absent from JSON and preserves every
+historical receipt request fingerprint and response body.
+
+Do not expose any 0.4.x first-party API, MCP adapter, or dashboard against head
+0018. Once a non-empty scope can be returned, older plugins and strict clients
+may reject the new property and are unsupported rather than served a downgraded
+projection. There is no mixed-version feature flag or compatibility subrelease.
+
+Before scheduling the cutover:
+
+1. Build and pin all coordinated artifacts. Confirm the release source,
+   generated OpenAPI, migration/function/trigger hashes, exact 27 MCP tools,
+   11 protected MCP writes, 13 REST receipt kinds, and 11 protected browser
+   mutations.
+2. Inventory every first-party service, direct client, and installed plugin.
+   Confirm each helper host provides Bash 3.2 or newer and Git 2.45.0 or newer;
+   an older Git must return `unsupported_git_version` before repository access.
+3. Take a named custom-format backup at 0017, validate `pg_restore --list`, copy
+   it to independent storage, and prove it restores in isolation.
+4. In a private environment with database and backup access, run the aggregate
+   read-only preflight:
+
+   ```sh
+   uv run --project backend python scripts/audit_duplicate_handling.py \
+     --database-url "$MNEMONIC_OPERATOR_DATABASE_URL" \
+     --backup-directory ./backups \
+     --expected-head 0017_duplicate_suggestion_title_key
+   ```
+
+5. On the isolated production-shaped restore, rehearse the populated migration,
+   exact row/receipt digests, old receipt replay, scoped create/add/complete
+   writes and reads, strict old-client failure, empty-only downgrade, post-scope
+   downgrade refusal, fix-forward, whole restore, and installed helper. Record
+   lock durations and target host capabilities without recording paths, branches,
+   SHAs, roots, remotes, raw Git errors, or filenames.
+
+For the live quiesced rollout:
+
+1. Announce maintenance and the required first-party/client/plugin minimums.
+   Stop web, MCP, API, every direct writer, and reads that could cross the
+   incompatible first-party boundary.
+2. Apply exactly 0018:
+
+   ```sh
+   docker compose run --rm api alembic upgrade 0018_repository_freshness
+   ```
+
+3. Verify `checkpoints.affected_paths` is one-dimensional
+   `VARCHAR(512)[] NOT NULL DEFAULT '{}'`, every historical value is empty, and
+   no new index exists. Verify `mnemonic_affected_paths_valid_v1(VARCHAR[])`,
+   `ck_checkpoints_affected_paths_valid_v1`,
+   `ck_checkpoints_affected_paths_require_commit`, and the unchanged checkpoint
+   and receipt guards against the reviewed PostgreSQL catalog definitions.
+4. Run the audit at the new head; any runtime failure or blocking finding stops
+   the rollout:
+
+   ```sh
+   uv run --project backend python scripts/audit_duplicate_handling.py \
+     --database-url "$MNEMONIC_OPERATOR_DATABASE_URL" \
+     --backup-directory ./backups \
+     --expected-head 0018_repository_freshness \
+     --require-empty-scope
+   ```
+
+   `--require-empty-scope` is the pre-enablement gate: it makes any already
+   populated declaration block the rollout. Do not use that flag for routine
+   steady-state audits after scoped writes have deliberately been enabled.
+
+5. Deploy API/MCP/dashboard 0.5.0 and plugin 0.9.0 together. Verify no 0.4.x
+   first-party process is serving before reopening traffic.
+6. Replay representative historical receipts, then use a disposable project to
+   prove omitted and explicit-empty input remain sparse and a valid ordered
+   non-empty declaration survives create, add, complete, checkpoint history,
+   bounded context, resource, and resume-prompt reads. Confirm compact pointers,
+   events, search, hierarchy, readiness, relationships, suggestions, and caches
+   remain scope-free.
+7. From an explicitly selected disposable workspace, exercise installed helper
+   `unchanged`, `changed`, and `indeterminate` paths under the 15-second
+   caller-enforced process-group deadline. Confirm it neither changes the
+   repository nor contacts a network, and treat all results as ephemeral
+   advisory evidence.
+8. Take and independently restore a post-0018 backup, rerun the new-head audit
+   and representative old and scoped receipt replays, then reopen traffic.
+
+Before the first non-empty declaration, a coordinated rollback may quiesce all
+clients and, while the 0.5 migration code is still available, run:
+
+```sh
+docker compose run --rm api alembic downgrade 0017_duplicate_suggestion_title_key
+```
+
+The downgrade obtains `ACCESS EXCLUSIVE`, checks every scope, and raises before
+DDL if any is non-empty. Deploy the matching 0.4 artifacts only after a
+successful downgrade. After scoped use, do not retry it with disabled guards,
+copy paths into metadata, rewrite receipts, or place an old backend in front of
+0018. Keep 0.5-compatible binaries serving and fix forward, or restore the whole
+database plus matching binaries with explicit acceptance of all post-backup data
+loss. Passing repository tests does not claim any production rehearsal or
+cutover occurred.
+
 ## Durable runtime invariants
+
+### Declared checkpoint scope and local repository assessment
+
+`affected_paths` is an untrusted caller declaration stored on an immutable full
+checkpoint. It describes every eligible repository path on which that
+checkpoint's assertions depend, not merely files changed by its author. A
+non-empty ordered list requires a caller-asserted `verified_against` commit and
+is retained exactly. Omission and explicit `[]` both mean unknown scope and
+serialize without the property; `**` is the only explicit whole-eligible-
+repository declaration. Empty history is never evidence of no change.
+
+The v1 declaration is capped at 64 entries, 512 ASCII bytes per entry, and
+16,384 bytes total. Each slash-separated component uses only ASCII letters,
+digits, `.`, `_`, `@`, `+`, `=`, `,`, `~`, `-`, and `*`; `**` is allowed only
+as a complete component. Exact duplicates, empty or dot components, absolute
+forms, whitespace, non-ASCII, controls, unsupported wildcard/pathspec syntax,
+and excess bounds are invalid. Never repair a declaration by trimming, sorting,
+normalizing, expanding, or copying it into metadata.
+
+Scope appears only on authorized full checkpoint reads and the permanent
+receipt bodies that already carry them. It remains absent from checkpoint
+pointers, events, search, hierarchy, gates, readiness, relationships,
+embeddings, duplicate suggestions, and derived-cache identity. The server, MCP
+adapter, and browser never inspect Git and never store a freshness result.
+
+Only the packaged local helper assesses the explicitly selected current
+workspace. A project repository URL is display context, not repository identity;
+the helper neither resolves nor contacts it. `repository_branch` is also
+display-only and is not compared. The local runtime floor is Bash 3.2 and Git
+2.45.0. Under its 15-second caller-enforced process-group deadline the helper
+returns exactly `unchanged`, `changed`, or `indeterminate`; an unsupported
+runtime, missing scope/baseline, ambiguous workspace, malformed output, timeout,
+or completeness blocker is indeterminate rather than clean.
+
+An unchanged result means only that no relevant eligible Git change was observed
+in two stable, complete sweeps. Changed or indeterminate requires current source
+reinspection or a workspace choice. No outcome proves semantic correctness,
+grants authority, resolves a gate, changes lifecycle/readiness, or mutates
+Mnemonic. Do not persist the assessment automatically. Actual filenames and
+helper output can enter tool/conversation/model context; retain their byte
+quoting and caps, and keep declarations, names, roots, branches, SHAs, remotes,
+stderr, and command strings out of routine logs and telemetry.
 
 ### Leases
 
@@ -400,13 +559,26 @@ or weaken hierarchy constraints.
 ### Identifier-free aggregate monitoring
 
 Run `scripts/audit_duplicate_handling.py` regularly with its default
-`--expected-head 0017_duplicate_suggestion_title_key` from a private environment that can
-reach PostgreSQL and the backup directory. Alert on any blocking finding. Its
-weak-mark counts are inventory, not merge decisions: cycles, multiple targets,
-leases, gates, or structural adjacency on historical descriptive marks do not
-authorize data cleanup or canonical inference. Invoke privileged ID-level
-diagnostics only during an incident and do not copy their output into ordinary
-telemetry.
+`--expected-head 0018_repository_freshness` from a private environment that can
+reach PostgreSQL and the backup directory. Alert on any blocking finding. At
+0018 it verifies the scope column/default/shape, grammar and commit constraints,
+versioned validator, immutable-checkpoint and receipt guards, absence of an
+unexpected scope index, invalid or commitless arrays, and receipt drift without
+printing declaration values. Its weak-mark counts remain inventory, not merge
+decisions: cycles, multiple targets, leases, gates, or structural adjacency on
+historical descriptive marks do not authorize data cleanup or canonical
+inference. Invoke privileged ID-level diagnostics only during an incident and
+do not copy their output into ordinary telemetry.
+
+A valid nonzero scoped-checkpoint count after deliberate enablement is inventory,
+not corruption; before the coordinated release permits scoped writes, it stops
+the rollout. Alongside the database audit, inventory deployed first-party
+versions and the installed plugin version, package contents, helper executable
+mode, and reference/skill links. Alert on any 0.4.x first-party process serving
+against 0018 or any installed helper/package drift. The server has no repository
+freshness metric because it performs no assessment. Optional local metrics may
+retain only bounded state, reason, duration bucket, pattern/display counts,
+truncation, and runtime versions—never declarations or repository evidence.
 
 Run these checks only from a private operator shell and retain aggregates, not
 query output containing application rows. The examples deliberately have no
@@ -604,8 +776,9 @@ docker compose logs --tail=20 backup
 ```
 
 Files appear under `MNEMONIC_BACKUP_DIR` (`./backups` by default). They include
-canonical work, immutable checkpoint text and provenance, retained leases, typed
-relationships, authoritative duplicate merges and their sequence/witnesses,
+canonical work, immutable checkpoint text and provenance including declared
+repository dependency scopes, retained leases, typed relationships,
+authoritative duplicate merges and their sequence/witnesses,
 immutable work events and their sequence, human gates and their
 attention identity sequence, private durable client-operation receipts, and
 migration state; treat them as private. Receipt
@@ -624,7 +797,10 @@ all event and gate indexes plus immutability/completeness/fail-closed triggers,
 duplicate-forest depth and alias guards, exact merge/relationship event pairs,
 attention sequence state, receipt count/uniqueness/state plus its guards, exact
 replay of representative ordinary, gate, and merge successes, and the expected
-`alembic_version`. Keep
+`alembic_version`. At head 0018, also verify exact scope order and case,
+empty-history sparse serialization, commit dependency, immutable rows,
+validator and constraint catalog definitions, representative scoped receipt
+replay, and absence from compact and derived projections. Keep
 the PostgreSQL major version compatible with the dump
 tools.
 
@@ -656,14 +832,17 @@ from before a schema change on an isolated instance first. Restore is not a
 substitute for schema downgrade; downgrade is explicitly unsupported beginning
 with migration 0015 and remains unsupported for 0016. Downgrading 0017 only
 removes its derived suggestion function/index and leaves Core domain facts in
-place. A pre-Phase-3 archive cannot recover later graph facts, a
+place. Downgrading 0018 to 0017 is allowed only while every scope remains empty;
+its lock-protected guard refuses before DDL after any scoped use. A pre-Phase-3
+archive cannot recover later graph facts, a
 pre-Phase-5 archive cannot recover later event history, a pre-Phase-6 archive
 cannot recover later client-operation receipts, and a pre-Phase-7 archive cannot
 recover later gates, gate events, attention order, or gate-operation receipts.
 A pre-Phase-9 archive cannot recover later authoritative merges, supporting
 witnesses, merge events, or merge receipts. Restoring such an archive after a
 merge discards that merge and every unrelated later write as one database-wide
-recovery boundary.
+recovery boundary. A pre-Phase-10 archive likewise cannot recover later declared
+checkpoint scopes or the scoped receipt evidence that binds them.
 
 Deletion from the dashboard is a soft delete. No ordinary work/checkpoint/event
 API or MCP read can retrieve a deleted work item. The immutable rows remain

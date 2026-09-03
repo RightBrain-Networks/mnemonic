@@ -362,6 +362,115 @@ def test_concurrent_keyed_create_executes_once_and_mismatch_conflicts(
     assert table_count(postgres_engine, "client_operations") == 1
 
 
+def test_affected_paths_are_sparse_but_bind_checkpoint_receipts(
+    api, project, work_payload, checkpoint_fields, postgres_engine
+):
+    create_key = str(uuid4())
+    create_paths = ["src/**", "tests/test_*.py"]
+    create_body = {
+        **work_payload,
+        "title": "Scoped idempotent work",
+        "initial_checkpoint": {
+            **work_payload["initial_checkpoint"],
+            "affected_paths": create_paths,
+        },
+        "client_operation_id": create_key,
+    }
+    created = assert_exact_replay(
+        api, "POST", work_collection(project), create_body, 201
+    )
+    assert created["initial_checkpoint"]["affected_paths"] == create_paths
+    create_conflict = api.post(
+        work_collection(project),
+        json={
+            **create_body,
+            "initial_checkpoint": {
+                **create_body["initial_checkpoint"],
+                "affected_paths": list(reversed(create_paths)),
+            },
+        },
+    )
+    assert create_conflict.status_code == 409
+    assert create_conflict.json()["detail"]["code"] == "client_operation_conflict"
+
+    work_item = created["work_item"]
+    endpoint = work_path(project, work_item)
+    checkpoint_key = str(uuid4())
+    checkpoint_paths = ["backend/src/**"]
+    checkpoint_body = {
+        **checkpoint_fields,
+        "kind": "progress",
+        "affected_paths": checkpoint_paths,
+        "client_operation_id": checkpoint_key,
+    }
+    checkpoint = assert_exact_replay(
+        api, "POST", f"{endpoint}/checkpoints", checkpoint_body, 201
+    )
+    assert checkpoint["affected_paths"] == checkpoint_paths
+
+    completion_key = str(uuid4())
+    completion_paths = ["backend/tests/**"]
+    completion_body = {
+        "expected_version": 1,
+        "checkpoint": {
+            **checkpoint_fields,
+            "prompt": "Complete with a frozen dependency scope.",
+            "affected_paths": completion_paths,
+        },
+        "client_operation_id": completion_key,
+    }
+    completed = assert_exact_replay(
+        api, "POST", f"{endpoint}/complete", completion_body, 200
+    )
+    assert completed["checkpoint"]["affected_paths"] == completion_paths
+    assert api.post(f"{endpoint}/complete", json=completion_body).json() == completed
+
+    completion_conflict = api.post(
+        f"{endpoint}/complete",
+        json={
+            **completion_body,
+            "checkpoint": {
+                **completion_body["checkpoint"],
+                "affected_paths": ["backend/tests/integration/**"],
+            },
+        },
+    )
+    assert completion_conflict.status_code == 409
+    assert completion_conflict.json()["detail"]["code"] == "client_operation_conflict"
+
+    checkpoint_conflict = api.post(
+        f"{endpoint}/checkpoints",
+        json={**checkpoint_body, "affected_paths": ["backend/src/mnemonic_api/**"]},
+    )
+    assert checkpoint_conflict.status_code == 409
+    assert checkpoint_conflict.json()["detail"]["code"] == "client_operation_conflict"
+    assert api.post(work_collection(project), json=create_body).json() == created
+    assert api.post(f"{endpoint}/checkpoints", json=checkpoint_body).json() == checkpoint
+    assert work_event_count(postgres_engine, work_item["id"]) == 3
+
+    sparse_key = str(uuid4())
+    sparse_body = {
+        **work_payload,
+        "title": "Explicit empty is the historical request",
+        "client_operation_id": sparse_key,
+    }
+    sparse_created = api.post(work_collection(project), json=sparse_body)
+    assert sparse_created.status_code == 201, sparse_created.text
+    explicit_empty = api.post(
+        work_collection(project),
+        json={
+            **sparse_body,
+            "initial_checkpoint": {
+                **sparse_body["initial_checkpoint"],
+                "affected_paths": [],
+            },
+        },
+    )
+    assert explicit_empty.status_code == 201, explicit_empty.text
+    assert explicit_empty.json() == sparse_created.json()
+    assert "affected_paths" not in sparse_created.json()["initial_checkpoint"]
+    assert table_count(postgres_engine, "client_operations") == 4
+
 def test_different_keys_reach_same_work_lock_without_receipt_deadlock(
     api, project, work_payload, postgres_engine
 ):

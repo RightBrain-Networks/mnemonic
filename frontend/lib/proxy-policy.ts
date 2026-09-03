@@ -7,6 +7,7 @@ import {
   validBoundedMetadata,
   validUuid
 } from "./wire-guards.ts";
+import { validAffectedPaths } from "./affected-paths.ts";
 
 export interface DefinitiveProxyError {
   readonly status: 400 | 403 | 404 | 413 | 415 | 422;
@@ -156,7 +157,14 @@ const RESERVED_METADATA_KEYS = new Set([
   "cookie",
   "secret",
   "gate_id",
-  "gate_type"
+  "gate_type",
+  "affected_paths",
+  "repository_root",
+  "repo_root",
+  "assessment",
+  "assessment_result",
+  "freshness_assessment",
+  "freshness_state"
 ]);
 const CLIENT_OPERATION_FIELD = "client_operation_id";
 const FORBIDDEN_CONTROL_TRANSPORT_NAMES = new Set([
@@ -320,6 +328,7 @@ function validCheckpointPayload(value: unknown, includeKind: boolean): boolean {
     "source_session_url",
     "repository_branch",
     "verified_against",
+    "affected_paths",
     "tags",
     "source_metadata",
     CLIENT_OPERATION_FIELD
@@ -336,6 +345,11 @@ function validCheckpointPayload(value: unknown, includeKind: boolean): boolean {
       || nullableBoundedText(checkpoint.repository_branch, 200))
     && (checkpoint.verified_against === undefined
       || checkpoint.verified_against === null
+      || typeof checkpoint.verified_against === "string"
+        && /^[a-fA-F0-9]{7,64}$/.test(checkpoint.verified_against))
+    && (checkpoint.affected_paths === undefined
+      || validAffectedPaths(checkpoint.affected_paths))
+    && (!(Array.isArray(checkpoint.affected_paths) && checkpoint.affected_paths.length > 0)
       || typeof checkpoint.verified_against === "string"
         && /^[a-fA-F0-9]{7,64}$/.test(checkpoint.verified_against))
     && (checkpoint.tags === undefined || validStringArray(checkpoint.tags, 50, 50))
@@ -464,7 +478,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       !allowedKeys(body, [
         "kind", "prompt", "source_client", "source_session_id", "source_model",
         "source_session_url", "repository_branch", "verified_against", "tags",
-        "source_metadata", CLIENT_OPERATION_FIELD
+        "affected_paths", "source_metadata", CLIENT_OPERATION_FIELD
       ])
       || !validCheckpointPayload(body, true)
     ) return DEFINITIVE_PROXY_ERRORS.invalidCheckpoint.detail;

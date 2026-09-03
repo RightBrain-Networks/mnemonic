@@ -24,12 +24,10 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 ## Delivery Snapshot
 
-As of 2026-09-02, Phases 1–9 are shipped at application/API/MCP `0.4.0`,
-plugin `0.8.0`, and migration `0017_duplicate_suggestion_title_key`; Phases
-10–13 remain planned. Phase 9's Core and Advisory implementations passed their
-repository implementation gates. Production cutover, backup restore rehearsal, and
-product/operator permanence signoff remain deployment prerequisites rather
-than claims made by this repository snapshot.
+As of 2026-09-03, Phases 1–10 are shipped in the repository at
+application/API/MCP/dashboard `0.5.0`, plugin `0.9.0`, and migration
+`0018_repository_freshness`. Production-target preflight and cutover remain
+explicit operator gates. Phases 11–13 remain planned.
 
 | Roadmap element | Status | Implemented functionality |
 | --- | --- | --- |
@@ -42,7 +40,7 @@ than claims made by this repository snapshot.
 | Phase 7 — Human gates | Shipped | Immutable question/answer history, drift-aware review, readiness and lifecycle guards, bounded recall, and a dedicated Needs Attention queue. |
 | Phase 8 — Hierarchical presentation | Shipped | Collapsed root workstreams, lazy child paging, subtree-aware filtering, breadcrumbs, discovery labels, and exact branch aggregates. |
 | Phase 9 — Duplicate handling | Shipped | Immutable authoritative merges, retained non-actionable aliases, canonical-aware reads/search/hierarchy, explicit draft duplicate suggestions, resource controls, and coordinated 0.4.0/0.8.0 clients. Production cutover and recovery gates remain explicit. |
-| Phase 10 — Freshness verification | Planned | Checkpoints retain caller-asserted `verified_against` commits; Mnemonic does not yet verify repository freshness. |
+| Phase 10 — Repository freshness verification | Shipped | Immutable ordered checkpoint dependency declarations plus a local, repository-selected, three-state Git assessment with fail-closed runtime, index, filter, normalization, race, privacy, and authority boundaries. |
 | Phase 11 — Completion evidence | Planned | Completion checkpoints and completion events exist; structured verification results and artifact references have not shipped. |
 | Phase 12 — Project activity feed | Planned | Per-work timelines and data-free dashboard invalidations exist; a durable project-wide cursor/feed, SSE, and webhooks have not shipped. |
 | Phase 13 — Resource reservations | Planned | Work-item leases exist; arbitrary resource-key reservations have not shipped. |
@@ -188,6 +186,7 @@ source_model
 source_session_url
 repository_branch
 verified_against
+affected_paths
 tags
 source_metadata
 created_at
@@ -727,11 +726,12 @@ If either the UUID or exact arguments are lost, the caller must stop, inspect
 current state where safe, and request direction rather than guess a retry.
 
 The dashboard keeps frozen browser intents only for the current document. An
-ambiguous result survives modal closure/component unmount, blocks intersecting
-writes, and can be resent exactly. Strict operation-specific response decoding
-clears it only after a coherent expected success or definite rejection. It is
-never persisted across tabs, reloads, or browser-process loss, and Phase 6 makes
-no safe-retry claim after that private state disappears.
+ambiguous result survives pane deselection, dialog closure, or component
+unmount, blocks intersecting writes, and can be resent exactly. Strict
+operation-specific response decoding clears it only after a coherent expected
+success or definite rejection. It is never persisted across tabs, reloads, or
+browser-process loss, and Phase 6 makes no safe-retry claim after that private
+state disappears.
 
 ## Shipped acceptance criteria
 
@@ -993,68 +993,148 @@ Ordinary search and Create remain independent, and similarity never authorizes
 
 # Phase 10 - Repository Freshness Verification
 
-**Status: Planned; provenance fields shipped.** Checkpoints already retain
-caller-asserted `repository_branch` and `verified_against` values. There is no
-`affected_paths` field or repository-aware freshness check yet.
+**Status: Shipped in the repository.** The coordinated boundary is
+application/API/MCP/dashboard `0.5.0`, plugin `0.9.0`, and migration
+`0018_repository_freshness`. Production-target preflight, approval, backup,
+and quiesced cutover remain explicit operator work.
 
 ## Objective
 
-Make checkpoint provenance actionable.
+Make checkpoint provenance actionable without overstating what Git can prove or
+giving the server access to a checkout.
 
-Mnemonic already records repository state such as:
+## Implemented checkpoint declaration
+
+Every full checkpoint input and read can carry:
 
 ```text
 repository_branch
 verified_against
-```
-
-The next step is to help the client determine whether relevant source code has changed since the checkpoint was created.
-
-## Proposed Checkpoint Metadata
-
-```text
 affected_paths
 ```
 
-Examples:
+`affected_paths` is an ordered list of source dependencies for that exact
+checkpoint's assertions, not merely files its author changed. A non-empty scope
+requires the commit the caller actually inspected in `verified_against`.
+`repository_branch` remains optional display provenance and is never resolved
+or compared by the helper.
+
+Omission and explicit `[]` normalize to one unknown value whose canonical JSON
+omits the property. Empty never means no changes or whole-repository coverage;
+the literal `**` explicitly declares all eligible repository paths. Non-empty
+order, spelling, and case are preserved and bind new receipt fingerprints and
+coherence checks. Historical rows receive an empty array, and the sparse wire
+form preserves every existing request fingerprint and stored response body.
+
+The v1 grammar permits only slash-separated ASCII components containing letters,
+digits, `.`, `_`, `@`, `+`, `=`, `,`, `~`, `-`, and `*`. A single star stays
+within one component; `**` is valid only as a whole component. The release caps
+scope at 64 entries, 512 bytes per entry, and 16,384 bytes total. It rejects
+duplicates, requires every pattern to match independently before `unchanged`,
+and does not trim, normalize, sort, expand, infer, or backfill paths. For
+example:
 
 ```text
-app/services/envelopes/**
-tests/test_envelopes.py
-migrations/**
+backend/src/mnemonic_api/**
+backend/alembic/versions/0018_repository_freshness.py
+backend/tests/test_repository_freshness_migration_postgres.py
 ```
 
-## Client-side Recall Check
+Scope appears only on full checkpoint reads: initial/current/recent context,
+checkpoint history, receipt-protected create/add/complete responses, resources,
+and resume prompts built from full context. Compact pointers, search, hierarchy,
+relationships, gates, readiness, events, embeddings, duplicate suggestions, and
+derived-cache identity remain scope-free. Search or a pointer must therefore be
+followed by full recall before assessment.
 
-The MCP client skill can compare:
+Application/MCP/dashboard 0.4.x clients are unsupported once a non-empty scope
+exists. Phase 10 updates first-party clients together and adds no legacy/current
+model union, response downgrade projection, receipt rewrite, alias field, or
+dual database write.
+
+## Implemented local assessment boundary
+
+The backend persists immutable caller declarations but does not inspect Git,
+derive paths, accept an assessment, or add a freshness route or tool. The MCP
+adapter transports full checkpoint data but is also repository-blind. Browser
+code can accept and display declarations but does not inspect a checkout. Only
+the installed plugin's `mnemonic-repository-freshness` helper examines the
+explicitly selected current local workspace.
+
+The client assesses only the governing full checkpoint whose assertions it is
+about to rely on. It never guesses a checkout from the mutable project
+repository URL, and it asks for a choice when multiple workspaces could be
+intended. View, copy, or summary alone does not execute the helper. The helper
+takes only one hexadecimal baseline and 1–64 validated paths; it receives no
+dynamic root, project ID, URL, branch, refname, config, or output destination.
+
+The packaged runtime requires Bash 3.2 or newer and Git 2.45.0 or newer, with a
+15-second caller-enforced whole-process-group deadline. It hardens Git
+configuration and environment, disables lazy fetch, replacement objects, and
+user attributes and ignores, and never fetches, clones, checks out, writes
+repository state, invokes configured processes, hooks, index/worktree
+conversion, textconv, filters, fsmonitor, pagers, editors, credentials, or SSH,
+or contacts a remote. Worktree bytes are hashed raw with `--no-filters`;
+conditions that make a complete zero unsafe fail closed.
+
+The exact `mnemonic-repository-freshness-v1` ASCII protocol reports one state:
 
 ```text
-git diff --name-only <verified_against>..HEAD -- <affected_paths>
+unchanged      no relevant eligible Git change was observed
+changed        a repeatable relevant Git change was observed
+indeterminate  the comparison could not establish either result safely
 ```
 
-and return information such as:
+The two-stage assessment first requires a resolvable commit baseline that is
+equal to or an ancestor of captured `HEAD`. Two bracketed sweeps then cover
+committed, staged, unmerged, raw unstaged, and nonignored untracked evidence,
+with one whole retry after a moving `HEAD`. One stable observation is enough for
+`changed`; only two stable, complete zero sweeps produce `unchanged`. Unmatched
+patterns, directory ambiguity, index flags, sparse state,
+`core.fileMode=false`, normalization or filter state, symlinks, gitlinks,
+command failure, and races make a zero result `indeterminate`.
+
+Ignored untracked files, submodule interiors, generated or external artifacts,
+runtime state, external symlink targets, and semantic correctness are outside
+the result. Actual names are byte-quoted, capped at 100, and enter tool and model
+context only as privacy-sensitive evidence; helper stdout is capped at 32 KiB.
+
+The client presents evidence-oriented language such as:
 
 ```text
-Checkpoint based on: a832bc1
-Current HEAD:         d7be142
-Affected files changed since checkpoint: YES
+Repository freshness: RELEVANT CHANGE OBSERVED
+Checkpoint baseline:  a832bc1… (resolved locally)
+Current HEAD:          d7be142…
+Declared scope:        3 patterns
 
-Changed:
   app/services/foo.py
   tests/test_foo.py
+
+Reinspect current source before relying on this checkpoint.
+This is a Git-state comparison, not a semantic-correctness result.
 ```
 
-This retains Mnemonic's trust boundary: the server stores declared provenance, while the repository-aware client performs local verification.
-
-## Future Extension
-
-For high-value checkpoints, optionally store Git blob IDs for specific files.
+`changed` and `indeterminate` require source reinspection or a repository choice.
+`unchanged` only means that no relevant eligible Git change was observed. No
+outcome grants authority, resolves a gate, changes readiness or lifecycle,
+renews a lease, mutates a work item, or proves a checkpoint correct, current,
+verified, or safe. Results remain ephemeral client evidence and are never
+copied automatically into checkpoints or events.
 
 ## Acceptance Criteria
 
-- Agents are explicitly warned when checkpoint assumptions may have gone stale.
-- Freshness checking occurs without requiring the Mnemonic server to mount or trust the repository.
-- Path metadata remains advisory and does not pretend to prove semantic correctness.
+- Existing production rows and all permanent receipt bytes are preserved by the
+  empty-only migration and sparse canonical serialization.
+- Full checkpoints carry exact ordered declared scope while compact and derived
+  surfaces remain unchanged.
+- Repository-aware clients warn and reinspect on `changed` or `indeterminate`;
+  they never turn `unchanged` into semantic or execution authority.
+- The server, MCP adapter, and browser never mount or trust a repository, and
+  the local helper performs no repository mutation, configured process launch,
+  or network operation.
+- A guarded downgrade succeeds only before any non-empty scope exists; after
+  scoped use, recovery is fix-forward or whole-database restore rather than a
+  lossy compatibility path.
 
 ---
 
@@ -1422,10 +1502,13 @@ This directly addresses the original GitHub Issues noise problem.
 
 ## Milestone 5 - Provenance and Verification
 
-**Status: Planned; checkpoint and completion provenance groundwork exists.**
+**Status: Phase 10 shipped.** Declared repository dependency scope and local
+advisory assessment are implemented; Phase 11 completion evidence and artifact
+references remain planned.
 
-1. Add `affected_paths`.
-2. Add repository freshness checks to the MCP client skill.
+1. Add `affected_paths`. **Shipped in Phase 10.**
+2. Add repository freshness checks to the MCP client skill. **Shipped in Phase
+   10 as a local three-state assessment.**
 3. Add structured verification results.
 4. Add artifact references.
 

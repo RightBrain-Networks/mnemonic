@@ -30,6 +30,7 @@ import type {
 } from "@/lib/types";
 import { workSearchParams } from "@/lib/work-item-search";
 import { dashboardMutationActor } from "@/lib/work-events";
+import { decodeCheckpointPage } from "@/lib/mutation-responses";
 
 const groupOrder = [
   "Blocked by",
@@ -188,10 +189,11 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
     const controller = new AbortController();
     setCheckpointsLoading(true);
     Promise.all(uniqueIds.map(async (id) => {
-      const page = await api<Page<Checkpoint>>(
+      const value = await api<unknown>(
         `${workItemPath(work.project_id, id)}/checkpoints?order=newest&limit=100&offset=0`,
         { signal: controller.signal }
       );
+      const page = decodeCheckpointPage(value, id, { limit: 100, offset: 0 });
       const owner = id === work.id ? work.title : counterpart.work_item.title;
       return page.items.map((checkpoint) => ({ owner, checkpoint }));
     })).then((choices) => {

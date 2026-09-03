@@ -1,6 +1,7 @@
 import type { Checkpoint, Page } from "@/lib/types";
 import { checkpointKindLabels, migrationWarning } from "@/lib/work-item-view";
 import { clientLabel, formatDate } from "@/components/work-item-card";
+import CheckpointRepositoryDeclaration from "@/components/checkpoint-repository-declaration";
 
 const PAGE_SIZE = 5;
 
@@ -59,10 +60,10 @@ export default function CheckpointTimeline({
               <div><dt>Client</dt><dd>{clientLabel(checkpoint.source_client)}</dd></div>
               <div><dt>Session</dt><dd className="mono break-all">{checkpoint.source_session_id}</dd></div>
               <div><dt>Model</dt><dd>{checkpoint.source_model || "Not recorded"}</dd></div>
-              <div><dt>Branch / commit</dt><dd className="mono break-all">{checkpoint.repository_branch || "—"}{checkpoint.verified_against ? ` · ${checkpoint.verified_against}` : ""}</dd></div>
               {sessionUrl && <div className="span-two"><dt>Original session</dt><dd><a className="text-link" href={sessionUrl} target="_blank" rel="noopener noreferrer">Open session ↗</a></dd></div>}
               <div className="span-two"><dt>Tags</dt><dd className="tag-list">{checkpoint.tags.length ? checkpoint.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>) : "No tags"}</dd></div>
             </dl>
+            <CheckpointRepositoryDeclaration checkpoint={checkpoint} />
             {Object.keys(checkpoint.source_metadata).length > 0 && <details className="metadata-details"><summary>Extra metadata</summary><pre>{JSON.stringify(checkpoint.source_metadata, null, 2)}</pre></details>}
           </article>;
         })}

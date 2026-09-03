@@ -40,6 +40,47 @@ alias. Show its direct destination, canonical path, and full audit ID. If curren
 continuing the root work, deliberately recall `canonical_work_item.id` as a separate exact read;
 never redirect the URL, selected ID, copied ID, or tool arguments silently.
 
+## Assess the governing checkpoint before repository work
+
+Read
+[repository-freshness.md](${CLAUDE_PLUGIN_ROOT}/reference/repository-freshness.md).
+When current repository work will rely on checkpoint assertions, select the
+exact governing full checkpoint: `current_context` when present, otherwise
+`initial_checkpoint`. Assess an older checkpoint only when relying on a claim
+unique to it, and a completion checkpoint only for an explicit completion
+audit. Search pointers are insufficient. Keep an alias checkpoint and the
+canonical root's checkpoint separate and visibly label both exact histories.
+
+View, copy, and summary requests alone do not require local execution. For a
+continuation, first establish that the user explicitly selected the current
+workspace. Repository URL is not identity. Missing or empty `affected_paths`
+is caller-side `no_scope`; missing `verified_against` is caller-side
+`no_baseline`. Neither means unchanged.
+
+For a complete declaration, enforce a 15-second whole-process-group deadline
+and invoke only the fixed executable with separately quoted argv:
+
+```text
+"${CLAUDE_PLUGIN_ROOT}/bin/mnemonic-repository-freshness" \
+  --baseline '<verified_against>' \
+  --path '<affected_path>'
+```
+
+Repeat `--path` in stored order. Never pass branch, root, URL, refname, config,
+command, or destination; never build an evaluable shell string. Validate the
+exact v1 ASCII protocol, key/detail/path counts, 32 KiB bound, terminal newline,
+known reason/state, and exit agreement. Treat timeout or signal as `timed_out`
+and exit 64/70, stderr, partial or extra output, or disagreement as
+`malformed_helper_result`.
+
+For `unchanged`, say only that no relevant eligible Git change was observed.
+For `changed`, show only the bounded byte-quoted paths needed, warn, and
+reinspect current source. For `indeterminate`, explain the stable reason and
+inspect manually or ask only for a material unresolved repository choice.
+None of these outcomes establishes semantic correctness, safety, execution
+authority, a gate answer, or mutation permission. Never persist the assessment
+or automatically copy filenames into a checkpoint or event.
+
 Before beginning execution the user has already authorized, generate a fresh
 opaque `claim_request_id` for this attempt and call
 `claim_and_recall(project_id, work_item_id, holder_client, holder_session_id,

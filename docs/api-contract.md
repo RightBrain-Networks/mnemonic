@@ -1,8 +1,9 @@
-# Phase 9 API contract
+# Phase 10 API contract
 
-This is the application/API/MCP `0.4.0`, plugin `0.8.0`, and migration
-`0017_duplicate_suggestion_title_key` contract. It includes both authoritative
-duplicate merges and evidence-only duplicate suggestions.
+This is the application/API/MCP `0.5.0`, plugin `0.9.0`, and migration
+`0018_repository_freshness` contract. It includes caller-declared repository
+dependency scopes and the client-local freshness workflow alongside Phase 9's
+authoritative duplicate merges and evidence-only duplicate suggestions.
 
 All application routes use `/api/v1` and
 `Authorization: Bearer <MNEMONIC_API_KEY>`. `GET /healthz` and
@@ -233,6 +234,7 @@ use `pending` and `deferred`.
     "source_session_url": null,
     "repository_branch": "feature/cache",
     "verified_against": "abc1234",
+    "affected_paths": ["app/services/**", "tests/test_cache.py"],
     "tags": ["cache", "correctness"],
     "source_metadata": {}
   },
@@ -316,11 +318,32 @@ Successful deletion removes a matching lease and returns body-bearing JSON:
 
 Every checkpoint payload contains exact nonblank `prompt`,
 `source_client`, and `source_session_id`, plus optional `source_model`,
-`source_session_url`, `repository_branch`, `verified_against`, `tags`,
-and `source_metadata`. Prompt text is not stripped or rewritten. Tags are
+`source_session_url`, `repository_branch`, `verified_against`, `affected_paths`,
+`tags`, and `source_metadata`. Prompt text and path order/spelling/case are not
+stripped or rewritten. Tags are
 normalized, de-duplicated, and capped at 20; metadata must be a JSON object no
 larger than 16 KiB. The append request additionally accepts optional top-level
 `client_operation_id`.
+
+`affected_paths` is an ordered declaration of version-control paths on which
+the checkpoint's assertions depend—not merely files the author changed. It has
+at most 64 exact, case-sensitive entries, 512 ASCII bytes per entry, and 16,384
+bytes in total. Components permit only `A-Z a-z 0-9 . _ @ + = , ~ - *`, `/` is
+the only separator, `*` spans bytes within one component, and `**` is valid only
+as a complete component. Empty, dot/dot-dot, absolute, drive, UNC, whitespace,
+non-ASCII, shell-syntax, raw pathspec-magic, and duplicate entries are rejected.
+A literal names one file or gitlink; directory scope is written `directory/**`,
+and `**` means every eligible repository path.
+
+A non-empty declaration requires a non-null hex `verified_against` commit the
+caller actually inspected. Omission and explicit `[]` both mean no dependency
+scope was declared; they never mean that the entire repository was checked or
+that nothing changed. Their canonical request fingerprints and response form
+omit the property. Non-empty lists serialize in supplied order and participate
+in receipt fingerprinting and response/request coherence. A response containing
+an explicit empty array is noncanonical. Historical receipt request hashes and
+stored response bodies therefore remain byte-for-byte unchanged at contract
+version 1.
 
 The append route adds `kind: "context" | "progress"`, defaulting to
 `context`. Callers cannot append `completion` through this generic route.
@@ -598,7 +621,7 @@ Ready discovery is advisory. It is separate from lexical/semantic retrieval,
 does not reserve work, and cannot bypass the atomic readiness recheck performed
 by `claim_work` or `claim_and_recall`.
 
-### Phase 9 response shapes
+### Phase 10 response shapes
 
 `WorkItemRead` contains:
 
@@ -623,9 +646,35 @@ source_session_url, repository_branch, verified_against, tags, source_metadata,
 migration_origin, legacy_record_id, created_at
 ```
 
+It additionally contains optional `affected_paths` when and only when the
+stored declaration is non-empty. Historical and newly explicit-empty values are
+represented by property absence. Full create/add/complete responses, checkpoint
+history, and bounded context preserve a non-empty list exactly.
+
 `CheckpointPointer` omits prompt, source session URL, and source metadata. It
 retains compact source/session/model, repository, tag, migration, kind, ID, and
-time fields.
+time fields. It also omits `affected_paths`; search, hierarchy, relationships,
+gates, readiness, events, embeddings, suggestions, and cache identity remain
+scope-free. A compact pointer must be followed by a full recall before a local
+freshness assessment.
+
+### Repository freshness boundary
+
+The REST API and MCP adapter validate, persist, authorize, and transport only
+the caller's declaration. They accept no repository root, changed-path result,
+or freshness state; expose no assessment endpoint or tool; execute no Git or
+filesystem command; and persist no assessment. Project `repository_url` and
+checkpoint `repository_branch` are display context, not repository identity or
+revisions to resolve.
+
+The installed plugin alone may compare a governing full checkpoint with the
+explicitly selected current local workspace. Its advisory result is
+`unchanged`, `changed`, or `indeterminate`. “Unchanged” means only that two
+bounded, stable sweeps observed no relevant eligible Git change under all
+required preconditions. It does not prove that the checkpoint is semantically
+correct, current, verified, safe, or authorized. `changed` and `indeterminate`
+require reinspection before relying on the checkpoint; no result changes work,
+gates, claims, readiness, versions, events, or receipts.
 
 `WorkSummary` contains `work_item`, `checkpoint_count`, `ancestor_path`,
 `ancestor_path_truncated`, `current_context` as a pointer, and `readiness`.

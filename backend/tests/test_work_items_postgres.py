@@ -94,6 +94,7 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
     assert initial["migration_origin"] is None
     assert initial["legacy_record_id"] is None
     assert initial["created_at"].endswith("Z")
+    assert "affected_paths" not in initial
 
     detail = api.get(item_path(project, work_item)).json()
     assert detail == {
@@ -182,6 +183,129 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
         "has_unresolved_gate": False,
         "source_lease_state": "none",
     }
+
+
+def test_affected_paths_round_trip_only_through_full_checkpoint_surfaces(
+    api, project, work_payload, postgres_engine
+):
+    initial_paths = ["Phase10ScopeOnlyMarker/**", "src/a*b*c.py"]
+    created = create_work(
+        api,
+        project,
+        {
+            **work_payload,
+            "initial_checkpoint": {
+                **work_payload["initial_checkpoint"],
+                "affected_paths": initial_paths,
+            },
+        },
+    )
+    work_item = created["work_item"]
+    initial = created["initial_checkpoint"]
+    endpoint = item_path(project, work_item)
+    assert initial["affected_paths"] == initial_paths
+
+    summary = api.get(collection(project)).json()["items"][0]["summary"]
+    assert "affected_paths" not in summary["current_context"]
+    assert (
+        api.get(
+            collection(project),
+            params={"q": "Phase10ScopeOnlyMarker", "status": "all"},
+        ).json()["total"]
+        == 0
+    )
+
+    progress_paths = ["tests/test_*.py"]
+    progress_body = checkpoint_payload(
+        "Progress with a declared dependency scope.",
+        "phase-10-progress",
+        kind="progress",
+    )
+    progress_body["affected_paths"] = progress_paths
+    progress_response = api.post(f"{endpoint}/checkpoints", json=progress_body)
+    assert progress_response.status_code == 201, progress_response.text
+    progress = progress_response.json()
+    assert progress["affected_paths"] == progress_paths
+
+    completion_paths = ["migrations/**"]
+    completion_body = checkpoint_payload(
+        "Completion with a distinct declared dependency scope.",
+        "phase-10-completion",
+    )
+    completion_body.pop("kind")
+    completion_body["affected_paths"] = completion_paths
+    completion_response = api.post(
+        f"{endpoint}/complete",
+        json={"expected_version": 1, "checkpoint": completion_body},
+    )
+    assert completion_response.status_code == 200, completion_response.text
+    completion = completion_response.json()["checkpoint"]
+    assert completion["affected_paths"] == completion_paths
+
+    first_page = api.get(
+        f"{endpoint}/checkpoints", params={"limit": 2, "offset": 0}
+    ).json()
+    second_page = api.get(
+        f"{endpoint}/checkpoints", params={"limit": 2, "offset": 2}
+    ).json()
+    assert first_page["total"] == second_page["total"] == 3
+    assert first_page["limit"] == second_page["limit"] == 2
+    assert first_page["offset"] == 0
+    assert second_page["offset"] == 2
+    assert len(first_page["items"]) == 2
+    assert len(second_page["items"]) == 1
+    history_items = [*first_page["items"], *second_page["items"]]
+    paths_by_id = {
+        checkpoint["id"]: checkpoint.get("affected_paths", [])
+        for checkpoint in history_items
+    }
+    assert paths_by_id == {
+        initial["id"]: initial_paths,
+        progress["id"]: progress_paths,
+        completion["id"]: completion_paths,
+    }
+
+    context = api.get(f"{endpoint}/context", params={"recent_limit": 10}).json()
+    context_checkpoints = [
+        context["initial_checkpoint"],
+        *([context["current_context"]] if context["current_context"] else []),
+        *context["recent_checkpoints"],
+    ]
+    context_paths_by_id = {
+        checkpoint["id"]: checkpoint.get("affected_paths", [])
+        for checkpoint in context_checkpoints
+    }
+    assert context_paths_by_id[initial["id"]] == initial_paths
+    assert context_paths_by_id[progress["id"]] == progress_paths
+    assert context_paths_by_id[completion["id"]] == completion_paths
+
+    events = api.get(f"{endpoint}/events", params={"limit": 100}).json()["items"]
+    assert [event["event_type"] for event in events] == [
+        "work_created",
+        "checkpoint_added",
+        "work_completed",
+    ]
+    assert all("affected_paths" not in event for event in events)
+    assert all("affected_paths" not in event["metadata"] for event in events)
+
+    with Session(postgres_engine) as database:
+        stored_paths = {
+            str(checkpoint.id): checkpoint.affected_paths
+            for checkpoint in database.query(Checkpoint)
+            .filter(Checkpoint.work_item_id == UUID(work_item["id"]))
+            .all()
+        }
+    assert stored_paths == paths_by_id
+
+    with pytest.raises(DBAPIError, match="checkpoints are immutable"):
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE checkpoints SET affected_paths = ARRAY['other/**']::varchar[] "
+                    "WHERE id = :id"
+                ),
+                {"id": progress["id"]},
+            )
 
 
 def test_minimal_view_is_removed_and_full_search_hit_is_the_default(
@@ -568,16 +692,24 @@ def test_cross_project_isolation_and_two_appenders_plus_editor_succeed(
     assert api.get(wrong).status_code == 404
     assert api.get(f"{wrong}/checkpoints").status_code == 404
     assert api.post(
-        f"{wrong}/checkpoints", json=checkpoint_payload("Wrong project", "wrong-project")
+        f"{wrong}/checkpoints",
+        json={
+            **checkpoint_payload("Wrong project", "wrong-project"),
+            "affected_paths": ["foreign/**"],
+        },
     ).status_code == 404
 
     barrier = Barrier(3)
 
     def append(session_id):
         barrier.wait(timeout=5)
+        body = checkpoint_payload(
+            f"Progress from {session_id}.", session_id, kind="progress"
+        )
+        body["affected_paths"] = [f"src/{session_id}/**"]
         return api.post(
             f"{endpoint}/checkpoints",
-            json=checkpoint_payload(f"Progress from {session_id}.", session_id, kind="progress"),
+            json=body,
         )
 
     def edit():
@@ -590,6 +722,8 @@ def test_cross_project_isolation_and_two_appenders_plus_editor_succeed(
         edited = pool.submit(edit)
         responses = [append_a.result(), append_b.result(), edited.result()]
     assert sorted(response.status_code for response in responses) == [200, 201, 201]
+    assert responses[0].json()["affected_paths"] == ["src/append-a/**"]
+    assert responses[1].json()["affected_paths"] == ["src/append-b/**"]
     final = api.get(endpoint).json()["work_item"]
     assert final["title"] == "Edited identity"
     assert final["version"] == 2

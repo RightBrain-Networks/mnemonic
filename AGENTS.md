@@ -15,7 +15,7 @@ Backend code, migrations, and tests live under `backend/`; the MCP adapter and t
 - `cd mcp && uv sync --frozen && uv run pytest -q && uv run ruff check . && uv run ty check src/mnemonic_mcp`: verify, lint, and type-check the MCP package.
 - `cd frontend && npm ci && npm test && npm run typecheck && npm run build`: verify the dashboard.
 - `cd frontend && npm run test:e2e:stack`: provision and run the isolated Playwright acceptance stack.
-- `uv run --project backend python scripts/audit_duplicate_handling.py --backup-directory ./backups`: run the read-only aggregate Phase 9 audit at the final 0017 head from a private environment with database access.
+- `uv run --project backend python scripts/audit_duplicate_handling.py --backup-directory ./backups`: run the read-only aggregate Phase 10 audit at the final 0018 head from a private environment with database access.
 
 Use Python 3.14, `uv`, and Node 24. Keep the backend and MCP virtual environments separate.
 
@@ -77,14 +77,14 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The final Phase 9 compatibility boundary is application/API/MCP `0.4.0`, Claude
-plugin `0.8.0`, and Alembic head
-`0017_duplicate_suggestion_title_key`. Its catalog is exactly 27 MCP tools, 11
+The final Phase 10 compatibility boundary is application/API/MCP `0.5.0`, Claude
+plugin `0.9.0`, and Alembic head `0018_repository_freshness`. Its catalog is
+exactly 27 MCP tools, 11
 receipt-protected MCP writes, 13 REST receipt kinds, and 11 protected browser
 mutations. The suggestion POST is a safe read, not a fourteenth receipt kind.
-Do not mix older processes with this schema, infer merges from historical
-`duplicate-of` relationships or suggestion output, or add redirect/coalescing
-compatibility paths.
+Do not mix older processes with this schema, infer repository scope or merges
+from historical data, or add projection, redirect, or coalescing compatibility
+paths.
 
 ## Commit & Pull Request Guidelines
 

@@ -185,7 +185,7 @@ def protected_success_responses(
         supplied = arguments[tool_name][
             "initial_checkpoint" if tool_name == "create_work" else "checkpoint"
         ]
-        return {
+        response = {
             **checkpoint,
             "work_item_id": WORK_ID,
             "kind": kind,
@@ -201,6 +201,9 @@ def protected_success_responses(
             "migration_origin": None,
             "legacy_record_id": None,
         }
+        if supplied.get("affected_paths"):
+            response["affected_paths"] = supplied["affected_paths"]
+        return response
 
     created_checkpoint = checkpoint_response("create_work", "context")
     completion_checkpoint = checkpoint_response("complete_work", "completion")
@@ -520,6 +523,15 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
     assert (
         "restart once from the first page" in described["list_human_attention"].lower()
     )
+    for name, required in {
+        "create_work": "affected_paths is an ordered declaration",
+        "add_checkpoint": "server and mcp adapter do not inspect git",
+        "complete_work": "server and mcp adapter do not verify this provenance",
+        "list_checkpoints": "full rows carry any caller-declared affected_paths",
+        "search_work": "fully recall the exact checkpoint",
+        "recall_work": "explicitly select the intended local workspace",
+    }.items():
+        assert required in described[name].lower(), name
 
     # parent-child is the only edge the hierarchy reads; measured 2026-09-01 on a
     # 59-item project: 12 discovered-from, 0 parent-child, every ancestor_path empty.
@@ -800,6 +812,29 @@ async def test_tool_catalog_mutation_and_relationship_schemas(settings):
         checkpoint_schema["required"]
     )
     assert checkpoint_schema["additionalProperties"] is False
+    assert {
+        name
+        for name, tool in tools.items()
+        if "affected_paths" in json.dumps(tool.inputSchema, sort_keys=True)
+    } == {"create_work", "add_checkpoint", "complete_work"}
+    expected_scope_schema = {
+        "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._@+=,~*/-]+$",
+            "type": "string",
+        },
+        "maxItems": 64,
+        "title": "Affected Paths",
+        "type": "array",
+    }
+    for name in ("create_work", "add_checkpoint", "complete_work"):
+        assert (
+            tools[name].inputSchema["$defs"]["CheckpointInput"]["properties"][
+                "affected_paths"
+            ]
+            == expected_scope_schema
+        )
 
     relationship_types = {
         "blocks",
@@ -1237,6 +1272,7 @@ async def test_create_work_preserves_nested_checkpoint_and_returns_both_records(
         "source_session_url": "https://example.invalid/session/opaque",
         "repository_branch": "main",
         "verified_against": "abcdef1",
+        "affected_paths": ["src/search.py", "tests/**"],
         "tags": ["search"],
         "source_metadata": metadata,
     }
@@ -1277,6 +1313,10 @@ async def test_create_work_preserves_nested_checkpoint_and_returns_both_records(
     )
     assert result["work_item"]["id"] == WORK_ID
     assert result["initial_checkpoint"]["prompt"] == prompt
+    assert result["initial_checkpoint"]["affected_paths"] == [
+        "src/search.py",
+        "tests/**",
+    ]
     assert result["initial_checkpoint"]["source_metadata"] == metadata
     assert result["initial_relationships"] == []
 
@@ -2724,7 +2764,8 @@ async def test_checkpoint_tools_preserve_immutable_context_and_page_history(
         "source_model": "test-model",
         "source_session_url": None,
         "repository_branch": "fix/search",
-        "verified_against": None,
+        "verified_against": "abcdef1",
+        "affected_paths": ["src/search.py", "tests/**"],
         "tags": ["search", "progress"],
         "source_metadata": {"tests": ["focused"]},
     }
@@ -2775,6 +2816,7 @@ async def test_checkpoint_tools_preserve_immutable_context_and_page_history(
         )
     )
     assert added["kind"] == "progress"
+    assert added["affected_paths"] == ["src/search.py", "tests/**"]
     assert added["source_metadata"] == progress["source_metadata"]
     assert seen == ["GET", "POST"]
 
@@ -2785,6 +2827,11 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
     calls = []
     gated_context = {
         **work_context,
+        "initial_checkpoint": {
+            **work_context["initial_checkpoint"],
+            "verified_against": "abcdef1",
+            "affected_paths": ["src/search.py", "tests/**"],
+        },
         "checkpoint_total": 13,
         "omitted_checkpoint_count": 12,
         "readiness": {
@@ -2836,6 +2883,10 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
         resource_document["initial_checkpoint"]["prompt"]
         == work_context["initial_checkpoint"]["prompt"]
     )
+    assert resource_document["initial_checkpoint"]["affected_paths"] == [
+        "src/search.py",
+        "tests/**",
+    ]
     assert "comments" not in resource_document
     prompt = await server.get_prompt(
         "resume_work", {"project_id": PROJECT_ID, "work_item_id": WORK_ID}
@@ -2851,6 +2902,10 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
     assert work_context["initial_checkpoint"]["source_session_id"] in text
     resumed = json.loads(text.split("\n\n", 1)[1])
     assert resumed["work_item"]["id"] == WORK_ID
+    assert resumed["initial_checkpoint"]["affected_paths"] == [
+        "src/search.py",
+        "tests/**",
+    ]
     assert resumed["omitted_checkpoint_count"] == 12
     assert calls == [
         {"recent_limit": "3", "recent_event_limit": "10"},
@@ -3013,6 +3068,7 @@ async def test_complete_and_delete_work_return_explicit_mutation_receipts(
         "source_session_url": None,
         "repository_branch": "fix/search",
         "verified_against": "abcdef1",
+        "affected_paths": ["src/search.py", "tests/**"],
         "tags": ["done"],
         "source_metadata": {"tests": ["focused", "full"]},
     }
@@ -3064,6 +3120,10 @@ async def test_complete_and_delete_work_return_explicit_mutation_receipts(
     )
     assert completed["work_item"]["status"] == "done"
     assert completed["checkpoint"]["kind"] == "completion"
+    assert completed["checkpoint"]["affected_paths"] == [
+        "src/search.py",
+        "tests/**",
+    ]
     deleted = structured(
         await server.call_tool(
             "delete_work",
@@ -3884,6 +3944,145 @@ async def test_protected_success_responses_are_canonical_and_request_coherent(
         )
     )
     assert result == responses[tool_name]
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "checkpoint_path"),
+    [
+        ("create_work", ("initial_checkpoint",)),
+        ("add_checkpoint", ()),
+        ("complete_work", ("checkpoint",)),
+    ],
+)
+async def test_checkpoint_mutations_reject_explicit_empty_scope_in_success(
+    settings,
+    work_item,
+    checkpoint,
+    relationship,
+    progress_event,
+    human_gate,
+    tool_name,
+    checkpoint_path,
+):
+    response = protected_success_responses(
+        work_item, checkpoint, relationship, progress_event, human_gate
+    )[tool_name]
+    target = response
+    for field in checkpoint_path:
+        target = target[field]
+    target["affected_paths"] = []
+    requests = []
+    status_code = 201 if tool_name in {"create_work", "add_checkpoint"} else 200
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(status_code, json=response)
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(
+            tool_name, protected_tool_arguments()[tool_name]
+        )
+
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME in str(caught.value)
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "checkpoint_path"),
+    [
+        ("create_work", ("initial_checkpoint",)),
+        ("add_checkpoint", ()),
+        ("complete_work", ("checkpoint",)),
+    ],
+)
+@pytest.mark.parametrize("explicit_empty_request", [False, True])
+async def test_checkpoint_mutations_reject_unexpected_nonempty_response_scope(
+    settings,
+    work_item,
+    checkpoint,
+    relationship,
+    progress_event,
+    human_gate,
+    tool_name,
+    checkpoint_path,
+    explicit_empty_request,
+):
+    arguments = protected_tool_arguments()[tool_name]
+    request_checkpoint = arguments[
+        "initial_checkpoint" if tool_name == "create_work" else "checkpoint"
+    ]
+    request_checkpoint["verified_against"] = "abcdef1"
+    if explicit_empty_request:
+        request_checkpoint["affected_paths"] = []
+
+    response = protected_success_responses(
+        work_item, checkpoint, relationship, progress_event, human_gate
+    )[tool_name]
+    target = response
+    for field in checkpoint_path:
+        target = target[field]
+    target["verified_against"] = "abcdef1"
+    target["affected_paths"] = ["unexpected/**"]
+    requests = []
+    status_code = 201 if tool_name in {"create_work", "add_checkpoint"} else 200
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(status_code, json=response)
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(tool_name, arguments)
+
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME in str(caught.value)
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "checkpoint_path"),
+    [
+        ("create_work", ("initial_checkpoint",)),
+        ("add_checkpoint", ()),
+        ("complete_work", ("checkpoint",)),
+    ],
+)
+async def test_checkpoint_mutations_reject_missing_requested_response_scope(
+    settings,
+    work_item,
+    checkpoint,
+    relationship,
+    progress_event,
+    human_gate,
+    tool_name,
+    checkpoint_path,
+):
+    arguments = protected_tool_arguments()[tool_name]
+    request_checkpoint = arguments[
+        "initial_checkpoint" if tool_name == "create_work" else "checkpoint"
+    ]
+    request_checkpoint["verified_against"] = "abcdef1"
+    request_checkpoint["affected_paths"] = ["required/**"]
+
+    response = protected_success_responses(
+        work_item, checkpoint, relationship, progress_event, human_gate
+    )[tool_name]
+    target = response
+    for field in checkpoint_path:
+        target = target[field]
+    target["verified_against"] = "abcdef1"
+    target.pop("affected_paths", None)
+    requests = []
+    status_code = 201 if tool_name in {"create_work", "add_checkpoint"} else 200
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(status_code, json=response)
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool(tool_name, arguments)
+
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME in str(caught.value)
+    assert "KeyError" not in str(caught.value)
     assert len(requests) == 1
 
 

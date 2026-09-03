@@ -112,16 +112,32 @@ def test_merge_has_exact_effects_frozen_replay_and_source_owned_history(
     work_payload,
     postgres_engine,
 ):
+    source_scope = ["alias/source/**"]
+    destination_scope = ["canonical/root/**"]
     source_created = create_work(
         api,
         project,
-        work_payload,
+        {
+            **work_payload,
+            "initial_checkpoint": {
+                **work_payload["initial_checkpoint"],
+                "verified_against": "abcdef1",
+                "affected_paths": source_scope,
+            },
+        },
         "Retired duplicate with unique marmalade evidence",
     )
     destination_created = create_work(
         api,
         project,
-        work_payload,
+        {
+            **work_payload,
+            "initial_checkpoint": {
+                **work_payload["initial_checkpoint"],
+                "verified_against": "abcdef2",
+                "affected_paths": destination_scope,
+            },
+        },
         "Canonical durable objective",
     )
     source = source_created["work_item"]
@@ -267,6 +283,9 @@ def test_merge_has_exact_effects_frozen_replay_and_source_owned_history(
     assert destination_detail["canonical"]["duplicate_member_count"] == 1
 
     source_context = context(api, project, source)
+    destination_context = context(api, project, destination)
+    assert source_context["initial_checkpoint"]["affected_paths"] == source_scope
+    assert destination_context["initial_checkpoint"]["affected_paths"] == destination_scope
     assert source_context["canonical"] == source_detail.json()["canonical"]
     assert source_context["duplicate_members"][0]["id"] == source["id"]
     assert source_context["duplicate_member_total"] == 1
@@ -286,6 +305,7 @@ def test_merge_has_exact_effects_frozen_replay_and_source_owned_history(
     relationships = api.get(f"{work_path(project, source)}/relationships")
     gates = api.get(f"{work_path(project, source)}/gates")
     assert checkpoints.status_code == relationships.status_code == gates.status_code == 200
+    assert checkpoints.json()["items"][0]["affected_paths"] == source_scope
 
 
 def test_chains_group_search_before_paging_and_stay_out_of_hierarchy(

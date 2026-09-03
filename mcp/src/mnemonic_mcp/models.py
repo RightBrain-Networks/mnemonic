@@ -1,6 +1,7 @@
 """Typed REST wire models; the API remains the validation authority."""
 
 import json
+import re
 from datetime import datetime, timedelta
 from typing import Annotated, Literal, Self
 from uuid import UUID
@@ -231,6 +232,55 @@ OpaqueCursor = Annotated[
     str,
     Field(min_length=1, max_length=4096),
     AfterValidator(_validated_event_text),
+]
+
+
+_AFFECTED_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9._@+=,~*\-]+$", re.ASCII)
+
+
+def _validated_affected_path(value: str) -> str:
+    """Validate one preserved, shell-transport-safe repository scope pattern."""
+    try:
+        encoded = value.encode("ascii")
+    except UnicodeEncodeError as error:
+        raise ValueError("Affected paths must use the supported ASCII grammar.") from error
+    if not encoded or len(encoded) > 512:
+        raise ValueError("Each affected path must contain between 1 and 512 ASCII bytes.")
+
+    components = value.split("/")
+    if any(component in {"", ".", ".."} for component in components):
+        raise ValueError("Affected paths must contain nonempty repository-relative components.")
+    for component in components:
+        if _AFFECTED_PATH_COMPONENT.fullmatch(component) is None:
+            raise ValueError("Affected paths must use the supported ASCII grammar.")
+        if "**" in component and component != "**":
+            raise ValueError("A double star is valid only as a complete path component.")
+    return value
+
+
+AffectedPath = Annotated[
+    str,
+    StringConstraints(
+        min_length=1,
+        max_length=512,
+        pattern=r"^[A-Za-z0-9._@+=,~*/-]+$",
+    ),
+    AfterValidator(_validated_affected_path),
+]
+
+
+def _validated_affected_paths(value: list[str]) -> list[str]:
+    if len(value) != len(set(value)):
+        raise ValueError("Affected paths must not contain exact duplicates.")
+    if sum(len(path.encode("ascii")) for path in value) > 16384:
+        raise ValueError("Affected paths must contain at most 16,384 ASCII bytes in total.")
+    return value
+
+
+AffectedPaths = Annotated[
+    list[AffectedPath],
+    Field(max_length=64),
+    AfterValidator(_validated_affected_paths),
 ]
 
 
@@ -477,8 +527,18 @@ class CheckpointInput(BaseModel):
     source_session_url: str | None = Field(default=None, max_length=2000)
     repository_branch: str | None = Field(default=None, max_length=200)
     verified_against: str | None = Field(default=None, pattern=r"^[0-9a-fA-F]{7,64}$")
+    affected_paths: AffectedPaths = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
     tags: list[str] = Field(default_factory=list, max_length=20)
     source_metadata: StoredMetadataInput = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def require_baseline_for_scope(self) -> Self:
+        if self.affected_paths and self.verified_against is None:
+            raise ValueError("Affected paths require a verified_against commit declaration.")
+        return self
 
 
 class CheckpointRead(CanonicalResponse):
@@ -492,11 +552,28 @@ class CheckpointRead(CanonicalResponse):
     source_session_url: str | None
     repository_branch: str | None
     verified_against: str | None
+    affected_paths: AffectedPaths = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
     tags: list[str]
     source_metadata: dict[str, JsonValue]
     migration_origin: MigrationOrigin | None
     legacy_record_id: UUID | None
     created_at: datetime
+
+    @field_validator("affected_paths", mode="before")
+    @classmethod
+    def reject_explicit_empty_scope(cls, value: object) -> object:
+        if value == []:
+            raise ValueError("An empty affected_paths response is noncanonical.")
+        return value
+
+    @model_validator(mode="after")
+    def require_baseline_for_scope(self) -> Self:
+        if self.affected_paths and self.verified_against is None:
+            raise ValueError("Affected paths require a verified_against commit declaration.")
+        return self
 
 
 class CheckpointPointer(CanonicalResponse):

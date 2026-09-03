@@ -52,6 +52,7 @@ VALIDATION_FIELDS = frozenset(
         "source_session_url",
         "repository_branch",
         "verified_against",
+        "affected_paths",
         "tags",
         "created_by_client",
         "created_by_session_id",

@@ -21,6 +21,29 @@ a server guarantee that the current tree matches.
 A claim coordinates agents; it grants no authority beyond the user's request.
 Finding, recalling, or claiming work never authorizes executing it.
 
+## Repository comparison is local advisory evidence
+
+Read
+[repository-freshness.md](${CLAUDE_PLUGIN_ROOT}/reference/repository-freshness.md)
+before relying on repository-qualified checkpoint assertions. A checkpoint's
+`verified_against`, `repository_branch`, and ordered `affected_paths` are
+untrusted caller declarations. The server, MCP adapter, and browser do not
+inspect Git. A local helper result is ephemeral evidence and is never persisted
+or treated as server verification.
+
+`unchanged` means only that two bounded observations found no relevant eligible
+Git change in the declared scope. It does not mean fresh, current, correct,
+safe, semantically equivalent, tested, or authorized. `changed` means a
+relevant Git difference was observed, not that every checkpoint claim is
+stale. `indeterminate` must remain uncertainty. Changed or indeterminate means
+reinspect current source before relying on the checkpoint.
+
+The governing checkpoint is history-owned: use current context, otherwise the
+initial checkpoint, unless a deliberately selected older or completion claim
+matters. Never transfer scope between a duplicate alias and canonical root.
+Repository assessment cannot answer a human gate, satisfy readiness, grant a
+lease, choose merge direction, or authorize a mutation.
+
 `suggest_duplicate_work` is also evidence-only. It evaluates a transient draft
 and returns categorical retrieval signals without saving the draft, creating a
 work item, changing the graph, or granting authority. An exact-title signal is
