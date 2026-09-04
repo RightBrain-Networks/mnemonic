@@ -42,9 +42,10 @@ import {
   dashboardStatusPreference,
   dashboardStorageKeys
 } from "@/lib/dashboard-preferences";
+import { dialogOpen, typingTarget } from "@/lib/keyboard-shortcuts";
 import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
 import { connectLiveSync, type LiveSyncStatus } from "@/lib/live-sync";
-import { projectShortcutIndex, projectShortcutOptionLabel } from "@/lib/project-shortcuts";
+import { projectShortcutIndex } from "@/lib/project-shortcuts";
 import {
   isBlockingProjectSettingsLoad,
   isCurrentProjectSettingsLoad
@@ -643,17 +644,17 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     });
   }, [nextLeaseExpiry, opened?.work_item.id]);
 
-  // F1 through F12 pick the workspace's first twelve projects. The picker sits in the
-  // sidebar of every view, so this is not scoped to the work library, and the switch
-  // routes through chooseProject: a pending mutation or an unsaved draft still refuses
-  // it there, exactly as it refuses a switch made with the pointer.
+  // The digits pick the workspace's first ten projects. The picker sits in the sidebar
+  // of every view, so this is not scoped to the work library, and the switch routes
+  // through chooseProject: a pending mutation or an unsaved draft still refuses it
+  // there, exactly as it refuses a switch made with the pointer.
   // The listener re-registers each render deliberately. chooseProject reads the open
   // work item and its drafts from the current render, so a handler captured once would
   // decide against a stale pane.
   useEffect(() => {
     function selectProject(event: KeyboardEvent) {
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-      if (document.querySelector("dialog[open]")) return;
+      if (typingTarget(event.target) || dialogOpen()) return;
       const index = projectShortcutIndex(event.key);
       if (index === null) return;
       // The list a refresh is about to replace is still the list on screen, so the key
@@ -670,11 +671,10 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   useEffect(() => {
     if (view !== "library") return;
     function focusSearch(event: KeyboardEvent) {
-      const target = event.target as HTMLElement;
-      if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) && !target.isContentEditable && !document.querySelector("dialog[open]")) {
-        event.preventDefault();
-        searchRef.current?.focus();
-      }
+      if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (typingTarget(event.target) || dialogOpen()) return;
+      event.preventDefault();
+      searchRef.current?.focus();
     }
     window.addEventListener("keydown", focusSearch);
     return () => window.removeEventListener("keydown", focusSearch);
@@ -1582,6 +1582,12 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     );
   }
 
+  // c copies the open record's recall pointer: the same value, notice, and copied
+  // state the record's own button produces, so the two cannot drift.
+  function copyOpenedRecallPointer(): void {
+    if (opened) copyRecallPointer(opened);
+  }
+
   async function copyProjectId() {
     if (project) await copyText(project.id, "project", `Project ID copied: ${project.id}`);
   }
@@ -1691,9 +1697,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       <a href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={blockNavigationWhilePending}><Logo /><span>mnemonic<span className="brand-period">.</span></span></a>
       <div className="workspace-picker">
         <label className="section-label" htmlFor="project-select">YOUR WORKSPACE</label>
-        <div className="select-wrap"><select id="project-select" value={activeId} disabled={projectsLoading || !projects.length || activeProjectMutationBlocked} onChange={(event) => chooseProject(event.target.value)}>
+        <div className="select-wrap"><select id="project-select" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={projectsLoading || !projects.length || activeProjectMutationBlocked} onChange={(event) => chooseProject(event.target.value)}>
           {!projects.length && <option value="">{projectsLoading ? "Loading projects…" : "Select a project"}</option>}
-          {projects.map((item, index) => <option key={item.id} value={item.id}>{projectShortcutOptionLabel(item.name, index)}</option>)}
+          {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select><span className="select-chevron" aria-hidden="true">⌄</span></div>
         <button className="new-project-button" type="button" disabled={projectsLoading || activeProjectMutationBlocked} onClick={() => { setNewProjectError(""); setProjectDialog(true); }}><Icon name="plus" size={15} />New project</button>
         {project && <button className="copy-project-button" type="button" title={`Project ID: ${project.id}`} onClick={() => void copyProjectId()}><Icon name="copy" size={13} />Copy project ID for your agent</button>}
@@ -1822,6 +1828,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 onCreate={openWorkDialog}
                 onSelect={selectWork}
                 onDeselect={deselectWork}
+                onCopySelectedPointer={copyOpenedRecallPointer}
                 onCopyPointer={(item) => void copyRecallPointer(item)}
                 detail={<WorkDetailPane
                   paneRef={crossfade.detailRef}

@@ -76,6 +76,7 @@ export type WorkItemListProps = {
   onCreate: () => void;
   onSelect: (summary: WorkSummary) => void;
   onDeselect: () => void;
+  onCopySelectedPointer: () => void;
   onCopyPointer: (summary: WorkSummary) => void;
   // The right column of the work surface (the detail pane).
   detail: ReactNode;
@@ -123,6 +124,7 @@ export default function WorkItemList({
   onCreate,
   onSelect,
   onDeselect,
+  onCopySelectedPointer,
   onCopyPointer,
   detail
 }: WorkItemListProps) {
@@ -220,6 +222,7 @@ export default function WorkItemList({
         onSelect={onSelect}
         onStatus={onStatus}
         onDeselect={onDeselect}
+        onCopySelectedPointer={onCopySelectedPointer}
         onCopyPointer={onCopyPointer}
         onFlatSearch={(item) => {
           if (semantic) onToggleSemantic();

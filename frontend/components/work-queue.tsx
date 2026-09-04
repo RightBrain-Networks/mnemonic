@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import WorkHierarchy, { SearchBreadcrumb } from "@/components/work-hierarchy";
 import WorkQueueCard, { QueueOptionsContext, type QueueOptions } from "@/components/work-queue-card";
 import { useWorkItemMotion } from "@/components/use-work-item-motion";
+import { dialogOpen, typingTarget } from "@/lib/keyboard-shortcuts";
 import type {
   HierarchySummary,
   StatusFilter,
@@ -46,15 +47,16 @@ function Skeletons({ count, label }: { count: number; label: string }) {
   </div>;
 }
 
-function typingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable;
-}
-
 // The work-surface resizer steps its own split with the horizontal arrows while it holds
 // focus, so the filter shortcut below leaves those presses to it.
 function resizingSurface(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && target.closest("[role='separator']") !== null;
+}
+
+// The pointer copy is the queue's key, not the pane's: with focus inside the open
+// record the letter is left to the pane, which carries its own copy button.
+function readingRecord(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.closest(".work-detail-pane") !== null;
 }
 
 export type WorkQueueProps = {
@@ -85,6 +87,7 @@ export type WorkQueueProps = {
   onSelect: (summary: WorkSummary) => void;
   onStatus: (status: StatusFilter) => void;
   onDeselect: () => void;
+  onCopySelectedPointer: () => void;
   onCopyPointer: (summary: WorkSummary) => void;
   onFlatSearch: (summary: WorkSummary) => void;
   onClearFilters: () => void;
@@ -118,6 +121,7 @@ export default function WorkQueue({
   onSelect,
   onStatus,
   onDeselect,
+  onCopySelectedPointer,
   onCopyPointer,
   onFlatSearch,
   onClearFilters,
@@ -130,7 +134,7 @@ export default function WorkQueue({
   const selectedIdRef = useRef(selectedId);
   const onSelectRef = useRef(onSelect);
   const fetchStateRef = useRef({ hasMore, loading, refreshing, appending, appendError, onLoadMore });
-  const shortcutStateRef = useRef({ status, onStatus, onDeselect });
+  const shortcutStateRef = useRef({ status, onStatus, onDeselect, onCopySelectedPointer });
   const [scrolled, setScrolled] = useState(false);
   const hasData = total !== null;
   const searchResults = flatSearch
@@ -148,7 +152,9 @@ export default function WorkQueue({
 
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
-  useEffect(() => { shortcutStateRef.current = { status, onStatus, onDeselect }; }, [onDeselect, onStatus, status]);
+  useEffect(() => {
+    shortcutStateRef.current = { status, onStatus, onDeselect, onCopySelectedPointer };
+  }, [onCopySelectedPointer, onDeselect, onStatus, status]);
   useEffect(() => {
     fetchStateRef.current = { hasMore, loading, refreshing, appending, appendError, onLoadMore };
   }, [appendError, appending, hasMore, loading, onLoadMore, refreshing]);
@@ -233,13 +239,16 @@ export default function WorkQueue({
     }
 
     // The queue's keyboard map: the vertical arrows walk the list, the horizontal ones
-    // walk the lifecycle filters, and Escape closes whatever the pane is showing. A
-    // dialog owns the keyboard outright while it is open.
+    // walk the lifecycle filters, Escape closes whatever the pane is showing, and c
+    // copies the open record's recall pointer. A dialog owns the keyboard outright
+    // while it is open.
     function shortcut(event: KeyboardEvent) {
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-      if (typingTarget(event.target) || document.querySelector("dialog[open]")) return;
+      if (typingTarget(event.target) || dialogOpen()) return;
       const state = shortcutStateRef.current;
-      switch (event.key) {
+      // Caps Lock reports an uppercase letter with no Shift held, so a letter key is
+      // compared lowered while a real Shift is still refused above.
+      switch (event.key.length === 1 ? event.key.toLowerCase() : event.key) {
         case "ArrowDown":
         case "ArrowUp":
           event.preventDefault();
@@ -250,6 +259,11 @@ export default function WorkQueue({
           if (resizingSurface(event.target)) return;
           event.preventDefault();
           state.onStatus(cycleStatusFilter(state.status, event.key === "ArrowRight" ? "next" : "previous"));
+          return;
+        case "c":
+          if (readingRecord(event.target) || selectedIdRef.current === null) return;
+          event.preventDefault();
+          state.onCopySelectedPointer();
           return;
         // Escape has no default worth suppressing here, and a browser that clears a
         // search field with it has already been excluded as a typing target.

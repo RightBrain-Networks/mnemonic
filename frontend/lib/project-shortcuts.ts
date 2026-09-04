@@ -1,23 +1,18 @@
-// F1 through F12 select a project from the workspace picker. Twelve is the whole
-// function row, so a workspace with more projects simply leaves the rest unbound
-// rather than reaching for a second modifier.
-export const PROJECT_SHORTCUT_LIMIT = 12;
+// The digits select a project from the workspace picker: 1 through 9 for the first
+// nine, then 0 for the tenth, which is the number row's own order. A workspace with
+// more projects leaves the rest unbound rather than reaching for a modifier, because
+// every modified function or digit combination is spoken for by some browser, window
+// manager, or operating system.
+export const PROJECT_SHORTCUT_LIMIT = 10;
 
 export function projectShortcutKey(index: number): string | null {
   if (!Number.isInteger(index) || index < 0 || index >= PROJECT_SHORTCUT_LIMIT) return null;
-  return `F${index + 1}`;
+  return String((index + 1) % 10);
 }
 
-// The picker is a native <select>, whose options carry text and nothing else, so the
-// shortcut has to be named inside the option's own label.
-export function projectShortcutOptionLabel(name: string, index: number): string {
-  const key = projectShortcutKey(index);
-  return key === null ? name : `${key} · ${name}`;
-}
-
-// Only a bare function key names a project; anything else, including F13 and up on
-// keyboards that report it, leaves the event alone.
+// Only a bare digit names a project. The caller still has to refuse a press that means
+// text, since unlike a function key a digit is something a person types.
 export function projectShortcutIndex(key: string): number | null {
-  const match = /^F([1-9]|1[0-2])$/.exec(key);
-  return match === null ? null : Number(match[1]) - 1;
+  if (!/^[0-9]$/.test(key)) return null;
+  return (Number(key) + PROJECT_SHORTCUT_LIMIT - 1) % PROJECT_SHORTCUT_LIMIT;
 }
