@@ -1,5 +1,64 @@
 # Mnemonic validation record
 
+## Hero heading names the selected project — 2026-09-04
+
+This entry covers replacing the Work library hero's trailing period with a colon
+and the selected project's name (dashboard `0.5.0`, no application/API/MCP,
+plugin, migration, or proxy-allowlist change). The colon keeps the accent the
+period carried, so both the light and dark accent rules had to stop matching any
+bare child span of the heading and name `.heading-mark` instead; the project name
+is a sibling `.heading-subject` span that inherits the heading's ink. Only the
+library passes a subject, so "Project settings." and "Needs Attention." are
+unchanged, and the library falls back to "Work library." with no project selected.
+
+The name is set in IBM Plex Sans Italic, vendored as two new WOFF2 subsets from
+the same Google Fonts `ibmplexsans` v23 distribution and unicode-range split the
+roman faces already use. It is the family's drawn italic — `fontTools` reports
+subfamily `Italic`, the OS/2 and head italic bits set, and an italic angle of
+-11.31°, over the same `wght` 100–700 axis — not a slant, and
+`font-synthesis-style: none` keeps a browser from substituting a faux oblique if
+the face ever fails to load. Because a project name is user-supplied and the
+heading had no wrap guard, the subject also carries `overflow-wrap: anywhere`.
+Every figure below was observed in the session that recorded it, on a local Node
+v22.22.3 checkout of the topic branch (CI uses Node 24).
+
+- **Frontend unit tests (`npm test`): 222 passing, 0 failing.** The run adds
+  `tests/hero-heading.test.mjs` (the library alone passing a subject; the exact
+  heading markup with its colon-or-period mark; no accent rule in either theme
+  still matching a bare child span and none coloring the subject; the subject's
+  italic, 80% opacity, disabled synthesis, and wrap guard; the italic faces
+  matching the roman faces' subset split, weight axis, and count; and every
+  declared IBM Plex Sans file existing, carrying the `wOF2` signature, and
+  hashing differently from the others so a roman file cannot ship under an
+  italic name).
+- **TypeScript checking (`npm run typecheck`) and the production build
+  (`npm run build`): both pass.**
+- **Isolated Playwright stack (`npm run test:e2e:stack`): 99 executions, 95
+  passing, 4 skipped by design, 0 failing, 5.4 minutes** on a uniquely named
+  disposable Compose project; teardown left no `mnemonic-e2e-*` container,
+  volume, or network of its own. The run adds one case to
+  `tests/e2e/phase1-work-checkpoints.spec.ts`: the hero reading
+  `Work library: <project name>` after the picker changes projects, the mark
+  painting the eyebrow's accent while the subject paints the heading's own ink,
+  the subject computing to italic IBM Plex Sans at `0.8` opacity with
+  `font-synthesis-style: none`, and an italic IBM Plex Sans face reaching
+  `loaded` in `document.fonts` — which, with synthesis off, is what proves the
+  vendored file was actually fetched to paint that text. The dark-theme contrast
+  fixture now carries the hero's real markup.
+- **Measured contrast of the project name at 80% opacity: 9.46:1 in the light
+  theme and 6.15:1 in the dark theme**, against 17.45:1 and 9.02:1 for the same
+  ink at full opacity. The dark figure sits below the 7.21:1 floor
+  `tests/e2e/dark-theme-contrast.spec.ts` enforces, and that audit does not catch
+  it: `auditTextContrast` reads each element's computed `color` and only skips an
+  element at `opacity: 0`, so it measured the undimmed 9.02:1 and passed. The
+  80% opacity was specified for this heading and is applied as specified; raising
+  the dark subject's base ink to about `#c9c3ca` would return it to the band if
+  that trade is not wanted.
+
+No backend, MCP, migration, plugin, stack-check, or adversarial-review result is
+claimed for this change, and it does not alter any production, cutover, or
+permanence gate.
+
 ## Digit-key project selection and the pointer copy key — 2026-09-04
 
 This entry covers replacing the function-key project shortcuts recorded in

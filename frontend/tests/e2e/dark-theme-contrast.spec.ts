@@ -27,7 +27,7 @@ const contrastFixture = `
   </aside>
   <section class="page-content">
     <header class="page-heading">
-      <div><span class="eyebrow">Durable context</span><h1>Work <span>library.</span></h1>
+      <div><span class="eyebrow">Durable context</span><h1>Work library<span class="heading-mark">:</span> <span class="heading-subject">Durable context</span></h1>
       <p>Search, resume, and manage durable work.</p></div>
     </header>
     <section class="settings-card">

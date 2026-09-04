@@ -1,0 +1,115 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
+import test from "node:test";
+
+// The hero names the selected project beside the view title. Three files have to agree:
+// the dashboard supplies the name, the chrome renders it, and the stylesheet paints it
+// with a vendored italic face that no browser is allowed to synthesize.
+const CHROME_URL = new URL("../components/dashboard-view-chrome.tsx", import.meta.url);
+const DASHBOARD_URL = new URL("../components/dashboard.tsx", import.meta.url);
+const CSS_URL = new URL("../app/globals.css", import.meta.url);
+const FONT_URL = (file) => new URL(`../public/fonts/${file}`, import.meta.url);
+
+const chrome = await readFile(CHROME_URL, "utf8");
+const dashboard = await readFile(DASHBOARD_URL, "utf8");
+const css = await readFile(CSS_URL, "utf8");
+
+const heading = chrome.match(/^\s*(<h1>.*<\/h1>)$/m)?.[1];
+
+// Selectors are anchored to the line start so a shorthand rule never resolves to the
+// longer one that shares its tail.
+function ruleBodies(selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const bodies = [...css.matchAll(new RegExp(`(?:^|\\n)${escaped} \\{([^}]*)\\}`, "g"))];
+  assert.ok(bodies.length, `globals.css is missing the ${selector} rule`);
+  return bodies.map(([, body]) => body);
+}
+
+function declaration(selector, property) {
+  for (const body of ruleBodies(selector)) {
+    const found = body.match(new RegExp(`(?:^|;)\\s*${property}: ([^;]+)`));
+    if (found) return found[1].trim();
+  }
+  return assert.fail(`globals.css declares no ${property} on ${selector}`);
+}
+
+function fontFaces(family) {
+  return [...css.matchAll(/@font-face \{([^}]*)\}/g)]
+    .map(([, body]) => Object.fromEntries([...body.matchAll(/([\w-]+): ([^;]+);/g)]
+      .map(([, name, value]) => [name, value.trim()])))
+    .filter((face) => face["font-family"] === `"${family}"`)
+    .map((face) => ({ ...face, file: face.src.match(/url\("\/fonts\/([^"]+)"\)/)[1] }));
+}
+
+const plex = fontFaces("IBM Plex Sans");
+const roman = plex.filter((face) => face["font-style"] === "normal");
+const italic = plex.filter((face) => face["font-style"] === "italic");
+
+test("the library hero names the selected project and other views keep their period", () => {
+  // Only the library passes a subject, so "Project settings." and "Needs Attention."
+  // are unchanged by this heading.
+  const subjects = [...dashboard.matchAll(/^\s*subject=\{([^}]*)\}$/gm)].map(([, value]) => value);
+  assert.deepEqual(subjects, ["project?.name"]);
+  assert.match(dashboard, /title="Work library"\n\s*subject=\{project\?\.name\}/);
+  assert.equal((chrome.match(/subject\?: string;/g) ?? []).length, 1);
+});
+
+test("the colon replaces the period and the name follows it as its own span", () => {
+  assert.equal(
+    heading,
+    '<h1>{title}<span className="heading-mark">{subject ? ":" : "."}</span>'
+    + '{subject && <>{" "}<span className="heading-subject">{subject}</span></>}</h1>'
+  );
+});
+
+test("the colon keeps the period's accent and the project name does not take it", () => {
+  // Both themes colored a bare child span; the subject is a child span too, so every
+  // accent rule has to name the mark explicitly or the project name turns orange.
+  assert.ok(!/\.page-heading h1 > span/.test(css), "an accent rule still matches any child span");
+  assert.equal(declaration(".page-heading h1 > .heading-mark", "color"), "var(--accent)");
+  assert.equal(declaration(".small-mark, .eyebrow, .page-heading h1 > .heading-mark", "color"),
+    "var(--accent)");
+  assert.match(css,
+    /html\[data-theme="dark"\] :is\(\.small-mark, \.eyebrow, \.page-heading h1 > \.heading-mark\)/);
+  for (const body of ruleBodies(".page-heading h1 > .heading-subject")) {
+    assert.ok(!/color:/.test(body), "the project name should inherit the heading's ink");
+  }
+});
+
+test("the project name is italic at 80% opacity and never a synthesized slant", () => {
+  assert.equal(declaration(".page-heading h1 > .heading-subject", "font-style"), "italic");
+  assert.equal(declaration(".page-heading h1 > .heading-subject", "opacity"), ".8");
+  // Without this a missing italic face would silently render as a faux oblique.
+  assert.equal(declaration(".page-heading h1 > .heading-subject", "font-synthesis-style"), "none");
+  // A long project name would otherwise widen the hero past the viewport.
+  assert.equal(declaration(".page-heading h1 > .heading-subject", "overflow-wrap"), "anywhere");
+});
+
+test("the heading font ships a real italic covering the same subsets as its roman", () => {
+  assert.equal(css.match(/--display: ([^;]+);/)[1].split(",")[0].trim(), '"IBM Plex Sans"');
+  assert.equal(italic.length, roman.length);
+  // Same subset split and weight axis, so italic text never falls back mid-string.
+  assert.deepEqual(italic.map((face) => face["unicode-range"]),
+    roman.map((face) => face["unicode-range"]));
+  assert.deepEqual(italic.map((face) => face["font-weight"]),
+    roman.map((face) => face["font-weight"]));
+  assert.deepEqual(italic.map((face) => face.file), [
+    "ibm-plex-sans-latin-ext-italic-variable.woff2",
+    "ibm-plex-sans-latin-italic-variable.woff2"
+  ]);
+});
+
+test("every declared italic subset is vendored and is its own file", async () => {
+  const digests = new Map();
+  for (const face of plex) {
+    const file = FONT_URL(face.file);
+    assert.ok((await stat(file)).isFile(), `${face.file} is declared but not vendored`);
+    const contents = await readFile(file);
+    // WOFF2 signature: a truncated or HTML-error download would not carry it.
+    assert.equal(contents.subarray(0, 4).toString("latin1"), "wOF2", `${face.file} is not WOFF2`);
+    digests.set(createHash("sha256").update(contents).digest("hex"), face.file);
+  }
+  // A roman file copied under an italic name would declare italic and render upright.
+  assert.equal(digests.size, plex.length, "two IBM Plex Sans faces share the same bytes");
+});

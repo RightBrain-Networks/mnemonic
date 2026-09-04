@@ -7,8 +7,11 @@ make runtime font requests to Google Fonts.
 
 - Upstream: <https://github.com/IBM/plex>
 - Distribution: Google Fonts `ibmplexsans` v23 variable WOFF2 assets
-- Weight range: 100–700, normal style
-- Included subsets: Latin Extended and Latin
+- Weight range: 100–700, normal and italic styles
+- Included subsets: Latin Extended and Latin, per style
+- The italic files are the family's drawn italic (subfamily `Italic`, italic angle
+  -11.31°), not a synthesized slant; the dashboard sets `font-synthesis-style: none`
+  so nothing falls back to a faux oblique
 - License: [SIL Open Font License 1.1](./OFL-IBM-Plex.txt)
 
 ## Alan Sans
