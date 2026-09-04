@@ -34,6 +34,7 @@ from .api import (
 )
 from .config import Settings
 from .models import (
+    MAX_COMPLETION_EXPECTED_VERSION,
     AppendCheckpointKind,
     CheckpointInput,
     CheckpointOrder,
@@ -1703,7 +1704,9 @@ def _register_work_lifecycle_tools(server: FastMCP, api: MnemonicAPI) -> None:
     async def complete_work(
         project_id: UUID,
         work_item_id: UUID,
-        expected_version: Annotated[int, Field(ge=1)],
+        expected_version: Annotated[
+            StrictInt, Field(ge=1, le=MAX_COMPLETION_EXPECTED_VERSION)
+        ],
         checkpoint: CheckpointInput,
         client_operation_id: UUID,
         completion_evidence: CompletionEvidenceArgument = None,

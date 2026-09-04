@@ -1138,6 +1138,50 @@
         "mcp": false,
         "browser": false
       }
+    },
+    {
+      "case_id": "maximum_expected_version",
+      "expected_version": 2147483646,
+      "completion_evidence_case_id": "passed_command",
+      "client_operation_id": "11584ccf-c787-4c6a-bb89-a69a02c1554d",
+      "surface_expectations": {
+        "rest_openapi": true,
+        "mcp": true,
+        "browser": true
+      }
+    },
+    {
+      "case_id": "overflow_expected_version",
+      "expected_version": 2147483647,
+      "completion_evidence_case_id": "passed_command",
+      "client_operation_id": "11584ccf-c787-4c6a-bb89-a69a02c1554d",
+      "surface_expectations": {
+        "rest_openapi": false,
+        "mcp": false,
+        "browser": false
+      }
+    },
+    {
+      "case_id": "string_expected_version",
+      "expected_version": "1",
+      "completion_evidence_case_id": "passed_command",
+      "client_operation_id": "11584ccf-c787-4c6a-bb89-a69a02c1554d",
+      "surface_expectations": {
+        "rest_openapi": false,
+        "mcp": false,
+        "browser": false
+      }
+    },
+    {
+      "case_id": "boolean_expected_version",
+      "expected_version": true,
+      "completion_evidence_case_id": "passed_command",
+      "client_operation_id": "11584ccf-c787-4c6a-bb89-a69a02c1554d",
+      "surface_expectations": {
+        "rest_openapi": false,
+        "mcp": false,
+        "browser": false
+      }
     }
   ]
 }

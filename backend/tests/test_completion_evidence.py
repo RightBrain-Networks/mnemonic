@@ -25,6 +25,7 @@ PROJECT_ID = UUID("10000000-0000-0000-0000-000000000001")
 WORK_ID = UUID("20000000-0000-0000-0000-000000000001")
 OPERATION_ID = UUID("40000000-0000-0000-0000-000000000001")
 CORPUS_PATH = Path(__file__).resolve().parents[2] / "tests/fixtures/completion-evidence-v1.json"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CORPUS = json.loads(CORPUS_PATH.read_text(encoding="utf-8"))
 CONCRETE_CASES = CORPUS["cases"]
 
@@ -370,3 +371,13 @@ def test_completion_page_rejects_locally_incoherent_assembly(
     }
     with pytest.raises(ValidationError):
         CompletionEvidencePage.model_validate(payload)
+
+
+def test_database_archives_preserve_phase11_acl_contract():
+    backup = (REPOSITORY_ROOT / "scripts/database/backup.sh").read_text(encoding="utf-8")
+    restore = (REPOSITORY_ROOT / "scripts/database/restore.sh").read_text(encoding="utf-8")
+
+    assert "--no-acl" not in backup
+    assert "--no-acl" not in restore
+    assert "pg_dump --format=custom --no-owner --file=" in backup
+    assert "pg_restore --no-owner --exit-on-error --file=-" in restore

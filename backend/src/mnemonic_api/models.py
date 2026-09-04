@@ -337,11 +337,14 @@ class VerificationResult(Base):
     __tablename__ = "verification_results"
     __table_args__ = (
         CheckConstraint(
-            "verification_type IN ('command', 'observation')",
+            "verification_type::text = ANY "
+            "(ARRAY['command'::text, 'observation'::text])",
             name="verification_type_valid",
         ),
         CheckConstraint(
-            "outcome IN ('passed', 'failed', 'inconclusive', 'skipped')",
+            "outcome::text = ANY "
+            "(ARRAY['passed'::text, 'failed'::text, 'inconclusive'::text, "
+            "'skipped'::text])",
             name="outcome_valid",
         ),
         CheckConstraint(
@@ -430,8 +433,10 @@ class ArtifactReference(Base):
     __tablename__ = "artifact_references"
     __table_args__ = (
         CheckConstraint(
-            "artifact_type IN ('commit', 'pull_request', 'branch', 'test_run', "
-            "'repository_path', 'external_issue', 'build_artifact')",
+            "artifact_type::text = ANY "
+            "(ARRAY['commit'::text, 'pull_request'::text, 'branch'::text, "
+            "'test_run'::text, 'repository_path'::text, 'external_issue'::text, "
+            "'build_artifact'::text])",
             name="artifact_type_valid",
         ),
         CheckConstraint(

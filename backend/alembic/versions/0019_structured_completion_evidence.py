@@ -27,9 +27,9 @@ _REWRITE_TRIGGERS = (
     ("work_events", "events_immutable"),
 )
 _PHASE11_CATALOG_SHA256 = {
-    "relations": "805c3c9fa77c815f6f76b8ac0b3e606194e37484d100130bddde1dbe82966638",
+    "relations": "8b8a389da0f398be9e5ab62cefa36828695813f64e1a8d4c12714fcc4c77a1bb",
     "columns": "661ec98d3d0ceab6a33651bca9a78630ff6698cb9633dfa2a22fc43f6b162973",
-    "constraints": "f11b8aeb05952116bdf97849abedc785a72465c59de8c6818d207c429f58bf84",
+    "constraints": "949e2f283ebe8c755fef57429e0be77a10e0fb759e6c35495bf6050aaecbecd5",
     "indexes": "e42d2073ac878f00f54c33bb6eebeeb74bd71b1be400c8f480730c8a8e22ae09",
     "triggers": "d373c87879d6d720758656059da6303e46fcd9af78f4de61cf16f5311e233fce",
     "functions": "fe5c30629aa6664b58e76daf5ceb9236ce04fc4b76d4e21238200d80925b7a4a",
@@ -93,13 +93,27 @@ _PHASE11_INDEX_NAMES = (
     "pk_verification_results",
     "pk_artifact_references",
 )
-_PHASE11_CONSTRAINT_NAMES = (
-    "ck_work_items_completion_generation_range",
-    "ck_checkpoints_completion_generation_kind",
-    "ck_work_events_reopen_generation_kind",
+_PHASE11_CONSTRAINT_IDENTITIES = (
+    ("work_items", "ck_work_items_completion_generation_range"),
+    ("checkpoints", "ck_checkpoints_completion_generation_kind"),
+    ("work_events", "ck_work_events_reopen_generation_kind"),
+    ("work_items", "completion_state_episode_guard"),
+    ("work_items", "completion_generation_reopen_guard"),
+    ("work_events", "completion_reopen_event_episode_guard"),
+    ("checkpoints", "completion_checkpoint_episode_guard"),
 )
-_PHASE10_SURVIVOR_CATALOG_SHA256 = (
-    "f45caf5c0d0962f9816165d6328c83d3a7db3fcfba181a894d2e624362d3748c"
+# PostgreSQL stores parsed expression trees, and pg_dump/pg_restore reparses
+# their SQL representation.  That supported round trip changes the exact
+# spelling of 18 CHECK constraints and two partial indexes without changing
+# their semantics.  Keep both whole-catalog representations explicit: do not
+# weaken this fail-closed boundary with expression normalization.
+_PHASE10_SURVIVOR_CATALOG_SHA256S = frozenset(
+    {
+        # Built directly by the migration chain.
+        "5171e0e22b9b6f838277725146ad81ccdcb747a82244fba3dd2aa42bb3cfa8fe",
+        # Restored from the shipped PostgreSQL custom-format backup.
+        "95ac5cede92f756a2132379f9fb38f97148b7c3dd2c817a1844b8ad1facc45fe",
+    }
 )
 
 
@@ -732,11 +746,14 @@ def _create_evidence_tables() -> None:
         sa.Column("observed_at_commit", sa.String(length=64)),
         sa.Column("created_at", postgresql.TIMESTAMP(timezone=True), nullable=False),
         sa.CheckConstraint(
-            "verification_type IN ('command', 'observation')",
+            "verification_type::text = ANY "
+            "(ARRAY['command'::text, 'observation'::text])",
             name=op.f("ck_verification_results_verification_type_valid"),
         ),
         sa.CheckConstraint(
-            "outcome IN ('passed', 'failed', 'inconclusive', 'skipped')",
+            "outcome::text = ANY "
+            "(ARRAY['passed'::text, 'failed'::text, 'inconclusive'::text, "
+            "'skipped'::text])",
             name=op.f("ck_verification_results_outcome_valid"),
         ),
         sa.CheckConstraint(
@@ -1199,8 +1216,10 @@ def _create_episode_validators(schema: str) -> None:
         sa.Column("reference", sa.Text(collation="C"), nullable=False),
         sa.Column("created_at", postgresql.TIMESTAMP(timezone=True), nullable=False),
         sa.CheckConstraint(
-            "artifact_type IN ('commit', 'pull_request', 'branch', 'test_run', "
-            "'repository_path', 'external_issue', 'build_artifact')",
+            "artifact_type::text = ANY "
+            "(ARRAY['commit'::text, 'pull_request'::text, 'branch'::text, "
+            "'test_run'::text, 'repository_path'::text, 'external_issue'::text, "
+            "'build_artifact'::text])",
             name=op.f("ck_artifact_references_artifact_type_valid"),
         ),
         sa.CheckConstraint(
@@ -2718,7 +2737,19 @@ def _phase10_survivor_catalog_digest_on_safe_path(
               AND relation.relname NOT IN (
                   'verification_results', 'artifact_references'
               )
-              AND constraint_value.conname <> ALL(:phase11_constraints)
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM ROWS FROM (
+                      pg_catalog.unnest(
+                          CAST(:phase11_constraint_relations AS text[])
+                      ),
+                      pg_catalog.unnest(
+                          CAST(:phase11_constraint_names AS text[])
+                      )
+                  ) AS phase11(relation_name, constraint_name)
+                  WHERE phase11.relation_name = relation.relname
+                    AND phase11.constraint_name = constraint_value.conname
+              )
 
             UNION ALL
 
@@ -2889,7 +2920,12 @@ def _phase10_survivor_catalog_digest_on_safe_path(
         """,
         schema=schema,
         parameters={
-            "phase11_constraints": list(_PHASE11_CONSTRAINT_NAMES),
+            "phase11_constraint_relations": [
+                relation for relation, _ in _PHASE11_CONSTRAINT_IDENTITIES
+            ],
+            "phase11_constraint_names": [
+                constraint for _, constraint in _PHASE11_CONSTRAINT_IDENTITIES
+            ],
             "phase11_indexes": list(_PHASE11_INDEX_NAMES),
             "phase11_triggers": list(_PHASE11_TRIGGER_NAMES),
             "phase11_functions": list(_PHASE11_FUNCTION_NAMES),
@@ -2917,7 +2953,6 @@ def _require_intact_phase11_catalog(quoted_schema: str) -> None:
                            SELECT role.oid FROM pg_catalog.pg_roles AS role
                            WHERE role.rolname = CURRENT_USER
                        ),
-                       relation.relacl IS NOT NULL,
                        (
                            SELECT pg_catalog.count(*) = 8
                               AND pg_catalog.bool_and(
@@ -2932,7 +2967,12 @@ def _require_intact_phase11_catalog(quoted_schema: str) -> None:
                                       'DELETE', 'INSERT', 'MAINTAIN', 'REFERENCES',
                                       'SELECT', 'TRIGGER', 'TRUNCATE', 'UPDATE'
                                   ]::text[]
-                           FROM pg_catalog.aclexplode(relation.relacl) AS acl
+                           FROM pg_catalog.aclexplode(
+                               COALESCE(
+                                   relation.relacl,
+                                   pg_catalog.acldefault('r', relation.relowner)
+                               )
+                           ) AS acl
                        ),
                        COALESCE(relation.reloptions, ARRAY[]::text[]),
                        access_method.amname,
@@ -3207,13 +3247,13 @@ def _require_intact_phase11_catalog(quoted_schema: str) -> None:
     ]
     if invalid:
         raise RuntimeError(
-            "Cannot downgrade an indeterminate Phase 11 catalog: "
+            "Cannot proceed with an indeterminate Phase 11 catalog: "
             + ", ".join(f"{category}={digests[category]}" for category in invalid)
         )
     survivor_digest = _phase10_survivor_catalog_digest(schema)
-    if survivor_digest != _PHASE10_SURVIVOR_CATALOG_SHA256:
+    if survivor_digest not in _PHASE10_SURVIVOR_CATALOG_SHA256S:
         raise RuntimeError(
-            "Cannot downgrade an indeterminate Phase 10 survivor catalog: "
+            "Cannot proceed with an indeterminate Phase 10 survivor catalog: "
             f"survivors={survivor_digest}"
         )
     bind.execute(

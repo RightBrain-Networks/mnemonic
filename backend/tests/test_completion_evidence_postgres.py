@@ -4444,8 +4444,18 @@ def test_downgrade_rejects_exact_phase11_catalog_tamper_before_ddl(
         "ALTER INDEX ix_work_items_duplicate_title_key_v1 SET (fillfactor = 75)",
         "GRANT SELECT ON work_items TO PUBLIC",
         "GRANT SELECT (title) ON work_items TO PUBLIC",
+        (
+            "ALTER TABLE projects ADD CONSTRAINT "
+            "completion_state_episode_guard CHECK (true)"
+        ),
     ),
-    ids=("function-attribute", "index-attribute", "relation-acl", "column-acl"),
+    ids=(
+        "function-attribute",
+        "index-attribute",
+        "relation-acl",
+        "column-acl",
+        "phase11-constraint-name-collision",
+    ),
 )
 def test_downgrade_rejects_phase10_survivor_catalog_tamper_before_ddl(
     api: TestClient,

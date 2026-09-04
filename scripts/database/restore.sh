@@ -51,7 +51,9 @@ trap 'rm -f "$restore_sql"' EXIT HUP INT TERM
   echo 'CREATE SCHEMA public AUTHORIZATION CURRENT_USER;'
   echo 'GRANT USAGE ON SCHEMA public TO PUBLIC;'
 } > "$restore_sql"
-pg_restore --no-owner --no-acl --exit-on-error --file=- "$file" >> "$restore_sql"
+# Keep archive ACLs: Phase 11 revokes PUBLIC function execution and its exact
+# owner-only privilege state is part of the audited catalog contract.
+pg_restore --no-owner --exit-on-error --file=- "$file" >> "$restore_sql"
 psql --no-psqlrc --single-transaction --set=ON_ERROR_STOP=1 --file="$restore_sql"
 rm -f "$restore_sql"
 trap - EXIT HUP INT TERM

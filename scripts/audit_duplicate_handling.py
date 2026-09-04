@@ -166,9 +166,9 @@ COMPLETION_EVIDENCE_TRIGGERS = frozenset(
     }
 )
 PHASE11_CATALOG_SHA256 = {
-    "relations": "805c3c9fa77c815f6f76b8ac0b3e606194e37484d100130bddde1dbe82966638",
+    "relations": "8b8a389da0f398be9e5ab62cefa36828695813f64e1a8d4c12714fcc4c77a1bb",
     "columns": "661ec98d3d0ceab6a33651bca9a78630ff6698cb9633dfa2a22fc43f6b162973",
-    "constraints": "f11b8aeb05952116bdf97849abedc785a72465c59de8c6818d207c429f58bf84",
+    "constraints": "949e2f283ebe8c755fef57429e0be77a10e0fb759e6c35495bf6050aaecbecd5",
     "indexes": "e42d2073ac878f00f54c33bb6eebeeb74bd71b1be400c8f480730c8a8e22ae09",
     "triggers": "d373c87879d6d720758656059da6303e46fcd9af78f4de61cf16f5311e233fce",
     "functions": "fe5c30629aa6664b58e76daf5ceb9236ce04fc4b76d4e21238200d80925b7a4a",
@@ -235,13 +235,18 @@ def _phase11_downgrade_blocking_count(
 def _phase10_survivor_catalog_failure_count(connection: Connection, audit_schema: str) -> int:
     contract = _phase11_revision_contract()
     helper = getattr(contract, "_phase10_survivor_catalog_digest", None)
-    expected = getattr(contract, "_PHASE10_SURVIVOR_CATALOG_SHA256", None)
-    if not callable(helper) or not isinstance(expected, str):
+    expected = getattr(contract, "_PHASE10_SURVIVOR_CATALOG_SHA256S", None)
+    if (
+        not callable(helper)
+        or not isinstance(expected, frozenset)
+        or not expected
+        or not all(isinstance(digest, str) for digest in expected)
+    ):
         raise TypeError("The Phase 10 survivor catalog contract is unavailable")
     digest = helper(audit_schema, connection=connection)
     if not isinstance(digest, str):
         raise TypeError("The Phase 10 survivor catalog contract returned invalid data")
-    return int(digest != expected)
+    return int(digest not in expected)
 
 
 def _local_settings() -> dict[str, str]:
@@ -272,18 +277,24 @@ def _scalar(
     return int(value or 0)
 
 
-def _phase11_id_batches(
-    connection: Connection,
-    scan: str,
-) -> Iterator[tuple[object, ...]]:
-    """Yield content-free primary-key pages under the caller's shared snapshot."""
+def _phase11_audit_page_is_invalid(
+    rows: Sequence[object],
+    cursor: object | None,
+    high_water: object,
+) -> bool:
+    return (
+        len(rows) > PHASE11_AUDIT_BATCH_SIZE
+        or (cursor is not None and rows[0] <= cursor)
+        or rows[-1] > high_water
+        or any(left >= right for left, right in pairwise(rows))
+    )
 
-    try:
-        table_name, predicate = _PHASE11_AUDIT_SCANS[scan]
-    except KeyError as error:
-        raise ValueError("Unknown trusted Phase 11 audit scan") from error
-    if not isinstance(PHASE11_AUDIT_BATCH_SIZE, int) or PHASE11_AUDIT_BATCH_SIZE < 1:
-        raise RuntimeError("The Phase 11 audit batch size is invalid")
+
+def _phase11_audit_inventory(
+    connection: Connection,
+    table_name: str,
+    predicate: str,
+) -> tuple[object | None, int]:
     high_water = connection.scalar(
         text(
             f"""
@@ -305,12 +316,28 @@ def _phase11_id_batches(
         WHERE ({predicate})
         """,
     )
-    if high_water is None:
-        if expected_count:
-            raise RuntimeError("Phase 11 audit keyset inventory is inconsistent")
-        return
-    if not expected_count:
+    if (high_water is None) != (expected_count == 0):
         raise RuntimeError("Phase 11 audit keyset inventory is inconsistent")
+    return high_water, expected_count
+
+
+def _phase11_id_batches(
+    connection: Connection,
+    scan: str,
+) -> Iterator[tuple[object, ...]]:
+    """Yield content-free primary-key pages under the caller's shared snapshot."""
+
+    try:
+        table_name, predicate = _PHASE11_AUDIT_SCANS[scan]
+    except KeyError as error:
+        raise ValueError("Unknown trusted Phase 11 audit scan") from error
+    if not isinstance(PHASE11_AUDIT_BATCH_SIZE, int) or PHASE11_AUDIT_BATCH_SIZE < 1:
+        raise RuntimeError("The Phase 11 audit batch size is invalid")
+    high_water, expected_count = _phase11_audit_inventory(
+        connection, table_name, predicate
+    )
+    if high_water is None:
+        return
     cursor: object | None = None
     scanned_count = 0
     while cursor != high_water:
@@ -338,12 +365,7 @@ def _phase11_id_batches(
         )
         if not rows:
             raise RuntimeError("Phase 11 audit keyset scan ended before completion")
-        if (
-            len(rows) > PHASE11_AUDIT_BATCH_SIZE
-            or (cursor is not None and rows[0] <= cursor)
-            or rows[-1] > high_water
-            or any(left >= right for left, right in pairwise(rows))
-        ):
+        if _phase11_audit_page_is_invalid(rows, cursor, high_water):
             raise RuntimeError("Phase 11 audit keyset scan did not advance")
         scanned_count += len(rows)
         if scanned_count > expected_count:
@@ -2044,7 +2066,6 @@ def _phase11_exact_catalog_failures(connection: Connection, audit_schema: str) -
                        SELECT role.oid FROM pg_catalog.pg_roles AS role
                        WHERE role.rolname = CURRENT_USER
                    ),
-                   relation.relacl IS NOT NULL,
                    (
                        SELECT pg_catalog.count(*) = 8
                           AND pg_catalog.bool_and(
@@ -2059,7 +2080,12 @@ def _phase11_exact_catalog_failures(connection: Connection, audit_schema: str) -
                                   'DELETE', 'INSERT', 'MAINTAIN', 'REFERENCES',
                                   'SELECT', 'TRIGGER', 'TRUNCATE', 'UPDATE'
                               ]::text[]
-                       FROM pg_catalog.aclexplode(relation.relacl) AS acl
+                       FROM pg_catalog.aclexplode(
+                           COALESCE(
+                               relation.relacl,
+                               pg_catalog.acldefault('r', relation.relowner)
+                           )
+                       ) AS acl
                    ),
                    COALESCE(relation.reloptions, ARRAY[]::text[]),
                    access_method.amname,
@@ -3137,6 +3163,10 @@ def _catalog_on_pg_catalog_path(
     if expected_head == FINAL_HEAD:
         completion_evidence_catalog = _completion_evidence_catalog_failures(
             connection, audit_schema
+        )
+    elif expected_head == REPOSITORY_FRESHNESS_HEAD:
+        completion_evidence_catalog["phase10_survivor_catalog_failure_count"] = (
+            _phase10_survivor_catalog_failure_count(connection, audit_schema)
         )
     return {
         "server_version_num": _scalar(

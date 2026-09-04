@@ -35,6 +35,7 @@ from starlette.testclient import TestClient
 from mnemonic_mcp.api import MnemonicAPI, TransportEffect
 from mnemonic_mcp.models import (
     MAX_COMPLETION_EVENT_ID,
+    MAX_COMPLETION_EXPECTED_VERSION,
     CompletionEvidenceArgument,
     CompletionEvidenceInput,
     CompletionEvidencePage,
@@ -466,6 +467,7 @@ def _assert_shared_full_request_schema_cases(complete_validator, base_arguments)
             for key, value in base_arguments.items()
             if key != "client_operation_id"
         }
+        arguments["expected_version"] = case.get("expected_version", 1)
         evidence = case.get("completion_evidence", "__omitted__")
         evidence_case_id = case.get("completion_evidence_case_id")
         if evidence_case_id is not None:
@@ -521,6 +523,9 @@ async def test_completion_tools_list_schema_matches_runtime_evidence_contract(se
         "$ref": "#/$defs/CompletionEvidenceInput",
         "title": "Completion Evidence",
     }
+    assert complete_input["properties"]["expected_version"]["maximum"] == (
+        MAX_COMPLETION_EXPECTED_VERSION
+    )
     assert "completion_evidence" not in complete_input["required"]
     assert complete_output["properties"]["completion_evidence"] == {
         "$ref": "#/$defs/CompletionEvidencePayloadRead",
@@ -756,6 +761,26 @@ async def test_completion_tools_list_schema_matches_runtime_evidence_contract(se
     assert not history_validator.is_valid(
         {"project_id": PROJECT_ID, "work_item_id": WORK_ID, "cursor": None}
     )
+
+
+def test_complete_work_runtime_expected_version_is_strict_and_incrementable(settings):
+    tool = build_server(settings)._tool_manager.get_tool("complete_work")
+    arguments = {
+        "project_id": PROJECT_ID,
+        "work_item_id": WORK_ID,
+        "expected_version": MAX_COMPLETION_EXPECTED_VERSION,
+        "checkpoint": {
+            "prompt": "Complete.",
+            "source_client": "codex",
+            "source_session_id": "version-bound-test",
+        },
+        "client_operation_id": CLIENT_OPERATION_ID,
+    }
+    model = tool.fn_metadata.arg_model
+    assert model.model_validate(arguments).expected_version == MAX_COMPLETION_EXPECTED_VERSION
+    for invalid in (MAX_COMPLETION_EXPECTED_VERSION + 1, "1", True):
+        with pytest.raises(ValidationError):
+            model.model_validate({**arguments, "expected_version": invalid})
 
 
 async def test_complete_work_freezes_and_returns_ordered_evidence(
@@ -1896,7 +1921,7 @@ async def test_largest_legal_complete_call_fits_one_mib_ingress(settings):
     arguments = {
         "project_id": PROJECT_ID,
         "work_item_id": WORK_ID,
-        "expected_version": 2**63 - 1,
+        "expected_version": MAX_COMPLETION_EXPECTED_VERSION,
         "checkpoint": {
             "prompt": prompt,
             "source_client": _worst_case_bounded_text(80),

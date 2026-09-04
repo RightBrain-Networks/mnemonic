@@ -106,7 +106,10 @@ test("browser creates, displays, appends, completes, and refreshes declared scop
     await expect(currentDeclaration.locator("a, button, input, textarea, select")).toHaveCount(0);
 
     await context.getByLabel("Checkpoint text").fill("Invalid scope must fail before UUID freeze.");
-    await context.locator(".checkpoint-compose details.edit-context summary").click();
+    const repositoryContextSummary = context
+      .locator(".checkpoint-compose details.edit-context > summary")
+      .filter({ hasText: /^Repository context and tags$/ });
+    await repositoryContextSummary.click();
     await context.getByLabel(/Declared affected paths/).fill("src/**\nunsafe path");
     const requestCount = mutationBodies.length;
     await context.getByRole("button", { name: "Add checkpoint" }).click();
@@ -136,7 +139,10 @@ test("browser creates, displays, appends, completes, and refreshes declared scop
 
     context = await openTab(pane, "Context");
     await context.getByLabel("Checkpoint text").fill("Completion scoped evidence.");
-    await context.locator(".checkpoint-compose details.edit-context summary").click();
+    await context
+      .locator(".checkpoint-compose details.edit-context > summary")
+      .filter({ hasText: /^Repository context and tags$/ })
+      .click();
     await context.getByLabel("Caller-asserted baseline commit").fill(baseline);
     await context.getByLabel(/Declared affected paths/).fill(completionPaths.join("\n"));
     await context.getByRole("button", { name: "Complete with summary" }).click();

@@ -11,10 +11,40 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.schema import CreateSchema
 
 pytestmark = pytest.mark.postgres
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_PHASE10_DUMP_REPARSED_CHECKS = (
+    ("checkpoints", "ck_checkpoints_kind_valid"),
+    ("checkpoints", "ck_checkpoints_migration_fields_valid"),
+    ("client_operations", "ck_client_operations_operation_kind_valid"),
+    ("client_operations", "ck_client_operations_state_valid"),
+    ("work_events", "ck_work_events_actor_kind_valid"),
+    ("work_events", "ck_work_events_actor_matrix_valid"),
+    ("work_events", "ck_work_events_backfill_event_type_valid"),
+    ("work_events", "ck_work_events_body_valid"),
+    ("work_events", "ck_work_events_checkpoint_reference_valid"),
+    ("work_events", "ck_work_events_event_type_valid"),
+    ("work_events", "ck_work_events_gate_metadata_reserved"),
+    ("work_events", "ck_work_events_gate_reference_valid"),
+    ("work_events", "ck_work_events_lease_generation_reference_valid"),
+    ("work_events", "ck_work_events_metadata_v1_valid"),
+    ("work_events", "ck_work_events_origin_valid"),
+    ("work_events", "ck_work_events_relationship_references_valid"),
+    ("work_items", "ck_work_items_status_valid"),
+    ("work_relationships", "ck_work_relationships_type_valid"),
+)
+_PHASE10_DUMP_REPARSED_INDEXES = (
+    "uq_work_events_relationship_added_fact",
+    "uq_work_events_relationship_removed_fact",
+)
+_PHASE11_DUMP_REPARSED_CHECKS = (
+    ("artifact_references", "ck_artifact_references_artifact_type_valid"),
+    ("verification_results", "ck_verification_results_outcome_valid"),
+    ("verification_results", "ck_verification_results_verification_type_valid"),
+)
 
 
 def _audit_module() -> ModuleType:
@@ -24,6 +54,80 @@ def _audit_module() -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _reparse_catalog_like_pg_restore(
+    connection,
+    schema: str,
+    *,
+    checks: tuple[tuple[str, str], ...],
+    indexes: tuple[str, ...] = (),
+) -> None:
+    constraint_rows = connection.execute(
+        text(
+            """
+            SELECT relation.relname AS table_name,
+                   constraint_value.conname AS constraint_name,
+                   pg_catalog.pg_get_constraintdef(constraint_value.oid, true)
+                       AS definition
+            FROM pg_catalog.pg_constraint AS constraint_value
+            JOIN pg_catalog.pg_class AS relation
+              ON relation.oid = constraint_value.conrelid
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = relation.relnamespace
+            WHERE namespace.nspname = CAST(:audit_schema AS text)
+              AND relation.relname || '.' || constraint_value.conname
+                    = ANY(:constraint_identities)
+            ORDER BY relation.relname, constraint_value.conname
+            """
+        ),
+        {
+            "audit_schema": schema,
+            "constraint_identities": [
+                f"{table}.{name}" for table, name in checks
+            ],
+        },
+    ).all()
+    assert tuple((row.table_name, row.constraint_name) for row in constraint_rows) == (
+        checks
+    )
+
+    index_rows = ()
+    if indexes:
+        index_rows = connection.execute(
+            text(
+                """
+                SELECT index_relation.relname AS index_name,
+                       pg_catalog.pg_get_indexdef(index_relation.oid) AS definition
+                FROM pg_catalog.pg_index AS index_value
+                JOIN pg_catalog.pg_class AS index_relation
+                  ON index_relation.oid = index_value.indexrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = index_relation.relnamespace
+                WHERE namespace.nspname = CAST(:audit_schema AS text)
+                  AND index_relation.relname = ANY(:index_names)
+                ORDER BY index_relation.relname
+                """
+            ),
+            {"audit_schema": schema, "index_names": list(indexes)},
+        ).all()
+        assert tuple(row.index_name for row in index_rows) == indexes
+
+    quote = connection.dialect.identifier_preparer.quote_identifier
+    quoted_schema = quote(schema)
+    for row in constraint_rows:
+        qualified_table = f"{quoted_schema}.{quote(row.table_name)}"
+        quoted_constraint = quote(row.constraint_name)
+        connection.exec_driver_sql(
+            f"ALTER TABLE {qualified_table} DROP CONSTRAINT {quoted_constraint}"
+        )
+        connection.exec_driver_sql(
+            f"ALTER TABLE {qualified_table} ADD CONSTRAINT {quoted_constraint} "
+            f"{row.definition}"
+        )
+    for row in index_rows:
+        connection.exec_driver_sql(f"DROP INDEX {quoted_schema}.{quote(row.index_name)}")
+        connection.exec_driver_sql(row.definition)
 
 
 def test_phase11_audit_catalog_hashes_are_coupled_to_migration_contract():
@@ -321,6 +425,106 @@ def test_phase11_receipt_correspondence_unique_index_rejects_second_completed_pa
             transaction.rollback()
 
 
+def test_phase10_dump_reparsed_catalog_is_audited_and_migrates(postgres_engine):
+    audit = _audit_module()
+    migration = audit._phase11_revision_contract()
+    schema = "mnemonic_phase10_restore_" + uuid4().hex
+    with postgres_engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            connection.execute(CreateSchema(schema))
+            quoted_schema = connection.dialect.identifier_preparer.quote_identifier(schema)
+            connection.execute(
+                text("SELECT pg_catalog.set_config('search_path', :path, true)"),
+                {"path": quoted_schema},
+            )
+            config = Config(str(REPOSITORY_ROOT / "backend" / "alembic.ini"))
+            config.attributes["connection"] = connection
+            command.upgrade(config, audit.REPOSITORY_FRESHNESS_HEAD)
+
+            fresh_digest = migration._phase10_survivor_catalog_digest(
+                schema, connection=connection
+            )
+            assert fresh_digest == (
+                "5171e0e22b9b6f838277725146ad81ccdcb747a82244fba3dd2aa42bb3cfa8fe"
+            )
+            _reparse_catalog_like_pg_restore(
+                connection,
+                schema,
+                checks=_PHASE10_DUMP_REPARSED_CHECKS,
+                indexes=_PHASE10_DUMP_REPARSED_INDEXES,
+            )
+            restored_digest = migration._phase10_survivor_catalog_digest(
+                schema, connection=connection
+            )
+            assert restored_digest == (
+                "95ac5cede92f756a2132379f9fb38f97148b7c3dd2c817a1844b8ad1facc45fe"
+            )
+            assert migration._PHASE10_SURVIVOR_CATALOG_SHA256S == frozenset(
+                {fresh_digest, restored_digest}
+            )
+
+            catalog = audit._catalog(connection, audit.REPOSITORY_FRESHNESS_HEAD)
+            assert catalog["phase10_survivor_catalog_failure_count"] == 0
+
+            tampered = connection.begin_nested()
+            connection.execute(
+                text(
+                    "ALTER TABLE projects ADD CONSTRAINT "
+                    "completion_state_episode_guard CHECK (true)"
+                )
+            )
+            assert audit._catalog(connection, audit.REPOSITORY_FRESHNESS_HEAD)[
+                "phase10_survivor_catalog_failure_count"
+            ] == 1
+            tampered.rollback()
+
+            command.upgrade(config, audit.FINAL_HEAD)
+            assert (
+                migration._phase10_survivor_catalog_digest(
+                    schema, connection=connection
+                )
+                == restored_digest
+            )
+            assert audit._catalog(connection, audit.FINAL_HEAD)[
+                "phase10_survivor_catalog_failure_count"
+            ] == 0
+
+            command.downgrade(config, audit.REPOSITORY_FRESHNESS_HEAD)
+            assert (
+                migration._phase10_survivor_catalog_digest(
+                    schema, connection=connection
+                )
+                == restored_digest
+            )
+            command.upgrade(config, audit.FINAL_HEAD)
+        finally:
+            transaction.rollback()
+
+
+def test_phase11_catalog_checks_are_dump_reparse_stable(postgres_engine):
+    audit = _audit_module()
+    with postgres_engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            schema = connection.scalar(text("SELECT pg_catalog.current_schema()"))
+            assert isinstance(schema, str)
+            assert audit._catalog(connection, audit.FINAL_HEAD)[
+                "completion_evidence_constraint_failure_count"
+            ] == 0
+
+            _reparse_catalog_like_pg_restore(
+                connection,
+                schema,
+                checks=_PHASE11_DUMP_REPARSED_CHECKS,
+            )
+            assert audit._catalog(connection, audit.FINAL_HEAD)[
+                "completion_evidence_constraint_failure_count"
+            ] == 0
+        finally:
+            transaction.rollback()
+
+
 def test_phase11_survivor_digest_is_search_path_and_index_independent(postgres_engine):
     audit = _audit_module()
     migration = audit._phase11_revision_contract()
@@ -337,7 +541,7 @@ def test_phase11_survivor_digest_is_search_path_and_index_independent(postgres_e
             visible_digest = migration._phase10_survivor_catalog_digest(
                 schema, connection=connection
             )
-            assert visible_digest == migration._PHASE10_SURVIVOR_CATALOG_SHA256
+            assert visible_digest in migration._PHASE10_SURVIVOR_CATALOG_SHA256S
             assert connection.scalar(
                 text("SELECT pg_catalog.current_setting('search_path')")
             ) == original_search_path

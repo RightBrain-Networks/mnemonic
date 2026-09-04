@@ -8,7 +8,10 @@ import {
   validUuid
 } from "./wire-guards.ts";
 import { validAffectedPaths } from "./affected-paths.ts";
-import { completionEvidenceIssues } from "./completion-evidence.ts";
+import {
+  COMPLETION_EXPECTED_VERSION_MAX,
+  completionEvidenceIssues
+} from "./completion-evidence.ts";
 
 export interface DefinitiveProxyError {
   readonly status: 400 | 403 | 404 | 413 | 415 | 422;
@@ -572,7 +575,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       !allowedKeys(body, [
         "expected_version", "checkpoint", "completion_evidence", CLIENT_OPERATION_FIELD
       ])
-      || !finiteInteger(body.expected_version, 1)
+      || !finiteInteger(body.expected_version, 1, COMPLETION_EXPECTED_VERSION_MAX)
       || !validCheckpointPayload(body.checkpoint, false)
       || completionEvidenceIssues(body.completion_evidence).length > 0
     ) return DEFINITIVE_PROXY_ERRORS.invalidWorkCompletion.detail;

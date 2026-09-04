@@ -79,6 +79,7 @@ def _base_completion_request() -> dict[str, object]:
 
 def _full_request_case(case: dict[str, Any]) -> dict[str, object]:
     payload = _base_completion_request()
+    payload["expected_version"] = case.get("expected_version", 1)
     evidence = case.get("completion_evidence", "__omitted__")
     evidence_case_id = case.get("completion_evidence_case_id")
     if evidence_case_id is not None:

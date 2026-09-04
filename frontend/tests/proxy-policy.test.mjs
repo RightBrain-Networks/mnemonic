@@ -146,6 +146,17 @@ test("browser completion accepts only the exact nested Phase 11 evidence contrac
   assert.equal(invalidMutationBody(path, "POST", body), null);
   assert.equal(invalidMutationBody(path, "POST", {
     ...body,
+    expected_version: 2_147_483_646
+  }), null);
+  assert.match(
+    invalidMutationBody(path, "POST", {
+      ...body,
+      expected_version: 2_147_483_647
+    }),
+    /allowlist/
+  );
+  assert.equal(invalidMutationBody(path, "POST", {
+    ...body,
     completion_evidence: {}
   }), null);
   for (const completion_evidence of [

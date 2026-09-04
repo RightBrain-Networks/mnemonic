@@ -329,7 +329,18 @@ test("tabs mount one panel at a time and the selected tab persists across items"
 
     const pane = await selectWork(page, titles.a);
     const tabs = pane.getByRole("tablist", { name: "Work context sections" }).getByRole("tab");
-    await expect(tabs).toHaveText([/^Context$/, /^History/, /^Graph/, /^Questions/, /^Activity/]);
+    const tabNames = [
+      /^Context$/,
+      /^History \d+$/,
+      /^Evidence$/,
+      /^Graph \d+$/,
+      /^Questions \d+$/,
+      /^Activity \d+$/
+    ];
+    await expect(tabs).toHaveCount(tabNames.length);
+    for (const [index, name] of tabNames.entries()) {
+      await expect(tabs.nth(index)).toHaveAccessibleName(name);
+    }
     await expect(pane.getByRole("tab", { name: "Context" })).toHaveAttribute("aria-selected", "true");
     await expect(pane.getByRole("tab", { name: "Context" }).locator(".detail-tab-count")).toHaveCount(0);
     await expect(pane.getByRole("tabpanel")).toHaveCount(1);
