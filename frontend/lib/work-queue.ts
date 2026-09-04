@@ -22,6 +22,20 @@ export const statusFilterLabels: Record<StatusFilter, string> = {
   all: "All"
 };
 
+export type StatusFilterTransition = "unchanged" | "refilter" | "refilter-and-deselect";
+
+// The open detail pane must never outlive the queue that produced it: a record
+// shown only under Pending would otherwise stay open beneath a Deferred list.
+// Reselecting the current filter is not a change and must leave the pane alone.
+export function statusFilterTransition(
+  current: StatusFilter,
+  next: StatusFilter,
+  selectedId: string | null
+): StatusFilterTransition {
+  if (next === current) return "unchanged";
+  return selectedId === null ? "refilter" : "refilter-and-deselect";
+}
+
 type WorkQueueEntry = { summary: { work_item: { id: string } } };
 
 export type MergedWorkPages<T> = {

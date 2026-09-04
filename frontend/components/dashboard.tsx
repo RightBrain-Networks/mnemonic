@@ -73,6 +73,7 @@ import type { DetailTab } from "@/lib/work-detail-tabs";
 import { editableLifecycleStatuses, normalizedTags } from "@/lib/work-item-view";
 import { dashboardMutationActor } from "@/lib/work-events";
 import { scheduleHierarchyFilterCommit } from "@/lib/work-item-search";
+import { statusFilterTransition } from "@/lib/work-queue";
 import { workRecallPointer } from "@/lib/work-recall-pointer";
 import {
   AffectedPathsValidationError,
@@ -1006,6 +1007,45 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     clearSelection();
   }
 
+  // The pane's record, including one whose exact load has not landed yet: an in-flight
+  // load would otherwise open into the pane after the queue had already moved on.
+  function selectedWorkItemId(): string | null {
+    return openedId ?? exactContextTarget.current?.workItemId ?? null;
+  }
+
+  // A lifecycle filter names a different queue, so the pane's record may no longer belong
+  // to it; the selection is dropped rather than left stranded beside the new list.
+  function filterByStatus(next: StatusFilter): void {
+    const transition = statusFilterTransition(status, next, selectedWorkItemId());
+    if (transition === "unchanged") return;
+    if (transition === "refilter-and-deselect") {
+      if (!leavingOpenedWorkAllowed()) return;
+      clearSelection();
+    }
+    setStatus(next);
+  }
+
+  // Clearing filters returns the queue to Pending, so it drops the selection on the
+  // same rule the lifecycle buttons follow instead of stranding it beside the reset list.
+  function clearFilters(): void {
+    const transition = statusFilterTransition(status, "pending", selectedWorkItemId());
+    if (transition === "refilter-and-deselect") {
+      if (!leavingOpenedWorkAllowed()) return;
+      clearSelection();
+    }
+    setQuery("");
+    setSearch("");
+    setDuplicateScope("canonical");
+    setCanonicalWorkItemId("");
+    setStatus("pending");
+    setTagInput("");
+    setSourceClientInput("");
+    setSourceSessionInput("");
+    setTagFilter("");
+    setSourceClientFilter("");
+    setSourceSessionFilter("");
+  }
+
   function selectWork(summary: WorkSummary) {
     if (opened?.work_item.id === summary.work_item.id) return;
     if (!leavingOpenedWorkAllowed()) return;
@@ -1728,7 +1768,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                   if (value === "canonical") setCanonicalWorkItemId("");
                 }}
                 onClearDuplicateGroup={() => setCanonicalWorkItemId("")}
-                onStatus={setStatus}
+                onStatus={filterByStatus}
                 onSort={setSort}
                 onTag={setTagInput}
                 onSourceClient={setSourceClientInput}
@@ -1736,19 +1776,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 onRetry={queue.retry}
                 onRetryAppend={queue.retryAppend}
                 onLoadMore={queue.loadMore}
-                onClearFilters={() => {
-                  setQuery("");
-                  setSearch("");
-                  setDuplicateScope("canonical");
-                  setCanonicalWorkItemId("");
-                  setStatus("pending");
-                  setTagInput("");
-                  setSourceClientInput("");
-                  setSourceSessionInput("");
-                  setTagFilter("");
-                  setSourceClientFilter("");
-                  setSourceSessionFilter("");
-                }}
+                onClearFilters={clearFilters}
                 onCreate={openWorkDialog}
                 onSelect={selectWork}
                 onCopyPointer={(item) => void copyRecallPointer(item)}

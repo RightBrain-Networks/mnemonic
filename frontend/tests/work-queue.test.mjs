@@ -10,7 +10,8 @@ import {
   moreFiltersForced,
   nextQueueSelection,
   resultCountLabel,
-  sortDescription
+  sortDescription,
+  statusFilterTransition
 } from "../lib/work-queue.ts";
 
 function entry(id) {
@@ -23,6 +24,33 @@ function page(ids, total, offset = 0, limit = WORK_PAGE_SIZE) {
 
 test("the queue page size stays on the wire contract", () => {
   assert.equal(WORK_PAGE_SIZE, 20);
+});
+
+test("changing the lifecycle filter drops an open selection", () => {
+  const filters = [
+    "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
+  ];
+  for (const current of filters) {
+    for (const next of filters) {
+      if (current === next) continue;
+      assert.equal(
+        statusFilterTransition(current, next, "work-1"),
+        "refilter-and-deselect",
+        `${current} to ${next} must not strand the open pane`
+      );
+    }
+  }
+});
+
+test("reselecting the current lifecycle filter changes nothing", () => {
+  assert.equal(statusFilterTransition("pending", "pending", "work-1"), "unchanged");
+  assert.equal(statusFilterTransition("deferred", "deferred", "work-1"), "unchanged");
+  assert.equal(statusFilterTransition("all", "all", null), "unchanged");
+});
+
+test("with no work open a lifecycle change only refilters the queue", () => {
+  assert.equal(statusFilterTransition("pending", "deferred", null), "refilter");
+  assert.equal(statusFilterTransition("all", "wont-do", null), "refilter");
 });
 
 test("loadedOffsets covers every page that has been loaded and always includes the first", () => {
