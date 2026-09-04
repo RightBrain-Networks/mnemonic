@@ -1,5 +1,49 @@
 # Mnemonic validation record
 
+## Brand mark for the favicon and sidebar — 2026-09-03
+
+This entry covers replacing the dashboard's orange badge with the robot-head
+artwork now tracked at `images/mnemonic_logo.svg` (dashboard `0.5.0`, no
+application/API/MCP, plugin, migration, or proxy-allowlist change). The artwork
+is drawn three times: the source asset, the favicon Next.js serves from
+`frontend/app/icon.svg`, and the mark inlined into `Logo()` in
+`frontend/components/dashboard.tsx`. Every figure below was observed in the
+session that recorded it, on a local Node v22.22.3 checkout of the topic branch
+(CI uses Node 24).
+
+- **Frontend unit tests (`npm test`): 202 passing, 0 failing.** The run adds
+  `tests/brand-mark.test.mjs`, which parses all three copies and compares each
+  one's drawing primitives and resolved paint against the source asset,
+  class-resolved through the exporter's `<style>` block and tokenized so wrapped
+  `d` attributes compare by command and number rather than by text. Each of its
+  five assertions was mutation-checked: a drifted fill, a moved path
+  coordinate, a replaced white stroke, a non-square favicon box, and a distorted
+  sidebar aspect ratio each failed exactly one test, and the unmutated tree
+  passed all five.
+- **TypeScript checking (`npm run typecheck`) and the production build
+  (`npm run build`): both pass**, with `/icon.svg` still emitted as a route.
+- **Isolated Playwright stack (`npm run test:e2e:stack`): 85 executions, 84
+  passing, 1 skipped by design, 0 failing, 4.8 minutes** on a uniquely named
+  disposable Compose project; teardown left no `mnemonic-e2e-*` container or
+  volume. The single skip is the narrow project's divider case in
+  `tests/e2e/work-library-surface.spec.ts`, which the stacked layout has no
+  divider for. `tests/e2e/dark-theme-contrast.spec.ts` passed unchanged: the
+  three edited rules dropped `.logo-mark` from per-theme tinting, which the new
+  fixed-color mark no longer reads, and left every `.brand-period` color as it
+  was.
+- **The running stack served the favicon and the mark.** Against that same
+  disposable web container, `GET /icon.svg` returned 200 with a body whose
+  SHA-256 matched `frontend/app/icon.svg` exactly
+  (`36f1ff230c950e656c38cae05808eca65eca3cd5afa6dbdd1906a8414626fe3f`); the
+  dashboard document carried `<link rel="icon" ... type="image/svg+xml">` and a
+  server-rendered `class="logo-mark"` SVG at `viewBox="0 0 916 863.9"` with both
+  brand fills present.
+- **Gitleaks (`pre-commit` hook): passed** on the commit.
+
+No backend, MCP, migration, plugin, stack-check, or adversarial-review result is
+claimed for this change, and it does not alter any production, cutover, or
+permanence gate.
+
 ## Phase 10 repository freshness implementation — 2026-09-03
 
 This checkpoint covers application/API/MCP/dashboard `0.5.0`, plugin `0.9.0`,
