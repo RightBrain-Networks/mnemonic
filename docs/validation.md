@@ -22,7 +22,7 @@ typing target; that guard and the open-dialog check are now one shared module,
 shortcut both use. Every figure below was observed in the session that recorded
 it, on a local Node v22.22.3 checkout of the topic branch (CI uses Node 24).
 
-- **Frontend unit tests (`npm test`): 211 passing, 0 failing.** The rewritten
+- **Frontend unit tests (`npm test`): 216 passing, 0 failing.** The rewritten
   `tests/project-shortcuts.test.mjs` covers the ten-slot range with 0 as the
   tenth, non-integer and out-of-range rejections, a round trip from every bound
   index back through its key, and `""`, `" "`, `"10"`, `"01"`, `"!"`, `"a"`,
@@ -30,12 +30,14 @@ it, on a local Node v22.22.3 checkout of the topic branch (CI uses Node 24).
   nothing.
 - **TypeScript checking (`npm run typecheck`) and the production build
   (`npm run build`): both pass.**
-- **Isolated Playwright stack (`npm run test:e2e:stack`): 93 executions, 90
-  passing, 3 skipped by design, 0 failing, 5.0 minutes** on a uniquely named
-  disposable Compose project; teardown left no `mnemonic-e2e-*` container,
-  volume, or network of its own. The project case now presses digits, asserts the
-  options carry no key prefix, and adds the guard that matters for a digit: a
-  number typed into the search field stays in the field and switches nothing. The
+- **Isolated Playwright stack (`npm run test:e2e:stack`): 95 executions, 91
+  passing, 4 skipped by design, 0 failing, 5.4 minutes** on a uniquely named
+  disposable Compose project, rerun after the rebase onto the cross-dissolve below
+  so the figures describe the branch as it merges; teardown left no
+  `mnemonic-e2e-*` container, volume, or network of its own. The project case
+  presses digits, asserts the options carry no key prefix, and adds the guard that
+  matters for a digit: a number typed into the search field stays in the field and
+  switches nothing. The
   Escape case additionally asserts the uncovered placeholder lists all three
   hints in order.
 - **Placeholder rendering:** captured at 1440×900 in both themes from a
