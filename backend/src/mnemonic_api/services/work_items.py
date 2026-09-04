@@ -11,6 +11,7 @@ from mnemonic_api.models import Checkpoint, Project, WorkItem, WorkRelationship
 from mnemonic_api.schemas import (
     CheckpointCreate,
     CompletionCheckpointCreate,
+    CompletionEvidenceInput,
     MutationActor,
     WorkDeferralCreate,
     WorkItemCreate,
@@ -308,7 +309,12 @@ def complete_work_record(
     expected_version: int,
     payload: CompletionCheckpointCreate,
     lease_token: str | None = None,
+    completion_evidence: CompletionEvidenceInput | None = None,
 ) -> Checkpoint:
+    from mnemonic_api.services.completion_evidence import (
+        hydrate_completion_evidence,
+        insert_completion_evidence,
+    )
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
     require_canonical_work_item(database, work_item)
@@ -321,6 +327,13 @@ def complete_work_record(
     mutation_time = database_now(database)
     checkpoint = _checkpoint(work_item.id, payload, kind="completion")
     database.add(checkpoint)
+    database.flush()
+    inserted_evidence = insert_completion_evidence(
+        database,
+        work_item,
+        checkpoint,
+        completion_evidence,
+    )
     work_item.status = "done"
     work_item.version += 1
     work_item.updated_at = mutation_time
@@ -332,6 +345,11 @@ def complete_work_record(
         from_status="pending",
     )
     database.flush()
+    sealed_evidence = hydrate_completion_evidence(database, checkpoint)
+    if sealed_evidence != inserted_evidence:
+        from mnemonic_api.errors import completion_evidence_unavailable
+
+        raise completion_evidence_unavailable()
     return checkpoint
 
 

@@ -92,6 +92,14 @@ def client_operation_secret_echo() -> ApplicationError:
     )
 
 
+def completion_evidence_unavailable() -> ApplicationError:
+    return ApplicationError(
+        503,
+        "completion_evidence_unavailable",
+        "Structured completion evidence is temporarily unavailable.",
+    )
+
+
 
 def gate_not_found() -> ApplicationError:
     return not_found("gate_not_found", "Human gate not found in this work item.")

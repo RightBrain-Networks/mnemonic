@@ -5,6 +5,12 @@ description: Find saved Mnemonic work by relevance, list what is ready to claim 
 
 # Search Mnemonic work
 
+When a user asks what supports a completed result, read
+[completion-evidence.md](${CLAUDE_PLUGIN_ROOT}/reference/completion-evidence.md),
+resolve and recall the exact work item, then call
+`list_completion_evidence`. Search results never contain completion evidence,
+and a result's ranking, snippet, or completion status is not proof.
+
 Use the exposed Mnemonic MCP tools; client-specific prefixes may vary. If the
 connection is unavailable, report that search could not run. An error is not
 evidence that the project has no saved work.

@@ -5,6 +5,7 @@ import {
   configuredOrigins,
   forbiddenControlTransport,
   forwardedRetryAfter,
+  isCompletionEvidenceRoute,
   invalidMutationBody,
   proxyBodyLimitBytes,
   readBodyChunk,
@@ -12,22 +13,33 @@ import {
   upstreamAbortSignal,
   type DefinitiveProxyError
 } from "@/lib/proxy-policy";
+import {
+  decodeIdentityEvidenceJson,
+  identityContentEncoding,
+  readIdentityEvidenceBytes
+} from "@/lib/completion-evidence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const responseHeaders = {
-  "Cache-Control": "no-store, max-age=0",
+  "Cache-Control": "no-store, max-age=0, no-transform",
   "X-Content-Type-Options": "nosniff",
   "Cross-Origin-Resource-Policy": "same-origin"
 };
 
-function fail(status: number, detail: string): Response {
-  return Response.json({ detail }, { status, headers: responseHeaders });
+function fail(status: number, detail: string, identity = false): Response {
+  return Response.json({ detail }, {
+    status,
+    headers: {
+      ...responseHeaders,
+      ...(identity ? { "Content-Encoding": "identity" } : {})
+    }
+  });
 }
 
-function definitiveFail(error: DefinitiveProxyError): Response {
-  return fail(error.status, error.detail);
+function definitiveFail(error: DefinitiveProxyError, identity = false): Response {
+  return fail(error.status, error.detail, identity);
 }
 
 async function readBody(
@@ -89,18 +101,21 @@ async function proxy(request: Request, context: Context): Promise<Response> {
   const route = path.join("/");
   const keys = allowedQueryKeys(route, request.method);
   if (!keys) return definitiveFail(DEFINITIVE_PROXY_ERRORS.routeNotFound);
+  const evidenceRoute = isCompletionEvidenceRoute(route, request.method);
   const query = new URL(request.url).searchParams;
   for (const key of query.keys()) {
-    if (!keys.includes(key) || query.getAll(key).length !== 1) return definitiveFail(DEFINITIVE_PROXY_ERRORS.unsupportedQuery);
+    if (!keys.includes(key) || query.getAll(key).length !== 1) {
+      return definitiveFail(DEFINITIVE_PROXY_ERRORS.unsupportedQuery, evidenceRoute);
+    }
   }
 
   const key = process.env.MNEMONIC_API_KEY;
-  if (!key || key.length < 32) return fail(503, "Mnemonic's API connection is not configured. Check the server environment.");
+  if (!key || key.length < 32) return fail(503, "Mnemonic's API connection is not configured. Check the server environment.", evidenceRoute);
   let base: URL;
   try {
     base = new URL(process.env.MNEMONIC_API_URL ?? "http://api:8000");
     if (!["http:", "https:"].includes(base.protocol) || base.username || base.password || base.pathname !== "/" || base.search || base.hash) throw new Error();
-  } catch { return fail(503, "Mnemonic's API address is not configured correctly."); }
+  } catch { return fail(503, "Mnemonic's API address is not configured correctly.", evidenceRoute); }
 
   try {
     const requestSignal = upstreamAbortSignal(
@@ -127,29 +142,49 @@ async function proxy(request: Request, context: Context): Promise<Response> {
     const upstream = await fetch(target, {
       method: request.method,
       body,
-      headers: { Authorization: `Bearer ${key}`, Accept: "application/json", ...(body ? { "Content-Type": "application/json" } : {}) },
+      headers: {
+        Authorization: `Bearer ${key}`,
+        Accept: "application/json",
+        ...(evidenceRoute ? { "Accept-Encoding": "identity" } : {}),
+        ...(body ? { "Content-Type": "application/json" } : {})
+      },
       cache: "no-store",
       redirect: "manual",
       signal: requestSignal
     });
-    if (upstream.status >= 300 && upstream.status < 400) return fail(502, "Mnemonic's API returned an unexpected redirect.");
-    if (upstream.status !== 204 && !upstream.headers.get("content-type")?.includes("application/json")) return fail(502, "Mnemonic's API returned an unexpected response.");
-    let responseBody: ArrayBuffer | null = null;
+    if (evidenceRoute && !identityContentEncoding(upstream.headers)) {
+      try { await upstream.body?.cancel(); } catch { /* best effort */ }
+      return fail(502, "Mnemonic's API returned an incomplete response.", true);
+    }
+    if (upstream.status >= 300 && upstream.status < 400) return fail(502, "Mnemonic's API returned an unexpected redirect.", evidenceRoute);
+    if (upstream.status !== 204 && !upstream.headers.get("content-type")?.includes("application/json")) return fail(502, "Mnemonic's API returned an unexpected response.", evidenceRoute);
+    let responseBody: BodyInit | null = null;
     if (upstream.status !== 204) {
       try {
-        responseBody = await upstream.arrayBuffer();
-        JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(responseBody));
+        if (evidenceRoute) {
+          const evidenceBytes = await readIdentityEvidenceBytes(upstream);
+          decodeIdentityEvidenceJson(evidenceBytes);
+          responseBody = evidenceBytes;
+        } else {
+          responseBody = await upstream.arrayBuffer();
+          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(responseBody));
+        }
       } catch {
-        return fail(502, "Mnemonic's API returned an incomplete response.");
+        return fail(502, "Mnemonic's API returned an incomplete response.", evidenceRoute);
       }
     }
     const retryAfter = forwardedRetryAfter(upstream.status, upstream.headers);
     return new Response(responseBody, {
       status: upstream.status,
-      headers: { ...responseHeaders, ...(upstream.status === 204 ? {} : { "Content-Type": "application/json" }), ...(retryAfter ? { "Retry-After": retryAfter } : {}) }
+      headers: {
+        ...responseHeaders,
+        ...(evidenceRoute ? { "Content-Encoding": "identity" } : {}),
+        ...(upstream.status === 204 ? {} : { "Content-Type": "application/json" }),
+        ...(retryAfter ? { "Retry-After": retryAfter } : {})
+      }
     });
   } catch {
-    return fail(502, "Cannot reach Mnemonic's API. Check that the API and database containers are running.");
+    return fail(502, "Cannot reach Mnemonic's API. Check that the API and database containers are running.", evidenceRoute);
   }
 }
 

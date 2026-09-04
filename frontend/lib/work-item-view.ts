@@ -67,9 +67,13 @@ export type TerminalAction = "completion" | "deletion";
 
 export function terminalActionDisabled(
   readiness: Readiness,
-  mutationBlocked = false
+  mutationBlocked = false,
+  action?: TerminalAction
 ): boolean {
-  return mutationBlocked || readiness.is_duplicate || readiness.is_gated;
+  return mutationBlocked
+    || readiness.is_duplicate
+    || readiness.is_gated
+    || action === "completion" && readiness.has_active_lease;
 }
 
 export function terminalActionGateExplanation(
@@ -78,6 +82,9 @@ export function terminalActionGateExplanation(
 ): string | null {
   if (readiness.is_duplicate) {
     return `This duplicate is an immutable audit record; ${action} is unavailable.`;
+  }
+  if (action === "completion" && readiness.has_active_lease) {
+    return "This work is actively leased. Complete it from the owning client, or release the lease before completing it in the browser.";
   }
   if (!readiness.is_gated) return null;
   const count = readiness.unresolved_gate_count;

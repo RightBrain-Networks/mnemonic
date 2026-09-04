@@ -546,6 +546,214 @@ html[data-pane-crossfade]::view-transition-new(root) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 
+/* Phase 11 completion evidence stays scoped to its editor and lazy history tab. */
+.completion-evidence-disclosure > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.completion-evidence-editor { padding-top: 16px; }
+.evidence-editor-heading,
+.evidence-history-heading,
+.completion-episode > header,
+.evidence-read-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.evidence-editor-heading h5,
+.evidence-history-heading h4,
+.completion-episode h4,
+.completion-episode h5 {
+  margin: 5px 0 0;
+}
+.evidence-budget {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+}
+.evidence-budget.is-over { color: var(--danger); font-weight: 700; }
+.evidence-edit-row {
+  position: relative;
+  display: grid;
+  gap: 13px;
+  margin: 15px 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.evidence-edit-row legend {
+  padding: 0 6px;
+  color: var(--dark-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+.evidence-row-actions,
+.evidence-add-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.evidence-row-actions { justify-content: flex-end; margin-top: -8px; }
+.evidence-row-actions .button { min-width: 34px; padding: 6px 9px; }
+.evidence-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px;
+}
+.completion-evidence-history { display: grid; gap: 16px; }
+.evidence-history-heading > span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+  text-align: right;
+}
+.evidence-reopened {
+  padding: 11px 13px;
+  border: 1px solid #e2c771;
+  border-radius: 7px;
+  color: #725a00;
+  background: #fff8d8;
+  font-size: 11px;
+}
+.completion-episode {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.completion-episode.is-current {
+  border-color: var(--accent);
+  border-left-color: var(--accent);
+  background: #fff8f1;
+}
+.evidence-event-id { color: var(--muted); font-size: 10px; }
+.evidence-episode-meta,
+.evidence-read-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 16px;
+  margin: 14px 0;
+}
+.evidence-episode-meta div,
+.evidence-read-facts div { min-width: 0; }
+.evidence-episode-meta dt,
+.evidence-read-facts dt {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.evidence-episode-meta dd,
+.evidence-read-facts dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.evidence-empty-episode {
+  margin: 16px 0 0;
+  padding: 15px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.evidence-read-list { display: grid; gap: 10px; margin: 10px 0 18px; padding: 0; list-style: none; }
+.evidence-read-row {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--background);
+}
+.evidence-read-heading strong,
+.evidence-literal,
+.evidence-inert-reference,
+.evidence-external-link,
+.evidence-read-row small,
+.evidence-read-facts pre {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  unicode-bidi: isolate;
+}
+.evidence-literal { white-space: pre-wrap; }
+.evidence-read-facts pre {
+  max-width: 100%;
+  margin: 0;
+  white-space: pre-wrap;
+  font: inherit;
+}
+.evidence-type,
+.evidence-outcome {
+  display: inline-flex;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 9px;
+  font-weight: 700;
+}
+.evidence-outcome.is-passed { color: #356300; border-color: #a9cf79; background: #f0f8e6; }
+.evidence-outcome.is-failed { color: #8f251d; border-color: #e2aaa5; background: #fff0ed; }
+.evidence-outcome.is-inconclusive,
+.evidence-outcome.is-skipped { color: #725a00; border-color: #e2c771; background: #fff8d8; }
+.evidence-external-link { display: inline-block; margin: 5px 0; }
+.evidence-inert-reference { display: block; margin: 5px 0; white-space: pre-wrap; }
+.evidence-read-row small { display: block; color: var(--muted); line-height: 1.6; }
+.evidence-load-more { justify-self: start; }
+bdi { unicode-bidi: isolate; }
+
+html[data-theme="dark"] .evidence-edit-row,
+html[data-theme="dark"] .completion-episode,
+html[data-theme="dark"] .evidence-read-row { border-color: var(--dark-border); }
+html[data-theme="dark"] .completion-episode.is-current {
+  color: var(--dark-accent-text);
+  background: var(--dark-accent-bg);
+  border-color: var(--accent);
+}
+html[data-theme="dark"] .evidence-reopened {
+  color: var(--dark-warning-text);
+  background: var(--dark-warning-bg);
+  border-color: var(--dark-warning-line);
+}
+html[data-theme="dark"] .evidence-read-row { background: var(--dark-muted); }
+html[data-theme="dark"] .evidence-outcome.is-passed {
+  color: var(--dark-success-text);
+  background: var(--dark-success-bg);
+  border-color: var(--dark-success-line);
+}
+html[data-theme="dark"] .evidence-outcome.is-failed {
+  color: var(--dark-danger-text);
+  background: var(--dark-danger-bg);
+  border-color: var(--dark-danger-line);
+}
+html[data-theme="dark"] :is(.evidence-outcome.is-inconclusive, .evidence-outcome.is-skipped) {
+  color: var(--dark-warning-text);
+  background: var(--dark-warning-bg);
+  border-color: var(--dark-warning-line);
+}
+
+@media (max-width: 620px) {
+  .evidence-field-grid,
+  .evidence-episode-meta,
+  .evidence-read-facts { grid-template-columns: 1fr; }
+  .evidence-editor-heading,
+  .evidence-history-heading,
+  .completion-episode > header,
+  .evidence-read-heading { align-items: stretch; flex-direction: column; }
+  .evidence-budget,
+  .evidence-history-heading > span { text-align: left; }
+}
+
 /* RBN-inspired theme: IBM Plex Sans display, Alan Sans body, Atkinson Mono, orange/plum/lime. */
 .brand, .sidebar-note h2, .page-heading h1, .empty-state h2, .detail-title,
 .queue-card-title, .detail-empty h2, .dialog-header h2, .delete-preview h3, .conflict-panel h3 {

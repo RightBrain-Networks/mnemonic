@@ -8,6 +8,10 @@ import {
   validUuid
 } from "./wire-guards.ts";
 import { validAffectedPaths } from "./affected-paths.ts";
+import {
+  COMPLETION_EXPECTED_VERSION_MAX,
+  completionEvidenceIssues
+} from "./completion-evidence.ts";
 
 export interface DefinitiveProxyError {
   readonly status: 400 | 403 | 404 | 413 | 415 | 422;
@@ -143,6 +147,9 @@ const WORK_DEFER = new RegExp(`^projects/${UUID}/work-items/${UUID}/defer$`);
 const WORK_DELETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/delete$`);
 const WORK_MERGE = new RegExp(`^projects/${UUID}/work-items/${UUID}/merge$`);
 const WORK_EVENTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/events$`);
+const COMPLETION_EVIDENCE = new RegExp(
+  `^projects/${UUID}/work-items/${UUID}/completion-evidence$`
+);
 const HUMAN_ATTENTION = new RegExp(`^projects/${UUID}/human-attention$`);
 const WORK_GATES = new RegExp(`^projects/${UUID}/work-items/${UUID}/gates$`);
 const GATE_CONTEXT = new RegExp(`^projects/${UUID}/work-items/${UUID}/gates/${UUID}/context$`);
@@ -223,6 +230,9 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   if (WORK_EVENTS.test(path)) {
     if (method === "GET") return ["order", "event_type", "limit", "offset"];
     if (method === "POST") return [];
+  }
+  if (COMPLETION_EVIDENCE.test(path) && method === "GET") {
+    return ["limit", "cursor"];
   }
   if (HUMAN_ATTENTION.test(path) && method === "GET") {
     return ["work_item_id", "limit", "cursor"];
@@ -562,9 +572,12 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   }
   if (WORK_COMPLETE.test(path) && method === "POST") {
     if (
-      !allowedKeys(body, ["expected_version", "checkpoint", CLIENT_OPERATION_FIELD])
-      || !finiteInteger(body.expected_version, 1)
+      !allowedKeys(body, [
+        "expected_version", "checkpoint", "completion_evidence", CLIENT_OPERATION_FIELD
+      ])
+      || !finiteInteger(body.expected_version, 1, COMPLETION_EXPECTED_VERSION_MAX)
       || !validCheckpointPayload(body.checkpoint, false)
+      || completionEvidenceIssues(body.completion_evidence).length > 0
     ) return DEFINITIVE_PROXY_ERRORS.invalidWorkCompletion.detail;
   }
   if (GATE_RESOLVE.test(path) && method === "POST") {
@@ -614,6 +627,10 @@ export function browserTransportEffect(
   if (method === "GET" && allowedQueryKeys(path, method) !== null) return "safe_read";
   if (coveredMutation(path, method)) return "receipt_protected_write";
   return null;
+}
+
+export function isCompletionEvidenceRoute(path: string, method: string): boolean {
+  return method === "GET" && COMPLETION_EVIDENCE.test(path);
 }
 export function upstreamTimeoutMs(
   query: URLSearchParams,

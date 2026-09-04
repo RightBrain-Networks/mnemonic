@@ -83,6 +83,12 @@ test("an active lease is visible without exposing its capability and refreshes a
   await expect(lease).toContainText("Lease acquired");
   await expect(lease).toContainText("Renewed");
   await expect(lease).toContainText("Expires");
+  const completion = pane.getByRole("button", { name: "Complete with summary" });
+  await expect(completion).toBeDisabled();
+  await expect(completion).toHaveAttribute(
+    "title",
+    "This work is actively leased. Complete it from the owning client, or release the lease before completing it in the browser."
+  );
 
   const browserListPayload = await page.evaluate(async ({ projectId, title }) => {
     const query = new URLSearchParams({ q: title, status: "pending", view: "full", limit: "20", offset: "0" });

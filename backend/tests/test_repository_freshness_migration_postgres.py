@@ -13,7 +13,7 @@ from alembic.config import Config
 from sqlalchemy import Connection, create_engine, event, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from mnemonic_api.config import Settings
@@ -396,19 +396,29 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
     with Session(bind=connection) as database:
         merge = database.get(WorkDuplicateMerge, merge_id)
         assert merge is not None
-        source = database.get(WorkItem, merge.source_work_item_id)
-        destination = database.get(WorkItem, merge.destination_work_item_id)
+        source = database.get(
+            WorkItem,
+            merge.source_work_item_id,
+            options=(defer(WorkItem.completion_generation),),
+        )
+        destination = database.get(
+            WorkItem,
+            merge.destination_work_item_id,
+            options=(defer(WorkItem.completion_generation),),
+        )
         relationship = database.get(WorkRelationship, merge.duplicate_relationship_id)
         assert source is not None
         assert destination is not None
         assert relationship is not None
         relationship_events = database.scalars(
             select(WorkEvent)
+            .options(defer(WorkEvent.reopen_generation))
             .where(WorkEvent.created_for_duplicate_merge_id == merge_id)
             .order_by(WorkEvent.id)
         ).all()
         merge_events = database.scalars(
             select(WorkEvent)
+            .options(defer(WorkEvent.reopen_generation))
             .where(WorkEvent.work_duplicate_merge_id == merge_id)
             .order_by(WorkEvent.id)
         ).all()

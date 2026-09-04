@@ -14,6 +14,7 @@ Read the package from a request's point of view:
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any, cast
 
 from fastapi import FastAPI
 from sqlalchemy.engine import Engine
@@ -27,6 +28,7 @@ from mnemonic_api.application.suggestion_resources import DuplicateSuggestionRes
 from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine, build_session_factory
 from mnemonic_api.live_sync import LiveSyncHub
+from mnemonic_api.schemas import COMPLETION_EVENT_ID_MAX
 from mnemonic_api.semantic import Embedder, FastembedEmbedder
 
 __all__ = ["create_app"]
@@ -50,7 +52,7 @@ def create_app(
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.5.0",
+        version="0.6.0",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )
@@ -65,4 +67,15 @@ def create_app(
     app.include_router(health_router)
     install_middleware(app, app.state.duplicate_suggestion_resources)
     install_exception_handlers(app)
+
+    default_openapi = app.openapi
+
+    def exact_integer_openapi() -> dict[str, Any]:
+        document = default_openapi()
+        page = document["components"]["schemas"]["CompletionEvidencePage"]
+        for field in ("total", "structured_completion_total"):
+            page["properties"][field]["maximum"] = COMPLETION_EVENT_ID_MAX
+        return document
+
+    app.openapi = cast(Any, exact_integer_openapi)
     return app

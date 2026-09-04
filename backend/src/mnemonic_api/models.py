@@ -90,6 +90,19 @@ class ClientOperation(Base):
             "client_operation_id",
             name="uq_client_operations_scope",
         ),
+        Index(
+            "ix_client_operations_completion_checkpoint_receipt",
+            "project_id",
+            text("(response_body #>> '{checkpoint,id}'::text[])"),
+            postgresql_where=text("operation_kind = 'complete_work' AND state = 'completed'"),
+        ),
+        Index(
+            "ix_client_operations_completion_receipt_correspondence",
+            text("(response_body #>> '{checkpoint,id}'::text[])"),
+            text("(response_body #>> '{work_item,id}'::text[])"),
+            unique=True,
+            postgresql_where=text("operation_kind = 'complete_work' AND state = 'completed'"),
+        ),
         CheckConstraint(
             "operation_kind IN ('create_work', 'add_checkpoint', 'append_event', "
             "'add_relationship', 'update_work', 'defer_work', 'complete_work', "
@@ -164,6 +177,10 @@ class WorkItem(Base):
         ),
         CheckConstraint("priority BETWEEN 0 AND 100", name="priority_range"),
         CheckConstraint("version >= 1", name="version_positive"),
+        CheckConstraint(
+            "completion_generation >= -9223372036854775806",
+            name="completion_generation_range",
+        ),
         UniqueConstraint("project_id", "id", name="uq_work_items_project_id_id"),
         ForeignKeyConstraint(
             ["id", "initial_checkpoint_id"],
@@ -209,6 +226,7 @@ class WorkItem(Base):
     priority: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
     initial_checkpoint_id: Mapped[UUID] = mapped_column()
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    completion_generation: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -253,6 +271,11 @@ class Checkpoint(Base):
             "AND legacy_record_id IS NOT NULL)",
             name="migration_fields_valid",
         ),
+        CheckConstraint(
+            "(kind = 'completion' AND completion_generation IS NOT NULL) OR "
+            "(kind <> 'completion' AND completion_generation IS NULL)",
+            name="completion_generation_kind",
+        ),
         UniqueConstraint("work_item_id", "id", name="uq_checkpoints_work_item_id_id"),
         UniqueConstraint(
             "migration_origin", "legacy_record_id", name="uq_checkpoints_migration_origin_legacy"
@@ -264,6 +287,13 @@ class Checkpoint(Base):
             "ix_checkpoints_normalized_tags_gin",
             text("mnemonic_normalized_tags(tags)"),
             postgresql_using="gin",
+        ),
+        Index(
+            "uq_checkpoints_completion_generation",
+            "work_item_id",
+            "completion_generation",
+            unique=True,
+            postgresql_where=text("kind = 'completion'"),
         ),
     )
 
@@ -288,6 +318,7 @@ class Checkpoint(Base):
     )
     migration_origin: Mapped[str | None] = mapped_column(String(40))
     legacy_record_id: Mapped[UUID | None] = mapped_column()
+    completion_generation: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.clock_timestamp()
     )
@@ -298,6 +329,170 @@ class Checkpoint(Base):
             persisted=True,
         ),
     )
+
+
+class VerificationResult(Base):
+    """One immutable caller-reported observation in a completion episode."""
+
+    __tablename__ = "verification_results"
+    __table_args__ = (
+        CheckConstraint(
+            "verification_type::text = ANY "
+            "(ARRAY['command'::text, 'observation'::text])",
+            name="verification_type_valid",
+        ),
+        CheckConstraint(
+            "outcome::text = ANY "
+            "(ARRAY['passed'::text, 'failed'::text, 'inconclusive'::text, "
+            "'skipped'::text])",
+            name="outcome_valid",
+        ),
+        CheckConstraint(
+            "(verification_type = 'command' AND outcome = 'passed' "
+            "AND command IS NOT NULL AND exit_code = 0) OR "
+            "(verification_type = 'command' AND outcome = 'failed' "
+            "AND command IS NOT NULL AND exit_code IS NOT NULL AND exit_code <> 0) OR "
+            "(verification_type = 'command' AND outcome = 'inconclusive' "
+            "AND command IS NOT NULL AND exit_code IS NULL) OR "
+            "(verification_type = 'observation' AND command IS NULL AND exit_code IS NULL)",
+            name="result_matrix_valid",
+        ),
+        CheckConstraint(
+            "mnemonic_has_non_whitespace(name) AND length(name) <= 200 "
+            "AND octet_length(name) <= 800",
+            name="name_valid",
+        ),
+        CheckConstraint(
+            "mnemonic_has_non_whitespace(summary) AND length(summary) <= 4000 "
+            "AND octet_length(summary) <= 16000",
+            name="summary_valid",
+        ),
+        CheckConstraint(
+            "command IS NULL OR (mnemonic_has_non_whitespace(command) "
+            "AND length(command) <= 4096 AND octet_length(command) <= 16384)",
+            name="command_valid",
+        ),
+        CheckConstraint(
+            "observed_at_commit IS NULL OR observed_at_commit ~ '^[0-9a-f]{7,64}$'",
+            name="observed_at_commit_valid",
+        ),
+        CheckConstraint(
+            "observed_at IS NULL OR (isfinite(observed_at) AND observed_at >= "
+            "TIMESTAMPTZ '0001-01-01 00:00:00+00' AND observed_at < "
+            "TIMESTAMPTZ '10000-01-01 00:00:00+00')",
+            name="observed_at_range",
+        ),
+        CheckConstraint("position BETWEEN 0 AND 19", name="position_range"),
+        ForeignKeyConstraint(
+            ["project_id", "work_item_id"],
+            ["work_items.project_id", "work_items.id"],
+            name="fk_verification_results_work_item",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["work_item_id", "completion_checkpoint_id"],
+            ["checkpoints.work_item_id", "checkpoints.id"],
+            name="fk_verification_results_completion_checkpoint",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "work_item_id",
+            "completion_checkpoint_id",
+            "position",
+            name="uq_verification_results_episode_position",
+        ),
+        UniqueConstraint("work_item_id", "id", name="uq_verification_results_work_item_id_id"),
+        Index(
+            "ix_verification_results_completion_checkpoint_id_id",
+            "completion_checkpoint_id",
+            "id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        primary_key=True, default=uuid4, server_default=text("gen_random_uuid()")
+    )
+    project_id: Mapped[UUID] = mapped_column()
+    work_item_id: Mapped[UUID] = mapped_column()
+    completion_checkpoint_id: Mapped[UUID] = mapped_column()
+    position: Mapped[int] = mapped_column(SmallInteger)
+    verification_type: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(200))
+    outcome: Mapped[str] = mapped_column(String(20))
+    summary: Mapped[str] = mapped_column(Text)
+    command: Mapped[str | None] = mapped_column(Text)
+    exit_code: Mapped[int | None] = mapped_column(Integer)
+    observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observed_at_commit: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ArtifactReference(Base):
+    """One immutable caller-reported locator in a completion episode."""
+
+    __tablename__ = "artifact_references"
+    __table_args__ = (
+        CheckConstraint(
+            "artifact_type::text = ANY "
+            "(ARRAY['commit'::text, 'pull_request'::text, 'branch'::text, "
+            "'test_run'::text, 'repository_path'::text, 'external_issue'::text, "
+            "'build_artifact'::text])",
+            name="artifact_type_valid",
+        ),
+        CheckConstraint(
+            "mnemonic_has_non_whitespace(label) AND length(label) <= 200 "
+            "AND octet_length(label) <= 800",
+            name="label_valid",
+        ),
+        CheckConstraint(
+            "mnemonic_completion_artifact_reference_v1_is_valid(artifact_type, reference)",
+            name="reference_valid",
+        ),
+        CheckConstraint("position BETWEEN 0 AND 19", name="position_range"),
+        ForeignKeyConstraint(
+            ["project_id", "work_item_id"],
+            ["work_items.project_id", "work_items.id"],
+            name="fk_artifact_references_work_item",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["work_item_id", "completion_checkpoint_id"],
+            ["checkpoints.work_item_id", "checkpoints.id"],
+            name="fk_artifact_references_completion_checkpoint",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "work_item_id",
+            "completion_checkpoint_id",
+            "position",
+            name="uq_artifact_references_episode_position",
+        ),
+        UniqueConstraint("work_item_id", "id", name="uq_artifact_references_work_item_id_id"),
+        UniqueConstraint(
+            "work_item_id",
+            "completion_checkpoint_id",
+            "artifact_type",
+            "reference",
+            name="uq_artifact_references_episode_reference",
+        ),
+        Index(
+            "ix_artifact_references_completion_checkpoint_id_id",
+            "completion_checkpoint_id",
+            "id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        primary_key=True, default=uuid4, server_default=text("gen_random_uuid()")
+    )
+    project_id: Mapped[UUID] = mapped_column()
+    work_item_id: Mapped[UUID] = mapped_column()
+    completion_checkpoint_id: Mapped[UUID] = mapped_column()
+    position: Mapped[int] = mapped_column(SmallInteger)
+    artifact_type: Mapped[str] = mapped_column(String(32))
+    label: Mapped[str] = mapped_column(String(200))
+    reference: Mapped[str] = mapped_column(Text(collation="C"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class WorkItemEmbedding(Base):
@@ -670,8 +865,7 @@ class WorkGate(Base):
             name="resolver_client_valid",
         ),
         CheckConstraint(
-            "resolved_by_session_id IS NULL "
-            "OR mnemonic_has_non_whitespace(resolved_by_session_id)",
+            "resolved_by_session_id IS NULL OR mnemonic_has_non_whitespace(resolved_by_session_id)",
             name="resolver_session_valid",
         ),
         CheckConstraint(
@@ -683,8 +877,7 @@ class WorkGate(Base):
             name="resolved_work_version_positive",
         ),
         CheckConstraint(
-            "resolved_relationship_event_count IS NULL "
-            "OR resolved_relationship_event_count >= 0",
+            "resolved_relationship_event_count IS NULL OR resolved_relationship_event_count >= 0",
             name="resolved_relationship_event_count_nonnegative",
         ),
         CheckConstraint(
@@ -906,8 +1099,7 @@ class WorkEvent(Base):
             name="metadata_v1_valid",
         ),
         CheckConstraint(
-            "event_type <> 'progress' OR "
-            "mnemonic_phase6_progress_metadata_is_valid(metadata)",
+            "event_type <> 'progress' OR mnemonic_phase6_progress_metadata_is_valid(metadata)",
             name="client_operation_id_reserved",
         ),
         CheckConstraint(
@@ -919,6 +1111,12 @@ class WorkEvent(Base):
             "'work_completed', 'work_claimed', 'dependency_added', "
             "'relationship_added', 'work_deleted')",
             name="backfill_event_type_valid",
+        ),
+        CheckConstraint(
+            "(event_type = 'work_reopened' AND reopen_generation IS NOT NULL "
+            "AND reopen_generation <> 0) OR "
+            "(event_type <> 'work_reopened' AND reopen_generation IS NULL)",
+            name="reopen_generation_kind",
         ),
         ForeignKeyConstraint(
             ["project_id", "work_item_id"],
@@ -1075,6 +1273,26 @@ class WorkEvent(Base):
             text("created_at DESC"),
             text("id DESC"),
         ),
+        Index(
+            "uq_work_events_reopen_generation",
+            "work_item_id",
+            "reopen_generation",
+            unique=True,
+            postgresql_where=text("event_type = 'work_reopened'"),
+        ),
+        Index(
+            "ix_work_events_completion_evidence_history",
+            "project_id",
+            "work_item_id",
+            text("id DESC"),
+            postgresql_where=text("event_type = 'work_completed'"),
+        ),
+        Index(
+            "ix_work_events_live_completion_version_order",
+            "work_item_id",
+            text("id DESC"),
+            postgresql_where=text("event_type = 'work_completed' AND origin = 'live'"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
@@ -1097,6 +1315,7 @@ class WorkEvent(Base):
     gate_id: Mapped[UUID | None] = mapped_column()
     created_for_duplicate_merge_id: Mapped[UUID | None] = mapped_column()
     work_duplicate_merge_id: Mapped[UUID | None] = mapped_column()
+    reopen_generation: Mapped[int | None] = mapped_column(BigInteger)
     metadata_version: Mapped[int] = mapped_column(SmallInteger, default=1, server_default="1")
     event_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, default=dict, server_default=text("'{}'::jsonb")

@@ -83,6 +83,15 @@ checkpoint text or source metadata. Suggested diff paths require author review.
 Freeze the exact ordered scope with the protected mutation intent; changing,
 reordering, adding, or removing a path requires a new operation UUID.
 
+Read
+[completion-evidence.md](${CLAUDE_PLUGIN_ROOT}/reference/completion-evidence.md)
+before completing work. Structured evidence is optional caller-reported
+history, accepted only inside the existing atomic `complete_work` intent. Never
+invent a result or artifact, infer one from repository freshness, store raw
+logs or secrets, or treat a reported pass as Mnemonic verification. Freeze the
+exact nested evidence and its order with the operation UUID for unknown-outcome
+recovery.
+
 ## Prepare each protected write once
 
 The eleven protected mutations are `create_work`, `add_checkpoint`,

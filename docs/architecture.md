@@ -1,7 +1,7 @@
-# Mnemonic architecture through Phase 10
+# Mnemonic architecture through Phase 11
 
-This architecture describes application/API/MCP `0.5.0`, Claude plugin `0.9.0`,
-and Alembic head `0018_repository_freshness`. The longer-term
+This architecture describes application/API/MCP `0.6.0`, Claude plugin `0.10.0`,
+and Alembic head `0019_structured_completion_evidence`. The longer-term
 direction and later-phase boundaries are in [`roadmap.md`](roadmap.md).
 
 ## Product model
@@ -19,6 +19,8 @@ flowchart LR
     WorkItem --> Context[Later context checkpoint]
     WorkItem --> Progress[Progress checkpoint]
     WorkItem --> Completion[Completion checkpoint]
+    Completion --> Verification[Verification results]
+    Completion --> Artifact[Artifact references]
     WorkItem --> Event[Immutable event timeline]
     WorkItem --> Gate[Immutable human gate]
     Gate -. unresolved .-> Attention[Needs Attention queue]
@@ -45,6 +47,14 @@ branch/commit, an ordered declared dependency scope, tags, metadata, kind, and
 creation time. The scope qualifies that exact immutable packet; it is not copied
 between checkpoints or into events, pointers, search, or derived state.
 
+Optional completion evidence is structurally owned by one exact completion
+checkpoint. A `VerificationResult` reports a command or observation and an
+outcome; an `ArtifactReference` records one bounded inert identifier. Both are
+immutable caller assertions, not independently verified facts. They are absent
+from ordinary work, search, readiness, hierarchy, event, and recall projections.
+The dedicated event-backed history read exposes them only beside the compact
+completion pointer that owns them.
+
 A `WorkEvent` is a concise immutable fact in one work item's history. It can
 reference a checkpoint, lease generation/release action, or complete
 relationship snapshot without copying checkpoint text or capability-bearing
@@ -67,7 +77,8 @@ blocked, and waiting simultaneously because later facts do not revoke an
 existing lease. Duplicate has display precedence over Waiting, but the
 independent flags remain authoritative. Completion is the only operation that can set `done`, and it
 atomically appends a completion checkpoint. Reopening leaves that historical
-completion checkpoint intact.
+completion checkpoint and its evidence intact. A correction is a later explicit
+reopen-and-complete episode, never an edit or late append to frozen evidence.
 
 A descriptive `duplicate-of` relationship is a duplicate mark, not a canonical
 decision. An authoritative merge permanently records one exact
@@ -136,6 +147,22 @@ that locks and revalidates before already-authorized execution.
   salted fingerprint binds operation kind, path target, actor, version,
   capability, and normalized semantic body. A mismatch fails closed rather than
   executing a second intent.
+- A completion checkpoint, pending-to-done transition, completion event,
+  optional evidence children, matching lease departure, and optional receipt
+  commit atomically. Evidence cannot be created through any other route.
+- Every evidence child repeats the exact project/work/completion parent,
+  receives a contiguous zero-based position within its family, and shares the
+  completion checkpoint timestamp. At most 20 children and 32,768 charged
+  caller-string bytes belong to one episode.
+- Private completion generations join the live work, completion checkpoint,
+  completion event, and exact successor reopen. New generations are monotonic;
+  migrated completions retain deterministic negative identities. Every page,
+  audit, and deferred database guard fails closed on a missing, crossed,
+  reordered, duplicate, or unsealed episode.
+- Verification and artifact tables reject direct `UPDATE`, `DELETE`, and
+  `TRUNCATE`. Deferred database validation also prevents manufacturing an
+  eventless evidence-bearing completion or stranding children by changing a
+  parent after insertion.
 - Event rows are immutable through both the route surface and PostgreSQL
   `UPDATE`/`DELETE` trigger. Per-work order is `created_at, id`; the identity is
   a tie-breaker, not a project activity cursor or commit-order promise.
@@ -174,8 +201,9 @@ that locks and revalidates before already-authorized execution.
 - Completion, retirement, promotion, and deletion require the matching token
   when an active lease exists and remove that lease in the same transaction.
 - Soft-deleted work and all of its checkpoints disappear from ordinary reads
-  and searches. Its immutable gate history remains readable only through an
-  exact project/work ID for retained audit and receipt replay.
+  and searches, including ordinary evidence history. Its immutable gate history
+  remains readable only through an exact project/work ID. Completion-evidence
+  rows remain stored for operator audit and receipt replay.
 - Every lookup is project-scoped. A work or checkpoint UUID under the wrong
   project returns 404.
 - Stored prompt text and metadata are untrusted historical context. Reading or
@@ -224,18 +252,24 @@ errors. `mutations` holds the one lifecycle every receipt-protected write shares
 only its domain work. `handlers` renders the two failure classes that escape
 routes. `routes/` has one module per concept: `projects`, `work_search`,
 `work_items`, `history` (checkpoints and events), `relationships`,
-`human_gates`, `leases`, `duplicates`, `dashboard_sync`, and `health`.
+`human_gates`, `completion_evidence`, `leases`, `duplicates`,
+`dashboard_sync`, and `health`.
 
 The MCP service is a typed HTTP adapter. Its eleven protected mutation tools
 require the caller to prepare and retain one operation UUID plus the complete
 arguments; the adapter sends only one HTTP attempt. Its other tools use work,
-checkpoint, lease, relationship, human-gate, and duplicate terminology. Its exact 27-tool
+checkpoint, lease, relationship, human-gate, evidence, and duplicate terminology. Its exact
+28-tool
 catalog includes request, attention, and gate-history operations but deliberately
-no resolution tool; `merge_work` is its only authoritative duplicate mutation,
+no resolution tool; `list_completion_evidence` is the sole new safe read,
+`merge_work` is its only authoritative duplicate mutation,
 while `suggest_duplicate_work` is an independently retryable safe read.
 Full checkpoint models transport non-empty `affected_paths` declarations;
 compact pointers remain scope-free. The adapter has no Git, subprocess,
 filesystem, repository-root, branch-resolution, or freshness-result surface.
+It also never executes evidence or dereferences artifacts. Bounded identity-only
+history transport and pre-SDK HTTP/stdio frame guards prevent content coding,
+oversized bodies, or unbounded caller IDs from defeating the result envelope.
 The dashboard calls only an exact same-origin proxy
 allowlist, including attention/history reads, gate resolution, event
 list/progress append, and actor-bearing work or relationship writes. A dashboard-lifetime in-memory
@@ -418,13 +452,47 @@ protects the new column, and there is no scope index. Downgrade takes an
 exclusive table lock and refuses before DDL once any non-empty declaration
 exists; after scoped use, recovery is fix-forward or a whole-database restore.
 
+`0019_structured_completion_evidence` adds `verification_results` and
+`artifact_references` as immutable composite children of exact completion
+checkpoints. It also adds private `completion_generation` state to work and
+completion checkpoints and private `reopen_generation` witnesses to reopen
+events. Existing completion checkpoints are paired only with their already
+retained `work_completed` events and receive deterministic negative generation
+identities; every evidence table begins empty. No historical prompt, metadata,
+event, receipt body, version, time, or identifier is rewritten.
+
+Database constraints cover strict vocabularies, string and byte bounds,
+type-dependent command/exit-code and artifact-reference grammars, family
+position uniqueness, same-project ownership, and duplicate artifact identities.
+Regular and deferred triggers enforce insertion only inside a live canonical
+completion transition, exactly one completion event per checkpoint, monotonic
+event identity and work version, the exact successor reopen for older runtime
+generations, current-done correspondence, and global sealed-episode coherence.
+Mutation and truncate guards make both child tables append-only. A partial
+completion-event access index supports the page-first history query. Dedicated
+checkpoint-first indexes on both child tables and a unique partial checkpoint/work
+receipt-expression index keep the content-free, checkpoint-global
+receipt/row-correspondence audit bounded by indexed probes rather than the
+unrelated evidence or receipt inventory.
+
+Downgrade locks every affected table and refuses before DDL when either evidence
+table is nonempty, any Phase 11-only completion receipt response is present, or
+retained completion/reopen chronology cannot round-trip safely. Eligible
+evidence-free databases return to that database's exact incoming approved raw
+Phase 10 survivor-catalog representation. PostgreSQL 17 migration-built and
+shipped-backup-restored survivor projections have two explicitly frozen raw
+digests because dump/restore reparses CHECK and partial-index expressions; no
+generic normalization or third projected form is accepted. Otherwise recovery
+is fix-forward or a consciously selected whole-database restore.
+
 ## Idempotent mutation execution
 
 The thirteen enrolled REST operations are create work, add checkpoint, append
 event, add relationship, update, defer, complete, delete, remove relationship,
 release claim, request human input, resolve human input, and merge work. Direct
-REST makes the operation UUID optional for the original twelve; merge requires
-it. Canonical MCP requires it for eleven tools: the previous ten plus merge;
+REST makes the operation UUID optional for the original twelve only when
+completion evidence is absent or empty; non-empty completion evidence and every
+merge require it. Canonical MCP requires it for eleven tools: the previous ten plus merge;
 defer and gate resolution remain human control-plane actions without MCP tools.
 The browser keys eleven non-capability mutations: the previous ten plus merge,
 while gate creation and release remain proxy-denied. Project administration,
@@ -455,6 +523,43 @@ completed receipt stores the canonical sparse checkpoint representation:
 never rewritten or synthesized. Replay accepts both the historical shape with
 the member absent and the new non-empty shape, while rejecting an explicit
 empty member as an unverifiable protected response.
+
+Completion receipts also remain version 1. Their response is exactly the
+historical `{work_item,checkpoint}` shape when no evidence exists; a new
+evidence-bearing receipt adds one nonempty `completion_evidence` object whose
+two arrays are always present. Receipt replay revalidates the permanent
+receipt's internal child ownership, positions, timestamps, and canonical
+request correspondence without changing a stored byte or consulting current
+evidence rows or work visibility. The read-only audit, rather than replay,
+detects any later receipt-to-row divergence.
+
+## Completion-evidence history
+
+The safe history path begins with retained `work_completed` events rather than
+scanning completion checkpoints or evidence children independently. One
+repeatable-read snapshot computes live work/canonical identity, the stable
+maximum completion-event high-water mark, total episode counts, and a page of at
+most ten events. Only then do two ordered family queries assemble children for
+that page. This avoids a result/artifact Cartesian product and keeps query count
+constant as a page grows. Every selected private generation is revalidated by
+the sealed-episode database function before projection.
+
+Event identities cross the wire as canonical decimal strings so JavaScript does
+not round PostgreSQL bigint values. Continuation cursors are bounded canonical
+base64url JSON scoped to endpoint, direction, project, exact work, high-water
+event, and last event. They are opaque pagination state, not signed capability
+or authority. A fresh completion cannot move an in-progress traversal because
+every continuation retains the first page's high-water mark; page-level
+lifecycle/version/current-pointer fields still describe each request's live
+snapshot. A current completeness audit exhausts a cursor chain and then compares
+a new first-page identity tuple.
+
+The API rejects any serialized page over 3 MiB. MCP and Next request identity
+coding, reject a non-identity header before reading, and incrementally retain at
+most the same byte ceiling before strict parsing. The nginx reference deployment
+disables transformation, compression, buffering, and caching for the same-origin
+API path. MCP separately guards every inbound HTTP entity and stdio record at
+1 MiB and caps the SDK's complete duplicated JSON-RPC evidence result at 12 MiB.
 
 ## Recall and retrieval
 
@@ -577,7 +682,7 @@ explicit cycle and depth fallbacks instead of silently hiding corrupt or
 unexpectedly deep branches, and schedules passive refresh from the earliest
 visible descendant lease expiry.
 
-## Deliberate Phase 10 limits
+## Deliberate Phase 11 limits
 
 Ready discovery is not automatic scheduling and there is no
 `claim_next_ready_work`. The receipt ledger still excludes project
@@ -607,11 +712,23 @@ once before declaring the queue drained;
 it does not create a general `get_activity`, notification broker, SSE/webhook
 feed, or passive lease-expiry event.
 
+Completion evidence has no standalone create/update/delete operation, mutable
+status, overall score, automatic gate, CI callback, artifact fetch, command
+execution, signature, attestation, search index, or ordinary recall embedding.
+A late result does not mutate an old episode: clients keep work pending, append
+narrative context, or explicitly reopen and complete again. The first version
+supports only command/observation results and seven inert artifact types.
+
 Backups include canonical work, checkpoints, leases, relationships,
 authoritative duplicate merges and their witnesses, immutable
 events and their sequence, human gates and attention sequence, durable
 client-operation receipts (including historical and scoped checkpoint response
-shapes), ordered checkpoint dependency declarations, and migration state.
+shapes), ordered checkpoint dependency declarations, completion generations,
+reopen witnesses, immutable verification results and artifact references,
+migration state, and archived ACL commands for public-schema application
+objects. Ownership is rebound to the fixed application role during restore,
+while object-ACL replay preserves Phase 11's owner-only function execution and
+evidence-relation privilege boundary.
 Operators must still copy
 backups off-machine and rehearse restores; a persistent Docker volume is not a
 backup.

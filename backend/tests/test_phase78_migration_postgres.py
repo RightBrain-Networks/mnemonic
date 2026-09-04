@@ -24,7 +24,7 @@ from mnemonic_api.services.client_operations import (
     request_fingerprint,
 )
 
-from .conftest import BACKEND_DIR
+from .conftest import BACKEND_DIR, recreate_disposable_schema
 
 pytestmark = pytest.mark.postgres
 
@@ -46,14 +46,7 @@ _ALLOWED_OPERATION_KINDS = (
 
 @pytest.fixture(autouse=True)
 def reset_phase78_rows(postgres_engine: Engine) -> Iterator[None]:
-    with postgres_engine.begin() as connection:
-        connection.execute(
-            text(
-                "TRUNCATE client_operations, project_settings, work_events, "
-                "work_gates, work_relationships, work_leases, work_item_embeddings, "
-                "checkpoints, work_items, projects RESTART IDENTITY CASCADE"
-            )
-        )
+    recreate_disposable_schema(postgres_engine)
     yield
 
 
@@ -370,7 +363,10 @@ def test_gate_insert_guard_refusal_matrix(
                 )
             if case == "terminal_work":
                 connection.execute(
-                    text("UPDATE work_items SET status = 'done' WHERE id = :work_item_id"),
+                    text(
+                        "UPDATE work_items SET status = 'wont-do' "
+                        "WHERE id = :work_item_id"
+                    ),
                     {"work_item_id": work_item_id},
                 )
             if case == "deleted_work":
@@ -856,12 +852,22 @@ def test_unresolved_gate_blocks_escape_and_preserves_lease_maintenance(
                 {"replacement": uuid4(), "work_item_id": work_item_id},
             )
 
-    for statement in (
-        "UPDATE work_items SET status = 'done' WHERE id = :work_item_id",
-        "UPDATE work_items SET status = 'promoted' WHERE id = :work_item_id",
-        "UPDATE work_items SET deleted_at = clock_timestamp() WHERE id = :work_item_id",
+    for statement, error in (
+        (
+            "UPDATE work_items SET status = 'done' WHERE id = :work_item_id",
+            "pending completion requires one live current episode",
+        ),
+        (
+            "UPDATE work_items SET status = 'promoted' WHERE id = :work_item_id",
+            "terminal or delete",
+        ),
+        (
+            "UPDATE work_items SET deleted_at = clock_timestamp() "
+            "WHERE id = :work_item_id",
+            "terminal or delete",
+        ),
     ):
-        with pytest.raises(DBAPIError, match="terminal or delete"):
+        with pytest.raises(DBAPIError, match=error):
             with postgres_engine.begin() as connection:
                 connection.execute(text(statement), {"work_item_id": work_item_id})
 

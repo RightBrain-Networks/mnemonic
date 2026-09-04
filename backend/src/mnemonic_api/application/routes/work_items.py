@@ -18,6 +18,7 @@ from mnemonic_api.application.mutations import run_registered_mutation
 from mnemonic_api.database import Database, begin_coherent_read
 from mnemonic_api.schemas import (
     ChildrenListQuery,
+    CompletionCheckpointRead,
     HierarchySummary,
     Page,
     ReadyWorkListQuery,
@@ -35,6 +36,7 @@ from mnemonic_api.schemas import (
     WorkItemPatch,
     WorkItemRead,
 )
+from mnemonic_api.services.completion_evidence import hydrate_completion_evidence
 from mnemonic_api.services.duplicates import work_item_detail
 from mnemonic_api.services.hierarchy import hierarchy_page
 from mnemonic_api.services.readiness import ready_work_page
@@ -166,12 +168,18 @@ def complete_work(
             domain_payload.expected_version,
             domain_payload.checkpoint,
             domain_payload.lease_token,
+            domain_payload.completion_evidence,
         )
         database.refresh(work_item)
         database.refresh(checkpoint)
+        response_fields = {}
+        evidence = hydrate_completion_evidence(database, checkpoint)
+        if evidence is not None:
+            response_fields["completion_evidence"] = evidence
         return WorkCompletionRead(
             work_item=WorkItemRead.model_validate(work_item),
-            checkpoint=checkpoint_read(checkpoint),
+            checkpoint=CompletionCheckpointRead.model_validate(checkpoint),
+            **response_fields,
         )
 
     return run_registered_mutation(

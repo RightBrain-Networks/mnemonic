@@ -1,0 +1,41 @@
+{
+  "expected_version": 7,
+  "checkpoint": {
+    "prompt": "Implemented the bounded completion-evidence contract.",
+    "source_client": "codex",
+    "source_session_id": "replace-with-the-current-session-id",
+    "source_model": "replace-with-the-current-model",
+    "source_session_url": "https://example.test/sessions/replace-me",
+    "repository_branch": "work/example",
+    "verified_against": "7ad62e4",
+    "affected_paths": [
+      "backend/**"
+    ],
+    "tags": [
+      "backend"
+    ],
+    "source_metadata": {}
+  },
+  "client_operation_id": "11584ccf-c787-4c6a-bb89-a69a02c1554d",
+  "completion_evidence": {
+    "verification_results": [
+      {
+        "verification_type": "command",
+        "name": "Backend test suite",
+        "outcome": "passed",
+        "summary": "The PostgreSQL-backed suite passed without skips.",
+        "command": "uv run pytest -q",
+        "exit_code": 0,
+        "observed_at": "2026-09-04T18:01:02Z",
+        "observed_at_commit": "7ad62e4"
+      }
+    ],
+    "artifact_references": [
+      {
+        "artifact_type": "pull_request",
+        "label": "Phase 11 pull request",
+        "reference": "https://github.com/example/mnemonic/pull/123"
+      }
+    ]
+  }
+}

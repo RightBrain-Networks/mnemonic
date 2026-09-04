@@ -23,6 +23,25 @@ MCP_COMPONENT_OVERRIDES = {
 }
 
 FRONTEND_PROPERTY_SETS = {
+    "frontend/lib/completion-evidence.ts:decodeArtifactReference": (
+        "ArtifactReferenceRead"
+    ),
+    "frontend/lib/completion-evidence.ts:decodeCheckpointPointer": "CheckpointPointer",
+    "frontend/lib/completion-evidence.ts:decodeCompletionEvidencePage": (
+        "CompletionEvidencePage"
+    ),
+    "frontend/lib/completion-evidence.ts:decodeCompletionEvidencePage:item": (
+        "CompletionEvidenceEpisodeRead"
+    ),
+    "frontend/lib/completion-evidence.ts:decodeCompletionEvidencePayload": (
+        "CompletionEvidencePayloadRead"
+    ),
+    "frontend/lib/completion-evidence.ts:decodeVerificationResult:command": (
+        "CommandVerificationRead"
+    ),
+    "frontend/lib/completion-evidence.ts:decodeVerificationResult:observation": (
+        "ObservationVerificationRead"
+    ),
     "frontend/lib/human-gates.ts:GATE_FIELDS": "HumanGateRead",
     "frontend/lib/human-gates.ts:decodeAncestor": "WorkIdentityPointer",
     "frontend/lib/human-gates.ts:decodeCheckpointPointer": "CheckpointPointer",
@@ -34,6 +53,9 @@ FRONTEND_PROPERTY_SETS = {
     "frontend/lib/human-gates.ts:decodeRevision": "HumanGateContextRevision",
     "frontend/lib/human-gates.ts:decodeWorkSummary": "WorkSummary",
     "frontend/lib/mutation-responses.ts:decodeCheckpoint": "CheckpointRead",
+    "frontend/lib/mutation-responses.ts:decodeMutationResult:complete_work": (
+        "WorkCompletionRead"
+    ),
     "frontend/lib/mutation-responses.ts:decodeRelationship": "RelationshipEdgeRead",
     "frontend/lib/work-events.ts:EVENT_FIELDS": "WorkEventRead",
     "frontend/lib/work-events.ts:decodeWorkEventPage": "WorkEventPage",

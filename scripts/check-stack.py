@@ -3,12 +3,14 @@
 Run with the MCP project's Python environment. Checks are read-only unless a
 project is explicitly authorized with --project-id. The writable check creates
 a small, uniquely marked work graph, exercises Advisory duplicate suggestions,
-human gates, ready discovery, its canonical event lifecycle, and one real
+human gates, structured completion evidence, ready discovery, its canonical
+event lifecycle, and one real
 irreversible duplicate merge with response-loss receipt recovery. Cleanup
-removes the reversible graph but deliberately retains both merged work items,
-their frozen relationship, merge record, events, and receipts as evidence.
+removes the reversible graph but deliberately retains immutable completion
+evidence plus both merged work items, their frozen relationship, merge record,
+events, and receipts as evidence.
 
-The writable Phase 10 path also requires --verified-against plus one or more
+The writable Phase 11 path also requires --verified-against plus one or more
 --affected-path values. They must describe a real commit and dependency scope
 that the operator actually inspected; the checker never fabricates repository
 provenance and does not run Git itself.
@@ -50,6 +52,7 @@ CANONICAL_TOOLS = {
     "list_work_gates",
     "update_work",
     "complete_work",
+    "list_completion_evidence",
     "delete_work",
     "claim_work",
     "claim_and_recall",
@@ -171,7 +174,7 @@ async def tool(session: ClientSession, name: str, arguments: dict[str, Any]) -> 
 
 
 def synthetic_summary(marker: str) -> str:
-    return f"Synthetic Phase 10 integration check {marker}"
+    return f"Synthetic Phase 11 integration check {marker}"
 
 
 def mutation_actor(run_id: str) -> dict[str, str]:
@@ -391,6 +394,38 @@ def ready_ids(page: dict[str, Any]) -> list[str]:
             "Ready discovery widened beyond the compact pointer contract.",
         )
     return [item["work_item"]["id"] for item in page["items"]]
+
+
+def require_completion_evidence(
+    completion: dict[str, Any],
+    expected: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    """Require exact child semantics plus server-owned episode identity."""
+    evidence = completion.get("completion_evidence")
+    require(isinstance(evidence, dict), "Completion omitted its structured evidence.")
+    checkpoint = completion["checkpoint"]
+    work_item = completion["work_item"]
+    for family in ("verification_results", "artifact_references"):
+        actual_items = evidence.get(family)
+        expected_items = expected[family]
+        require(
+            isinstance(actual_items, list) and len(actual_items) == len(expected_items),
+            f"Completion returned the wrong {family} count.",
+        )
+        for position, (actual, requested) in enumerate(
+            zip(actual_items, expected_items, strict=True)
+        ):
+            require(
+                isinstance(actual, dict)
+                and all(actual.get(key) == value for key, value in requested.items())
+                and actual.get("work_item_id") == work_item["id"]
+                and actual.get("completion_checkpoint_id") == checkpoint["id"]
+                and actual.get("position") == position
+                and actual.get("created_at") == checkpoint["created_at"]
+                and isinstance(actual.get("id"), str),
+                f"Completion returned incoherent {family} identity or content.",
+            )
+    return evidence
 
 
 def work_detail_parts(
@@ -834,9 +869,9 @@ async def cleanup_synthetic_work(
 
 
 def validate_rest_contract(document: Any) -> None:
-    """Reject a healthy but contract-incompatible pre-Phase-10 API."""
+    """Reject a healthy but contract-incompatible pre-Phase-11 API."""
     try:
-        require(document["info"]["version"] == "0.5.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.6.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         endpoint_refs = {
             "/api/v1/projects/{project_id}/work-items": "#/components/schemas/WorkItemCreate",
@@ -853,7 +888,7 @@ def validate_rest_contract(document: Any) -> None:
             ]["schema"]
             require(
                 request_schema == {"$ref": expected_ref},
-                f"REST {path} does not expose the expected Phase 10 request.",
+                f"REST {path} does not expose the expected Phase 11 request.",
             )
         response_refs = {
             ("/api/v1/projects/{project_id}/work-items", "201"): (
@@ -874,7 +909,7 @@ def validate_rest_contract(document: Any) -> None:
             ]["application/json"]["schema"]
             require(
                 response_schema == {"$ref": expected_ref},
-                f"REST {path} does not expose the expected Phase 10 response.",
+                f"REST {path} does not expose the expected Phase 11 response.",
             )
         require(
             schemas["WorkItemCreate"]["properties"]["initial_checkpoint"]
@@ -884,7 +919,44 @@ def validate_rest_contract(document: Any) -> None:
         require(
             schemas["WorkCompletionCreate"]["properties"]["checkpoint"]
             == {"$ref": "#/components/schemas/CompletionCheckpointCreate"},
-            "REST complete-work does not bind the Phase 10 checkpoint schema.",
+            "REST complete-work does not bind the Phase 11 checkpoint schema.",
+        )
+        completion_create = schemas["WorkCompletionCreate"]
+        require(
+            completion_create.get("if", {}).get("required") == ["completion_evidence"]
+            and completion_create.get("then", {}).get("required")
+            == ["client_operation_id"]
+            and "completion_evidence" in completion_create["properties"],
+            "REST completion evidence lacks its executable operation-ID condition.",
+        )
+        evidence_path = (
+            "/api/v1/projects/{project_id}/work-items/{work_item_id}/completion-evidence"
+        )
+        require(
+            set(document["paths"][evidence_path]) == {"get"}
+            and document["paths"][evidence_path]["get"]["responses"]["200"]["content"]
+            ["application/json"]["schema"]
+            == {"$ref": "#/components/schemas/CompletionEvidencePage"},
+            "REST completion-evidence history is not the sole safe GET contract.",
+        )
+        completion_read = schemas["WorkCompletionRead"]
+        require(
+            "completion_evidence" in completion_read["properties"]
+            and "completion_evidence" not in completion_read.get("required", [])
+            and {
+                "ArtifactReferenceRead",
+                "CommandVerificationRead",
+                "CompletionEvidenceEpisodeRead",
+                "CompletionEvidencePage",
+                "ObservationVerificationRead",
+            }.issubset(schemas),
+            "REST completion evidence lacks its strict write/read schemas.",
+        )
+        public_schema = json.dumps(schemas, sort_keys=True)
+        require(
+            '"completion_generation"' not in public_schema
+            and '"reopen_generation"' not in public_schema,
+            "REST OpenAPI exposes private completion-generation fields.",
         )
         expected_scope_schema = {
             "items": {
@@ -941,15 +1013,15 @@ def validate_rest_contract(document: Any) -> None:
             "REST compact checkpoint pointers expose repository scope.",
         )
     except (KeyError, TypeError) as error:
-        raise RuntimeError("REST OpenAPI is missing the Phase 10 contract.") from error
+        raise RuntimeError("REST OpenAPI is missing the Phase 11 contract.") from error
 
 
 def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
     require(
-        len(catalog.tools) == 27
-        and len(tools_by_name) == 27
+        len(catalog.tools) == 28
+        and len(tools_by_name) == 28
         and len(PROTECTED_MUTATION_TOOLS) == 11
         and set(tools_by_name) == CANONICAL_TOOLS,
         "Unexpected MCP tool catalog.",
@@ -1056,6 +1128,15 @@ def validate_mcp_catalog(catalog: Any) -> None:
         )
         == {"$ref": "#/$defs/CheckpointRead"},
         "MCP complete_work response does not bind the full checkpoint schema.",
+    )
+    completion_tool = tools_by_name["complete_work"]
+    require(
+        "completion_evidence" in completion_tool.inputSchema["properties"]
+        and "completion_evidence"
+        in completion_tool.outputSchema.get("properties", {})
+        and tools_by_name["list_completion_evidence"].outputSchema.get("title")
+        == "CompletionEvidencePage",
+        "MCP completion evidence lacks its exact extended write and safe read.",
     )
     for name in ("search_work", "list_human_attention"):
         pointer = tools_by_name[name].outputSchema["$defs"]["CheckpointPointer"]
@@ -1196,20 +1277,25 @@ async def check(args: argparse.Namespace, key: str) -> None:
             _,
         ):
             async with ClientSession(read, write) as session:
-                await session.initialize()
+                initialized = await session.initialize()
+                require(
+                    initialized.serverInfo.name == "Mnemonic"
+                    and initialized.serverInfo.version == "0.6.0",
+                    "Unexpected MCP server identity or version.",
+                )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.5.0 repository-declaration contract, real MCP initialization, "
-                    "27-tool catalog, exact eleven protected mutation schemas/annotations, and "
-                    "REST-backed project listing"
+                    "PASS: REST 0.6.0 structured-completion-evidence contract, real MCP "
+                    "initialization, 28-tool catalog, exact eleven protected mutation "
+                    "schemas/annotations, and REST-backed project listing"
                 )
                 if not args.project_id:
                     print(
                         "Read-only checks complete. Supply --project-id, --verified-against, and "
                         "at least one --affected-path to explicitly authorize one disposable "
-                        "Phase 10 lifecycle and a permanently retained merge."
+                        "Phase 11 lifecycle and a permanently retained merge."
                     )
                     return
 
@@ -2758,12 +2844,35 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "tags": [run_tag, "verification", "complete"],
                         "source_metadata": {"synthetic_check": True},
                     }
+                    completion_evidence = {
+                        "verification_results": [
+                            {
+                                "verification_type": "observation",
+                                "name": "Live protocol path",
+                                "outcome": "passed",
+                                "summary": (
+                                    "The checker observed the REST, MCP, dashboard, lease, "
+                                    "graph, gate, checkpoint, event, and receipt paths used "
+                                    "before this completion."
+                                ),
+                                "observed_at_commit": declared_baseline,
+                            }
+                        ],
+                        "artifact_references": [
+                            {
+                                "artifact_type": "commit",
+                                "label": "Operator-inspected repository baseline",
+                                "reference": declared_baseline,
+                            }
+                        ],
+                    }
                     completion_arguments = retained_mutation(
                         {
                             **identity,
                             "expected_version": current["version"],
                             "checkpoint": completion_input,
                             "lease_token": lease_token,
+                            "completion_evidence": completion_evidence,
                         }
                     )
                     completion = await protected_tool(
@@ -2778,6 +2887,18 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and completion["checkpoint"]["affected_paths"]
                         == initial_affected_paths,
                         "Completion did not atomically save its checkpoint and done status.",
+                    )
+                    returned_evidence = require_completion_evidence(
+                        completion, completion_evidence
+                    )
+                    completion_replay = await protected_tool(
+                        session,
+                        "complete_work",
+                        completion_arguments,
+                    )
+                    require(
+                        completion_replay == completion,
+                        "Same-key completion replay changed its evidence response.",
                     )
                     completed_timeline = await tool(
                         session,
@@ -2797,7 +2918,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         ],
                         "Completed checkpoint history lost exact dependency declarations.",
                     )
-                    await require_event_types(
+                    completion_events = await require_event_types(
                         session,
                         identity,
                         [
@@ -2814,6 +2935,61 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "relationship_added",
                             "work_completed",
                         ],
+                    )
+                    completion_history = await tool(
+                        session,
+                        "list_completion_evidence",
+                        {**identity, "limit": 10},
+                    )
+                    require(
+                        completion_history["work_item_id"] == work_item_id
+                        and completion_history["work_version"]
+                        == completion["work_item"]["version"]
+                        and completion_history["lifecycle_status"] == "done"
+                        and completion_history["is_duplicate"] is False
+                        and completion_history["canonical_work_item_id"] == work_item_id
+                        and completion_history["current_completion_checkpoint_id"]
+                        == completion["checkpoint"]["id"]
+                        and completion_history["as_of_completion_event_id"]
+                        == str(completion_events[-1]["id"])
+                        and completion_history["total"] == 1
+                        and completion_history["structured_completion_total"] == 1
+                        and completion_history["limit"] == 10
+                        and completion_history["next_cursor"] is None
+                        and len(completion_history["items"]) == 1,
+                        "MCP completion-evidence history returned incoherent episode identity.",
+                    )
+                    completion_episode = completion_history["items"][0]
+                    require(
+                        completion_episode["completion_event_id"]
+                        == str(completion_events[-1]["id"])
+                        and completion_episode["completion_checkpoint"]["id"]
+                        == completion["checkpoint"]["id"]
+                        and "prompt" not in completion_episode["completion_checkpoint"]
+                        and "affected_paths"
+                        not in completion_episode["completion_checkpoint"]
+                        and completion_episode["verification_results"]
+                        == returned_evidence["verification_results"]
+                        and completion_episode["artifact_references"]
+                        == returned_evidence["artifact_references"],
+                        "MCP completion history changed evidence or widened its pointer.",
+                    )
+                    dashboard_history = await public.get(
+                        proxy
+                        + f"projects/{project_id}/work-items/{work_item_id}/"
+                        "completion-evidence?limit=10"
+                    )
+                    dashboard_cache = dashboard_history.headers.get("cache-control", "")
+                    require(
+                        dashboard_history.status_code == 200
+                        and dashboard_history.json() == completion_history
+                        and "no-store" in dashboard_cache
+                        and "no-transform" in dashboard_cache
+                        and dashboard_history.headers.get("x-content-type-options")
+                        == "nosniff"
+                        and dashboard_history.headers.get("content-encoding")
+                        == "identity",
+                        "Dashboard evidence proxy changed, encoded, or cached the strict page.",
                     )
                     lease_tokens.pop(work_item_id, None)
                     claim_request_ids.pop(work_item_id, None)
@@ -2910,8 +3086,85 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         reopened["status"] == "pending",
                         "Completed work did not reopen through the canonical update.",
                     )
+                    reopened_history = await tool(
+                        session,
+                        "list_completion_evidence",
+                        {**identity, "limit": 10},
+                    )
+                    require(
+                        reopened_history["lifecycle_status"] == "pending"
+                        and reopened_history["work_version"] == reopened["version"]
+                        and reopened_history["current_completion_checkpoint_id"] is None
+                        and reopened_history["items"] == completion_history["items"]
+                        and reopened_history["as_of_completion_event_id"]
+                        == completion_history["as_of_completion_event_id"]
+                        and reopened_history["total"] == 1
+                        and reopened_history["structured_completion_total"] == 1,
+                        "Reopen did not retain exact history and clear the current pointer.",
+                    )
+                    evidence_free_checkpoint = {
+                        **completion_input,
+                        "prompt": (
+                            "Synthetic validation recompleted the reopened work without "
+                            "structured evidence to prove honest sparse history."
+                        ),
+                        "tags": [run_tag, "verification", "evidence-free"],
+                    }
+                    evidence_free_arguments = retained_mutation(
+                        {
+                            **identity,
+                            "expected_version": reopened["version"],
+                            "checkpoint": evidence_free_checkpoint,
+                        }
+                    )
+                    evidence_free_completion = await protected_tool(
+                        session,
+                        "complete_work",
+                        evidence_free_arguments,
+                    )
+                    require(
+                        evidence_free_completion["work_item"]["status"] == "done"
+                        and evidence_free_completion["checkpoint"]["kind"] == "completion"
+                        and "completion_evidence" not in evidence_free_completion,
+                        "Evidence-free recompletion did not preserve the sparse response contract.",
+                    )
+                    require(
+                        await protected_tool(
+                            session,
+                            "complete_work",
+                            evidence_free_arguments,
+                        )
+                        == evidence_free_completion,
+                        "Evidence-free completion replay changed its historical response.",
+                    )
                     final_events = await require_event_types(
-                        session, identity, [*timeline_before_reopen, "work_reopened"]
+                        session,
+                        identity,
+                        [*timeline_before_reopen, "work_reopened", "work_completed"],
+                    )
+                    mixed_history = await tool(
+                        session,
+                        "list_completion_evidence",
+                        {**identity, "limit": 10},
+                    )
+                    require(
+                        mixed_history["lifecycle_status"] == "done"
+                        and mixed_history["work_version"]
+                        == evidence_free_completion["work_item"]["version"]
+                        and mixed_history["current_completion_checkpoint_id"]
+                        == evidence_free_completion["checkpoint"]["id"]
+                        and mixed_history["as_of_completion_event_id"]
+                        == str(final_events[-1]["id"])
+                        and mixed_history["total"] == 2
+                        and mixed_history["structured_completion_total"] == 1
+                        and mixed_history["next_cursor"] is None
+                        and len(mixed_history["items"]) == 2
+                        and mixed_history["items"][0]["completion_checkpoint"]["id"]
+                        == evidence_free_completion["checkpoint"]["id"]
+                        and mixed_history["items"][0]["verification_results"] == []
+                        and mixed_history["items"][0]["artifact_references"] == []
+                        and mixed_history["items"][1] == completion_episode,
+                        "Mixed completion history lost its empty or structured episode.",
                     )
                     recalled = await tool(
                         session,
@@ -2958,7 +3211,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     require(
                         ready_ids(final_ready_page)
-                        == [work_item_id, blocker_id, ready_id, terminal_id, child_id],
+                        == [blocker_id, ready_id, terminal_id, child_id],
                         "Final ready results did not follow priority-first order.",
                     )
 
@@ -3449,7 +3702,7 @@ def validate_repository_cli_arguments(
     if args.project_id and not args.cleanup_run_id:
         if args.verified_against is None or not args.affected_paths:
             parser.error(
-                "Writable Phase 10 checks require --verified-against and at least one "
+                "Writable Phase 11 checks require --verified-against and at least one "
                 "--affected-path from the repository actually inspected by the operator."
             )
         try:
@@ -3480,7 +3733,7 @@ def main() -> None:
         "--project-id",
         type=project_uuid,
         help=(
-            "Explicitly authorizes a disposable Phase 10 writable lifecycle, including an "
+            "Explicitly authorizes a disposable Phase 11 writable lifecycle, including an "
             "irreversible two-item merge whose evidence is permanently retained"
         ),
     )

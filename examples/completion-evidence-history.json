@@ -1,0 +1,71 @@
+{
+  "work_item_id": "11111111-1111-4111-8111-111111111111",
+  "work_version": 10,
+  "lifecycle_status": "done",
+  "is_duplicate": false,
+  "canonical_work_item_id": "11111111-1111-4111-8111-111111111111",
+  "current_completion_checkpoint_id": "22222222-2222-4222-8222-222222222222",
+  "as_of_completion_event_id": "120",
+  "items": [
+    {
+      "completion_event_id": "120",
+      "completion_checkpoint": {
+        "id": "22222222-2222-4222-8222-222222222222",
+        "work_item_id": "11111111-1111-4111-8111-111111111111",
+        "kind": "completion",
+        "source_client": "codex",
+        "source_session_id": "replacement-session",
+        "source_model": null,
+        "repository_branch": null,
+        "verified_against": null,
+        "tags": [],
+        "migration_origin": null,
+        "legacy_record_id": null,
+        "created_at": "2026-09-04T18:05:00Z"
+      },
+      "verification_results": [],
+      "artifact_references": []
+    },
+    {
+      "completion_event_id": "119",
+      "completion_checkpoint": {
+        "id": "33333333-3333-4333-8333-333333333333",
+        "work_item_id": "11111111-1111-4111-8111-111111111111",
+        "kind": "completion",
+        "source_client": "codex",
+        "source_session_id": "original-session",
+        "source_model": null,
+        "repository_branch": "work/phase11",
+        "verified_against": "7ad62e4",
+        "tags": [
+          "backend"
+        ],
+        "migration_origin": null,
+        "legacy_record_id": null,
+        "created_at": "2026-09-04T18:01:02Z"
+      },
+      "verification_results": [
+        {
+          "id": "44444444-4444-4444-8444-444444444444",
+          "work_item_id": "11111111-1111-4111-8111-111111111111",
+          "completion_checkpoint_id": "33333333-3333-4333-8333-333333333333",
+          "position": 0,
+          "verification_type": "command",
+          "name": "Backend tests",
+          "outcome": "passed",
+          "summary": "The PostgreSQL-backed suite passed without skips.",
+          "command": "uv run pytest -q",
+          "exit_code": 0,
+          "observed_at": "2026-09-04T18:01:02Z",
+          "observed_at_commit": "7ad62e4",
+          "created_at": "2026-09-04T18:01:02Z"
+        }
+      ],
+      "artifact_references": []
+    }
+  ],
+  "total": 2,
+  "structured_completion_total": 1,
+  "limit": 10,
+  "next_cursor": null
+}

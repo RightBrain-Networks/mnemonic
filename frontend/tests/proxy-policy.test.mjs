@@ -81,6 +81,14 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/events`, "GET"), ["order", "event_type", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/events`, "POST"), []);
+  assert.deepEqual(
+    allowedQueryKeys(`projects/${project}/work-items/${work}/completion-evidence`, "GET"),
+    ["limit", "cursor"]
+  );
+  assert.equal(
+    allowedQueryKeys(`projects/${project}/work-items/${work}/completion-evidence`, "POST"),
+    null
+  );
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/complete`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/defer`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/delete`, "POST"), []);
@@ -101,6 +109,91 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}`, "DELETE"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/checkpoints`, "PATCH"), null);
   assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/context`, "POST"), null);
+});
+
+test("browser completion accepts only the exact nested Phase 11 evidence contract", () => {
+  const path = `projects/${project}/work-items/${work}/complete`;
+  const checkpointBody = {
+    prompt: "Completion summary",
+    source_client: "dashboard",
+    source_session_id: "tab-1",
+    source_model: null,
+    repository_branch: null,
+    verified_against: null,
+    tags: [],
+    source_metadata: {}
+  };
+  const body = {
+    expected_version: 3,
+    checkpoint: checkpointBody,
+    completion_evidence: {
+      verification_results: [{
+        verification_type: "command",
+        name: "Frontend tests",
+        outcome: "passed",
+        summary: "The unit suite passed.",
+        command: "npm test",
+        exit_code: 0
+      }],
+      artifact_references: [{
+        artifact_type: "branch",
+        label: "Delivered branch",
+        reference: "work/Phase11 exact"
+      }]
+    },
+    client_operation_id: operation
+  };
+  assert.equal(invalidMutationBody(path, "POST", body), null);
+  assert.equal(invalidMutationBody(path, "POST", {
+    ...body,
+    expected_version: 2_147_483_646
+  }), null);
+  assert.match(
+    invalidMutationBody(path, "POST", {
+      ...body,
+      expected_version: 2_147_483_647
+    }),
+    /allowlist/
+  );
+  assert.equal(invalidMutationBody(path, "POST", {
+    ...body,
+    completion_evidence: {}
+  }), null);
+  for (const completion_evidence of [
+    null,
+    { verification_results: null },
+    {
+      verification_results: [{
+        verification_type: "command",
+        name: "Frontend tests",
+        outcome: "passed",
+        summary: "Contradictory status.",
+        command: "npm test",
+        exit_code: 1
+      }]
+    },
+    {
+      artifact_references: [{
+        artifact_type: "pull_request",
+        label: "Unsafe",
+        reference: "https://example.test/pull/1?token=no"
+      }]
+    },
+    { verification_results: [], artifact_references: [], extra: true }
+  ]) {
+    assert.match(
+      invalidMutationBody(path, "POST", { ...body, completion_evidence }),
+      /allowlist/
+    );
+  }
+  assert.match(
+    invalidMutationBody(path, "POST", {
+      ...body,
+      lease_token: "browser-forbidden",
+      completion_evidence: body.completion_evidence
+    }),
+    /unsupported field/
+  );
 });
 
 test("project settings expose only the exact recall-pointer patch", () => {

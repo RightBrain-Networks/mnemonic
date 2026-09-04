@@ -1,10 +1,12 @@
 # Mnemonic behind nginx TLS
 
-[`mnemonic.conf`](mnemonic.conf) follows the supplied host configuration:
+[`mnemonic.conf`](mnemonic.conf) and its checked
+[`mnemonic-dashboard-api-policy.conf`](snippets/mnemonic-dashboard-api-policy.conf)
+snippet follow the supplied host configuration:
 host-managed nginx, the existing wildcard certificate, a LAN allowlist, and
-separate logs. It is self-contained and does not include the host's snippets or
-modify its virtual hosts. There is one production instance and no default-server
-claim, development instance, or legacy hostname redirects.
+separate logs. They do not include any host-owned snippet or modify other
+virtual hosts. There is one production instance and no default-server claim,
+development instance, or legacy hostname redirects.
 
 The assumed address is **https://mnemonic.example.com**. nginx must run
 on the same host as Mnemonic's Docker stack, because the upstreams bind to
@@ -37,6 +39,18 @@ The WebSocket carries data-free invalidation notices; browsers refetch changed
 records through the authenticated dashboard API proxy. nginx forwards the
 `Upgrade` and `Connection` headers, and the API checks the browser's exact
 origin before accepting the subscription.
+
+Phase 11 evidence history is deliberately identity-coded. The dashboard API
+location uses the checked snippet to request `identity` from Next.js, disable
+nginx gzip for that location, emit
+`Cache-Control: no-store, max-age=0, no-transform`, and set
+`X-DNS-Prefetch-Control: off`. The Next.js proxy and browser still reject an
+unexpected or malformed `Content-Encoding` before reading its body. The
+Next-owned nonempty `Content-Encoding: identity` marker also prevents the
+supported google/ngx_brotli filter from recoding the response. Do not enable
+an untested response filter that can recode an already-coded response for
+`/api/mnemonic/`; merely viewing evidence must not create a decompression or
+speculative external-contact path.
 
 ## Trust and prerequisites
 
@@ -104,12 +118,15 @@ ports, update both `proxy_pass` addresses. When changing the local web port,
 keep `MNEMONIC_DASHBOARD_ORIGINS` consistent with it as described in
 [`docs/operations.md`](../../docs/operations.md).
 
-Install the config and prepare its log directory. These commands match the
-Debian/Ubuntu account names in the example; adjust ownership for your host.
-Preserve any existing `mnemonic.conf` before replacing it.
+Install the config, its required Phase 11 snippet, and prepare the log
+directory. These commands match the Debian/Ubuntu account names in the example;
+adjust ownership for your host. Preserve any existing files before replacing
+them.
 
 ```sh
 sudo install -d -o www-data -g adm -m 0750 /var/log/nginx/mnemonic
+sudo install -d -o root -g root -m 0755 /etc/nginx/snippets
+sudo install -m 0644 deploy/nginx/snippets/mnemonic-dashboard-api-policy.conf /etc/nginx/snippets/mnemonic-dashboard-api-policy.conf
 sudo install -m 0644 deploy/nginx/mnemonic.conf /etc/nginx/conf.d/mnemonic.conf
 sudo nginx -t && sudo systemctl reload nginx
 ```
@@ -131,10 +148,11 @@ sudo chmod 0640 /etc/nginx/mnemonic.htpasswd
 ```
 
 Use `-c` only when creating a new file; it overwrites an existing password file.
-Uncomment both `auth_basic` lines **inside `location /`** in the repository
-config, install it again, validate, and reload. Do not enable Basic auth at
-server level: MCP clients need their Authorization header for bearer auth.
-This password protects the dashboard and its `/api/mnemonic` routes together.
+Uncomment both `auth_basic` lines in **both** `location /` and
+`location ^~ /api/mnemonic/` in the repository config, install it again,
+validate, and reload. Do not enable Basic auth at server level: MCP clients need
+their Authorization header for bearer auth. Enabling only one location leaves
+the other dashboard surface outside that optional password boundary.
 It does not turn Mnemonic into a multi-user application or enable public cloud
 MCP/OAuth integrations. Keep the network ACL even with a dashboard password.
 
@@ -148,6 +166,26 @@ Those checks used a temporary certificate and did not change stored prompts
 or the running stack. They do not verify your host's DNS, certificate files,
 existing nginx configuration, or firewall; perform the checks below after
 installation.
+
+Phase 11 also ships `./scripts/test-nginx-e2e.sh`. It combines
+`compose.e2e.yaml` with `compose.nginx-e2e.yaml`, includes the exact
+production dashboard-API snippet in two executable checks. Stock nginx first
+syntax-checks the snippet without an optional Brotli module. The disposable
+edge then loads the ABI-matched Alpine google/ngx_brotli package, enables it at
+`http` scope, proves a JSON control response is actually `br`, and proves the
+same inherited filter leaves evidence responses at exactly one application-
+owned `Content-Encoding: identity` marker. Encoded success and error bodies
+still fail content-free at the Next.js proxy, while a controlled response with
+no upstream coding emerges as explicit `identity`, proving that Next owns the
+outer marker. A literal `brotli off` is intentionally absent because stock
+nginx rejects that unknown directive when the optional module is not loaded.
+This is a specific ngx_brotli proof, not a claim about arbitrary response
+filters. The runner also sends valid completion JSON at exactly 1 MiB and at
+byte 1 MiB + 1, both
+with an ordinary Content-Length and with chunked transfer coding. A misleading
+over-limit Content-Length on an exact-limit body is rejected before the
+controlled upstream can parse it. Run the harness before installing a changed
+policy.
 
 From an allowed machine, open **https://mnemonic.example.com** and verify
 project selection, editing, and copying a prompt. HTTPS enables the browser's

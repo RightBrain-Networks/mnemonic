@@ -1,5 +1,6 @@
 """Strict wire models. Agent-authored prompt text is never stripped or rewritten."""
 
+import ipaddress
 import json
 import re
 import unicodedata
@@ -11,6 +12,7 @@ from uuid import UUID
 from pydantic import (
     AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     JsonValue,
@@ -25,6 +27,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
+from pydantic.json_schema import SkipJsonSchema, WithJsonSchema
 
 AFFECTED_PATH_MAX_COUNT = 64
 AFFECTED_PATH_MAX_BYTES = 512
@@ -268,6 +271,609 @@ MergeRationale = Annotated[
     AfterValidator(nonblank),
 ]
 
+COMPLETION_EVIDENCE_MAX_ENTRIES = 20
+COMPLETION_EVIDENCE_MAX_BYTES = 32768
+COMPLETION_HISTORY_MAX_LIMIT = 10
+COMPLETION_HISTORY_MAX_BYTES = 3 * 1024 * 1024
+COMPLETION_EVENT_ID_MAX = 9223372036854775806
+COMPLETION_EXPECTED_VERSION_MAX = 2147483646
+_OBSERVED_AT_PATTERN = re.compile(
+    r"^(?P<year>(?!0000)[0-9]{4})-"
+    r"(?P<month>0[1-9]|1[0-2])-(?P<day>0[1-9]|[12][0-9]|3[01])"
+    r"T(?P<hour>[01][0-9]|2[0-3]):(?P<minute>[0-5][0-9]):"
+    r"(?P<second>[0-5][0-9])"
+    r"(?:\.(?P<fraction>[0-9]{1,6}))?"
+    r"(?P<zone>Z|(?P<sign>[+-])(?P<offset_hour>[0-9]{2}):"
+    r"(?P<offset_minute>[0-9]{2}))$"
+)
+_COMPLETION_EVENT_ID_PATTERN = re.compile(r"^[1-9][0-9]{0,18}$")
+_COMPLETION_OPERATION_ID_SCHEMA_PATTERN = (
+    r"^(?:[0-9A-Fa-f]{32}|"
+    r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
+    r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}|"
+    r"\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
+    r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}|"
+    r"urn:uuid:[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
+    r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})(?![\s\S])"
+)
+_ARTIFACT_URL_TYPES = frozenset({"pull_request", "test_run", "external_issue", "build_artifact"})
+_PYTHON_EDGE_WHITESPACE = (
+    r" \t\n\r\v\f\u001c-\u001f\u0085\u00a0\u1680"
+    r"\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
+)
+_JSON_SCHEMA_EXACT_END = r"(?![\s\S])"
+_EVIDENCE_TEXT_SCHEMA_PATTERN = (
+    rf"^(?![\s\S]*\u0000)(?![\s\S]*[\ud800-\udfff])"
+    rf"(?=[\s\S]*[^{_PYTHON_EDGE_WHITESPACE}])"
+    rf"[\s\S]+{_JSON_SCHEMA_EXACT_END}"
+)
+_BRANCH_SCHEMA_PATTERN = (
+    rf"^(?![\s\S]*\u0000)(?![\s\S]*[\ud800-\udfff])"
+    rf"(?![{_PYTHON_EDGE_WHITESPACE}])[\s\S]*[^{_PYTHON_EDGE_WHITESPACE}]"
+    rf"{_JSON_SCHEMA_EXACT_END}"
+)
+_PORT_SCHEMA_PATTERN = (
+    r"(?:0|[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|"
+    r"65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])"
+)
+_IPV4_OCTET_SCHEMA_PATTERN = r"(?:0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])"
+_IPV4_SCHEMA_PATTERN = rf"{_IPV4_OCTET_SCHEMA_PATTERN}(?:\.{_IPV4_OCTET_SCHEMA_PATTERN}){{3}}"
+_DNS_LABEL_SCHEMA_PATTERN = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+_DNS_SCHEMA_PATTERN = rf"{_DNS_LABEL_SCHEMA_PATTERN}(?:\.{_DNS_LABEL_SCHEMA_PATTERN})*"
+_IPV6_NONZERO_HEXTET_SCHEMA_PATTERN = r"[1-9a-f][0-9a-f]{0,3}"
+
+
+def _canonical_ipv6_shape(zero_mask: int) -> str:
+    zeroes = tuple(bool(zero_mask & (1 << position)) for position in range(8))
+    zero_runs: list[tuple[int, int]] = []
+    position = 0
+    while position < 8:
+        if not zeroes[position]:
+            position += 1
+            continue
+        end = position + 1
+        while end < 8 and zeroes[end]:
+            end += 1
+        zero_runs.append((position, end - position))
+        position = end
+    compression = max(zero_runs, key=lambda run: (run[1], -run[0]), default=None)
+    groups = [
+        "0" if zero else _IPV6_NONZERO_HEXTET_SCHEMA_PATTERN for zero in zeroes
+    ]
+    if compression is None or compression[1] < 2:
+        return ":".join(groups)
+    start, length = compression
+    return ":".join(groups[:start]) + "::" + ":".join(groups[start + length :])
+
+
+_IPV6_SCHEMA_PATTERN = (
+    r"\[(?:" + "|".join(_canonical_ipv6_shape(mask) for mask in range(256)) + r")\]"
+)
+_URL_PATH_CHARACTER_SCHEMA_PATTERN = r"(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[0-9A-F]{2})"
+_URL_DOT_SEGMENT_SCHEMA_PATTERN = r"(?:\.{1,2}|%2E|\.%2E|%2E\.|%2E%2E)"
+_HTTPS_ARTIFACT_SCHEMA_PATTERN = (
+    rf"^https://(?:"
+    rf"{_IPV4_SCHEMA_PATTERN}"
+    rf"|(?![0-9.]+(?::(?:{_PORT_SCHEMA_PATTERN}))?/)"
+    rf"(?=[^/:]{{1,253}}(?::(?:{_PORT_SCHEMA_PATTERN}))?/)"
+    rf"{_DNS_SCHEMA_PATTERN}"
+    rf"|{_IPV6_SCHEMA_PATTERN})"
+    rf"(?::(?!443/){_PORT_SCHEMA_PATTERN})?/"
+    rf"(?!{_URL_DOT_SEGMENT_SCHEMA_PATTERN}(?:/|{_JSON_SCHEMA_EXACT_END}))"
+    rf"{_URL_PATH_CHARACTER_SCHEMA_PATTERN}*"
+    rf"(?:/(?!{_URL_DOT_SEGMENT_SCHEMA_PATTERN}(?:/|{_JSON_SCHEMA_EXACT_END}))"
+    rf"{_URL_PATH_CHARACTER_SCHEMA_PATTERN}*)*{_JSON_SCHEMA_EXACT_END}"
+)
+VerificationOutcome = Literal["passed", "failed", "inconclusive", "skipped"]
+ArtifactType = Literal[
+    "commit",
+    "pull_request",
+    "branch",
+    "test_run",
+    "repository_path",
+    "external_issue",
+    "build_artifact",
+]
+
+
+def _bounded_evidence_text(
+    value: str,
+    *,
+    field: str,
+    max_characters: int,
+    max_bytes: int,
+) -> str:
+    nonblank(value)
+    if len(value) > max_characters:
+        raise ValueError(f"{field} must contain at most {max_characters} characters")
+    if len(value.encode("utf-8")) > max_bytes:
+        raise ValueError(f"{field} must contain at most {max_bytes} UTF-8 bytes")
+    return value
+
+
+def evidence_name(value: str) -> str:
+    return _bounded_evidence_text(value, field="name", max_characters=200, max_bytes=800)
+
+
+def evidence_summary(value: str) -> str:
+    return _bounded_evidence_text(value, field="summary", max_characters=4000, max_bytes=16000)
+
+
+def evidence_command(value: str) -> str:
+    return _bounded_evidence_text(value, field="command", max_characters=4096, max_bytes=16384)
+
+
+def artifact_label(value: str) -> str:
+    return _bounded_evidence_text(value, field="label", max_characters=200, max_bytes=800)
+
+
+def artifact_branch(value: str) -> str:
+    _bounded_evidence_text(value, field="branch", max_characters=200, max_bytes=800)
+    if value != value.strip():
+        raise ValueError("Artifact branches cannot contain edge whitespace")
+    return value
+
+
+def observed_commit(value: str) -> str:
+    if re.fullmatch(r"[0-9a-f]{7,64}", value) is None:
+        raise ValueError("Observed commits require lowercase hexadecimal IDs")
+    return value
+
+
+def repository_artifact_path(value: str) -> str:
+    try:
+        encoded = value.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ValueError("Repository paths must contain valid ASCII") from exc
+    if not encoded or len(encoded) > 512:
+        raise ValueError("Repository paths must contain between 1 and 512 bytes")
+    allowed = _AFFECTED_PATH_COMPONENT_CHARACTERS - {"*"}
+    components = value.split("/")
+    if any(component in {"", ".", ".."} for component in components):
+        raise ValueError("Repository paths must contain root-relative components")
+    if any(character not in allowed for component in components for character in component):
+        raise ValueError("Repository paths contain an unsupported character")
+    return value
+
+
+def artifact_https_url(value: str) -> str:
+    no_nul(value)
+    try:
+        encoded = value.encode("ascii")
+        parsed = urlsplit(value)
+        port = parsed.port
+    except (UnicodeEncodeError, ValueError) as exc:
+        raise ValueError("Artifact URLs must be unambiguous ASCII HTTPS URLs") from exc
+    authority = value[len("https://") :].split("/", 1)[0]
+    if authority.startswith("["):
+        closing_bracket = authority.find("]")
+        raw_hostname = authority[1:closing_bracket] if closing_bracket >= 0 else ""
+    else:
+        raw_hostname = authority.split(":", 1)[0]
+    hostname = parsed.hostname
+    host_is_valid = False
+    if hostname is not None:
+        if ":" in hostname:
+            try:
+                ipv6_address = ipaddress.IPv6Address(hostname)
+                host_is_valid = (
+                    "." not in hostname
+                    and re.fullmatch(r"[0-9a-f:]+", hostname) is not None
+                    and str(ipv6_address) == hostname
+                )
+            except ValueError:
+                host_is_valid = False
+        elif re.fullmatch(r"[0-9.]+", hostname) is not None:
+            try:
+                host_is_valid = str(ipaddress.IPv4Address(hostname)) == hostname
+            except ipaddress.AddressValueError:
+                host_is_valid = False
+        elif len(hostname) <= 253:
+            host_is_valid = all(
+                1 <= len(label) <= 63
+                and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) is not None
+                for label in hostname.split(".")
+            )
+    if (
+        not 1 <= len(encoded) <= 2000
+        or not value.startswith("https://")
+        or any(delimiter in value for delimiter in ("\\", "?", "#"))
+        or parsed.scheme != "https"
+        or not parsed.netloc
+        or authority.endswith(":")
+        or raw_hostname != hostname
+        or not host_is_valid
+        or parsed.username is not None
+        or parsed.password is not None
+        or port == 443
+        or not parsed.path
+        or any(ord(character) <= 32 or ord(character) >= 127 for character in value)
+        or re.fullmatch(
+            rf"/(?:{_URL_PATH_CHARACTER_SCHEMA_PATTERN})*"
+            rf"(?:/(?:{_URL_PATH_CHARACTER_SCHEMA_PATTERN})*)*",
+            parsed.path,
+        )
+        is None
+        or any(
+            component.upper() in {".", "..", "%2E", ".%2E", "%2E.", "%2E%2E"}
+            for component in parsed.path.split("/")
+        )
+        or (
+            parsed.port is not None
+            and re.fullmatch(r"0|[1-9][0-9]{0,4}", parsed.netloc.rsplit(":", 1)[-1]) is None
+        )
+    ):
+        raise ValueError(
+            "Artifact URLs must be exact ASCII HTTPS URLs without credentials, query, or fragment"
+        )
+    return value
+
+
+def parse_observed_at(value: object) -> datetime:
+    if not isinstance(value, str) or not value.isascii() or not 20 <= len(value) <= 32:
+        raise ValueError("observed_at must be a 20-32 byte ASCII RFC 3339 timestamp")
+    match = _OBSERVED_AT_PATTERN.fullmatch(value)
+    if match is None or value.endswith("-00:00"):
+        raise ValueError("observed_at must use the supported RFC 3339 grammar")
+    offset_hour = int(match.group("offset_hour") or 0)
+    offset_minute = int(match.group("offset_minute") or 0)
+    if offset_hour > 14 or offset_minute > 59 or (offset_hour == 14 and offset_minute != 0):
+        raise ValueError("observed_at UTC offset is outside the supported range")
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+        utc_value = parsed.astimezone(UTC)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError("observed_at is not a finite representable instant") from exc
+    if not 1 <= utc_value.year <= 9999:
+        raise ValueError("observed_at is outside the supported UTC range")
+    return utc_value
+
+
+def canonical_observed_at(value: datetime) -> str:
+    if value.tzinfo is None:
+        raise ValueError("observed_at must include a UTC offset")
+    utc_value = value.astimezone(UTC)
+    timespec = "seconds" if utc_value.microsecond == 0 else "microseconds"
+    return utc_value.isoformat(timespec=timespec).replace("+00:00", "Z")
+
+
+def completion_event_id(value: str) -> int:
+    if not isinstance(value, str) or _COMPLETION_EVENT_ID_PATTERN.fullmatch(value) is None:
+        raise ValueError("Completion event IDs must be canonical positive decimal strings")
+    parsed = int(value)
+    if parsed > COMPLETION_EVENT_ID_MAX:
+        raise ValueError("Completion event ID is outside the supported range")
+    return parsed
+
+
+def _bounded_positive_decimal_schema_pattern(maximum: int) -> str:
+    """Return an anchored decimal-string grammar whose numeric value is bounded."""
+    digits = str(maximum)
+    branches = [rf"[1-9][0-9]{{0,{len(digits) - 2}}}"]
+    prefix = ""
+    for position, digit in enumerate(digits):
+        lower = 1 if position == 0 else 0
+        upper = int(digit) - 1
+        if lower <= upper:
+            choice = str(lower) if lower == upper else f"[{lower}-{upper}]"
+            remaining = len(digits) - position - 1
+            suffix = "" if remaining == 0 else rf"[0-9]{{{remaining}}}"
+            branches.append(prefix + choice + suffix)
+        prefix += digit
+    branches.append(digits)
+    return rf"^(?:{'|'.join(branches)}){_JSON_SCHEMA_EXACT_END}"
+
+
+_COMPLETION_EVENT_ID_SCHEMA_PATTERN = _bounded_positive_decimal_schema_pattern(
+    COMPLETION_EVENT_ID_MAX
+)
+
+
+def _two_digit_range_schema_pattern(minimum: int, maximum: int) -> str:
+    values = [f"{value:02d}" for value in range(minimum, maximum + 1)]
+    return values[0] if len(values) == 1 else "(?:" + "|".join(values) + ")"
+
+
+_TIMESTAMP_MINUTE_SCHEMA_PATTERN = r"[0-5][0-9]"
+_TIMESTAMP_SECOND_SCHEMA_PATTERN = r"[0-5][0-9](?:\.[0-9]{1,6})?"
+_BOUNDARY_OFFSET_HOUR_SCHEMA_PATTERN = r"(?:0[0-9]|1[0-4])"
+
+
+def _timestamp_boundary_exclusion_schema_pattern() -> str:
+    """Exclude exactly the local timestamps whose offset leaves years 1..9999."""
+
+    lower_hour_overflow = (
+        "(?:"
+        + "|".join(
+            f"{local_hour:02d}:{_TIMESTAMP_MINUTE_SCHEMA_PATTERN}:"
+            f"{_TIMESTAMP_SECOND_SCHEMA_PATTERN}\\+"
+            f"{_two_digit_range_schema_pattern(local_hour + 1, 14)}:"
+            f"{_TIMESTAMP_MINUTE_SCHEMA_PATTERN}"
+            for local_hour in range(14)
+        )
+        + ")"
+    )
+    equal_lower_hours = (
+        "(?:"
+        + "|".join(
+            f"{hour:02d}:{_TIMESTAMP_MINUTE_SCHEMA_PATTERN}:"
+            f"{_TIMESTAMP_SECOND_SCHEMA_PATTERN}\\+{hour:02d}:"
+            f"{_TIMESTAMP_MINUTE_SCHEMA_PATTERN}"
+            for hour in range(15)
+        )
+        + ")"
+    )
+    lower_minute_overflow = (
+        "(?:"
+        + "|".join(
+            f"{minute:02d}:{_TIMESTAMP_SECOND_SCHEMA_PATTERN}\\+"
+            f"{_BOUNDARY_OFFSET_HOUR_SCHEMA_PATTERN}:"
+            f"{_two_digit_range_schema_pattern(minute + 1, 59)}"
+            for minute in range(59)
+        )
+        + ")"
+    )
+
+    upper_hour_overflow = (
+        "(?:"
+        + "|".join(
+            f"{local_hour:02d}:{_TIMESTAMP_MINUTE_SCHEMA_PATTERN}:"
+            f"{_TIMESTAMP_SECOND_SCHEMA_PATTERN}-"
+            f"{_two_digit_range_schema_pattern(24 - local_hour, 14)}:"
+            f"{_TIMESTAMP_MINUTE_SCHEMA_PATTERN}"
+            for local_hour in range(10, 24)
+        )
+        + ")"
+    )
+    equal_upper_hours = (
+        "(?:"
+        + "|".join(
+            f"{local_hour:02d}:{_TIMESTAMP_MINUTE_SCHEMA_PATTERN}:"
+            f"{_TIMESTAMP_SECOND_SCHEMA_PATTERN}-{23 - local_hour:02d}:"
+            f"{_TIMESTAMP_MINUTE_SCHEMA_PATTERN}"
+            for local_hour in range(9, 24)
+        )
+        + ")"
+    )
+    upper_minute_overflow = (
+        "(?:"
+        + "|".join(
+            f"{minute:02d}:{_TIMESTAMP_SECOND_SCHEMA_PATTERN}-"
+            f"{_BOUNDARY_OFFSET_HOUR_SCHEMA_PATTERN}:"
+            f"{_two_digit_range_schema_pattern(60 - minute, 59)}"
+            for minute in range(1, 60)
+        )
+        + ")"
+    )
+
+    return (
+        rf"(?!0001-01-01T{lower_hour_overflow})"
+        rf"(?!(?=0001-01-01T{equal_lower_hours})"
+        rf"0001-01-01T{_BOUNDARY_OFFSET_HOUR_SCHEMA_PATTERN}:"
+        rf"{lower_minute_overflow})"
+        rf"(?!9999-12-31T{upper_hour_overflow})"
+        rf"(?!(?=9999-12-31T{equal_upper_hours})"
+        rf"9999-12-31T(?:0[9]|1[0-9]|2[0-3]):{upper_minute_overflow})"
+    )
+
+
+_OBSERVED_AT_VALIDATION_SCHEMA_PATTERN = (
+    r"^(?![\s\S]*-00:00(?![\s\S]))"
+    + _timestamp_boundary_exclusion_schema_pattern()
+    + r"[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])"
+    r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
+    r"(?:\.[0-9]{1,6})?(?:Z|[+-](?:(?:0[0-9]|1[0-3]):[0-5][0-9]|14:00))"
+    rf"{_JSON_SCHEMA_EXACT_END}"
+)
+_CANONICAL_UTC_TIMESTAMP_SCHEMA = {
+    "type": "string",
+    "format": "date-time",
+    "minLength": 20,
+    "maxLength": 27,
+    "pattern": (
+        r"^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])"
+        r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
+        rf"(?:\.[0-9]{{6}})?Z{_JSON_SCHEMA_EXACT_END}"
+    ),
+}
+
+
+def canonical_or_database_time(value: object) -> datetime:
+    """Accept aware database datetimes or exact canonical UTC wire strings."""
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            raise ValueError("Record time must include a UTC offset")
+        utc_value = value.astimezone(UTC)
+        if not 1 <= utc_value.year <= 9999:
+            raise ValueError("Record time is outside the supported range")
+        return utc_value
+    parsed = parse_observed_at(value)
+    if canonical_observed_at(parsed) != value:
+        raise ValueError("Record time must use canonical UTC spelling")
+    return parsed
+
+
+EvidenceName = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=1, max_length=200, pattern=r"\S"),
+    Field(
+        description="Nonblank evidence name; at most 200 characters and 800 UTF-8 bytes.",
+        json_schema_extra={
+            "pattern": _EVIDENCE_TEXT_SCHEMA_PATTERN,
+            "x-utf8-max-bytes": 800,
+        },
+    ),
+    AfterValidator(evidence_name),
+]
+EvidenceSummary = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=1, max_length=4000, pattern=r"\S"),
+    Field(
+        description="Nonblank evidence summary; at most 4000 characters and 16000 UTF-8 bytes.",
+        json_schema_extra={
+            "pattern": _EVIDENCE_TEXT_SCHEMA_PATTERN,
+            "x-utf8-max-bytes": 16000,
+        },
+    ),
+    AfterValidator(evidence_summary),
+]
+EvidenceCommand = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=1, max_length=4096, pattern=r"\S"),
+    Field(
+        description="Nonblank executed command; at most 4096 characters and 16384 UTF-8 bytes.",
+        json_schema_extra={
+            "pattern": _EVIDENCE_TEXT_SCHEMA_PATTERN,
+            "x-utf8-max-bytes": 16384,
+        },
+    ),
+    AfterValidator(evidence_command),
+]
+ArtifactLabel = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=1, max_length=200, pattern=r"\S"),
+    Field(
+        description="Nonblank artifact label; at most 200 characters and 800 UTF-8 bytes.",
+        json_schema_extra={
+            "pattern": _EVIDENCE_TEXT_SCHEMA_PATTERN,
+            "x-utf8-max-bytes": 800,
+        },
+    ),
+    AfterValidator(artifact_label),
+]
+ArtifactBranch = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=1, max_length=200),
+    Field(
+        json_schema_extra={
+            "pattern": _BRANCH_SCHEMA_PATTERN,
+            "x-utf8-max-bytes": 800,
+        }
+    ),
+    AfterValidator(artifact_branch),
+]
+ArtifactCommit = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=7, max_length=64),
+    Field(json_schema_extra={"pattern": rf"^[0-9a-f]{{7,64}}{_JSON_SCHEMA_EXACT_END}"}),
+]
+RepositoryArtifactPath = Annotated[
+    str,
+    StringConstraints(
+        strict=True,
+        min_length=1,
+        max_length=512,
+        pattern=r"^[A-Za-z0-9._@+=,~/-]+$",
+    ),
+    Field(
+        json_schema_extra={
+            "pattern": (
+                r"^(?!\.{1,2}(?:/|(?![\s\S])))[A-Za-z0-9._@+=,~-]+"
+                r"(?:/(?!\.{1,2}(?:/|(?![\s\S])))[A-Za-z0-9._@+=,~-]+)*"
+                rf"{_JSON_SCHEMA_EXACT_END}"
+            ),
+            "x-utf8-max-bytes": 512,
+        }
+    ),
+    AfterValidator(repository_artifact_path),
+]
+ArtifactHTTPSURL = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=1, max_length=2000, pattern=r"^https://"),
+    Field(
+        json_schema_extra={
+            "format": "uri",
+            "pattern": _HTTPS_ARTIFACT_SCHEMA_PATTERN,
+            "x-utf8-max-bytes": 2000,
+        }
+    ),
+    AfterValidator(artifact_https_url),
+]
+ObservedCommit = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=7, max_length=64),
+    Field(json_schema_extra={"pattern": rf"^[0-9a-f]{{7,64}}{_JSON_SCHEMA_EXACT_END}"}),
+    AfterValidator(observed_commit),
+]
+ObservedAt = Annotated[
+    datetime,
+    WithJsonSchema(
+        {
+            "type": "string",
+            "format": "date-time",
+            "minLength": 20,
+            "maxLength": 32,
+            "pattern": _OBSERVED_AT_VALIDATION_SCHEMA_PATTERN,
+        },
+        mode="validation",
+    ),
+    WithJsonSchema(_CANONICAL_UTC_TIMESTAMP_SCHEMA, mode="serialization"),
+]
+OmissionOnlyObservedAt = ObservedAt | SkipJsonSchema[None]
+OmissionOnlyObservedCommit = ObservedCommit | SkipJsonSchema[None]
+OmissionOnlyExitCode = (
+    Annotated[StrictInt, Field(ge=-2147483648, le=2147483647)] | SkipJsonSchema[None]
+)
+
+
+def valid_completion_event_id_string(value: str) -> str:
+    completion_event_id(value)
+    return value
+
+
+def evidence_cursor_is_valid(value: str) -> str:
+    if not value.isascii():
+        raise ValueError("Completion evidence cursors must contain ASCII")
+    if len(value) % 4 == 1:
+        raise ValueError("Completion evidence cursors must be unpadded base64url")
+    return value
+
+
+CompletionEventID = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=1, max_length=19),
+    Field(json_schema_extra={"pattern": _COMPLETION_EVENT_ID_SCHEMA_PATTERN}),
+    AfterValidator(valid_completion_event_id_string),
+]
+CompletionEvidenceCursor = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=1, max_length=4096),
+    Field(
+        json_schema_extra={
+            "pattern": rf"^(?:[A-Za-z0-9_-]{{4}})*(?:[A-Za-z0-9_-]{{2}}|"
+            rf"[A-Za-z0-9_-]{{3}})?{_JSON_SCHEMA_EXACT_END}"
+        }
+    ),
+    AfterValidator(evidence_cursor_is_valid),
+]
+CompletionOperationID = Annotated[
+    UUID,
+    WithJsonSchema(
+        {"type": "string", "pattern": _COMPLETION_OPERATION_ID_SCHEMA_PATTERN},
+        mode="validation",
+    ),
+    WithJsonSchema({"type": "string", "format": "uuid"}, mode="serialization"),
+]
+CanonicalRecordTime = Annotated[
+    datetime,
+    BeforeValidator(canonical_or_database_time),
+    WithJsonSchema(_CANONICAL_UTC_TIMESTAMP_SCHEMA),
+]
+CanonicalTimestampString = Annotated[str, WithJsonSchema(_CANONICAL_UTC_TIMESTAMP_SCHEMA)]
+OmissionOnlyCanonicalTime = CanonicalRecordTime | SkipJsonSchema[None]
+CompletionCount = Annotated[
+    StrictInt,
+    Field(ge=0, le=COMPLETION_EVENT_ID_MAX),
+    WithJsonSchema(
+        {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": COMPLETION_EVENT_ID_MAX,
+        }
+    ),
+]
+
 
 def progress_request_metadata_is_safe(
     value: dict[str, JsonValue],
@@ -349,6 +955,300 @@ class MutationActor(APIModel):
     actor_model: ModelName | None = None
 
 
+def _reject_explicit_null(data: object, *field_names: str) -> object:
+    if isinstance(data, dict):
+        for field_name in field_names:
+            if field_name in data and data[field_name] is None:
+                raise ValueError(f"{field_name} cannot be null")
+    return data
+
+
+def _combined_evidence_schema(*, require_nonempty: bool = False) -> dict[str, object]:
+    """Describe the cross-array entry cap in executable JSON Schema."""
+    schema: dict[str, object] = {
+        "anyOf": [
+            {
+                "properties": {
+                    "verification_results": {"maxItems": result_count},
+                    "artifact_references": {
+                        "maxItems": COMPLETION_EVIDENCE_MAX_ENTRIES - result_count
+                    },
+                }
+            }
+            for result_count in range(COMPLETION_EVIDENCE_MAX_ENTRIES + 1)
+        ],
+        "description": (
+            "At most 20 verification results and artifact references combined. "
+            "The aggregate text content is additionally limited to 32768 UTF-8 bytes."
+        ),
+        "x-utf8-aggregate-max-bytes": COMPLETION_EVIDENCE_MAX_BYTES,
+    }
+    if require_nonempty:
+        schema["allOf"] = [
+            {
+                "anyOf": [
+                    {"properties": {"verification_results": {"minItems": 1}}},
+                    {"properties": {"artifact_references": {"minItems": 1}}},
+                ]
+            }
+        ]
+    return schema
+
+
+_COMMAND_RESULT_SCHEMA = {
+    "oneOf": [
+        {
+            "required": ["exit_code"],
+            "properties": {
+                "outcome": {"const": "passed"},
+                "exit_code": {"const": 0},
+            },
+        },
+        {
+            "required": ["exit_code"],
+            "properties": {
+                "outcome": {"const": "failed"},
+                "exit_code": {"not": {"const": 0}},
+            },
+        },
+        {
+            "properties": {"outcome": {"const": "inconclusive"}},
+            "not": {"required": ["exit_code"]},
+        },
+    ]
+}
+
+
+_ARTIFACT_REFERENCE_SCHEMA = {
+    "allOf": [
+        {
+            "if": {"properties": {"artifact_type": {"const": "commit"}}},
+            "then": {
+                "properties": {
+                    "reference": {
+                        "type": "string",
+                        "minLength": 7,
+                        "maxLength": 64,
+                        "pattern": (rf"^[0-9a-f]{{7,64}}{_JSON_SCHEMA_EXACT_END}"),
+                    }
+                }
+            },
+        },
+        {
+            "if": {"properties": {"artifact_type": {"const": "branch"}}},
+            "then": {
+                "properties": {
+                    "reference": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200,
+                        "pattern": _BRANCH_SCHEMA_PATTERN,
+                        "x-utf8-max-bytes": 800,
+                    }
+                }
+            },
+        },
+        {
+            "if": {"properties": {"artifact_type": {"const": "repository_path"}}},
+            "then": {
+                "properties": {
+                    "reference": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512,
+                        "pattern": (
+                            r"^(?!\.{1,2}(?:/|(?![\s\S])))"
+                            r"[A-Za-z0-9._@+=,~-]+"
+                            r"(?:/(?!\.{1,2}(?:/|(?![\s\S])))"
+                            r"[A-Za-z0-9._@+=,~-]+)*"
+                            rf"{_JSON_SCHEMA_EXACT_END}"
+                        ),
+                        "x-utf8-max-bytes": 512,
+                    }
+                }
+            },
+        },
+        {
+            "if": {
+                "properties": {
+                    "artifact_type": {
+                        "enum": [
+                            "pull_request",
+                            "test_run",
+                            "external_issue",
+                            "build_artifact",
+                        ]
+                    }
+                }
+            },
+            "then": {
+                "properties": {
+                    "reference": {
+                        "type": "string",
+                        "format": "uri",
+                        "minLength": 1,
+                        "maxLength": 2000,
+                        "pattern": _HTTPS_ARTIFACT_SCHEMA_PATTERN,
+                        "x-utf8-max-bytes": 2000,
+                    }
+                }
+            },
+        },
+    ]
+}
+
+
+class _VerificationInputBase(APIModel):
+    name: EvidenceName
+    summary: EvidenceSummary
+    observed_at: OmissionOnlyObservedAt = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    observed_at_commit: OmissionOnlyObservedCommit = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def optional_fields_are_sparse(cls, data: object) -> object:
+        return _reject_explicit_null(data, "observed_at", "observed_at_commit")
+
+    @field_validator("observed_at", mode="before")
+    @classmethod
+    def strict_observed_time(cls, value: object) -> datetime:
+        return parse_observed_at(value)
+
+    @field_serializer("observed_at")
+    def serialize_observed_time(self, value: datetime | None) -> str:
+        assert value is not None
+        return canonical_observed_at(value)
+
+
+class CommandVerificationInput(_VerificationInputBase):
+    verification_type: Literal["command"]
+    outcome: Literal["passed", "failed", "inconclusive"]
+    command: EvidenceCommand
+    exit_code: OmissionOnlyExitCode = Field(default=None, exclude_if=lambda value: value is None)
+
+    model_config = ConfigDict(json_schema_extra=_COMMAND_RESULT_SCHEMA)
+
+    @model_validator(mode="before")
+    @classmethod
+    def exit_code_presence_is_exact(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        outcome = data.get("outcome")
+        if outcome in {"passed", "failed"}:
+            if "exit_code" not in data or data["exit_code"] is None:
+                raise ValueError("Determinate command results require exit_code")
+        elif "exit_code" in data:
+            raise ValueError("Inconclusive command results omit exit_code")
+        return data
+
+    @model_validator(mode="after")
+    def command_result_is_coherent(self) -> Self:
+        if self.outcome == "passed" and self.exit_code != 0:
+            raise ValueError("Passed commands require exit_code 0")
+        if self.outcome == "failed" and (self.exit_code is None or self.exit_code == 0):
+            raise ValueError("Failed commands require a nonzero exit_code")
+        if self.outcome == "inconclusive" and self.exit_code is not None:
+            raise ValueError("Inconclusive commands omit exit_code")
+        return self
+
+
+class ObservationVerificationInput(_VerificationInputBase):
+    verification_type: Literal["observation"]
+    outcome: VerificationOutcome
+
+
+VerificationResultInput = Annotated[
+    CommandVerificationInput | ObservationVerificationInput,
+    Field(discriminator="verification_type"),
+]
+
+
+class ArtifactReferenceInput(APIModel):
+    artifact_type: ArtifactType
+    label: ArtifactLabel
+    reference: Annotated[str, StringConstraints(strict=True)]
+
+    model_config = ConfigDict(json_schema_extra=_ARTIFACT_REFERENCE_SCHEMA)
+
+    @model_validator(mode="after")
+    def reference_matches_type(self) -> Self:
+        if self.artifact_type == "commit":
+            if re.fullmatch(r"[0-9a-f]{7,64}", self.reference) is None:
+                raise ValueError("Commit artifacts require lowercase hexadecimal IDs")
+        elif self.artifact_type == "branch":
+            artifact_branch(self.reference)
+        elif self.artifact_type == "repository_path":
+            repository_artifact_path(self.reference)
+        elif self.artifact_type in _ARTIFACT_URL_TYPES:
+            artifact_https_url(self.reference)
+        return self
+
+
+def completion_evidence_text_bytes(
+    results: list[CommandVerificationInput | ObservationVerificationInput],
+    artifacts: list[ArtifactReferenceInput],
+) -> int:
+    total = 0
+    for result in results:
+        values = (
+            result.verification_type,
+            result.name,
+            result.outcome,
+            result.summary,
+        )
+        total += sum(len(value.encode("utf-8")) for value in values)
+        if isinstance(result, CommandVerificationInput):
+            total += len(result.command.encode("utf-8"))
+        if result.observed_at is not None:
+            total += 32
+        if result.observed_at_commit is not None:
+            total += len(result.observed_at_commit.encode("utf-8"))
+    for artifact in artifacts:
+        total += sum(
+            len(value.encode("utf-8"))
+            for value in (artifact.artifact_type, artifact.label, artifact.reference)
+        )
+    return total
+
+
+class CompletionEvidenceInput(APIModel):
+    verification_results: list[VerificationResultInput] = Field(
+        default_factory=list, max_length=COMPLETION_EVIDENCE_MAX_ENTRIES
+    )
+    artifact_references: list[ArtifactReferenceInput] = Field(
+        default_factory=list,
+        max_length=COMPLETION_EVIDENCE_MAX_ENTRIES,
+        json_schema_extra={"x-unique-by": ["artifact_type", "reference"]},
+    )
+
+    model_config = ConfigDict(json_schema_extra=_combined_evidence_schema())
+
+    @model_validator(mode="after")
+    def aggregate_is_bounded(self) -> Self:
+        total = len(self.verification_results) + len(self.artifact_references)
+        if total > COMPLETION_EVIDENCE_MAX_ENTRIES:
+            raise ValueError("Completion evidence contains more than 20 entries")
+        identities = [
+            (artifact.artifact_type, artifact.reference) for artifact in self.artifact_references
+        ]
+        if len(identities) != len(set(identities)):
+            raise ValueError("Artifact references must be unique within a completion")
+        if (
+            completion_evidence_text_bytes(self.verification_results, self.artifact_references)
+            > COMPLETION_EVIDENCE_MAX_BYTES
+        ):
+            raise ValueError("Completion evidence exceeds 32768 UTF-8 bytes")
+        return self
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.verification_results and not self.artifact_references
+
+
 class Timestamps(APIModel):
     created_at: datetime
     updated_at: datetime
@@ -425,9 +1325,7 @@ class CheckpointPayload(APIModel):
 
     @field_validator("affected_paths")
     @classmethod
-    def validate_affected_paths(
-        cls, value: list[str], info: ValidationInfo
-    ) -> list[str]:
+    def validate_affected_paths(cls, value: list[str], info: ValidationInfo) -> list[str]:
         return affected_paths_are_valid(value, info)
 
     @field_validator("tags")
@@ -549,13 +1447,84 @@ class WorkDeferralCreate(APIModel):
         return self
 
 
-class WorkCompletionCreate(APIModel):
-    expected_version: Annotated[StrictInt, Field(ge=1)]
+class WorkCompletionRequest(APIModel):
+    """Control-free completion intent used after receipt preparation."""
+
+    expected_version: Annotated[StrictInt, Field(ge=1, le=COMPLETION_EXPECTED_VERSION_MAX)]
     checkpoint: CompletionCheckpointCreate
     lease_token: LeaseToken | None = Field(default=None, repr=False)
-    client_operation_id: UUID | None = Field(
+    completion_evidence: CompletionEvidenceInput | SkipJsonSchema[None] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+
+    @field_validator("completion_evidence", mode="before")
+    @classmethod
+    def evidence_is_not_null(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("completion_evidence cannot be null")
+        return value
+
+    @field_validator("completion_evidence")
+    @classmethod
+    def empty_evidence_is_omitted(
+        cls, value: CompletionEvidenceInput | None
+    ) -> CompletionEvidenceInput | None:
+        return None if value is not None and value.is_empty else value
+
+
+class WorkCompletionCreate(WorkCompletionRequest):
+    client_operation_id: CompletionOperationID | None = Field(
         default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
     )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "if": {
+                "required": ["completion_evidence"],
+                "properties": {
+                    "completion_evidence": {
+                        "type": "object",
+                        "anyOf": [
+                            {
+                                "required": ["verification_results"],
+                                "properties": {
+                                    "verification_results": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                    }
+                                },
+                            },
+                            {
+                                "required": ["artifact_references"],
+                                "properties": {
+                                    "artifact_references": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                    }
+                                },
+                            },
+                        ],
+                    }
+                },
+            },
+            "then": {
+                "required": ["client_operation_id"],
+                "properties": {
+                    "client_operation_id": {
+                        "type": "string",
+                        "pattern": _COMPLETION_OPERATION_ID_SCHEMA_PATTERN,
+                    }
+                },
+            },
+        }
+    )
+
+    @model_validator(mode="after")
+    def evidence_requires_operation_id(self) -> Self:
+        if self.completion_evidence is not None and self.client_operation_id is None:
+            raise ValueError("Non-empty completion evidence requires client_operation_id")
+        return self
 
 
 class WorkDeletionCreate(APIModel):
@@ -740,8 +1709,7 @@ class HumanGateRead(APIModel):
         )
         if self.status == "unresolved":
             if any(
-                value is not None
-                for value in (*required_resolution_values, self.resolved_by_model)
+                value is not None for value in (*required_resolution_values, self.resolved_by_model)
             ):
                 raise ValueError("Unresolved gates cannot contain resolution fields")
             return self
@@ -805,14 +1773,16 @@ class CheckpointRead(APIModel):
 
     @field_validator("affected_paths")
     @classmethod
-    def validate_affected_paths(
-        cls, value: list[str], info: ValidationInfo
-    ) -> list[str]:
+    def validate_affected_paths(cls, value: list[str], info: ValidationInfo) -> list[str]:
         return affected_paths_are_valid(value, info)
 
     @field_serializer("created_at")
     def utc_time(self, value: datetime) -> str:
         return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class CompletionCheckpointRead(CheckpointRead):
+    kind: Literal["completion"]
 
 
 class CheckpointPointer(APIModel):
@@ -832,6 +1802,312 @@ class CheckpointPointer(APIModel):
     @field_serializer("created_at")
     def utc_time(self, value: datetime) -> str:
         return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class CompletionCheckpointPointer(CheckpointPointer):
+    kind: Literal["completion"]
+    created_at: CanonicalRecordTime
+
+
+class _VerificationReadBase(APIModel):
+    id: UUID
+    work_item_id: UUID
+    completion_checkpoint_id: UUID
+    position: Annotated[StrictInt, Field(ge=0, le=19)]
+    name: EvidenceName
+    summary: EvidenceSummary
+    observed_at: OmissionOnlyCanonicalTime = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    observed_at_commit: OmissionOnlyObservedCommit = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    created_at: CanonicalRecordTime
+
+    @model_validator(mode="before")
+    @classmethod
+    def optional_fields_are_sparse(cls, data: object) -> object:
+        return _reject_explicit_null(data, "observed_at", "observed_at_commit")
+
+    @field_validator("observed_at", mode="before")
+    @classmethod
+    def canonical_or_database_observed_time(cls, value: object) -> datetime | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                raise ValueError("Stored observed_at must include a UTC offset")
+            value = value.astimezone(UTC)
+            if not 1 <= value.year <= 9999:
+                raise ValueError("Stored observed_at is outside the supported range")
+            return value
+        parsed = parse_observed_at(value)
+        if canonical_observed_at(parsed) != value:
+            raise ValueError("Stored observed_at must use canonical UTC spelling")
+        return parsed
+
+    @field_validator("created_at")
+    @classmethod
+    def record_time_is_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("Evidence record time must include a UTC offset")
+        return value
+
+    @field_serializer("observed_at", return_type=CanonicalTimestampString)
+    def serialize_observed_time(self, value: datetime | None) -> str:
+        assert value is not None
+        return canonical_observed_at(value)
+
+    @field_serializer("created_at")
+    def serialize_record_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class CommandVerificationRead(_VerificationReadBase):
+    verification_type: Literal["command"]
+    outcome: Literal["passed", "failed", "inconclusive"]
+    command: EvidenceCommand
+    exit_code: OmissionOnlyExitCode = Field(default=None, exclude_if=lambda value: value is None)
+
+    model_config = ConfigDict(json_schema_extra=_COMMAND_RESULT_SCHEMA)
+
+    @model_validator(mode="before")
+    @classmethod
+    def exit_code_presence_is_exact(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        outcome = data.get("outcome")
+        if outcome in {"passed", "failed"}:
+            if "exit_code" not in data or data["exit_code"] is None:
+                raise ValueError("Determinate command results require exit_code")
+        elif "exit_code" in data:
+            raise ValueError("Inconclusive command results omit exit_code")
+        return data
+
+    @model_validator(mode="after")
+    def command_result_is_coherent(self) -> Self:
+        if self.outcome == "passed" and self.exit_code != 0:
+            raise ValueError("Passed commands require exit_code 0")
+        if self.outcome == "failed" and (self.exit_code is None or self.exit_code == 0):
+            raise ValueError("Failed commands require a nonzero exit_code")
+        if self.outcome == "inconclusive" and self.exit_code is not None:
+            raise ValueError("Inconclusive commands omit exit_code")
+        return self
+
+
+class ObservationVerificationRead(_VerificationReadBase):
+    verification_type: Literal["observation"]
+    outcome: VerificationOutcome
+
+
+VerificationResultRead = Annotated[
+    CommandVerificationRead | ObservationVerificationRead,
+    Field(discriminator="verification_type"),
+]
+
+
+class ArtifactReferenceRead(ArtifactReferenceInput):
+    id: UUID
+    work_item_id: UUID
+    completion_checkpoint_id: UUID
+    position: Annotated[StrictInt, Field(ge=0, le=19)]
+    created_at: CanonicalRecordTime
+
+    @field_validator("created_at")
+    @classmethod
+    def record_time_is_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("Artifact record time must include a UTC offset")
+        return value
+
+    @field_serializer("created_at")
+    def serialize_record_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _completion_evidence_read_text_bytes(
+    verification_results: list[CommandVerificationRead | ObservationVerificationRead],
+    artifact_references: list[ArtifactReferenceRead],
+) -> int:
+    total = 0
+    for result in verification_results:
+        total += sum(
+            len(value.encode("utf-8"))
+            for value in (
+                result.verification_type,
+                result.name,
+                result.outcome,
+                result.summary,
+            )
+        )
+        if isinstance(result, CommandVerificationRead):
+            total += len(result.command.encode("utf-8"))
+        if result.observed_at is not None:
+            total += 32
+        if result.observed_at_commit is not None:
+            total += len(result.observed_at_commit.encode("utf-8"))
+    return total + sum(
+        len(value.encode("utf-8"))
+        for artifact in artifact_references
+        for value in (artifact.artifact_type, artifact.label, artifact.reference)
+    )
+
+
+def _require_completion_evidence_read_size(
+    verification_results: list[CommandVerificationRead | ObservationVerificationRead],
+    artifact_references: list[ArtifactReferenceRead],
+) -> None:
+    if (
+        _completion_evidence_read_text_bytes(verification_results, artifact_references)
+        > COMPLETION_EVIDENCE_MAX_BYTES
+    ):
+        raise ValueError("Completion evidence exceeds 32768 UTF-8 bytes")
+
+
+def _evidence_children_are_coherent(
+    verification_results: list[CommandVerificationRead | ObservationVerificationRead],
+    artifact_references: list[ArtifactReferenceRead],
+    *,
+    work_item_id: UUID | None = None,
+    checkpoint_id: UUID | None = None,
+    created_at: datetime | None = None,
+) -> None:
+    total = len(verification_results) + len(artifact_references)
+    if total > COMPLETION_EVIDENCE_MAX_ENTRIES:
+        raise ValueError("Completion evidence contains more than 20 entries")
+    for family in (verification_results, artifact_references):
+        if [item.position for item in family] != list(range(len(family))):
+            raise ValueError("Evidence positions must be contiguous and ordered")
+        if len({item.id for item in family}) != len(family):
+            raise ValueError("Evidence row IDs must be unique")
+        for item in family:
+            if work_item_id is not None and item.work_item_id != work_item_id:
+                raise ValueError("Evidence belongs to another work item")
+            if checkpoint_id is not None and item.completion_checkpoint_id != checkpoint_id:
+                raise ValueError("Evidence belongs to another completion checkpoint")
+            if created_at is not None and item.created_at != created_at:
+                raise ValueError("Evidence record time must equal its completion checkpoint")
+    identities = [(artifact.artifact_type, artifact.reference) for artifact in artifact_references]
+    if len(identities) != len(set(identities)):
+        raise ValueError("Artifact references must be unique within a completion")
+    _require_completion_evidence_read_size(verification_results, artifact_references)
+
+
+def _completion_page_identity_is_coherent(page: CompletionEvidencePage) -> None:
+    if page.is_duplicate:
+        if page.canonical_work_item_id == page.work_item_id:
+            raise ValueError("A duplicate evidence page requires another canonical work")
+    elif page.canonical_work_item_id != page.work_item_id:
+        raise ValueError("A canonical evidence page must point to itself")
+    if page.current_completion_checkpoint_id is not None and (
+        page.lifecycle_status != "done" or page.is_duplicate
+    ):
+        raise ValueError("Current completion pointer disagrees with lifecycle state")
+
+
+def _completion_page_cursor_is_coherent(page: CompletionEvidencePage) -> None:
+    if page.total == 0:
+        if (
+            page.items
+            or page.structured_completion_total != 0
+            or page.as_of_completion_event_id is not None
+            or page.next_cursor is not None
+        ):
+            raise ValueError("An empty completion history cannot have page state")
+        return
+    if page.as_of_completion_event_id is None:
+        raise ValueError("A retained completion history requires a high-water event")
+    if not page.items:
+        raise ValueError("A nonempty completion history page requires an episode")
+    if page.next_cursor is not None and len(page.items) != page.limit:
+        raise ValueError("A continuation cursor requires one full page of episodes")
+
+
+def _completion_page_items_are_coherent(page: CompletionEvidencePage) -> None:
+    event_ids = [completion_event_id(item.completion_event_id) for item in page.items]
+    if event_ids != sorted(event_ids, reverse=True) or len(event_ids) != len(set(event_ids)):
+        raise ValueError("Completion episodes must be unique and newest first")
+    if page.as_of_completion_event_id is not None:
+        high_water = completion_event_id(page.as_of_completion_event_id)
+        if any(value > high_water for value in event_ids):
+            raise ValueError("Completion episode exceeds the page high-water event")
+    if any(item.completion_checkpoint.work_item_id != page.work_item_id for item in page.items):
+        raise ValueError("Completion episode belongs to another work item")
+    structured_items = sum(
+        bool(item.verification_results or item.artifact_references) for item in page.items
+    )
+    if structured_items > page.structured_completion_total:
+        raise ValueError("Structured completion total omits a returned episode")
+
+
+class CompletionEvidencePayloadRead(APIModel):
+    verification_results: list[VerificationResultRead] = Field(max_length=20)
+    artifact_references: list[ArtifactReferenceRead] = Field(max_length=20)
+
+    model_config = ConfigDict(json_schema_extra=_combined_evidence_schema(require_nonempty=True))
+
+    @model_validator(mode="after")
+    def payload_is_nonempty_and_coherent(self) -> Self:
+        _evidence_children_are_coherent(self.verification_results, self.artifact_references)
+        if not self.verification_results and not self.artifact_references:
+            raise ValueError("A completion evidence payload cannot be empty")
+        return self
+
+
+class CompletionEvidenceEpisodeRead(APIModel):
+    completion_event_id: CompletionEventID
+    completion_checkpoint: CompletionCheckpointPointer
+    verification_results: list[VerificationResultRead] = Field(max_length=20)
+    artifact_references: list[ArtifactReferenceRead] = Field(max_length=20)
+
+    model_config = ConfigDict(json_schema_extra=_combined_evidence_schema())
+
+    @model_validator(mode="after")
+    def episode_is_coherent(self) -> Self:
+        checkpoint = self.completion_checkpoint
+        if checkpoint.kind != "completion":
+            raise ValueError("Evidence episodes require completion checkpoints")
+        _evidence_children_are_coherent(
+            self.verification_results,
+            self.artifact_references,
+            work_item_id=checkpoint.work_item_id,
+            checkpoint_id=checkpoint.id,
+            created_at=checkpoint.created_at,
+        )
+        return self
+
+
+class CompletionEvidencePage(APIModel):
+    work_item_id: UUID
+    work_version: Annotated[StrictInt, Field(ge=1, le=2147483647)]
+    lifecycle_status: Status
+    is_duplicate: StrictBool
+    canonical_work_item_id: UUID
+    current_completion_checkpoint_id: UUID | None
+    as_of_completion_event_id: CompletionEventID | None
+    items: list[CompletionEvidenceEpisodeRead] = Field(max_length=10)
+    total: CompletionCount
+    structured_completion_total: CompletionCount
+    limit: Annotated[StrictInt, Field(ge=1, le=10)]
+    next_cursor: CompletionEvidenceCursor | None
+
+    @model_validator(mode="after")
+    def page_is_coherent(self) -> Self:
+        if (
+            self.structured_completion_total > self.total
+            or len(self.items) > self.total
+            or len(self.items) > self.limit
+        ):
+            raise ValueError("Completion evidence page totals are inconsistent")
+        _completion_page_identity_is_coherent(self)
+        _completion_page_cursor_is_coherent(self)
+        _completion_page_items_are_coherent(self)
+        return self
+
+
+class CompletionEvidenceListQuery(APIModel):
+    limit: Annotated[int, Field(ge=1, le=10)] = 10
+    cursor: CompletionEvidenceCursor | SkipJsonSchema[None] = None
 
 
 class LeasePublic(APIModel):
@@ -927,10 +2203,9 @@ class WorkItemDetailRead(APIModel):
         )
         if not self.canonical.is_duplicate and self.canonical.canonical_work_item != requested:
             raise ValueError("A canonical root must point to itself")
-        if (
-            self.canonical.is_duplicate
-            and self.work_item.id in {item.id for item in self.canonical.path}
-        ):
+        if self.canonical.is_duplicate and self.work_item.id in {
+            item.id for item in self.canonical.path
+        }:
             raise ValueError("A duplicate path cannot contain its requested source")
         return self
 
@@ -1034,9 +2309,7 @@ class WorkSearchHit(APIModel):
 
 DuplicateSuggestionSignal = Literal["exact_title", "lexical", "semantic"]
 DuplicateSuggestionMode = Literal["hybrid_full", "hybrid_shortlist", "lexical"]
-DuplicateSuggestionSemanticScope = Literal[
-    "full_project", "lexical_shortlist", "unavailable"
-]
+DuplicateSuggestionSemanticScope = Literal["full_project", "lexical_shortlist", "unavailable"]
 _DUPLICATE_SUGGESTION_SIGNAL_ORDER = ("exact_title", "lexical", "semantic")
 
 
@@ -1139,9 +2412,7 @@ class DuplicateSuggestionPage(APIModel):
         }[self.mode]
         if (self.semantic_available, self.semantic_scope) != expected:
             raise ValueError("Suggestion mode and semantic scope are inconsistent")
-        if not self.semantic_available and any(
-            "semantic" in item.signals for item in self.items
-        ):
+        if not self.semantic_available and any("semantic" in item.signals for item in self.items):
             raise ValueError("Lexical fallback cannot report semantic evidence")
 
     def _require_exact_lane(self) -> None:
@@ -1151,9 +2422,9 @@ class DuplicateSuggestionPage(APIModel):
         actual_exact = sum("exact_title" in item.signals for item in self.items)
         if actual_exact != visible_exact:
             raise ValueError("Exact-title group totals are inconsistent")
-        if any(
-            "exact_title" not in item.signals for item in self.items[:visible_exact]
-        ) or any("exact_title" in item.signals for item in self.items[visible_exact:]):
+        if any("exact_title" not in item.signals for item in self.items[:visible_exact]) or any(
+            "exact_title" in item.signals for item in self.items[visible_exact:]
+        ):
             raise ValueError("Exact-title suggestions must form the response prefix")
         if self.omitted_exact_title_group_count != self.exact_title_group_total - visible_exact:
             raise ValueError("Omitted exact-title group count is inconsistent")
@@ -1776,19 +3047,14 @@ class WorkMergeResult(APIModel):
             raise ValueError("Merge result endpoint snapshots are incoherent")
         destination_identity = (destination.id, destination.title, destination.status)
         if (
-            (
-                self.direct_destination.id,
-                self.direct_destination.title,
-                self.direct_destination.status,
-            )
-            != destination_identity
-            or (
-                self.canonical_work_item.id,
-                self.canonical_work_item.title,
-                self.canonical_work_item.status,
-            )
-            != destination_identity
-        ):
+            self.direct_destination.id,
+            self.direct_destination.title,
+            self.direct_destination.status,
+        ) != destination_identity or (
+            self.canonical_work_item.id,
+            self.canonical_work_item.title,
+            self.canonical_work_item.status,
+        ) != destination_identity:
             raise ValueError("A fresh merge must point directly to its canonical destination")
 
     def _require_supporting_relationship(self) -> None:
@@ -1876,11 +3142,9 @@ class WorkMergeResult(APIModel):
                 or not isinstance(metadata, WorkMergedMetadata)
                 or metadata.merge_id != self.merge.id
                 or metadata.source_work_item_id != self.merge.source_work_item_id
-                or metadata.destination_work_item_id
-                != self.merge.destination_work_item_id
+                or metadata.destination_work_item_id != self.merge.destination_work_item_id
                 or metadata.role != role
-                or metadata.source_work_version
-                != self.merge.resulting_source_work_version
+                or metadata.source_work_version != self.merge.resulting_source_work_version
                 or metadata.destination_work_version
                 != self.merge.resulting_destination_work_version
             ):
@@ -1951,7 +3215,9 @@ class WorkContext(APIModel):
         current_checkpoint_id = (
             self.initial_checkpoint.id
             if self.current_context_is_initial
-            else self.current_context.id if self.current_context is not None else None
+            else self.current_context.id
+            if self.current_context is not None
+            else None
         )
         if current_checkpoint_id != self.merge_review_revision.context_checkpoint_id:
             raise ValueError("Merge review checkpoint does not match current context")
@@ -1966,9 +3232,7 @@ class WorkContext(APIModel):
             raise ValueError("Duplicate members must be unique")
         if self.canonical.canonical_work_item.id in member_ids:
             raise ValueError("Duplicate members cannot contain the canonical root")
-        if self.canonical.is_duplicate and (
-            not member_ids or member_ids[0] != self.work_item.id
-        ):
+        if self.canonical.is_duplicate and (not member_ids or member_ids[0] != self.work_item.id):
             raise ValueError("Requested duplicate must be the first duplicate member")
         if self.duplicate_member_total != len(member_ids) + self.omitted_duplicate_member_count:
             raise ValueError("Duplicate member totals are inconsistent")
@@ -2025,7 +3289,30 @@ class ReleaseResult(APIModel):
 
 class WorkCompletionRead(APIModel):
     work_item: WorkItemRead
-    checkpoint: CheckpointRead
+    checkpoint: CompletionCheckpointRead
+    completion_evidence: CompletionEvidencePayloadRead | SkipJsonSchema[None] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def completion_is_coherent(self) -> Self:
+        if "completion_evidence" in self.model_fields_set and self.completion_evidence is None:
+            raise ValueError("completion_evidence cannot be null")
+        if (
+            self.checkpoint.kind != "completion"
+            or self.checkpoint.work_item_id != self.work_item.id
+        ):
+            raise ValueError("Completion checkpoint does not belong to the work item")
+        if self.completion_evidence is not None:
+            _evidence_children_are_coherent(
+                self.completion_evidence.verification_results,
+                self.completion_evidence.artifact_references,
+                work_item_id=self.work_item.id,
+                checkpoint_id=self.checkpoint.id,
+                created_at=self.checkpoint.created_at,
+            )
+        return self
 
 
 class WorkDeletionRead(APIModel):
@@ -2052,9 +3339,7 @@ class WorkItemListQuery(APIModel):
     semantic: bool = False
     status: Literal[
         "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
-    ] = (
-        "pending"
-    )
+    ] = "pending"
     sort: Literal["updated", "created", "priority"] = "updated"
     tag: Tag | None = None
     source_client: ClientName | None = None

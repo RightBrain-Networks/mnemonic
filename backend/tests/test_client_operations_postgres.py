@@ -50,8 +50,7 @@ def clean_client_operations(
 ):
     del api
     yield
-    with postgres_engine.begin() as connection:
-        connection.execute(text("TRUNCATE client_operations RESTART IDENTITY"))
+    del postgres_engine
 
 
 def deletion_request(

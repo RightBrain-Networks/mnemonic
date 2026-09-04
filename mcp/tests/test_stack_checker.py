@@ -38,13 +38,13 @@ def test_stack_checker_requires_full_truthful_repository_declaration():
         checker.validated_repository_scope(baseline.lower(), ["bad path"])
 
 
-def test_stack_checker_pins_phase_10_rest_contract():
+def test_stack_checker_pins_phase_11_rest_contract():
     checker = stack_checker()
     document = json.loads((REPOSITORY_ROOT / "docs" / "openapi.json").read_text())
 
     checker.validate_rest_contract(document)
     old_version = copy.deepcopy(document)
-    old_version["info"]["version"] = "0.4.0"
+    old_version["info"]["version"] = "0.5.0"
     with pytest.raises(RuntimeError, match="REST API version"):
         checker.validate_rest_contract(old_version)
     required_scope = copy.deepcopy(document)
@@ -77,7 +77,7 @@ def test_stack_checker_pins_phase_10_rest_contract():
     ]["post"]["responses"]["201"]["content"]["application/json"]["schema"] = {
         "$ref": "#/components/schemas/CheckpointPointer"
     }
-    with pytest.raises(RuntimeError, match="expected Phase 10 response"):
+    with pytest.raises(RuntimeError, match="expected Phase 11 response"):
         checker.validate_rest_contract(wrong_response)
     leaked_pointer = copy.deepcopy(document)
     leaked_pointer["components"]["schemas"]["CheckpointPointer"]["properties"][
@@ -86,8 +86,26 @@ def test_stack_checker_pins_phase_10_rest_contract():
     with pytest.raises(RuntimeError, match="compact checkpoint pointers"):
         checker.validate_rest_contract(leaked_pointer)
 
+    missing_condition = copy.deepcopy(document)
+    del missing_condition["components"]["schemas"]["WorkCompletionCreate"]["then"]
+    with pytest.raises(RuntimeError, match="operation-ID condition"):
+        checker.validate_rest_contract(missing_condition)
+    writable_history = copy.deepcopy(document)
+    history_path = (
+        "/api/v1/projects/{project_id}/work-items/{work_item_id}/completion-evidence"
+    )
+    writable_history["paths"][history_path]["post"] = {}
+    with pytest.raises(RuntimeError, match="sole safe GET"):
+        checker.validate_rest_contract(writable_history)
+    leaked_generation = copy.deepcopy(document)
+    leaked_generation["components"]["schemas"]["CompletionEvidencePage"]["properties"][
+        "completion_generation"
+    ] = {"type": "integer"}
+    with pytest.raises(RuntimeError, match="private completion-generation"):
+        checker.validate_rest_contract(leaked_generation)
 
-async def test_stack_checker_pins_phase_10_mcp_contract():
+
+async def test_stack_checker_pins_phase_11_mcp_contract():
     checker = stack_checker()
     server = build_server(Settings(api_key="x" * 32))
     tools = await server.list_tools()
@@ -141,3 +159,14 @@ async def test_stack_checker_pins_phase_10_mcp_contract():
     }
     with pytest.raises(RuntimeError, match="does not bind the full checkpoint"):
         checker.validate_mcp_catalog(SimpleNamespace(tools=wrong_complete_response))
+
+    missing_history = [
+        tool for tool in copy.deepcopy(tools) if tool.name != "list_completion_evidence"
+    ]
+    with pytest.raises(RuntimeError, match="Unexpected MCP tool catalog"):
+        checker.validate_mcp_catalog(SimpleNamespace(tools=missing_history))
+    missing_evidence = copy.deepcopy(tools)
+    complete_work = next(tool for tool in missing_evidence if tool.name == "complete_work")
+    del complete_work.inputSchema["properties"]["completion_evidence"]
+    with pytest.raises(RuntimeError, match="completion evidence"):
+        checker.validate_mcp_catalog(SimpleNamespace(tools=missing_evidence))

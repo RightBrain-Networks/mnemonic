@@ -141,6 +141,7 @@ def bulk_save(
     postgres_engine,
     project_id,
     *,
+    api=None,
     count,
     title_prefix,
     same_title=False,
@@ -149,6 +150,7 @@ def bulk_save(
     target_ordinal=None,
 ):
     target_id = None
+    done_ids = []
     with postgres_engine.begin() as connection:
         connection.execute(text("SET CONSTRAINTS ALL DEFERRED"))
         connection.execute(
@@ -189,7 +191,9 @@ def bulk_save(
                        'Bulk suggestion candidate ' || bulk.ordinal::text,
                        CASE
                            WHEN CAST(:status_cycle AS boolean) THEN
-                               (ARRAY['pending', 'deferred', 'done', 'wont-do', 'promoted'])[
+                               (ARRAY[
+                                   'pending', 'deferred', 'pending', 'wont-do', 'promoted'
+                               ])[
                                    ((bulk.ordinal - 1) % 5) + 1
                                ]
                            ELSE 'pending'
@@ -249,7 +253,35 @@ def bulk_save(
                 ),
                 {"target_ordinal": target_ordinal},
             )
+        if status_cycle:
+            done_ids = list(
+                connection.scalars(
+                    text(
+                        """
+                        SELECT work_item_id
+                        FROM advisory_bulk_ids
+                        WHERE ((ordinal - 1) % 5) + 1 = 3
+                        ORDER BY ordinal
+                        """
+                    )
+                )
+            )
         connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+    if done_ids:
+        assert api is not None
+        for work_item_id in done_ids:
+            completed = api.post(
+                f"/api/v1/projects/{project_id}/work-items/{work_item_id}/complete",
+                json={
+                    "expected_version": 1,
+                    "checkpoint": {
+                        "prompt": "Bulk fixture completion episode.",
+                        "source_client": "duplicate-suggestion-tests",
+                        "source_session_id": "bulk-fixture",
+                    },
+                },
+            )
+            assert completed.status_code == 200, completed.text
     assert target_id is None or isinstance(target_id, UUID)
     return target_id
 
@@ -367,6 +399,7 @@ def test_exact_lane_counts_globally_filters_scope_and_returns_bounded_sql_rows(
     bulk_save(
         postgres_engine,
         project["id"],
+        api=api,
         count=26,
         title_prefix="Cache Repair",
         same_title=True,
@@ -1267,5 +1300,5 @@ def test_title_key_function_and_partial_expression_index_are_frozen(postgres_eng
                 """
             )
         ).one()
-        assert head == "0018_repository_freshness"
+        assert head == "0019_structured_completion_evidence"
         assert capacity == 64

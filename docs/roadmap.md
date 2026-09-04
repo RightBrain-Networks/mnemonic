@@ -24,10 +24,10 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 ## Delivery Snapshot
 
-As of 2026-09-03, Phases 1–10 are shipped in the repository at
-application/API/MCP/dashboard `0.5.0`, plugin `0.9.0`, and migration
-`0018_repository_freshness`. Production-target preflight and cutover remain
-explicit operator gates. Phases 11–13 remain planned.
+As of 2026-09-04, Phases 1–11 are shipped in the repository at
+application/API/MCP/dashboard `0.6.0`, plugin `0.10.0`, and migration
+`0019_structured_completion_evidence`. Production-target preflight and cutover
+remain explicit operator gates. Phases 12–13 remain planned.
 
 | Roadmap element | Status | Implemented functionality |
 | --- | --- | --- |
@@ -41,7 +41,7 @@ explicit operator gates. Phases 11–13 remain planned.
 | Phase 8 — Hierarchical presentation | Shipped | Collapsed root workstreams, lazy child paging, subtree-aware filtering, breadcrumbs, discovery labels, and exact branch aggregates. |
 | Phase 9 — Duplicate handling | Shipped | Immutable authoritative merges, retained non-actionable aliases, canonical-aware reads/search/hierarchy, explicit draft duplicate suggestions, resource controls, and coordinated 0.4.0/0.8.0 clients. Production cutover and recovery gates remain explicit. |
 | Phase 10 — Repository freshness verification | Shipped | Immutable ordered checkpoint dependency declarations plus a local, repository-selected, three-state Git assessment with fail-closed runtime, index, filter, normalization, race, privacy, and authority boundaries. |
-| Phase 11 — Completion evidence | Planned | Completion checkpoints and completion events exist; structured verification results and artifact references have not shipped. |
+| Phase 11 — Completion evidence | Shipped | Optional caller-reported verification results and artifact references commit atomically with an exact completion episode, replay through its permanent receipt, and remain available through bounded REST, MCP, and dashboard history reads. |
 | Phase 12 — Project activity feed | Planned | Per-work timelines and data-free dashboard invalidations exist; a durable project-wide cursor/feed, SSE, and webhooks have not shipped. |
 | Phase 13 — Resource reservations | Planned | Work-item leases exist; arbitrary resource-key reservations have not shipped. |
 
@@ -559,7 +559,6 @@ progress
 blocker_discovered
 dependency_added
 dependency_removed
-verification_run
 human_attention_requested
 human_attention_resolved
 work_completed
@@ -570,6 +569,9 @@ work_merged
 
 Phase 9 implements `work_merged` as a paired server event backed by an
 immutable merge, rather than treating a generic relationship mark as identity.
+Phase 11 deliberately does not add `verification_run`: structured evidence is
+owned by and read through its existing `work_completed` episode, so a second
+event would duplicate the same fact and create an avoidable consistency edge.
 
 Not every event needs a free-form body.
 
@@ -593,9 +595,12 @@ A work item should expose an ordered timeline:
 10:31  New blocking work discovered: WORK-94
 10:32  Lease released
 11:08  Codex session B claimed work
-11:45  Verification passed
 11:46  Work completed
 ```
+
+Any caller-reported verification attached to the completion appears only in
+the dedicated Evidence view; it does not create a `verification_run` activity
+event or a second timeline fact.
 
 ## Acceptance Criteria
 
@@ -702,8 +707,9 @@ keep their separate `claim_request_id` replay only while the identical lease is
 active; renewal remains a new time-relative intent. At the Phase 6 release,
 gate creation and verification submission remained future enrollment work
 because their Phase 7 and Phase 11 domain contracts did not yet exist. Phase 7
-has since enrolled gate creation; verification submission remains deferred to
-Phase 11.
+has since enrolled gate creation. Phase 11 nests verification submission inside
+the already-enrolled `complete_work` kind, so it adds no receipt kind or
+standalone mutation.
 
 ## Recovery contract
 
@@ -1140,9 +1146,12 @@ copied automatically into checkpoints or events.
 
 # Phase 11 - Structured Completion Evidence
 
-**Status: Planned; completion history shipped.** Mnemonic already requires a
-completion checkpoint and records an immutable completion event, but it has no
-structured verification-result or artifact-reference model.
+**Status: Shipped.** Migration `0019_structured_completion_evidence` adds
+immutable verification-result and artifact-reference children bound to an exact
+completion checkpoint and private completion generation. Evidence can be
+created only inside the existing atomic `complete_work` mutation. Non-empty
+evidence requires its durable `client_operation_id`; an omitted or empty
+evidence object retains the historical unkeyed REST completion behavior.
 
 ## Objective
 
@@ -1154,35 +1163,57 @@ rather than merely:
 
 > An agent changed the status to done.
 
-## Proposed Model
+## Shipped model and contract
 
 ```text
 VerificationResult
   id
+  project_id
   work_item_id
-  checkpoint_id
-  command
-  exit_code
+  completion_checkpoint_id
+  position
+  verification_type
+  outcome
+  name
   summary
-  commit
+  command (command results only)
+  exit_code (determinate command results only)
+  observed_at
+  observed_at_commit
   created_at
 ```
 
-Not every verification needs a shell command, so the schema should permit different evidence types later.
+The frozen verification vocabulary supports `command` and `observation` records.
+Command outcome/exit-code combinations are validated exactly. Each completion
+may carry at most 20 total evidence entries and 32,768 charged UTF-8 string
+bytes. Sparse optional fields stay sparse in canonical requests and receipts.
 
 ## Artifact References
 
-First-class references may include:
+First-class references include:
 
 ```text
 commit
 pull request
 branch
 test run
-file/path
+repository path
 external issue
 build artifact
 ```
+
+Artifact type and reference grammar are coupled: commits are lowercase
+hexadecimal identifiers, repository paths and branches use bounded inert text
+grammars, and URL-bearing types require exact safe `https://` URLs. Mnemonic
+never dereferences an artifact URL or interprets stored evidence as authority.
+
+The event-backed `GET .../completion-evidence` and MCP
+`list_completion_evidence` operation page at most ten exact completion episodes
+newest first. Historical evidence-free completions remain visible with two empty
+families. The page identifies the current live completion separately, preserves
+alias-owned history, and uses a stable high-water cursor. First-party hops
+require identity coding and bound the serialized REST history to 3 MiB; MCP
+also bounds inbound frames to 1 MiB and complete emitted results to 12 MiB.
 
 ## Design Principle
 
@@ -1191,9 +1222,15 @@ Keep prose verification instructions in the checkpoint where useful, but store f
 ## Acceptance Criteria
 
 - Completed work can include machine-readable verification evidence.
-- Evidence is append-only.
-- Agents can retrieve evidence without parsing long prompt text.
-- Humans can inspect completion evidence directly.
+- Evidence, its completion checkpoint, event, and permanent receipt commit or
+  roll back together and replay without duplication.
+- Evidence is append-only and direct SQL cannot manufacture, rewrite, move, or
+  remove a live completion episode.
+- Agents can retrieve evidence without parsing long prompt text through the
+  28th safe MCP tool.
+- Humans can inspect lazily loaded completion history directly in the dashboard.
+- Existing rows and every pre-0019 receipt byte survive migration unchanged;
+  downgrade is permitted only before Phase 11 state makes it lossy.
 
 ---
 
@@ -1421,8 +1458,8 @@ tool an agent could self-invoke.
 ## Verification
 
 ```text
-add_verification_result
-list_verification_results
+complete_work(..., completion_evidence?)
+list_completion_evidence
 ```
 
 ## Duplicate handling
@@ -1502,15 +1539,15 @@ This directly addresses the original GitHub Issues noise problem.
 
 ## Milestone 5 - Provenance and Verification
 
-**Status: Phase 10 shipped.** Declared repository dependency scope and local
-advisory assessment are implemented; Phase 11 completion evidence and artifact
-references remain planned.
+**Status: Shipped through Phases 10–11.** Declared repository dependency scope,
+local advisory assessment, structured completion evidence, and bounded evidence
+history are implemented.
 
 1. Add `affected_paths`. **Shipped in Phase 10.**
 2. Add repository freshness checks to the MCP client skill. **Shipped in Phase
    10 as a local three-state assessment.**
-3. Add structured verification results.
-4. Add artifact references.
+3. Add structured verification results. **Shipped in Phase 11.**
+4. Add artifact references. **Shipped in Phase 11.**
 
 This improves trust in resumed and completed work.
 

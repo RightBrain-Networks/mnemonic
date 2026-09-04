@@ -1,5 +1,93 @@
 # Mnemonic validation record
 
+## Phase 11 structured completion evidence implementation — 2026-09-04
+
+This checkpoint covers application/API/MCP/dashboard `0.6.0`, plugin
+`0.10.0`, and Alembic head `0019_structured_completion_evidence`, rebased
+through `origin/main` at `9f5e57b`. It records observed repository-release
+evidence; it does not claim a production backup, deployment approval, or
+live-fleet cutover.
+
+- **The complete backend suite passed 1,072 tests against PostgreSQL 17;
+  backend Ruff and whole-source `ty` passed.** Seven upstream deprecation and
+  schema-comparison warnings were non-failing. The suite covers the strict
+  completion contract, atomic evidence persistence and replay, event-backed
+  history, migration/backfill/downgrade behavior, direct-SQL guards, catalog
+  auditing, backup/restore policy, bounded representations, and every earlier
+  phase. An initial post-rebase run found one newly added shared-fixture
+  consumer that still replaced each case's `expected_version` with `1`; the
+  consumer was fixed, the current focused 84-test slice passed, and this
+  complete clean rerun followed.
+- **A separate production-shaped PostgreSQL 17 rehearsal passed from
+  `0018_repository_freshness` through `0019`, backup, restore, and exact
+  replay.** It compared 16 Phase 10 row/sequence sets before upgrade and 171
+  restored Phase 11 row/sequence sets afterward. Read-only audits passed on
+  the source 0018 database, the restored 0018 database, pre-enablement 0019,
+  populated 0019, and restored 0019. Historical Phase 10 create/completion
+  receipts and the new evidence-bearing completion receipt replayed exactly;
+  a whole-schema sentinel was absent after restore.
+- **Matched PostgreSQL 17 tools produced and parsed both rehearsal archives.**
+  The pre-0019 archive was 205,623 bytes with 192 table-of-contents entries and
+  SHA-256
+  `0f7269e54e85213117aa9440abf32ba6b79b54414b73be1ebcff545c504d1f37`;
+  the post-0019 archive was 320,695 bytes with 273 entries and SHA-256
+  `290b1e0605df20c250f388126ca2d1eb204b37b32a67f4d108a24920125eaa6c`.
+  A separate archive/downgrade proof reproduced all six expected catalog
+  hashes, exact owner-only application-object ACLs, and absence of
+  `PUBLIC EXECUTE` through
+  downgrade/re-upgrade.
+- **The complete MCP suite passed 548 tests; MCP Ruff and `ty` passed.** The
+  adapter exposes exactly 28 tools and 11 protected writes. It keeps the new
+  evidence history operation read-only, preserves the typed FastMCP dual
+  representation, enforces bounded HTTP/stdio framing and output, and agrees
+  with REST on the strict `complete_work.expected_version` range
+  `1..2,147,483,646`.
+- **The frontend passed all 252 unit tests, TypeScript checking, and the
+  production build.** The host used Node v22.22.3 and emitted the expected
+  engine warning because CI is pinned to Node 24. The final isolated
+  Playwright stack ran 103 executions: 99 passed, four narrow/mobile cases
+  skipped by design, and none failed, in 6.3 minutes.
+- **Plugin and repository-freshness packaging checks passed.** The MCP/plugin
+  contract gate passed 51 tests and the disposable helper behavior suite
+  passed 71. A separate authentic Claude CLI smoke passed, and fresh
+  `0.10.0` plus sequential
+  `0.6.1 -> 0.7.0 -> 0.8.0 -> 0.9.0 -> 0.10.0` installations were byte- and
+  mode-identical across all 11 payload files. The current host's real Git 2.43
+  was rejected before repository access as required. The authentic macOS Bash
+  3.2/newer-Git CI lane then passed on implementation commit
+  `6b7ba816ed7e199dd1f2355dab8575b7bbe7d289`.
+- **The deployed nginx identity-coding harness passed.** Stock nginx accepted
+  the shared policy syntax; an ABI-matched Brotli module produced the positive
+  `br` control; and evidence success/error responses, including the 1 MiB
+  ingress and 3 MiB history boundaries, remained byte-exact identity bodies.
+- **Cold review found, fixed, and closed every release blocker.** Early
+  contract and documentation reviews closed request-version drift, raw
+  survivor-projection wording, archived object-ACL scope, and proof
+  attribution. A final context-free whole-diff review then found missing MCP
+  response maxima, a missing browser work-version maximum, and a live runbook
+  that could migrate without a fresh post-quiescence recovery point. Its
+  migration specialist subsequently caught the scheduled backup loop still
+  running across DDL. Exact-max/max-plus-one reader regressions now pass, and a
+  runbook regression fixes the order as stop writers/backup loop, take and
+  verify a one-shot archive, audit 0018, migrate, smoke, take/verify the 0019
+  archive, then restart backup with an explicit health wait before writers. The
+  independent contract and
+  migration closure reviews returned `CLEAN`; the whole-diff reviewer returned
+  **ACCEPT** with no remaining high-confidence issue.
+- **Final static and supply-chain gates passed:** repository-wide
+  pre-commit/gitleaks, backend/MCP/operational-script Ruff, backend/MCP `ty`,
+  TypeScript, shell syntax, production build, and `git diff --check`.
+- **Required pull-request CI passed on the reviewed implementation commit.**
+  PR #32 Actions run `33919885049` passed Gitleaks, Ruff, `ty`, backend tests,
+  MCP tests, frontend checks, the authentic macOS repository-freshness
+  runtime, and the aggregate `Required checks` job against
+  `6b7ba816ed7e199dd1f2355dab8575b7bbe7d289`.
+
+The database, browser, plugin-install, helper, nginx, and rehearsal fixtures
+were uniquely scoped and disposable. Their synthetic databases, archives,
+credentials, containers, networks, volumes, and temporary installations were
+removed. No production data was read or changed.
+
 ## Keyboard hints redrawn in the keyboard's own groups — 2026-09-04
 
 This entry covers the owner-reviewed follow-up to

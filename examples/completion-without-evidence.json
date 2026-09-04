@@ -1,0 +1,11 @@
+{
+  "expected_version": 9,
+  "checkpoint": {
+    "prompt": "Recompleted the work without claiming structured verification or artifacts.",
+    "source_client": "codex",
+    "source_session_id": "replace-with-the-current-session-id",
+    "tags": [],
+    "source_metadata": {}
+  },
+  "client_operation_id": "573d6fe4-5bd0-452c-8400-bc29ee7bf1f7"
+}

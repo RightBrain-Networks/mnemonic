@@ -54,7 +54,6 @@ import type {
   Checkpoint,
   CheckpointInput,
   CheckpointKind,
-  CompletionResult,
   DeletionResult,
   DuplicateScope,
   Page,
@@ -84,6 +83,14 @@ import {
   parseAffectedPathsDraft
 } from "@/lib/affected-paths";
 import { decodeCheckpointPage } from "@/lib/mutation-responses";
+import {
+  completionEvidenceDraftIsEmpty,
+  completionEvidenceDraftIssues,
+  completionEvidenceFromDraft,
+  emptyCompletionEvidenceDraft,
+  type CompletionEvidenceDraft,
+  type CompletionEvidenceIssue
+} from "@/lib/completion-evidence";
 
 const mutationLabels: Record<MutationIntentSummary["kind"], string> = {
   create_work: "Create work",
@@ -343,6 +350,10 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [checkpointAffectedPathsError, setCheckpointAffectedPathsError] = useState("");
   const [checkpointTags, setCheckpointTags] = useState("");
   const [checkpointSaving, setCheckpointSaving] = useState(false);
+  const [completionEvidenceDraft, setCompletionEvidenceDraft] =
+    useState<CompletionEvidenceDraft>(emptyCompletionEvidenceDraft);
+  const [completionEvidenceIssues, setCompletionEvidenceIssues] =
+    useState<readonly CompletionEvidenceIssue[]>([]);
 
   const [deleteTarget, setDeleteTarget] = useState<WorkItem | null>(null);
   const [deferringId, setDeferringId] = useState<string | null>(null);
@@ -888,6 +899,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setCheckpointAffectedPaths("");
     setCheckpointAffectedPathsError("");
     setCheckpointTags("");
+    setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
+    setCompletionEvidenceIssues([]);
     setCheckpointKind("progress");
     setCheckpointActionError("");
     setEventRefresh((value) => value + 1);
@@ -913,6 +926,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setCheckpointAffectedPaths("");
     setCheckpointAffectedPathsError("");
     setCheckpointTags("");
+    setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
+    setCompletionEvidenceIssues([]);
     setCheckpointActionError("");
     try {
       const value = await api<unknown>(
@@ -964,6 +979,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setCheckpointAffectedPaths("");
     setCheckpointAffectedPathsError("");
     setCheckpointTags("");
+    setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
+    setCompletionEvidenceIssues([]);
   }
 
   function viewDuplicateGroup(canonicalId: string): void {
@@ -1023,7 +1040,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     }
     if (
       (checkpointBody || checkpointBranch || checkpointCommit
-        || checkpointAffectedPaths || checkpointTags)
+        || checkpointAffectedPaths || checkpointTags
+        || !completionEvidenceDraftIsEmpty(completionEvidenceDraft))
       && !window.confirm("Discard your unsaved checkpoint?")
     ) return false;
     if (unsavedEditsKept()) return false;
@@ -1257,6 +1275,17 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
 
   async function saveCheckpoint(complete: boolean) {
     if (!context || !checkpointBody.trim() || checkpointSaving) return;
+    const evidenceIssues = complete
+      ? completionEvidenceDraftIssues(completionEvidenceDraft)
+      : [];
+    if (evidenceIssues.length > 0) {
+      setCompletionEvidenceIssues(evidenceIssues);
+      setCheckpointActionError("Review the highlighted completion evidence before completing this work.");
+      return;
+    }
+    const completionEvidence = complete
+      ? completionEvidenceFromDraft(completionEvidenceDraft)
+      : null;
     setCheckpointSaving(true);
     setCheckpointActionError("");
     setCheckpointAffectedPathsError("");
@@ -1270,7 +1299,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       );
       const base = workItemPath(context.work_item.project_id, context.work_item.id);
       if (complete) {
-        const result = await mutationRegistry.execute({
+        await mutationRegistry.execute({
           kind: "complete_work",
           slot: `complete-work:${context.work_item.project_id}:${context.work_item.id}`,
           projectId: context.work_item.project_id,
@@ -1279,25 +1308,15 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           ],
           method: "POST",
           path: `${base}/complete`,
-          payload: { expected_version: context.work_item.version, checkpoint }
+          payload: {
+            expected_version: context.work_item.version,
+            checkpoint,
+            ...(completionEvidence ? { completion_evidence: completionEvidence } : {})
+          }
         });
         setNotice({ message: "Completion checkpoint recorded and work marked done." });
-        setContext((value) => value ? {
-          ...value,
-          work_item: result.work_item,
-          current_context: value.current_context,
-          checkpoint_total: value.checkpoint_total + 1,
-          readiness: {
-            ...value.readiness,
-            lifecycle_status: "done",
-            is_terminal: true,
-            has_active_lease: false,
-            has_dropped_lease: false,
-            active_lease: null,
-            is_ready: false,
-            display_state: "done"
-          }
-        } : value);
+        setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
+        setCompletionEvidenceIssues([]);
       } else {
         await mutationRegistry.execute({
           kind: "add_checkpoint",
@@ -1500,6 +1519,10 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         setCheckpointAffectedPaths("");
         setCheckpointAffectedPathsError("");
         setCheckpointTags("");
+        if (intent.kind === "complete_work") {
+          setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
+          setCompletionEvidenceIssues([]);
+        }
       }
       if (intent.kind === "update_work") setMode("view");
       if (!contextReconciled) {
@@ -1881,6 +1904,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                   checkpointAffectedPathsError={checkpointAffectedPathsError}
                   checkpointTags={checkpointTags}
                   checkpointSaving={checkpointSaving}
+                  completionEvidenceDraft={completionEvidenceDraft}
+                  completionEvidenceIssues={completionEvidenceIssues}
+                  evidenceRefreshSignal={eventRefresh}
                   onCheckpointKind={setCheckpointKind}
                   onCheckpointBody={setCheckpointBody}
                   onCheckpointBranch={setCheckpointBranch}
@@ -1890,6 +1916,11 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                     setCheckpointAffectedPathsError("");
                   }}
                   onCheckpointTags={setCheckpointTags}
+                  onCompletionEvidenceDraft={(draft) => {
+                    setCompletionEvidenceDraft(draft);
+                    setCompletionEvidenceIssues([]);
+                    setCheckpointActionError("");
+                  }}
                   onAppend={() => void saveCheckpoint(false)}
                   onComplete={() => void saveCheckpoint(true)}
                   onRelationshipsChanged={async () => {

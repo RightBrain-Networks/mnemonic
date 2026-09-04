@@ -539,6 +539,88 @@ export interface WorkCreation {
 export interface CompletionResult {
   work_item: WorkItem;
   checkpoint: Checkpoint;
+  completion_evidence?: CompletionEvidencePayloadRead;
+}
+
+export type VerificationType = "command" | "observation";
+export type VerificationOutcome = "passed" | "failed" | "inconclusive" | "skipped";
+export type ArtifactType =
+  | "commit"
+  | "pull_request"
+  | "branch"
+  | "test_run"
+  | "repository_path"
+  | "external_issue"
+  | "build_artifact";
+
+interface VerificationResultInputBase {
+  verification_type: VerificationType;
+  name: string;
+  outcome: VerificationOutcome;
+  summary: string;
+  observed_at?: string;
+  observed_at_commit?: string;
+}
+
+export interface CommandVerificationInput extends VerificationResultInputBase {
+  verification_type: "command";
+  command: string;
+  exit_code?: number;
+}
+
+export interface ObservationVerificationInput extends VerificationResultInputBase {
+  verification_type: "observation";
+}
+
+export type VerificationResultInput =
+  | CommandVerificationInput
+  | ObservationVerificationInput;
+
+export interface ArtifactReferenceInput {
+  artifact_type: ArtifactType;
+  label: string;
+  reference: string;
+}
+
+export interface CompletionEvidenceInput {
+  verification_results?: VerificationResultInput[];
+  artifact_references?: ArtifactReferenceInput[];
+}
+
+interface EvidenceChildRead {
+  id: string;
+  work_item_id: string;
+  completion_checkpoint_id: string;
+  position: number;
+  created_at: string;
+}
+
+export type VerificationResultRead = VerificationResultInput & EvidenceChildRead;
+export type ArtifactReferenceRead = ArtifactReferenceInput & EvidenceChildRead;
+
+export interface CompletionEvidencePayloadRead {
+  verification_results: VerificationResultRead[];
+  artifact_references: ArtifactReferenceRead[];
+}
+
+export interface CompletionEvidenceEpisodeRead extends CompletionEvidencePayloadRead {
+  completion_event_id: string;
+  completion_checkpoint: CheckpointPointer;
+}
+
+export interface CompletionEvidencePage {
+  work_item_id: string;
+  work_version: number;
+  lifecycle_status: WorkStatus;
+  is_duplicate: boolean;
+  canonical_work_item_id: string;
+  current_completion_checkpoint_id: string | null;
+  as_of_completion_event_id: string | null;
+  items: CompletionEvidenceEpisodeRead[];
+  total: number;
+  structured_completion_total: number;
+  limit: number;
+  next_cursor: string | null;
 }
 
 export interface DeletionResult {
@@ -568,6 +650,7 @@ export interface CheckpointCreateInput extends CheckpointInput, ClientOperationI
 export interface WorkCompletionInput extends ClientOperationInput {
   expected_version: number;
   checkpoint: CheckpointInput;
+  completion_evidence?: CompletionEvidenceInput;
 }
 
 export interface WorkDeletionInput extends ClientOperationInput {

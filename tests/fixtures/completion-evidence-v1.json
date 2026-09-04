@@ -1,0 +1,1187 @@
+{
+  "contract_version": 1,
+  "description": "Language-neutral Phase 11 completion-evidence validation corpus.",
+  "cases": [
+    {
+      "case_id": "empty_object",
+      "semantic_input": {},
+      "valid": true,
+      "canonical_output": null
+    },
+    {
+      "case_id": "empty_arrays",
+      "semantic_input": {
+        "verification_results": [],
+        "artifact_references": []
+      },
+      "valid": true,
+      "canonical_output": null
+    },
+    {
+      "case_id": "passed_command",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "command",
+            "name": "Backend tests",
+            "outcome": "passed",
+            "summary": "The PostgreSQL-backed suite completed without skips.",
+            "command": "uv run pytest -q",
+            "exit_code": 0
+          }
+        ]
+      },
+      "valid": true,
+      "canonical_output": {
+        "verification_results": [
+          {
+            "verification_type": "command",
+            "name": "Backend tests",
+            "outcome": "passed",
+            "summary": "The PostgreSQL-backed suite completed without skips.",
+            "command": "uv run pytest -q",
+            "exit_code": 0
+          }
+        ],
+        "artifact_references": []
+      }
+    },
+    {
+      "case_id": "failed_command",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "command",
+            "name": "Static analysis",
+            "outcome": "failed",
+            "summary": "The analyzer reported a nonzero process status.",
+            "command": "uv run ty check src",
+            "exit_code": -1
+          }
+        ]
+      },
+      "valid": true,
+      "canonical_output": {
+        "verification_results": [
+          {
+            "verification_type": "command",
+            "name": "Static analysis",
+            "outcome": "failed",
+            "summary": "The analyzer reported a nonzero process status.",
+            "command": "uv run ty check src",
+            "exit_code": -1
+          }
+        ],
+        "artifact_references": []
+      }
+    },
+    {
+      "case_id": "inconclusive_command",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "command",
+            "name": "Browser suite",
+            "outcome": "inconclusive",
+            "summary": "The runner stopped before it produced an exit status.",
+            "command": "npm run test:e2e:stack"
+          }
+        ]
+      },
+      "valid": true,
+      "canonical_output": {
+        "verification_results": [
+          {
+            "verification_type": "command",
+            "name": "Browser suite",
+            "outcome": "inconclusive",
+            "summary": "The runner stopped before it produced an exit status.",
+            "command": "npm run test:e2e:stack"
+          }
+        ],
+        "artifact_references": []
+      }
+    },
+    {
+      "case_id": "skipped_observation",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "External deployment check",
+            "outcome": "skipped",
+            "summary": "The owner explicitly deferred the external deployment."
+          }
+        ]
+      },
+      "valid": true,
+      "canonical_output": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "External deployment check",
+            "outcome": "skipped",
+            "summary": "The owner explicitly deferred the external deployment."
+          }
+        ],
+        "artifact_references": []
+      }
+    },
+    {
+      "case_id": "timestamp_offset_canonicalization",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "Cold review",
+            "outcome": "passed",
+            "summary": "The reviewer accepted the implementation.",
+            "observed_at": "2026-09-03T14:01:02-04:00",
+            "observed_at_commit": "7ad62e4"
+          }
+        ]
+      },
+      "valid": true,
+      "canonical_output": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "Cold review",
+            "outcome": "passed",
+            "summary": "The reviewer accepted the implementation.",
+            "observed_at": "2026-09-03T18:01:02Z",
+            "observed_at_commit": "7ad62e4"
+          }
+        ],
+        "artifact_references": []
+      }
+    },
+    {
+      "case_id": "timestamp_fraction_canonicalization",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "Contract check",
+            "outcome": "passed",
+            "summary": "The contract fixture passed.",
+            "observed_at": "2026-09-03T18:01:02.1Z"
+          }
+        ]
+      },
+      "valid": true,
+      "canonical_output": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "Contract check",
+            "outcome": "passed",
+            "summary": "The contract fixture passed.",
+            "observed_at": "2026-09-03T18:01:02.100000Z"
+          }
+        ],
+        "artifact_references": []
+      },
+      "equivalent_to_case_id": "timestamp_fraction_six_digits"
+    },
+    {
+      "case_id": "timestamp_fraction_six_digits",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "Contract check",
+            "outcome": "passed",
+            "summary": "The contract fixture passed.",
+            "observed_at": "2026-09-03T18:01:02.100000Z"
+          }
+        ]
+      },
+      "valid": true,
+      "canonical_output": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "Contract check",
+            "outcome": "passed",
+            "summary": "The contract fixture passed.",
+            "observed_at": "2026-09-03T18:01:02.100000Z"
+          }
+        ],
+        "artifact_references": []
+      }
+    },
+    {
+      "case_id": "all_artifact_types",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "commit",
+            "label": "Delivered commit",
+            "reference": "7ad62e4"
+          },
+          {
+            "artifact_type": "pull_request",
+            "label": "Phase 11 pull request",
+            "reference": "https://example.test/mnemonic/pull/123"
+          },
+          {
+            "artifact_type": "branch",
+            "label": "Topic branch",
+            "reference": "work/phase11"
+          },
+          {
+            "artifact_type": "test_run",
+            "label": "Test run",
+            "reference": "https://ci.example.test/runs/456"
+          },
+          {
+            "artifact_type": "repository_path",
+            "label": "Migration",
+            "reference": "backend/alembic/versions/0019_structured_completion_evidence.py"
+          },
+          {
+            "artifact_type": "external_issue",
+            "label": "External issue",
+            "reference": "https://issues.example.test/items/789"
+          },
+          {
+            "artifact_type": "build_artifact",
+            "label": "Build record",
+            "reference": "https://builds.example.test/artifacts/101"
+          }
+        ]
+      },
+      "valid": true,
+      "canonical_output": {
+        "verification_results": [],
+        "artifact_references": [
+          {
+            "artifact_type": "commit",
+            "label": "Delivered commit",
+            "reference": "7ad62e4"
+          },
+          {
+            "artifact_type": "pull_request",
+            "label": "Phase 11 pull request",
+            "reference": "https://example.test/mnemonic/pull/123"
+          },
+          {
+            "artifact_type": "branch",
+            "label": "Topic branch",
+            "reference": "work/phase11"
+          },
+          {
+            "artifact_type": "test_run",
+            "label": "Test run",
+            "reference": "https://ci.example.test/runs/456"
+          },
+          {
+            "artifact_type": "repository_path",
+            "label": "Migration",
+            "reference": "backend/alembic/versions/0019_structured_completion_evidence.py"
+          },
+          {
+            "artifact_type": "external_issue",
+            "label": "External issue",
+            "reference": "https://issues.example.test/items/789"
+          },
+          {
+            "artifact_type": "build_artifact",
+            "label": "Build record",
+            "reference": "https://builds.example.test/artifacts/101"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "literal_hostile_text",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "command",
+            "name": "Literal rendering",
+            "outcome": "passed",
+            "summary": "<script>alert('inert')</script> **not markdown** \u001b[31mred\u001b[0m \u202eabc",
+            "command": "printf '$HOME' && echo `not executed`",
+            "exit_code": 0
+          }
+        ]
+      },
+      "valid": true,
+      "canonical_output": {
+        "verification_results": [
+          {
+            "verification_type": "command",
+            "name": "Literal rendering",
+            "outcome": "passed",
+            "summary": "<script>alert('inert')</script> **not markdown** \u001b[31mred\u001b[0m \u202eabc",
+            "command": "printf '$HOME' && echo `not executed`",
+            "exit_code": 0
+          }
+        ],
+        "artifact_references": []
+      }
+    },
+    {
+      "case_id": "python_nonwhitespace_format_character",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "\ufeff",
+            "outcome": "passed",
+            "summary": "The format character is a Unicode scalar, not Python whitespace."
+          }
+        ]
+      },
+      "valid": true,
+      "canonical_output": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "\ufeff",
+            "outcome": "passed",
+            "summary": "The format character is a Unicode scalar, not Python whitespace."
+          }
+        ],
+        "artifact_references": []
+      }
+    },
+    {
+      "case_id": "branch_internal_python_whitespace",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "branch",
+            "label": "Branch",
+            "reference": "work/phase\u001c11"
+          }
+        ]
+      },
+      "valid": true,
+      "canonical_output": {
+        "verification_results": [],
+        "artifact_references": [
+          {
+            "artifact_type": "branch",
+            "label": "Branch",
+            "reference": "work/phase\u001c11"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "explicit_null",
+      "semantic_input": null,
+      "valid": false,
+      "error_path": ["completion_evidence"],
+      "error_class": "type"
+    },
+    {
+      "case_id": "null_results",
+      "semantic_input": {
+        "verification_results": null
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results"],
+      "error_class": "type"
+    },
+    {
+      "case_id": "command_skipped",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "command",
+            "name": "Tests",
+            "outcome": "skipped",
+            "summary": "The command was not run.",
+            "command": "uv run pytest -q"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "outcome"],
+      "error_class": "matrix"
+    },
+    {
+      "case_id": "passed_nonzero",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "command",
+            "name": "Tests",
+            "outcome": "passed",
+            "summary": "Contradictory exit status.",
+            "command": "uv run pytest -q",
+            "exit_code": 1
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "exit_code"],
+      "error_class": "matrix"
+    },
+    {
+      "case_id": "failed_zero",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "command",
+            "name": "Tests",
+            "outcome": "failed",
+            "summary": "Contradictory exit status.",
+            "command": "uv run pytest -q",
+            "exit_code": 0
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "exit_code"],
+      "error_class": "matrix"
+    },
+    {
+      "case_id": "failed_missing_exit",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "command",
+            "name": "Tests",
+            "outcome": "failed",
+            "summary": "Missing exit status.",
+            "command": "uv run pytest -q"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "exit_code"],
+      "error_class": "missing"
+    },
+    {
+      "case_id": "inconclusive_with_exit",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "command",
+            "name": "Tests",
+            "outcome": "inconclusive",
+            "summary": "Exit status must be absent.",
+            "command": "uv run pytest -q",
+            "exit_code": 2
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "exit_code"],
+      "error_class": "extra"
+    },
+    {
+      "case_id": "observation_with_command",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "Review",
+            "outcome": "passed",
+            "summary": "Command fields are forbidden.",
+            "command": "true"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "command"],
+      "error_class": "extra"
+    },
+    {
+      "case_id": "unknown_result_key",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "Review",
+            "outcome": "passed",
+            "summary": "Unknown fields must fail.",
+            "metadata": {}
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "metadata"],
+      "error_class": "extra"
+    },
+    {
+      "case_id": "blank_name",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "   ",
+            "outcome": "passed",
+            "summary": "Blank names fail."
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "name"],
+      "error_class": "blank"
+    },
+    {
+      "case_id": "python_control_whitespace_name",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "\u001c",
+            "outcome": "passed",
+            "summary": "Python and PostgreSQL classify this control as whitespace."
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "name"],
+      "error_class": "blank"
+    },
+    {
+      "case_id": "nul_summary",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "Review",
+            "outcome": "passed",
+            "summary": "contains\u0000nul"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "summary"],
+      "error_class": "nul"
+    },
+    {
+      "case_id": "uppercase_commit",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "commit",
+            "label": "Commit",
+            "reference": "7AD62E4"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "branch_edge_whitespace",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "branch",
+            "label": "Branch",
+            "reference": " work/phase11"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "branch_tab_edge_whitespace",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "branch",
+            "label": "Branch",
+            "reference": "\twork/phase11"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "repository_path_glob",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "repository_path",
+            "label": "Path",
+            "reference": "backend/**"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "repository_path_traversal",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "repository_path",
+            "label": "Path",
+            "reference": "../secret"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_ipv6_canonical_compressed",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "test_run",
+            "label": "IPv6 test run",
+            "reference": "https://[2001:db8::1]/runs/1"
+          }
+        ]
+      },
+      "valid": true,
+      "canonical_output": {
+        "verification_results": [],
+        "artifact_references": [
+          {
+            "artifact_type": "test_run",
+            "label": "IPv6 test run",
+            "reference": "https://[2001:db8::1]/runs/1"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "url_ipv6_canonical_compressed_port",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "build_artifact",
+            "label": "IPv6 build",
+            "reference": "https://[2001:db8::1]:8443/artifacts/1"
+          }
+        ]
+      },
+      "valid": true,
+      "canonical_output": {
+        "verification_results": [],
+        "artifact_references": [
+          {
+            "artifact_type": "build_artifact",
+            "label": "IPv6 build",
+            "reference": "https://[2001:db8::1]:8443/artifacts/1"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "url_ipv6_leading_zero_hextet",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "test_run",
+            "label": "Test run",
+            "reference": "https://[2001:0db8::1]/runs/1"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_ipv6_expanded",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "test_run",
+            "label": "Test run",
+            "reference": "https://[0:0:0:0:0:0:0:1]/runs/1"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_ipv6_leading_zero_hextet_port",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "build_artifact",
+            "label": "Build",
+            "reference": "https://[2001:0db8::1]:8443/artifacts/1"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_ipv6_all_zero_hextet",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "external_issue",
+            "label": "Issue",
+            "reference": "https://[0000::1]/issues/1"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "http_url",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "pull_request",
+            "label": "Pull request",
+            "reference": "http://example.test/pull/1"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_userinfo",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "test_run",
+            "label": "Test run",
+            "reference": "https://user@example.test/run/1"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_query",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "external_issue",
+            "label": "Issue",
+            "reference": "https://example.test/issues/1?token=no"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_uppercase_scheme",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "pull_request",
+            "label": "Pull request",
+            "reference": "HTTPS://example.test/pull/1"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_uppercase_hostname",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "test_run",
+            "label": "Test run",
+            "reference": "https://CI.example.test/runs/1"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_default_port",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "build_artifact",
+            "label": "Build",
+            "reference": "https://builds.example.test:443/artifacts/1"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_missing_path",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "external_issue",
+            "label": "Issue tracker",
+            "reference": "https://issues.example.test"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_invalid_hostname_label",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "test_run",
+            "label": "Test run",
+            "reference": "https://-ci.example.test/runs/1"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_underscore_hostname",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "test_run",
+            "label": "Test run",
+            "reference": "https://exa_mple.test/runs/1"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_empty_hostname_label",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "test_run",
+            "label": "Test run",
+            "reference": "https://ci..example.test/runs/1"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_fragment",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "pull_request",
+            "label": "Pull request",
+            "reference": "https://example.test/pull/1#discussion"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_backslash_path",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "build_artifact",
+            "label": "Build",
+            "reference": "https://example.test/a\\b"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_dot_segment_normalization",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "external_issue",
+            "label": "Issue",
+            "reference": "https://example.test/a/../b"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_noncanonical_percent_escape",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "external_issue",
+            "label": "Issue",
+            "reference": "https://example.test/a%2fb"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "url_edge_whitespace",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "build_artifact",
+            "label": "Build",
+            "reference": " https://builds.example.test/artifacts/1"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 0, "reference"],
+      "error_class": "grammar"
+    },
+    {
+      "case_id": "duplicate_artifact",
+      "semantic_input": {
+        "artifact_references": [
+          {
+            "artifact_type": "commit",
+            "label": "First label",
+            "reference": "7ad62e4"
+          },
+          {
+            "artifact_type": "commit",
+            "label": "Second label",
+            "reference": "7ad62e4"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "artifact_references", 1, "reference"],
+      "error_class": "duplicate"
+    },
+    {
+      "case_id": "invalid_calendar_date",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "Review",
+            "outcome": "passed",
+            "summary": "The date is impossible.",
+            "observed_at": "2026-02-29T00:00:00Z"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "observed_at"],
+      "error_class": "timestamp"
+    },
+    {
+      "case_id": "timestamp_lowercase_z",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "Review",
+            "outcome": "passed",
+            "summary": "Lowercase z is outside the contract.",
+            "observed_at": "2026-09-03T18:01:02z"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "observed_at"],
+      "error_class": "timestamp"
+    },
+    {
+      "case_id": "timestamp_unknown_offset",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "Review",
+            "outcome": "passed",
+            "summary": "Unknown offsets are outside the contract.",
+            "observed_at": "2026-09-03T18:01:02-00:00"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "observed_at"],
+      "error_class": "timestamp"
+    },
+    {
+      "case_id": "timestamp_leap_second",
+      "semantic_input": {
+        "verification_results": [
+          {
+            "verification_type": "observation",
+            "name": "Review",
+            "outcome": "passed",
+            "summary": "Leap seconds are outside the contract.",
+            "observed_at": "2026-09-03T18:01:60Z"
+          }
+        ]
+      },
+      "valid": false,
+      "error_path": ["completion_evidence", "verification_results", 0, "observed_at"],
+      "error_class": "timestamp"
+    }
+  ],
+  "generated_boundaries": [
+    {
+      "case_id": "twenty_total_entries",
+      "valid": true,
+      "generator": "repeat_valid_observation",
+      "count": 20
+    },
+    {
+      "case_id": "twenty_one_total_entries",
+      "valid": false,
+      "generator": "repeat_valid_observation",
+      "count": 21,
+      "error_class": "count"
+    },
+    {
+      "case_id": "aggregate_32768_bytes",
+      "valid": true,
+      "generator": "fill_summary_to_aggregate_utf8_bytes",
+      "bytes": 32768
+    },
+    {
+      "case_id": "aggregate_32769_bytes",
+      "valid": false,
+      "generator": "fill_summary_to_aggregate_utf8_bytes",
+      "bytes": 32769,
+      "error_class": "aggregate_bytes"
+    },
+    {
+      "case_id": "unicode_scalar_and_utf8_boundaries",
+      "valid": true,
+      "generator": "fill_text_with_u10000",
+      "field": "summary",
+      "characters": 4000,
+      "bytes": 16000
+    }
+  ],
+  "full_request_cases": [
+    {
+      "case_id": "omitted_evidence_without_operation_id",
+      "completion_evidence": "__omitted__",
+      "client_operation_id": "__omitted__",
+      "surface_expectations": {
+        "rest_openapi": true,
+        "mcp": false,
+        "browser": false
+      }
+    },
+    {
+      "case_id": "empty_evidence_without_operation_id",
+      "completion_evidence": {},
+      "client_operation_id": "__omitted__",
+      "surface_expectations": {
+        "rest_openapi": true,
+        "mcp": false,
+        "browser": false
+      }
+    },
+    {
+      "case_id": "nonempty_evidence_without_operation_id",
+      "completion_evidence_case_id": "passed_command",
+      "client_operation_id": "__omitted__",
+      "surface_expectations": {
+        "rest_openapi": false,
+        "mcp": false,
+        "browser": false
+      }
+    },
+    {
+      "case_id": "nonempty_evidence_with_operation_id",
+      "completion_evidence_case_id": "passed_command",
+      "client_operation_id": "11584ccf-c787-4c6a-bb89-a69a02c1554d",
+      "surface_expectations": {
+        "rest_openapi": true,
+        "mcp": true,
+        "browser": true
+      }
+    },
+    {
+      "case_id": "null_evidence_with_operation_id",
+      "completion_evidence": null,
+      "client_operation_id": "11584ccf-c787-4c6a-bb89-a69a02c1554d",
+      "surface_expectations": {
+        "rest_openapi": false,
+        "mcp": false,
+        "browser": false
+      }
+    },
+    {
+      "case_id": "maximum_expected_version",
+      "expected_version": 2147483646,
+      "completion_evidence_case_id": "passed_command",
+      "client_operation_id": "11584ccf-c787-4c6a-bb89-a69a02c1554d",
+      "surface_expectations": {
+        "rest_openapi": true,
+        "mcp": true,
+        "browser": true
+      }
+    },
+    {
+      "case_id": "overflow_expected_version",
+      "expected_version": 2147483647,
+      "completion_evidence_case_id": "passed_command",
+      "client_operation_id": "11584ccf-c787-4c6a-bb89-a69a02c1554d",
+      "surface_expectations": {
+        "rest_openapi": false,
+        "mcp": false,
+        "browser": false
+      }
+    },
+    {
+      "case_id": "string_expected_version",
+      "expected_version": "1",
+      "completion_evidence_case_id": "passed_command",
+      "client_operation_id": "11584ccf-c787-4c6a-bb89-a69a02c1554d",
+      "surface_expectations": {
+        "rest_openapi": false,
+        "mcp": false,
+        "browser": false
+      }
+    },
+    {
+      "case_id": "boolean_expected_version",
+      "expected_version": true,
+      "completion_evidence_case_id": "passed_command",
+      "client_operation_id": "11584ccf-c787-4c6a-bb89-a69a02c1554d",
+      "surface_expectations": {
+        "rest_openapi": false,
+        "mcp": false,
+        "browser": false
+      }
+    }
+  ]
+}

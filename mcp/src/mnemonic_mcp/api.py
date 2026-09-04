@@ -13,6 +13,12 @@ from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import BaseModel, ValidationError
 
 from .config import Settings
+from .transport import (
+    COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES,
+    MCP_STREAM_CHUNK_BYTES,
+    declared_oversize_values,
+    identity_content_encoding_values,
+)
 from .validation import validation_details, validation_error_message
 
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
@@ -134,6 +140,75 @@ _SAFE_READ_FAILURE = (
     "Check service health and try again."
 )
 _EXTENDED_READ_TIMEOUT_SECONDS = 60.0
+
+
+class BoundedIdentityResponseViolation(ValueError):
+    """An evidence-history response failed before safe JSON interpretation."""
+
+
+async def _bounded_identity_response(
+    client: httpx.AsyncClient,
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None,
+    payload: dict[str, Any] | None,
+) -> httpx.Response:
+    """Read at most 3 MiB of identity-coded bytes before UTF-8/JSON handling."""
+    async with client.stream(
+        method,
+        path,
+        params=params,
+        json=payload,
+        headers={"Accept-Encoding": "identity"},
+    ) as response:
+        if not identity_content_encoding_values(
+            response.headers.get_list("content-encoding")
+        ):
+            raise BoundedIdentityResponseViolation("non-identity response coding")
+        if declared_oversize_values(
+            response.headers.get_list("content-length"),
+            COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES,
+        ):
+            raise BoundedIdentityResponseViolation("oversized declared response")
+
+        body = bytearray()
+        async for chunk in response.aiter_raw(chunk_size=MCP_STREAM_CHUNK_BYTES):
+            if len(chunk) > COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES - len(body):
+                raise BoundedIdentityResponseViolation("oversized streamed response")
+            body.extend(chunk)
+
+        raw_body = bytes(body)
+        try:
+            raw_body.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as error:
+            raise BoundedIdentityResponseViolation("response is not UTF-8") from error
+        return httpx.Response(
+            response.status_code,
+            headers=response.headers,
+            content=raw_body,
+            request=response.request,
+        )
+
+
+async def _dispatch_request(
+    client: httpx.AsyncClient,
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None,
+    payload: dict[str, Any] | None,
+    bounded_identity_response: bool,
+) -> httpx.Response:
+    if bounded_identity_response:
+        return await _bounded_identity_response(
+            client,
+            method,
+            path,
+            params=params,
+            payload=payload,
+        )
+    return await client.request(method, path, params=params, json=payload)
 
 
 _NOT_FOUND_MESSAGES = {
@@ -386,21 +461,21 @@ def _validated_response_body[ModelT: BaseModel](
     response_validator: ResponseValidator | None,
     strict_wire_response: bool,
 ) -> ModelT:
-    wire_response = response.json()
     strict_wire = (
         effect == TransportEffect.RECEIPT_PROTECTED_WRITE or strict_wire_response
     )
     if not strict_wire:
+        wire_response = response.json()
         parsed = response_model.model_validate(wire_response)
     else:
         # Completed receipts and explicitly classified safe reads use canonical
         # wire validation. Do not coerce values, synthesize defaults, or silently
         # normalize a malformed success into something authoritative-looking.
-        encoded_response = json.dumps(
-            wire_response,
-            ensure_ascii=False,
-            allow_nan=False,
-            separators=(",", ":"),
+        encoded_response = response.content.decode("utf-8", errors="strict")
+        wire_response = json.loads(
+            encoded_response,
+            object_pairs_hook=_response_object_without_duplicate_keys,
+            parse_constant=_invalid_response_constant,
         )
         parsed = response_model.model_validate_json(encoded_response, strict=True)
         if parsed.model_dump(mode="json") != wire_response:
@@ -408,6 +483,21 @@ def _validated_response_body[ModelT: BaseModel](
     if response_validator is not None and not response_validator(parsed):
         raise ValueError("incoherent response")
     return parsed
+
+
+def _response_object_without_duplicate_keys(
+    pairs: list[tuple[str, Any]],
+) -> dict[str, Any]:
+    document: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in document:
+            raise ValueError("duplicate response key")
+        document[key] = value
+    return document
+
+
+def _invalid_response_constant(value: str) -> NoReturn:
+    raise ValueError(f"invalid response constant: {value}")
 
 
 def _raise_unexpected_response(
@@ -471,6 +561,7 @@ class MnemonicAPI:
         response_validator: ResponseValidator | None = None,
         extended_read_timeout: bool = False,
         strict_wire_response: bool = False,
+        bounded_identity_response: bool = False,
     ) -> ResponseModel | None:
         # A request-scoped client avoids sharing event-loop state across SDK
         # stateless HTTP sessions or stdio clients. No automatic write retries.
@@ -479,6 +570,10 @@ class MnemonicAPI:
             raise ValueError("Extended read timeout requires an explicit safe-read effect.")
         if strict_wire_response and effect != TransportEffect.SAFE_READ:
             raise ValueError("Explicit strict wire validation requires a safe-read effect.")
+        if bounded_identity_response and (
+            effect != TransportEffect.SAFE_READ or method != "GET"
+        ):
+            raise ValueError("Bounded identity responses require an explicit safe GET.")
         try:
             async with httpx.AsyncClient(
                 base_url=f"{self.settings.api_url.rstrip('/')}/api/v1/",
@@ -501,14 +596,28 @@ class MnemonicAPI:
                     # httpx timeouts bound individual transport phases. The
                     # outer deadline is the actual end-to-end request ceiling.
                     async with asyncio.timeout(_EXTENDED_READ_TIMEOUT_SECONDS):
-                        response = await client.request(
-                            method, path, params=params, json=payload
+                        response = await _dispatch_request(
+                            client,
+                            method,
+                            path,
+                            params=params,
+                            payload=payload,
+                            bounded_identity_response=bounded_identity_response,
                         )
                 else:
-                    response = await client.request(
-                        method, path, params=params, json=payload
+                    response = await _dispatch_request(
+                        client,
+                        method,
+                        path,
+                        params=params,
+                        payload=payload,
+                        bounded_identity_response=bounded_identity_response,
                     )
-        except (TimeoutError, httpx.RequestError):
+        except (
+            BoundedIdentityResponseViolation,
+            TimeoutError,
+            httpx.RequestError,
+        ):
             _raise_request_error(method, effect=effect)
 
         _raise_for_response_error(

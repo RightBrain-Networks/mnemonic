@@ -17,7 +17,9 @@ backup_once() {
   suffix=${partial##*.}
   target="/backups/mnemonic-${stamp}-${suffix}.dump"
   trap 'rm -f "$partial"' EXIT HUP INT TERM
-  pg_dump --format=custom --no-owner --no-acl --file="$partial"
+  # Ownership is rebound to the fixed application role on restore, but ACLs
+  # are part of the fail-closed database contract and must survive the archive.
+  pg_dump --format=custom --no-owner --file="$partial"
   pg_restore --list "$partial" >/dev/null
   # Keep previous dumps even if a clock/PID repeats across container restarts.
   mv -n "$partial" "$target"
