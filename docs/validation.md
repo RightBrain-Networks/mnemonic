@@ -1,5 +1,44 @@
 # Mnemonic validation record
 
+## Lifecycle-filter deselection — 2026-09-04
+
+This entry covers dropping the open work-item selection when the work library's
+lifecycle filter changes (dashboard `0.5.0`, no application/API/MCP, plugin,
+migration, or proxy-allowlist change). Before it, a record reached under Pending
+stayed in the detail pane after Deferred, Done, or any other filter was clicked,
+so the pane showed a record the queue no longer listed. The rule now lives in one
+pure helper, `statusFilterTransition` in `frontend/lib/work-queue.ts`, which the
+filter buttons and the empty state's Clear filters both consult; reselecting the
+filter already in force is not a change, and an unsaved edit or checkpoint draft
+holds the change behind the same confirmation that closing the pane uses. Every
+figure below was observed in the session that recorded it, on a local Node
+v22.22.3 checkout of the topic branch (CI uses Node 24).
+
+- **Frontend unit tests (`npm test`): 205 passing, 0 failing.** The run adds three
+  cases to `tests/work-queue.test.mjs`: every ordered pair of the eight distinct
+  filters deselects while a record is open, reselecting the current filter is
+  `unchanged`, and a change with nothing open only refilters the queue.
+- **TypeScript checking (`npm run typecheck`) and the production build
+  (`npm run build`): both pass.**
+- **Isolated Playwright stack (`npm run test:e2e:stack`): 87 executions, 85
+  passing, 2 skipped by design, 0 failing, 5.0 minutes** on a uniquely named
+  disposable Compose project; teardown left no `mnemonic-e2e-*` project, container,
+  or volume. The run adds the desktop case in
+  `tests/e2e/work-library-surface.spec.ts` that opens a pending record, switches to
+  Deferred and observes the closed pane, the "Pick a work item." placeholder, and
+  the cleared `?work=`; reselects Pending and confirms clicking the filter already
+  in force keeps the selection and the address; then selects under All, empties the
+  queue with a nonmatching search, and confirms Clear filters returns to Pending and
+  drops the selection. The narrow project skips it because the full-screen sheet
+  covers the filter row while a record is open, which is the second skip alongside
+  the pre-existing narrow divider case. Every other spec passed unchanged, including
+  each one that switches a lifecycle filter after closing the detail.
+- **Gitleaks (`pre-commit` hook): passed** on the commit.
+
+No backend, MCP, migration, plugin, stack-check, or adversarial-review result is
+claimed for this change, and it does not alter any production, cutover, or
+permanence gate.
+
 ## Brand mark for the favicon and sidebar — 2026-09-03
 
 This entry covers replacing the dashboard's orange badge with the robot-head

@@ -811,6 +811,60 @@ test("the ?work= query restores the selection on reload and clears with it", asy
   }
 });
 
+test("changing the lifecycle filter deselects the open work item", async ({ page }, testInfo) => {
+  test.skip(
+    narrowProject(testInfo),
+    "Below 900px the open sheet covers the filter row, so no filter is reachable with a selection."
+  );
+  const token = searchToken("surfacefilter", testInfo);
+  const key = testKey(testInfo);
+  const title = `Filtered item ${token}`;
+  const client = await apiClient();
+  try {
+    const work = await createWork(client, { title, sessionId: `surface-filter-${key}` });
+    const selectedURL = new RegExp(`[?&]work=${work.id}(?:&|$)`);
+    const pane = workPane(page);
+    const pending = page.getByRole("button", { name: "Pending", exact: true });
+
+    await openDashboard(page);
+    await searchFor(page, token, 1);
+    await selectWork(page, title);
+    await expect(pane).toHaveClass(/is-open/);
+    await expect(page).toHaveURL(selectedURL);
+
+    // The pending record is absent from the deferred queue, so the pane cannot outlive it.
+    await page.getByRole("button", { name: "Deferred", exact: true }).click();
+    await expect(pane).not.toHaveClass(/is-open/);
+    await expect(pane.getByRole("heading", { name: "Pick a work item." })).toBeVisible();
+    await expect(page).not.toHaveURL(/[?&]work=/);
+
+    // Reselecting the filter already in force is not a change and keeps the selection.
+    await pending.click();
+    await searchFor(page, token, 1);
+    await selectWork(page, title);
+    await expect(page).toHaveURL(selectedURL);
+    await pending.click();
+    await expect(pane).toHaveClass(/is-open/);
+    await expect(pane.locator(".detail-title")).toHaveText(title);
+    await expect(page).toHaveURL(selectedURL);
+
+    // Clearing filters returns the queue to Pending and drops the selection on the same rule.
+    await page.getByRole("button", { name: "All", exact: true }).click();
+    await expect(pane).not.toHaveClass(/is-open/);
+    await searchFor(page, token, 1);
+    await selectWork(page, title);
+    await expect(page).toHaveURL(selectedURL);
+    await searchFor(page, `${token}nomatch`, 0);
+    await expect(pane).toHaveClass(/is-open/);
+    await page.getByRole("button", { name: "Clear filters" }).click();
+    await expect(pending).toHaveAttribute("aria-pressed", "true");
+    await expect(pane).not.toHaveClass(/is-open/);
+    await expect(page).not.toHaveURL(/[?&]work=/);
+  } finally {
+    await client.dispose();
+  }
+});
+
 test("the queue and pane split is draggable, keyboard-adjustable, and remembered", async ({ page }, testInfo) => {
   test.skip(narrowProject(testInfo), "The stacked layout below 900px has no divider.");
   const token = searchToken("surfacesplit", testInfo);

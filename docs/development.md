@@ -556,20 +556,26 @@ scrollport, so the result count reports the total while cards append; there
 are no Previous/Next controls. Selecting a card opens the detail pane beside it
 with Context, History, Graph, Questions, and Activity tabs; edit is inline in
 the Context tab, the merge review is an inline panel inside the Graph tab, and
-the selection mirrors into `?work=<id>`. A divider between the columns
+the selection mirrors into `?work=<id>`. A lifecycle filter names a different
+queue, so changing it — including the empty state's Clear filters, which returns
+the queue to Pending — drops the open selection instead of stranding a record the
+queue no longer lists; reselecting the filter already in force changes nothing,
+and an unsaved edit or checkpoint draft holds the change behind the same
+confirmation that closing the pane uses. A divider between the columns
 (`role="separator"`, keyboard-adjustable, double-click resets) sets the
 queue's share of the surface and remembers it in `localStorage` under
 `mnemonic.work-split`; the stylesheet clamps both columns to readable minimums.
 Below 900px the pane becomes a full-height sheet with a Back button. Node tests cover the pure queue helpers
 (result-count labels, page merging, loaded offsets, arrow-key selection and
-list-scroll arithmetic, forced More-filters state), the split helpers (bounds,
+list-scroll arithmetic, forced More-filters state, lifecycle-filter transitions), the split helpers (bounds,
 stored-preference parsing, pointer and keyboard steps), and the tab-count helper.
 `tests/e2e/work-library-surface.spec.ts` runs in both the desktop and narrow
 Chromium projects and covers arrow-key selection that scrolls the list rather
 than the window, tab persistence across items, inline edit save and cancel,
 merge inside the Graph tab through the real API, lazy append from 20 to 40 to
 45 seeded cards with the total shown throughout, the More filters toggle and
-provenance auto-open, work-item ID copy, `?work=` restore on reload, the
+provenance auto-open, work-item ID copy, `?work=` restore on reload,
+deselection on a lifecycle-filter change and on Clear filters, the
 draggable divider (drag, reload, arrow keys, double-click reset, no overflow),
 and the narrow sheet with its Back button. The `tests/e2e/surface.ts` helpers
 (`workPane`, `workCard`, `selectWork`, `closeDetail`, `openTab`) are how every
