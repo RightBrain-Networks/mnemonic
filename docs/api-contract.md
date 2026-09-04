@@ -1,9 +1,11 @@
-# Phase 10 API contract
+# Phase 11 API contract
 
-This is the application/API/MCP `0.5.0`, plugin `0.9.0`, and migration
-`0018_repository_freshness` contract. It includes caller-declared repository
-dependency scopes and the client-local freshness workflow alongside Phase 9's
-authoritative duplicate merges and evidence-only duplicate suggestions.
+This is the application/API/MCP `0.6.0`, plugin `0.10.0`, and migration
+`0019_structured_completion_evidence` contract. It adds optional structured
+verification results and artifact references inside atomic completion plus a
+bounded, event-backed evidence-history read. Phase 10's caller-declared
+repository scopes and local freshness workflow and Phase 9's authoritative
+duplicate merges remain unchanged.
 
 All application routes use `/api/v1` and
 `Authorization: Bearer <MNEMONIC_API_KEY>`. `GET /healthz` and
@@ -67,11 +69,21 @@ Suggestion-specific failures are `request_body_too_large` (413),
 read: its timeout/429/503 may be retried normally and never imply an unknown
 structural write. Creation remains independent.
 
+Completion evidence adds sanitized `completion_evidence_unavailable` (503) for
+a history representation whose stored identity, generation, ordering, or size
+cannot be proven coherent. It never contains evidence text, artifact
+references, identifiers, or response fragments. Treat it as unavailable data,
+not as an empty history. A malformed or unavailable protected completion
+receipt instead returns the existing `client_operation_unavailable`; replay
+validates the permanent receipt without consulting current evidence rows, and
+neither error proves whether a write committed.
+
 ## Idempotent mutation receipts
 
 Exactly thirteen project-scoped REST mutations use a top-level
-`client_operation_id` UUID. It is optional on the original twelve and mandatory
-for merge:
+`client_operation_id` UUID. It is optional on the original twelve only while
+`complete_work` carries no structured evidence; it is mandatory for every
+non-empty evidence completion and every merge:
 
 | Operation | Route |
 | --- | --- |
@@ -121,7 +133,9 @@ remains valid and may remain unattributed.
 
 Direct REST callers may omit `client_operation_id` from the original twelve;
 that preserves a single unprotected attempt and makes no retry-safety promise.
-`merge_work` has no unkeyed form. Exactly eleven canonical
+The exception is a completion with at least one evidence child, which requires
+the UUID before reservation or any domain write. `merge_work` has no unkeyed
+form. Exactly eleven canonical
 MCP mutation tools require it: the previous ten plus `merge_work`.
 Human-only deferral and gate resolution have no MCP tools. The dashboard
 generates it for eleven covered browser operations: its previous ten plus merge,
@@ -621,7 +635,7 @@ Ready discovery is advisory. It is separate from lexical/semantic retrieval,
 does not reserve work, and cannot bypass the atomic readiness recheck performed
 by `claim_work` or `claim_and_recall`.
 
-### Phase 10 response shapes
+### Phase 11 response shapes
 
 `WorkItemRead` contains:
 
@@ -773,7 +787,186 @@ fields come from one database statement and one database-time snapshot.
 Offset pages contain `items`, `total`, `limit`, and `offset`. Human-attention
 and per-work gate-history pages instead contain `items`, `total`, `limit`, and
 `next_cursor`.
-`CompletionResult` contains `work_item` and `checkpoint`.
+`WorkCompletionRead` contains `work_item`, `checkpoint`, and optional
+`completion_evidence`. The evidence field is absent when no child rows exist;
+it is never `null` and never an object with two empty families. A present object
+always includes both `verification_results` and `artifact_references`, using
+`[]` only for its empty family.
+
+## Structured completion evidence
+
+`POST /projects/{project_id}/work-items/{work_item_id}/complete` extends the
+existing strict request with:
+
+```json
+{
+  "expected_version": 7,
+  "checkpoint": {
+    "prompt": "Implemented and verified the requested change.",
+    "source_client": "codex",
+    "source_session_id": "opaque-current-session",
+    "verified_against": "7ad62e4",
+    "affected_paths": ["backend/**"],
+    "tags": [],
+    "source_metadata": {}
+  },
+  "client_operation_id": "11584ccf-c787-4c6a-bb89-a69a02c1554d",
+  "completion_evidence": {
+    "verification_results": [
+      {
+        "verification_type": "command",
+        "name": "Backend tests",
+        "outcome": "passed",
+        "summary": "The PostgreSQL-backed suite passed without skips.",
+        "command": "uv run pytest -q",
+        "exit_code": 0,
+        "observed_at": "2026-09-04T18:01:02Z",
+        "observed_at_commit": "7ad62e4"
+      }
+    ],
+    "artifact_references": [
+      {
+        "artifact_type": "pull_request",
+        "label": "Reviewed change",
+        "reference": "https://github.com/example/mnemonic/pull/123"
+      }
+    ]
+  }
+}
+```
+
+Omitting `completion_evidence`, supplying `{}`, or supplying only omitted/empty
+arrays all canonicalize to field absence. Explicit `null` for the outer field,
+either array, or any optional evidence value is invalid. Non-empty evidence has
+1–20 total children and at most 32,768 charged UTF-8 string bytes. Order,
+spelling, case, and internal whitespace are fingerprinted and preserved except
+that a valid `observed_at` is emitted as the same instant in canonical UTC.
+
+Verification is a strict discriminated union. Both `command` and `observation`
+records require `name`, `outcome`, and `summary`; outcome is `passed`, `failed`,
+`inconclusive`, or `skipped`. A command cannot be `skipped`: `passed` requires
+`exit_code=0`, `failed` requires a nonzero signed 32-bit exit code, and
+`inconclusive` omits the exit code. Observations forbid command fields.
+`observed_at` is an exact bounded RFC 3339 timestamp and
+`observed_at_commit`, when supplied, is 7–64 lowercase hexadecimal characters.
+
+Artifact types are `commit`, `pull_request`, `branch`, `test_run`,
+`repository_path`, `external_issue`, and `build_artifact`. Commit references
+are 7–64 lowercase hexadecimal characters. Repository paths are exact relative
+non-glob paths under the Phase 10 safe component grammar. Branches preserve
+accepted case and internal whitespace but reject edge whitespace. URL-backed
+types require an absolute ASCII lowercase-`https://` URL with a valid host and
+no credentials, query, fragment, whitespace, or control characters. Bracketed
+IPv6 literals require exact lowercase canonical compressed spelling. Duplicate
+`(artifact_type, reference)` pairs within an episode are invalid. No first-party
+component dereferences or executes any stored field.
+
+The completion checkpoint, pending-to-done transition, completion event,
+evidence children, lease departure, and optional durable receipt are one
+transaction. Every child has a server UUID, exact work/checkpoint IDs,
+zero-based contiguous family position, and `created_at` equal to the completion
+checkpoint time. Exact completed receipt replay returns the original response
+without creating another episode. Evidence cannot be inserted, changed,
+moved, or deleted separately; correction requires an explicit reopen and later
+new completion.
+
+`GET /projects/{project_id}/work-items/{work_item_id}/completion-evidence`
+accepts `limit=1..10` (default 10) and an opaque `cursor`. Its strict response is:
+
+```text
+work_item_id, work_version, lifecycle_status,
+is_duplicate, canonical_work_item_id,
+current_completion_checkpoint_id,
+as_of_completion_event_id,
+items, total, structured_completion_total, limit, next_cursor
+```
+
+Each item contains the decimal-string `completion_event_id`, a compact
+`completion_checkpoint`, and both evidence arrays. The read returns every exact
+completion episode newest first, including pre-0019/evidence-free episodes with
+empty arrays. `structured_completion_total` counts episodes having at least one
+child; `total` counts every episode at the stable first-page high-water mark.
+The current checkpoint pointer is non-null only for visible canonical work that
+is presently `done`. An exact alias retains its own history and separately names
+its canonical continuation; no redirect or history blending occurs. Soft-deleted
+work is concealed from this ordinary read while its evidence rows remain intact
+for receipt recovery and operator audit.
+
+The API serializes the entire page before return and rejects a body over
+3,145,728 UTF-8 bytes. Every first-party reader requests identity encoding,
+rejects any non-identity or malformed `Content-Encoding` before consuming the
+body, and incrementally rejects byte 3,145,729 before UTF-8 or JSON parsing.
+Generated compact completion request/fingerprint/response/receipt and database
+JSON representations remain at most 896 KiB; deployed REST/browser ingress is
+independently capped at 1,048,576 raw bytes.
+
+### Sparse, retry, and correction examples
+
+The complete REST request documents
+[`completion-with-evidence.json`](../examples/completion-with-evidence.json)
+and
+[`completion-without-evidence.json`](../examples/completion-without-evidence.json)
+show the present and omitted field shapes. The latter contains no
+`completion_evidence` member at all; its successful `WorkCompletionRead` also
+omits that member. If the first non-empty request has an unknown outcome, send
+that exact same body—including the same checkpoint, ordered nested evidence,
+expected version, lease token if any, and `client_operation_id`—to the same
+completion route. An exact retry returns the original response. Do not create
+a new UUID or substitute the sparse request.
+
+Correction is a new lifecycle, never an evidence edit. After the first
+completion returns work version 8, a protected REST reopen uses a different
+intent:
+
+```json
+{
+  "expected_version": 8,
+  "status": "pending",
+  "actor": {
+    "actor_client": "codex",
+    "actor_session_id": "replacement-session"
+  },
+  "client_operation_id": "696f8c9a-c221-49fb-b61d-e334ee71ae95"
+}
+```
+
+Its version-9 result can then be completed with the separate sparse request.
+The resulting exact history page is
+[`completion-evidence-history.json`](../examples/completion-evidence-history.json):
+the version-10 current episode has two empty arrays, while the older episode
+retains its structured command. Empty arrays assert only that no structured
+rows were recorded for that episode.
+
+The equivalent MCP sequence uses the same frozen-intent rule (illustrative
+function-call notation; replace every value with facts from the exact work):
+
+```text
+first_intent = {
+  project_id, work_item_id, expected_version: 7,
+  checkpoint: first_checkpoint,
+  client_operation_id: "11584ccf-c787-4c6a-bb89-a69a02c1554d",
+  completion_evidence: observed_evidence
+}
+complete_work(first_intent)
+complete_work(first_intent)  # exact unknown-outcome retry; no mutation repeats
+
+update_work(
+  project_id, work_item_id, expected_version: 8,
+  changes: {status: "pending"},
+  actor_client: "codex", actor_session_id: "replacement-session",
+  client_operation_id: "696f8c9a-c221-49fb-b61d-e334ee71ae95"
+)
+complete_work(
+  project_id, work_item_id, expected_version: 9,
+  checkpoint: replacement_checkpoint,
+  client_operation_id: "573d6fe4-5bd0-452c-8400-bc29ee7bf1f7"
+)  # completion_evidence omitted
+list_completion_evidence(project_id, work_item_id, limit: 10)
+```
+
+MCP requires an operation UUID even for the sparse completion. A client that
+lost any frozen argument must stop and reconcile safely rather than improvise
+a retry.
 
 ## Human-gate contract
 
@@ -890,14 +1083,14 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 27 tools:
+The catalog is exactly 28 tools:
 
 ```text
 list_projects, create_project,
 create_work, search_work, list_ready_work, get_work, add_checkpoint,
 list_checkpoints, recall_work, request_human_input, list_human_attention,
 list_work_gates, append_event, list_work_events,
-update_work, complete_work, delete_work,
+update_work, complete_work, list_completion_evidence, delete_work,
 claim_work, claim_and_recall, renew_claim, release_claim,
 add_relationship, get_relationship, list_relationships, remove_relationship,
 merge_work, suggest_duplicate_work
@@ -911,6 +1104,25 @@ mutations. Prepare the
 complete arguments once, retain them privately, and retry only that exact tool,
 UUID, and argument object after an unknown outcome. Project administration,
 claim acquisition/recovery, and renewal retain their separate contracts.
+
+`complete_work` accepts the same strict optional evidence object as REST and
+validates the complete response against the exact frozen request, including
+canonical timestamp equivalence, child ownership, positions, order, and record
+time. The MCP tool always requires its operation UUID, including with no
+evidence. `list_completion_evidence` is a `safe_read`: it makes only the
+documented GET, follows opaque cursors without modification, and returns the
+complete strict page. Neither tool executes commands, opens artifact URLs, or
+turns evidence into authority.
+
+Before SDK parsing, both Streamable HTTP and stdio accept at most 1,048,576 raw
+bytes containing exactly one JSON object. HTTP accepts only absent or one
+case-insensitive `identity` content coding. A present JSON-RPC ID is either a
+strict signed 64-bit integer or a 1–128-character ASCII string matching
+`[A-Za-z0-9._:-]+`; invalid requests are rejected without reflecting the ID.
+An invalid stdio record terminates that transport without a competing response
+writer. The locked SDK's complete evidence success—including JSON text,
+`structuredContent`, the maximum ID, and the stdio newline—is capped at
+12,582,912 bytes; evidence is never truncated to satisfy that bound.
 
 `search_work` defaults to `view="full"` and `duplicate_scope="canonical"`.
 Every result is a `WorkSearchHit`; `matched_member` identifies which exact
@@ -996,6 +1208,15 @@ no lease-token surface, so it disables merge while the source has an active
 lease and directs the person to release or finish that lease through an
 authorized client. It never strips or invents a token.
 
+The proxy admits the exact completion-evidence GET with only `limit` and
+`cursor`. It sends `Accept-Encoding: identity`, checks response headers before
+pulling a body, strips/replaces any accepted upstream coding marker, and
+incrementally caps the identity body at 3 MiB before UTF-8/JSON validation.
+Non-identity or malformed coding and over-limit bodies produce only a
+content-free 502. The same-origin response explicitly emits
+`Content-Encoding: identity`, `Cache-Control: no-store, no-transform`, and
+`X-Content-Type-Options: nosniff`; it never publishes a live invalidation.
+
 The exact duplicate-suggestion route is the sole safe POST in this area. Its
 body allowlist is only `title`, `summary`, `initial_prompt`, `tags`,
 `exclude_work_item_id`, and `limit`; operation IDs, lease tokens, headers,
@@ -1005,6 +1226,9 @@ to 60 seconds. It forwards `Retry-After: 1` only for the typed busy response,
 never enters the protected-intent registry, and publishes no live invalidation.
 
 The eleven covered browser writes require one top-level operation UUID and a frozen body.
+The existing completion body alone may contain `completion_evidence`; it is
+validated before registration and frozen with the rest of the intent. No
+standalone evidence POST or browser mutation kind exists.
 Event POST accepts `{event_type,body,metadata,actor,client_operation_id}` and
 rejects `lease_token` rather than stripping it. Relationship DELETE carries the
 serialized actor/key body. Project relationship GET-by-ID, project ready-work,

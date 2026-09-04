@@ -22,8 +22,8 @@ from starlette.testclient import TestClient
 
 from mnemonic_mcp.api import MnemonicAPI
 from mnemonic_mcp.config import Settings
-from mnemonic_mcp.security import MAX_REQUEST_BYTES
 from mnemonic_mcp.server import create_app
+from mnemonic_mcp.transport import MCP_REQUEST_MAX_BYTES
 
 JSON_HEADERS = {
     "Accept": "application/json, text/event-stream",
@@ -46,6 +46,7 @@ CANONICAL_TOOL_NAMES = {
     "get_work",
     "add_checkpoint",
     "list_checkpoints",
+    "list_completion_evidence",
     "recall_work",
     "append_event",
     "list_work_events",
@@ -145,6 +146,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         initialized = client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS)
         assert initialized.status_code == 200
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
+        assert initialized.json()["result"]["serverInfo"]["version"] == "0.6.0"
         instructions = initialized.json()["result"]["instructions"]
         # Clients truncate this block, so it must stay short and lead with the
         # trigger condition. Per-tool doctrine lives in the tool descriptions.
@@ -167,7 +169,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
         listed_tools = listed.json()["result"]["tools"]
-        assert len(listed_tools) == 27
+        assert len(listed_tools) == 28
         assert_serialized_tool_contract(listed_tools)
         assert all(
             tool["inputSchema"].get("additionalProperties") is False
@@ -370,7 +372,11 @@ def test_same_origin_and_explicit_additional_origin_work(settings):
 
 def test_body_size_is_bounded(settings):
     with TestClient(create_app(settings), base_url="http://localhost:8001") as client:
-        response = client.post("/mcp", content=b"x" * (MAX_REQUEST_BYTES + 1), headers=JSON_HEADERS)
+        response = client.post(
+            "/mcp",
+            content=b"x" * (MCP_REQUEST_MAX_BYTES + 1),
+            headers=JSON_HEADERS,
+        )
     assert response.status_code == 413
 
 
@@ -429,8 +435,9 @@ async def test_stdio_transport_handshake_and_catalog():
         ):
             initialized = await session.initialize()
             assert initialized.serverInfo.name == "Mnemonic"
+            assert initialized.serverInfo.version == "0.6.0"
             result = await session.list_tools()
-            assert len(result.tools) == 27
+            assert len(result.tools) == 28
             assert all(tool.outputSchema is not None for tool in result.tools)
             assert all(
                 tool.inputSchema.get("additionalProperties") is False

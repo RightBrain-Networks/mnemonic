@@ -11,6 +11,8 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import AnyFunction, Icon, ToolAnnotations
 from pydantic import ConfigDict, ValidationError
 
+from .transport import bounded_stdio_server
+
 VALIDATION_FIELDS = frozenset(
     {
         "name",
@@ -43,6 +45,18 @@ VALIDATION_FIELDS = frozenset(
         "initial_checkpoint",
         "initial_relationships",
         "checkpoint",
+        "completion_evidence",
+        "verification_results",
+        "artifact_references",
+        "verification_type",
+        "outcome",
+        "command",
+        "exit_code",
+        "observed_at",
+        "observed_at_commit",
+        "artifact_type",
+        "label",
+        "reference",
         "changes",
         "kind",
         "prompt",
@@ -139,6 +153,7 @@ class _SDKValidationLogFilter(logging.Filter):
         "Failed to validate request:": "MCP request parameters were invalid.",
         "Message that failed validation:": "Invalid MCP request details were suppressed.",
         "Failed to validate notification:": "MCP notification parameters were invalid.",
+        "Received exception from stream:": "MCP stream message was invalid.",
     }
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -155,10 +170,11 @@ _SDK_VALIDATION_LOG_FILTER = _SDKValidationLogFilter()
 
 
 def install_sdk_validation_log_filter() -> None:
-    """Install one narrow root filter for SDK logs emitted through logging.warning."""
-    root_logger = logging.getLogger()
-    if not any(item is _SDK_VALIDATION_LOG_FILTER for item in root_logger.filters):
-        root_logger.addFilter(_SDK_VALIDATION_LOG_FILTER)
+    """Install narrow filters at both pinned SDK validation-log emission sites."""
+    for logger_name in (None, "mcp.server.lowlevel.server"):
+        logger = logging.getLogger(logger_name)
+        if not any(item is _SDK_VALIDATION_LOG_FILTER for item in logger.filters):
+            logger.addFilter(_SDK_VALIDATION_LOG_FILTER)
 
 
 def _is_safe_path(path: str) -> bool:
@@ -246,6 +262,19 @@ def _validation_details(error: ValidationError) -> tuple[dict[str, set[str]], se
 class SanitizedFastMCP(FastMCP[Any]):
     """Per-server strict argument models and value-free validation errors."""
 
+    def __init__(
+        self,
+        *args: Any,
+        server_version: str,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        if not server_version:
+            raise ValueError("The MCP application version must be nonempty.")
+        # FastMCP 1.29 has no public version argument; both transports read this
+        # low-level Server field when creating their initialization options.
+        self._mcp_server.version = server_version
+
     def add_tool(
         self,
         fn: AnyFunction,
@@ -304,3 +333,12 @@ class SanitizedFastMCP(FastMCP[Any]):
             raise ToolError(
                 validation_error_message(*_validation_details(validation_error))
             ) from None
+
+    async def run_stdio_async(self) -> None:
+        """Run through the bounded binary adapter at the pinned FastMCP seam."""
+        async with bounded_stdio_server() as (read_stream, write_stream):
+            await self._mcp_server.run(
+                read_stream,
+                write_stream,
+                self._mcp_server.create_initialization_options(),
+            )

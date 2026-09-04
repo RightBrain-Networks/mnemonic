@@ -1,0 +1,58 @@
+# Phase 11 nginx/Next identity-transport overlay. Invoke through
+# scripts/test-nginx-e2e.sh together with compose.e2e.yaml.
+services:
+  encoding-upstream:
+    image: python:3.14-alpine
+    command: [python, /opt/mnemonic/encoding_upstream.py]
+    volumes:
+      - ./scripts/fixtures/encoding_upstream.py:/opt/mnemonic/encoding_upstream.py:ro
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8081/healthz", timeout=3)'
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    init: true
+    restart: "no"
+    security_opt: [no-new-privileges:true]
+
+  web:
+    environment:
+      MNEMONIC_API_URL: http://encoding-upstream:8081
+      MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_NGINX_E2E_URL:?Run through scripts/test-nginx-e2e.sh}
+    depends_on:
+      encoding-upstream:
+        condition: service_healthy
+
+  nginx:
+    build:
+      context: .
+      dockerfile: deploy/nginx/test/Dockerfile
+    ports:
+      - '127.0.0.1:${MNEMONIC_NGINX_E2E_PORT:?Run through scripts/test-nginx-e2e.sh}:8080'
+    volumes:
+      - ./deploy/nginx/test/mnemonic-nginx-e2e.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/snippets/mnemonic-dashboard-api-policy.conf:/etc/nginx/snippets/mnemonic-dashboard-api-policy.conf:ro
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: "no"
+    security_opt: [no-new-privileges:true]
+
+  nginx-stock-policy-check:
+    profiles: [policy-check]
+    image: nginx:1.27-alpine
+    command: [nginx, -t, -c, /etc/nginx/nginx.conf]
+    volumes:
+      - ./deploy/nginx/test/mnemonic-nginx-stock-policy.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/snippets/mnemonic-dashboard-api-policy.conf:/etc/nginx/snippets/mnemonic-dashboard-api-policy.conf:ro
+    restart: "no"
+    security_opt: [no-new-privileges:true]

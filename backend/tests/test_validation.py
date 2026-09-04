@@ -1137,3 +1137,38 @@ def test_validation_error_sanitizer_allowlists_locations_and_drops_raw_content()
     serialized = json.dumps(errors)
     for private_content in (root_key, root_value, nested_key, nested_value):
         assert private_content not in serialized
+
+
+@pytest.mark.parametrize(
+    "segment",
+    (
+        "completion_evidence",
+        "verification_results",
+        "artifact_references",
+        "verification_type",
+        "outcome",
+        "command",
+        "exit_code",
+        "observed_at",
+        "observed_at_commit",
+        "artifact_type",
+        "label",
+        "reference",
+    ),
+)
+def test_completion_evidence_validation_locations_are_public(segment: str):
+    assert public_validation_errors(
+        [
+            {
+                "type": "value_error",
+                "loc": ("body", segment),
+                "msg": "private model error",
+            }
+        ]
+    ) == [
+        {
+            "type": "value_error",
+            "loc": ["body", segment],
+            "msg": "Value is invalid.",
+        }
+    ]

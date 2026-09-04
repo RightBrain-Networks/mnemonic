@@ -31,6 +31,8 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     resolved_work_version resolved_context_checkpoint_id
     resolved_relationship_event_count relationship_event_count work_version cursor
     focus_gate_id recall_pointer_template initial_prompt exclude_work_item_id
+    completion_evidence verification_results artifact_references verification_type
+    outcome command exit_code observed_at observed_at_commit artifact_type label reference
     """.split()
 )
 

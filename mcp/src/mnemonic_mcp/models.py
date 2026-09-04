@@ -1,26 +1,39 @@
 """Typed REST wire models; the API remains the validation authority."""
 
+import base64
+import binascii
+import ipaddress
 import json
 import re
-from datetime import datetime, timedelta
-from typing import Annotated, Literal, Self
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta, timezone
+from typing import Annotated, Any, Literal, Self
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import (
     AfterValidator,
+    AnyHttpUrl,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     JsonValue,
+    PlainSerializer,
     RootModel,
     SecretStr,
     StrictBool,
     StrictInt,
+    StrictStr,
     StringConstraints,
+    TypeAdapter,
+    ValidationInfo,
+    WithJsonSchema,
     field_validator,
     model_serializer,
     model_validator,
 )
+from pydantic.json_schema import SkipJsonSchema
 
 Status = Literal["pending", "deferred", "done", "wont-do", "promoted"]
 EventStatus = Literal["open", "pending", "deferred", "done", "wont-do", "promoted"]
@@ -233,6 +246,558 @@ OpaqueCursor = Annotated[
     Field(min_length=1, max_length=4096),
     AfterValidator(_validated_event_text),
 ]
+
+VerificationType = Literal["command", "observation"]
+VerificationOutcome = Literal["passed", "failed", "inconclusive", "skipped"]
+ArtifactType = Literal[
+    "commit",
+    "pull_request",
+    "branch",
+    "test_run",
+    "repository_path",
+    "external_issue",
+    "build_artifact",
+]
+
+_ARTIFACT_URL_ADAPTER = TypeAdapter(AnyHttpUrl)
+_ARTIFACT_HOST_LABEL = re.compile(
+    r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$",
+    re.ASCII,
+)
+_ARTIFACT_IPV6_HOST = re.compile(r"^[0-9a-f:]+$", re.ASCII)
+
+MAX_COMPLETION_EVIDENCE_ENTRIES = 20
+MAX_COMPLETION_EVIDENCE_BYTES = 32768
+MAX_COMPLETION_EVENT_ID = 9223372036854775806
+MAX_COMPLETION_EVIDENCE_CURSOR_BYTES = 2048
+
+
+def _omit_default_from_json_schema(schema: dict[str, Any]) -> None:
+    """Describe a runtime-optional field as omission-only to MCP clients."""
+    schema.pop("default", None)
+
+
+def _validated_evidence_text(
+    value: str,
+    *,
+    label: str,
+    maximum_bytes: int,
+) -> str:
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ValueError(f"{label} must use valid Unicode.") from error
+    if not value.strip() or b"\x00" in encoded:
+        raise ValueError(f"{label} must be nonblank and contain no NUL bytes.")
+    if len(encoded) > maximum_bytes:
+        raise ValueError(f"{label} exceeds its UTF-8 byte limit.")
+    return value
+
+
+def _validated_evidence_name(value: str) -> str:
+    return _validated_evidence_text(
+        value,
+        label="Evidence names",
+        maximum_bytes=800,
+    )
+
+
+def _validated_evidence_summary(value: str) -> str:
+    return _validated_evidence_text(
+        value,
+        label="Evidence summaries",
+        maximum_bytes=16000,
+    )
+
+
+def _validated_evidence_command(value: str) -> str:
+    return _validated_evidence_text(
+        value,
+        label="Evidence commands",
+        maximum_bytes=16384,
+    )
+
+
+_PYTHON_EDGE_WHITESPACE = (
+    r" \t\n\r\v\f\u001c-\u001f\u0085\u00a0\u1680"
+    r"\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
+)
+_JSON_SCHEMA_EXACT_END = r"(?![\s\S])"
+_EVIDENCE_TEXT_SCHEMA_PATTERN = (
+    rf"^(?![\s\S]*\u0000)(?![\s\S]*[\ud800-\udfff])"
+    rf"(?=[\s\S]*[^{_PYTHON_EDGE_WHITESPACE}])"
+    rf"[\s\S]+{_JSON_SCHEMA_EXACT_END}"
+)
+_BRANCH_SCHEMA_PATTERN = (
+    rf"^(?![\s\S]*\u0000)(?![\s\S]*[\ud800-\udfff])"
+    rf"(?![{_PYTHON_EDGE_WHITESPACE}])[\s\S]*[^{_PYTHON_EDGE_WHITESPACE}]"
+    rf"{_JSON_SCHEMA_EXACT_END}"
+)
+_PORT_SCHEMA_PATTERN = (
+    r"(?:0|[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|"
+    r"65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])"
+)
+_IPV4_OCTET_SCHEMA_PATTERN = r"(?:0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])"
+_IPV4_SCHEMA_PATTERN = rf"{_IPV4_OCTET_SCHEMA_PATTERN}(?:\.{_IPV4_OCTET_SCHEMA_PATTERN}){{3}}"
+_DNS_LABEL_SCHEMA_PATTERN = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+_DNS_SCHEMA_PATTERN = rf"{_DNS_LABEL_SCHEMA_PATTERN}(?:\.{_DNS_LABEL_SCHEMA_PATTERN})*"
+_IPV6_NONZERO_HEXTET_SCHEMA_PATTERN = r"[1-9a-f][0-9a-f]{0,3}"
+
+
+def _canonical_ipv6_shape(zero_mask: int) -> str:
+    zeroes = tuple(bool(zero_mask & (1 << position)) for position in range(8))
+    zero_runs: list[tuple[int, int]] = []
+    position = 0
+    while position < 8:
+        if not zeroes[position]:
+            position += 1
+            continue
+        end = position + 1
+        while end < 8 and zeroes[end]:
+            end += 1
+        zero_runs.append((position, end - position))
+        position = end
+    compression = max(zero_runs, key=lambda run: (run[1], -run[0]), default=None)
+    groups = [
+        "0" if zero else _IPV6_NONZERO_HEXTET_SCHEMA_PATTERN for zero in zeroes
+    ]
+    if compression is None or compression[1] < 2:
+        return ":".join(groups)
+    start, length = compression
+    return ":".join(groups[:start]) + "::" + ":".join(groups[start + length :])
+
+
+_IPV6_SCHEMA_PATTERN = (
+    r"\[(?:" + "|".join(_canonical_ipv6_shape(mask) for mask in range(256)) + r")\]"
+)
+_URL_PATH_CHARACTER_SCHEMA_PATTERN = r"(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[0-9A-F]{2})"
+_URL_DOT_SEGMENT_SCHEMA_PATTERN = r"(?:\.{1,2}|%2E|\.%2E|%2E\.|%2E%2E)"
+_HTTPS_ARTIFACT_SCHEMA_PATTERN = (
+    rf"^https://(?:{_IPV4_SCHEMA_PATTERN}"
+    rf"|(?![0-9.]+(?::(?:{_PORT_SCHEMA_PATTERN}))?/)"
+    rf"(?=[^/:]{{1,253}}(?::(?:{_PORT_SCHEMA_PATTERN}))?/){_DNS_SCHEMA_PATTERN}"
+    rf"|{_IPV6_SCHEMA_PATTERN})"
+    rf"(?::(?!443/){_PORT_SCHEMA_PATTERN})?/"
+    rf"(?!{_URL_DOT_SEGMENT_SCHEMA_PATTERN}(?:/|{_JSON_SCHEMA_EXACT_END}))"
+    rf"{_URL_PATH_CHARACTER_SCHEMA_PATTERN}*"
+    rf"(?:/(?!{_URL_DOT_SEGMENT_SCHEMA_PATTERN}(?:/|{_JSON_SCHEMA_EXACT_END}))"
+    rf"{_URL_PATH_CHARACTER_SCHEMA_PATTERN}*)*{_JSON_SCHEMA_EXACT_END}"
+)
+
+
+def _evidence_text_json_schema(maximum_bytes: int) -> dict[str, object]:
+    return {
+        "pattern": _EVIDENCE_TEXT_SCHEMA_PATTERN,
+        "x-utf8-max-bytes": maximum_bytes,
+    }
+
+
+EvidenceName = Annotated[
+    StrictStr,
+    StringConstraints(min_length=1, max_length=200),
+    Field(json_schema_extra=_evidence_text_json_schema(800)),
+    AfterValidator(_validated_evidence_name),
+]
+EvidenceSummary = Annotated[
+    StrictStr,
+    StringConstraints(min_length=1, max_length=4000),
+    Field(json_schema_extra=_evidence_text_json_schema(16000)),
+    AfterValidator(_validated_evidence_summary),
+]
+EvidenceCommand = Annotated[
+    StrictStr,
+    StringConstraints(min_length=1, max_length=4096),
+    Field(json_schema_extra=_evidence_text_json_schema(16384)),
+    AfterValidator(_validated_evidence_command),
+]
+EvidenceCommit = Annotated[
+    StrictStr,
+    StringConstraints(pattern=r"^[0-9a-f]{7,64}$"),
+]
+
+_OBSERVED_AT_PATTERN = re.compile(
+    r"^(?P<year>[0-9]{4})-(?P<month>[0-9]{2})-(?P<day>[0-9]{2})"
+    r"T(?P<hour>[0-9]{2}):(?P<minute>[0-9]{2}):(?P<second>[0-9]{2})"
+    r"(?:\.(?P<fraction>[0-9]{1,6}))?"
+    r"(?P<zone>Z|(?P<sign>[+-])(?P<offset_hour>[0-9]{2}):"
+    r"(?P<offset_minute>[0-9]{2}))$",
+    re.ASCII,
+)
+
+_CALENDAR_DATE_SCHEMA_PATTERN = (
+    r"(?:(?!0000-)[0-9]{4}-(?:"
+    r"(?:0[13578]|1[02])-(?:0[1-9]|[12][0-9]|3[01])"
+    r"|(?:0[469]|11)-(?:0[1-9]|[12][0-9]|30)"
+    r"|02-(?:0[1-9]|1[0-9]|2[0-8]))"
+    r"|(?:(?:[0-9]{2}(?:0[48]|[2468][048]|[13579][26]))"
+    r"|(?:0[48]|[2468][048]|[13579][26])00)-02-29)"
+)
+_OBSERVED_AT_VALIDATION_SCHEMA_PATTERN = (
+    r"^(?![\s\S]*-00:00(?![\s\S]))"
+    + _CALENDAR_DATE_SCHEMA_PATTERN
+    + r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
+    + r"(?:\.[0-9]{1,6})?(?:Z|[+-](?:(?:0[0-9]|1[0-3]):[0-5][0-9]|14:00))"
+    + _JSON_SCHEMA_EXACT_END
+)
+_CANONICAL_UTC_TIMESTAMP_SCHEMA = {
+    "type": "string",
+    "format": "date-time",
+    "minLength": 20,
+    "maxLength": 27,
+    "pattern": (
+        "^"
+        + _CALENDAR_DATE_SCHEMA_PATTERN
+        + r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
+        + r"(?:\.[0-9]{6})?Z"
+        + _JSON_SCHEMA_EXACT_END
+    ),
+}
+
+
+def _parsed_observed_at(value: object) -> datetime:
+    if not isinstance(value, str) or not 20 <= len(value) <= 32:
+        raise ValueError("observed_at must use the bounded RFC 3339 spelling.")
+    try:
+        value.encode("ascii")
+    except UnicodeEncodeError as error:
+        raise ValueError("observed_at must contain ASCII only.") from error
+    matched = _OBSERVED_AT_PATTERN.fullmatch(value)
+    if matched is None or value.endswith("-00:00"):
+        raise ValueError("observed_at must use the bounded RFC 3339 spelling.")
+
+    groups = matched.groupdict()
+    offset_hour = int(groups["offset_hour"] or "0")
+    offset_minute = int(groups["offset_minute"] or "0")
+    if offset_hour > 14 or offset_minute > 59 or (
+        offset_hour == 14 and offset_minute != 0
+    ):
+        raise ValueError("observed_at has an invalid UTC offset.")
+    offset = timedelta(hours=offset_hour, minutes=offset_minute)
+    if groups["sign"] == "-":
+        offset = -offset
+    fraction = (groups["fraction"] or "").ljust(6, "0")
+    try:
+        parsed = datetime(
+            int(groups["year"]),
+            int(groups["month"]),
+            int(groups["day"]),
+            int(groups["hour"]),
+            int(groups["minute"]),
+            int(groups["second"]),
+            int(fraction or "0"),
+            tzinfo=timezone(offset),
+        )
+        return parsed.astimezone(UTC)
+    except (OverflowError, ValueError) as error:
+        raise ValueError("observed_at is outside the supported UTC range.") from error
+
+
+def _serialized_observed_at(value: datetime) -> str:
+    value = value.astimezone(UTC)
+    base = value.strftime("%Y-%m-%dT%H:%M:%S")
+    return f"{base}.{value.microsecond:06d}Z" if value.microsecond else f"{base}Z"
+
+
+def _parsed_canonical_observed_at(value: object) -> datetime:
+    parsed = _parsed_observed_at(value)
+    if not isinstance(value, str) or value != _serialized_observed_at(parsed):
+        raise ValueError("Response timestamps must use the canonical UTC spelling.")
+    return parsed
+
+
+ObservedAt = Annotated[
+    datetime,
+    BeforeValidator(_parsed_observed_at),
+    PlainSerializer(_serialized_observed_at, return_type=str),
+    WithJsonSchema(
+        {
+            "type": "string",
+            "format": "date-time",
+            "minLength": 20,
+            "maxLength": 32,
+            "pattern": _OBSERVED_AT_VALIDATION_SCHEMA_PATTERN,
+        },
+        mode="validation",
+    ),
+    WithJsonSchema(_CANONICAL_UTC_TIMESTAMP_SCHEMA, mode="serialization"),
+]
+CanonicalObservedAt = Annotated[
+    datetime,
+    BeforeValidator(_parsed_canonical_observed_at),
+    PlainSerializer(_serialized_observed_at, return_type=str),
+    WithJsonSchema(_CANONICAL_UTC_TIMESTAMP_SCHEMA),
+]
+
+OmissionOnlyObservedAt = Annotated[
+    ObservedAt | SkipJsonSchema[None],
+    Field(json_schema_extra=_omit_default_from_json_schema),
+]
+OmissionOnlyCanonicalObservedAt = Annotated[
+    CanonicalObservedAt | SkipJsonSchema[None],
+    Field(json_schema_extra=_omit_default_from_json_schema),
+]
+OmissionOnlyEvidenceCommit = Annotated[
+    EvidenceCommit | SkipJsonSchema[None],
+    Field(json_schema_extra=_omit_default_from_json_schema),
+]
+BoundedExitCode = Annotated[
+    StrictInt,
+    Field(ge=-2147483648, le=2147483647),
+]
+OmissionOnlyExitCode = Annotated[
+    BoundedExitCode | SkipJsonSchema[None],
+    Field(json_schema_extra=_omit_default_from_json_schema),
+]
+
+_REPOSITORY_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9._@+=,~\-]+$", re.ASCII)
+
+
+def _validated_repository_path(value: str) -> str:
+    try:
+        encoded = value.encode("ascii")
+    except UnicodeEncodeError as error:
+        raise ValueError("Repository paths must use the supported ASCII grammar.") from error
+    if not encoded or len(encoded) > 512:
+        raise ValueError("Repository paths must contain between 1 and 512 ASCII bytes.")
+    components = value.split("/")
+    if any(component in {"", ".", ".."} for component in components):
+        raise ValueError("Repository paths must contain safe relative components.")
+    if any(_REPOSITORY_PATH_COMPONENT.fullmatch(component) is None for component in components):
+        raise ValueError("Repository paths must use the supported ASCII grammar.")
+    return value
+
+
+def _validated_artifact_branch(value: str) -> str:
+    _validated_evidence_text(
+        value,
+        label="Artifact branches",
+        maximum_bytes=MAX_COMPLETION_EVIDENCE_BYTES,
+    )
+    if value != value.strip():
+        raise ValueError("Artifact branches cannot have leading or trailing whitespace.")
+    return value
+
+
+def _validated_artifact_hostname(hostname: str) -> None:
+    if ":" in hostname:
+        try:
+            ipv6_address = ipaddress.IPv6Address(hostname)
+        except ipaddress.AddressValueError as error:
+            raise ValueError("Artifact URL has an invalid IPv6 hostname.") from error
+        if (
+            "." in hostname
+            or _ARTIFACT_IPV6_HOST.fullmatch(hostname) is None
+            or str(ipv6_address) != hostname
+        ):
+            raise ValueError("Artifact URL has an invalid IPv6 hostname.")
+        return
+    if len(hostname) > 253 or hostname.endswith("."):
+        raise ValueError("Artifact URL hostname exceeds the DNS grammar.")
+    labels = hostname.split(".")
+    if any(
+        not 1 <= len(label) <= 63 or _ARTIFACT_HOST_LABEL.fullmatch(label) is None
+        for label in labels
+    ):
+        raise ValueError("Artifact URL hostname exceeds the DNS grammar.")
+
+
+def _validated_artifact_url(value: str) -> str:
+    try:
+        encoded = value.encode("ascii")
+    except UnicodeEncodeError as error:
+        raise ValueError("Artifact URLs must use ASCII.") from error
+    if not 1 <= len(encoded) <= 2000 or value != value.strip():
+        raise ValueError("Artifact URLs must contain between 1 and 2,000 ASCII bytes.")
+    if any(ord(character) < 33 or ord(character) == 127 for character in value):
+        raise ValueError("Artifact URLs cannot contain whitespace or controls.")
+    if not value.startswith("https://") or "\\" in value:
+        raise ValueError("Artifact URLs must be absolute lowercase HTTPS URLs.")
+    try:
+        parsed = urlsplit(value)
+        _ = parsed.port
+        canonical = str(_ARTIFACT_URL_ADAPTER.validate_python(value))
+    except ValueError as error:
+        raise ValueError("Artifact URLs must be unambiguous HTTPS URLs.") from error
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.port == 443
+        or not parsed.path
+        or canonical != value
+        or re.fullmatch(
+            rf"/(?:{_URL_PATH_CHARACTER_SCHEMA_PATTERN})*"
+            rf"(?:/(?:{_URL_PATH_CHARACTER_SCHEMA_PATTERN})*)*",
+            parsed.path,
+        )
+        is None
+        or any(
+            component.upper() in {".", "..", "%2E", ".%2E", "%2E.", "%2E%2E"}
+            for component in parsed.path.split("/")
+        )
+    ):
+        raise ValueError("Artifact URLs must be exact, canonical, and free of secret-bearing parts.")
+    _validated_artifact_hostname(parsed.hostname)
+    return value
+
+
+def _bounded_positive_decimal_schema_pattern(maximum: int) -> str:
+    """Return an exact decimal-string grammar for a positive upper bound."""
+    digits = str(maximum)
+    branches = [rf"[1-9][0-9]{{0,{len(digits) - 2}}}"]
+    prefix = ""
+    for position, digit in enumerate(digits):
+        lower = 1 if position == 0 else 0
+        upper = int(digit) - 1
+        if lower <= upper:
+            choice = str(lower) if lower == upper else f"[{lower}-{upper}]"
+            remaining = len(digits) - position - 1
+            suffix = "" if remaining == 0 else rf"[0-9]{{{remaining}}}"
+            branches.append(prefix + choice + suffix)
+        prefix += digit
+    branches.append(digits)
+    return rf"^(?:{'|'.join(branches)}){_JSON_SCHEMA_EXACT_END}"
+
+
+_COMPLETION_EVENT_ID_SCHEMA_PATTERN = _bounded_positive_decimal_schema_pattern(
+    MAX_COMPLETION_EVENT_ID
+)
+
+
+def _validated_completion_event_id(value: str) -> str:
+    if not value.isascii() or re.fullmatch(r"[1-9][0-9]{0,18}", value) is None:
+        raise ValueError("Completion event IDs must be canonical decimal strings.")
+    if int(value) > MAX_COMPLETION_EVENT_ID:
+        raise ValueError("Completion event ID exceeds the supported range.")
+    return value
+
+
+CompletionEventID = Annotated[
+    StrictStr,
+    StringConstraints(min_length=1, max_length=19, pattern=r"^[1-9][0-9]{0,18}$"),
+    Field(json_schema_extra={"pattern": _COMPLETION_EVENT_ID_SCHEMA_PATTERN}),
+    AfterValidator(_validated_completion_event_id),
+]
+
+
+def _decoded_completion_evidence_cursor(value: str) -> dict[str, object]:
+    try:
+        encoded = value.encode("ascii")
+    except UnicodeEncodeError as error:
+        raise ValueError("Completion evidence cursors must use ASCII.") from error
+    if not 1 <= len(encoded) <= 4096 or "=" in value:
+        raise ValueError("Completion evidence cursor has an invalid encoded length.")
+    if re.fullmatch(r"[A-Za-z0-9_-]+", value, re.ASCII) is None:
+        raise ValueError("Completion evidence cursor is not canonical base64url.")
+    padding = b"=" * (-len(encoded) % 4)
+    try:
+        decoded = base64.b64decode(encoded + padding, altchars=b"-_", validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise ValueError("Completion evidence cursor is not canonical base64url.") from error
+    if not 1 <= len(decoded) <= MAX_COMPLETION_EVIDENCE_CURSOR_BYTES:
+        raise ValueError("Completion evidence cursor exceeds its decoded byte limit.")
+    try:
+        document = json.loads(decoded.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as error:
+        raise ValueError("Completion evidence cursor does not contain canonical JSON.") from error
+    if not isinstance(document, dict):
+        raise TypeError("Completion evidence cursor must contain one object.")
+    canonical = json.dumps(
+        document,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if canonical != decoded or base64.urlsafe_b64encode(decoded).rstrip(b"=") != encoded:
+        raise ValueError("Completion evidence cursor is not canonically encoded.")
+    return document
+
+
+_COMPLETION_EVIDENCE_CURSOR_FIELDS = {
+    "as_of_completion_event_id",
+    "direction",
+    "endpoint",
+    "last_completion_event_id",
+    "project_id",
+    "v",
+    "work_item_id",
+}
+
+
+def _cursor_scope_uuid(document: dict[str, object], name: str) -> str:
+    raw_uuid = document.get(name)
+    if not isinstance(raw_uuid, str):
+        raise TypeError("Completion evidence cursor has an invalid scope.")
+    try:
+        parsed_uuid = UUID(raw_uuid)
+    except ValueError as error:
+        raise ValueError("Completion evidence cursor has an invalid scope.") from error
+    if str(parsed_uuid) != raw_uuid:
+        raise ValueError("Completion evidence cursor scope must use canonical UUIDs.")
+    return raw_uuid
+
+
+def _cursor_event_id(document: dict[str, object], name: str) -> str:
+    raw_id = document.get(name)
+    if not isinstance(raw_id, str):
+        raise TypeError("Completion evidence cursor has an invalid event identity.")
+    return _validated_completion_event_id(raw_id)
+
+
+def _validated_completion_evidence_cursor(value: str) -> str:
+    document = _decoded_completion_evidence_cursor(value)
+    if set(document) != _COMPLETION_EVIDENCE_CURSOR_FIELDS:
+        raise ValueError("Completion evidence cursor has an invalid shape.")
+    if (
+        document.get("direction") != "desc"
+        or document.get("endpoint") != "completion_evidence"
+    ):
+        raise ValueError("Completion evidence cursor has an invalid endpoint or direction.")
+    version = document.get("v")
+    if not isinstance(version, int) or isinstance(version, bool) or version != 1:
+        raise ValueError("Completion evidence cursor has an unsupported version.")
+    _cursor_scope_uuid(document, "project_id")
+    _cursor_scope_uuid(document, "work_item_id")
+    high_water = _cursor_event_id(document, "as_of_completion_event_id")
+    last_event = _cursor_event_id(document, "last_completion_event_id")
+    if int(last_event) > int(high_water):
+        raise ValueError("Completion evidence cursor lies beyond its high-water identity.")
+    return value
+
+
+CompletionEvidenceCursor = Annotated[
+    StrictStr,
+    StringConstraints(
+        min_length=1,
+        max_length=4096,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    ),
+    AfterValidator(_validated_completion_evidence_cursor),
+]
+
+
+def _rejected_null_completion_evidence_cursor(value: object) -> object:
+    if value is None:
+        raise ValueError("cursor cannot be null.")
+    return value
+
+
+CompletionEvidenceCursorArgument = Annotated[
+    CompletionEvidenceCursor | SkipJsonSchema[None],
+    BeforeValidator(_rejected_null_completion_evidence_cursor),
+    Field(json_schema_extra=_omit_default_from_json_schema),
+]
+
+
+def completion_evidence_cursor_document(value: str) -> dict[str, object]:
+    """Return an already-validated cursor document for response-coherence checks."""
+    _validated_completion_evidence_cursor(value)
+    return _decoded_completion_evidence_cursor(value)
 
 
 _AFFECTED_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9._@+=,~*\-]+$", re.ASCII)
@@ -591,7 +1156,539 @@ class CheckpointPointer(CanonicalResponse):
     tags: list[str]
     migration_origin: MigrationOrigin | None
     legacy_record_id: UUID | None
-    created_at: datetime
+    created_at: CanonicalObservedAt
+
+
+def _reject_explicit_nulls(model: BaseModel, fields: tuple[str, ...]) -> None:
+    if any(name in model.model_fields_set and getattr(model, name) is None for name in fields):
+        raise ValueError("Optional completion evidence fields cannot be null.")
+
+
+_COMMAND_VERIFICATION_JSON_SCHEMA = {
+    "oneOf": [
+        {
+            "properties": {
+                "outcome": {"const": "passed"},
+                "exit_code": {"const": 0, "type": "integer"},
+            },
+            "required": ["exit_code"],
+        },
+        {
+            "properties": {
+                "outcome": {"const": "failed"},
+                "exit_code": {
+                    "anyOf": [
+                        {
+                            "minimum": -2147483648,
+                            "maximum": -1,
+                            "type": "integer",
+                        },
+                        {
+                            "minimum": 1,
+                            "maximum": 2147483647,
+                            "type": "integer",
+                        },
+                    ]
+                },
+            },
+            "required": ["exit_code"],
+        },
+        {
+            "properties": {"outcome": {"const": "inconclusive"}},
+            "not": {"required": ["exit_code"]},
+        },
+    ]
+}
+
+
+class CommandVerificationInput(CanonicalResponse):
+    model_config = ConfigDict(json_schema_extra=_COMMAND_VERIFICATION_JSON_SCHEMA)
+
+    verification_type: Literal["command"]
+    name: EvidenceName
+    outcome: Literal["passed", "failed", "inconclusive"]
+    summary: EvidenceSummary
+    command: EvidenceCommand
+    exit_code: OmissionOnlyExitCode = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    observed_at: OmissionOnlyObservedAt = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    observed_at_commit: OmissionOnlyEvidenceCommit = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def enforce_command_matrix(self) -> Self:
+        _reject_explicit_nulls(
+            self,
+            ("exit_code", "observed_at", "observed_at_commit"),
+        )
+        has_exit_code = "exit_code" in self.model_fields_set
+        if self.outcome == "passed" and (not has_exit_code or self.exit_code != 0):
+            raise ValueError("A passed command requires exit_code zero.")
+        if self.outcome == "failed" and (
+            not has_exit_code or self.exit_code is None or self.exit_code == 0
+        ):
+            raise ValueError("A failed command requires a nonzero exit_code.")
+        if self.outcome == "inconclusive" and has_exit_code:
+            raise ValueError("An inconclusive command cannot contain exit_code.")
+        return self
+
+
+class ObservationVerificationInput(CanonicalResponse):
+    verification_type: Literal["observation"]
+    name: EvidenceName
+    outcome: VerificationOutcome
+    summary: EvidenceSummary
+    observed_at: OmissionOnlyObservedAt = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    observed_at_commit: OmissionOnlyEvidenceCommit = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def reject_null_observation_fields(self) -> Self:
+        _reject_explicit_nulls(self, ("observed_at", "observed_at_commit"))
+        return self
+
+
+VerificationResultInput = Annotated[
+    CommandVerificationInput | ObservationVerificationInput,
+    Field(discriminator="verification_type"),
+]
+
+
+class CommandVerificationRead(CommandVerificationInput):
+    observed_at: OmissionOnlyCanonicalObservedAt = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    id: UUID
+    work_item_id: UUID
+    completion_checkpoint_id: UUID
+    position: StrictInt = Field(ge=0, le=19)
+    created_at: CanonicalObservedAt
+
+
+class ObservationVerificationRead(ObservationVerificationInput):
+    observed_at: OmissionOnlyCanonicalObservedAt = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    id: UUID
+    work_item_id: UUID
+    completion_checkpoint_id: UUID
+    position: StrictInt = Field(ge=0, le=19)
+    created_at: CanonicalObservedAt
+
+
+VerificationResultRead = Annotated[
+    CommandVerificationRead | ObservationVerificationRead,
+    Field(discriminator="verification_type"),
+]
+
+
+_ARTIFACT_REFERENCE_JSON_SCHEMA = {
+    "oneOf": [
+        {
+            "properties": {
+                "artifact_type": {"const": "commit"},
+                "reference": {
+                    "type": "string",
+                    "minLength": 7,
+                    "maxLength": 64,
+                    "pattern": r"^[0-9a-f]{7,64}$",
+                },
+            }
+        },
+        {
+            "properties": {
+                "artifact_type": {"const": "branch"},
+                "reference": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": _BRANCH_SCHEMA_PATTERN,
+                    "x-utf8-max-bytes": 800,
+                },
+            }
+        },
+        {
+            "properties": {
+                "artifact_type": {"const": "repository_path"},
+                "reference": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "pattern": (
+                        r"^(?!\.{1,2}(?:/|$))[A-Za-z0-9._@+=,~\-]+"
+                        r"(?:/(?!\.{1,2}(?:/|$))[A-Za-z0-9._@+=,~\-]+)*$"
+                    ),
+                },
+            }
+        },
+        {
+            "properties": {
+                "artifact_type": {
+                    "enum": [
+                        "pull_request",
+                        "test_run",
+                        "external_issue",
+                        "build_artifact",
+                    ]
+                },
+                "reference": {
+                    "type": "string",
+                    "format": "uri",
+                    "minLength": 1,
+                    "maxLength": 2000,
+                    "pattern": _HTTPS_ARTIFACT_SCHEMA_PATTERN,
+                },
+            }
+        },
+    ]
+}
+
+
+class ArtifactReferenceInput(CanonicalResponse):
+    model_config = ConfigDict(json_schema_extra=_ARTIFACT_REFERENCE_JSON_SCHEMA)
+
+    artifact_type: ArtifactType
+    label: EvidenceName
+    reference: StrictStr = Field(min_length=1)
+
+    @field_validator("reference")
+    @classmethod
+    def validate_reference(cls, value: str, info: ValidationInfo) -> str:
+        artifact_type = info.data.get("artifact_type")
+        if artifact_type == "commit":
+            if re.fullmatch(r"[0-9a-f]{7,64}", value, re.ASCII) is None:
+                raise ValueError("Commit artifact references require lowercase hexadecimal.")
+        elif artifact_type == "branch":
+            if len(value) > 200:
+                raise ValueError("Artifact branches must be at most 200 characters.")
+            _validated_artifact_branch(value)
+        elif artifact_type == "repository_path":
+            _validated_repository_path(value)
+        elif artifact_type in {
+            "pull_request",
+            "test_run",
+            "external_issue",
+            "build_artifact",
+        }:
+            _validated_artifact_url(value)
+        else:  # pragma: no cover - the literal field rejects this first
+            raise ValueError("Unknown artifact type.")
+        return value
+
+
+class ArtifactReferenceRead(ArtifactReferenceInput):
+    id: UUID
+    work_item_id: UUID
+    completion_checkpoint_id: UUID
+    position: StrictInt = Field(ge=0, le=19)
+    created_at: CanonicalObservedAt
+
+
+def _completion_evidence_bytes(
+    verification_results: Sequence[CommandVerificationInput | ObservationVerificationInput],
+    artifact_references: Sequence[ArtifactReferenceInput],
+) -> int:
+    total = 0
+    for result in verification_results:
+        total += len(result.verification_type.encode("utf-8"))
+        total += len(result.name.encode("utf-8"))
+        total += len(result.outcome.encode("utf-8"))
+        total += len(result.summary.encode("utf-8"))
+        if isinstance(result, CommandVerificationInput):
+            total += len(result.command.encode("utf-8"))
+        if result.observed_at is not None:
+            total += 32
+        if result.observed_at_commit is not None:
+            total += len(result.observed_at_commit.encode("utf-8"))
+    for artifact in artifact_references:
+        total += len(artifact.artifact_type.encode("utf-8"))
+        total += len(artifact.label.encode("utf-8"))
+        total += len(artifact.reference.encode("utf-8"))
+    return total
+
+
+def _validate_completion_evidence_aggregate(
+    verification_results: Sequence[CommandVerificationInput | ObservationVerificationInput],
+    artifact_references: Sequence[ArtifactReferenceInput],
+    *,
+    require_nonempty: bool,
+) -> None:
+    count = len(verification_results) + len(artifact_references)
+    if count > MAX_COMPLETION_EVIDENCE_ENTRIES or (require_nonempty and count == 0):
+        raise ValueError("Completion evidence must contain between 1 and 20 entries.")
+    if _completion_evidence_bytes(verification_results, artifact_references) > (
+        MAX_COMPLETION_EVIDENCE_BYTES
+    ):
+        raise ValueError("Completion evidence exceeds its aggregate UTF-8 byte limit.")
+    identities = [
+        (artifact.artifact_type, artifact.reference) for artifact in artifact_references
+    ]
+    if len(identities) != len(set(identities)):
+        raise ValueError("Completion evidence cannot repeat an artifact type/reference pair.")
+
+
+def _completion_evidence_count_json_schema(*, require_nonempty: bool) -> dict[str, Any]:
+    schema: dict[str, Any] = {
+        "description": (
+            "At most 20 verification results and artifact references combined. "
+            "The aggregate text content is additionally limited to 32768 UTF-8 bytes."
+        ),
+        "x-utf8-aggregate-max-bytes": MAX_COMPLETION_EVIDENCE_BYTES,
+        "allOf": [
+            {
+                "if": {
+                    "properties": {
+                        "verification_results": {"minItems": verification_count}
+                    },
+                    "required": ["verification_results"],
+                },
+                "then": {
+                    "properties": {
+                        "artifact_references": {
+                            "maxItems": MAX_COMPLETION_EVIDENCE_ENTRIES
+                            - verification_count
+                        }
+                    }
+                },
+            }
+            for verification_count in range(1, MAX_COMPLETION_EVIDENCE_ENTRIES + 1)
+        ]
+    }
+    if require_nonempty:
+        schema["anyOf"] = [
+            {
+                "properties": {"verification_results": {"minItems": 1}},
+                "required": ["verification_results"],
+            },
+            {
+                "properties": {"artifact_references": {"minItems": 1}},
+                "required": ["artifact_references"],
+            },
+        ]
+    return schema
+
+
+class CompletionEvidenceInput(CanonicalResponse):
+    model_config = ConfigDict(
+        json_schema_extra=_completion_evidence_count_json_schema(
+            require_nonempty=False
+        )
+    )
+
+    verification_results: list[VerificationResultInput] = Field(
+        default_factory=list,
+        max_length=MAX_COMPLETION_EVIDENCE_ENTRIES,
+    )
+    artifact_references: list[ArtifactReferenceInput] = Field(
+        default_factory=list,
+        max_length=MAX_COMPLETION_EVIDENCE_ENTRIES,
+        json_schema_extra={
+            "x-unique-by": ["artifact_type", "reference"],
+        },
+    )
+
+    @model_validator(mode="after")
+    def enforce_aggregate(self) -> Self:
+        _validate_completion_evidence_aggregate(
+            self.verification_results,
+            self.artifact_references,
+            require_nonempty=False,
+        )
+        return self
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.verification_results and not self.artifact_references
+
+
+def _rejected_null_completion_evidence(value: object) -> object:
+    if value is None:
+        raise ValueError("completion_evidence cannot be null.")
+    return value
+
+
+CompletionEvidenceArgument = Annotated[
+    CompletionEvidenceInput | SkipJsonSchema[None],
+    BeforeValidator(_rejected_null_completion_evidence),
+    Field(json_schema_extra=_omit_default_from_json_schema),
+]
+
+
+class CompletionEvidencePayloadRead(CanonicalResponse):
+    model_config = ConfigDict(
+        json_schema_extra=_completion_evidence_count_json_schema(
+            require_nonempty=True
+        )
+    )
+
+    verification_results: list[VerificationResultRead] = Field(
+        max_length=MAX_COMPLETION_EVIDENCE_ENTRIES,
+    )
+    artifact_references: list[ArtifactReferenceRead] = Field(
+        max_length=MAX_COMPLETION_EVIDENCE_ENTRIES,
+    )
+
+    @model_validator(mode="after")
+    def enforce_aggregate(self) -> Self:
+        _validate_completion_evidence_aggregate(
+            self.verification_results,
+            self.artifact_references,
+            require_nonempty=True,
+        )
+        for values in (self.verification_results, self.artifact_references):
+            if [value.position for value in values] != list(range(len(values))):
+                raise ValueError("Completion evidence positions must be contiguous and ordered.")
+            if len({value.id for value in values}) != len(values):
+                raise ValueError("Completion evidence IDs cannot repeat within one family.")
+        return self
+
+
+class CompletionEvidenceEpisodeRead(CanonicalResponse):
+    model_config = ConfigDict(
+        json_schema_extra=_completion_evidence_count_json_schema(
+            require_nonempty=False
+        )
+    )
+
+    completion_event_id: CompletionEventID
+    completion_checkpoint: CheckpointPointer
+    verification_results: list[VerificationResultRead] = Field(
+        max_length=MAX_COMPLETION_EVIDENCE_ENTRIES,
+    )
+    artifact_references: list[ArtifactReferenceRead] = Field(
+        max_length=MAX_COMPLETION_EVIDENCE_ENTRIES,
+    )
+
+    @model_validator(mode="after")
+    def enforce_episode(self) -> Self:
+        checkpoint = self.completion_checkpoint
+        if checkpoint.kind != "completion":
+            raise ValueError("Completion evidence requires a completion checkpoint.")
+        for values in (self.verification_results, self.artifact_references):
+            if [value.position for value in values] != list(range(len(values))):
+                raise ValueError("Completion evidence positions must be contiguous and ordered.")
+            if len({value.id for value in values}) != len(values):
+                raise ValueError("Completion evidence IDs cannot repeat within one family.")
+            for value in values:
+                if (
+                    value.work_item_id != checkpoint.work_item_id
+                    or value.completion_checkpoint_id != checkpoint.id
+                    or value.created_at != checkpoint.created_at
+                ):
+                    raise ValueError("Completion evidence parent or timestamp is incoherent.")
+        _validate_completion_evidence_aggregate(
+            self.verification_results,
+            self.artifact_references,
+            require_nonempty=False,
+        )
+        return self
+
+
+def _validate_completion_evidence_page_identity(page: CompletionEvidencePage) -> None:
+    if page.is_duplicate:
+        if (
+            page.canonical_work_item_id == page.work_item_id
+            or page.current_completion_checkpoint_id is not None
+        ):
+            raise ValueError("Duplicate evidence pages require a distinct canonical identity.")
+    elif page.canonical_work_item_id != page.work_item_id:
+        raise ValueError("Canonical evidence pages must identify their requested work item.")
+    if page.lifecycle_status != "done" and page.current_completion_checkpoint_id is not None:
+        raise ValueError("Only done canonical work can identify a current completion.")
+
+
+def _validate_completion_evidence_page_counts(page: CompletionEvidencePage) -> None:
+    if len(page.items) > page.limit or page.total < len(page.items):
+        raise ValueError("Completion evidence page counts are incoherent.")
+    structured_on_page = sum(
+        bool(item.verification_results or item.artifact_references) for item in page.items
+    )
+    if not structured_on_page <= page.structured_completion_total <= page.total:
+        raise ValueError("Completion evidence structured totals are incoherent.")
+
+
+def _validate_completion_evidence_page_items(page: CompletionEvidencePage) -> None:
+    event_ids = [int(item.completion_event_id) for item in page.items]
+    if event_ids != sorted(set(event_ids), reverse=True):
+        raise ValueError("Completion evidence episodes must be unique and newest first.")
+    checkpoint_ids = [item.completion_checkpoint.id for item in page.items]
+    if len(checkpoint_ids) != len(set(checkpoint_ids)):
+        raise ValueError("Completion evidence checkpoints cannot repeat.")
+    for field_name in ("verification_results", "artifact_references"):
+        child_ids = [
+            child.id
+            for item in page.items
+            for child in getattr(item, field_name)
+        ]
+        if len(child_ids) != len(set(child_ids)):
+            raise ValueError("Completion evidence child IDs cannot repeat across episodes.")
+    if any(
+        item.completion_checkpoint.work_item_id != page.work_item_id for item in page.items
+    ):
+        raise ValueError("Completion evidence episode belongs to another work item.")
+    if page.as_of_completion_event_id is not None and any(
+        event_id > int(page.as_of_completion_event_id) for event_id in event_ids
+    ):
+        raise ValueError("Completion evidence page exceeds its high-water identity.")
+
+
+def _validate_completion_evidence_page_state(page: CompletionEvidencePage) -> None:
+    if page.total == 0:
+        if page.as_of_completion_event_id is not None or page.items or page.next_cursor:
+            raise ValueError("An empty evidence history cannot carry event state.")
+    else:
+        if page.as_of_completion_event_id is None:
+            raise ValueError("A nonempty evidence history requires a high-water identity.")
+        if not page.items:
+            raise ValueError("A nonempty evidence history page must contain an episode.")
+    if page.next_cursor is None:
+        return
+    if len(page.items) != page.limit or page.total <= len(page.items):
+        raise ValueError("A continuation cursor requires a complete nonterminal page.")
+    cursor = completion_evidence_cursor_document(page.next_cursor)
+    if (
+        cursor["work_item_id"] != str(page.work_item_id)
+        or cursor["as_of_completion_event_id"] != page.as_of_completion_event_id
+        or cursor["last_completion_event_id"] != page.items[-1].completion_event_id
+    ):
+        raise ValueError("Completion evidence continuation cursor is incoherent.")
+
+
+class CompletionEvidencePage(CanonicalResponse):
+    work_item_id: UUID
+    work_version: StrictInt = Field(ge=1)
+    lifecycle_status: Status
+    is_duplicate: StrictBool
+    canonical_work_item_id: UUID
+    current_completion_checkpoint_id: UUID | None
+    as_of_completion_event_id: CompletionEventID | None
+    items: list[CompletionEvidenceEpisodeRead] = Field(max_length=10)
+    total: StrictInt = Field(ge=0)
+    structured_completion_total: StrictInt = Field(ge=0)
+    limit: StrictInt = Field(ge=1, le=10)
+    next_cursor: CompletionEvidenceCursor | None
+
+    @model_validator(mode="after")
+    def enforce_page(self) -> Self:
+        _validate_completion_evidence_page_identity(self)
+        _validate_completion_evidence_page_counts(self)
+        _validate_completion_evidence_page_items(self)
+        _validate_completion_evidence_page_state(self)
+        return self
 
 
 class LeasePublic(CanonicalResponse):
@@ -2026,6 +3123,46 @@ class WorkChanges(BaseModel):
 class WorkCompletion(CanonicalResponse):
     work_item: WorkItemRead
     checkpoint: CheckpointRead
+    completion_evidence: Annotated[
+        CompletionEvidencePayloadRead | SkipJsonSchema[None],
+        Field(json_schema_extra=_omit_default_from_json_schema),
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+
+    @field_validator("completion_evidence", mode="before")
+    @classmethod
+    def reject_null_or_empty_evidence(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("A present completion_evidence response cannot be null.")
+        if isinstance(value, dict) and not any(
+            value.get(name) for name in ("verification_results", "artifact_references")
+        ):
+            raise ValueError("A present completion_evidence response cannot be empty.")
+        return value
+
+    @model_validator(mode="after")
+    def enforce_completion_evidence_ownership(self) -> Self:
+        if (
+            self.checkpoint.work_item_id != self.work_item.id
+            or self.checkpoint.kind != "completion"
+        ):
+            raise ValueError("Completion response identities are incoherent.")
+        if self.completion_evidence is None:
+            return self
+        for values in (
+            self.completion_evidence.verification_results,
+            self.completion_evidence.artifact_references,
+        ):
+            for value in values:
+                if (
+                    value.work_item_id != self.work_item.id
+                    or value.completion_checkpoint_id != self.checkpoint.id
+                    or value.created_at != self.checkpoint.created_at
+                ):
+                    raise ValueError("Completion evidence parent or timestamp is incoherent.")
+        return self
 
 
 class WorkDeletionResult(CanonicalResponse):

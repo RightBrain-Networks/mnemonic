@@ -37,6 +37,11 @@ import {
 } from "./wire-guards.ts";
 import { decodeWorkEventForWork } from "./work-events.ts";
 import type { WorkEventRead } from "@/lib/types";
+import {
+  completionEvidencePayloadMatchesInput,
+  decodeCompletionEvidencePayload,
+  normalizeCompletionEvidenceInput
+} from "./completion-evidence.ts";
 
 export const MUTATION_KINDS = [
   "create_work",
@@ -103,10 +108,14 @@ const RELATIONSHIP_RESPONSE_FIELDS = [
   "target_work_item_id", "context_checkpoint_work_item_id", "context_checkpoint_id",
   "created_by_client", "created_by_session_id", "created_by_model", "created_at"
 ] as const;
+const WORK_COMPLETION_RESPONSE_FIELDS = [
+  "work_item", "checkpoint", "completion_evidence"
+] as const;
 
 export const MUTATION_RESPONSE_DECODER_FIELDS = {
   decodeCheckpoint: CHECKPOINT_RESPONSE_FIELDS,
-  decodeRelationship: RELATIONSHIP_RESPONSE_FIELDS
+  decodeRelationship: RELATIONSHIP_RESPONSE_FIELDS,
+  "decodeMutationResult:complete_work": WORK_COMPLETION_RESPONSE_FIELDS
 } as const;
 const EXPECTED_STATUS: Record<MutationKind, number> = {
   create_work: 201,
@@ -831,7 +840,22 @@ function decodeSuccess<K extends MutationKind>(
   } else if (request.kind === "complete_work") {
     const path = parsePath(request.path, "/complete");
     const result = objectValue(value);
-    if (!path?.workItemId || !result || !exactKeys(result, ["work_item", "checkpoint"])) {
+    let expectedEvidence;
+    try {
+      expectedEvidence = normalizeCompletionEvidenceInput(body.completion_evidence);
+    } catch {
+      throw new Error("The frozen mutation request is invalid.");
+    }
+    if (
+      !path?.workItemId
+      || !result
+      || !exactKeys(
+        result,
+        expectedEvidence
+          ? ["work_item", "checkpoint", "completion_evidence"]
+          : ["work_item", "checkpoint"]
+      )
+    ) {
       throw new Error("Mnemonic returned an invalid mutation response.");
     }
     const workItem = decodeWorkItem(result.work_item, path.projectId, path.workItemId);
@@ -839,7 +863,20 @@ function decodeSuccess<K extends MutationKind>(
     if (workItem.status !== "done" || workItem.version !== Number(body.expected_version) + 1) {
       throw new Error("Mnemonic returned an incoherent mutation response.");
     }
-    decoded = { work_item: workItem, checkpoint };
+    if (expectedEvidence) {
+      const evidence = decodeCompletionEvidencePayload(
+        result.completion_evidence,
+        path.workItemId,
+        checkpoint.id,
+        checkpoint.created_at
+      );
+      if (!completionEvidencePayloadMatchesInput(evidence, expectedEvidence)) {
+        throw new Error("Mnemonic returned an incoherent mutation response.");
+      }
+      decoded = { work_item: workItem, checkpoint, completion_evidence: evidence };
+    } else {
+      decoded = { work_item: workItem, checkpoint };
+    }
   } else if (request.kind === "delete_work") {
     const path = parsePath(request.path, "/delete");
     const result = objectValue(value);

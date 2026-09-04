@@ -174,6 +174,24 @@ serve only 0.5-compatible binaries and fix forward or restore the complete
 database with matching binaries. There is no force option, metadata shadow copy,
 old-backend bridge, response projection shim, or receipt rewrite.
 
+Migration `0019_structured_completion_evidence` has a broader guarded
+downgrade. It can return to 0018 only while both evidence tables are empty,
+every retained completion/reopen episode satisfies the reversible chronology,
+and no completed receipt response contains Phase 11's top-level
+`completion_evidence`. It locks every affected table and refuses before DDL on
+any lossy or incoherent state. Invoke it only after stopping and draining every
+first-party writer and prohibiting direct evidence/checkpoint/event DML. The
+migration requires a fresh READ COMMITTED transaction, sets a five-second
+local lock timeout before acquiring its ordered `ACCESS EXCLUSIVE` locks, and
+aborts the entire transaction before DDL on a timeout or deadlock. Retry only
+from another fresh READ COMMITTED transaction after re-establishing
+quiescence. Evidence-free Phase 11 completion/reopen cycles remain eligible
+only when this entire preflight proves their chronology reversible. Once an
+evidence row or evidence-bearing receipt exists, or any preflight cannot prove
+eligibility, keep 0.6-compatible binaries serving and fix forward or restore a
+complete matching backup. Never delete evidence, rewrite a receipt, clear a
+generation, or disable a guard to force downgrade.
+
 A Phase 9 Core restore rehearsal must also cover authoritative merge rows,
 supporting relationship witnesses, paired relationship and `work_merged`
 events, alias readiness/mutation guards, merge receipts, and same-key replay
@@ -223,7 +241,7 @@ The release procedure is:
    and representative old/merge receipt replays on that restore, and only then
    reopen writers.
 
-The current audit defaults to the Phase 10 head, so Core operators must pass
+The current audit defaults to the Phase 11 head, so Core operators must pass
 `--expected-head 0015_gate_review_fixes` before migration and
 `--expected-head 0016_duplicate_handling` afterward. It opens a repeatable-read,
 read-only transaction, emits aggregate JSON without IDs or content, checks
@@ -377,6 +395,120 @@ database plus matching binaries with explicit acceptance of all post-backup data
 loss. Passing repository tests does not claim any production rehearsal or
 cutover occurred.
 
+### Phase 11 structured completion evidence 0.6.0 cutover
+
+Phase 11 is one coordinated prerelease boundary: API, MCP, and dashboard
+`0.6.0`, plugin `0.10.0`, and migration
+`0019_structured_completion_evidence`. It adds two initially empty immutable
+evidence tables and private completion/reopen generation bindings. The migration
+pairs only already-retained completion checkpoints and `work_completed` events;
+it never infers verification or artifacts from checkpoint prose, metadata,
+repository state, branches, tags, relationships, or receipt content. Every
+pre-0019 row count, pre-existing column value, and permanent receipt byte
+remains unchanged; only the new private generation columns receive their
+deterministic backfill.
+
+Do not expose a 0.5.x first-party API, MCP adapter, dashboard, or plugin against
+head 0019. The new checkpoint/work/event columns are private, but strict clients
+do not understand evidence-bearing completion responses or the 28th MCP tool.
+There is no feature flag, downgraded projection, dual schema, shadow evidence
+store, or standalone compatibility mutation.
+
+Before scheduling the cutover:
+
+1. Build and pin the coordinated artifacts. Confirm OpenAPI `0.6.0`, plugin
+   `0.10.0`, migration hashes, exactly 28 MCP tools/11 protected writes,
+   13 REST receipt kinds, and 11 protected browser mutations.
+2. Run the complete backend, MCP, frontend, Playwright, pre-commit, shared
+   fixture, worst-case size, and nginx identity-coding gates documented in
+   [`development.md`](development.md). A PostgreSQL skip or unavailable real
+   transport lane is a failed release gate.
+3. Inventory every direct REST client and installed plugin. Confirm each one
+   uses the conditional completion operation-ID rule, treats evidence as inert
+   caller assertion, and does not fetch artifact URLs or execute command text.
+4. Quiesce writers at head 0018. Take a named custom-format pre-0019 dump,
+   validate `pg_restore --list`, copy it to independent storage, and prove it
+   restores in isolation with matching 0.5 artifacts.
+5. On that isolated production-shaped restore, run the aggregate audit at
+   `0018_repository_freshness`; any runtime failure or blocking result stops
+   the rollout. Record only content-free aggregate output.
+6. Rehearse 0018-to-0019 upgrade and compare every pre-existing row, identity,
+   sequence, timestamp, digest, receipt fingerprint/body/version, and named
+   Phase 10 object. Verify evidence tables are empty and retained completions
+   received only their deterministic private bindings.
+7. Exercise keyed/unkeyed evidence-free completion, keyed structured
+   completion and replay, reopen/recomplete, alias-owned history, soft-delete
+   concealment, stable pagination, concurrent completion/replay, and injected
+   rollback. Rehearse an unused downgrade/re-upgrade, then confirm evidence and
+   Phase 11-only receipt use each refuse downgrade before DDL.
+8. Measure exclusive-lock/backfill time, audit time, backup/restore time, and
+   the 1 MiB ingress, 3 MiB identity history, 896 KiB canonical representation,
+   and 12 MiB complete MCP envelope boundaries on production-shaped hardware.
+
+For the live quiesced rollout:
+
+1. Announce maintenance and stop web, MCP, API, every direct writer, and reads
+   that could cross the incompatible boundary. Retain PostgreSQL and verified
+   backup access.
+2. Apply exactly 0019:
+
+   ```sh
+   docker compose run --rm api alembic upgrade 0019_structured_completion_evidence
+   ```
+
+3. Verify the Alembic head, both empty evidence tables, the three generation
+   columns/backfill, every composite ownership constraint/index, immutable and
+   truncate guards, completion insertion/event/reopen/liveness guards, and the
+   sealed-episode validator against reviewed catalog hashes. Any unexpected
+   evidence row, unpaired completion, or object mismatch stops the rollout.
+4. Run the audit at the new head with its Phase 11 pre-enablement option; a
+   runtime failure or blocking finding stops the rollout:
+
+   ```sh
+   uv run --project backend python scripts/audit_duplicate_handling.py \
+     --database-url "$MNEMONIC_OPERATOR_DATABASE_URL" \
+     --backup-directory ./backups \
+     --expected-head 0019_structured_completion_evidence \
+     --require-empty-completion-evidence
+   ```
+
+   Use the empty-evidence flag only before enabling 0.6 writers. Nonzero
+   evidence becomes expected steady-state inventory afterward, not corruption.
+5. Deploy API, then MCP/dashboard `0.6.0`, then plugin `0.10.0`. Before reopening
+   writes, confirm no 0.5.x first-party process remains and run authenticated
+   read-only health, OpenAPI, exact catalog, old receipt replay, empty history,
+   nginx identity, and real MCP HTTP/stdio probes.
+6. In an explicitly disposable project, complete once without evidence and
+   once with mixed evidence, replay the exact latter intent, page both episodes,
+   reopen, and confirm current-pointer movement. Inspect browser/MCP logs,
+   storage, URLs, errors, and live frames for absence of content and controls.
+7. Take a named post-0019 dump, prove it restores in isolation, rerun the 0019
+   audit and representative historical/new receipt replays, and compare evidence
+   ownership, order, generation, and page identity. Only then reopen writers.
+
+Only while both evidence tables are empty, no completed receipt response has a
+top-level `completion_evidence` key, and the preflight can prove every retained
+evidence-free completion/reopen chronology reversible may a coordinated
+rollback stop and drain every first-party writer, prohibit direct
+evidence/checkpoint/event DML, and start a fresh transaction at exactly READ
+COMMITTED. While the 0.6 migration code is still available, run:
+
+```sh
+docker compose run --rm api alembic downgrade 0018_repository_freshness
+```
+
+The downgrade sets its five-second local lock timeout, obtains the documented
+ordered `ACCESS EXCLUSIVE` locks, and aborts the full transaction before DDL on
+any lock timeout, deadlock, evidence row, Phase 11 response, malformed state,
+or unsafe chronology. Never retry inside the failed transaction: establish
+quiescence again and invoke Alembic from another fresh READ COMMITTED
+transaction. Deploy matching 0.5 artifacts only after a successful downgrade
+and exact 0018 catalog audit. After structured evidence use or any refused
+preflight, do not manually empty tables or generations: fix forward or restore
+the whole pre-0019 database and matching binaries with explicit acceptance of
+every post-backup write lost. Repository validation proves neither this
+rehearsal nor production approval occurred.
+
 ## Durable runtime invariants
 
 ### Declared checkpoint scope and local repository assessment
@@ -420,6 +552,42 @@ Mnemonic. Do not persist the assessment automatically. Actual filenames and
 helper output can enter tool/conversation/model context; retain their byte
 quoting and caps, and keep declarations, names, roots, branches, SHAs, remotes,
 stderr, and command strings out of routine logs and telemetry.
+
+### Structured completion evidence
+
+Evidence is optional caller-reported history, not an attestation or overall
+completion score. The service validates only structural consistency. Operators
+must not run a stored command, resolve a commit/branch/path against a checkout,
+or fetch an artifact URL as part of routine display, audit, monitoring, or
+repair. Do not put credentials, signed URLs, access tokens, private transcripts,
+or unnecessary output in evidence; exact accepted strings are durable and
+available to authorized readers and backups.
+
+The only write path is nested in `complete_work`. Any structured child makes
+the top-level operation UUID mandatory, and the checkpoint, lifecycle/event,
+evidence, lease departure, and receipt share one transaction. Empty evidence is
+canonical absence. A late CI result or correction does not authorize row edits:
+append narrative context while pending or explicitly reopen and create a new
+completion episode. Direct update/delete/truncate or generation repair is an
+integrity incident, not routine administration.
+
+The safe history route returns at most ten exact completion episodes under a
+stable event high-water cursor. An evidence-free item is a real completion, not
+missing data. `structured_completion_total` and `total` have different meanings;
+do not alert merely because they differ. To claim a current complete audit,
+exhaust the cursor chain, fetch a new first page, and compare the high-water,
+work version/status, alias projection, and current checkpoint. Continuous drift
+means no current audit was established.
+
+The API page and every first-party reader use an inclusive 3 MiB identity-body
+limit. Any non-identity or malformed `Content-Encoding`, byte 3,145,729,
+`completion_evidence_unavailable`, or decoder/coherence failure is a bounded
+read incident and never evidence that history is empty. The supplied nginx
+snippet must remain installed so the same-origin path disables compression,
+transformation, buffering, and caching. MCP ingress is separately 1 MiB and its
+complete SDK-emitted evidence response is 12 MiB; do not raise limits or
+truncate data during an incident. Reduce future unreleased input/page maxima
+only through a reviewed compatibility change.
 
 ### Leases
 
@@ -559,23 +727,25 @@ or weaken hierarchy constraints.
 ### Identifier-free aggregate monitoring
 
 Run `scripts/audit_duplicate_handling.py` regularly with its default
-`--expected-head 0018_repository_freshness` from a private environment that can
-reach PostgreSQL and the backup directory. Alert on any blocking finding. At
-0018 it verifies the scope column/default/shape, grammar and commit constraints,
-versioned validator, immutable-checkpoint and receipt guards, absence of an
-unexpected scope index, invalid or commitless arrays, and receipt drift without
-printing declaration values. Its weak-mark counts remain inventory, not merge
+`--expected-head 0019_structured_completion_evidence` from a private environment
+that can reach PostgreSQL and the backup directory. Alert on any blocking
+finding. At 0019 it retains every Phase 10 scope check and additionally verifies
+evidence tables/constraints/indexes, exact enabled trigger/function hashes,
+completion and reopen generations, sealed episode chronology, event identity
+sequence health, child ownership/position/time/aggregate invariants,
+receipt-to-row correspondence, and downgrade eligibility without printing any
+stored value. Its weak-mark counts remain inventory, not merge
 decisions: cycles, multiple targets, leases, gates, or structural adjacency on
 historical descriptive marks do not authorize data cleanup or canonical
 inference. Invoke privileged ID-level diagnostics only during an incident and
 do not copy their output into ordinary telemetry.
 
-A valid nonzero scoped-checkpoint count after deliberate enablement is inventory,
-not corruption; before the coordinated release permits scoped writes, it stops
-the rollout. Alongside the database audit, inventory deployed first-party
+A valid nonzero scoped-checkpoint or evidence count after deliberate enablement
+is inventory, not corruption; before the coordinated release permits those
+writes, the matching explicit empty-state flag stops the rollout. Alongside the database audit, inventory deployed first-party
 versions and the installed plugin version, package contents, helper executable
-mode, and reference/skill links. Alert on any 0.4.x first-party process serving
-against 0018 or any installed helper/package drift. The server has no repository
+mode, and reference/skill links. Alert on any 0.5.x first-party process serving
+against 0019 or any installed helper/package drift. The server has no repository
 freshness metric because it performs no assessment. Optional local metrics may
 retain only bounded state, reason, duration bucket, pattern/display counts,
 truncation, and runtime versions—never declarations or repository evidence.
@@ -779,9 +949,10 @@ Files appear under `MNEMONIC_BACKUP_DIR` (`./backups` by default). They include
 canonical work, immutable checkpoint text and provenance including declared
 repository dependency scopes, retained leases, typed relationships,
 authoritative duplicate merges and their sequence/witnesses,
-immutable work events and their sequence, human gates and their
-attention identity sequence, private durable client-operation receipts, and
-migration state; treat them as private. Receipt
+immutable work events and their sequence, human gates and their attention
+identity sequence, private durable client-operation receipts, private
+completion/reopen generations, immutable verification results and artifact
+references, and migration state; treat them as private. Receipt
 rows include stored successful response bodies and salted fingerprints, so they
 receive the same confidentiality and integrity protection as canonical content.
 The backup service never deletes earlier dumps. Set a
@@ -797,10 +968,13 @@ all event and gate indexes plus immutability/completeness/fail-closed triggers,
 duplicate-forest depth and alias guards, exact merge/relationship event pairs,
 attention sequence state, receipt count/uniqueness/state plus its guards, exact
 replay of representative ordinary, gate, and merge successes, and the expected
-`alembic_version`. At head 0018, also verify exact scope order and case,
+`alembic_version`. At head 0019, also verify exact scope order and case,
 empty-history sparse serialization, commit dependency, immutable rows,
 validator and constraint catalog definitions, representative scoped receipt
-replay, and absence from compact and derived projections. Keep
+replay, completion/reopen chronology and sequence state, evidence ownership,
+positions, record times, sealed-episode and immutable trigger hashes,
+representative evidence-bearing receipt replay, bounded history, and absence
+from compact and derived projections. Keep
 the PostgreSQL major version compatible with the dump
 tools.
 
@@ -833,7 +1007,9 @@ substitute for schema downgrade; downgrade is explicitly unsupported beginning
 with migration 0015 and remains unsupported for 0016. Downgrading 0017 only
 removes its derived suggestion function/index and leaves Core domain facts in
 place. Downgrading 0018 to 0017 is allowed only while every scope remains empty;
-its lock-protected guard refuses before DDL after any scoped use. A pre-Phase-3
+its lock-protected guard refuses before DDL after any scoped use. Downgrading
+0019 to 0018 additionally requires empty evidence tables, no Phase 11 completion
+response, and reversible completion chronology under its exclusive locks. A pre-Phase-3
 archive cannot recover later graph facts, a
 pre-Phase-5 archive cannot recover later event history, a pre-Phase-6 archive
 cannot recover later client-operation receipts, and a pre-Phase-7 archive cannot
@@ -843,6 +1019,8 @@ witnesses, merge events, or merge receipts. Restoring such an archive after a
 merge discards that merge and every unrelated later write as one database-wide
 recovery boundary. A pre-Phase-10 archive likewise cannot recover later declared
 checkpoint scopes or the scoped receipt evidence that binds them.
+A pre-Phase-11 archive cannot recover later evidence rows, completion/reopen
+generation bindings, or evidence-bearing receipt responses.
 
 Deletion from the dashboard is a soft delete. No ordinary work/checkpoint/event
 API or MCP read can retrieve a deleted work item. The immutable rows remain
@@ -856,7 +1034,8 @@ There is no supported in-place undelete or trash-management UI. Do not clear
 fact and has no recovery event, so such a change would make the timeline false
 and can make a later canonical deletion violate the unique fact constraint.
 Recovery requires an operator-approved restore at the documented whole-database
-backup boundary. Checkpoint and event rows must never be edited during recovery.
+backup boundary. Checkpoint, event, evidence, and receipt rows and private
+generation bindings must never be edited during recovery.
 
 ## Trust boundary and remote clients
 

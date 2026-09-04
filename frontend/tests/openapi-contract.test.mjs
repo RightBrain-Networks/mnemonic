@@ -7,11 +7,21 @@ import { DUPLICATE_SUGGESTION_DECODER_FIELDS } from "../lib/duplicate-suggestion
 import { HIERARCHY_DECODER_FIELDS } from "../lib/hierarchy-presentation.ts";
 import { MUTATION_RESPONSE_DECODER_FIELDS } from "../lib/mutation-responses.ts";
 import { WORK_EVENT_DECODER_FIELDS } from "../lib/work-events.ts";
+import { COMPLETION_EVIDENCE_DECODER_FIELDS } from "../lib/completion-evidence.ts";
 
 const SNAPSHOT_URL = new URL("../../docs/openapi.json", import.meta.url);
 const DEFAULTED_RESPONSE_FIELDS = {
   "frontend/lib/mutation-responses.ts:decodeCheckpoint": [
     "affected_paths"
+  ],
+  "frontend/lib/mutation-responses.ts:decodeMutationResult:complete_work": [
+    "completion_evidence"
+  ],
+  "frontend/lib/completion-evidence.ts:decodeVerificationResult:command": [
+    "exit_code", "observed_at", "observed_at_commit"
+  ],
+  "frontend/lib/completion-evidence.ts:decodeVerificationResult:observation": [
+    "observed_at", "observed_at_commit"
   ],
   "frontend/lib/human-gates.ts:decodeWorkSummary": [
     "ancestor_path",
@@ -45,6 +55,10 @@ test("strict frontend decoders match the committed OpenAPI component contracts",
   assert.ok(schemas, "OpenAPI snapshot must declare component schemas");
 
   const decoderFields = {
+    ...qualifiedFields(
+      "frontend/lib/completion-evidence.ts",
+      COMPLETION_EVIDENCE_DECODER_FIELDS
+    ),
     ...qualifiedFields("frontend/lib/human-gates.ts", HUMAN_GATE_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/duplicate-handling.ts", DUPLICATE_HANDLING_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/duplicate-suggestions.ts", DUPLICATE_SUGGESTION_DECODER_FIELDS),

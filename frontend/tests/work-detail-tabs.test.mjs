@@ -26,12 +26,15 @@ function context(overrides = {}) {
   };
 }
 
-test("the five tabs keep their order and labels", () => {
-  assert.deepEqual(DETAIL_TABS, ["context", "history", "graph", "questions", "activity"]);
+test("the six tabs keep their order and labels", () => {
+  assert.deepEqual(DETAIL_TABS, [
+    "context", "history", "evidence", "graph", "questions", "activity"
+  ]);
   assert.deepEqual(detailTabs(null, summary()).map((tab) => tab.key), DETAIL_TABS);
   assert.deepEqual(detailTabs(null, summary()).map((tab) => tab.label), [
     "Context",
     "History",
+    "Evidence",
     "Graph",
     "Questions",
     "Activity"
@@ -44,6 +47,8 @@ test("before the context loads counts fall back to the summary and unknown ones 
   const byKey = Object.fromEntries(tabs.map((tab) => [tab.key, tab]));
   assert.deepEqual(byKey.context, { key: "context", label: "Context", alert: false });
   assert.deepEqual(byKey.history, { key: "history", label: "History", count: 3, alert: false });
+  assert.deepEqual(byKey.evidence, { key: "evidence", label: "Evidence", alert: false });
+  assert.equal("count" in byKey.evidence, false);
   assert.deepEqual(byKey.graph, { key: "graph", label: "Graph", alert: false });
   assert.equal("count" in byKey.graph, false);
   assert.deepEqual(byKey.questions, { key: "questions", label: "Questions", count: 0, alert: false });
@@ -56,6 +61,7 @@ test("a loaded context supplies every count and overrides the summary", () => {
   const byKey = Object.fromEntries(tabs.map((tab) => [tab.key, tab]));
   assert.equal("count" in byKey.context, false);
   assert.equal(byKey.history.count, 7);
+  assert.equal("count" in byKey.evidence, false);
   assert.equal(byKey.graph.count, 4);
   assert.equal(byKey.questions.count, 0);
   assert.equal(byKey.questions.alert, false);

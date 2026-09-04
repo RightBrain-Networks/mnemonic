@@ -5,7 +5,13 @@ import { expect, type Locator, type Page } from "@playwright/test";
 // covers the queue, so callers close it (closeDetail) before touching cards,
 // filters, or heading buttons again.
 
-export type DetailTabName = "Context" | "History" | "Graph" | "Questions" | "Activity";
+export type DetailTabName =
+  | "Context"
+  | "History"
+  | "Evidence"
+  | "Graph"
+  | "Questions"
+  | "Activity";
 
 export function workPane(page: Page): Locator {
   return page.getByRole("region", { name: "Work context" });

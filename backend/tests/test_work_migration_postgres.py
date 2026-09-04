@@ -150,7 +150,7 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
                         'legacy-client', 'progress-session', NULL, :progress_at
                     ),
                     (
-                        :ordinary_id, :handoff_id, :completion, 'work-summary',
+                        :ordinary_id, :done_id, :completion, 'work-summary',
                         'legacy-client', 'completion-session', 'completion-model',
                         :completion_at
                     )
@@ -160,6 +160,7 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
                     "collision_id": handoff_id,
                     "ordinary_id": ordinary_comment_id,
                     "handoff_id": handoff_id,
+                    "done_id": done_id,
                     "progress": "  Exact progress.\n  ",
                     "completion": "Exact legacy completion.",
                     "progress_at": created_at + timedelta(hours=1),
@@ -281,7 +282,7 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
         with engine.connect() as connection:
             assert connection.execute(
                 text("SELECT version_num FROM alembic_version")
-            ).scalar_one() == "0018_repository_freshness"
+            ).scalar_one() == "0019_structured_completion_evidence"
             assert connection.execute(text("SELECT to_regclass('handoffs')")).scalar_one() is None
             assert connection.execute(
                 text("SELECT to_regclass('handoff_comments')")

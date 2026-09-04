@@ -388,6 +388,7 @@ def assemble_work_context(
                 to_jsonb(w)
                     - 'deleted_at'
                     - 'search_vector'
+                    - 'completion_generation'
                     - 'current_checkpoint_id'
                     - 'current_relationship_event_count'
                     AS work_item,
@@ -396,12 +397,15 @@ def assemble_work_context(
                     'context_checkpoint_id', w.current_checkpoint_id,
                     'relationship_event_count', w.current_relationship_event_count
                 ) AS current_context_revision,
-                to_jsonb(initial_checkpoint) - 'search_vector' AS initial_checkpoint,
-                to_jsonb(current_checkpoint) - 'search_vector' AS current_checkpoint,
+                to_jsonb(initial_checkpoint) - 'search_vector'
+                    - 'completion_generation' AS initial_checkpoint,
+                to_jsonb(current_checkpoint) - 'search_vector'
+                    - 'completion_generation' AS current_checkpoint,
                 COALESCE(
                     (
                         SELECT jsonb_agg(
                             to_jsonb(recent_checkpoint) - 'search_vector'
+                                - 'completion_generation'
                             ORDER BY recent_checkpoint.created_at, recent_checkpoint.id
                         )
                         FROM recent AS recent_checkpoint

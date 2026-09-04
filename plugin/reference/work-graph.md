@@ -33,6 +33,13 @@ its `duplicate` state, then uses non-Pending lifecycle, waiting, blocked, active
 for roots; the
 independent flags remain authoritative.
 
+Completion evidence is also separate from the graph and readiness model. A
+reported result or artifact never answers a gate, resolves a blocker, grants or
+renews a lease, or authorizes work on a canonical destination. Evidence
+recorded before an authoritative merge stays on the exact source alias and is
+never copied or blended into destination history. See
+[completion-evidence.md](${CLAUDE_PLUGIN_ROOT}/reference/completion-evidence.md).
+
 ## Ready discovery is advisory; claim is authoritative
 
 `list_ready_work` returns visible `pending` work with no unresolved incoming

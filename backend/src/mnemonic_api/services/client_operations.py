@@ -46,6 +46,7 @@ from mnemonic_api.schemas import (
     ReleaseResult,
     WorkCompletionCreate,
     WorkCompletionRead,
+    WorkCompletionRequest,
     WorkCreation,
     WorkDeferralCreate,
     WorkDeletionCreate,
@@ -195,6 +196,7 @@ _REGISTRY: dict[OperationKind, OperationSpec] = {
         WorkCompletionRead,
         200,
         "work_item_id",
+        domain_model=WorkCompletionRequest,
     ),
     "delete_work": _spec(
         "delete_work", WorkDeletionCreate, WorkDeletionRead, 200, "work_item_id"
@@ -402,6 +404,11 @@ def prepare_client_operation(
     spec = operation_spec(kind)
     if not isinstance(payload, spec.request_model):
         raise client_operation_unavailable()
+    if spec.kind == "complete_work":
+        reject_completion_evidence_secret_substrings(
+            cast(WorkCompletionCreate, payload),
+            known_secret_values=known_secret_values,
+        )
     forbidden_response_values = reject_client_operation_secret_echo(
         payload, known_secret_values=known_secret_values
     )
@@ -436,6 +443,46 @@ def prepare_client_operation(
         canonical_bytes=canonical,
         forbidden_response_values=forbidden_response_values,
     )
+
+
+def reject_completion_evidence_secret_substrings(
+    payload: WorkCompletionCreate,
+    *,
+    known_secret_values: Iterable[str] = (),
+) -> None:
+    """Reject request-known secrets embedded inside durable evidence strings."""
+    evidence = payload.completion_evidence
+    if evidence is None:
+        return
+    exact_secrets = {value for value in known_secret_values if value}
+    if payload.lease_token:
+        exact_secrets.add(payload.lease_token)
+    operation_id = payload.client_operation_id
+    uuid_spellings: set[str] = set()
+    if operation_id is not None:
+        canonical = str(operation_id)
+        uuid_spellings = {
+            canonical,
+            canonical.replace("-", ""),
+            f"urn:uuid:{canonical}",
+            f"{{{canonical}}}",
+        }
+    for value in _nested_strings(evidence.model_dump(mode="json")):
+        if any(secret in value for secret in exact_secrets) or any(
+            spelling in value.casefold() for spelling in uuid_spellings
+        ):
+            raise client_operation_secret_echo()
+
+
+def _nested_strings(value: object) -> Iterable[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, list):
+        for item in value:
+            yield from _nested_strings(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _nested_strings(item)
 
 
 def reject_client_operation_secret_echo(
@@ -879,7 +926,7 @@ def _complete_work_matches(
     typed: APIModel,
 ) -> bool:
     result = cast(WorkCompletionRead, typed)
-    request = cast(WorkCompletionCreate, payload)
+    request = cast(WorkCompletionRequest, payload)
     return (
         result.work_item.project_id == project_id
         and str(result.work_item.id) == target_envelope.get("work_item_id")
@@ -888,6 +935,54 @@ def _complete_work_matches(
         and result.checkpoint.work_item_id == result.work_item.id
         and result.checkpoint.kind == "completion"
         and _checkpoint_matches_payload(result.checkpoint, request.checkpoint)
+        and _completion_evidence_matches(result, request)
+    )
+
+
+def _completion_evidence_matches(
+    result: WorkCompletionRead,
+    request: WorkCompletionRequest,
+) -> bool:
+    expected = request.completion_evidence
+    actual = result.completion_evidence
+    if expected is None or actual is None:
+        return expected is None and actual is None
+    if (
+        len(expected.verification_results) != len(actual.verification_results)
+        or len(expected.artifact_references) != len(actual.artifact_references)
+    ):
+        return False
+    result_fields = (
+        "verification_type",
+        "name",
+        "outcome",
+        "summary",
+        "observed_at",
+        "observed_at_commit",
+        "command",
+        "exit_code",
+    )
+    artifact_fields = ("artifact_type", "label", "reference")
+    return all(
+        all(
+            getattr(source, field, None) == getattr(target, field, None)
+            for field in result_fields
+        )
+        for source, target in zip(
+            expected.verification_results,
+            actual.verification_results,
+            strict=True,
+        )
+    ) and all(
+        all(
+            getattr(source, field, None) == getattr(target, field, None)
+            for field in artifact_fields
+        )
+        for source, target in zip(
+            expected.artifact_references,
+            actual.artifact_references,
+            strict=True,
+        )
     )
 
 

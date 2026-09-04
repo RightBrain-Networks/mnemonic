@@ -1,10 +1,17 @@
 import type { WorkContext, WorkSummary } from "@/lib/types";
 
-export type DetailTab = "context" | "history" | "graph" | "questions" | "activity";
+export type DetailTab =
+  | "context"
+  | "history"
+  | "evidence"
+  | "graph"
+  | "questions"
+  | "activity";
 
 export const DETAIL_TABS: readonly DetailTab[] = [
   "context",
   "history",
+  "evidence",
   "graph",
   "questions",
   "activity"
@@ -13,6 +20,7 @@ export const DETAIL_TABS: readonly DetailTab[] = [
 export const detailTabLabels: Record<DetailTab, string> = {
   context: "Context",
   history: "History",
+  evidence: "Evidence",
   graph: "Graph",
   questions: "Questions",
   activity: "Activity"
@@ -45,6 +53,7 @@ export function detailTabs(
   return [
     describe("context", undefined),
     describe("history", context?.checkpoint_total ?? summary.checkpoint_count),
+    describe("evidence", undefined),
     describe("graph", context?.relationship_counts.total),
     describe("questions", questions, questions > 0),
     describe("activity", context?.event_total)

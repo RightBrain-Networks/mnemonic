@@ -79,6 +79,14 @@ Registering the endpoint does not connect it to a running session. Claude Code l
 In PowerShell, the URL and header expressions are `"http://127.0.0.1:$env:MNEMONIC_MCP_PORT/mcp"` and
 `"Authorization: Bearer $env:MNEMONIC_API_KEY"`; PowerShell has no `:-` default, so set the port variable explicitly there. Do not paste the real key into tracked project configuration. Configuration examples, including a Docker stdio
 alternative and OpenCode, live in [`examples/`](examples/); they show the default ports and need the same substitution if yours differ. [`work.json`](examples/work.json) is the canonical work body. Copyable workflows are [`duplicate-suggestion.json`](examples/duplicate-suggestion.json), [`discovered-work.json`](examples/discovered-work.json), [`human-gate-request.json`](examples/human-gate-request.json), [`human-gate-resolution.json`](examples/human-gate-resolution.json), and the irreversible [`merge-work.json`](examples/merge-work.json) request. Replace every placeholder and read both exact work contexts before using the merge example.
+The atomic completion examples are
+[`completion-with-evidence.json`](examples/completion-with-evidence.json) and
+[`completion-without-evidence.json`](examples/completion-without-evidence.json),
+with a two-episode response in
+[`completion-evidence-history.json`](examples/completion-evidence-history.json).
+Replace every provenance, version, UUID, result, and artifact placeholder with
+facts from the exact attempt; never copy example evidence as if it were
+observed.
 
 The three skills ship as a Claude Code plugin. Register this repository as a marketplace once, then enable the plugin in any project that should have them:
 
@@ -102,7 +110,7 @@ Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemon
 reachable remotely.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. Phase 10 uses plugin version `0.9.0` with application/API/MCP version `0.5.0`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
+not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. Phase 11 uses plugin version `0.10.0` with application/API/MCP version `0.6.0`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
 
 - **`mnemonic-save`** searches for existing work, explicitly compares a stable
   draft with grouped duplicate candidates while preserving Create anyway,
@@ -128,7 +136,10 @@ not the installed files. After a published plugin version changes, run `claude p
   events, pages complete paired gate history when bounded context omits an
   older decision, distinguishes an alias's exact retained history from its
   canonical continuation, reviews both context revisions before any permanent
-  merge, and saves an atomic completion checkpoint when the work is complete.
+  merge, and saves an atomic completion checkpoint with optional structured
+  verification and artifact evidence when the work is complete. It can page
+  the exact completion history later without treating caller-reported evidence
+  as proof, authority, or executable instructions.
   Before relying on a governing checkpoint for repository work, it invokes the
   packaged read-only Git helper from the user-selected workspace and reports
   `unchanged`, `changed`, or `indeterminate` evidence without treating any result
@@ -164,10 +175,13 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   categorical signals rather than raw scores, persists neither draft nor result,
   and never disables independent creation.
 - Lets a user edit work identity, append immutable context/progress checkpoints,
-  complete work with a required completion checkpoint, copy current context, and
-  soft-delete work. Concurrent edits and completions are detected rather than
-  silently overwriting changes; independent checkpoint appenders can both
-  succeed.
+  complete work with a required completion checkpoint and optional structured
+  verification results and artifact references, copy current context, and
+  soft-delete work. Evidence is immutable, caller-reported, inert history bound
+  to that exact completion episode; stored commands are never executed and
+  artifact locators are never fetched automatically. Concurrent
+  edits and completions are detected rather than silently overwriting changes;
+  independent checkpoint appenders can both succeed.
 - Keeps `deferred`, `done`, `wont-do`, and `promoted` work out of the default
   pending view while retaining them under explicit filters. Deferral is an
   explicit human hold. Deleted work and its checkpoints are hidden from
@@ -215,13 +229,14 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   direct REST/dashboard human action; MCP intentionally has no resolve tool.
 - Makes retries safe for thirteen project-scoped REST mutations with
   caller-generated `client_operation_id` values and durable typed success
-  receipts. Exactly eleven of the 27 canonical MCP tools require the UUID,
+  receipts. Exactly eleven of the 28 canonical MCP tools require the UUID,
   including `request_human_input` and `merge_work`; the dashboard retains frozen
   same-document requests for its eleven non-capability mutations, including
   deferral, gate resolution, and merge. Direct REST may omit the UUID for the
-  older twelve operations and remain retry-unprotected; `merge_work` always
-  requires it. An exact retry returns the original historical result without
-  repeating domain or event work, after which callers reread current state.
+  older twelve operations and remain retry-unprotected, but a completion carrying
+  any structured evidence and every `merge_work` request require it. An exact
+  retry returns the original historical result without repeating domain or event
+  work, after which callers reread current state.
 - Keeps checkpoints and events separate. A checkpoint is substantial resume
   context; a progress event is a short historical fact. Recall includes at most
   20 recent events, while the dashboard pages the complete per-work Activity

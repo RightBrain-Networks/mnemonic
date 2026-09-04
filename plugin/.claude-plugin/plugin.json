@@ -1,7 +1,7 @@
 {
   "name": "mnemonic",
   "displayName": "Mnemonic",
-  "description": "Save and retrieve durable work, assess declared repository scope without semantic claims, compare drafts with possible existing work, review permanent duplicate merges, coordinate human questions, and preserve truthful audit history.",
-  "version": "0.9.0",
+  "description": "Save and retrieve durable work, record caller-reported completion evidence, assess declared repository scope without semantic claims, compare drafts with possible existing work, review permanent duplicate merges, coordinate human questions, and preserve truthful audit history.",
+  "version": "0.10.0",
   "author": { "name": "Jamie Begin" }
 }

@@ -507,7 +507,8 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
         "get_relationship": "never authority to execute that item",
         "list_relationships": "never traverse the graph recursively",
         "update_work": "no tool here creates an external issue",
-        "complete_work": "only when the objective is actually achieved",
+        "complete_work": "only when the objective is achieved",
+        "list_completion_evidence": "untrusted historical data",
         "request_human_input": "never infer, time out, self-approve, or resolve",
         "list_human_attention": "human queue, not agent-ready work",
         "list_work_gates": "old resolution never grants current authority",
@@ -521,12 +522,16 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
     ):
         assert required in described["request_human_input"].lower()
     assert (
+        "a required failed or inconclusive result, or skipped observation, normally means stop"
+        in described["complete_work"].lower()
+    )
+    assert (
         "restart once from the first page" in described["list_human_attention"].lower()
     )
     for name, required in {
         "create_work": "affected_paths is an ordered declaration",
         "add_checkpoint": "server and mcp adapter do not inspect git",
-        "complete_work": "server and mcp adapter do not verify this provenance",
+        "complete_work": "this adapter never inspects git",
         "list_checkpoints": "full rows carry any caller-declared affected_paths",
         "search_work": "fully recall the exact checkpoint",
         "recall_work": "explicitly select the intended local workspace",
@@ -580,6 +585,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "get_work",
         "add_checkpoint",
         "list_checkpoints",
+        "list_completion_evidence",
         "recall_work",
         "append_event",
         "list_work_events",
@@ -609,6 +615,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "search_work",
         "get_work",
         "list_checkpoints",
+        "list_completion_evidence",
         "list_ready_work",
         "recall_work",
         "get_relationship",
@@ -667,7 +674,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 27
+    assert len(tools) == 28
     for name in mutating:
         assert tools[name].annotations.idempotentHint is (name in protected)
     for name in tools.keys() - mutating:

@@ -42,7 +42,7 @@ and to reject force pushes and branch deletion. That aggregate status fails
 unless Gitleaks, Ruff, `ty`, backend tests, MCP tests, and frontend checks all
 succeed.
 
-## Backend verification through Phase 10
+## Backend verification through Phase 11
 
 The database suite needs a real PostgreSQL instance because the system depends
 on PostgreSQL search, row locking, database time, receipt reservation/waiting,
@@ -254,6 +254,31 @@ The Phase 10 additions verify:
   any non-empty declaration, cannot race a concurrent insert, and supports
   re-upgrade without data loss.
 
+The Phase 11 additions verify:
+
+- fresh zero-to-0019 and populated 0018-to-0019 upgrades preserve every prior
+  row count, pre-existing column value, identifier, sequence, timestamp,
+  receipt byte, and named Phase 10 object while deterministically filling only
+  the new private generation bindings and creating no evidence rows;
+- ORM/schema parity plus every composite ownership key, vocabulary and grammar,
+  byte constraint, partial access index, insertion guard, immutability guard,
+  truncate guard,
+  sealed-episode validator, completion generation, and reopen witness;
+- the shared cross-language fixture, conditional operation-UUID requirement,
+  sparse empty form, strict union and exit-code matrix, timestamp equivalence,
+  artifact identity, order preservation, request fingerprint, response/receipt
+  coherence, nested secret scan, and 896 KiB generated-representation budget;
+- atomic checkpoint/state/event/evidence/lease/receipt behavior across injected
+  failures, exact concurrent replay, UUID conflict, blocker/gate/version/lease/
+  alias precedence, and no extra activity, version, event, or invalidation;
+- page-first constant-query history, repeatable-read snapshot, bigint string
+  identity, high-water cursor stability, exact current pointer, alias ownership,
+  soft-delete concealment, 3 MiB serialization ceiling, and fail-closed corrupt
+  generation/child/receipt cases; and
+- guarded downgrade succeeds only for a valid unused Phase 11 schema, refuses
+  before DDL after evidence or a Phase 11-only receipt response, restores the
+  exact 0018 catalog, and supports lossless re-upgrade.
+
 For a focused Phase 10 backend iteration, run from `backend` with the real test
 database configured; the complete suite remains the release gate:
 
@@ -308,7 +333,7 @@ do not contact a model service.
 Without `TEST_DATABASE_URL`, PostgreSQL tests explicitly skip. Such a run still
 checks pure validation helpers but is not proof of migration, transaction,
 trigger, concurrency, receipt replay, or PostgreSQL retrieval behavior. Any
-skipped PostgreSQL-marked test makes the Phase 10 release gate incomplete.
+skipped PostgreSQL-marked test makes the Phase 11 release gate incomplete.
 
 Stop the disposable database afterward from the repository root:
 
@@ -316,7 +341,7 @@ Stop the disposable database afterward from the repository root:
 docker compose -f compose.test.yaml down
 ```
 
-## MCP verification through Phase 10
+## MCP verification through Phase 11
 
 Run from `mcp`:
 
@@ -327,7 +352,7 @@ uv run ruff check .
 uv run ty check src/mnemonic_mcp
 ```
 
-The MCP suite verifies the exact 27-tool canonical catalog, strict unknown-field
+The MCP suite verifies the exact 28-tool canonical catalog, strict unknown-field
 rejection, nested checkpoint request bodies, canonical/grouped search hits,
 compact ready results, bounded recall, deterministic checkpoint/event
 pagination, versioned mutation receipts, typed graph and lease behavior, the
@@ -337,13 +362,13 @@ and real stdio transports.
 Exactly eleven mutation tools require a canonical `client_operation_id` and
 advertise truthful idempotency: `create_work`, `add_checkpoint`, `append_event`,
 `add_relationship`, `update_work`, `complete_work`, `delete_work`,
-`remove_relationship`, `release_claim`, and `request_human_input`. Tests prove
+`remove_relationship`, `release_claim`, `request_human_input`, and `merge_work`. Tests prove
 exact one-attempt forwarding, strict coherent response decoding, sanitized
 same-key recovery guidance, and local rejection on excluded tools. Project
 creation, claim, claim-and-recall, and renewal retain separate non-idempotent
 contracts.
 
-The eleventh protected mutation is `merge_work`. Core tests pin its two reviewed
+Merge tests pin its two reviewed
 revisions, exact direction, optional source lease token, mandatory operation
 UUID, single outbound attempt, strict result/event/relationship coherence,
 same-key recovery, and sanitized alias/merge errors. Search/resource/prompt
@@ -375,13 +400,31 @@ tests also prove the adapter contains no Git, subprocess, checkout, repository,
 or network assessment path. The catalog remains exactly 27 tools and eleven
 protected writes; there is no freshness tool or new receipt kind.
 
-The inner plugin manifest is `0.9.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.9.0` install
-plus a sequential `0.6.1 -> 0.7.0 -> 0.8.0 -> 0.9.0` marketplace update. Use an
+Phase 11 MCP assertions extend only `complete_work` and add the safe
+`list_completion_evidence` read. They consume the repository-level shared
+fixture for strict unions, nullability, timestamp canonicalization, artifact
+grammars, aggregate counts/bytes, request/response coherence, and hostile inert
+text. Tests cover one-attempt forwarding, identity-only raw history reads at
+exactly 3 MiB and max-plus-one, rejection before a poison stream is pulled,
+stable cursor forwarding, and response ownership/order/timestamp checks.
+Transport-process tests exercise the shared 1 MiB pre-SDK Streamable HTTP and
+newline-delimited stdio guards, the bounded JSON-RPC ID domain, terminal stdio
+rejection without a second writer, the locked SDK seam, and a complete
+maximum-ID response containing both SDK representations at no more than 12 MiB.
+The Phase 11 catalog is exactly 28 tools and eleven protected writes; there is
+no standalone evidence mutation, resource/prompt evidence expansion, or
+automatic artifact access.
+
+The inner plugin manifest is `0.10.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.10.0` install
+plus a sequential `0.6.1 -> 0.7.0 -> 0.8.0 -> 0.9.0 -> 0.10.0` marketplace update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
-the inventory remains exactly three skills plus the new helper and reference.
+the inventory remains exactly three skills (`mnemonic-save`, `mnemonic-search`,
+and `mnemonic-recall`), four shared references (`authority-and-provenance.md`,
+`completion-evidence.md`, `repository-freshness.md`, and `work-graph.md`), and
+one executable (`mnemonic-repository-freshness`).
 A compatibility copy of the old prerelease schema or workflow is not a valid
 substitute.
 
@@ -420,7 +463,7 @@ uv run --project backend ruff check \
   scripts/check-stack.py
 ```
 
-## Dashboard verification through Phase 10
+## Dashboard verification through Phase 11
 
 Run from `frontend`:
 
@@ -493,6 +536,19 @@ scope as untrusted provenance but contains no Git/subprocess/local-filesystem
 assessment path and never labels it semantically fresh, current, verified,
 correct, or safe.
 
+Phase 11 Node tests consume the same repository-level fixture and pin strict
+draft construction, semantic validation, code-point/UTF-8 limits, timestamp UTC
+canonicalization, exact artifact URL/path/branch rules, completion-response
+ownership/order/time coherence, and all sparse/invalid forms. Mutation tests
+prove the full evidence draft is frozen under the existing `complete_work`
+intent and survives only an exact ambiguous retry. Proxy tests cover the sole
+new safe GET, exact query allowlist, `Accept-Encoding: identity`, header-first
+coding rejection, poison streams, exact/max-plus-one 3 MiB bodies, no-store /
+no-transform / nosniff headers, and no mutation-inventory or live-sync change.
+The lazy Evidence tab covers empty, loading, error, retry, pagination, current
+episode, reopened history, evidence-free legacy episodes, hostile bidi/control
+text, inert commands, and safe HTTPS links with referrer/opener protection.
+
 Playwright renders hostile literal questions and answers, exact ambiguous retry,
 B-to-C drift rejection and fresh intent, attention empty/error recovery,
 filtered and unfiltered attention, nonzero omission messages, attention and
@@ -522,6 +578,14 @@ From `frontend`, run the complete isolated acceptance path with:
 
 ```sh
 npm run test:e2e:stack
+```
+
+From the repository root, also exercise the deployed identity-coding boundary
+with a controlled upstream that emits identity, gzip success, and gzip error
+responses:
+
+```sh
+./scripts/test-nginx-e2e.sh
 ```
 
 The wrapper generates a uniquely scoped Compose project, API key, and available
@@ -554,7 +618,7 @@ filter controls, an independently scrolling queue of compact cards fetches the
 next `WORK_PAGE_SIZE` page when a sentinel near its end intersects the
 scrollport, so the result count reports the total while cards append; there
 are no Previous/Next controls. Selecting a card opens the detail pane beside it
-with Context, History, Graph, Questions, and Activity tabs; edit is inline in
+with Context, History, Evidence, Graph, Questions, and Activity tabs; edit is inline in
 the Context tab, the merge review is an inline panel inside the Graph tab, and
 the selection mirrors into `?work=<id>`. A lifecycle filter names a different
 queue, so changing it — including the empty state's Clear filters, which returns
@@ -684,7 +748,7 @@ Run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 27-tool
+Read-only mode verifies REST/MCP health, authentication, the exact 28-tool
 catalog, the exact eleven protected schemas and annotations, the absence of an MCP
 resolution tool, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, and the shipped WOFF2 font assets. It does
@@ -774,63 +838,76 @@ Add `--other-project-id` to prove the new ID cannot be read through a second
 project. Do not pass either project option without authorization to write in the
 named project. Prefer a disposable full stack for automated write-path checks.
 
-## Phase 10 implementation and deployment gates
+## Phase 11 implementation and deployment gates
 
 The coordinated repository implementation is incomplete until all of these
 pass together:
 
 1. `pre-commit run --all-files` and the full backend suite against isolated
    PostgreSQL with no database skips, followed by backend Ruff and `ty`;
-2. fresh zero-to-0018 plus populated 0017-to-0018 preservation, all historical
-   receipt vectors, direct-SQL grammar/bounds, schema/catalog parity,
-   immutability, empty-only downgrade, post-scope refusal, two-connection race,
-   and re-upgrade;
+2. fresh zero-to-0019 plus populated 0018-to-0019 preservation, all historical
+   receipt vectors, deterministic generation backfill, direct-SQL invariants,
+   schema/catalog parity, evidence immutability, conditional downgrade/refusal,
+   concurrent completion/replay races, and lossless eligible re-upgrade;
 3. the full MCP suite in its separate frozen environment, followed by MCP Ruff
-   and `ty`, with exact 27-tool/eleven-protected catalogs, strict sparse/full
-   scope contracts, and proof that the adapter has no repository assessor;
+   and `ty`, with exact 28-tool/eleven-protected catalogs, strict evidence
+   write/read contracts, 1 MiB pre-SDK guards, identity-only 3 MiB history, and
+   the complete 12 MiB result-envelope fixture on HTTP and stdio;
 4. frontend unit tests, typecheck, production build, and the isolated Playwright
-   stack, including declaration-only strict response/proxy/retry behavior and no
-   browser repository verifier;
+   stack, including evidence editor/history/retry behavior, hostile inert
+   rendering, exact proxy query/body policies, and no artifact execution;
 5. regenerated OpenAPI plus strict backend, MCP, and frontend snapshot/consumer
-   parity, with scope only on full checkpoint input and read schemas;
+   parity, including the executable conditional operation-ID schema and sole
+   safe history route;
 6. the disposable helper/security matrix, real Git 2.44 rejection before
    repository access, real Git 2.45-or-newer supported lanes on Bash 3.2 and
-   newer hosts, packaged mode/inventory, and installed cold-session workflow;
-7. the aggregate read-only audit at 0017 and 0018 on disposable populated data,
-   with zero blocking findings and no path-bearing output, plus the 0018
-   `--require-empty-scope` pre-enablement gate rejecting unexpected population;
-8. plugin manifest parsing plus disposable fresh `0.9.0` and sequential
-   `0.6.1 -> 0.7.0 -> 0.8.0 -> 0.9.0` installation;
-9. read-only and authorized writable stack checks against a disposable project,
+   newer hosts, packaged mode/inventory, and installed cold-session workflow
+   using the new completion-evidence reference;
+7. the deployed nginx/browser identity boundary, including a stock module-free
+   nginx syntax check and a real inherited google/ngx_brotli filter whose
+   control is `br`, against controlled identity, gzip-success, gzip-error,
+   exact-limit, and max-plus-one responses, with content-free rejection and no
+   cache/transformation ambiguity;
+8. the aggregate read-only audit at 0018 and 0019 on disposable populated data,
+   with zero blocking findings and no evidence/path-bearing output, plus the
+   0019 pre-enablement gate rejecting unexpected Phase 11 state;
+9. plugin manifest parsing plus disposable fresh `0.10.0` and sequential
+   `0.6.1 -> 0.7.0 -> 0.8.0 -> 0.9.0 -> 0.10.0` installation;
+10. read-only and authorized writable stack checks against a disposable project,
    including the exact catalog/protected contract, historical replay, ordered
-   scoped create/add/complete projection, scope-free compact surfaces, duplicate
+   scoped completion with structured evidence, evidence-free completion,
+   high-water history, scope/evidence-free compact surfaces, duplicate
    suggestion, gate lifecycle, and irreversible merge/alias lifecycle; and
-10. a rebase onto current `origin/main`, repeated full surface audit,
+11. generated worst-case proof that compact completion/fingerprint/response/
+    receipt/database representations fit 896 KiB, raw REST/browser ingress fits
+    1 MiB, a legal ten-episode page fits 3 MiB, and the complete MCP response
+    with maximum permitted ID fits 12 MiB; and
+12. a rebase onto current `origin/main`, repeated full surface audit,
     `git diff --check`, Markdown link/path validation, schema/tool snapshots,
     and a cold adversarial review whose substantiated findings are fixed and
     reverified before the pull request opens.
 
 Deployment approval is a separate operator-owned gate. It requires named
-pre/post-0016, pre/post-0017, and pre/post-0018 backups restored in isolation;
+pre/post-0016, pre/post-0017, pre/post-0018, and pre/post-0019 backups restored in isolation;
 ordinary, gate, merge, event, witness, historical receipt, and scoped receipt
-parity; populated 0017/0018 target audits; strict old-client failure; safe
-pre-scope downgrade, post-scope refusal, fix-forward, and whole-restore
+parity plus completion generation/evidence parity; populated 0018/0019 target
+audits; strict old-client failure; safe pre-use downgrade, post-use refusal, fix-forward, and whole-restore
 rehearsals; target Bash/Git capability evidence; and explicit product/operator
 approval. Repository tests and disposable-stack evidence do not prove those
 target-environment results.
 
 Do not treat a focused suite, PostgreSQL-skipped run, read-only smoke, helper
 suite backed only by a version-reporting wrapper, or marketplace refresh by
-itself as a Phase 10 implementation result. Repository completion requires the
+itself as a Phase 11 implementation result. Repository completion requires the
 isolated database/E2E/security lanes, full pre-commit, and cold adversarial
 review. It must not be described as deployment approval. When operators do
-deploy, application/API/MCP/dashboard `0.5.0`, plugin `0.9.0`, migration
-`0018_repository_freshness`, and the operational guidance form one compatible
-boundary. Once a non-empty scope exists, 0.4.x first-party clients are
-unsupported; add no projection shim, legacy model union, receipt rewrite, or
-old-backend bridge.
+deploy, application/API/MCP/dashboard `0.6.0`, plugin `0.10.0`, migration
+`0019_structured_completion_evidence`, and the operational guidance form one
+compatible boundary. Once Phase 11 state exists, 0.5.x first-party clients are
+unsupported; add no projection shim, legacy model union, receipt rewrite,
+standalone evidence write, or old-backend bridge.
 
-## Manual browser pass through Phase 10
+## Manual browser pass through Phase 11
 
 Exercise project empty state and switching, root browsing, lazy child expansion,
 subtree-aware filters, flat-search breadcrumbs, Pending/Active/Dropped/Deferred
@@ -860,6 +937,24 @@ echoing values, and an ambiguous mutation retry retains the exact frozen order.
 Confirm the browser presents the data only as caller-declared provenance and
 neither runs Git nor claims that a checkpoint is fresh, current, verified,
 correct, or safe.
+
+For Phase 11, use the browser to complete an unleased work item with mixed
+command, observation, and artifact evidence. While another client holds an
+active lease, confirm the browser completion control remains unavailable and
+the proxy never accepts a `lease_token`; exercise the leased completion
+separately through MCP or direct REST with its exact active token. Exercise
+each outcome/exit-code combination,
+timestamp canonicalization, preserved order/case/internal whitespace, duplicate
+artifact rejection, the 20-entry and aggregate-byte boundaries, and a
+validation failure that leaves work Pending. Force an ambiguous completion and
+confirm only the frozen same-UUID intent is available; success or replay must
+show one exact episode. Reopen and complete again, then page the Evidence tab
+and distinguish the current episode from older structured and evidence-free
+ones. Verify an alias shows only its source-owned history, a deleted item is
+concealed, commands remain inert text, and only accepted HTTPS artifacts are
+links. Repeat at narrow width and with hostile bidi/control/very-long text;
+there must be no HTML execution, automatic navigation, layout escape, secret or
+operation-ID persistence, or evidence in ordinary Context/History/Activity tabs.
 
 Open the valid create dialog and confirm no suggestion request occurs while
 typing. Use **Check existing work** once, inspect canonical and matched-member

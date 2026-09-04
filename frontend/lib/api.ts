@@ -1,3 +1,9 @@
+import {
+  decodeCompletionEvidencePage,
+  readIdentityEvidenceJson
+} from "./completion-evidence.ts";
+import type { CompletionEvidencePage } from "./types.ts";
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code?: string;
@@ -20,9 +26,14 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "actor_client",
   "actor_model",
   "actor_session_id",
+  "artifact_references",
+  "artifact_type",
   "affected_paths",
   "body",
   "checkpoint",
+  "command",
+  "completion_evidence",
+  "completion_checkpoint_id",
   "client_operation_id",
   "context_checkpoint_id",
   "canonical_work_item_id",
@@ -34,6 +45,7 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "destination_work_item_id",
   "duplicate_scope",
   "event_type",
+  "exit_code",
   "gate_id",
   "gate_type",
   "expected_version",
@@ -43,13 +55,19 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "initial_prompt",
   "kind",
   "limit",
+  "label",
   "metadata",
   "name",
   "offset",
+  "observed_at",
+  "observed_at_commit",
   "order",
+  "outcome",
   "priority",
+  "position",
   "project_id",
   "prompt",
+  "reference",
   "q",
   "recall_pointer_template",
   "recent_event_limit",
@@ -86,6 +104,8 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "title",
   "type",
   "verified_against",
+  "verification_results",
+  "verification_type",
   "view",
   "work_item_id",
   "work_event_count",
@@ -167,6 +187,47 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+export async function completionEvidenceApi(
+  path: string,
+  expectedWorkItemId: string,
+  init: RequestInit = {}
+): Promise<CompletionEvidencePage> {
+  let response: Response;
+  try {
+    response = await fetch(`/api/mnemonic${path}`, {
+      ...init,
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { Accept: "application/json", ...init.headers }
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new ApiError(
+      "Cannot reach Mnemonic. Check that the application is running, then try again.",
+      0
+    );
+  }
+  let payload: unknown;
+  try {
+    payload = await readIdentityEvidenceJson(response);
+  } catch {
+    throw new ApiError("Mnemonic returned an invalid completion-evidence response.", 0);
+  }
+  if (!response.ok) {
+    const error = payload && typeof payload === "object"
+      ? payload as { detail?: unknown }
+      : {};
+    const detail = detailMessage(error.detail);
+    throw new ApiError(detail.message, response.status, detail.code);
+  }
+  try {
+    const isHead = !new URL(path, "https://mnemonic.invalid").searchParams.has("cursor");
+    return decodeCompletionEvidencePage(payload, expectedWorkItemId, isHead);
+  } catch {
+    throw new ApiError("Mnemonic returned an invalid completion-evidence response.", 0);
+  }
 }
 
 export function errorMessage(error: unknown): string {

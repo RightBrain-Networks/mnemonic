@@ -131,4 +131,22 @@ test("terminal actions share the gate guard and a count-specific visible explana
     terminalActionGateExplanation({ ...oneGate, unresolved_gate_count: 2 }, "deletion"),
     "2 unresolved human questions block deletion."
   );
+
+  const leased = {
+    ...readiness,
+    has_active_lease: true,
+    active_lease: {
+      holder_client: "codex",
+      holder_session_id: "session-1",
+      acquired_at: "2026-09-04T12:00:00Z",
+      renewed_at: "2026-09-04T12:00:00Z",
+      expires_at: "2026-09-04T12:30:00Z"
+    }
+  };
+  assert.equal(terminalActionDisabled(leased, false, "completion"), true);
+  assert.equal(terminalActionDisabled(leased, false, "deletion"), false);
+  assert.match(
+    terminalActionGateExplanation(leased, "completion"),
+    /owning client.*release the lease/i
+  );
 });

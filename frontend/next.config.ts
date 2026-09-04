@@ -17,6 +17,7 @@ function liveSyncDestination(): string {
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  compress: false,
   agentRules: false,
   poweredByHeader: false,
   reactStrictMode: true,
@@ -26,6 +27,7 @@ const nextConfig: NextConfig = {
       headers: [
         { key: "X-Content-Type-Options", value: "nosniff" },
         { key: "X-Frame-Options", value: "DENY" },
+        { key: "X-DNS-Prefetch-Control", value: "off" },
         { key: "Referrer-Policy", value: "no-referrer" },
         { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
         { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },

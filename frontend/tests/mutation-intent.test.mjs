@@ -200,6 +200,87 @@ test("checkpoint ambiguity freezes ordered affected paths into the exact retry i
   assert.deepEqual(calls[0], calls[1]);
 });
 
+test("completion ambiguity freezes nested evidence fields and array order byte-for-byte", async () => {
+  const calls = [];
+  const registry = new MutationIntentRegistry(async (url, init) => {
+    calls.push({ url: String(url), body: init.body });
+    return new Response(JSON.stringify({ detail: "Lost completion response." }), {
+      status: 502,
+      headers: { "Content-Type": "application/json" }
+    });
+  }, () => operation);
+  const evidence = {
+    verification_results: [
+      {
+        verification_type: "observation",
+        name: "Cold review",
+        outcome: "passed",
+        summary: "Accepted exactly.",
+        observed_at: "2026-09-03T18:01:02Z"
+      },
+      {
+        verification_type: "command",
+        name: "Frontend tests",
+        outcome: "failed",
+        summary: "A deliberate failure was retained.",
+        command: "npm test",
+        exit_code: 1
+      }
+    ],
+    artifact_references: [
+      { artifact_type: "branch", label: "Branch", reference: "work/Phase11 exact" },
+      { artifact_type: "commit", label: "Commit", reference: "7ad62e4" }
+    ]
+  };
+  const slot = `complete-work:${project}:${work}`;
+  const input = {
+    kind: "complete_work",
+    slot,
+    projectId: project,
+    conflictKeys: [mutationWorkKey(project, work)],
+    method: "POST",
+    path: `/projects/${project}/work-items/${work}/complete`,
+    payload: {
+      expected_version: 7,
+      checkpoint: {
+        prompt: "Exact completion summary",
+        source_client: "dashboard",
+        source_session_id: "tab-1",
+        source_model: null,
+        repository_branch: null,
+        verified_against: null,
+        tags: [],
+        source_metadata: {}
+      },
+      completion_evidence: evidence
+    }
+  };
+  await assert.rejects(
+    registry.execute(input),
+    (error) => error instanceof MutationIntentError && error.state === "unresolved"
+  );
+  const frozenBody = calls[0].body;
+  evidence.verification_results.reverse();
+  evidence.verification_results[0].summary = "Changed after dispatch";
+  evidence.artifact_references.splice(0, 1);
+  await assert.rejects(
+    registry.retry(slot),
+    (error) => error instanceof MutationIntentError && error.state === "unresolved"
+  );
+  assert.equal(calls[1].body, frozenBody);
+  const retained = JSON.parse(frozenBody);
+  assert.deepEqual(
+    retained.completion_evidence.verification_results.map((entry) => entry.name),
+    ["Cold review", "Frontend tests"]
+  );
+  assert.deepEqual(
+    retained.completion_evidence.artifact_references.map((entry) => entry.artifact_type),
+    ["branch", "commit"]
+  );
+  assert.equal(retained.client_operation_id, operation);
+  assert.equal(registry.blocks([mutationWorkKey(project, work)]), true);
+});
+
 test("double submission coalesces one in-flight request", async () => {
   let fetchCount = 0;
   let release;

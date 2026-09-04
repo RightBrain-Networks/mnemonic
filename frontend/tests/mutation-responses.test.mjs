@@ -223,6 +223,109 @@ test("all nine dashboard mutation response contracts decode with path/result coh
   }
 });
 
+test("completion response binds authoritative evidence IDs, parents, positions, and exact intent", async () => {
+  const evidence = {
+    verification_results: [{
+      verification_type: "command",
+      name: "Frontend tests",
+      outcome: "passed",
+      summary: "The frontend suite passed.",
+      command: "npm test",
+      exit_code: 0
+    }],
+    artifact_references: [{
+      artifact_type: "pull_request",
+      label: "Phase 11 pull request",
+      reference: "https://example.test/pull/11"
+    }]
+  };
+  const spec = request(
+    "complete_work",
+    "POST",
+    `/projects/${project}/work-items/${work}/complete`,
+    {
+      expected_version: 1,
+      checkpoint: checkpointInput("Completion summary"),
+      completion_evidence: evidence
+    }
+  );
+  const value = {
+    work_item: workItem({ status: "done", version: 2 }),
+    checkpoint: checkpoint("completion", "Completion summary"),
+    completion_evidence: {
+      verification_results: [{
+        id: relationshipId,
+        work_item_id: work,
+        completion_checkpoint_id: checkpointId,
+        position: 0,
+        ...evidence.verification_results[0],
+        created_at: createdAt
+      }],
+      artifact_references: [{
+        id: destinationCheckpointId,
+        work_item_id: work,
+        completion_checkpoint_id: checkpointId,
+        position: 0,
+        ...evidence.artifact_references[0],
+        created_at: createdAt
+      }]
+    }
+  };
+  const success = await classify(spec, 200, value);
+  assert.equal(success.type, "success");
+  assert.equal(success.value.completion_evidence.verification_results[0].id, relationshipId);
+  assert.equal(success.value.completion_evidence.artifact_references[0].position, 0);
+
+  for (const invalid of [
+    { ...value, completion_evidence: undefined },
+    {
+      ...value,
+      completion_evidence: {
+        ...value.completion_evidence,
+        verification_results: [{
+          ...value.completion_evidence.verification_results[0],
+          summary: "Changed by response"
+        }]
+      }
+    },
+    {
+      ...value,
+      completion_evidence: {
+        ...value.completion_evidence,
+        artifact_references: [{
+          ...value.completion_evidence.artifact_references[0],
+          position: 1
+        }]
+      }
+    },
+    {
+      ...value,
+      completion_evidence: {
+        ...value.completion_evidence,
+        verification_results: [{
+          ...value.completion_evidence.verification_results[0],
+          created_at: "2026-09-01T12:00:01Z"
+        }]
+      }
+    },
+    { ...value, extra: true }
+  ]) {
+    assert.equal((await classify(spec, 200, invalid)).type, "unresolved");
+  }
+
+  const oldSpec = request(
+    "complete_work",
+    "POST",
+    `/projects/${project}/work-items/${work}/complete`,
+    { expected_version: 1, checkpoint: checkpointInput("Completion summary") }
+  );
+  assert.equal((await classify(oldSpec, 200, {
+    work_item: workItem({ status: "done", version: 2 }),
+    checkpoint: checkpoint("completion", "Completion summary")
+  })).type, "success");
+  assert.equal((await classify(oldSpec, 200, value)).type, "unresolved");
+});
+
 test("Core exposes exactly eleven closed browser mutation kinds", () => {
   assert.deepEqual(MUTATION_KINDS, [
     "create_work",

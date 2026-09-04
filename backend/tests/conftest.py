@@ -54,23 +54,28 @@ def postgres_engine() -> Iterator[Engine]:
 
 @pytest.fixture
 def api(postgres_engine: Engine) -> Iterator[TestClient]:
-    with postgres_engine.begin() as connection:
-        # Row-level immutability/read-only triggers intentionally reject DELETE.
-        # This exact test schema reset is scoped to the disposable random schema.
-        connection.execute(
-            text(
-                "TRUNCATE client_operations, project_settings, work_events, "
-                "work_gates, work_relationships, work_duplicate_merges, work_leases, "
-                "work_item_embeddings, "
-                "checkpoints, work_items, projects RESTART IDENTITY CASCADE"
-            )
-        )
+    recreate_disposable_schema(postgres_engine)
     settings = Settings(
         database_url=postgres_engine.url.render_as_string(hide_password=False), api_key=TEST_API_KEY
     )
     with TestClient(create_app(settings, engine=postgres_engine)) as client:
         client.headers["Authorization"] = f"Bearer {TEST_API_KEY}"
         yield client
+
+
+def recreate_disposable_schema(engine: Engine) -> None:
+    """Reset the random test schema without bypassing immutable history guards."""
+    with engine.connect() as connection:
+        schema = connection.scalar(text("SELECT pg_catalog.current_schema()"))
+    if not isinstance(schema, str) or not schema.startswith("mnemonic_test_"):
+        raise RuntimeError("Refusing to recreate a non-disposable PostgreSQL schema")
+    with engine.begin() as connection:
+        connection.execute(DropSchema(schema, cascade=True))
+        connection.execute(CreateSchema(schema))
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    with engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, "head")
 
 
 @pytest.fixture
