@@ -902,6 +902,23 @@ test("Escape deselects the open work item", async ({ page }, testInfo) => {
         /←.*→.*cycle states/,
         /1.*0.*select a project/
       ]);
+      // The four arrow caps hold the inverted T a keyboard puts them in: up alone on
+      // the row above, centred over down, with left and right beside it.
+      const cap = async (name: string) => {
+        const box = await empty.locator(`.key-cluster .key-${name}`).boundingBox();
+        expect(box, `${name} arrow key is not rendered`).not.toBeNull();
+        return box!;
+      };
+      const up = await cap("up");
+      const left = await cap("left");
+      const down = await cap("down");
+      const right = await cap("right");
+      expect(up.y + up.height).toBeLessThanOrEqual(left.y);
+      expect(Math.abs(up.x - down.x)).toBeLessThan(1);
+      expect(left.x + left.width).toBeLessThanOrEqual(down.x);
+      expect(down.x + down.width).toBeLessThanOrEqual(right.x);
+      expect(Math.abs(left.y - down.y)).toBeLessThan(1);
+      expect(Math.abs(right.y - down.y)).toBeLessThan(1);
     }
 
     // A second press has nothing to close and leaves the queue exactly as it is.

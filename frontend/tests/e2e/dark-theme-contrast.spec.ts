@@ -343,8 +343,15 @@ const contrastFixture = `
           <span class="eyebrow">Work context</span>
           <h2>Pick a work item.</h2>
           <p>Its current context, checkpoint history, work graph, human questions, and activity open here.</p>
-          <p class="detail-empty-hint"><kbd>↑</kbd><kbd>↓</kbd>move the selection</p>
-          <p class="detail-empty-hint"><kbd>←</kbd><kbd>→</kbd>cycle states</p>
+          <div class="detail-empty-keys">
+            <span class="key-cluster" aria-hidden="true">
+              <kbd class="key-up">↑</kbd><kbd class="key-left">←</kbd><kbd class="key-down">↓</kbd><kbd class="key-right">→</kbd>
+            </span>
+            <span class="key-legend">
+              <span class="detail-empty-hint"><span class="key-pair">↑↓</span>move the selection</span>
+              <span class="detail-empty-hint"><span class="key-pair">←→</span>cycle states</span>
+            </span>
+          </div>
           <p class="detail-empty-hint"><kbd>1</kbd>–<kbd>0</kbd>select a project</p>
         </div>
       </section>

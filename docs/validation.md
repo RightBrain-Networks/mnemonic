@@ -1,5 +1,49 @@
 # Mnemonic validation record
 
+## Arrow key hints drawn in a keyboard's inverted T — 2026-09-04
+
+This entry covers reshaping the arrow hints in the quiet detail placeholder
+recorded in
+[Digit-key project selection and the pointer copy key](#digit-key-project-selection-and-the-pointer-copy-key--2026-09-04)
+from two flat pairs into the inverted T the four keys occupy on a keyboard
+(dashboard `0.5.0`, no application/API/MCP, plugin, migration, or
+proxy-allowlist change). The cluster is a named-area grid — `". up ."`
+over `"left down right"` on three fixed 22px columns — so up stays centered above
+down whatever the labels beside it measure, and the placeholder emits each arrow
+cap exactly once.
+
+Folding two hint rows into one picture moves the down arrow out of the row its
+own label sat on: read by row alone, the bottom row now reads as "cycle states",
+which is wrong for down. Each label therefore carries its own `↑↓` or `←→` pair
+in front of it rather than relying on the row it sits against, and the cluster is
+`aria-hidden`, so a screen reader still hears the two hints it heard before
+instead of four loose glyphs. The digit hint keeps its own caps on a line below.
+Every figure below was observed in the session that recorded it, on a local Node
+v22.22.3 checkout of the topic branch (CI uses Node 24).
+
+- **Frontend unit tests (`npm test`): 227 passing, 0 failing.** The run adds
+  `tests/empty-pane-keys.test.mjs`, which reads the placeholder and
+  `app/globals.css` together so the caps and the grid that seats them cannot
+  drift: one cap per arrow inside one `aria-hidden` cluster, the exact grid areas
+  and the three equal columns, each cap's `grid-area`, both labels carrying their
+  own pair, and the digit hint keeping its caps and its own spacing below.
+- **TypeScript checking (`npm run typecheck`) and the production build
+  (`npm run build`): both pass.**
+- **Isolated Playwright stack (`npm run test:e2e:stack`): 99 executions, 95
+  passing, 4 skipped by design, 0 failing, 5.5 minutes** on a uniquely named
+  disposable Compose project; teardown left no `mnemonic-e2e-*` container,
+  volume, or network of its own. The Escape case in
+  `tests/e2e/work-library-surface.spec.ts` now also measures the rendered cluster
+  in the browser: up sits entirely above the bottom row, its box shares a left
+  edge with down within a pixel, left and right sit either side of down without
+  overlapping it, and all three bottom caps share one top edge. The dark-theme
+  contrast fixture carries the placeholder's new markup, and the audit passes
+  with the labels' pairs inheriting the hint ink rather than a fainter one.
+
+No backend, MCP, migration, plugin, stack-check, or adversarial-review result is
+claimed for this change, and it does not alter any production, cutover, or
+permanence gate.
+
 ## Hero project name set smaller than its title — 2026-09-04
 
 This entry covers reducing the hero project name added in

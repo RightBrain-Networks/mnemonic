@@ -600,8 +600,13 @@ mutation or an unsaved draft still refuses it.
 
 The quiet detail placeholder names the navigation keys in `<kbd>` glyphs, which is
 the only place they are written down: the picker's options carry project names
-alone. `c` is deliberately absent from that list, because the placeholder shows
-only when no record is open, which is exactly when `c` has nothing to copy.
+alone. The four arrows are drawn as the inverted T they occupy on a keyboard —
+one cap centered above the middle of three — rather than as two flat pairs. That
+shape puts the down arrow in the bottom row beside left and right, so each label
+carries its own `↑↓` or `←→` pair instead of leaving a reader to infer its keys
+from the row it happens to sit against. `c` is deliberately absent from that
+list, because the placeholder shows only when no record is open, which is exactly
+when `c` has nothing to copy.
 The modified alternatives were considered and rejected. A bare function key loses
 F1, F5, F11, and F12 to the browser, and on macOS the function row sends media
 keys unless the system setting is changed; Alt+F*n* loses F4 to the window
@@ -619,7 +624,10 @@ bound range and the digit each position takes, key parsing), the split helpers
 helper, and the cross-dissolve's single duration, its two circ easings, and which
 panes a given filter transition renames (`tests/pane-crossfade.test.mjs`, which
 reads `app/globals.css` so the stylesheet and `lib/pane-crossfade.ts` cannot
-drift).
+drift). `tests/empty-pane-keys.test.mjs` reads the placeholder and the stylesheet
+together for the same reason: the arrow caps are meaningless without the grid
+areas that seat them in the inverted T, and the labels are ambiguous without
+their pairs.
 `tests/e2e/work-library-surface.spec.ts` runs in both the desktop and narrow
 Chromium projects and covers arrow-key selection that scrolls the list rather
 than the window, tab persistence across items, inline edit save and cancel,
@@ -631,7 +639,8 @@ cross-dissolve those changes run inside (both panes captured for the same span
 on the two circ curves, the queue alone when nothing is open, no root half, no
 name left behind, and no transition at all under reduced motion), deselection
 with Escape from both a clicked and an arrow-key selection with the placeholder
-it uncovers listing all three hints, the horizontal arrows walking and wrapping
+it uncovers listing all three hints and holding its four arrow caps in the
+measured inverted T, the horizontal arrows walking and wrapping
 the filter row while leaving a focused search field and divider alone, the digit
 keys selecting a project and back again from a picker whose options carry names
 alone while the search field keeps every digit typed into it, `c` copying the

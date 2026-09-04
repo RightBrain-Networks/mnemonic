@@ -150,8 +150,17 @@ function EmptyPane() {
     <span className="eyebrow">WORK CONTEXT</span>
     <h2>Pick a work item.</h2>
     <p>Its current context, checkpoint history, work graph, human questions, and activity open here — nothing pops over the queue.</p>
-    <p className="detail-empty-hint"><kbd>↑</kbd><kbd>↓</kbd>move the selection</p>
-    <p className="detail-empty-hint"><kbd>←</kbd><kbd>→</kbd>cycle states</p>
+    {/* The four arrows keep the inverted T they sit in on a keyboard, so the pair in
+        front of each label is what ties an axis to what it does. */}
+    <div className="detail-empty-keys">
+      <span className="key-cluster" aria-hidden="true">
+        <kbd className="key-up">↑</kbd><kbd className="key-left">←</kbd><kbd className="key-down">↓</kbd><kbd className="key-right">→</kbd>
+      </span>
+      <span className="key-legend">
+        <span className="detail-empty-hint"><span className="key-pair">↑↓</span>move the selection</span>
+        <span className="detail-empty-hint"><span className="key-pair">←→</span>cycle states</span>
+      </span>
+    </div>
     <p className="detail-empty-hint"><kbd>1</kbd>–<kbd>0</kbd>select a project</p>
   </div>;
 }
