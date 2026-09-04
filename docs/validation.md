@@ -1,5 +1,50 @@
 # Mnemonic validation record
 
+## Digit-key project selection — 2026-09-04
+
+This entry covers replacing the function-key project shortcuts recorded in
+[Work library keyboard bindings](#work-library-keyboard-bindings--2026-09-04)
+with the digits, and naming the whole keyboard map in the quiet detail
+placeholder (dashboard `0.5.0`, no application/API/MCP, plugin, migration, or
+proxy-allowlist change). The function row was rejected on reach rather than
+implementation: a bare function key loses F1, F5, F11, and F12 to the browser and
+the whole row to the macOS media-key default, while both modified forms are
+worse — Alt+F*n* loses F4 to the window manager everywhere and five more keys to
+GNOME and KDE, and Ctrl+F*n* loses F4 and F5 to the browser and F1 through F8 to
+macOS keyboard navigation. An unmodified digit is reserved by nothing, at the
+cost of ten slots rather than twelve. `frontend/lib/project-shortcuts.ts` now maps
+1 through 9 and then 0 onto the picker's first ten projects, the option text
+carries project names alone, and the placeholder lists all three bindings in the
+`<kbd>` glyphs the queue hint already used. Because a digit is something a person
+types — unlike an arrow or a function key — the shortcut had to start refusing a
+typing target; that guard and the open-dialog check are now one shared module,
+`frontend/lib/keyboard-shortcuts.ts`, which the queue map and the `/` search
+shortcut both use. Every figure below was observed in the session that recorded
+it, on a local Node v22.22.3 checkout of the topic branch (CI uses Node 24).
+
+- **Frontend unit tests (`npm test`): 211 passing, 0 failing.** The rewritten
+  `tests/project-shortcuts.test.mjs` covers the ten-slot range with 0 as the
+  tenth, non-integer and out-of-range rejections, a round trip from every bound
+  index back through its key, and `""`, `" "`, `"10"`, `"01"`, `"!"`, `"a"`,
+  `"F1"`, `"ArrowLeft"`, `"Escape"`, and a full-width `"０"` all resolving to
+  nothing.
+- **TypeScript checking (`npm run typecheck`) and the production build
+  (`npm run build`): both pass.**
+- **Isolated Playwright stack (`npm run test:e2e:stack`): 93 executions, 90
+  passing, 3 skipped by design, 0 failing, 5.0 minutes** on a uniquely named
+  disposable Compose project; teardown left no `mnemonic-e2e-*` container,
+  volume, or network of its own. The project case now presses digits, asserts the
+  options carry no key prefix, and adds the guard that matters for a digit: a
+  number typed into the search field stays in the field and switches nothing. The
+  Escape case additionally asserts the uncovered placeholder lists all three
+  hints in order.
+- **Placeholder rendering:** captured at 1440×900 in both themes from a
+  disposable stack; the three hints stack as one block with the second and third
+  7px under the first, and the `<kbd>` glyphs keep their existing light and dark
+  treatment. `tests/e2e/dark-theme-contrast.spec.ts` carries the two new lines in
+  its static fixture, so its contrast sweep covers them.
+- **Gitleaks (`pre-commit run --all-files`): passed.**
+
 ## Cross-dissolve retiming to 400ms — 2026-09-04
 
 This entry covers shortening the work library's lifecycle-filter cross-dissolve from

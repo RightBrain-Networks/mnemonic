@@ -3,30 +3,28 @@ import test from "node:test";
 import {
   PROJECT_SHORTCUT_LIMIT,
   projectShortcutIndex,
-  projectShortcutKey,
-  projectShortcutOptionLabel
+  projectShortcutKey
 } from "../lib/project-shortcuts.ts";
 
-test("the function row binds the first twelve projects and no more", () => {
-  assert.equal(PROJECT_SHORTCUT_LIMIT, 12);
-  assert.equal(projectShortcutKey(0), "F1");
-  assert.equal(projectShortcutKey(11), "F12");
-  assert.equal(projectShortcutKey(12), null);
+test("the number row binds the first ten projects and no more", () => {
+  assert.equal(PROJECT_SHORTCUT_LIMIT, 10);
+  assert.equal(projectShortcutKey(0), "1");
+  assert.equal(projectShortcutKey(8), "9");
+  // The tenth project takes 0, where the number row itself puts it.
+  assert.equal(projectShortcutKey(9), "0");
+  assert.equal(projectShortcutKey(10), null);
   assert.equal(projectShortcutKey(-1), null);
   assert.equal(projectShortcutKey(1.5), null);
 });
 
-test("every bound option names its own key and the rest stay plain", () => {
-  assert.equal(projectShortcutOptionLabel("Mnemonic", 0), "F1 · Mnemonic");
-  assert.equal(projectShortcutOptionLabel("Mnemonic", 11), "F12 · Mnemonic");
-  assert.equal(projectShortcutOptionLabel("Mnemonic", 12), "Mnemonic");
-});
-
-test("a bound key resolves to its project and every other key is left alone", () => {
+test("a bound digit resolves to its project and every other key is left alone", () => {
   for (let index = 0; index < PROJECT_SHORTCUT_LIMIT; index += 1) {
-    assert.equal(projectShortcutIndex(`F${index + 1}`), index);
+    assert.equal(projectShortcutIndex(projectShortcutKey(index)), index);
   }
-  for (const key of ["F0", "F13", "F20", "f1", "F", "F1 ", "1", "Escape", "ArrowLeft", ""]) {
+  assert.equal(projectShortcutIndex("1"), 0);
+  assert.equal(projectShortcutIndex("9"), 8);
+  assert.equal(projectShortcutIndex("0"), 9);
+  for (const key of ["", " ", "10", "01", "!", "a", "F1", "ArrowLeft", "Escape", "０"]) {
     assert.equal(projectShortcutIndex(key), null, `${key} must not select a project`);
   }
 });

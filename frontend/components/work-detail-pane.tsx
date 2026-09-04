@@ -151,6 +151,8 @@ function EmptyPane() {
     <h2>Pick a work item.</h2>
     <p>Its current context, checkpoint history, work graph, human questions, and activity open here — nothing pops over the queue.</p>
     <p className="detail-empty-hint"><kbd>↑</kbd><kbd>↓</kbd>move the selection</p>
+    <p className="detail-empty-hint"><kbd>←</kbd><kbd>→</kbd>cycle states</p>
+    <p className="detail-empty-hint"><kbd>1</kbd>–<kbd>0</kbd>select a project</p>
   </div>;
 }
 

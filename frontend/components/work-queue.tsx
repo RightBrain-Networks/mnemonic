@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import WorkHierarchy, { SearchBreadcrumb } from "@/components/work-hierarchy";
 import WorkQueueCard, { QueueOptionsContext, type QueueOptions } from "@/components/work-queue-card";
 import { useWorkItemMotion } from "@/components/use-work-item-motion";
+import { dialogOpen, typingTarget } from "@/lib/keyboard-shortcuts";
 import type {
   HierarchySummary,
   StatusFilter,
@@ -44,11 +45,6 @@ function Skeletons({ count, label }: { count: number; label: string }) {
   return <div className="card-skeletons" role="status" aria-label={label}>
     {Array.from({ length: count }, (_, index) => <div className="card-skeleton" key={index}><span /><span /><span /></div>)}
   </div>;
-}
-
-function typingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable;
 }
 
 // The work-surface resizer steps its own split with the horizontal arrows while it holds
@@ -237,7 +233,7 @@ export default function WorkQueue({
     // dialog owns the keyboard outright while it is open.
     function shortcut(event: KeyboardEvent) {
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-      if (typingTarget(event.target) || document.querySelector("dialog[open]")) return;
+      if (typingTarget(event.target) || dialogOpen()) return;
       const state = shortcutStateRef.current;
       switch (event.key) {
         case "ArrowDown":

@@ -581,28 +581,37 @@ walk the queue selection and clamp at both ends; the horizontal arrows walk the
 lifecycle filter row in its rendered order, wrapping at both ends because the
 eight filters are one small closed ring; Escape drops the open selection through
 the same rule the pane's own Back button follows, including the unsaved-draft
-confirmation, and stays silent with nothing open; and F1 through F12 select the
-workspace picker's first twelve projects, which name their own key in the
-option's text because a native `<option>` carries text and nothing else. Every
-one of these is inert while a `<dialog>` is open or while focus is in a text
-field, `<select>`, or `contenteditable` element, so the keys keep their typing
-meaning; the horizontal arrows additionally yield to a focused surface
-divider, which steps its own split with them. A project switch made with a
-function key routes through the same guard as the picker, so a dispatched
-mutation or an unsaved draft still refuses it. Browsers reserve parts of the
-function row for themselves (F1 for help, F12 for developer tools, F5 and F11
-for reload and full screen), and a reservation the browser does not deliver to
-the page cannot be overridden from it.
+confirmation, and stays silent with nothing open; and the digits select the
+workspace picker's first ten projects — 1 through 9, then 0 for the tenth, which
+is the number row's own order. Every one of these is inert while a `<dialog>` is
+open or while focus is in a text field, `<select>`, or `contenteditable` element,
+so the keys keep their typing meaning — load-bearing for the digits, which unlike
+an arrow are something a person types — and the shared guard behind that lives in
+`frontend/lib/keyboard-shortcuts.ts`. The horizontal arrows additionally yield to
+a focused surface divider, which steps its own split with them. A project switch
+made with a digit routes through the same guard as the picker, so a dispatched
+mutation or an unsaved draft still refuses it.
+
+The quiet detail placeholder names the whole map in `<kbd>` glyphs, which is the
+only place it is written down: the picker's options carry project names alone.
+The modified alternatives were considered and rejected. A bare function key loses
+F1, F5, F11, and F12 to the browser, and on macOS the function row sends media
+keys unless the system setting is changed; Alt+F*n* loses F4 to the window
+manager everywhere and F1, F2, F7, F8, and F10 to GNOME and KDE; Ctrl+F*n* loses
+F4 and F5 to the browser and F1 through F8 to macOS keyboard navigation. An
+unmodified digit is reserved by nothing, at the cost of ten slots rather than
+twelve.
 
 Node tests cover the pure queue helpers
 (result-count labels, page merging, loaded offsets, arrow-key selection and
 list-scroll arithmetic, forced More-filters state, lifecycle-filter transitions,
-the filter row's order and its wrapping walk), the project function-key helpers
-(bound range, per-option labels, key parsing), the split helpers (bounds,
-stored-preference parsing, pointer and keyboard steps), the tab-count helper, and
-the cross-dissolve's single duration, its two circ easings, and which panes a
-given filter transition renames (`tests/pane-crossfade.test.mjs`, which reads
-`app/globals.css` so the stylesheet and `lib/pane-crossfade.ts` cannot drift).
+the filter row's order and its wrapping walk), the project digit helpers (the
+bound range and the digit each position takes, key parsing), the split helpers
+(bounds, stored-preference parsing, pointer and keyboard steps), the tab-count
+helper, and the cross-dissolve's single duration, its two circ easings, and which
+panes a given filter transition renames (`tests/pane-crossfade.test.mjs`, which
+reads `app/globals.css` so the stylesheet and `lib/pane-crossfade.ts` cannot
+drift).
 `tests/e2e/work-library-surface.spec.ts` runs in both the desktop and narrow
 Chromium projects and covers arrow-key selection that scrolls the list rather
 than the window, tab persistence across items, inline edit save and cancel,
@@ -613,11 +622,13 @@ deselection on a lifecycle-filter change and on Clear filters, the
 cross-dissolve those changes run inside (both panes captured for the same span
 on the two circ curves, the queue alone when nothing is open, no root half, no
 name left behind, and no transition at all under reduced motion), deselection
-with Escape from both a clicked and an arrow-key selection, the horizontal
-arrows walking and wrapping the filter row while leaving a focused search field
-and divider alone, the function keys selecting a project from a picker that names
-each key, the draggable divider (drag, reload, arrow keys, double-click reset,
-no overflow), and the narrow sheet with its Back button. The `tests/e2e/surface.ts` helpers
+with Escape from both a clicked and an arrow-key selection with the placeholder
+it uncovers listing all three hints, the horizontal arrows walking and wrapping
+the filter row while leaving a focused search field and divider alone, the digit
+keys selecting a project and back again from a picker whose options carry names
+alone while the search field keeps every digit typed into it, the draggable
+divider (drag, reload, arrow keys, double-click reset, no overflow), and the
+narrow sheet with its Back button. The `tests/e2e/surface.ts` helpers
 (`workPane`, `workCard`, `selectWork`, `closeDetail`, `openTab`) are how every
 other phase spec reaches the pane; the attention view's Open work context
 button navigates to `/?work=<id>` instead of opening a dialog.
@@ -802,8 +813,8 @@ subtree-aware filters, flat-search breadcrumbs, Pending/Active/Dropped/Deferred
 lifecycle filters,
 lexical search and explicit Semantic opt-in, queue selection by click and by
 the arrow keys, the horizontal arrows walking the lifecycle filter row, Escape
-dropping the selection, the function keys switching projects from the labelled
-workspace picker, lazy queue paging with the total in the result count, bounded
+dropping the selection, the digit keys switching projects from the workspace
+picker, lazy queue paging with the total in the result count, bounded
 context in the detail pane, grouped pointer-only relationships in the Graph
 tab, the checkpoint timeline in the History tab, immutable activity timeline
 paging in the Activity tab, progress-event creation, prompt copy, work-item ID

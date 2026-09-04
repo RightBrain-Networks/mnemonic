@@ -62,6 +62,11 @@ const COPY_ICON_PATH = "M9 5V3h12v14h-3M3 7h12v14H3V7Z";
 const CHECK_ICON_PATH = "m5 12 4 4L19 6";
 const WORK_PAGE_SIZE = 20;
 
+// The key that selects the project at this position in the picker: 1 through 9, then 0.
+function digitKey(index: number): string {
+  return String((index + 1) % 10);
+}
+
 function narrowProject(testInfo: TestInfo): boolean {
   return testInfo.project.name === "chromium-narrow";
 }
@@ -887,9 +892,16 @@ test("Escape deselects the open work item", async ({ page }, testInfo) => {
     await expect(pane).not.toHaveClass(/is-open/);
     await expect(page).not.toHaveURL(/[?&]work=/);
     await expect(workCard(page, title)).toHaveAttribute("aria-selected", "false");
+    // Below 900px a closed pane is display:none, so only the desktop column shows the
+    // placeholder that replaces the record, and with it the queue's whole keyboard map.
     if (!narrowProject(testInfo)) {
-      await expect(workPane(page).getByRole("heading", { name: "Pick a work item." }))
-        .toBeVisible();
+      const empty = workPane(page).locator(".detail-empty");
+      await expect(empty.getByRole("heading", { name: "Pick a work item." })).toBeVisible();
+      await expect(empty.locator(".detail-empty-hint")).toHaveText([
+        /↑.*↓.*move the selection/,
+        /←.*→.*cycle states/,
+        /1.*0.*select a project/
+      ]);
     }
 
     // A second press has nothing to close and leaves the queue exactly as it is.
@@ -963,7 +975,7 @@ test("the horizontal arrows walk the lifecycle filters", async ({ page }, testIn
   await pressed("Promoted");
 });
 
-test("the function keys select a project and the picker names each key", async ({ page }, testInfo) => {
+test("the digit keys select a project", async ({ page }, testInfo) => {
   const key = testKey(testInfo);
   // Sorts near the front of the picker, which orders by name, so this fixture stays
   // inside the bound range however many projects earlier specs left behind.
@@ -971,7 +983,7 @@ test("the function keys select a project and the picker names each key", async (
   const client = await apiClient();
   try {
     const response = await client.post("/api/v1/projects", {
-      data: { name, description: "Disposable fixture for the workspace function keys." }
+      data: { name, description: "Disposable fixture for the workspace digit keys." }
     });
     expect(response.status(), await response.text()).toBe(201);
     const shortcutProject = await response.json() as { id: string };
@@ -979,46 +991,47 @@ test("the function keys select a project and the picker names each key", async (
     await openDashboard(page);
     const select = page.locator("#project-select");
     const breadcrumb = page.locator(".breadcrumb");
+    // The keys are named in the quiet placeholder now, not in the option text.
+    await expect(select.locator("option").first()).not.toHaveText(/^\d+ · /);
 
-    // Every option within the bound range carries the key that selects it, in the
-    // picker's own order.
+    // Earlier specs seed projects of their own, so this fixture's position is read
+    // rather than assumed, and the project it switches back to is any other bound one.
     const options = select.locator("option");
     const labels = await options.allTextContents();
     const values = await options.evaluateAll((items) =>
       items.map((item) => (item as HTMLOptionElement).value));
-    for (const [index, label] of labels.slice(0, 12).entries()) {
-      expect(label).toMatch(new RegExp(`^F${index + 1} · `));
-    }
-    for (const label of labels.slice(12)) expect(label).not.toMatch(/^F\d/);
-
-    // Earlier specs seed projects of their own, so this fixture's position is read
-    // rather than assumed, and the project it switches back to is any other bound one.
     const shortcutIndex = values.indexOf(shortcutProject.id);
     expect(shortcutIndex).toBeGreaterThanOrEqual(0);
-    expect(shortcutIndex).toBeLessThan(12);
-    expect(labels[shortcutIndex]).toBe(`F${shortcutIndex + 1} · ${name}`);
-    const returnIndex = values.findIndex((id, index) =>
-      index < 12 && id !== shortcutProject.id);
+    expect(shortcutIndex).toBeLessThan(10);
+    expect(labels[shortcutIndex]).toBe(name);
+    const returnIndex = values.findIndex((id, index) => index < 10 && id !== shortcutProject.id);
     expect(returnIndex).toBeGreaterThanOrEqual(0);
-    const returnName = labels[returnIndex].replace(/^F\d{1,2} · /, "");
     await expect(select).toHaveValue(state.projectId);
 
-    // The picker steers itself with the keyboard while focused, but a function key is
-    // not one of its own, so it still switches the workspace.
-    await page.keyboard.press(`F${shortcutIndex + 1}`);
+    // The picker steers itself with the arrow keys while focused, but a digit is not
+    // one of its own, so it still switches the workspace.
+    await page.keyboard.press(digitKey(shortcutIndex));
     await expect(select).toHaveValue(shortcutProject.id);
     await expect(breadcrumb).toContainText(name);
 
     // A second key comes back, from a picker that no longer holds focus.
     await select.blur();
-    await page.keyboard.press(`F${returnIndex + 1}`);
+    await page.keyboard.press(digitKey(returnIndex));
     await expect(select).toHaveValue(values[returnIndex]);
-    await expect(breadcrumb).toContainText(returnName);
+    await expect(breadcrumb).toContainText(labels[returnIndex]);
 
-    // A function key past the end of the workspace is unbound and changes nothing.
-    if (labels.length < 12) {
+    // A digit is something a person types, so the search field keeps every one of them.
+    const searchbox = page.getByRole("searchbox", { name: "Search work items" });
+    await searchbox.fill(digitKey(shortcutIndex));
+    await expect(searchbox).toHaveValue(digitKey(shortcutIndex));
+    await expect(select).toHaveValue(values[returnIndex]);
+    await searchbox.fill("");
+    await searchbox.blur();
+
+    // A digit past the end of the workspace is unbound and changes nothing.
+    if (labels.length < 10) {
       const current = await select.inputValue();
-      await page.keyboard.press(`F${labels.length + 1}`);
+      await page.keyboard.press(digitKey(labels.length));
       await expect(select).toHaveValue(current);
     }
   } finally {
