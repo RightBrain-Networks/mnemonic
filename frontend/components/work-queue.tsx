@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import WorkHierarchy, { SearchBreadcrumb } from "@/components/work-hierarchy";
 import WorkQueueCard, { QueueOptionsContext, type QueueOptions } from "@/components/work-queue-card";
 import { useWorkItemMotion } from "@/components/use-work-item-motion";
@@ -58,6 +58,8 @@ function resizingSurface(target: EventTarget | null): boolean {
 }
 
 export type WorkQueueProps = {
+  // The pane the lifecycle filter cross-dissolves; usePaneCrossfade owns it.
+  paneRef: RefObject<HTMLDivElement | null>;
   items: WorkQueueItem[];
   flatSearch: boolean;
   total: number | null;
@@ -90,6 +92,7 @@ export type WorkQueueProps = {
 };
 
 export default function WorkQueue({
+  paneRef,
   items,
   flatSearch,
   total,
@@ -261,7 +264,7 @@ export default function WorkQueue({
   const countLabel = resultCountLabel({ loading, pendingQuery, flatSearch, total });
 
   return <QueueOptionsContext.Provider value={options}>
-    <div className="work-queue">
+    <div ref={paneRef} className="work-queue">
       <div className="work-queue-header">
         <span className="result-count" role="status">{countLabel}</span>
         <span className="work-queue-sort">{sortDescription(sort)}</span>

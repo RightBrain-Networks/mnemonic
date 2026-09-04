@@ -18,6 +18,7 @@ import DuplicateSuggestionPanel from "@/components/duplicate-suggestion-panel";
 import HumanAttentionList from "@/components/human-attention-list";
 import WorkDetailPane from "@/components/work-detail-pane";
 import WorkItemList from "@/components/work-item-list";
+import { usePaneCrossfade } from "@/components/use-pane-crossfade";
 import { useWorkQueuePages } from "@/components/use-work-queue-pages";
 import { StatusBadge, formatDate } from "@/components/work-item-card";
 import { setDisplayTimeZone } from "@/lib/display-time";
@@ -73,6 +74,7 @@ import { validUuid } from "@/lib/wire-guards";
 import type { DetailTab } from "@/lib/work-detail-tabs";
 import { editableLifecycleStatuses, normalizedTags } from "@/lib/work-item-view";
 import { dashboardMutationActor } from "@/lib/work-events";
+import { paneCrossfadeTargets } from "@/lib/pane-crossfade";
 import { scheduleHierarchyFilterCommit } from "@/lib/work-item-search";
 import { statusFilterTransition } from "@/lib/work-queue";
 import { workRecallPointer } from "@/lib/work-recall-pointer";
@@ -363,6 +365,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     sourceSessionId: sourceSessionFilter,
     refresh
   });
+  const crossfade = usePaneCrossfade();
   const activeIdRef = useRef(activeId);
   const openedRef = useRef(opened);
   const settingsLoadController = useRef<AbortController | null>(null);
@@ -1050,32 +1053,38 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   function filterByStatus(next: StatusFilter): void {
     const transition = statusFilterTransition(status, next, selectedWorkItemId());
     if (transition === "unchanged") return;
-    if (transition === "refilter-and-deselect") {
-      if (!leavingOpenedWorkAllowed()) return;
-      clearSelection();
-    }
-    setStatus(next);
+    const deselecting = transition === "refilter-and-deselect";
+    if (deselecting && !leavingOpenedWorkAllowed()) return;
+    // Both changes land inside one cross-dissolve, so the queue and the pane it retires
+    // are captured together rather than swapping out from under each other.
+    crossfade.run(paneCrossfadeTargets(transition), () => {
+      if (deselecting) clearSelection();
+      setStatus(next);
+    });
   }
 
   // Clearing filters returns the queue to Pending, so it drops the selection on the
   // same rule the lifecycle buttons follow instead of stranding it beside the reset list.
   function clearFilters(): void {
     const transition = statusFilterTransition(status, "pending", selectedWorkItemId());
-    if (transition === "refilter-and-deselect") {
-      if (!leavingOpenedWorkAllowed()) return;
-      clearSelection();
-    }
-    setQuery("");
-    setSearch("");
-    setDuplicateScope("canonical");
-    setCanonicalWorkItemId("");
-    setStatus("pending");
-    setTagInput("");
-    setSourceClientInput("");
-    setSourceSessionInput("");
-    setTagFilter("");
-    setSourceClientFilter("");
-    setSourceSessionFilter("");
+    const deselecting = transition === "refilter-and-deselect";
+    if (deselecting && !leavingOpenedWorkAllowed()) return;
+    // Clearing renames the queue's query even when the lifecycle filter was already
+    // Pending, so the queue cross-dissolves regardless of the lifecycle transition.
+    crossfade.run(paneCrossfadeTargets(transition, true), () => {
+      if (deselecting) clearSelection();
+      setQuery("");
+      setSearch("");
+      setDuplicateScope("canonical");
+      setCanonicalWorkItemId("");
+      setStatus("pending");
+      setTagInput("");
+      setSourceClientInput("");
+      setSourceSessionInput("");
+      setTagFilter("");
+      setSourceClientFilter("");
+      setSourceSessionFilter("");
+    });
   }
 
   function selectWork(summary: WorkSummary) {
@@ -1769,6 +1778,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
             projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
             !projects.length ? <section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">A DURABLE PLACE TO CONTINUE</div><h2>Create your first project.</h2><p>Projects hold stable objectives and the session checkpoints that move them forward.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}><Icon name="plus" size={17} />Create your first project</button></section> : <>
               <WorkItemList
+                queuePaneRef={crossfade.queueRef}
                 query={query}
                 searchedQuery={search}
                 searchRef={searchRef}
@@ -1814,6 +1824,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 onDeselect={deselectWork}
                 onCopyPointer={(item) => void copyRecallPointer(item)}
                 detail={<WorkDetailPane
+                  paneRef={crossfade.detailRef}
                   opened={opened}
                   context={context}
                   contextLoading={contextLoading}

@@ -6,7 +6,8 @@ import {
   useState,
   type CSSProperties,
   type FormEvent,
-  type ReactNode
+  type ReactNode,
+  type RefObject
 } from "react";
 import AffectedPathsEditor from "@/components/affected-paths-editor";
 import CheckpointRepositoryDeclaration from "@/components/checkpoint-repository-declaration";
@@ -70,6 +71,9 @@ const SLIDE_END: CSSProperties = {
 };
 
 export type WorkDetailPaneProps = {
+  // The pane a lifecycle filter cross-dissolves when it retires the open record;
+  // usePaneCrossfade owns it.
+  paneRef: RefObject<HTMLElement | null>;
   opened: WorkSummary | null;
   context: WorkContext | null;
   contextLoading: boolean;
@@ -379,7 +383,7 @@ export default function WorkDetailPane(props: WorkDetailPaneProps) {
     };
   }, [openedId]);
 
-  return <section className={`work-detail-pane ${opened ? "is-open" : ""}`} aria-label="Work context" aria-live="polite">
+  return <section ref={props.paneRef} className={`work-detail-pane ${opened ? "is-open" : ""}`} aria-label="Work context" aria-live="polite">
     {opened
       ? <div className="detail-scroll" ref={scrollRef}>
         <div className="detail-motion" style={motion}>

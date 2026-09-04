@@ -1026,6 +1026,120 @@ test("the function keys select a project and the picker names each key", async (
   }
 });
 
+type PaneCrossfade = {
+  outgoing: string[];
+  incoming: string[];
+  paneTitle: string | null;
+};
+
+// Changing the filter and reading the transition inside one task removes every race with a
+// cross-dissolve that retires itself half a second later. The read waits a frame first, so
+// the browser has built the pseudo-element tree and started its animations.
+async function crossfadeOnFilter(
+  page: Page,
+  trigger: { filter: string } | { key: "ArrowLeft" | "ArrowRight" }
+): Promise<PaneCrossfade> {
+  return await page.evaluate(async (chosen) => {
+    if ("filter" in chosen) {
+      const button = [...document.querySelectorAll<HTMLButtonElement>(".filter-button")]
+        .find((candidate) => candidate.textContent?.trim() === chosen.filter);
+      if (!button) throw new Error(`The ${chosen.filter} lifecycle filter is not rendered.`);
+      button.click();
+    } else {
+      // The queue's own shortcut walks the same row through the same handler.
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: chosen.key, bubbles: true }));
+    }
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const fades = document.getAnimations().flatMap((animation) => {
+      const pseudo = (animation.effect as KeyframeEffect | null)?.pseudoElement ?? "";
+      const name = (animation as Animation & { animationName?: string }).animationName ?? "";
+      // Each captured half also runs the browser's blend-mode companion animation, which
+      // carries the same timing; the fade is the one that states the crossfade.
+      if (!name.startsWith("-ua-view-transition-fade")) return [];
+      const style = getComputedStyle(document.documentElement, pseudo);
+      return [`${pseudo} ${style.animationDuration} ${style.animationTimingFunction}`];
+    }).sort();
+    const half = (kind: string) => fades
+      .filter((description) => description.startsWith(`::view-transition-${kind}(`));
+    return {
+      outgoing: half("old"),
+      incoming: half("new"),
+      paneTitle: document.querySelector(".work-detail-pane .detail-title")?.textContent ?? null
+    };
+  }, trigger);
+}
+
+// Nothing of a transition may outlive it: a pane still holding a view-transition-name
+// would be captured on its own by every later transition, the theme's included.
+async function crossfadeSettled(page: Page): Promise<void> {
+  await expect
+    .poll(async () => await page.evaluate(() => [
+      document.documentElement.hasAttribute("data-pane-crossfade"),
+      ...[".work-queue", ".work-detail-pane"].map((selector) => Boolean(
+        document.querySelector<HTMLElement>(selector)?.style.viewTransitionName
+      ))
+    ]))
+    .toEqual([false, false, false]);
+}
+
+test("changing the lifecycle filter cross-dissolves the queue and the pane it retires",
+  async ({ page }, testInfo) => {
+    test.skip(
+      narrowProject(testInfo),
+      "Below 900px the open sheet covers the filter row, so no filter is reachable with a selection."
+    );
+    const token = searchToken("surfacecrossfade", testInfo);
+    const key = testKey(testInfo);
+    const title = `Dissolved item ${token}`;
+    const easeIn = "cubic-bezier(0.55, 0, 1, 0.45)";
+    const easeOut = "cubic-bezier(0, 0.55, 0.45, 1)";
+    const client = await apiClient();
+    try {
+      await createWork(client, { title, sessionId: `surface-crossfade-${key}` });
+      const pane = workPane(page);
+
+      await openDashboard(page);
+      await searchFor(page, token, 1);
+      await selectWork(page, title);
+
+      // The pending record is absent from the deferred queue, so both panes change at once,
+      // and each is captured on its own for the same span on the two circ curves. No root
+      // half appears: everything the filter did not rename swaps at once, so the button it
+      // was clicked on answers immediately.
+      const dissolving = await crossfadeOnFilter(page, { filter: "Deferred" });
+      expect(dissolving.outgoing).toEqual([
+        `::view-transition-old(work-detail) 0.5s ${easeOut}`,
+        `::view-transition-old(work-queue) 0.5s ${easeOut}`
+      ]);
+      expect(dissolving.incoming).toEqual([
+        `::view-transition-new(work-detail) 0.5s ${easeIn}`,
+        `::view-transition-new(work-queue) 0.5s ${easeIn}`
+      ]);
+      // The outgoing record lives in the capture, not in a second copy of the pane.
+      expect(dissolving.paneTitle).toBeNull();
+
+      await expect(pane.getByRole("heading", { name: "Pick a work item." })).toBeVisible();
+      await crossfadeSettled(page);
+
+      // With no record open the detail pane shows the same empty state either way, so only
+      // the queue is captured. The horizontal-arrow shortcut reaches the same filter change
+      // as the buttons, so it dissolves the queue the same way.
+      const queueOnly = await crossfadeOnFilter(page, { key: "ArrowRight" });
+      expect(queueOnly.outgoing).toEqual([`::view-transition-old(work-queue) 0.5s ${easeOut}`]);
+      expect(queueOnly.incoming).toEqual([`::view-transition-new(work-queue) 0.5s ${easeIn}`]);
+      await crossfadeSettled(page);
+
+      // A reader who asked for less motion gets the plain swap.
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      const reduced = await crossfadeOnFilter(page, { filter: "Pending" });
+      expect(reduced.outgoing).toEqual([]);
+      expect(reduced.incoming).toEqual([]);
+    } finally {
+      await page.emulateMedia({ reducedMotion: null });
+      await client.dispose();
+    }
+  });
+
 test("the queue and pane split is draggable, keyboard-adjustable, and remembered", async ({ page }, testInfo) => {
   test.skip(narrowProject(testInfo), "The stacked layout below 900px has no divider.");
   const token = searchToken("surfacesplit", testInfo);

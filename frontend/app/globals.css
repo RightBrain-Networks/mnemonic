@@ -393,6 +393,36 @@ button { touch-action: manipulation; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 @keyframes pane-sheet-in { from { transform: translateX(100%); } }
 
+/* A lifecycle filter cross-dissolves the panes it changes rather than swapping them.
+   usePaneCrossfade renames those panes for one view transition, so the browser eases each
+   outgoing capture out while the live pane eases in over the same span; the incoming
+   capture stays live, so a queue page that lands mid-transition arrives inside the fade.
+   Change the duration here and both halves follow. Everything the filter did not rename
+   swaps with the root, which is held still so the button answers the click at once. */
+:root {
+  --pane-crossfade-duration: 500ms;
+  --pane-crossfade-ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --pane-crossfade-ease-out: cubic-bezier(0, 0.55, 0.45, 1);
+}
+::view-transition-group(work-queue), ::view-transition-group(work-detail) {
+  animation-duration: var(--pane-crossfade-duration);
+}
+::view-transition-old(work-queue), ::view-transition-old(work-detail) {
+  animation-duration: var(--pane-crossfade-duration);
+  animation-timing-function: var(--pane-crossfade-ease-out);
+}
+::view-transition-new(work-queue), ::view-transition-new(work-detail) {
+  animation-duration: var(--pane-crossfade-duration);
+  animation-timing-function: var(--pane-crossfade-ease-in);
+}
+/* The theme's own root crossfade must not follow a filter change: everything the filter
+   did not rename swaps at once, so the button it was clicked on answers immediately. */
+html[data-pane-crossfade]::view-transition-old(root),
+html[data-pane-crossfade]::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 225px minmax(0,1fr); }
   .sidebar { padding: 29px 19px 20px; }
