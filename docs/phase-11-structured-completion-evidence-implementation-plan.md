@@ -4278,15 +4278,18 @@ Phase 11 is done only when every item below is true:
 - [x] Shared backend/MCP/frontend fixtures agree, strict decoders reject every
   adversarial case, Draft 2020-12 evaluation proves the exact conditional UUID
   schema, and OpenAPI/catalog snapshots are current.
-- [ ] Backend, MCP, frontend, Playwright, plugin, migration, audit, lint, type,
+- [x] Backend, MCP, frontend, Playwright, plugin, migration, audit, lint, type,
   build, pre-commit, fresh-install, sequential-upgrade, maximum-envelope
   Streamable HTTP, maximum-envelope stdio, and exact MCP-ingress boundary
   checks all pass with the PostgreSQL suites enabled.
 
   Every local portion of this aggregate gate is recorded in
-  `docs/validation.md`. It remains open until required pull-request CI,
-  including the authentic macOS Bash 3.2/Git runtime lane, succeeds on the
-  committed tree.
+  `docs/validation.md`. Required pull-request CI passed on PR #32 at
+  implementation commit
+  `6b7ba816ed7e199dd1f2355dab8575b7bbe7d289`: Gitleaks, Ruff, `ty`, backend,
+  MCP, frontend, the authentic macOS Bash 3.2/newer-Git repository-freshness
+  runtime, and the aggregate `Required checks` job all succeeded in Actions
+  run `33919885049`.
 - [x] Public/user/operator documentation and the roadmap describe the shipped
   boundary and limitations without overstating verification.
 - [x] The implementation diff contains no compatibility shim, dual write,

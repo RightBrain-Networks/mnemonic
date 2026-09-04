@@ -53,8 +53,9 @@ live-fleet cutover.
   `0.10.0` plus sequential
   `0.6.1 -> 0.7.0 -> 0.8.0 -> 0.9.0 -> 0.10.0` installations were byte- and
   mode-identical across all 11 payload files. The current host's real Git 2.43
-  was rejected before repository access as required; the required authentic
-  macOS Bash 3.2/newer-Git lane remains a PR-CI gate rather than a local claim.
+  was rejected before repository access as required. The authentic macOS Bash
+  3.2/newer-Git CI lane then passed on implementation commit
+  `6b7ba816ed7e199dd1f2355dab8575b7bbe7d289`.
 - **The deployed nginx identity-coding harness passed.** Stock nginx accepted
   the shared policy syntax; an ABI-matched Brotli module produced the positive
   `br` control; and evidence success/error responses, including the 1 MiB
@@ -76,6 +77,11 @@ live-fleet cutover.
 - **Final static and supply-chain gates passed:** repository-wide
   pre-commit/gitleaks, backend/MCP/operational-script Ruff, backend/MCP `ty`,
   TypeScript, shell syntax, production build, and `git diff --check`.
+- **Required pull-request CI passed on the reviewed implementation commit.**
+  PR #32 Actions run `33919885049` passed Gitleaks, Ruff, `ty`, backend tests,
+  MCP tests, frontend checks, the authentic macOS repository-freshness
+  runtime, and the aggregate `Required checks` job against
+  `6b7ba816ed7e199dd1f2355dab8575b7bbe7d289`.
 
 The database, browser, plugin-install, helper, nginx, and rehearsal fixtures
 were uniquely scoped and disposable. Their synthetic databases, archives,
