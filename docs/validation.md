@@ -1,5 +1,52 @@
 # Mnemonic validation record
 
+## Work library keyboard bindings — 2026-09-04
+
+This entry covers three keyboard bindings added beside the queue's existing
+vertical arrows (dashboard `0.5.0`, no application/API/MCP, plugin, migration,
+or proxy-allowlist change). The horizontal arrows walk the lifecycle filter row
+as a ring; Escape drops the open selection through the same rule the pane's Back
+button follows and stays silent with nothing open; F1 through F12 select the
+workspace picker's first twelve projects, each option naming its own key because
+a native `<option>` carries text and nothing else. The pure parts live in
+`cycleStatusFilter` and the shared `statusFilterOrder` in
+`frontend/lib/work-queue.ts`, which the filter row now renders from, and in the
+new `frontend/lib/project-shortcuts.ts`. Every figure below was observed in the
+session that recorded it, on a local Node v22.22.3 checkout of the topic branch
+(CI uses Node 24).
+
+- **Frontend unit tests (`npm test`): 212 passing, 0 failing.** The run adds
+  `tests/project-shortcuts.test.mjs` (the bound range and its integer and
+  out-of-range rejections, per-option labels inside and past the range, every
+  bound key resolving to its index while `F0`, `F13`, `f1`, and non-function keys
+  resolve to nothing) and four cases to `tests/work-queue.test.mjs` (the filter
+  row carrying each labelled filter exactly once, a forward and backward step from
+  every filter, both ends wrapping, and an unknown filter landing on the first).
+- **TypeScript checking (`npm run typecheck`) and the production build
+  (`npm run build`): both pass.**
+- **Isolated Playwright stack (`npm run test:e2e:stack`): 93 executions, 90
+  passing, 3 skipped by design, 0 failing, 5.2 minutes** on a uniquely named
+  disposable Compose project; teardown left no `mnemonic-e2e-*` container,
+  volume, or network of its own. The run adds three cases to
+  `tests/e2e/work-library-surface.spec.ts`: Escape closing a clicked selection and
+  then an arrow-key selection with the address cleared each time and a second
+  press changing nothing; the horizontal arrows walking all eight filters,
+  wrapping at both ends, persisting the filter they land on, and leaving both a
+  focused search field and the focused surface divider to their own use of the
+  same keys (desktop only, since the stacked layout has no divider); and the
+  function keys switching to a project created for the test and back again from a
+  picker whose first twelve options each carry their key while the rest carry
+  none. The function-key case reads its fixture's position from the rendered
+  picker rather than assuming one, because earlier specs seed projects of their
+  own.
+- **Observed and fixed during the run:** the function-key handler first refused
+  while a background project refresh was in flight, which the live-sync `projects`
+  scope triggers, so a press could be silently dropped for the duration of a
+  refetch. The handler now answers from the list already on screen. A pane closed
+  below 900px is `display:none`, where a role locator stops resolving, so the new
+  Escape assertions address it by class.
+- **Gitleaks (`pre-commit run --all-files`): passed.**
+
 ## Lifecycle-filter deselection — 2026-09-04
 
 This entry covers dropping the open work-item selection when the work library's

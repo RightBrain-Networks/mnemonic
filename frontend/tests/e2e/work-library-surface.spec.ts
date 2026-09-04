@@ -865,6 +865,167 @@ test("changing the lifecycle filter deselects the open work item", async ({ page
   }
 });
 
+test("Escape deselects the open work item", async ({ page }, testInfo) => {
+  const token = searchToken("surfaceescape", testInfo);
+  const key = testKey(testInfo);
+  const title = `Escapable item ${token}`;
+  const client = await apiClient();
+  try {
+    const work = await createWork(client, { title, sessionId: `surface-escape-${key}` });
+    const selectedURL = new RegExp(`[?&]work=${work.id}(?:&|$)`);
+    // Below 900px a closed pane is display:none, where a role locator stops resolving,
+    // so the open/closed assertions below go through the class instead.
+    const pane = page.locator(".work-detail-pane");
+
+    await openDashboard(page);
+    await searchFor(page, token, 1);
+    await selectWork(page, title);
+    await expect(pane).toHaveClass(/is-open/);
+    await expect(page).toHaveURL(selectedURL);
+
+    await page.keyboard.press("Escape");
+    await expect(pane).not.toHaveClass(/is-open/);
+    await expect(page).not.toHaveURL(/[?&]work=/);
+    await expect(workCard(page, title)).toHaveAttribute("aria-selected", "false");
+    if (!narrowProject(testInfo)) {
+      await expect(workPane(page).getByRole("heading", { name: "Pick a work item." }))
+        .toBeVisible();
+    }
+
+    // A second press has nothing to close and leaves the queue exactly as it is.
+    await page.keyboard.press("Escape");
+    await expect(pane).not.toHaveClass(/is-open/);
+    await expect(page.locator(".result-count")).toHaveText("1 work record");
+
+    // The keys stay together: a selection made with the arrows drops with Escape too.
+    await page.getByRole("searchbox", { name: "Search work items" }).blur();
+    await page.keyboard.press("ArrowDown");
+    await expect(workCard(page, title)).toHaveAttribute("aria-selected", "true");
+    await expect(page).toHaveURL(selectedURL);
+    await page.keyboard.press("Escape");
+    await expect(pane).not.toHaveClass(/is-open/);
+    await expect(page).not.toHaveURL(/[?&]work=/);
+  } finally {
+    await client.dispose();
+  }
+});
+
+test("the horizontal arrows walk the lifecycle filters", async ({ page }, testInfo) => {
+  test.skip(
+    narrowProject(testInfo),
+    "The stacked layout below 900px has no divider for the same keys to yield to."
+  );
+  // The rendered order of the filter row, which the arrows follow.
+  const order = ["Pending", "Active", "Dropped", "Deferred", "Done", "Won’t do", "Promoted", "All"];
+  const filter = (name: string) => page.getByRole("button", { name, exact: true });
+  const pressed = async (name: string) => {
+    for (const label of order) {
+      await expect(filter(label)).toHaveAttribute("aria-pressed", String(label === name));
+    }
+  };
+
+  await openDashboard(page);
+  // The picker steers itself with the arrow keys while focused, so leave it first.
+  await page.locator("#project-select").blur();
+  await pressed("Pending");
+
+  for (const label of order.slice(1)) {
+    await page.keyboard.press("ArrowRight");
+    await pressed(label);
+  }
+
+  // The row is a ring in both directions rather than dead-ending on All or Pending.
+  await page.keyboard.press("ArrowRight");
+  await pressed("Pending");
+  await page.keyboard.press("ArrowLeft");
+  await pressed("All");
+  await page.keyboard.press("ArrowLeft");
+  await pressed("Promoted");
+
+  // The filter that the arrows landed on is the one that persists.
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("mnemonic.status")))
+    .toBe("promoted");
+
+  // Inside the search field the arrows keep their typing meaning.
+  const searchbox = page.getByRole("searchbox", { name: "Search work items" });
+  await searchbox.focus();
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowRight");
+  await pressed("Promoted");
+  await searchbox.blur();
+
+  // The surface resizer steps its own split with the same keys while it holds focus.
+  const separator = page.getByRole("separator", { name: "Resize the work queue" });
+  await separator.focus();
+  const before = await separator.getAttribute("aria-valuenow");
+  await page.keyboard.press("ArrowLeft");
+  await expect(separator).not.toHaveAttribute("aria-valuenow", String(before));
+  await pressed("Promoted");
+});
+
+test("the function keys select a project and the picker names each key", async ({ page }, testInfo) => {
+  const key = testKey(testInfo);
+  // Sorts near the front of the picker, which orders by name, so this fixture stays
+  // inside the bound range however many projects earlier specs left behind.
+  const name = `AAA shortcut ${key}`;
+  const client = await apiClient();
+  try {
+    const response = await client.post("/api/v1/projects", {
+      data: { name, description: "Disposable fixture for the workspace function keys." }
+    });
+    expect(response.status(), await response.text()).toBe(201);
+    const shortcutProject = await response.json() as { id: string };
+
+    await openDashboard(page);
+    const select = page.locator("#project-select");
+    const breadcrumb = page.locator(".breadcrumb");
+
+    // Every option within the bound range carries the key that selects it, in the
+    // picker's own order.
+    const options = select.locator("option");
+    const labels = await options.allTextContents();
+    const values = await options.evaluateAll((items) =>
+      items.map((item) => (item as HTMLOptionElement).value));
+    for (const [index, label] of labels.slice(0, 12).entries()) {
+      expect(label).toMatch(new RegExp(`^F${index + 1} · `));
+    }
+    for (const label of labels.slice(12)) expect(label).not.toMatch(/^F\d/);
+
+    // Earlier specs seed projects of their own, so this fixture's position is read
+    // rather than assumed, and the project it switches back to is any other bound one.
+    const shortcutIndex = values.indexOf(shortcutProject.id);
+    expect(shortcutIndex).toBeGreaterThanOrEqual(0);
+    expect(shortcutIndex).toBeLessThan(12);
+    expect(labels[shortcutIndex]).toBe(`F${shortcutIndex + 1} · ${name}`);
+    const returnIndex = values.findIndex((id, index) =>
+      index < 12 && id !== shortcutProject.id);
+    expect(returnIndex).toBeGreaterThanOrEqual(0);
+    const returnName = labels[returnIndex].replace(/^F\d{1,2} · /, "");
+    await expect(select).toHaveValue(state.projectId);
+
+    // The picker steers itself with the keyboard while focused, but a function key is
+    // not one of its own, so it still switches the workspace.
+    await page.keyboard.press(`F${shortcutIndex + 1}`);
+    await expect(select).toHaveValue(shortcutProject.id);
+    await expect(breadcrumb).toContainText(name);
+
+    // A second key comes back, from a picker that no longer holds focus.
+    await select.blur();
+    await page.keyboard.press(`F${returnIndex + 1}`);
+    await expect(select).toHaveValue(values[returnIndex]);
+    await expect(breadcrumb).toContainText(returnName);
+
+    // A function key past the end of the workspace is unbound and changes nothing.
+    if (labels.length < 12) {
+      const current = await select.inputValue();
+      await page.keyboard.press(`F${labels.length + 1}`);
+      await expect(select).toHaveValue(current);
+    }
+  } finally {
+    await client.dispose();
+  }
+});
+
 test("the queue and pane split is draggable, keyboard-adjustable, and remembered", async ({ page }, testInfo) => {
   test.skip(narrowProject(testInfo), "The stacked layout below 900px has no divider.");
   const token = searchToken("surfacesplit", testInfo);
