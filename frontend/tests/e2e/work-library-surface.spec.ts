@@ -1093,6 +1093,8 @@ test("changing the lifecycle filter cross-dissolves the queue and the pane it re
     const title = `Dissolved item ${token}`;
     const easeIn = "cubic-bezier(0.55, 0, 1, 0.45)";
     const easeOut = "cubic-bezier(0, 0.55, 0.45, 1)";
+    // Both halves of both panes run for the stylesheet's one --pane-crossfade-duration.
+    const span = "0.4s";
     const client = await apiClient();
     try {
       await createWork(client, { title, sessionId: `surface-crossfade-${key}` });
@@ -1108,12 +1110,12 @@ test("changing the lifecycle filter cross-dissolves the queue and the pane it re
       // was clicked on answers immediately.
       const dissolving = await crossfadeOnFilter(page, { filter: "Deferred" });
       expect(dissolving.outgoing).toEqual([
-        `::view-transition-old(work-detail) 0.5s ${easeOut}`,
-        `::view-transition-old(work-queue) 0.5s ${easeOut}`
+        `::view-transition-old(work-detail) ${span} ${easeOut}`,
+        `::view-transition-old(work-queue) ${span} ${easeOut}`
       ]);
       expect(dissolving.incoming).toEqual([
-        `::view-transition-new(work-detail) 0.5s ${easeIn}`,
-        `::view-transition-new(work-queue) 0.5s ${easeIn}`
+        `::view-transition-new(work-detail) ${span} ${easeIn}`,
+        `::view-transition-new(work-queue) ${span} ${easeIn}`
       ]);
       // The outgoing record lives in the capture, not in a second copy of the pane.
       expect(dissolving.paneTitle).toBeNull();
@@ -1125,8 +1127,8 @@ test("changing the lifecycle filter cross-dissolves the queue and the pane it re
       // the queue is captured. The horizontal-arrow shortcut reaches the same filter change
       // as the buttons, so it dissolves the queue the same way.
       const queueOnly = await crossfadeOnFilter(page, { key: "ArrowRight" });
-      expect(queueOnly.outgoing).toEqual([`::view-transition-old(work-queue) 0.5s ${easeOut}`]);
-      expect(queueOnly.incoming).toEqual([`::view-transition-new(work-queue) 0.5s ${easeIn}`]);
+      expect(queueOnly.outgoing).toEqual([`::view-transition-old(work-queue) ${span} ${easeOut}`]);
+      expect(queueOnly.incoming).toEqual([`::view-transition-new(work-queue) ${span} ${easeIn}`]);
       await crossfadeSettled(page);
 
       // A reader who asked for less motion gets the plain swap.

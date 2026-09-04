@@ -38,7 +38,7 @@ function declaration(selector, property) {
 
 test("the panes cross-dissolve over one adjustable duration", () => {
   // A pane easing on its own value could finish while the other was still moving.
-  assert.equal(declaration(selectors.variables, "--pane-crossfade-duration"), "500ms");
+  assert.equal(declaration(selectors.variables, "--pane-crossfade-duration"), "400ms");
   for (const half of [selectors.groups, selectors.outgoing, selectors.incoming]) {
     assert.equal(declaration(half, "animation-duration"), "var(--pane-crossfade-duration)");
   }
