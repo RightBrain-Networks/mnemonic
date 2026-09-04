@@ -36,6 +36,7 @@ from mnemonic_mcp.api import MnemonicAPI, TransportEffect
 from mnemonic_mcp.models import (
     MAX_COMPLETION_EVENT_ID,
     MAX_COMPLETION_EXPECTED_VERSION,
+    MAX_COMPLETION_WORK_VERSION,
     CompletionEvidenceArgument,
     CompletionEvidenceInput,
     CompletionEvidencePage,
@@ -540,6 +541,13 @@ async def test_completion_tools_list_schema_matches_runtime_evidence_contract(se
         "type": "string",
     }
     assert "cursor" not in history_input["required"]
+    assert history_output["properties"]["work_version"]["maximum"] == (
+        MAX_COMPLETION_WORK_VERSION
+    )
+    assert history_output["properties"]["total"]["maximum"] == MAX_COMPLETION_EVENT_ID
+    assert history_output["properties"]["structured_completion_total"]["maximum"] == (
+        MAX_COMPLETION_EVENT_ID
+    )
 
     canonical_timestamp = history_output["$defs"]["CommandVerificationRead"][
         "properties"
@@ -1185,6 +1193,45 @@ async def test_completion_continuation_allows_newer_live_current_pointer(setting
     )
     assert result["items"][0]["completion_event_id"] == "480"
     assert result["current_completion_checkpoint_id"] == VERIFICATION_ID
+
+
+def test_completion_evidence_page_strict_json_accepts_numeric_maxima():
+    document = _page(limit=1, next_cursor=_canonical_cursor())
+    document.update(
+        {
+            "work_version": MAX_COMPLETION_WORK_VERSION,
+            "total": MAX_COMPLETION_EVENT_ID,
+            "structured_completion_total": MAX_COMPLETION_EVENT_ID,
+        }
+    )
+
+    page = CompletionEvidencePage.model_validate_json(
+        json.dumps(document),
+        strict=True,
+    )
+
+    assert page.work_version == MAX_COMPLETION_WORK_VERSION
+    assert page.total == MAX_COMPLETION_EVENT_ID
+    assert page.structured_completion_total == MAX_COMPLETION_EVENT_ID
+
+
+@pytest.mark.parametrize(
+    ("field_name", "maximum"),
+    [
+        ("work_version", MAX_COMPLETION_WORK_VERSION),
+        ("total", MAX_COMPLETION_EVENT_ID),
+        ("structured_completion_total", MAX_COMPLETION_EVENT_ID),
+    ],
+)
+def test_completion_evidence_page_strict_json_rejects_numeric_overflow(
+    field_name,
+    maximum,
+):
+    document = _page()
+    document[field_name] = maximum + 1
+
+    with pytest.raises(ValidationError):
+        CompletionEvidencePage.model_validate_json(json.dumps(document), strict=True)
 
 
 @pytest.mark.parametrize(

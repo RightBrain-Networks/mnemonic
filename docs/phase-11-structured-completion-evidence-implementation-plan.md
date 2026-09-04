@@ -1634,12 +1634,19 @@ After upgrade:
   no negative reopen binding is paired with a completion;
 - every pre-0019 column value, row count, timestamp, ID, JSON body, digest,
   salt, fingerprint, version, and response body is exact;
-- every pre-0019 named Phase 10 object has the same normalized definition;
-  Phase 11 custom triggers and foreign-key-generated RI triggers are
-  inventoried separately because their addition necessarily changes a
-  whole-schema trigger digest;
-- Phase 10 arrays, constraints, functions, named triggers, indexes, and sparse
-  serialization behavior are otherwise unchanged;
+- the complete Phase 10 survivor catalog retains its exact incoming raw
+  PostgreSQL 17 representation. The audit accepts only the migration-built
+  digest
+  `5171e0e22b9b6f838277725146ad81ccdcb747a82244fba3dd2aa42bb3cfa8fe`
+  or the shipped-backup-restored digest
+  `95ac5cede92f756a2132379f9fb38f97148b7c3dd2c817a1844b8ad1facc45fe`;
+  it does not generically normalize expressions;
+- every Phase 11 object is excluded from that survivor projection by exact
+  identity, including the four new constraint-trigger `pg_constraint` rows,
+  while Phase 11 custom/RI triggers retain their own exact inventory;
+- Phase 10 arrays, constraints, functions, named triggers, indexes, sparse
+  serialization behavior, and whichever approved raw Phase 10 survivor-catalog
+  representation the database entered with are otherwise unchanged;
 - no prompt, source metadata, tag, event body, command-looking text, commit,
   URL, or receipt is interpreted as evidence;
 - historical completions are readable with empty arrays only through the new
@@ -1703,7 +1710,10 @@ reopen-generation index, reopen-kind check, and private
 `work_events.reopen_generation`; then remove the remaining Phase 11 statement/
 row triggers (including both existing-table truncate guards), generation
 indexes/checks/columns, both partial completion-event indexes, evidence tables,
-and Phase-11-only functions. Restore the exact 0018 catalog. Private generation
+and Phase-11-only functions. Restore that database's exact pre-upgrade approved
+raw Phase 10 survivor-catalog representation, not a forced conversion between
+the two explicitly approved migration-built and shipped-backup-restored
+projected forms. Private generation
 values are reconstructible enforcement metadata; no-evidence Phase 11 reopens
 and completions remain ordinary 0018 event/checkpoint facts and do not
 independently make downgrade lossy. Re-upgrade maps all then-retained
@@ -1786,8 +1796,10 @@ Tests and the operational audit verify:
   checkpoint-derived `created_at` proves physical insertion order;
 - both directions of correspondence between evidence-bearing receipt bodies
   and retained rows;
-- unchanged normalized definitions for each named pre-0019 Phase 10 object,
-  separately inventoried Phase 11/RI triggers, and unchanged receipt digests.
+- an unchanged whole Phase 10 survivor digest matching exactly one of the two
+  approved raw PostgreSQL 17 forms, exact `(relation, constraint)` exclusion of
+  Phase 11 constraint triggers, separately inventoried Phase 11/RI objects, and
+  unchanged receipt digests.
 
 Whole-catalog equality is asserted only after a clean downgrade to 0018, when
 the new custom and RI triggers no longer exist.
@@ -2654,22 +2666,22 @@ must not relax an already frozen invariant.
 
 ### 10.1 Stage 0 — reconcile the Phase 10 baseline
 
-- [ ] Confirm the Phase 10 pull request is merged and its required checks
+- [x] Confirm the Phase 10 pull request is merged and its required checks
   passed.
-- [ ] Fetch `origin/main`, rebase the Phase 11 topic branch onto the actual
+- [x] Fetch `origin/main`, rebase the Phase 11 topic branch onto the actual
   merge, and record the delivered Phase 10 commit in this document.
-- [ ] Confirm a clean linear Alembic history ending at
+- [x] Confirm a clean linear Alembic history ending at
   `0018_repository_freshness`; do not resolve a split head by inventing a
   merge migration.
-- [ ] Re-run exact catalogs for API routes, MCP tools and write annotations,
+- [x] Re-run exact catalogs for API routes, MCP tools and write annotations,
   receipt kinds, browser mutation policies, plugin files, public error codes,
   schema objects, and version declarations.
-- [ ] Re-run Phase 10's complete verification matrix, including the populated
+- [x] Re-run Phase 10's complete verification matrix, including the populated
   migration fixture and helper protocol tests.
-- [ ] Compare the merged completion/checkpoint/receipt shapes with this plan.
+- [x] Compare the merged completion/checkpoint/receipt shapes with this plan.
   If any assumption differs, revise the plan and obtain another cold contract
   review before product implementation.
-- [ ] Start implementation only from a clean, short-lived linked worktree
+- [x] Start implementation only from a clean, short-lived linked worktree
   based on that merged commit. Never merge or copy the retired concurrent peer
   worktree as a substitute for reviewed `main`.
 
@@ -2685,33 +2697,33 @@ corrected and re-reviewed.
 
 ### 10.2 Stage 1 — freeze the cross-layer contract
 
-- [ ] Add one language-neutral JSON fixture corpus for valid and invalid
+- [x] Add one language-neutral JSON fixture corpus for valid and invalid
   completion evidence. Give each case a stable ID and an expected canonical
   value, fingerprint relationship, or validation location.
-- [ ] Freeze all enum spellings, sparse rules, bounds, byte accounting,
+- [x] Freeze all enum spellings, sparse rules, bounds, byte accounting,
   timestamp normalization, commit/path/URL grammars, result matrix, duplicate
   rule, and order semantics from section 3.
-- [ ] Freeze the 20–32-byte `observed_at` grammar, finite database range,
+- [x] Freeze the 20–32-byte `observed_at` grammar, finite database range,
   microsecond precision, UTC output spelling, and every intentional
   offset/fraction fingerprint equivalence before any generic datetime parser.
-- [ ] Freeze the distinct arrays-only completion payload and event/checkpoint
+- [x] Freeze the distinct arrays-only completion payload and event/checkpoint
   history wrapper, every input/read key, every null/omission rule, and the
   complete canonical examples in sections 3 and 6.
-- [ ] Freeze the `WorkCompletionCreate` public/
+- [x] Freeze the `WorkCompletionCreate` public/
   `WorkCompletionRequest` control-free registry split so stripping the
   operation ID cannot retrigger the conditional transport validator.
-- [ ] Freeze the evidence-history OpenAPI shapes, page alias/work metadata,
+- [x] Freeze the evidence-history OpenAPI shapes, page alias/work metadata,
   event-ID ordering, high-water cursor payload/version/bounds, totals,
   current-completion semantics, and error behavior.
-- [ ] Freeze the conditional client-operation-UUID rule in both runtime
+- [x] Freeze the conditional client-operation-UUID rule in both runtime
   validation and the exact executable OpenAPI 3.1 `if`/`then`; prove the
   32,768-byte aggregate against the 896 KiB completion and 3 MiB page budgets
   with maximum-escaping cross-product generators.
-- [ ] Capture pre-change canonical request bytes/fingerprints and stored
+- [x] Capture pre-change canonical request bytes/fingerprints and stored
   response bodies for every receipt kind from a final 0018 fixture.
-- [ ] Add negative compile/type fixtures proving extra fields cannot silently
+- [x] Add negative compile/type fixtures proving extra fields cannot silently
   enter Python, MCP, or TypeScript models.
-- [ ] Decide all names before DDL. A naming change after migration review is a
+- [x] Decide all names before DDL. A naming change after migration review is a
   replacement of the unreleased migration, not an alias or compatibility
   column.
 
@@ -2731,8 +2743,8 @@ empty/non-empty/UUID matrix.
 
 ### 10.3 Stage 2 — establish persistence invariants
 
-- [ ] Write migration `0019_structured_completion_evidence` only after Gate 0.
-- [ ] Run completion-checkpoint/event/ID-order preflight before DDL; add the two
+- [x] Write migration `0019_structured_completion_evidence` only after Gate 0.
+- [x] Run completion-checkpoint/event/ID-order preflight before DDL; add the two
   evidence tables, private work/checkpoint/reopen-event generation columns,
   deterministic negative historical/current backfills, checkpoint and reopen
   generation unique indexes, both partial completion-event indexes, symmetric
@@ -2742,15 +2754,15 @@ empty/non-empty/UUID matrix.
   unsealed-deletion, and sealed-episode departure guards, pending-only child
   guards, immutable row triggers, all four TRUNCATE statement guards, and
   exact downgrade preconditions.
-- [ ] Extend ORM mappings without adding mutable collection cascades or a
+- [x] Extend ORM mappings without adding mutable collection cascades or a
   general-purpose evidence write service.
-- [ ] Make the insert primitive transaction-private and callable only from
+- [x] Make the insert primitive transaction-private and callable only from
   completion assembly; reads use separate projection functions.
-- [ ] Extend schema-parity tests and the read-only operational audit.
-- [ ] Run upgrade/downgrade tests on empty and populated 0018 databases,
+- [x] Extend schema-parity tests and the read-only operational audit.
+- [x] Run upgrade/downgrade tests on empty and populated 0018 databases,
   including isolation rejection and a waiting downgrade/concurrent writer,
   then run deliberate corruption/direct-SQL tests under the application role.
-- [ ] Inspect normalized catalog/function/trigger definitions, not merely
+- [x] Inspect normalized catalog/function/trigger definitions, not merely
   object existence.
 
 The checkpoint, done-state, child, work-transition, and event-side reopen
@@ -2800,31 +2812,31 @@ lossy or indeterminate downgrade before DDL.
 
 ### 10.4 Stage 3 — extend the protected completion aggregate
 
-- [ ] Add strict domain/API input and read models and the field-local sparse
+- [x] Add strict domain/API input and read models and the field-local sparse
   serializer.
-- [ ] Register `complete_work` with the public transport request model and
+- [x] Register `complete_work` with the public transport request model and
   separate control-free domain model, following the delivered merge pattern.
-- [ ] Reject non-empty evidence without `client_operation_id` before receipt
+- [x] Reject non-empty evidence without `client_operation_id` before receipt
   reservation or domain access.
-- [ ] Add the evidence-only recursive substring scan for bearer, lease, and
+- [x] Add the evidence-only recursive substring scan for bearer, lease, and
   common operation-UUID spellings before durable receipt reservation, without
   changing the other twelve receipt kinds.
-- [ ] Extend canonical fingerprinting without changing version 1 behavior for
+- [x] Extend canonical fingerprinting without changing version 1 behavior for
   an omitted or empty evidence object.
-- [ ] Enforce the exact aggregate formula and generated compact request,
+- [x] Enforce the exact aggregate formula and generated compact request,
   fingerprint, response/receipt, and database `jsonb::text` 896 KiB ceilings
   before reservation; test the independent deployed raw-ingress 1 MiB edge.
-- [ ] Insert and explicitly flush every child row, then explicitly flush the
+- [x] Insert and explicitly flush every child row, then explicitly flush the
   pending-to-done work update, before the completion event is added or flushed,
   as required by section 6.2; assert actual SQL order.
-- [ ] Hydrate the just-created children back from authoritative rows before
+- [x] Hydrate the just-created children back from authoritative rows before
   building the receipt response; do not construct a success solely from the
   caller payload.
-- [ ] Keep completion response matching pure, extend strict stored-response
+- [x] Keep completion response matching pure, extend strict stored-response
   validation, and leave physical row correspondence to creation hydration and
   audit.
-- [ ] Prove rollback with a fault injected after each durable step.
-- [ ] Prove exact replay under every later lifecycle state before enabling the
+- [x] Prove rollback with a fault injected after each durable step.
+- [x] Prove exact replay under every later lifecycle state before enabling the
   new read endpoint.
 
 No exception handler may translate a failed database invariant into a success
@@ -2837,24 +2849,24 @@ and live invalidation; exact retry yields none of them again.
 
 ### 10.5 Stage 4 — add the bounded history read
 
-- [ ] Implement page selection and all page metadata in one SQL statement or
+- [x] Implement page selection and all page metadata in one SQL statement or
   one explicit read-only repeatable-read transaction so `total`, structured
   total, current pointer, items, and cursor describe one snapshot.
-- [ ] Select at most `limit + 1` event-backed completion IDs at or below the
+- [x] Select at most `limit + 1` event-backed completion IDs at or below the
   first page's high-water `work_completed.id` before aggregating children.
-- [ ] Hydrate results and artifacts independently in position order to avoid a
+- [x] Hydrate results and artifacts independently in position order to avoid a
   Cartesian product.
-- [ ] Reassemble and strictly validate every returned aggregate; corruption
+- [x] Reassemble and strictly validate every returned aggregate; corruption
   fails the whole response closed and is reported content-free.
-- [ ] Bind the bounded versioned cursor to the exact project, work item,
+- [x] Bind the bounded versioned cursor to the exact project, work item,
   descending event order, high-water event ID, and last event ID. Cursor
   contents grant no authorization.
-- [ ] Enforce the 3 MiB serialized API and identity-body reader budget before
+- [x] Enforce the 3 MiB serialized API and identity-body reader budget before
   MCP/proxy/browser parsing; request identity and reject non-identity coding
   before any body reader is acquired or pulled.
-- [ ] Add the REST route, OpenAPI documentation, authorization/visibility
+- [x] Add the REST route, OpenAPI documentation, authorization/visibility
   behavior, cache policy, and safe-read classification.
-- [ ] Exercise many-page histories across complete/reopen cycles and a
+- [x] Exercise many-page histories across complete/reopen cycles and a
   concurrent new completion.
 
 **Gate 4:** a caller can deterministically enumerate every completion episode,
@@ -2895,18 +2907,18 @@ truncation or representation drift.
 
 ### 10.7 Stage 6 — coordinated versioning and release proof
 
-- [ ] Set application/API/MCP/dashboard versions to `0.6.0` and the inner
+- [x] Set application/API/MCP/dashboard versions to `0.6.0` and the inner
   plugin manifest version to `0.10.0` in one release change; do not invent a
   marketplace version key.
-- [ ] Assert migration head `0019_structured_completion_evidence` and catalogs
+- [x] Assert migration head `0019_structured_completion_evidence` and catalogs
   `28/11/13/11` in executable tests and documentation.
-- [ ] Run fresh-install, sequential-upgrade, rollback-refusal, restore/replay,
+- [x] Run fresh-install, sequential-upgrade, rollback-refusal, restore/replay,
   and full-stack browser/MCP acceptance scenarios.
-- [ ] Run every repository verification command in section 11.12 with the
+- [x] Run every repository verification command in section 11.12 with the
   PostgreSQL suites actually enabled.
-- [ ] Refresh the intentionally local, ignored `CLAUDE.md` operator note when
+- [x] Refresh the intentionally local, ignored `CLAUDE.md` operator note when
   present; never add it to version control.
-- [ ] Review the final diff for accidental compatibility branches, unbounded
+- [x] Review the final diff for accidental compatibility branches, unbounded
   reads, content-bearing logs/events, public evidence writes, and unrelated
   changes.
 
@@ -3011,10 +3023,14 @@ For both a clean database and the populated final-0018 preservation fixture:
    same-work backfilled completion, and a currently-done work version below
    its selected highest-ID live completion version; prove every upgrade
    preflight refusal occurs before Phase 11 DDL;
-2. upgrade the valid 0018 fixture to 0019;
-3. compare every pre-existing row and each named pre-0019 object definition
-   covered by the Phase 10 invariant snapshot, inventorying new custom and RI
-   triggers separately;
+2. build the valid fixture both directly from the migration chain and through
+   the shipped PostgreSQL 17 custom-format backup/restore path; at 0018, require
+   the read-only audit to accept only the two explicit raw whole-survivor
+   digests, reject every other change, and reject a same-named Phase 11
+   constraint attached to the wrong relation;
+3. upgrade both valid 0018 representations to 0019 and compare every
+   pre-existing row and exact incoming raw Phase 10 survivor-catalog
+   representation, inventorying new custom and RI triggers separately;
 4. prove the evidence tables are empty, historical completion generations
    equal the negative exact completion-event IDs, every currently-done work
    has the negative generation of its highest-ID completion, every other work
@@ -3046,8 +3062,14 @@ For both a clean database and the populated final-0018 preservation fixture:
     `completion_evidence` key independently blocks downgrade, including empty,
     null, and malformed values;
 13. prove an indeterminate catalog or receipt state refuses rather than
-    guessing; and
-14. restore the snapshot and prove permanent receipt replay remains exact.
+    guessing;
+14. dump and SQL-reparse the Phase 11 vocabulary checks and prove their raw
+    definitions and exact constraint digest stay unchanged; and
+15. take an ACL-preserving custom archive, restore it under the fixed
+    application role, prove every Phase 11 function still denies `PUBLIC
+    EXECUTE`, prove both evidence relations have effective owner-only
+    privileges whether `relacl` is explicit or default-equivalent null, and
+    prove permanent receipt replay remains exact.
 
 Run downgrade/re-upgrade after no-evidence Phase 11 reopen/completion cycles.
 The re-upgrade must deterministically remap all then-retained completion and
@@ -3517,7 +3539,7 @@ uv run ruff check .
 uv run ty check src/mnemonic_mcp
 
 cd ../frontend
-npm ci
+npm ci --no-audit --no-fund
 npm test
 npm run typecheck
 npm run build
@@ -3556,13 +3578,18 @@ release evidence.
    Do not run mixed 0.5.x and 0.6.x processes once evidence-bearing
    completions can be accepted.
 3. Take and verify a complete database backup with receipt tables, salts,
-   digests, events, checkpoints, Phase 10 scopes, and migration metadata.
+   digests, events, checkpoints, Phase 10 scopes, migration metadata, and
+   archived ACL commands for public-schema application objects. The shipped
+   scripts omit/rebind ownership but intentionally retain and replay those
+   object ACLs; never add `--no-acl` to a shipped archive.
 4. Export only aggregate catalog/count checks to the deployment record; do not
    copy evidence-capable content into logs or tickets.
 5. Run the 0018 preflight audit, including exact completion-checkpoint/event
    correspondence, bounded positive completed/reopened event IDs, retained
    live completion work-version/ID compatibility, backfill-before-live order,
-   and global identity headroom; resolve any invariant failure before DDL.
+   global identity headroom, and a whole-survivor catalog digest matching
+   exactly the migration-built or shipped-backup-restored PostgreSQL 17 form;
+   resolve any invariant failure before DDL.
 6. Inspect the built Next.js and nginx configuration that will serve the
    dashboard API path. Prove content coding is disabled there and that no
    intermediary rule can silently re-enable gzip/brotli for evidence history.
@@ -3612,7 +3639,11 @@ manually mark a pending operation completed as a rollback shortcut.
 Extend the aggregate audit rather than create a content-dumping diagnostic.
 It reports:
 
-- migration/catalog/version/inventory status;
+- migration/catalog/version/inventory status, including the exact Phase 10
+  survivor digest at both supported heads and exact exclusion of all Phase 11
+  object identities;
+- effective owner-only evidence-relation privileges and exact owner-only
+  execution privileges on every Phase 11 function, with no `PUBLIC EXECUTE`;
 - completion-episode/result/artifact counts;
 - empty versus structured episode counts;
 - completion-checkpoint/event disagreement and immutable-merge reviewed
@@ -4094,9 +4125,9 @@ Phase 11 is done only when every item below is true:
 
 ### Contract and data
 
-- [ ] Phase 11 is rebased on the merged Phase 10 commit and migration 0019 has
+- [x] Phase 11 is rebased on the merged Phase 10 commit and migration 0019 has
   exactly one parent, `0018_repository_freshness`.
-- [ ] Both evidence tables, private work/checkpoint/reopen-event generation
+- [x] Both evidence tables, private work/checkpoint/reopen-event generation
   columns and exact negative historical/current backfills, both generation
   indexes, symmetric work/event reopen guards, locked current-generation
   completion-event/ID/version guard, checkpoint/done-state deferred guards,
@@ -4105,25 +4136,25 @@ Phase 11 is done only when every item below is true:
   all four
   statement-TRUNCATE guards, ORM mappings, and downgrade refusal match this
   plan.
-- [ ] A populated 0018 database upgrades without changing any pre-existing
+- [x] A populated 0018 database upgrades without changing any pre-existing
   column value, receipt byte, public event fact, or Phase 10 scope and without
   inferring evidence or historical reopen order; the distinct exact negative
   completion and reopen mappings are proven.
-- [ ] Results and artifacts are immutable, completion-episode-owned, bounded,
+- [x] Results and artifacts are immutable, completion-episode-owned, bounded,
   ordered, and impossible to append after completion.
-- [ ] Every completion checkpoint, including an empty episode, has exactly one
+- [x] Every completion checkpoint, including an empty episode, has exactly one
   retained same-work `work_completed` event; one checkpoint is possible per
   database-owned generation; every done work has one sealed episode at its
   current generation; every nonnegative prior checkpoint generation is lower
   than the work generation; and every positive generation increment has one
   exact uniquely bound retained reopen witness in both directions forming the
   complete prefix.
-- [ ] The regular departure guard revalidates the complete current aggregate
+- [x] The regular departure guard revalidates the complete current aggregate
   before every `done -> pending` transition. Selective named
   `SET CONSTRAINTS IMMEDIATE -> DEFERRED` cannot strand an invalid episode;
   multiple fully sealed cycles may commit in one transaction; and an ordinary
   metadata edit while done keeps the exact current pointer.
-- [ ] A pending generation with a completion checkpoint can leave only through
+- [x] A pending generation with a completion checkpoint can leave only through
   its exact live-canonical, version-incrementing
   `pending -> done -> work_completed` seal; evidence children are accepted only
   before that state transition; deletion, a retained `work_deleted` tombstone
@@ -4132,7 +4163,7 @@ Phase 11 is done only when every item below is true:
   completion event can target only the exact current generation and captured
   pending-to-done version; and every prior runtime episode precedes its
   successor reopen by typed work version.
-- [ ] Every new completion ID is positive, at most
+- [x] Every new completion ID is positive, at most
   `9223372036854775806`, and strictly greater than prior same-work completion
   IDs. Its typed work version strictly advances every earlier live completion
   and its exact same-generation reopen, while the current done event version
@@ -4140,55 +4171,55 @@ Phase 11 is done only when every item below is true:
   discharge/identity-reset/version-reset transactions fail at preflight,
   immediate departure, commit, read, or audit as appropriate; identities are
   never compared across different event types.
-- [ ] Empty evidence remains sparse in completion requests/responses but every
+- [x] Empty evidence remains sparse in completion requests/responses but every
   completion episode appears honestly in the dedicated history page.
 
 ### Atomicity and replay
 
-- [ ] Completion checkpoint, evidence, done state/version/activity, lease
+- [x] Completion checkpoint, evidence, done state/version/activity, lease
   effect, existing event, and existing receipt commit or roll back together.
-- [ ] Every fault injection and concurrency race produces one legal aggregate
+- [x] Every fault injection and concurrency race produces one legal aggregate
   with no orphan, duplicate, partial, or wrong-episode data.
-- [ ] Actual SQL traces prove checkpoint and both child families flush before
+- [x] Actual SQL traces prove checkpoint and both child families flush before
   the pending-to-done work update and that update flushes before event
   insertion; no ORM dependency assumption stands in for database ordering.
-- [ ] Historical request fingerprints and response bodies for all 13 kinds are
+- [x] Historical request fingerprints and response bodies for all 13 kinds are
   exact; request/response contract versions remain 1.
-- [ ] Non-empty evidence without `client_operation_id` fails before any write;
+- [x] Non-empty evidence without `client_operation_id` fails before any write;
   absent evidence retains exact historical keyed and unkeyed REST behavior.
-- [ ] Authentication, structural/cross-field/size checks, evidence scan,
+- [x] Authentication, structural/cross-field/size checks, evidence scan,
   existing scan, and receipt reconciliation run in the frozen order; a request
   missing the required UUID while embedding a bearer returns sanitized 422
   without scanning or reserving.
-- [ ] Receipt preparation strips the UUID into a distinct control-free
+- [x] Receipt preparation strips the UUID into a distinct control-free
   `WorkCompletionRequest` and successfully executes a keyed evidence request;
   the runtime conditional validator exists only on `WorkCompletionCreate`,
   whose emitted OpenAPI component carries the matching executable condition.
-- [ ] Completion matching stays pure, initial response creation rehydrates
+- [x] Completion matching stays pure, initial response creation rehydrates
   rows, and audit proves bidirectional receipt/row correspondence.
-- [ ] Evidence-bearing exact replay survives restart, reopen, recompletion,
+- [x] Evidence-bearing exact replay survives restart, reopen, recompletion,
   merge, soft deletion, and restore without a new side effect.
 
 ### Read and client surfaces
 
-- [ ] The bounded evidence endpoint/tool traverses every event-backed
+- [x] The bounded evidence endpoint/tool traverses every event-backed
   completion episode in deterministic high-water pages, self-describes aliases,
   and identifies current versus prior completion correctly.
-- [ ] New event IDs are database-guarded positive and same-work monotonic and
+- [x] New event IDs are database-guarded positive and same-work monotonic and
   round-trip as lossless canonical bigint decimal strings; only an exact
   unchanged chain of server-issued unsigned cursors is documented as complete
   as of its high-water identity.
-- [ ] The MCP catalog is exactly 28 tools/11 protected writes, with one new
+- [x] The MCP catalog is exactly 28 tools/11 protected writes, with one new
   safe read and no evidence write alias.
-- [ ] The browser remains at 11 protected mutation kinds and supplies an
+- [x] The browser remains at 11 protected mutation kinds and supplies an
   accessible, lazy, safe Evidence tab plus the extended completion editor;
   inactive success does not fetch evidence and leased work stays unavailable.
-- [ ] MCP and Next send `Accept-Encoding: identity`; MCP, Next, and browser
+- [x] MCP and Next send `Accept-Encoding: identity`; MCP, Next, and browser
   reject non-identity `Content-Encoding` before acquiring/pulling a body
   reader; controlled Next/nginx delivery is identity-coded; and every reader
   enforces the 3 MiB identity-body ceiling with max-plus-one cancellation
   before fatal UTF-8/JSON parsing without trusting `Content-Length`.
-- [ ] Before FastMCP parsing or dispatch, Streamable HTTP and stdio enforce the
+- [x] Before FastMCP parsing or dispatch, Streamable HTTP and stdio enforce the
   same exact 1 MiB raw entity/record ceiling, single-object top level, and
   bounded JSON-RPC ID domain; HTTP rejects non-identity request coding before
   body pull and returns only its bounded non-echoing error. Stdio never uses an
@@ -4199,31 +4230,31 @@ Phase 11 is done only when every item below is true:
   invalid-then-valid, and in-flight-race cases. They prove the rejected record
   contributes no bytes, and any cut SDK frame is treated only as malformed/EOF
   unknown outcome.
-- [ ] The locked FastMCP typed return keeps its standard text and structured
+- [x] The locked FastMCP typed return keeps its standard text and structured
   representations, and with the maximum permitted request ID the complete
   maximum-page Streamable HTTP body and stdio record including LF are each at
   most 12 MiB and arrive untruncated; any SDK serialization or private-runner
   seam change reruns the exact fixtures.
-- [ ] The plugin remains three skills/four shared references/one executable,
+- [x] The plugin remains three skills/four shared references/one executable,
   bumps only its inner manifest version, and teaches exact retry, provenance,
   freshness separation, and inert handling.
-- [ ] Evidence stays out of normal context, search, checkpoints, events,
+- [x] Evidence stays out of normal context, search, checkpoints, events,
   relationships, embeddings, duplicate projections, caches, and live payloads.
 
 ### Security and operations
 
-- [ ] Known bearer/lease values and common operation-UUID spellings are
+- [x] Known bearer/lease values and common operation-UUID spellings are
   rejected as embedded substrings at every nested string location before
   durable storage and no error/log/metric/audit output reflects caller content.
-- [ ] Stored commands cannot execute and stored references cannot trigger an
+- [x] Stored commands cannot execute and stored references cannot trigger an
   automatic first-party network request in adversarial tests; Next.js/nginx
   both emit `X-DNS-Prefetch-Control: off`.
-- [ ] `observed_at` is a strict 20–32-byte ASCII string before parsing, all
+- [x] `observed_at` is a strict 20–32-byte ASCII string before parsing, all
   canonical equivalences are frozen, and real PostgreSQL proves finite
   `TIMESTAMPTZ(6)` range/precision under a non-UTC session timezone.
-- [ ] Evidence rows, `work_events`, and `client_operations` all reject
+- [x] Evidence rows, `work_events`, and `client_operations` all reject
   supported `TRUNCATE`; their exact guards are catalog-audited.
-- [ ] Every maximum legal generated compact request/fingerprint/response/
+- [x] Every maximum legal generated compact request/fingerprint/response/
   receipt representation and measured database `jsonb::text` is at most 896
   KiB; deployed raw REST/browser ingress accepts exactly 1 MiB and rejects the
   next byte before parsing; every maximum legal REST history page is at most
@@ -4231,29 +4262,34 @@ Phase 11 is done only when every item below is true:
   standard duplicate-representation MCP JSON-RPC envelope with the largest
   permitted ID is at most 12 MiB. The largest legal MCP tool call fits its
   separate 1 MiB raw ingress boundary.
-- [ ] READ-COMMITTED pre-use downgrade works; other isolation and post-use,
+- [x] READ-COMMITTED pre-use downgrade works; other isolation and post-use,
   concurrent-use, lock-timeout/deadlock, or indeterminate downgrades refuse
   before DDL; exact `ACCESS EXCLUSIVE` locks, writer/direct-DML quiescence,
   evidence-free-cycle downgrade/re-upgrade, fresh-transaction retry, backup,
   restore, fix-forward, and exact-retry runbooks are exercised.
-- [ ] The read-only head-0019 audit passes on a representative populated
+- [x] The read-only head-0019 audit passes on a representative populated
   database and prints only approved content-free facts.
 
 ### Release proof
 
-- [ ] Versions are exactly application/API/MCP/dashboard `0.6.0`, plugin
+- [x] Versions are exactly application/API/MCP/dashboard `0.6.0`, plugin
   `0.10.0`, migration `0019_structured_completion_evidence`, and inventories
   `28/11/13/11` plus plugin package `3 skills/4 references/1 executable`.
-- [ ] Shared backend/MCP/frontend fixtures agree, strict decoders reject every
+- [x] Shared backend/MCP/frontend fixtures agree, strict decoders reject every
   adversarial case, Draft 2020-12 evaluation proves the exact conditional UUID
   schema, and OpenAPI/catalog snapshots are current.
 - [ ] Backend, MCP, frontend, Playwright, plugin, migration, audit, lint, type,
   build, pre-commit, fresh-install, sequential-upgrade, maximum-envelope
   Streamable HTTP, maximum-envelope stdio, and exact MCP-ingress boundary
   checks all pass with the PostgreSQL suites enabled.
-- [ ] Public/user/operator documentation and the roadmap describe the shipped
+
+  Every local portion of this aggregate gate is recorded in
+  `docs/validation.md`. It remains open until required pull-request CI,
+  including the authentic macOS Bash 3.2/Git runtime lane, succeeds on the
+  committed tree.
+- [x] Public/user/operator documentation and the roadmap describe the shipped
   boundary and limitations without overstating verification.
-- [ ] The implementation diff contains no compatibility shim, dual write,
+- [x] The implementation diff contains no compatibility shim, dual write,
   standalone evidence mutation, automatic fetch/execute path, unrelated model
   expansion, or unreviewed deferred feature.
 
@@ -4472,12 +4508,58 @@ evidence mutation was added.
 | Migrated empty episodes, alias-owned history, pagination drift, and lazy browser invalidation each exposed opportunities for a strict reader to widen or misidentify state. | Keep pages event-backed and high-water bounded, make alias/current semantics explicit, retain evidence-free episodes with empty families, refetch only the active tab, and add REST/MCP/browser continuation and migrated-history regressions. |
 | Negative type fixtures did not initially prove that strict backend, MCP, and TypeScript surfaces rejected widened evidence models. | Add compile/type-check fixtures and resolved OpenAPI/JSON Schema evaluations alongside the shared 56-case semantic corpus and exact JSON examples. |
 
-The final cold reviewer re-read the stable tree without editing it, delegated a
-separate contract/documentation spot-check, and returned **ACCEPT** with no
-remaining actionable finding. The accepted pre-rebase evidence included 225
-backend completion/OpenAPI tests, 21 focused PostgreSQL storage/catalog tests,
-48 aggregate-audit tests, 194 MCP completion/OpenAPI tests, 225 frontend unit
-tests plus type/build, repository-wide gitleaks, and the real Brotli/nginx
-harness. The complete post-rebase release matrix, Playwright stack, and
-production-shaped backup/restore rehearsal remain release gates and are
-recorded in `docs/validation.md` only after they actually run.
+That reviewer accepted the then-stable implementation without editing it. The
+accepted evidence included 225 backend completion/OpenAPI tests, 21 focused
+PostgreSQL storage/catalog tests, 48 aggregate-audit tests, 194 MCP
+completion/OpenAPI tests, 225 frontend unit tests plus type/build,
+repository-wide gitleaks, and the real Brotli/nginx harness. This was an
+intermediate pre-rebase verdict: subsequent `origin/main` movement and the
+production-shaped backup/restore rehearsal deliberately reopened closure.
+
+### 19.10 Post-rebase production rehearsal and final closure
+
+The post-rebase pass attacked the implementation through a PostgreSQL 17
+custom-format archive round trip, both supported migration heads, strict shared
+contract consumers, and the latest dashboard surface. The following findings
+were fixed before a pull request:
+
+| Finding | Delivered disposition |
+| --- | --- |
+| A dump/restore reparsed 18 Phase 10 CHECK expressions and two partial-index expressions into a second legitimate raw form, while the initial survivor query admitted four Phase 11 constraint-trigger rows. | Freeze exactly the migration-built and shipped-backup-restored PostgreSQL 17 survivor-projection hashes; exclude every Phase 11 constraint by exact table/constraint identity; accept neither generic normalization nor a third form; audit both forms at 0018 and 0019; add wrong-relation identity and dump/reparse regressions. |
+| The former `--no-acl` archive path removed Phase 11 function revocations, and a null relation ACL could be semantically owner-only while differing textually from an explicit ACL. | Retain archived public-schema application-object ACL commands while rebinding ownership; compare effective `acldefault` relation privileges; require exact Phase 11 function ACLs with no `PUBLIC EXECUTE`; prove backup/restore plus downgrade/re-upgrade on PostgreSQL 17. |
+| `origin/main` advanced with two keyboard-hint commits after the implementation branch was cut, so the first comparison appeared to delete that UI work. | Rebase cleanly through `9f5e57b`, retain both upstream commits, and rerun the complete frontend and Playwright gates on the integrated tree. |
+| REST already bounded completion `expected_version`, but MCP accepted coercible integers without the matching maximum and the browser lacked the same upper bound. | Enforce one strict integer range, `1..2,147,483,646`, in REST/OpenAPI, MCP/runtime schema, and the browser proxy; add shared maximum, max-plus-one, string, and boolean vectors and independent contract review. |
+| The evidence-history REST response bounded `work_version` and both counts, while MCP omitted all three maxima and the browser accepted a work version above the database domain. | Match MCP runtime and output-schema maxima to REST exactly—`2,147,483,647` for work version and `9,223,372,036,854,775,806` for both counts—while the browser explicitly enforces the work-version maximum and retains its safe-integer count guard; add exact-max and max-plus-one regressions and obtain an independent `CLEAN` review. |
+| The first complete backend rerun exposed a test-only corpus consumer that replaced every case's `expected_version` with `1`. | Pass the shared value through the runtime-model helper, add the regression to the same corpus path, pass the current focused 84-test slice, then rerun all 1,072 backend tests cleanly. |
+| Restore documentation spoke about whole physical catalogs and database-wide ACLs more broadly than the implementation proved. | Name the selected raw Phase 10 survivor-catalog projection, scope archive guarantees to public-schema application objects, apply the `--no-acl` warning to every shipped archive, and separate static-script, SQL-reparse, catalog, and real-restore claims; a cold documentation re-review returned `CLEAN`. |
+| The live rollout stopped writers and immediately migrated, so evidence-bearing smoke could make downgrade refuse while the only documented recovery point was a stale rehearsal archive. | Make live quiescence contiguous with a fresh named/hashed/independently restored pre-0019 archive, a live 0018 audit, DDL, smoke, and post-0019 restore proof; explicitly forbid substituting the pre-scheduling archive and add an ordering regression. |
+| The first runbook correction left the continuously scheduled backup loop active across migration locks, and a later `up -d` restart did not wait through the backup service's health-check start period. | Stop `backup` with application services, use `docker compose run --rm --no-deps backup once` for both quiesced archives, keep the loop stopped through audit/DDL/smoke/post-restore proof, and restart it with `docker compose up -d --wait backup` only before reopening writers; extend the exact ordering regression and obtain independent `CLEAN` review. |
+
+The final local matrix passed: backend 1,072 tests plus Ruff and whole-source
+`ty`; MCP 548 tests plus Ruff and `ty`; frontend 252 tests plus TypeScript
+and production build; Playwright 99 passing with four intentional skips out of
+103 executions in 6.3 minutes; MCP/plugin contracts 51; helper behavior 71; the
+authentic Claude CLI smoke; fresh and sequential plugin installation; and the
+real stock-nginx/Brotli identity-coding harness.
+
+The production-shaped rehearsal returned `pass` from
+`0018_repository_freshness` to `0019_structured_completion_evidence`. It
+compared 16 source and 171 restored row/sequence sets, passed audits at source
+0018, restored 0018, pre-enablement 0019, populated 0019, and restored 0019,
+replayed historical create/completion and new evidence-bearing completion
+receipts exactly, removed the whole-schema sentinel, and preserved the reviewed
+function/relation privilege boundary. The 205,623-byte pre-upgrade archive had
+192 table-of-contents entries and the 320,695-byte post-upgrade archive had 273.
+All rehearsal data and infrastructure were synthetic and disposable; no
+production content was accessed.
+
+A fresh context-free whole-diff reviewer then found the response-bound and live
+recovery-point gaps above. Its focused migration closure attack additionally
+found the still-running backup loop; a final documentation adversary then found
+that its restart needed an explicit health wait. After all final corrections and
+their regressions, independent contract and migration reviewers returned `CLEAN`.
+The whole-diff reviewer re-read the combined changes without editing them and
+returned **ACCEPT** with its findings closed and no remaining
+high-confidence release issue. Repository-wide pre-commit/gitleaks, shell
+syntax, Ruff, `ty`, TypeScript, production build, and `git diff --check` also
+passed on the corrected tree.

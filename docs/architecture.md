@@ -478,8 +478,12 @@ unrelated evidence or receipt inventory.
 Downgrade locks every affected table and refuses before DDL when either evidence
 table is nonempty, any Phase 11-only completion receipt response is present, or
 retained completion/reopen chronology cannot round-trip safely. Eligible
-evidence-free databases return to the exact named 0018 catalog; otherwise
-recovery is fix-forward or a consciously selected whole-database restore.
+evidence-free databases return to that database's exact incoming approved raw
+Phase 10 survivor-catalog representation. PostgreSQL 17 migration-built and
+shipped-backup-restored survivor projections have two explicitly frozen raw
+digests because dump/restore reparses CHECK and partial-index expressions; no
+generic normalization or third projected form is accepted. Otherwise recovery
+is fix-forward or a consciously selected whole-database restore.
 
 ## Idempotent mutation execution
 
@@ -720,8 +724,11 @@ authoritative duplicate merges and their witnesses, immutable
 events and their sequence, human gates and attention sequence, durable
 client-operation receipts (including historical and scoped checkpoint response
 shapes), ordered checkpoint dependency declarations, completion generations,
-reopen witnesses, immutable verification results and artifact references, and
-migration state.
+reopen witnesses, immutable verification results and artifact references,
+migration state, and archived ACL commands for public-schema application
+objects. Ownership is rebound to the fixed application role during restore,
+while object-ACL replay preserves Phase 11's owner-only function execution and
+evidence-relation privilege boundary.
 Operators must still copy
 backups off-machine and rehearse restores; a persistent Docker volume is not a
 backup.

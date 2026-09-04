@@ -257,9 +257,12 @@ The Phase 10 additions verify:
 The Phase 11 additions verify:
 
 - fresh zero-to-0019 and populated 0018-to-0019 upgrades preserve every prior
-  row count, pre-existing column value, identifier, sequence, timestamp,
-  receipt byte, and named Phase 10 object while deterministically filling only
-  the new private generation bindings and creating no evidence rows;
+  row count, pre-existing column value, identifier, sequence, timestamp, and
+  receipt byte while deterministically filling only the new private generation
+  bindings and creating no evidence rows; both the migration-built and shipped
+  PostgreSQL 17 backup/restored raw Phase 10 survivor catalogs are accepted
+  exactly at heads 0018 and 0019, while any other drift or same-named
+  Phase 11 constraint on the wrong relation is rejected;
 - ORM/schema parity plus every composite ownership key, vocabulary and grammar,
   byte constraint, partial access index, insertion guard, immutability guard,
   truncate guard,
@@ -276,8 +279,14 @@ The Phase 11 additions verify:
   soft-delete concealment, 3 MiB serialization ceiling, and fail-closed corrupt
   generation/child/receipt cases; and
 - guarded downgrade succeeds only for a valid unused Phase 11 schema, refuses
-  before DDL after evidence or a Phase 11-only receipt response, restores the
-  exact 0018 catalog, and supports lossless re-upgrade.
+  before DDL after evidence or a Phase 11-only receipt response, restores that
+  database's exact incoming approved raw Phase 10 survivor-catalog
+  representation, and supports lossless re-upgrade;
+- static script regressions pin omission of `--no-acl`, while dump/SQL-reparse
+  regressions freeze the Phase 11 vocabulary checks; and
+- the real archive rehearsal and catalog tests prove all 18 Phase 11 functions
+  retain their `PUBLIC EXECUTE` revocations and both evidence relations retain
+  effective owner-only privileges after restore.
 
 For a focused Phase 10 backend iteration, run from `backend` with the real test
 database configured; the complete suite remains the release gate:
@@ -468,7 +477,7 @@ uv run --project backend ruff check \
 Run from `frontend`:
 
 ```sh
-npm ci
+npm ci --no-audit --no-fund
 npm test
 npm run typecheck
 npm run build

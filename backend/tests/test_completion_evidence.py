@@ -35,9 +35,10 @@ def _completion_request(
     *,
     operation_id: UUID | None | object = OPERATION_ID,
     lease_token: str | None = None,
+    expected_version: object = 1,
 ) -> WorkCompletionCreate:
     payload: dict[str, object] = {
-        "expected_version": 1,
+        "expected_version": expected_version,
         "checkpoint": {
             "prompt": "Completed the requested implementation.",
             "source_client": "pytest",
@@ -249,11 +250,20 @@ def test_shared_full_request_vectors_enforce_conditional_operation_identity():
         if operation_id == "__omitted__":
             operation_id = ...
         expected = case["surface_expectations"]["rest_openapi"]
+        expected_version = case.get("expected_version", 1)
         if expected:
-            _completion_request(evidence, operation_id=operation_id)
+            _completion_request(
+                evidence,
+                operation_id=operation_id,
+                expected_version=expected_version,
+            )
         else:
             with pytest.raises(ValidationError):
-                _completion_request(evidence, operation_id=operation_id)
+                _completion_request(
+                    evidence,
+                    operation_id=operation_id,
+                    expected_version=expected_version,
+                )
 
 
 def test_empty_evidence_omission_and_equivalent_times_have_identical_fingerprints():
@@ -381,3 +391,34 @@ def test_database_archives_preserve_phase11_acl_contract():
     assert "--no-acl" not in restore
     assert "pg_dump --format=custom --no-owner --file=" in backup
     assert "pg_restore --no-owner --exit-on-error --file=-" in restore
+
+
+def test_live_phase11_runbook_captures_recovery_point_before_migration():
+    operations = (REPOSITORY_ROOT / "docs/operations.md").read_text(encoding="utf-8")
+    live_rollout = operations.rsplit("For the live quiesced rollout:", 1)[1].split(
+        "Only while both evidence tables are empty", 1
+    )[0]
+
+    live_steps = " ".join(live_rollout.split())
+    backup_loop_stop_index = live_steps.index("docker compose stop web mcp api backup")
+    one_shot_command = "docker compose run --rm --no-deps backup once"
+    pre_backup_index = live_steps.index(one_shot_command)
+    backup_index = live_steps.index(
+        "This fresh archive—not an earlier rehearsal archive—is the live rollback"
+    )
+    audit_index = live_steps.index("--expected-head 0018_repository_freshness")
+    migration_index = live_steps.index(
+        "alembic upgrade 0019_structured_completion_evidence"
+    )
+    evidence_smoke_index = live_steps.index("once with mixed evidence")
+    post_backup_index = live_steps.index("post-0019 dump")
+    post_backup_command_index = live_steps.rindex(one_shot_command)
+    backup_loop_restart_index = live_steps.index("docker compose up -d --wait backup")
+
+    assert live_steps.count(one_shot_command) == 2
+    assert backup_loop_stop_index < pre_backup_index < backup_index
+    assert backup_index < audit_index < migration_index
+    assert migration_index < evidence_smoke_index < post_backup_index
+    assert post_backup_index < post_backup_command_index < backup_loop_restart_index
+    assert "Do not resume any writer between this backup and migration." in live_steps
+    assert "Never substitute a stale pre-scheduling rehearsal archive." in live_steps

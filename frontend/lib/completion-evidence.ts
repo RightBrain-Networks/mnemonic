@@ -30,6 +30,7 @@ export const COMPLETION_EVIDENCE_MAX_BYTES = 32_768;
 export const COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES = 3_145_728;
 export const COMPLETION_EVIDENCE_PAGE_LIMIT = 10;
 export const COMPLETION_EXPECTED_VERSION_MAX = 2_147_483_646;
+export const COMPLETION_WORK_VERSION_MAX = 2_147_483_647;
 export const MAX_COMPLETION_EVENT_ID = 9_223_372_036_854_775_806n;
 
 const encoder = new TextEncoder();
@@ -956,7 +957,7 @@ export function decodeCompletionEvidencePage(
     !page
     || !exactKeys(page, EVIDENCE_PAGE_READ_KEYS)
     || !sameUuid(page.work_item_id, expectedWorkItemId)
-    || !finiteInteger(page.work_version, 1)
+    || !finiteInteger(page.work_version, 1, COMPLETION_WORK_VERSION_MAX)
     || typeof page.lifecycle_status !== "string"
     || !WORK_STATUSES.has(page.lifecycle_status as WorkStatus)
     || typeof page.is_duplicate !== "boolean"

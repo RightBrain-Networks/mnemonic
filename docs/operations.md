@@ -426,16 +426,24 @@ Before scheduling the cutover:
 3. Inventory every direct REST client and installed plugin. Confirm each one
    uses the conditional completion operation-ID rule, treats evidence as inert
    caller assertion, and does not fetch artifact URLs or execute command text.
-4. Quiesce writers at head 0018. Take a named custom-format pre-0019 dump,
-   validate `pg_restore --list`, copy it to independent storage, and prove it
-   restores in isolation with matching 0.5 artifacts.
+4. Quiesce writers at head 0018. Take a named custom-format pre-0019 dump
+   with the shipped script, which uses `--no-owner` but intentionally retains
+   archived ACL commands for public-schema application objects. Never add or
+   pass `--no-acl` for a shipped archive. Validate `pg_restore --list`, copy
+   the archive to independent storage, and prove it restores in isolation with
+   matching 0.5 artifacts.
 5. On that isolated production-shaped restore, run the aggregate audit at
-   `0018_repository_freshness`; any runtime failure or blocking result stops
-   the rollout. Record only content-free aggregate output.
+   `0018_repository_freshness`; it must recognize exactly the reviewed
+   migration-built or shipped-backup-restored PostgreSQL 17 survivor-catalog
+   digest and reject every other projected form. Any runtime failure or
+   blocking result stops the rollout. Record only content-free aggregate
+   output.
 6. Rehearse 0018-to-0019 upgrade and compare every pre-existing row, identity,
-   sequence, timestamp, digest, receipt fingerprint/body/version, and named
-   Phase 10 object. Verify evidence tables are empty and retained completions
-   received only their deterministic private bindings.
+   sequence, timestamp, digest, receipt fingerprint/body/version, and the exact
+   incoming raw Phase 10 survivor-catalog representation. Verify evidence
+   tables are empty, retained completions received only their deterministic
+   private bindings, and the Phase 11 vocabulary checks survive a
+   dump/SQL-reparse unchanged.
 7. Exercise keyed/unkeyed evidence-free completion, keyed structured
    completion and replay, reopen/recomplete, alias-owned history, soft-delete
    concealment, stable pagination, concurrent completion/replay, and injected
@@ -448,20 +456,56 @@ Before scheduling the cutover:
 For the live quiesced rollout:
 
 1. Announce maintenance and stop web, MCP, API, every direct writer, and reads
-   that could cross the incompatible boundary. Retain PostgreSQL and verified
-   backup access.
-2. Apply exactly 0019:
+   that could cross the incompatible boundary. Stop the scheduled backup loop
+   as well, so an automatic dump cannot contend with the migration's ordered
+   exclusive locks:
+
+   ```sh
+   docker compose stop web mcp api backup
+   ```
+
+   Retain PostgreSQL and verified backup-directory access.
+2. While that live quiescence remains in force, confirm the database is still
+   at `0018_repository_freshness` and take a new named custom-format archive
+   in a one-shot container that cannot restart the stopped API:
+
+   ```sh
+   docker compose run --rm --no-deps backup once
+   ```
+
+   Keep the scheduled backup service stopped through the 0018 audit and
+   migration. Validate the archive's table of contents with matched PostgreSQL
+   17 tools, record its exact name/size/hash, copy it to independent storage,
+   and prove it restores in isolation with the matching 0.5 artifacts. This
+   fresh archive—not an earlier rehearsal archive—is the live rollback point.
+   Do not resume any writer between this backup and migration.
+3. Run the read-only aggregate audit against the still-quiesced live database
+   at head 0018. Require one of the two approved raw Phase 10 survivor-catalog
+   projections and zero blocking findings:
+
+   ```sh
+   uv run --project backend python scripts/audit_duplicate_handling.py \
+     --database-url "$MNEMONIC_OPERATOR_DATABASE_URL" \
+     --backup-directory ./backups \
+     --expected-head 0018_repository_freshness
+   ```
+
+   Preserve only the content-free report. Any audit, archive, or isolated
+   restore failure stops the rollout before DDL.
+4. Apply exactly 0019:
 
    ```sh
    docker compose run --rm api alembic upgrade 0019_structured_completion_evidence
    ```
 
-3. Verify the Alembic head, both empty evidence tables, the three generation
+5. Verify the Alembic head, both empty evidence tables, the three generation
    columns/backfill, every composite ownership constraint/index, immutable and
-   truncate guards, completion insertion/event/reopen/liveness guards, and the
-   sealed-episode validator against reviewed catalog hashes. Any unexpected
-   evidence row, unpaired completion, or object mismatch stops the rollout.
-4. Run the audit at the new head with its Phase 11 pre-enablement option; a
+   truncate guards, completion insertion/event/reopen/liveness guards, the
+   sealed-episode validator, effective owner-only privileges on both evidence
+   relations, and exact owner-only execution ACLs on every Phase 11 function
+   with no `PUBLIC EXECUTE`. Any unexpected evidence row, privilege, unpaired
+   completion, or object mismatch stops the rollout.
+6. Run the audit at the new head with its Phase 11 pre-enablement option; a
    runtime failure or blocking finding stops the rollout:
 
    ```sh
@@ -474,17 +518,39 @@ For the live quiesced rollout:
 
    Use the empty-evidence flag only before enabling 0.6 writers. Nonzero
    evidence becomes expected steady-state inventory afterward, not corruption.
-5. Deploy API, then MCP/dashboard `0.6.0`, then plugin `0.10.0`. Before reopening
+7. Deploy API, then MCP/dashboard `0.6.0`, then plugin `0.10.0`. Before reopening
    writes, confirm no 0.5.x first-party process remains and run authenticated
    read-only health, OpenAPI, exact catalog, old receipt replay, empty history,
    nginx identity, and real MCP HTTP/stdio probes.
-6. In an explicitly disposable project, complete once without evidence and
+8. In an explicitly disposable project, complete once without evidence and
    once with mixed evidence, replay the exact latter intent, page both episodes,
    reopen, and confirm current-pointer movement. Inspect browser/MCP logs,
    storage, URLs, errors, and live frames for absence of content and controls.
-7. Take a named post-0019 dump, prove it restores in isolation, rerun the 0019
-   audit and representative historical/new receipt replays, and compare evidence
-   ownership, order, generation, and page identity. Only then reopen writers.
+9. With writers and the scheduled backup loop still stopped, take a named
+   post-0019 dump explicitly:
+
+   ```sh
+   docker compose run --rm --no-deps backup once
+   ```
+
+   Prove it restores in isolation with archived public-schema
+   application-object ACL commands replayed and ownership rebound to the fixed
+   current application role, rerun the 0019 audit and representative
+   historical/new receipt replays, and compare evidence ownership, privileges,
+   function revocations, order, generation, and page identity. Restart and
+   health-check the scheduled backup service, then reopen writers:
+
+   ```sh
+   docker compose up -d --wait backup
+   docker compose ps backup
+   ```
+
+Once step 8 writes structured evidence, the guarded downgrade is intentionally
+unavailable. If a later validation fails, fix forward or restore the exact fresh
+pre-0019 archive from step 2; it contains every production write through the
+quiescence point, so the only discarded post-backup facts are from the
+explicitly disposable smoke project. Never substitute a stale pre-scheduling
+rehearsal archive. Keep writers closed until step 9 succeeds.
 
 Only while both evidence tables are empty, no completed receipt response has a
 top-level `completion_evidence` key, and the preflight can prove every retained
@@ -729,9 +795,13 @@ or weaken hierarchy constraints.
 Run `scripts/audit_duplicate_handling.py` regularly with its default
 `--expected-head 0019_structured_completion_evidence` from a private environment
 that can reach PostgreSQL and the backup directory. Alert on any blocking
-finding. At 0019 it retains every Phase 10 scope check and additionally verifies
-evidence tables/constraints/indexes, exact enabled trigger/function hashes,
-completion and reopen generations, sealed episode chronology, event identity
+finding. At 0018 and 0019 it requires exactly one of the two reviewed raw
+PostgreSQL 17 Phase 10 survivor-catalog representations and rejects all other
+drift. At 0019 it retains every Phase 10 scope check and additionally verifies
+evidence tables/constraints/indexes, effective owner-only relation privileges,
+exact Phase 11 function ACLs with no `PUBLIC EXECUTE`, exact enabled
+trigger/function hashes, completion and reopen generations, sealed episode
+chronology, event identity
 sequence health, child ownership/position/time/aggregate invariants,
 receipt-to-row correspondence, and downgrade eligibility without printing any
 stored value. Its weak-mark counts remain inventory, not merge
@@ -934,9 +1004,15 @@ authenticated approval signature.
 ## Backups
 
 The backup container starts after the API has migrated the database and become
-healthy. It runs a transactionally consistent custom-format `pg_dump`, checks
-that `pg_restore` can read its archive, and atomically renames the completed file
-into the backup directory. Failed partial dumps never become successful dumps.
+healthy. It runs a transactionally consistent custom-format `pg_dump` with
+`--no-owner`, checks that `pg_restore` can read its archive, and atomically
+renames the completed file into the backup directory. Ownership is intentionally
+rebound to the fixed application role on restore, but archived ACL commands for
+public-schema application objects are retained and replayed so Phase 11's
+`PUBLIC EXECUTE` revocations survive. Do not add `--no-acl` to a shipped archive:
+that can silently weaken existing application-object privileges and, at head
+0019, the audited function boundary. Failed partial dumps never become
+successful dumps.
 The interval defaults to 86400 seconds (24 hours). An unhealthy or restarting
 backup container needs attention; `docker compose ps` shows its state.
 
@@ -973,9 +1049,12 @@ empty-history sparse serialization, commit dependency, immutable rows,
 validator and constraint catalog definitions, representative scoped receipt
 replay, completion/reopen chronology and sequence state, evidence ownership,
 positions, record times, sealed-episode and immutable trigger hashes,
-representative evidence-bearing receipt replay, bounded history, and absence
-from compact and derived projections. Keep
-the PostgreSQL major version compatible with the dump
+representative evidence-bearing receipt replay, bounded history, absence from
+compact and derived projections, effective owner-only privileges on both
+evidence relations, and exact owner-only function ACLs with no `PUBLIC EXECUTE`.
+A pre-0019 archive contains no Phase 11 functions and remains migratable; 0019
+creates the reviewed privileges during that upgrade. Keep the PostgreSQL major
+version compatible with the dump
 tools.
 
 ## Restore
@@ -996,8 +1075,10 @@ docker compose up -d --wait
 PostgreSQL must remain running during this sequence. The restore script refuses
 to run without the explicit confirmation value, rejects filenames containing
 directory paths, and uses a single transaction for schema replacement and
-archive loading so errors restore the original target. Mnemonic does not use
-non-public application schemas or optional PostgreSQL extensions; the script
+archive loading so errors restore the original target. It replays archived ACL
+commands for public-schema application objects while rebinding ownership to the
+fixed current application role. Mnemonic does not use non-public application
+schemas or optional PostgreSQL extensions; the script
 refuses either unexpected layout instead of deleting outside its ownership
 boundary or producing a hybrid restore. The API applies every migration newer than the archive through the current head
 before becoming ready. Do not expose API, MCP, or dashboard traffic until

@@ -269,6 +269,7 @@ _ARTIFACT_IPV6_HOST = re.compile(r"^[0-9a-f:]+$", re.ASCII)
 MAX_COMPLETION_EVIDENCE_ENTRIES = 20
 MAX_COMPLETION_EVIDENCE_BYTES = 32768
 MAX_COMPLETION_EVENT_ID = 9223372036854775806
+MAX_COMPLETION_WORK_VERSION = 2147483647
 MAX_COMPLETION_EVIDENCE_CURSOR_BYTES = 2048
 MAX_COMPLETION_EXPECTED_VERSION = 2147483646
 
@@ -1671,15 +1672,15 @@ def _validate_completion_evidence_page_state(page: CompletionEvidencePage) -> No
 
 class CompletionEvidencePage(CanonicalResponse):
     work_item_id: UUID
-    work_version: StrictInt = Field(ge=1)
+    work_version: StrictInt = Field(ge=1, le=MAX_COMPLETION_WORK_VERSION)
     lifecycle_status: Status
     is_duplicate: StrictBool
     canonical_work_item_id: UUID
     current_completion_checkpoint_id: UUID | None
     as_of_completion_event_id: CompletionEventID | None
     items: list[CompletionEvidenceEpisodeRead] = Field(max_length=10)
-    total: StrictInt = Field(ge=0)
-    structured_completion_total: StrictInt = Field(ge=0)
+    total: StrictInt = Field(ge=0, le=MAX_COMPLETION_EVENT_ID)
+    structured_completion_total: StrictInt = Field(ge=0, le=MAX_COMPLETION_EVENT_ID)
     limit: StrictInt = Field(ge=1, le=10)
     next_cursor: CompletionEvidenceCursor | None
 

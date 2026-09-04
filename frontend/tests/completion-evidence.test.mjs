@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   COMPLETION_EVIDENCE_MAX_BYTES,
   COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES,
+  COMPLETION_WORK_VERSION_MAX,
   IdentityEvidenceResponseError,
   MAX_COMPLETION_EVENT_ID,
   artifactNavigationHref,
@@ -374,6 +375,19 @@ test("strict history decoding retains bigint identities as strings and ordered e
   assert.deepEqual(decoded.items[1].artifact_references, []);
   assert.equal(decoded.items[0].verification_results[0].summary, "The frontend unit suite passed.");
   assert.equal(decoded.items[0].artifact_references[0].reference, "https://example.test/pull/11");
+});
+
+test("history decoding enforces the backend work-version maximum", () => {
+  const maximum = decodeCompletionEvidencePage(page({
+    work_version: COMPLETION_WORK_VERSION_MAX
+  }), work);
+  assert.equal(maximum.work_version, COMPLETION_WORK_VERSION_MAX);
+  assert.throws(
+    () => decodeCompletionEvidencePage(page({
+      work_version: COMPLETION_WORK_VERSION_MAX + 1
+    }), work),
+    /invalid completion-evidence page/i
+  );
 });
 
 test("server-owned evidence timestamps require canonical UTC seconds or six microseconds", () => {
