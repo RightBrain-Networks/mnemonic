@@ -400,7 +400,7 @@ button { touch-action: manipulation; }
    Change the duration here and both halves follow. Everything the filter did not rename
    swaps with the root, which is held still so the button answers the click at once. */
 :root {
-  --pane-crossfade-duration: 500ms;
+  --pane-crossfade-duration: 400ms;
   --pane-crossfade-ease-in: cubic-bezier(0.55, 0, 1, 0.45);
   --pane-crossfade-ease-out: cubic-bezier(0, 0.55, 0.45, 1);
 }

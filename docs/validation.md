@@ -1,5 +1,36 @@
 # Mnemonic validation record
 
+## Cross-dissolve retiming to 400ms — 2026-09-04
+
+This entry covers shortening the work library's lifecycle-filter cross-dissolve from
+500ms to 400ms on owner review that it ran a little long (dashboard `0.5.0`, no
+application/API/MCP, plugin, migration, or proxy-allowlist change). The change is the
+one `--pane-crossfade-duration` in `app/globals.css`; both halves of both panes read
+it, so nothing else moved and the two circ easings are unchanged. Every figure below
+was observed in the session that recorded it, on a local Node v22.22.3 checkout of the
+topic branch (CI uses Node 24).
+
+- **Frontend unit tests (`npm test`): 217 passing, 0 failing**, including the
+  stylesheet assertion in `tests/pane-crossfade.test.mjs` now reading 400ms on the
+  group, old, and new halves of both panes.
+- **TypeScript checking (`npm run typecheck`) and the production build
+  (`npm run build`): both pass.**
+- **Playwright suite on a disposable stack: 95 executions, 91 passing, 4 skipped by
+  design, 0 failing, 5.4 minutes** on a uniquely named `mnemonic-e2e-` Compose project
+  built from this frontend; teardown left no `mnemonic-e2e-` project, container, or
+  volume belonging to this run. The cross-dissolve case reads `0.4s` on every captured
+  half from one `span` constant, so the next retiming is one edit there too.
+- **Held-frame inspection (Chromium, 1500x950):** with the transition's animations
+  paused and stepped through 0, 80, 160, 200, 280, 360, and 400ms, each pane's outgoing
+  capture reads 1.000, 0.402, 0.201, 0.135, 0.046, 0.005, 0.000 and its incoming 0.000,
+  0.020, 0.084, 0.135, 0.288, 0.565, 1.000. The curve is the one the previous entry
+  recorded, compressed: the halves still cross at 0.135, now 100ms sooner.
+- **Gitleaks (`pre-commit` hook): passed** on the commit.
+
+No backend, MCP, migration, plugin, stack-check, or adversarial-review result is
+claimed for this change, and it does not alter any production, cutover, or
+permanence gate.
+
 ## Lifecycle-filter cross-dissolve — 2026-09-04
 
 This entry covers replacing the abrupt swap of both work-library columns on a
