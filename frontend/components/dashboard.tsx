@@ -1582,6 +1582,12 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     );
   }
 
+  // c copies the open record's recall pointer: the same value, notice, and copied
+  // state the record's own button produces, so the two cannot drift.
+  function copyOpenedRecallPointer(): void {
+    if (opened) copyRecallPointer(opened);
+  }
+
   async function copyProjectId() {
     if (project) await copyText(project.id, "project", `Project ID copied: ${project.id}`);
   }
@@ -1822,6 +1828,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 onCreate={openWorkDialog}
                 onSelect={selectWork}
                 onDeselect={deselectWork}
+                onCopySelectedPointer={copyOpenedRecallPointer}
                 onCopyPointer={(item) => void copyRecallPointer(item)}
                 detail={<WorkDetailPane
                   paneRef={crossfade.detailRef}

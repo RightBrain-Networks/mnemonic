@@ -581,9 +581,15 @@ walk the queue selection and clamp at both ends; the horizontal arrows walk the
 lifecycle filter row in its rendered order, wrapping at both ends because the
 eight filters are one small closed ring; Escape drops the open selection through
 the same rule the pane's own Back button follows, including the unsaved-draft
-confirmation, and stays silent with nothing open; and the digits select the
-workspace picker's first ten projects — 1 through 9, then 0 for the tenth, which
-is the number row's own order. Every one of these is inert while a `<dialog>` is
+confirmation, and stays silent with nothing open; the digits select the workspace
+picker's first ten projects — 1 through 9, then 0 for the tenth, which is the
+number row's own order; and `c` copies the open record's recall pointer through
+the same call, notice, and copied state the record's own button uses. `c` is the
+queue's key rather than the pane's: with focus inside the open record it is left
+alone, because the pane carries its own copy button, and with nothing open it
+does nothing. Caps Lock reports an uppercase letter with no Shift held, so a
+letter shortcut compares against a lowered key while a real Shift is still
+refused. Every one of these is inert while a `<dialog>` is
 open or while focus is in a text field, `<select>`, or `contenteditable` element,
 so the keys keep their typing meaning — load-bearing for the digits, which unlike
 an arrow are something a person types — and the shared guard behind that lives in
@@ -592,8 +598,10 @@ a focused surface divider, which steps its own split with them. A project switch
 made with a digit routes through the same guard as the picker, so a dispatched
 mutation or an unsaved draft still refuses it.
 
-The quiet detail placeholder names the whole map in `<kbd>` glyphs, which is the
-only place it is written down: the picker's options carry project names alone.
+The quiet detail placeholder names the navigation keys in `<kbd>` glyphs, which is
+the only place they are written down: the picker's options carry project names
+alone. `c` is deliberately absent from that list, because the placeholder shows
+only when no record is open, which is exactly when `c` has nothing to copy.
 The modified alternatives were considered and rejected. A bare function key loses
 F1, F5, F11, and F12 to the browser, and on macOS the function row sends media
 keys unless the system setting is changed; Alt+F*n* loses F4 to the window
@@ -626,7 +634,10 @@ with Escape from both a clicked and an arrow-key selection with the placeholder
 it uncovers listing all three hints, the horizontal arrows walking and wrapping
 the filter row while leaving a focused search field and divider alone, the digit
 keys selecting a project and back again from a picker whose options carry names
-alone while the search field keeps every digit typed into it, the draggable
+alone while the search field keeps every digit typed into it, `c` copying the
+open record's real recall pointer off the clipboard while refusing to fire with
+nothing open, from inside the pane, or with Shift held, and still firing for the
+uppercase letter Caps Lock reports, the draggable
 divider (drag, reload, arrow keys, double-click reset, no overflow), and the
 narrow sheet with its Back button. The `tests/e2e/surface.ts` helpers
 (`workPane`, `workCard`, `selectWork`, `closeDetail`, `openTab`) are how every
@@ -814,7 +825,8 @@ lifecycle filters,
 lexical search and explicit Semantic opt-in, queue selection by click and by
 the arrow keys, the horizontal arrows walking the lifecycle filter row, Escape
 dropping the selection, the digit keys switching projects from the workspace
-picker, lazy queue paging with the total in the result count, bounded
+picker, `c` copying the open record's recall pointer, lazy queue paging with the
+total in the result count, bounded
 context in the detail pane, grouped pointer-only relationships in the Graph
 tab, the checkpoint timeline in the History tab, immutable activity timeline
 paging in the Activity tab, progress-event creation, prompt copy, work-item ID

@@ -922,6 +922,71 @@ test("Escape deselects the open work item", async ({ page }, testInfo) => {
   }
 });
 
+test("c copies the open record's recall pointer, but not from inside the pane", async ({ page }, testInfo) => {
+  const token = searchToken("surfacecopykey", testInfo);
+  const key = testKey(testInfo);
+  const title = `Pointer key item ${token}`;
+  const client = await apiClient();
+  try {
+    const work = await createWork(client, { title, sessionId: `surface-copy-key-${key}` });
+    // Read rather than seed: writing the clipboard from an evaluate has no user
+    // activation behind it, so every "nothing happened" check compares before to after.
+    const clipboard = async () => await page.evaluate(() => navigator.clipboard.readText());
+    const unchangedThrough = async (press: () => Promise<void>) => {
+      const before = await clipboard();
+      await press();
+      expect(await clipboard()).toBe(before);
+    };
+
+    await openDashboard(page);
+    await searchFor(page, token, 1);
+    const card = workCard(page, title);
+    const cardCopy = card.getByRole("button", { name: /Copy recall pointer/ });
+    const searchbox = page.getByRole("searchbox", { name: "Search work items" });
+
+    // Nothing is open yet, so the key has no record to copy.
+    await searchbox.blur();
+    await unchangedThrough(() => page.keyboard.press("c"));
+    await expect(cardCopy).not.toHaveClass(/is-copied/);
+
+    // The arrows open a record; c copies that one, with the button's own copied state.
+    await page.keyboard.press("ArrowDown");
+    await expect(card).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("c");
+    await expect(page.locator(".toast")).toContainText("Recall pointer copied");
+    const pointer = await clipboard();
+    expect(pointer).toContain(work.id);
+    expect(pointer).toContain("recall_work");
+    await expect(cardCopy).toHaveClass(/is-copied/);
+
+    // Caps Lock reports an uppercase letter with no Shift held, so it copies too. The
+    // copied window has to elapse first, or the second copy has no visible signal.
+    await expect(cardCopy).not.toHaveClass(/is-copied/, { timeout: 10_000 });
+    await page.keyboard.press("C");
+    await expect(cardCopy).toHaveClass(/is-copied/);
+    expect(await clipboard()).toBe(pointer);
+
+    // A real Shift is a different press and is refused.
+    await unchangedThrough(() => page.keyboard.press("Shift+c"));
+
+    // Inside the open record the letter belongs to the pane, which carries its own
+    // copy button. Below 900px the pane is a full-screen sheet; either way it is the
+    // record's own region that holds focus here.
+    await closeDetail(page);
+    const pane = await selectWork(page, title);
+    await pane.getByRole("button", { name: "Copy work item ID" }).focus();
+    await unchangedThrough(() => page.keyboard.press("c"));
+
+    // And the search field keeps the letter it is typed into.
+    await closeDetail(page);
+    await searchbox.fill("");
+    await unchangedThrough(() => searchbox.press("c"));
+    await expect(searchbox).toHaveValue("c");
+  } finally {
+    await client.dispose();
+  }
+});
+
 test("the horizontal arrows walk the lifecycle filters", async ({ page }, testInfo) => {
   test.skip(
     narrowProject(testInfo),

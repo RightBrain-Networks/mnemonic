@@ -1,12 +1,12 @@
 # Mnemonic validation record
 
-## Digit-key project selection — 2026-09-04
+## Digit-key project selection and the pointer copy key — 2026-09-04
 
 This entry covers replacing the function-key project shortcuts recorded in
 [Work library keyboard bindings](#work-library-keyboard-bindings--2026-09-04)
 with the digits, and naming the whole keyboard map in the quiet detail
-placeholder (dashboard `0.5.0`, no application/API/MCP, plugin, migration, or
-proxy-allowlist change). The function row was rejected on reach rather than
+placeholder, and binding `c` to the recall-pointer copy (dashboard `0.5.0`, no
+application/API/MCP, plugin, migration, or proxy-allowlist change). The function row was rejected on reach rather than
 implementation: a bare function key loses F1, F5, F11, and F12 to the browser and
 the whole row to the macOS media-key default, while both modified forms are
 worse — Alt+F*n* loses F4 to the window manager everywhere and five more keys to
@@ -19,8 +19,22 @@ carries project names alone, and the placeholder lists all three bindings in the
 types — unlike an arrow or a function key — the shortcut had to start refusing a
 typing target; that guard and the open-dialog check are now one shared module,
 `frontend/lib/keyboard-shortcuts.ts`, which the queue map and the `/` search
-shortcut both use. Every figure below was observed in the session that recorded
-it, on a local Node v22.22.3 checkout of the topic branch (CI uses Node 24).
+shortcut both use.
+
+`c` copies the open record's recall pointer through the same `copyRecallPointer`
+the record's own button calls, so the value, the notice, and the copied state
+cannot drift from it. It is the queue's key rather than the pane's: with focus
+inside `.work-detail-pane` it is left alone, since the pane carries its own copy
+button, and with nothing open it does nothing at all. It is deliberately absent
+from the placeholder hint stack, which renders only when no record is open —
+exactly when `c` has nothing to copy. A Playwright probe of the three `c`
+variants settled how the key arrives: `press("C")` reports `key=C` with
+`shiftKey` false, which is what Caps Lock produces on a real keyboard, while
+`Shift+c` reports `key=c` with `shiftKey` true. A single-character key is
+therefore compared lowered so Caps Lock still copies, and the modifier guard
+above still refuses a real Shift. Every figure below was observed in the session
+that recorded it, on a local Node v22.22.3 checkout of the topic branch (CI uses
+Node 24).
 
 - **Frontend unit tests (`npm test`): 216 passing, 0 failing.** The rewritten
   `tests/project-shortcuts.test.mjs` covers the ten-slot range with 0 as the
@@ -30,14 +44,20 @@ it, on a local Node v22.22.3 checkout of the topic branch (CI uses Node 24).
   nothing.
 - **TypeScript checking (`npm run typecheck`) and the production build
   (`npm run build`): both pass.**
-- **Isolated Playwright stack (`npm run test:e2e:stack`): 95 executions, 91
-  passing, 4 skipped by design, 0 failing, 5.4 minutes** on a uniquely named
-  disposable Compose project, rerun after the rebase onto the cross-dissolve below
-  so the figures describe the branch as it merges; teardown left no
-  `mnemonic-e2e-*` container, volume, or network of its own. The project case
-  presses digits, asserts the options carry no key prefix, and adds the guard that
-  matters for a digit: a number typed into the search field stays in the field and
-  switches nothing. The
+- **Isolated Playwright stack (`npm run test:e2e:stack`): 97 executions, 93
+  passing, 4 skipped by design, 0 failing, 5.8 minutes** on a uniquely named
+  disposable Compose project, run after the rebase onto the cross-dissolve below so
+  the figures describe the branch as it merges; teardown left no `mnemonic-e2e-*`
+  container, volume, or network of its own. The project case presses digits,
+  asserts the options carry no key prefix, and adds the guard that matters for a
+  digit: a number typed into the search field stays in the field and switches
+  nothing. A new case reads the real clipboard rather than a notice: `c` copies the
+  open record's pointer with the card button's copied state, copies again for the
+  uppercase letter Caps Lock reports, and leaves the clipboard untouched with
+  nothing open, with focus inside the pane, with Shift held, and when typed into
+  the search field. Because writing the clipboard from an `evaluate` has no user
+  activation behind it, each "nothing happened" check compares the clipboard before
+  the press to after rather than seeding a sentinel. The
   Escape case additionally asserts the uncovered placeholder lists all three
   hints in order.
 - **Placeholder rendering:** captured at 1440×900 in both themes from a
