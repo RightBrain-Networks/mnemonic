@@ -112,8 +112,22 @@ function Icon({ name, size = 18 }: { name: keyof typeof iconPaths; size?: number
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[name]} /></svg>;
 }
 
+// The brand mark carries fixed brand colors rather than currentColor, so it
+// stays identical in both themes; `images/mnemonic_logo.svg` is the source.
 function Logo() {
-  return <svg className="logo-mark" width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true"><rect width="34" height="34" rx="10" fill="currentColor" /><path d="M9 27v-4.2A10.6 10.6 0 0 1 6.5 15C6.5 9.5 10.9 5 16.4 5c4.7 0 8.7 3.4 9.5 8l1.9 3.1c.6 1-.05 2.25-1.2 2.33l-1.4.1-.4 3.3a3.4 3.4 0 0 1-3.4 3h-2.2V27H9Z" fill="#f9f8f3" /><rect x="14.3" y="9.2" width="4.1" height="9" rx="2.05" fill="currentColor" /><circle cx="16.35" cy="21.5" r="2.1" fill="currentColor" /></svg>;
+  return <svg className="logo-mark" width="40" height="38" viewBox="0 0 916 863.9" shapeRendering="geometricPrecision" aria-hidden="true">
+    <path d="M458,99.9L458,99.9c13.3,0,24,10.7,24,24v48c0,13.3-10.7,24-24,24l0,0c-13.3,0-24-10.7-24-24v-48C434,110.7,444.7,99.9,458,99.9z" fill="#f25522" />
+    <circle cx="467.3" cy="85.3" r="85.3" fill="#f25522" />
+    <circle cx="473.7" cy="91.6" r="52.8" fill="#94db23" />
+    <path d="M83,365.9L83,365.9c45.8,0,83,37.2,83,83v102c0,45.8-37.2,83-83,83l0,0c-45.8,0-83-37.2-83-83v-102C0,403.1,37.2,365.9,83,365.9z" fill="#f25522" />
+    <path d="M833,365.9L833,365.9c45.8,0,83,37.2,83,83v102c0,45.8-37.2,83-83,83l0,0c-45.8,0-83-37.2-83-83v-102C750,403.1,787.2,365.9,833,365.9z" fill="#f25522" />
+    <path d="M82,409.9L82,409.9c21,0,38,17,38,38v104c0,21-17,38-38,38l0,0c-21,0-38-17-38-38v-104C44,426.9,61,409.9,82,409.9z" fill="#94db23" />
+    <path d="M834,409.9L834,409.9c21,0,38,17,38,38v104c0,21-17,38-38,38l0,0c-21,0-38-17-38-38v-104C796,426.9,813,409.9,834,409.9z" fill="#94db23" />
+    <path d="M290,179.9h336c120.4,0,218,97.6,218,218v248c0,120.4-97.6,218-218,218H290c-120.4,0-218-97.6-218-218v-248C72,277.5,169.6,179.9,290,179.9z" fill="#f25522" />
+    <path d="M298,241.9h320c89.5,0,162,72.5,162,162v234c0,89.5-72.5,162-162,162H298c-89.5,0-162-72.5-162-162v-234C136,314.4,208.5,241.9,298,241.9z" fill="#94db23" />
+    <path d="M335.5,406.8C351.2,335.3,399.2,304,456.7,304c75,0,123.8,43.6,123.8,108.1c0,49.7-26.2,81.1-71.5,120.3c-34.9,30.5-53.2,56.7-53.2,87.2" fill="none" stroke="#ffffff" strokeWidth="88" strokeLinecap="round" strokeLinejoin="round" />
+    <circle cx="460" cy="741.9" r="42" fill="#ffffff" />
+  </svg>;
 }
 
 function MutationRecoveryPanel({
