@@ -552,19 +552,26 @@ test("the library hero names the selected project in the vendored italic face", 
 
   const painted = await subject.evaluate((node) => {
     const style = getComputedStyle(node);
+    const parent = getComputedStyle(node.parentElement!);
     return {
       family: style.fontFamily.split(",")[0].replace(/["']/g, "").trim(),
       opacity: style.opacity,
       style: style.fontStyle,
-      synthesis: style.fontSynthesisStyle
+      synthesis: style.fontSynthesisStyle,
+      // Both sizes are resolved pixels, so this holds at the clamp and both breakpoints.
+      sizeRatio: parseFloat(style.fontSize) / parseFloat(parent.fontSize),
+      trackingRatio: parseFloat(style.letterSpacing) / parseFloat(style.fontSize)
     };
   });
-  expect(painted).toEqual({
+  expect(painted).toMatchObject({
     family: "IBM Plex Sans",
     opacity: "0.8",
     style: "italic",
     synthesis: "none"
   });
+  expect(painted.sizeRatio).toBeCloseTo(0.6, 3);
+  // Tracking scales with the name rather than inheriting the title's absolute pixels.
+  expect(painted.trackingRatio).toBeCloseTo(-0.045, 3);
 
   // Synthesis is off, so an italic face the browser never fetched would render upright.
   // A "loaded" status proves the vendored file was downloaded to paint this text.
