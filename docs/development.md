@@ -561,7 +561,16 @@ queue, so changing it — including the empty state's Clear filters, which retur
 the queue to Pending — drops the open selection instead of stranding a record the
 queue no longer lists; reselecting the filter already in force changes nothing,
 and an unsaved edit or checkpoint draft holds the change behind the same
-confirmation that closing the pane uses. A divider between the columns
+confirmation that closing the pane uses. Neither column swaps abruptly: the
+filter change — from a button, from Clear filters, or from the horizontal-arrow
+shortcut — runs inside one view transition that renames the queue, and the
+detail pane when it retires the open record, so the browser eases each outgoing
+capture out on `easeOutCirc` while the live pane eases in on `easeInCirc` over
+the `--pane-crossfade-duration` the stylesheet sets once. The incoming capture
+stays live, so a queue page that lands mid-transition arrives inside the fade;
+everything the filter did not rename swaps at once, so the clicked button
+answers immediately, and a reduced-motion reader gets the plain swap. A divider
+between the columns
 (`role="separator"`, keyboard-adjustable, double-click resets) sets the
 queue's share of the surface and remembers it in `localStorage` under
 `mnemonic.work-split`; the stylesheet clamps both columns to readable minimums.
@@ -590,17 +599,23 @@ Node tests cover the pure queue helpers
 list-scroll arithmetic, forced More-filters state, lifecycle-filter transitions,
 the filter row's order and its wrapping walk), the project function-key helpers
 (bound range, per-option labels, key parsing), the split helpers (bounds,
-stored-preference parsing, pointer and keyboard steps), and the tab-count helper.
+stored-preference parsing, pointer and keyboard steps), the tab-count helper, and
+the cross-dissolve's single duration, its two circ easings, and which panes a
+given filter transition renames (`tests/pane-crossfade.test.mjs`, which reads
+`app/globals.css` so the stylesheet and `lib/pane-crossfade.ts` cannot drift).
 `tests/e2e/work-library-surface.spec.ts` runs in both the desktop and narrow
 Chromium projects and covers arrow-key selection that scrolls the list rather
 than the window, tab persistence across items, inline edit save and cancel,
 merge inside the Graph tab through the real API, lazy append from 20 to 40 to
 45 seeded cards with the total shown throughout, the More filters toggle and
 provenance auto-open, work-item ID copy, `?work=` restore on reload,
-deselection on a lifecycle-filter change and on Clear filters, deselection with
-Escape from both a clicked and an arrow-key selection, the horizontal arrows
-walking and wrapping the filter row while leaving a focused search field and
-divider alone, the function keys selecting a project from a picker that names
+deselection on a lifecycle-filter change and on Clear filters, the
+cross-dissolve those changes run inside (both panes captured for the same span
+on the two circ curves, the queue alone when nothing is open, no root half, no
+name left behind, and no transition at all under reduced motion), deselection
+with Escape from both a clicked and an arrow-key selection, the horizontal
+arrows walking and wrapping the filter row while leaving a focused search field
+and divider alone, the function keys selecting a project from a picker that names
 each key, the draggable divider (drag, reload, arrow keys, double-click reset,
 no overflow), and the narrow sheet with its Back button. The `tests/e2e/surface.ts` helpers
 (`workPane`, `workCard`, `selectWork`, `closeDetail`, `openTab`) are how every

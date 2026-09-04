@@ -31,6 +31,8 @@ function Icon({ name, size = 18 }: { name: keyof typeof iconPaths; size?: number
 }
 
 export type WorkItemListProps = {
+  // The queue pane the lifecycle filter cross-dissolves; usePaneCrossfade owns it.
+  queuePaneRef: RefObject<HTMLDivElement | null>;
   // Search and filter controls.
   query: string;
   searchedQuery: string;
@@ -80,6 +82,7 @@ export type WorkItemListProps = {
 };
 
 export default function WorkItemList({
+  queuePaneRef,
   query,
   searchedQuery,
   searchRef,
@@ -191,6 +194,7 @@ export default function WorkItemList({
 
     <section ref={workSplit.surfaceRef} className={`work-surface ${workSplit.resizing ? "is-resizing" : ""}`} style={workSplit.surfaceStyle} aria-label="Work surface">
       <WorkQueue
+        paneRef={queuePaneRef}
         items={items}
         flatSearch={flatSearch}
         total={total}

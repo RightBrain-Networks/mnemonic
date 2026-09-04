@@ -1,5 +1,63 @@
 # Mnemonic validation record
 
+## Lifecycle-filter cross-dissolve — 2026-09-04
+
+This entry covers replacing the abrupt swap of both work-library columns on a
+lifecycle-filter change with a cross-dissolve (dashboard `0.5.0`, no
+application/API/MCP, plugin, migration, or proxy-allowlist change). Before it,
+the queue and the detail pane cut straight to their new contents. The filter
+change now runs inside one view transition: `usePaneCrossfade` renames the queue,
+and the detail pane when the change retires the open record, then applies the
+state change inside `document.startViewTransition`, so the browser eases each
+outgoing capture out on easings.net `easeOutCirc` while the live pane eases in on
+`easeInCirc`. The filter buttons, the empty state's Clear filters, and the
+horizontal-arrow shortcut all reach it through the same `filterByStatus`. `--pane-crossfade-duration` in `app/globals.css` is the single
+adjustable span for both halves. Everything the filter did not rename is captured
+as the root, which the stylesheet holds still so the clicked button answers at
+once and the theme selector keeps its own root crossfade. A first attempt
+overlaid a cloned DOM snapshot instead; it duplicated every element in the pane
+for the length of the fade and broke seven existing specs on strict-mode locator
+matches, which is why the shipped change carries no clone at all. Every figure
+below was observed in the session that recorded it, on a local Node v22.22.3
+checkout of the topic branch (CI uses Node 24).
+
+- **Frontend unit tests (`npm test`): 217 passing, 0 failing.** The run adds
+  `tests/pane-crossfade.test.mjs`, which reads `app/globals.css` so the stylesheet
+  and `lib/pane-crossfade.ts` cannot drift: one 500ms duration on the group, old,
+  and new halves of both panes; `cubic-bezier(0.55, 0, 1, 0.45)` on the incoming
+  half and `cubic-bezier(0, 0.55, 0.45, 1)` on the outgoing one; the scoped rule
+  that holds the root still without disarming the theme's own root fade; and which
+  panes each `statusFilterTransition` result renames.
+- **TypeScript checking (`npm run typecheck`) and the production build
+  (`npm run build`): both pass.**
+- **Playwright suite on a disposable stack: 95 executions, 91 passing, 4 skipped
+  by design, 0 failing, 5.4 minutes** on a uniquely named `mnemonic-e2e-` Compose
+  project built from this branch. The run adds the desktop case in
+  `tests/e2e/work-library-surface.spec.ts` that opens a pending record, clicks
+  Deferred, and reads the running animations in the same task: both panes captured
+  for `0.5s` on the two circ curves, no root half animating, no second copy of the
+  detail title in the DOM, and no `view-transition-name` or `data-pane-crossfade`
+  left behind once it settles; then a filter change driven by the horizontal-arrow
+  shortcut with nothing open, which captures the queue alone; then a filter click
+  under `prefers-reduced-motion: reduce`, which starts no transition at all. The
+  narrow project skips it for the same reason it skips the deselection case: the
+  full-screen sheet covers the filter row while a record is open. Every other spec
+  passed unchanged.
+- **Held-frame inspection (Chromium, 1500x950):** with the transition's animations
+  paused and stepped through 0, 100, 200, 250, 350, 450, and 500ms, each pane's
+  outgoing capture reads 1.000, 0.402, 0.201, 0.135, 0.046, 0.005, 0.000 and its
+  incoming 0.000, 0.020, 0.084, 0.135, 0.288, 0.565, 1.000; the queue and the detail
+  pane measured identically. The halves cross at 0.135 rather than at half weight,
+  because `easeInCirc` in against `easeOutCirc` out is a dip by construction: the
+  surface passes through the page ground mid-transition instead of holding constant
+  weight. Held frames at each step show the sidebar, header, filter row, and the
+  clicked button unfaded throughout.
+- **Gitleaks (`pre-commit` hook): passed** on the commit.
+
+No backend, MCP, migration, plugin, stack-check, or adversarial-review result is
+claimed for this change, and it does not alter any production, cutover, or
+permanence gate.
+
 ## Work library keyboard bindings — 2026-09-04
 
 This entry covers three keyboard bindings added beside the queue's existing
