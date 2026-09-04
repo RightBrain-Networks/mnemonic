@@ -8,13 +8,11 @@ import {
   WORK_PAGE_SIZE,
   moreFiltersForced,
   statusFilterLabels,
+  statusFilterOrder,
   type WorkQueueItem
 } from "@/lib/work-queue";
 import { WORK_SPLIT_MAX, WORK_SPLIT_MIN } from "@/lib/work-split";
 
-const filters: StatusFilter[] = [
-  "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
-];
 const sortOptions: { value: WorkSort; label: string }[] = [
   { value: "updated", label: "Updated" },
   { value: "created", label: "Created" },
@@ -75,6 +73,7 @@ export type WorkItemListProps = {
   onClearFilters: () => void;
   onCreate: () => void;
   onSelect: (summary: WorkSummary) => void;
+  onDeselect: () => void;
   onCopyPointer: (summary: WorkSummary) => void;
   // The right column of the work surface (the detail pane).
   detail: ReactNode;
@@ -120,6 +119,7 @@ export default function WorkItemList({
   onClearFilters,
   onCreate,
   onSelect,
+  onDeselect,
   onCopyPointer,
   detail
 }: WorkItemListProps) {
@@ -147,8 +147,8 @@ export default function WorkItemList({
         <button className={`semantic-toggle ${semantic ? "selected" : ""}`} type="button" aria-label="Semantic search" aria-pressed={semantic} onClick={onToggleSemantic}><span className="semantic-switch"><span /></span><span>Semantic</span></button>
       </div>
       <div className="filter-row">
-        <div className="status-filters" role="group" aria-label="Filter work items">
-          {filters.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "pending" && <span className="filter-dot" />}{statusFilterLabels[filter]}</button>)}
+        <div className="status-filters" role="group" aria-label="Filter work items" aria-keyshortcuts="ArrowLeft ArrowRight">
+          {statusFilterOrder.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "pending" && <span className="filter-dot" />}{statusFilterLabels[filter]}</button>)}
         </div>
         <div className="filter-controls">
           <div className="sort-group">
@@ -214,6 +214,8 @@ export default function WorkItemList({
         onRetry={onRetry}
         onRetryAppend={onRetryAppend}
         onSelect={onSelect}
+        onStatus={onStatus}
+        onDeselect={onDeselect}
         onCopyPointer={onCopyPointer}
         onFlatSearch={(item) => {
           if (semantic) onToggleSemantic();
@@ -228,6 +230,7 @@ export default function WorkItemList({
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize the work queue"
+        aria-keyshortcuts="ArrowLeft ArrowRight Home End"
         aria-valuemin={WORK_SPLIT_MIN}
         aria-valuemax={WORK_SPLIT_MAX}
         aria-valuenow={Math.round(workSplit.split)}

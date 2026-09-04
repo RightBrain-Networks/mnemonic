@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   WORK_PAGE_SIZE,
   appendWorkPage,
+  cycleStatusFilter,
   hasMoreWork,
   listScrollTopFor,
   loadedOffsets,
@@ -11,6 +12,8 @@ import {
   nextQueueSelection,
   resultCountLabel,
   sortDescription,
+  statusFilterLabels,
+  statusFilterOrder,
   statusFilterTransition
 } from "../lib/work-queue.ts";
 
@@ -26,10 +29,35 @@ test("the queue page size stays on the wire contract", () => {
   assert.equal(WORK_PAGE_SIZE, 20);
 });
 
-test("changing the lifecycle filter drops an open selection", () => {
-  const filters = [
+test("the filter row offers every labelled lifecycle filter exactly once", () => {
+  assert.deepEqual(statusFilterOrder, [
     "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
-  ];
+  ]);
+  assert.deepEqual([...statusFilterOrder].sort(), Object.keys(statusFilterLabels).sort());
+  assert.equal(new Set(statusFilterOrder).size, statusFilterOrder.length);
+});
+
+test("the horizontal arrows walk the filter row in its rendered order", () => {
+  for (const [index, filter] of statusFilterOrder.entries()) {
+    const forward = statusFilterOrder[(index + 1) % statusFilterOrder.length];
+    const back = statusFilterOrder[(index + statusFilterOrder.length - 1) % statusFilterOrder.length];
+    assert.equal(cycleStatusFilter(filter, "next"), forward);
+    assert.equal(cycleStatusFilter(filter, "previous"), back);
+  }
+});
+
+test("the filter row is a ring, so neither end dead-ends", () => {
+  assert.equal(cycleStatusFilter("all", "next"), "pending");
+  assert.equal(cycleStatusFilter("pending", "previous"), "all");
+});
+
+test("a step off an unknown filter lands on the first one", () => {
+  assert.equal(cycleStatusFilter("open", "next"), "pending");
+  assert.equal(cycleStatusFilter("open", "previous"), "pending");
+});
+
+test("changing the lifecycle filter drops an open selection", () => {
+  const filters = statusFilterOrder;
   for (const current of filters) {
     for (const next of filters) {
       if (current === next) continue;

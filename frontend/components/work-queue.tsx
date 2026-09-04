@@ -12,11 +12,13 @@ import type {
   WorkSummary
 } from "@/lib/types";
 import {
+  cycleStatusFilter,
   listScrollTopFor,
   nextQueueSelection,
   resultCountLabel,
   sortDescription,
   statusFilterLabels,
+  type QueueDirection,
   type WorkQueueItem
 } from "@/lib/work-queue";
 
@@ -49,6 +51,12 @@ function typingTarget(target: EventTarget | null): boolean {
   return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable;
 }
 
+// The work-surface resizer steps its own split with the horizontal arrows while it holds
+// focus, so the filter shortcut below leaves those presses to it.
+function resizingSurface(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.closest("[role='separator']") !== null;
+}
+
 export type WorkQueueProps = {
   items: WorkQueueItem[];
   flatSearch: boolean;
@@ -73,6 +81,8 @@ export type WorkQueueProps = {
   onRetry: () => void;
   onRetryAppend: () => void;
   onSelect: (summary: WorkSummary) => void;
+  onStatus: (status: StatusFilter) => void;
+  onDeselect: () => void;
   onCopyPointer: (summary: WorkSummary) => void;
   onFlatSearch: (summary: WorkSummary) => void;
   onClearFilters: () => void;
@@ -103,6 +113,8 @@ export default function WorkQueue({
   onRetry,
   onRetryAppend,
   onSelect,
+  onStatus,
+  onDeselect,
   onCopyPointer,
   onFlatSearch,
   onClearFilters,
@@ -115,6 +127,7 @@ export default function WorkQueue({
   const selectedIdRef = useRef(selectedId);
   const onSelectRef = useRef(onSelect);
   const fetchStateRef = useRef({ hasMore, loading, refreshing, appending, appendError, onLoadMore });
+  const shortcutStateRef = useRef({ status, onStatus, onDeselect });
   const [scrolled, setScrolled] = useState(false);
   const hasData = total !== null;
   const searchResults = flatSearch
@@ -132,6 +145,7 @@ export default function WorkQueue({
 
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
+  useEffect(() => { shortcutStateRef.current = { status, onStatus, onDeselect }; }, [onDeselect, onStatus, status]);
   useEffect(() => {
     fetchStateRef.current = { hasMore, loading, refreshing, appending, appendError, onLoadMore };
   }, [appendError, appending, hasMore, loading, onLoadMore, refreshing]);
@@ -191,17 +205,13 @@ export default function WorkQueue({
   }, [appendError, appending, hasMore, loading, refreshing]);
 
   useEffect(() => {
-    function moveSelection(event: KeyboardEvent) {
-      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-      if (typingTarget(event.target) || document.querySelector("dialog[open]")) return;
+    function moveSelection(direction: QueueDirection) {
       const list = listRef.current;
       if (!list) return;
-      event.preventDefault();
       const optionElements = [...list.querySelectorAll<HTMLElement>("[data-queue-option]")];
       const ids = optionElements.map((element) => element.dataset.queueOption ?? "");
       const currentId = selectedIdRef.current;
-      const nextId = nextQueueSelection(ids, currentId, event.key === "ArrowDown" ? "down" : "up");
+      const nextId = nextQueueSelection(ids, currentId, direction);
       if (nextId === null) return;
       const summary = registryRef.current.get(nextId);
       const option = optionElements.find((element) => element.dataset.queueOption === nextId);
@@ -218,8 +228,34 @@ export default function WorkQueue({
         padding: QUEUE_SCROLL_PADDING
       });
     }
-    window.addEventListener("keydown", moveSelection);
-    return () => window.removeEventListener("keydown", moveSelection);
+
+    // The queue's keyboard map: the vertical arrows walk the list, the horizontal ones
+    // walk the lifecycle filters, and Escape closes whatever the pane is showing. A
+    // dialog owns the keyboard outright while it is open.
+    function shortcut(event: KeyboardEvent) {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (typingTarget(event.target) || document.querySelector("dialog[open]")) return;
+      const state = shortcutStateRef.current;
+      switch (event.key) {
+        case "ArrowDown":
+        case "ArrowUp":
+          event.preventDefault();
+          moveSelection(event.key === "ArrowDown" ? "down" : "up");
+          return;
+        case "ArrowLeft":
+        case "ArrowRight":
+          if (resizingSurface(event.target)) return;
+          event.preventDefault();
+          state.onStatus(cycleStatusFilter(state.status, event.key === "ArrowRight" ? "next" : "previous"));
+          return;
+        // Escape has no default worth suppressing here, and a browser that clears a
+        // search field with it has already been excluded as a typing target.
+        case "Escape":
+          state.onDeselect();
+      }
+    }
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
   }, []);
 
   const countLabel = resultCountLabel({ loading, pendingQuery, flatSearch, total });

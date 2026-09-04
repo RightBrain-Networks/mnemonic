@@ -43,6 +43,7 @@ import {
 } from "@/lib/dashboard-preferences";
 import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
 import { connectLiveSync, type LiveSyncStatus } from "@/lib/live-sync";
+import { projectShortcutIndex, projectShortcutOptionLabel } from "@/lib/project-shortcuts";
 import {
   isBlockingProjectSettingsLoad,
   isCurrentProjectSettingsLoad
@@ -639,6 +640,30 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     });
   }, [nextLeaseExpiry, opened?.work_item.id]);
 
+  // F1 through F12 pick the workspace's first twelve projects. The picker sits in the
+  // sidebar of every view, so this is not scoped to the work library, and the switch
+  // routes through chooseProject: a pending mutation or an unsaved draft still refuses
+  // it there, exactly as it refuses a switch made with the pointer.
+  // The listener re-registers each render deliberately. chooseProject reads the open
+  // work item and its drafts from the current render, so a handler captured once would
+  // decide against a stale pane.
+  useEffect(() => {
+    function selectProject(event: KeyboardEvent) {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (document.querySelector("dialog[open]")) return;
+      const index = projectShortcutIndex(event.key);
+      if (index === null) return;
+      // The list a refresh is about to replace is still the list on screen, so the key
+      // is answered from it rather than dropped for the duration of a background load.
+      const target = projects[index];
+      if (!target || target.id === activeId) return;
+      event.preventDefault();
+      chooseProject(target.id);
+    }
+    window.addEventListener("keydown", selectProject);
+    return () => window.removeEventListener("keydown", selectProject);
+  });
+
   useEffect(() => {
     if (view !== "library") return;
     function focusSearch(event: KeyboardEvent) {
@@ -1005,6 +1030,13 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   function closeWork() {
     if (!leavingOpenedWorkAllowed()) return;
     clearSelection();
+  }
+
+  // Escape closes the pane the way its Back button does, including the unsaved-draft
+  // prompt. With nothing open it stays silent rather than raising that prompt.
+  function deselectWork(): void {
+    if (selectedWorkItemId() === null) return;
+    closeWork();
   }
 
   // The pane's record, including one whose exact load has not landed yet: an in-flight
@@ -1652,7 +1684,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         <label className="section-label" htmlFor="project-select">YOUR WORKSPACE</label>
         <div className="select-wrap"><select id="project-select" value={activeId} disabled={projectsLoading || !projects.length || activeProjectMutationBlocked} onChange={(event) => chooseProject(event.target.value)}>
           {!projects.length && <option value="">{projectsLoading ? "Loading projects…" : "Select a project"}</option>}
-          {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          {projects.map((item, index) => <option key={item.id} value={item.id}>{projectShortcutOptionLabel(item.name, index)}</option>)}
         </select><span className="select-chevron" aria-hidden="true">⌄</span></div>
         <button className="new-project-button" type="button" disabled={projectsLoading || activeProjectMutationBlocked} onClick={() => { setNewProjectError(""); setProjectDialog(true); }}><Icon name="plus" size={15} />New project</button>
         {project && <button className="copy-project-button" type="button" title={`Project ID: ${project.id}`} onClick={() => void copyProjectId()}><Icon name="copy" size={13} />Copy project ID for your agent</button>}
@@ -1779,6 +1811,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 onClearFilters={clearFilters}
                 onCreate={openWorkDialog}
                 onSelect={selectWork}
+                onDeselect={deselectWork}
                 onCopyPointer={(item) => void copyRecallPointer(item)}
                 detail={<WorkDetailPane
                   opened={opened}

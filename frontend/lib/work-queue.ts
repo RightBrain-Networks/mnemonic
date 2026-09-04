@@ -22,6 +22,23 @@ export const statusFilterLabels: Record<StatusFilter, string> = {
   all: "All"
 };
 
+// The lifecycle filters in the order the filter row renders them. The left and right
+// arrow keys walk this same list, so the row and the shortcut can never disagree.
+export const statusFilterOrder: StatusFilter[] = [
+  "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
+];
+
+export type StatusFilterStep = "previous" | "next";
+
+// The filters are one small closed ring, so walking off either end returns to the other
+// rather than dead-ending on Pending or All the way the queue's own arrows clamp.
+export function cycleStatusFilter(current: StatusFilter, step: StatusFilterStep): StatusFilter {
+  const index = statusFilterOrder.indexOf(current);
+  if (index === -1) return statusFilterOrder[0];
+  const offset = step === "next" ? 1 : statusFilterOrder.length - 1;
+  return statusFilterOrder[(index + offset) % statusFilterOrder.length];
+}
+
 export type StatusFilterTransition = "unchanged" | "refilter" | "refilter-and-deselect";
 
 // The open detail pane must never outlive the queue that produced it: a record

@@ -565,9 +565,31 @@ confirmation that closing the pane uses. A divider between the columns
 (`role="separator"`, keyboard-adjustable, double-click resets) sets the
 queue's share of the surface and remembers it in `localStorage` under
 `mnemonic.work-split`; the stylesheet clamps both columns to readable minimums.
-Below 900px the pane becomes a full-height sheet with a Back button. Node tests cover the pure queue helpers
+Below 900px the pane becomes a full-height sheet with a Back button.
+
+The surface is keyboard-navigable without leaving the queue. The vertical arrows
+walk the queue selection and clamp at both ends; the horizontal arrows walk the
+lifecycle filter row in its rendered order, wrapping at both ends because the
+eight filters are one small closed ring; Escape drops the open selection through
+the same rule the pane's own Back button follows, including the unsaved-draft
+confirmation, and stays silent with nothing open; and F1 through F12 select the
+workspace picker's first twelve projects, which name their own key in the
+option's text because a native `<option>` carries text and nothing else. Every
+one of these is inert while a `<dialog>` is open or while focus is in a text
+field, `<select>`, or `contenteditable` element, so the keys keep their typing
+meaning; the horizontal arrows additionally yield to a focused surface
+divider, which steps its own split with them. A project switch made with a
+function key routes through the same guard as the picker, so a dispatched
+mutation or an unsaved draft still refuses it. Browsers reserve parts of the
+function row for themselves (F1 for help, F12 for developer tools, F5 and F11
+for reload and full screen), and a reservation the browser does not deliver to
+the page cannot be overridden from it.
+
+Node tests cover the pure queue helpers
 (result-count labels, page merging, loaded offsets, arrow-key selection and
-list-scroll arithmetic, forced More-filters state, lifecycle-filter transitions), the split helpers (bounds,
+list-scroll arithmetic, forced More-filters state, lifecycle-filter transitions,
+the filter row's order and its wrapping walk), the project function-key helpers
+(bound range, per-option labels, key parsing), the split helpers (bounds,
 stored-preference parsing, pointer and keyboard steps), and the tab-count helper.
 `tests/e2e/work-library-surface.spec.ts` runs in both the desktop and narrow
 Chromium projects and covers arrow-key selection that scrolls the list rather
@@ -575,9 +597,12 @@ than the window, tab persistence across items, inline edit save and cancel,
 merge inside the Graph tab through the real API, lazy append from 20 to 40 to
 45 seeded cards with the total shown throughout, the More filters toggle and
 provenance auto-open, work-item ID copy, `?work=` restore on reload,
-deselection on a lifecycle-filter change and on Clear filters, the
-draggable divider (drag, reload, arrow keys, double-click reset, no overflow),
-and the narrow sheet with its Back button. The `tests/e2e/surface.ts` helpers
+deselection on a lifecycle-filter change and on Clear filters, deselection with
+Escape from both a clicked and an arrow-key selection, the horizontal arrows
+walking and wrapping the filter row while leaving a focused search field and
+divider alone, the function keys selecting a project from a picker that names
+each key, the draggable divider (drag, reload, arrow keys, double-click reset,
+no overflow), and the narrow sheet with its Back button. The `tests/e2e/surface.ts` helpers
 (`workPane`, `workCard`, `selectWork`, `closeDetail`, `openTab`) are how every
 other phase spec reaches the pane; the attention view's Open work context
 button navigates to `/?work=<id>` instead of opening a dialog.
@@ -761,7 +786,9 @@ Exercise project empty state and switching, root browsing, lazy child expansion,
 subtree-aware filters, flat-search breadcrumbs, Pending/Active/Dropped/Deferred
 lifecycle filters,
 lexical search and explicit Semantic opt-in, queue selection by click and by
-the arrow keys, lazy queue paging with the total in the result count, bounded
+the arrow keys, the horizontal arrows walking the lifecycle filter row, Escape
+dropping the selection, the function keys switching projects from the labelled
+workspace picker, lazy queue paging with the total in the result count, bounded
 context in the detail pane, grouped pointer-only relationships in the Graph
 tab, the checkpoint timeline in the History tab, immutable activity timeline
 paging in the Activity tab, progress-event creation, prompt copy, work-item ID
