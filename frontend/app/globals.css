@@ -1154,17 +1154,19 @@ html[data-pane-crossfade]::view-transition-new(root) {
 /* The hints stack as one block: only the first one clears the copy above it. */
 .detail-empty .detail-empty-hint + .detail-empty-hint { margin-top: 7px; }
 .detail-empty kbd { display: inline-block; min-width: 22px; height: 22px; padding: 0 6px; border: 1px solid #e1d3bc; border-radius: 4px; color: #6b7280; background: #f5eddc; font: 11px/20px var(--mono); text-align: center; }
-/* The arrow keys hold their real keyboard shape: one cap above the middle of three. */
-.detail-empty .detail-empty-keys { display: flex; align-items: center; gap: 11px; margin: 22px 0 0; }
+/* Both key groups keep their real keyboard shapes and center on one line, so the caps
+   read as a single picture against one left-aligned column of labels. */
+.detail-empty .detail-empty-keys { display: grid; grid-template-columns: auto auto; align-items: center; justify-content: center; gap: 16px 11px; margin: 22px 0 0; text-align: left; }
+.detail-empty .key-cluster, .detail-empty .key-digits { justify-self: center; }
 .detail-empty .key-cluster { display: grid; grid-template-columns: repeat(3, 22px); grid-template-areas: ". up ." "left down right"; gap: 4px; }
 .detail-empty .key-up { grid-area: up; }
 .detail-empty .key-left { grid-area: left; }
 .detail-empty .key-down { grid-area: down; }
 .detail-empty .key-right { grid-area: right; }
-.detail-empty .key-legend { display: grid; gap: 8px; text-align: left; }
-.detail-empty .key-legend .detail-empty-hint { gap: 6px; margin: 0; }
-.detail-empty .key-pair { font: 10px/1 var(--mono); letter-spacing: .5px; }
-.detail-empty .detail-empty-keys + .detail-empty-hint { margin-top: 12px; }
+.detail-empty .key-digits { display: flex; align-items: center; gap: 8px; }
+/* The two arrow labels are one block against the cluster, not a line per cap row. */
+.detail-empty .key-legend { display: grid; gap: 4px; }
+.detail-empty .detail-empty-keys .detail-empty-hint { margin: 0; }
 .detail-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .detail-motion { will-change: opacity, transform; }
 .detail-header { padding: 24px 28px 0; }

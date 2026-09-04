@@ -348,11 +348,12 @@ const contrastFixture = `
               <kbd class="key-up">↑</kbd><kbd class="key-left">←</kbd><kbd class="key-down">↓</kbd><kbd class="key-right">→</kbd>
             </span>
             <span class="key-legend">
-              <span class="detail-empty-hint"><span class="key-pair">↑↓</span>move the selection</span>
-              <span class="detail-empty-hint"><span class="key-pair">←→</span>cycle states</span>
+              <span class="detail-empty-hint">select work item (up/down)</span>
+              <span class="detail-empty-hint">cycle states (left/right)</span>
             </span>
+            <span class="key-digits"><kbd>1</kbd>–<kbd>0</kbd></span>
+            <span class="detail-empty-hint">select a project</span>
           </div>
-          <p class="detail-empty-hint"><kbd>1</kbd>–<kbd>0</kbd>select a project</p>
         </div>
       </section>
     </section>

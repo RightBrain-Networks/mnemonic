@@ -898,27 +898,41 @@ test("Escape deselects the open work item", async ({ page }, testInfo) => {
       const empty = workPane(page).locator(".detail-empty");
       await expect(empty.getByRole("heading", { name: "Pick a work item." })).toBeVisible();
       await expect(empty.locator(".detail-empty-hint")).toHaveText([
-        /↑.*↓.*move the selection/,
-        /←.*→.*cycle states/,
-        /1.*0.*select a project/
+        "select work item (up/down)",
+        "cycle states (left/right)",
+        "select a project"
       ]);
-      // The four arrow caps hold the inverted T a keyboard puts them in: up alone on
-      // the row above, centred over down, with left and right beside it.
-      const cap = async (name: string) => {
-        const box = await empty.locator(`.key-cluster .key-${name}`).boundingBox();
-        expect(box, `${name} arrow key is not rendered`).not.toBeNull();
-        return box!;
+      await expect(empty.locator(".key-digits")).toHaveText("1–0");
+      // The caps hold the shapes a keyboard gives them: up alone on the row above,
+      // centred over down, with left and right beside it.
+      const box = async (selector: string) => {
+        const rect = await empty.locator(selector).boundingBox();
+        expect(rect, `${selector} is not rendered`).not.toBeNull();
+        return rect!;
       };
-      const up = await cap("up");
-      const left = await cap("left");
-      const down = await cap("down");
-      const right = await cap("right");
+      const up = await box(".key-cluster .key-up");
+      const left = await box(".key-cluster .key-left");
+      const down = await box(".key-cluster .key-down");
+      const right = await box(".key-cluster .key-right");
       expect(up.y + up.height).toBeLessThanOrEqual(left.y);
       expect(Math.abs(up.x - down.x)).toBeLessThan(1);
       expect(left.x + left.width).toBeLessThanOrEqual(down.x);
       expect(down.x + down.width).toBeLessThanOrEqual(right.x);
       expect(Math.abs(left.y - down.y)).toBeLessThan(1);
       expect(Math.abs(right.y - down.y)).toBeLessThan(1);
+      // The digit pair centres on the cluster's own axis below it, and all three labels
+      // start on one edge clear of the caps: two key groups, one column of text.
+      const cluster = await box(".key-cluster");
+      const digits = await box(".key-digits");
+      expect(Math.abs((cluster.x + cluster.width / 2) - (digits.x + digits.width / 2)))
+        .toBeLessThan(1);
+      expect(digits.y).toBeGreaterThanOrEqual(left.y + left.height);
+      const edges: number[] = [];
+      for (const label of await empty.locator(".detail-empty-hint").all()) {
+        edges.push((await label.boundingBox())!.x);
+      }
+      expect(Math.max(...edges) - Math.min(...edges)).toBeLessThan(1);
+      expect(Math.min(...edges)).toBeGreaterThanOrEqual(cluster.x + cluster.width);
     }
 
     // A second press has nothing to close and leaves the queue exactly as it is.

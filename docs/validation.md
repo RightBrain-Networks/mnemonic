@@ -1,5 +1,53 @@
 # Mnemonic validation record
 
+## Keyboard hints redrawn in the keyboard's own groups — 2026-09-04
+
+This entry covers the owner-reviewed follow-up to
+[Arrow key hints drawn in a keyboard's inverted T](#arrow-key-hints-drawn-in-a-keyboards-inverted-t--2026-09-04),
+which kept the inverted T but repeated the arrows as `↑↓` and `←→` beside each
+label (dashboard `0.5.0`, no application/API/MCP, plugin, migration, or
+proxy-allowlist change). Those pairs are gone: the placeholder now draws each cap
+exactly once, in the groups a keyboard gives them, and the copy carries the
+directions instead.
+
+The arrows keep their named-area grid — `". up ."` over `"left down right"` on
+three fixed 22px columns — and the digit pair moves in beneath them, both key
+groups centering in the first column of a two-column grid, so the narrower pair
+lines up with the cluster's own axis rather than with its left cap. The three
+labels share the second column and therefore start on one left edge whatever the
+caps beside them measure, with the two arrow labels set as one block centered
+against the cluster rather than a line per cap row. Because the T puts down in
+the bottom row with left and right, no label can be read off the row it sits
+against: they read "select work item (up/down)", "cycle states (left/right)", and
+"select a project". The cluster is `aria-hidden`, since that copy names its keys;
+the digit caps stay readable, since their label does not. Every figure below was
+observed in the session that recorded it, on a local Node v22.22.3 checkout of
+the topic branch (CI uses Node 24).
+
+- **Frontend unit tests (`npm test`): 227 passing, 0 failing.** The count is
+  unchanged because `tests/empty-pane-keys.test.mjs`, added by the entry above,
+  is rewritten rather than extended: one cap per arrow inside one `aria-hidden`
+  cluster, the exact grid areas and three equal columns, both key groups
+  centering in one column, the digit caps left readable, each label naming its
+  own directions, and the arrow labels set as one centered block.
+- **TypeScript checking (`npm run typecheck`) and the production build
+  (`npm run build`): both pass.**
+- **Isolated Playwright stack (`npm run test:e2e:stack`): 99 executions, 95
+  passing, 4 skipped by design, 0 failing, 5.6 minutes** on a uniquely named
+  disposable Compose project; teardown left no container, volume, or network of
+  its own. The Escape case in `tests/e2e/work-library-surface.spec.ts` measures
+  the rendered block in the browser: up sits entirely above the bottom row and
+  shares a left edge with down within a pixel, left and right sit either side of
+  down without overlapping it, all three bottom caps share one top edge, the
+  digit pair's center matches the cluster's within a pixel below it, and the
+  three labels share one left edge clear of the caps. It also reads back the
+  three label strings and the digit group's `1–0`. The dark-theme contrast
+  fixture carries the new markup and the audit passes on it.
+
+No backend, MCP, migration, plugin, stack-check, or adversarial-review result is
+claimed for this change, and it does not alter any production, cutover, or
+permanence gate.
+
 ## Arrow key hints drawn in a keyboard's inverted T — 2026-09-04
 
 This entry covers reshaping the arrow hints in the quiet detail placeholder

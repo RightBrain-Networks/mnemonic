@@ -150,18 +150,20 @@ function EmptyPane() {
     <span className="eyebrow">WORK CONTEXT</span>
     <h2>Pick a work item.</h2>
     <p>Its current context, checkpoint history, work graph, human questions, and activity open here — nothing pops over the queue.</p>
-    {/* The four arrows keep the inverted T they sit in on a keyboard, so the pair in
-        front of each label is what ties an axis to what it does. */}
+    {/* Both key groups sit on one center line, in the shapes a keyboard gives them, so
+        the caps read as one picture beside a single column of labels. The arrow labels
+        name their own directions because the cluster puts down beside left and right. */}
     <div className="detail-empty-keys">
       <span className="key-cluster" aria-hidden="true">
         <kbd className="key-up">↑</kbd><kbd className="key-left">←</kbd><kbd className="key-down">↓</kbd><kbd className="key-right">→</kbd>
       </span>
       <span className="key-legend">
-        <span className="detail-empty-hint"><span className="key-pair">↑↓</span>move the selection</span>
-        <span className="detail-empty-hint"><span className="key-pair">←→</span>cycle states</span>
+        <span className="detail-empty-hint">select work item (up/down)</span>
+        <span className="detail-empty-hint">cycle states (left/right)</span>
       </span>
+      <span className="key-digits"><kbd>1</kbd>–<kbd>0</kbd></span>
+      <span className="detail-empty-hint">select a project</span>
     </div>
-    <p className="detail-empty-hint"><kbd>1</kbd>–<kbd>0</kbd>select a project</p>
   </div>;
 }
 

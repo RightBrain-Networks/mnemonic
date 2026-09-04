@@ -600,13 +600,16 @@ mutation or an unsaved draft still refuses it.
 
 The quiet detail placeholder names the navigation keys in `<kbd>` glyphs, which is
 the only place they are written down: the picker's options carry project names
-alone. The four arrows are drawn as the inverted T they occupy on a keyboard —
-one cap centered above the middle of three — rather than as two flat pairs. That
-shape puts the down arrow in the bottom row beside left and right, so each label
-carries its own `↑↓` or `←→` pair instead of leaving a reader to infer its keys
-from the row it happens to sit against. `c` is deliberately absent from that
-list, because the placeholder shows only when no record is open, which is exactly
-when `c` has nothing to copy.
+alone. The caps are drawn in the groups a keyboard gives them rather than as flat
+pairs: the four arrows in their inverted T, one cap centered above the middle of
+three, and the digit pair below it centered on that same axis, with all three
+labels left-aligned in one column beside them. Because the T puts the down arrow
+in the bottom row with left and right, no label can be read off the row it sits
+against, so each names its own directions — "select work item (up/down)" and
+"cycle states (left/right)". The cluster is `aria-hidden`, since that copy already
+carries it; the digit caps are not, since "select a project" does not name them.
+`c` is deliberately absent from that list, because the placeholder shows only when
+no record is open, which is exactly when `c` has nothing to copy.
 The modified alternatives were considered and rejected. A bare function key loses
 F1, F5, F11, and F12 to the browser, and on macOS the function row sends media
 keys unless the system setting is changed; Alt+F*n* loses F4 to the window
@@ -639,9 +642,10 @@ cross-dissolve those changes run inside (both panes captured for the same span
 on the two circ curves, the queue alone when nothing is open, no root half, no
 name left behind, and no transition at all under reduced motion), deselection
 with Escape from both a clicked and an arrow-key selection with the placeholder
-it uncovers listing all three hints and holding its four arrow caps in the
-measured inverted T, the horizontal arrows walking and wrapping
-the filter row while leaving a focused search field and divider alone, the digit
+it uncovers listing all three hints, holding its four arrow caps in the measured
+inverted T, and centering the digit pair on the cluster's own axis beneath it,
+the horizontal arrows walking and wrapping the filter row while leaving a focused
+search field and divider alone, the digit
 keys selecting a project and back again from a picker whose options carry names
 alone while the search field keeps every digit typed into it, `c` copying the
 open record's real recall pointer off the clipboard while refusing to fire with

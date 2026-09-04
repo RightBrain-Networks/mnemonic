@@ -3,8 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 // The detail placeholder draws the queue's whole keyboard map. Two files have to agree:
-// the pane emits one arrow cluster, and the stylesheet lays it out in the inverted T
-// those four keys sit in on a real keyboard.
+// the pane emits the caps in the groups a keyboard has, and the stylesheet seats those
+// groups on one center line against a single column of labels.
 const PANE_URL = new URL("../components/work-detail-pane.tsx", import.meta.url);
 const CSS_URL = new URL("../app/globals.css", import.meta.url);
 
@@ -43,20 +43,33 @@ test("the stylesheet lays those caps out in a keyboard's inverted T", () => {
     '". up ." "left down right"');
   // Equal fixed columns, so up stays centered over down instead of over the label.
   assert.equal(declaration(".detail-empty .key-cluster", "grid-template-columns"), "repeat(3, 22px)");
-  for (const [key, area] of [["up", "up"], ["left", "left"], ["down", "down"], ["right", "right"]]) {
-    assert.equal(declaration(`.detail-empty .key-${key}`, "grid-area"), area);
+  for (const key of ["up", "left", "down", "right"]) {
+    assert.equal(declaration(`.detail-empty .key-${key}`, "grid-area"), key);
   }
 });
 
-test("each label names its own pair rather than the cluster row beside it", () => {
-  // Down sits in the bottom row next to "cycle states", so the pairs carry the meaning.
-  assert.match(placeholder, /<span className="key-pair">↑↓<\/span>move the selection/);
-  assert.match(placeholder, /<span className="key-pair">←→<\/span>cycle states/);
+test("the digit caps are their own group on the cluster's center line", () => {
+  assert.match(placeholder, /<span className="key-digits"><kbd>1<\/kbd>–<kbd>0<\/kbd><\/span>/);
+  // Two columns of keys and labels; both key groups center in the first one, so the
+  // narrower digit pair lines up with the wider arrow cluster rather than its left cap.
+  assert.equal(declaration(".detail-empty .detail-empty-keys", "grid-template-columns"),
+    "auto auto");
+  assert.equal(declaration(".detail-empty .key-cluster, .detail-empty .key-digits",
+    "justify-self"), "center");
+  // Unlike the arrows, the digit label does not name its keys, so these caps stay read.
+  assert.ok(!/key-digits" aria-hidden/.test(placeholder));
 });
 
-test("the digit hint still keeps its own caps below the cluster", () => {
+test("each label names its own directions rather than the row it sits beside", () => {
+  // The cluster puts down in the bottom row with left and right, so row position alone
+  // would attach the wrong meaning to it.
   assert.match(placeholder,
-    /<p className="detail-empty-hint"><kbd>1<\/kbd>–<kbd>0<\/kbd>select a project<\/p>/);
-  assert.equal(declaration(".detail-empty .detail-empty-keys + .detail-empty-hint", "margin-top"),
-    "12px");
+    /<span className="detail-empty-hint">select work item \(up\/down\)<\/span>/);
+  assert.match(placeholder,
+    /<span className="detail-empty-hint">cycle states \(left\/right\)<\/span>/);
+  assert.match(placeholder, /<span className="detail-empty-hint">select a project<\/span>/);
+  // The two arrow labels are one block centered on the cluster, not a line per cap row.
+  assert.equal(declaration(".detail-empty .key-legend", "display"), "grid");
+  assert.equal(declaration(".detail-empty .detail-empty-keys", "align-items"), "center");
+  assert.equal(declaration(".detail-empty .detail-empty-keys .detail-empty-hint", "margin"), "0");
 });
