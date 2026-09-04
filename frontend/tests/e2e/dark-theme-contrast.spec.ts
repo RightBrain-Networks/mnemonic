@@ -395,7 +395,7 @@ const contrastFixture = `
 </main>
 `;
 
-test("dark-theme text stays in the 4.5:1 to 7:1 contrast band", async ({ page }) => {
+test("dark-theme text stays in the 7.21:1 to 9.5:1 contrast band", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("mnemonic.theme", "dark"));
   await page.goto("/");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
