@@ -534,6 +534,51 @@ test("external API writes appear through live browser sync", async ({ page }, te
   }
 });
 
+test("the library hero names the selected project in the vendored italic face", async ({ page }) => {
+  await page.goto("/");
+  const heading = page.getByRole("heading", { name: /^Work library[.:]/ });
+  await expect(heading).toBeVisible();
+  await page.locator("#project-select").selectOption(state.projectId);
+  await expect(heading).toHaveText(`Work library: ${state.projectName}`);
+
+  // The colon inherits the accent the period carried; the project name must not.
+  const mark = heading.locator(".heading-mark");
+  const subject = heading.locator(".heading-subject");
+  await expect(mark).toHaveText(":");
+  await expect(subject).toHaveText(state.projectName);
+  const color = (locator: Locator) => locator.evaluate((node) => getComputedStyle(node).color);
+  expect(await color(mark)).toBe(await color(page.locator(".page-heading .eyebrow")));
+  expect(await color(subject)).toBe(await color(heading));
+
+  const painted = await subject.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      family: style.fontFamily.split(",")[0].replace(/["']/g, "").trim(),
+      opacity: style.opacity,
+      style: style.fontStyle,
+      synthesis: style.fontSynthesisStyle
+    };
+  });
+  expect(painted).toEqual({
+    family: "IBM Plex Sans",
+    opacity: "0.8",
+    style: "italic",
+    synthesis: "none"
+  });
+
+  // Synthesis is off, so an italic face the browser never fetched would render upright.
+  // A "loaded" status proves the vendored file was downloaded to paint this text.
+  const italic = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return [...document.fonts]
+      .filter((face) => face.family.replace(/["']/g, "") === "IBM Plex Sans"
+        && face.style === "italic")
+      .map((face) => face.status);
+  });
+  expect(italic.length).toBeGreaterThan(0);
+  expect(italic).toContain("loaded");
+});
+
 test("one work item groups immutable checkpoints through its full dashboard lifecycle", async ({ page }, testInfo) => {
   const suffix = testInfo.project.name.replace("chromium-", "");
   const title = `Grouped work ${suffix} ${state.runId.slice(0, 8)}`;
@@ -543,7 +588,7 @@ test("one work item groups immutable checkpoints through its full dashboard life
   const completion = `Completion evidence for ${suffix}.`;
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Work library." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Work library[.:]/ })).toBeVisible();
   await page.locator("#project-select").selectOption(state.projectId);
 
   await page.locator(".page-heading").getByRole("button", { name: "New work" }).click();

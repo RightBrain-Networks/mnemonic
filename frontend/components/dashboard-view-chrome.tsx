@@ -10,6 +10,7 @@ const liveSyncLabels: Record<LiveSyncStatus, string> = {
 export default function DashboardViewChrome({
   eyebrow,
   title,
+  subject,
   description,
   liveSyncStatus,
   onRefresh,
@@ -17,6 +18,7 @@ export default function DashboardViewChrome({
 }: {
   eyebrow: string;
   title: string;
+  subject?: string;
   description: string;
   liveSyncStatus: LiveSyncStatus;
   onRefresh: () => void;
@@ -25,7 +27,7 @@ export default function DashboardViewChrome({
   return <section className="page-heading">
     <div>
       <div className="eyebrow">{eyebrow}</div>
-      <h1>{title}<span>.</span></h1>
+      <h1>{title}<span className="heading-mark">{subject ? ":" : "."}</span>{subject && <>{" "}<span className="heading-subject">{subject}</span></>}</h1>
       <p>{description}</p>
     </div>
     <div className="heading-actions">
