@@ -77,6 +77,15 @@ test("the colon keeps the period's accent and the project name does not take it"
   }
 });
 
+test("the project name is set smaller than the view title it follows", () => {
+  // Relative to the heading, so it tracks the fluid clamp and both breakpoint sizes.
+  assert.equal(declaration(".page-heading h1 > .heading-subject", "font-size"), ".6em");
+  // The heading tracks in absolute pixels tuned for its own size; inherited unchanged
+  // that is -.076em of the smaller name. This restates the same ratio relatively.
+  assert.equal(declaration(".page-heading h1 > .heading-subject", "letter-spacing"),
+    "-.045em");
+});
+
 test("the project name is italic at 80% opacity and never a synthesized slant", () => {
   assert.equal(declaration(".page-heading h1 > .heading-subject", "font-style"), "italic");
   assert.equal(declaration(".page-heading h1 > .heading-subject", "opacity"), ".8");

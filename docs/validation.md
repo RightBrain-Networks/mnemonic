@@ -1,5 +1,44 @@
 # Mnemonic validation record
 
+## Hero project name set smaller than its title — 2026-09-04
+
+This entry covers reducing the hero project name added in
+[Hero heading names the selected project](#hero-heading-names-the-selected-project--2026-09-04)
+to 60% of the view title beside it (dashboard `0.5.0`, no application/API/MCP,
+plugin, migration, or proxy-allowlist change). The size is `.6em` rather than a
+pixel value, so one declaration tracks all three sizes the heading already
+resolves to: the fluid `clamp(32px, 3.1vw, 46px)` and the 38px and 33px
+breakpoint overrides.
+
+The heading tracks in absolute pixels (`-1.8px`, and `-1.2px` below 800px) tuned
+for its own display size. Inherited unchanged into text at 60% of that size, the
+same value is -.076em rather than the title's -.045em, and renders visibly
+crowded; the name now restates that ratio relatively as `letter-spacing:
+-.045em` so shrinking the text preserves the existing tracking rather than
+tightening it. The colon keeps the full title size, as the period it replaced
+did. Every figure below was observed in the session that recorded it, on a local
+Node v22.22.3 checkout of the topic branch (CI uses Node 24).
+
+- **Frontend unit tests (`npm test`): 223 passing, 0 failing.** The run adds one
+  case to `tests/hero-heading.test.mjs` covering the relative size and the
+  restated tracking ratio.
+- **TypeScript checking (`npm run typecheck`) and the production build
+  (`npm run build`): both pass.**
+- **Isolated Playwright stack (`npm run test:e2e:stack`): 99 executions, 95
+  passing, 4 skipped by design, 0 failing, 5.5 minutes** on a uniquely named
+  disposable Compose project; teardown left no `mnemonic-e2e-*` container,
+  volume, or network of its own. The existing hero case in
+  `tests/e2e/phase1-work-checkpoints.spec.ts` now also reads both resolved pixel
+  sizes back out of the browser and asserts their ratio is 0.6, and that the
+  name's tracking is -.045 of its own size rather than the title's pixels.
+- **Rendered sizes observed on the desktop viewport: 23.808px for the name
+  against 39.68px for the title.** Both figures come from `getComputedStyle` on
+  the running stack, so the ratio is measured after the clamp resolves.
+
+No backend, MCP, migration, plugin, stack-check, or adversarial-review result is
+claimed for this change, and it does not alter any production, cutover, or
+permanence gate.
+
 ## Hero heading names the selected project — 2026-09-04
 
 This entry covers replacing the Work library hero's trailing period with a colon

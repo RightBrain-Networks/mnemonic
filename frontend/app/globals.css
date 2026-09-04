@@ -180,7 +180,7 @@ button { touch-action: manipulation; }
 .page-heading h1 { margin: 11px 0 11px; font-size: clamp(32px, 3.1vw, 46px); font-weight: 550; letter-spacing: -1.8px; line-height: 1.15; }
 .page-heading h1 > .heading-mark { color: var(--accent); }
 /* A real IBM Plex Sans italic face, never a synthesized slant. */
-.page-heading h1 > .heading-subject { font-style: italic; font-synthesis-style: none; opacity: .8; overflow-wrap: anywhere; }
+.page-heading h1 > .heading-subject { font-size: .6em; letter-spacing: -.045em; font-style: italic; font-synthesis-style: none; opacity: .8; overflow-wrap: anywhere; }
 .page-heading p { margin: 0; font-size: 13px; color: var(--muted); max-width: 620px; line-height: 1.7; overflow-wrap: anywhere; }
 
 .settings-card { max-width: 940px; padding: clamp(24px, 4vw, 42px); border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 5px 24px #2511300a; }
