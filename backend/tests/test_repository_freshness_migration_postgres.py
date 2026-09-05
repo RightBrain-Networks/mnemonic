@@ -399,12 +399,18 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
         source = database.get(
             WorkItem,
             merge.source_work_item_id,
-            options=(defer(WorkItem.completion_generation),),
+            options=(
+                defer(WorkItem.completion_generation),
+                defer(WorkItem.last_reportable_closeout_version),
+            ),
         )
         destination = database.get(
             WorkItem,
             merge.destination_work_item_id,
-            options=(defer(WorkItem.completion_generation),),
+            options=(
+                defer(WorkItem.completion_generation),
+                defer(WorkItem.last_reportable_closeout_version),
+            ),
         )
         relationship = database.get(WorkRelationship, merge.duplicate_relationship_id)
         assert source is not None
@@ -412,13 +418,13 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
         assert relationship is not None
         relationship_events = database.scalars(
             select(WorkEvent)
-            .options(defer(WorkEvent.reopen_generation))
+            .options(defer(WorkEvent.reopen_generation), defer(WorkEvent.job_completion_report_id))
             .where(WorkEvent.created_for_duplicate_merge_id == merge_id)
             .order_by(WorkEvent.id)
         ).all()
         merge_events = database.scalars(
             select(WorkEvent)
-            .options(defer(WorkEvent.reopen_generation))
+            .options(defer(WorkEvent.reopen_generation), defer(WorkEvent.job_completion_report_id))
             .where(WorkEvent.work_duplicate_merge_id == merge_id)
             .order_by(WorkEvent.id)
         ).all()

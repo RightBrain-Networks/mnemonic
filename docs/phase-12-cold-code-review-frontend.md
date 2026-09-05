@@ -1,9 +1,11 @@
 # Phase 12 cold code review: frontend and cross-surface behavior
 
-**Verdict: ACCEPT WITH REQUIRED CHANGES.** Four P2 correctness findings require
-resolution before shipping. These are failures of report context freshness,
-draft preservation, and durable refresh recovery; no application changes were
-made by this reviewer.
+**Final frontend verdict: ACCEPT.** All four original P2 findings are closed
+by independent source inspection and isolated mounted-browser probes. The
+original findings and their initial evidence remain below as review history;
+they are not outstanding defects. Full configured-stack acceptance and required
+CI remain separate release checks. No application changes were made by this
+reviewer.
 
 ## Scope and evidence
 
@@ -31,11 +33,11 @@ configured-stack acceptance suite, or required CI. Passing contract tests did
 not exercise the failing mounted-component interactions described below.
 
 The live implementation began changing after preliminary findings were sent.
-This document records the reviewed snapshot and distinguishes an observed
-amendment from a verified closure. A separate closure pass is required after
-all fixes settle.
+This document records the original reviewed snapshot. The final closure pass
+is recorded at the end, distinguishing independently executed checks from the
+full-stack release validation performed separately.
 
-## Required changes
+## Original required changes — all closed
 
 ### F1 — P2: Source lifecycle changes do not refresh report context through the durable feed
 
@@ -175,3 +177,91 @@ No additional stylistic changes are requested. The findings above are required
 correctness fixes; this review does not claim that every backend database or
 migration invariant has been independently proven. In-progress legacy fixture
 adaptation was not counted as a product defect.
+
+## Final independent frontend closure
+
+Closure source was inspected at worktree HEAD
+`3bd7491a1a7b37d6d1e2dfdda3ff44c396367b86`, following the rebase onto
+`413155947a4953499d4f868f552e0b0ce493f8c5`. The reviewer independently read the
+corrections and new browser regressions, then refreshed the separate frontend
+copy and reran the failing interactions with synthetic APIs and no socket
+hints. Application source was not changed by the reviewer.
+
+- **F1 closed:** `project-activity.ts:72` now invalidates reports for work events.
+  `job-report-list.tsx:65–81` refreshes the retained envelope by report identity,
+  including independent recovery of a failed detail read; the form keeps a
+  stable report key. `work-report-provenance.tsx:47–58` refreshes the selected
+  originating report on the parent refresh signal and independently retries its
+  own failed read. The copied-browser probe delivered reopen, merge, and deletion
+  entries: list reads advanced 2→3→4→5, both the card and retained draft displayed
+  each changed source state, and both entered text fields remained exact. A
+  synthetic first detail-read 503 recovered automatically. Browser regressions
+  cover retained originating report deletion and source merge across both views.
+- **F2 closed:** `job-report-list.tsx:82–90` clears a recovered follow-up form
+  only for its own report conflict key and a follow-up creation intent. Recovering
+  a dismissal no longer clears any independent form. The original two-report
+  probe now yields two dismissal attempts, no remaining recovery notice, one
+  still-open form, and the exact original human-entered summary after recovery.
+- **F3 closed:** `job-completion-reports.ts:214–216` detects actual summary/FYI
+  edits independently of loaded prompt revisions, and
+  `dashboard.tsx:1037–1046` includes them in its discard guard. The original
+  Escape probe now produces one dialog; refusing it preserves the selected work
+  URL, summary, and FYI. Source inspection confirms work selection, project
+  changes, pane close, and ordinary sidebar navigation use the guard. New
+  browser regressions additionally cover revision-only cleanliness, summary-only
+  and FYI-only drafts, rejected work/project changes, activity refresh, and
+  explicit discard. Cross-page persistence of an unsubmitted follow-up form is
+  not added as a requirement: the plan explicitly requires protection against
+  background refresh and retention of uncertain submitted mutations.
+- **F4 closed:** `use-failed-read-retry.ts` gives each failed view a bounded,
+  visibility-aware retry schedule, cancels timers/listeners on cleanup, and
+  prevents a busy view from retrying concurrently. The attention list, event and
+  gate history, checkpoint reads, evidence, report/provenance reads, and other
+  affected readers register their own failures. In the original activity probe,
+  the count still succeeds independently, while list reads now increase 2→3
+  during subsequent empty activity polls and the error clears. New browser
+  regressions also cover failed history/evidence/event/gate/provenance reads
+  without new activity.
+
+The reviewer reran the five targeted frontend test files listed above under
+**Node 24: 70 passed, 0 failed, 0 skipped**. The synthetic browser was served
+from the copied frontend using the available Node 22 development runtime; this
+is supporting component-interaction evidence, not Node 24 production-build or
+full-stack acceptance evidence.
+
+Inspection and independent browser execution also found that the new report
+editor regression's exact-label selectors matched zero elements because the
+labels include explanatory text. This was reported before the full stack run;
+the coordinating agent changed those test selectors to prefix regular
+expressions. It did not require changing application behavior. The reviewer
+has not claimed an independently completed full-stack E2E run.
+
+There are **no remaining required frontend changes from this review**.
+
+## Incremental review: wait for the first report prompt revision
+
+**Disposition: ACCEPT.** The reviewer independently inspected the subsequent
+small source/test delta at worktree HEAD
+`3bd7491a1a7b37d6d1e2dfdda3ff44c396367b86` plus its uncommitted changes.
+
+`work-detail-pane.tsx:261` now disables Complete work while the report draft's
+prompt revision is null. `work-item-editor.tsx:54–55` uses the same terminal
+transition predicate for displaying the report editor and, at line 72, disabling
+Save changes until the revision is available. It covers both pending-to-Won’t do
+and pending-to-Promoted; ordinary work edits remain available. The existing
+loading/error display and automatic settings-read retry explain and recover the
+unavailable state. The successful settings read copies the current draft before
+setting its first revision, preserving prose entered while the request was in
+flight. Existing validation still precedes mutation-intent creation and dispatch.
+These guards therefore address the early-click validation error without changing
+receipt or stale-revision semantics.
+
+The new regression at `tests/e2e/phase12-project-activity.spec.ts:477` holds the
+settings response, checks that Done and Won’t do submission controls remain
+disabled with no closeout writes, releases the response, verifies retained human
+prose, and checks one write for each successful action. The Promoted control uses
+the same inspected predicate. No additional required finding was identified.
+
+This incremental disposition is based on independent source and regression
+inspection. The coordinator's fresh full E2E run was still in progress; this
+review does not claim its result or an independent execution of that new test.

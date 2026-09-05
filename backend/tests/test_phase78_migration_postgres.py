@@ -364,7 +364,7 @@ def test_gate_insert_guard_refusal_matrix(
             if case == "terminal_work":
                 connection.execute(
                     text(
-                        "UPDATE work_items SET status = 'wont-do' "
+                        "UPDATE work_items SET status = 'wont-do', version = version + 1 "
                         "WHERE id = :work_item_id"
                     ),
                     {"work_item_id": work_item_id},

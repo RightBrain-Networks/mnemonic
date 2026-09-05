@@ -242,11 +242,11 @@ test("report-only drafts survive refused close, work selection, project change a
     await expect(pane.locator(".detail-title")).toHaveCount(0);
     expect(dialogs).toHaveLength(0);
     await selectWork(page, source.title);
-    await pane.getByLabel("Human summary", { exact: true }).fill("The font decision is ready for a human review.");
+    await pane.getByLabel(/^Human summary/).fill("The font decision is ready for a human review.");
     await pane.locator(".prompt-body").focus();
     await page.keyboard.press("Escape");
     await expect.poll(() => dialogs.length).toBe(1);
-    await expect(pane.getByLabel("Human summary", { exact: true })).toHaveValue("The font decision is ready for a human review.");
+    await expect(pane.getByLabel(/^Human summary/)).toHaveValue("The font decision is ready for a human review.");
     // Dispatching the card event also exercises the selection guard under the narrow pane overlay.
     await workCard(page, other.title).dispatchEvent("click");
     await expect.poll(() => dialogs.length).toBe(2);
@@ -254,10 +254,10 @@ test("report-only drafts survive refused close, work selection, project change a
     await page.locator("#project-select").selectOption(otherProject.id);
     await expect.poll(() => dialogs.length).toBe(3);
     await expect(page.locator("#project-select")).toHaveValue(project.id);
-    await expect(pane.getByLabel("Human summary", { exact: true })).toHaveValue("The font decision is ready for a human review.");
-    await pane.getByLabel("Human summary", { exact: true }).fill("");
+    await expect(pane.getByLabel(/^Human summary/)).toHaveValue("The font decision is ready for a human review.");
+    await pane.getByLabel(/^Human summary/).fill("");
     await pane.getByRole("button", { name: "Add FYI", exact: true }).click();
-    await pane.getByLabel("FYI 1", { exact: true }).fill("I chose Arial; the font can be changed in a follow-up.");
+    await pane.getByLabel(/^FYI 1/).fill("I chose Arial; the font can be changed in a follow-up.");
     await pane.locator(".prompt-body").focus();
     await page.keyboard.press("Escape");
     await expect.poll(() => dialogs.length).toBe(4);
@@ -271,15 +271,15 @@ test("report-only drafts survive refused close, work selection, project change a
     }});
     expect(changed.ok(), await changed.text()).toBe(true);
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect(pane.getByLabel("FYI 1", { exact: true })).toHaveValue("I chose Arial; the font can be changed in a follow-up.");
+    await expect(pane.getByLabel(/^FYI 1/)).toHaveValue("I chose Arial; the font can be changed in a follow-up.");
     page.off("dialog", refuse);
     page.once("dialog", (dialog) => void dialog.accept());
     await pane.locator(".prompt-body").focus();
     await page.keyboard.press("Escape");
     await expect(pane.locator(".detail-title")).toHaveCount(0);
     await selectWork(page, source.title);
-    await expect(pane.getByLabel("Human summary", { exact: true })).toHaveValue("");
-    await expect(pane.getByLabel("FYI 1", { exact: true })).toHaveCount(0);
+    await expect(pane.getByLabel(/^Human summary/)).toHaveValue("");
+    await expect(pane.getByLabel(/^FYI 1/)).toHaveCount(0);
   } finally { await api.dispose(); }
 });
 
@@ -471,4 +471,52 @@ test("a source merge refreshes both an open follow-up draft and an already-open 
     await expect(stored.locator(".report-source-state")).toContainText("The original work has since been merged");
     await expect(stored.locator(".human-report-summary")).toContainText("The dashboard now uses a consistent font");
   } finally { await summaries.close(); await api.dispose(); }
+});
+
+
+test("closeout submissions wait for their project prompt revision without losing authored prose", async ({ page }) => {
+  const api = await client();
+  try {
+    const project = await createProject(api);
+    const complete = await createPendingWork(api, project.id, "Wait for report instructions before completion");
+    const retire = await createPendingWork(api, project.id, "Wait for report instructions before retirement");
+    await page.routeWebSocket(/\/api\/mnemonic\/sync$/, () => {});
+    let releaseSettings!: () => void;
+    let settingsReady = new Promise<void>((resolve) => { releaseSettings = resolve; });
+    let closeoutWrites = 0;
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (request.method() === "POST" && url.pathname.endsWith(`/${complete.id}/complete`)
+        || request.method() === "PATCH" && url.pathname.endsWith(`/${retire.id}`)) closeoutWrites += 1;
+    });
+    await page.route(`**/api/mnemonic/projects/${project.id}/settings`, async (route) => {
+      await settingsReady;
+      await route.continue();
+    });
+    const pane = await openProjectWork(page, project.id, complete.title);
+    await pane.getByLabel(/^Checkpoint text/).fill("The font change is complete and the browser layouts were checked.");
+    await pane.getByLabel(/^Human summary/).fill("The dashboard now uses a consistent, readable font.");
+    await expect(pane.getByText("Loading project report instructions…", { exact: true })).toBeVisible();
+    await expect(pane.getByRole("button", { name: "Complete work", exact: true })).toBeDisabled();
+    expect(closeoutWrites).toBe(0);
+    releaseSettings();
+    await expect(pane.getByRole("button", { name: "Complete work", exact: true })).toBeEnabled();
+    await expect(pane.getByLabel(/^Human summary/)).toHaveValue("The dashboard now uses a consistent, readable font.");
+    await pane.getByRole("button", { name: "Complete work", exact: true }).click();
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Done");
+    expect(closeoutWrites).toBe(1);
+    settingsReady = new Promise<void>((resolve) => { releaseSettings = resolve; });
+    await selectWork(page, retire.title);
+    await pane.getByRole("button", { name: "Edit work item", exact: true }).click();
+    await pane.getByLabel("Lifecycle", { exact: false }).selectOption("wont-do");
+    await pane.getByLabel(/^Human summary/).fill("The separate font change was stopped because the current choice is suitable.");
+    await expect(pane.getByRole("button", { name: "Save changes", exact: true })).toBeDisabled();
+    expect(closeoutWrites).toBe(1);
+    releaseSettings();
+    await expect(pane.getByRole("button", { name: "Save changes", exact: true })).toBeEnabled();
+    await expect(pane.getByLabel(/^Human summary/)).toHaveValue("The separate font change was stopped because the current choice is suitable.");
+    await pane.getByRole("button", { name: "Save changes", exact: true }).click();
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Won’t do");
+    expect(closeoutWrites).toBe(2);
+  } finally { await api.dispose(); }
 });

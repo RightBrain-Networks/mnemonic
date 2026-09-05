@@ -154,6 +154,7 @@ def bulk_save(
     target_id = None
     done_ids = []
     other_states = []
+    ordered_ids = []
     with postgres_engine.begin() as connection:
         connection.execute(text("SET CONSTRAINTS ALL DEFERRED"))
         connection.execute(
@@ -249,6 +250,9 @@ def bulk_save(
                 {"target_ordinal": target_ordinal},
             )
         if status_cycle:
+            ordered_ids = list(connection.scalars(text(
+                "SELECT work_item_id FROM advisory_bulk_ids ORDER BY ordinal"
+            )))
             other_states = list(connection.execute(text(
                 "SELECT work_item_id, (ARRAY['pending','deferred','done','wont-do','promoted'])"
                 "[((ordinal - 1) % 5) + 1] AS status FROM advisory_bulk_ids "
@@ -292,6 +296,17 @@ def bulk_save(
                 }),
             )
             assert completed.status_code == 200, completed.text
+    if ordered_ids:
+        # Actual closeouts advance activity time. Restore the fixture's intended
+        # ordinal ranking after all transitions, so the bounded exact lane spans
+        # all five states instead of ranking every untouched Pending row last.
+        with postgres_engine.begin() as connection:
+            connection.execute(text(
+                "UPDATE work_items w SET updated_at=statement_timestamp() "
+                "+ ranked.ordinal * INTERVAL '1 microsecond' "
+                "FROM unnest(CAST(:ids AS uuid[])) WITH ORDINALITY AS ranked(id,ordinal) "
+                "WHERE w.id=ranked.id"
+            ), {"ids": ordered_ids})
     assert target_id is None or isinstance(target_id, UUID)
     return target_id
 

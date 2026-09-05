@@ -80,6 +80,14 @@ to both the report and its exact source work. It does not assign an agent,
 create a graph edge, or dismiss the report. Intentional additional follow-ups
 are allowed, each with its own operation UUID.
 
+Example inbox using synthetic documentation data:
+
+![Summaries with one concise report and an optional font decision](images/phase-12-summaries.png)
+
+The [follow-up form](images/phase-12-follow-up.png) records the human’s requested
+change. The [report prompt editor](images/phase-12-settings.png) appears in
+project settings alongside Recall pointer content.
+
 ## HTTP resources
 
 All paths below are beneath `/api/v1/projects/{project_id}` and require the

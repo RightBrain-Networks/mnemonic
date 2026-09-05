@@ -295,10 +295,11 @@ The Phase 11 additions verify:
   effective owner-only privileges after restore; and
 - `tests/test_legacy_shape_migration_postgres.py` stages the row shapes only
   superseded code could write, at the revision that could write them, and runs
-  the whole chain over each. Every other migration test starts from an empty
-  schema or populates one through the current services, so it can only produce
-  head-shaped rows; this suite is the one that presents the deployed database's
-  actual history. It also proves each 0019 preflight condition is separately
+  the whole chain over each. Most migration tests start from an empty schema
+  or populate one through current services. This suite covers deployed legacy
+  shapes; Phase 12 also uses a deliberately pinned 0019 offline fixture helper
+  for historical completion/audit cases, without running current writers on an
+  older schema. It also proves each 0019 preflight condition is separately
   named and independently executable, so a refusal identifies the rows to look
   at instead of reporting that something, somewhere, is wrong.
 
@@ -465,7 +466,7 @@ checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
 The inner plugin manifest is `0.11.0`. Before release, parse the marketplace
 and inner plugin manifests, then exercise a disposable fresh `0.11.0` install
-plus a sequential `0.6.1 -> 0.7.0 -> 0.8.0 -> 0.9.0 -> 0.10.0 -> 0.11.0` marketplace update. Use an
+plus a `0.10.0 -> 0.11.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and

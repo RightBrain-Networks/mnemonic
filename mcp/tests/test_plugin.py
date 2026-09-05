@@ -336,19 +336,19 @@ def test_authentic_sequential_and_fresh_plugin_installs_are_exact(tmp_path: Path
     synthetic_manifest_path = marketplace_plugin / ".claude-plugin" / "plugin.json"
     synthetic_manifest = json.loads(synthetic_manifest_path.read_text())
     assert synthetic_manifest["version"] == "0.11.0"
-    synthetic_manifest["version"] = "0.9.0"
+    synthetic_manifest["version"] = "0.10.0"
     synthetic_manifest_path.write_text(json.dumps(synthetic_manifest, indent=2) + "\n")
-    stale_relative = Path("reference") / "obsolete-phase-10-reference.md"
+    stale_relative = Path("reference") / "obsolete-phase-11-reference.md"
     stale_path = marketplace_plugin / stale_relative
     stale_path.write_bytes(b"synthetic obsolete plugin payload\n")
 
     sequential_config = tmp_path / "sequential-config"
     _add_marketplace_and_install(executable, sequential_config, marketplace_root)
-    old_root = _active_plugin_root(executable, sequential_config, "0.9.0")
+    old_root = _active_plugin_root(executable, sequential_config, "0.10.0")
     assert (old_root / stale_relative).is_file()
     assert json.loads(
         (old_root / ".claude-plugin" / "plugin.json").read_text()
-    )["version"] == "0.9.0"
+    )["version"] == "0.10.0"
 
     shutil.rmtree(marketplace_plugin)
     _copy_exact_plugin_payload(marketplace_plugin)
@@ -361,7 +361,7 @@ def test_authentic_sequential_and_fresh_plugin_installs_are_exact(tmp_path: Path
         "update",
         "mnemonic",
     )
-    refreshed_only_root = _active_plugin_root(executable, sequential_config, "0.9.0")
+    refreshed_only_root = _active_plugin_root(executable, sequential_config, "0.10.0")
     assert refreshed_only_root == old_root
     assert (refreshed_only_root / stale_relative).is_file()
     _run_claude(
