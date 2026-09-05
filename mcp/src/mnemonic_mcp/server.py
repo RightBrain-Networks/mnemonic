@@ -93,6 +93,12 @@ from .models import (
     WorkSearchHit,
     completion_evidence_cursor_document,
 )
+from .response_validation import (
+    matches_requested_ids,
+    matches_requested_limit,
+    matches_requested_offset_page,
+    response_matches,
+)
 from .security import LocalAccessMiddleware
 from .transport import BoundedMCPIngressMiddleware
 from .validation import SanitizedFastMCP, install_sdk_validation_log_filter
@@ -473,7 +479,9 @@ def _completion_evidence_page_matches_request(
     limit: int,
     cursor: str | None,
 ) -> bool:
-    if page.work_item_id != work_item_id or page.limit != limit:
+    if not matches_requested_ids((page.work_item_id, work_item_id)) or not (
+        matches_requested_limit(page, limit=limit)
+    ):
         return False
     cursor_documents = [
         completion_evidence_cursor_document(value)
@@ -631,17 +639,20 @@ def _ensure_event_scope(
     return event
 
 
-def _ensure_event_page_scope(
-    page: WorkEventPage, project_id: UUID, work_item_id: UUID
-) -> WorkEventPage:
-    if any(item.project_id != project_id or item.work_item_id != work_item_id for item in page.items):
-        raise ToolError(_UNEXPECTED_EVENT_SCOPE)
-    return page
-
-
-_UNEXPECTED_GATE_RESPONSE = (
-    "Mnemonic API returned incoherent human-gate data. Check the service versions."
-)
+def _event_page_matches_request(
+    page: WorkEventPage,
+    *,
+    project_id: UUID,
+    work_item_id: UUID,
+    event_type: EventType | None,
+    limit: int,
+    offset: int,
+) -> bool:
+    return matches_requested_offset_page(page, limit=limit, offset=offset) and all(
+        matches_requested_ids((item.project_id, project_id), (item.work_item_id, work_item_id))
+        and (event_type is None or item.event_type == event_type)
+        for item in page.items
+    )
 
 
 def _human_gate_request_matches(
@@ -674,46 +685,35 @@ def _human_gate_request_matches(
     )
 
 
-def _ensure_attention_scope(
+def _attention_page_matches_request(
     page: HumanAttentionPage,
     *,
     project_id: UUID,
     work_item_id: UUID | None,
     limit: int,
-) -> HumanAttentionPage:
-    if page.limit != limit or any(
-        item.gate.project_id != project_id
-        or (work_item_id is not None and item.gate.work_item_id != work_item_id)
+) -> bool:
+    return matches_requested_limit(page, limit=limit) and all(
+        matches_requested_ids((item.gate.project_id, project_id))
+        and (work_item_id is None or item.gate.work_item_id == work_item_id)
         for item in page.items
-    ):
-        raise ToolError(_UNEXPECTED_GATE_RESPONSE)
-    return page
+    )
 
 
-def _ensure_gate_history_scope(
+def _gate_history_matches_request(
     page: HumanGatePage,
     *,
     project_id: UUID,
     work_item_id: UUID,
     status: HumanGateHistoryStatus,
     limit: int,
-) -> HumanGatePage:
-    if page.limit != limit or any(
-        gate.project_id != project_id
-        or gate.work_item_id != work_item_id
-        or (status != "all" and gate.status != status)
+) -> bool:
+    return matches_requested_limit(page, limit=limit) and all(
+        matches_requested_ids((gate.project_id, project_id), (gate.work_item_id, work_item_id))
+        and (status == "all" or gate.status == status)
         for gate in page.items
-    ):
-        raise ToolError(_UNEXPECTED_GATE_RESPONSE)
-    return page
+    )
 
 
-_UNEXPECTED_WORK_PAGE = (
-    "Mnemonic API returned work outside the requested search scope. Check the service versions."
-)
-_UNEXPECTED_EXACT_WORK = (
-    "Mnemonic API returned work outside the requested exact scope. Check the service versions."
-)
 _UNKNOWN_RENEW_OUTCOME = (
     "Mnemonic returned an incoherent renewal response. Do not rely on a renewed expiry or "
     "continue past the last confirmed expiry. Recall the work state and stop for direction if "
@@ -721,7 +721,7 @@ _UNKNOWN_RENEW_OUTCOME = (
 )
 
 
-def _ensure_work_page_scope(
+def _work_page_matches_request(
     page: WorkPage,
     *,
     project_id: UUID,
@@ -731,19 +731,19 @@ def _ensure_work_page_scope(
     blank_query: bool,
     limit: int,
     offset: int,
-) -> WorkPage:
-    if page.limit != limit or page.offset != offset:
-        raise ToolError(_UNEXPECTED_WORK_PAGE)
+) -> bool:
+    if not matches_requested_offset_page(page, limit=limit, offset=offset):
+        return False
     for item in page.items:
         if view == "roots" and not isinstance(item, HierarchySummary):
-            raise ToolError(_UNEXPECTED_WORK_PAGE)
+            return False
         if view == "full" and not isinstance(item, WorkSearchHit):
-            raise ToolError(_UNEXPECTED_WORK_PAGE)
+            return False
         summary = item.summary
         work_item = summary.work_item
         readiness = summary.readiness
         if (
-            work_item.project_id != project_id
+            not matches_requested_ids((work_item.project_id, project_id))
             or (duplicate_scope == "canonical" and readiness.is_duplicate)
             or (duplicate_scope == "aliases" and not readiness.is_duplicate)
             or (
@@ -751,7 +751,7 @@ def _ensure_work_page_scope(
                 and readiness.canonical_work_item_id != canonical_work_item_id
             )
         ):
-            raise ToolError(_UNEXPECTED_WORK_PAGE)
+            return False
         if (
             isinstance(item, WorkSearchHit)
             and (blank_query or duplicate_scope != "canonical")
@@ -762,8 +762,29 @@ def _ensure_work_page_scope(
                 status=work_item.status,
             )
         ):
-            raise ToolError(_UNEXPECTED_WORK_PAGE)
-    return page
+            return False
+    return True
+
+
+def _relationship_page_matches_request(
+    page: RelationshipPage,
+    *,
+    project_id: UUID,
+    work_item_id: UUID,
+    direction: RelationshipListDirection,
+    relationship_type: RelationshipType | None,
+    limit: int,
+    offset: int,
+) -> bool:
+    return matches_requested_offset_page(page, limit=limit, offset=offset) and all(
+        matches_requested_ids(
+            (item.relationship.project_id, project_id),
+            (item.relative_to_work_item_id, work_item_id),
+        )
+        and (direction == "both" or item.direction == direction)
+        and (relationship_type is None or item.relationship.relationship_type == relationship_type)
+        for item in page.items
+    )
 
 
 async def _fetch_work(
@@ -776,10 +797,14 @@ async def _fetch_work(
             f"projects/{project_id}/work-items/{work_item_id}",
             response_model=WorkItemDetailRead,
             effect=TransportEffect.SAFE_READ,
+            response_validator=response_matches(
+                WorkItemDetailRead,
+                lambda detail: matches_requested_ids(
+                    (detail.work_item.project_id, project_id), (detail.work_item.id, work_item_id)
+                ),
+            ),
         ),
     )
-    if detail.work_item.project_id != project_id or detail.work_item.id != work_item_id:
-        raise ToolError(_UNEXPECTED_EXACT_WORK)
     return detail
 
 
@@ -801,10 +826,16 @@ async def _fetch_work_context(
             },
             response_model=WorkContext,
             effect=TransportEffect.SAFE_READ,
+            response_validator=response_matches(
+                WorkContext,
+                lambda context: matches_requested_ids(
+                    (context.work_item.project_id, project_id), (context.work_item.id, work_item_id)
+                )
+                and len(context.recent_checkpoints) <= recent_limit
+                and len(context.recent_events) <= recent_event_limit,
+            ),
         ),
     )
-    if context.work_item.project_id != project_id or context.work_item.id != work_item_id:
-        raise ToolError(_UNEXPECTED_EXACT_WORK)
     return context
 
 
@@ -822,6 +853,10 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 "projects",
                 params={"limit": limit, "offset": offset},
                 response_model=ProjectPage,
+                response_validator=response_matches(
+                    ProjectPage,
+                    lambda page: matches_requested_offset_page(page, limit=limit, offset=offset),
+                ),
             ),
         )
 
@@ -931,7 +966,7 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
         }
         if semantic:
             params["semantic"] = True
-        page = cast(
+        return cast(
             WorkPage,
             await api.request(
                 "GET",
@@ -939,17 +974,20 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 params={name: value for name, value in params.items() if value is not None},
                 response_model=WorkPage,
                 effect=TransportEffect.SAFE_READ,
+                response_validator=response_matches(
+                    WorkPage,
+                    lambda page: _work_page_matches_request(
+                        page,
+                        project_id=project_id,
+                        view=view,
+                        duplicate_scope=duplicate_scope,
+                        canonical_work_item_id=canonical_work_item_id,
+                        blank_query=q is None or not q.strip(),
+                        limit=limit,
+                        offset=offset,
+                    ),
+                ),
             ),
-        )
-        return _ensure_work_page_scope(
-            page,
-            project_id=project_id,
-            view=view,
-            duplicate_scope=duplicate_scope,
-            canonical_work_item_id=canonical_work_item_id,
-            blank_query=q is None or not q.strip(),
-            limit=limit,
-            offset=offset,
         )
 
 
@@ -977,6 +1015,11 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 f"projects/{project_id}/ready-work",
                 params={name: value for name, value in params.items() if value is not None},
                 response_model=ReadyWorkPage,
+                response_validator=response_matches(
+                    ReadyWorkPage,
+                    lambda page: matches_requested_offset_page(page, limit=limit, offset=offset)
+                    and all(item.work_item.priority >= min_priority for item in page.items),
+                ),
             ),
         )
 
@@ -1032,6 +1075,14 @@ def _register_context_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 f"projects/{project_id}/work-items/{work_item_id}/checkpoints",
                 params={"order": order, "limit": limit, "offset": offset},
                 response_model=CheckpointPage,
+                response_validator=response_matches(
+                    CheckpointPage,
+                    lambda page: matches_requested_offset_page(page, limit=limit, offset=offset)
+                    and all(
+                        matches_requested_ids((item.work_item_id, work_item_id))
+                        for item in page.items
+                    ),
+                ),
             ),
         )
 
@@ -1055,12 +1106,15 @@ def _register_context_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 response_model=CompletionEvidencePage,
                 effect=TransportEffect.SAFE_READ,
                 expected_status_code=200,
-                response_validator=lambda result: _completion_evidence_page_matches_request(
-                    cast(CompletionEvidencePage, result),
-                    project_id=project_id,
-                    work_item_id=work_item_id,
-                    limit=limit,
-                    cursor=cursor,
+                response_validator=response_matches(
+                    CompletionEvidencePage,
+                    lambda page: _completion_evidence_page_matches_request(
+                        page,
+                        project_id=project_id,
+                        work_item_id=work_item_id,
+                        limit=limit,
+                        cursor=cursor,
+                    ),
                 ),
                 strict_wire_response=True,
                 bounded_identity_response=True,
@@ -1140,20 +1194,20 @@ def _register_human_gate_tools(server: FastMCP, api: MnemonicAPI) -> None:
             params["work_item_id"] = work_item_id
         if cursor is not None:
             params["cursor"] = cursor
-        page = cast(
+        return cast(
             HumanAttentionPage,
             await api.request(
                 "GET",
                 f"projects/{project_id}/human-attention",
                 params=params,
                 response_model=HumanAttentionPage,
+                response_validator=response_matches(
+                    HumanAttentionPage,
+                    lambda page: _attention_page_matches_request(
+                        page, project_id=project_id, work_item_id=work_item_id, limit=limit,
+                    ),
+                ),
             ),
-        )
-        return _ensure_attention_scope(
-            page,
-            project_id=project_id,
-            work_item_id=work_item_id,
-            limit=limit,
         )
 
     @server.tool(annotations=READ)
@@ -1168,21 +1222,21 @@ def _register_human_gate_tools(server: FastMCP, api: MnemonicAPI) -> None:
         params: dict[str, object] = {"status": status, "limit": limit}
         if cursor is not None:
             params["cursor"] = cursor
-        page = cast(
+        return cast(
             HumanGatePage,
             await api.request(
                 "GET",
                 f"projects/{project_id}/work-items/{work_item_id}/gates",
                 params=params,
                 response_model=HumanGatePage,
+                response_validator=response_matches(
+                    HumanGatePage,
+                    lambda page: _gate_history_matches_request(
+                        page, project_id=project_id, work_item_id=work_item_id,
+                        status=status, limit=limit,
+                    ),
+                ),
             ),
-        )
-        return _ensure_gate_history_scope(
-            page,
-            project_id=project_id,
-            work_item_id=work_item_id,
-            status=status,
-            limit=limit,
         )
 
 def _register_event_tools(server: FastMCP, api: MnemonicAPI) -> None:
@@ -1247,16 +1301,22 @@ def _register_event_tools(server: FastMCP, api: MnemonicAPI) -> None:
             "limit": limit,
             "offset": offset,
         }
-        page = cast(
+        return cast(
             WorkEventPage,
             await api.request(
                 "GET",
                 f"projects/{project_id}/work-items/{work_item_id}/events",
                 params={name: value for name, value in params.items() if value is not None},
                 response_model=WorkEventPage,
+                response_validator=response_matches(
+                    WorkEventPage,
+                    lambda page: _event_page_matches_request(
+                        page, project_id=project_id, work_item_id=work_item_id,
+                        event_type=event_type, limit=limit, offset=offset,
+                    ),
+                ),
             ),
         )
-        return _ensure_event_page_scope(page, project_id, work_item_id)
 
 def _ensure_claim_receipt(
     receipt: ClaimReceipt,
@@ -1471,6 +1531,12 @@ def _register_relationship_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 "GET",
                 f"projects/{project_id}/relationships/{relationship_id}",
                 response_model=RelationshipEdgeRead,
+                response_validator=response_matches(
+                    RelationshipEdgeRead,
+                    lambda edge: matches_requested_ids(
+                        (edge.project_id, project_id), (edge.id, relationship_id)
+                    ),
+                ),
             ),
         )
 
@@ -1498,6 +1564,14 @@ def _register_relationship_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 f"projects/{project_id}/work-items/{work_item_id}/relationships",
                 params=params,
                 response_model=RelationshipPage,
+                response_validator=response_matches(
+                    RelationshipPage,
+                    lambda page: _relationship_page_matches_request(
+                        page, project_id=project_id, work_item_id=work_item_id,
+                        direction=direction, relationship_type=relationship_type,
+                        limit=limit, offset=offset,
+                    ),
+                ),
             ),
         )
 
@@ -1561,7 +1635,7 @@ def _suggestion_matches_request(
             != _duplicate_title_key(request.title)
         ):
             return False
-    return page.limit == request.limit
+    return matches_requested_limit(page, limit=request.limit)
 
 
 def _register_duplicate_tools(server: FastMCP, api: MnemonicAPI) -> None:
@@ -1593,8 +1667,8 @@ def _register_duplicate_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 response_model=DuplicateSuggestionPage,
                 effect=TransportEffect.SAFE_READ,
                 expected_status_code=200,
-                response_validator=lambda result: _suggestion_matches_request(
-                    cast(DuplicateSuggestionPage, result), request
+                response_validator=response_matches(
+                    DuplicateSuggestionPage, lambda page: _suggestion_matches_request(page, request)
                 ),
                 extended_read_timeout=True,
                 strict_wire_response=True,

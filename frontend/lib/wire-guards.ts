@@ -1,13 +1,7 @@
-import type { WorkItem, WorkStatus } from "./types.ts";
-
 export type JsonObject = Record<string, unknown>;
 
 export const UUID_PATTERN = /^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/;
 export const UTC_DATE_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/;
-
-const WORK_STATUSES = new Set<WorkStatus>([
-  "pending", "deferred", "done", "wont-do", "promoted"
-]);
 
 export function objectValue(value: unknown): JsonObject | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
@@ -156,31 +150,42 @@ export function validBoundedMetadata(
   }
 }
 
-export function decodeWorkItem(
-  value: unknown,
-  projectId: string,
-  workItemId?: string,
-  errorMessage = "Mnemonic returned an invalid mutation response."
-): WorkItem {
-  const item = objectValue(value);
-  if (
-    !item
-    || !exactKeys(item, [
-      "id", "project_id", "title", "summary", "status", "priority",
-      "initial_checkpoint_id", "version", "created_at", "updated_at"
-    ])
-    || !validUuid(item.id)
-    || !sameUuid(item.project_id, projectId)
-    || (workItemId !== undefined && !sameUuid(item.id, workItemId))
-    || !boundedText(item.title, 200)
-    || !boundedText(item.summary, 1_000)
-    || typeof item.status !== "string"
-    || !WORK_STATUSES.has(item.status as WorkStatus)
-    || !finiteInteger(item.priority, 0, 100)
-    || !validUuid(item.initial_checkpoint_id)
-    || !finiteInteger(item.version, 1)
-    || !validUtcDateTime(item.created_at)
-    || !validUtcDateTime(item.updated_at)
-  ) throw new Error(errorMessage);
-  return item as unknown as WorkItem;
+export function validJson(value: unknown, stack = new WeakSet<object>()): boolean {
+  if (value === null || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "string") return validUnicode(value) && !value.includes("\0");
+  if (typeof value !== "object" || stack.has(value)) return false;
+  stack.add(value);
+  const valid = Array.isArray(value)
+    ? value.every((entry) => validJson(entry, stack))
+    : Boolean(objectValue(value))
+      && Object.entries(value).every(([key, entry]) => (
+        validUnicode(key) && !key.includes("\0") && validJson(entry, stack)
+      ));
+  stack.delete(value);
+  return valid;
+}
+
+export function jsonEqual(left: unknown, right: unknown): boolean {
+  if (!validJson(left) || !validJson(right)) return false;
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left)
+      && Array.isArray(right)
+      && left.length === right.length
+      && left.every((entry, index) => jsonEqual(entry, right[index]));
+  }
+  const leftObject = objectValue(left);
+  const rightObject = objectValue(right);
+  if (!leftObject || !rightObject) return false;
+  const leftKeys = Object.keys(leftObject).sort();
+  const rightKeys = Object.keys(rightObject).sort();
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key, index) => (
+      key === rightKeys[index] && jsonEqual(leftObject[key], rightObject[key])
+    ));
+}
+
+export function sameNullableUuid(left: unknown, right: unknown): boolean {
+  return left === null && right === null || sameUuid(left, right);
 }

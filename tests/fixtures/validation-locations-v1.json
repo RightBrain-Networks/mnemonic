@@ -1,0 +1,168 @@
+{
+  "version": 1,
+  "private_markers": ["PRIVATE_CALLER_KEY", "PRIVATE_CALLER_VALUE", "PRIVATE_ERROR_TYPE"],
+  "cases": [
+    {
+      "id": "merge_destination",
+      "location": ["body", "destination_work_item_id"],
+      "backend_location": ["body", "destination_work_item_id"],
+      "mcp_path": "body.destination_work_item_id",
+      "browser_location": "destination_work_item_id"
+    },
+    {
+      "id": "source_merge_revision",
+      "location": ["body", "reviewed_source_revision", "work_event_count"],
+      "backend_location": ["body", "reviewed_source_revision", "work_event_count"],
+      "mcp_path": "body.reviewed_source_revision.work_event_count",
+      "browser_location": "reviewed_source_revision.work_event_count"
+    },
+    {
+      "id": "destination_merge_revision",
+      "location": ["body", "reviewed_destination_revision", "context_checkpoint_id"],
+      "backend_location": ["body", "reviewed_destination_revision", "context_checkpoint_id"],
+      "mcp_path": "body.reviewed_destination_revision.context_checkpoint_id",
+      "browser_location": "reviewed_destination_revision.context_checkpoint_id"
+    },
+    {
+      "id": "merge_actor",
+      "location": ["body", "merged_by_session_id"],
+      "backend_location": ["body", "merged_by_session_id"],
+      "mcp_path": "body.merged_by_session_id",
+      "browser_location": "merged_by_session_id"
+    },
+    {
+      "id": "merge_rationale",
+      "location": ["body", "rationale"],
+      "backend_location": ["body", "rationale"],
+      "mcp_path": "body.rationale",
+      "browser_location": "rationale"
+    },
+    {
+      "id": "repository_setting",
+      "location": ["body", "repository_url"],
+      "backend_location": ["body", "repository_url"],
+      "mcp_path": "body.repository_url",
+      "browser_location": "repository_url"
+    },
+    {
+      "id": "project_prompt_setting",
+      "location": ["body", "recall_pointer_template"],
+      "backend_location": ["body", "recall_pointer_template"],
+      "mcp_path": "body",
+      "browser_location": "recall_pointer_template"
+    },
+    {
+      "id": "cursor",
+      "location": ["query", "cursor"],
+      "backend_location": ["query", "cursor"],
+      "mcp_path": "cursor",
+      "browser_location": "cursor"
+    },
+    {
+      "id": "duplicate_scope",
+      "location": ["query", "duplicate_scope"],
+      "backend_location": ["query", "duplicate_scope"],
+      "mcp_path": "duplicate_scope",
+      "browser_location": "duplicate_scope"
+    },
+    {
+      "id": "canonical_filter",
+      "location": ["query", "canonical_work_item_id"],
+      "backend_location": ["query", "canonical_work_item_id"],
+      "mcp_path": "canonical_work_item_id",
+      "browser_location": "canonical_work_item_id"
+    },
+    {
+      "id": "unknown_name",
+      "location": ["body", "PRIVATE_CALLER_KEY"],
+      "backend_location": ["body", "field"],
+      "mcp_path": "body",
+      "browser_location": ""
+    },
+    {
+      "id": "metadata_key",
+      "location": ["body", "source_metadata", "PRIVATE_CALLER_KEY", "repository_url"],
+      "backend_location": ["body", "source_metadata", "field", "repository_url"],
+      "mcp_path": "body.source_metadata.repository_url",
+      "browser_location": "source_metadata"
+    },
+    {
+      "id": "array_index",
+      "location": ["body", "completion_evidence", "verification_results", 2, "command"],
+      "backend_location": ["body", "completion_evidence", "verification_results", 2, "command"],
+      "mcp_path": "body.completion_evidence.verification_results.command",
+      "browser_location": "completion_evidence.verification_results.2.command"
+    },
+    {
+      "id": "boolean_is_not_index",
+      "location": ["body", "tags", true, "label"],
+      "backend_location": ["body", "tags", "field", "label"],
+      "mcp_path": "body.tags.label",
+      "browser_location": "tags"
+    },
+    {
+      "id": "negative_index",
+      "location": ["body", "tags", -1],
+      "backend_location": ["body", "tags", -1],
+      "mcp_path": "body.tags",
+      "browser_location": "tags"
+    },
+    {
+      "id": "unsafe_browser_index",
+      "location": ["body", "tags", 9007199254740992],
+      "backend_location": ["body", "tags", 9007199254740992],
+      "mcp_path": "body.tags",
+      "browser_location": "tags"
+    },
+    {
+      "id": "malformed_location",
+      "location": {"PRIVATE_CALLER_KEY": "PRIVATE_CALLER_VALUE"},
+      "backend_location": [],
+      "mcp_path": null,
+      "browser_location": ""
+    },
+    {
+      "id": "unknown_root",
+      "location": ["PRIVATE_CALLER_KEY"],
+      "backend_location": ["field"],
+      "mcp_path": null,
+      "browser_location": ""
+    },
+    {
+      "id": "mcp_only_changes",
+      "location": ["changes", "title"],
+      "backend_location": ["field", "title"],
+      "mcp_path": "changes.title",
+      "browser_location": ""
+    },
+    {
+      "id": "unknown_error_type",
+      "location": ["body", "title"],
+      "type": "PRIVATE_ERROR_TYPE",
+      "backend_type": "validation_error",
+      "backend_message": "Request validation failed.",
+      "mcp_type": null,
+      "backend_location": ["body", "title"],
+      "mcp_path": "body.title",
+      "browser_location": "title"
+    },
+    {
+      "id": "unknown_type_and_location",
+      "location": ["PRIVATE_CALLER_KEY"],
+      "type": "PRIVATE_ERROR_TYPE",
+      "backend_type": "validation_error",
+      "backend_message": "Request validation failed.",
+      "mcp_type": null,
+      "backend_location": ["field"],
+      "mcp_path": null,
+      "browser_location": ""
+    },
+    {
+      "id": "leading_index",
+      "location": [0, "title"],
+      "backend_location": [0, "title"],
+      "mcp_path": "title",
+      "browser_location": ""
+    }
+  ]
+}

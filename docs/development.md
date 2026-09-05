@@ -44,6 +44,12 @@ succeed.
 
 ## Backend verification through Phase 11
 
+Shared-boundary extension rules are documented in the
+[public validation vocabulary](validation-vocabulary.md),
+[MCP response-validation checklist](mcp-response-validation.md), and
+[frontend shared patterns](frontend-shared-patterns.md). Extend these boundaries
+before introducing another feature-local copy.
+
 The database suite needs a real PostgreSQL instance because the system depends
 on PostgreSQL search, row locking, database time, receipt reservation/waiting,
 triggers, and Alembic behavior. Start the isolated
@@ -910,7 +916,7 @@ suite backed only by a version-reporting wrapper, or marketplace refresh by
 itself as a Phase 11 implementation result. Repository completion requires the
 isolated database/E2E/security lanes, full pre-commit, and cold adversarial
 review. It must not be described as deployment approval. When operators do
-deploy, application/API/MCP/dashboard `0.6.0`, plugin `0.10.0`, migration
+deploy, application/API/MCP/dashboard `0.7.0`, plugin `0.10.0`, migration
 `0019_structured_completion_evidence`, and the operational guidance form one
 compatible boundary. Once Phase 11 state exists, 0.5.x first-party clients are
 unsupported; add no projection shim, legacy model union, receipt rewrite,

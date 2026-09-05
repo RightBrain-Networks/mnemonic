@@ -374,6 +374,76 @@ function workInvalidationCount(messages: Invalidation[]): number {
   return messages.filter((message) => message.scope === "work-items").length;
 }
 
+for (const picker of ["merge", "relationship"] as const) {
+  test(`canonical ${picker} search clears pending results and ignores late responses`, async ({
+    page
+  }, testInfo) => {
+    const marker = `Picker ${testInfo.project.name} ${crypto.randomUUID()}`;
+    const client = await apiClient();
+    const source = await createWork(client, `${marker} source`, marker, marker, marker);
+    const destination = await createWork(client, `${marker} destination`, marker, marker, marker);
+    let releaseResponse = () => {};
+    const heldResponse = new Promise<void>((resolve) => { releaseResponse = resolve; });
+    let responseHeld = false;
+    let responseReleased = false;
+    let holdNextResponse = true;
+    await page.route("**/api/mnemonic/projects/*/work-items?*", async (route) => {
+      const url = new URL(route.request().url());
+      if (!holdNextResponse || url.searchParams.get("q") !== destination.id) {
+        await route.continue();
+        return;
+      }
+      holdNextResponse = false;
+      const response = await route.fetch();
+      responseHeld = true;
+      await heldResponse;
+      // The browser may already have aborted this intercepted request.
+      await route.fulfill({ response }).catch(() => {});
+      responseReleased = true;
+    });
+
+    try {
+      await openDashboard(page);
+      const detail = await openSearchResult(page, source);
+      let panel: Locator;
+      let search: Locator;
+      if (picker === "merge") {
+        await detail.getByRole("button", { name: /Merge as duplicate/ }).click();
+        panel = detail.getByRole("region", { name: "Merge as duplicate" });
+        search = panel.getByLabel("Find a canonical destination");
+      } else {
+        await openTab(detail, "Graph");
+        panel = detail.locator(".relationship-panel");
+        await panel.locator("summary").filter({ hasText: "Add a relationship" }).click();
+        search = panel.getByLabel("Find another work item");
+      }
+      const loading = panel.getByRole("status").filter({ hasText: /^Searching/ });
+      await search.fill(destination.id);
+      await expect.poll(() => responseHeld).toBe(true);
+      await expect(loading).toBeVisible();
+      await search.fill("");
+      await expect(loading).toHaveCount(0);
+      await expect(panel.getByRole("listbox")).toHaveCount(0);
+      releaseResponse();
+      await expect.poll(() => responseReleased).toBe(true);
+      await expect(panel.getByRole("listbox")).toHaveCount(0);
+      await expect(panel.getByRole("alert")).toHaveCount(0);
+
+      // The same shared request path still decodes canonical results and excludes
+      // the current work when both records match a subsequent query.
+      await search.fill(marker);
+      const options = panel.getByRole("listbox").getByRole("option");
+      await expect(options).toHaveCount(1);
+      await expect(options.first()).toContainText(destination.title);
+      await expect(loading).toHaveCount(0);
+    } finally {
+      releaseResponse();
+      await page.unrouteAll({ behavior: "wait" });
+      await client.dispose();
+    }
+  });
+}
+
 test("a hostile-title merge preserves direction and recovers one exact durable effect", async ({
   page
 }, testInfo) => {
@@ -522,6 +592,62 @@ test("a hostile-title merge preserves direction and recovers one exact durable e
     );
     await expect(canonicalResult.locator(".matched-member")).toContainText(source.id);
     await expect(canonicalResult.locator(".matched-member bdi")).toHaveText(hostileTitle);
+  } finally {
+    await client.dispose();
+  }
+});
+
+test("a hidden merge panel keeps one header recovery with its exact frozen request", async ({
+  page
+}, testInfo) => {
+  test.slow();
+  const suffix = `${testInfo.project.name}-${crypto.randomUUID().slice(0, 8)}`;
+  const client = await apiClient();
+  const source = await createWork(
+    client, `Header recovery source ${suffix}`, `Source ${suffix}.`,
+    `Source-owned context ${suffix}.`, `header-source-${suffix}`
+  );
+  const destination = await createWork(
+    client, `Header recovery destination ${suffix}`, `Destination ${suffix}.`,
+    `Destination-owned context ${suffix}.`, `header-destination-${suffix}`
+  );
+
+  try {
+    await openDashboard(page);
+    const detail = await openSearchResult(page, source);
+    const { panel } = await openMergeReview(page, detail, destination.id);
+    await confirmMerge(panel, `The reviewed objectives are identical ${suffix}.`);
+    const probe = await installCommittedResponseLoss(page, source.id);
+    await panel.getByRole("button", { name: "Merge permanently" }).click();
+    await expect(panel.locator(".mutation-recovery")).toContainText(
+      "The merge outcome is unknown."
+    );
+    const retainedOperationId = operationId(probe);
+    const committed = await getContext(client, source.id);
+    expect(committed.canonical.is_duplicate).toBe(true);
+
+    await openTab(detail, "Context");
+    await expect(panel).toHaveCount(0);
+    const headerRecovery = detail.locator(".detail-header > .mutation-recovery");
+    await expect(headerRecovery).toBeVisible();
+    await expect(page.locator(".mutation-recovery:visible")).toHaveCount(1);
+    await expect(headerRecovery).toContainText("Merge duplicate work · outcome unknown");
+    await expect(page.locator("#project-select")).toBeDisabled();
+    await headerRecovery.getByRole("button", { name: "Retry exact request" }).click();
+    await expect.poll(() => probe.requests.length).toBe(2);
+    await expect.poll(() => probe.responses.length).toBe(2);
+    expectExactReplay(probe);
+    expect(operationId(probe, 1)).toBe(retainedOperationId);
+
+    const audit = await duplicateAudit(page);
+    await expect(page.locator(".mutation-recovery:visible")).toHaveCount(0);
+    await openTab(audit, "Graph");
+    await expect(audit.getByRole("region", { name: "Merge as duplicate" })).toHaveCount(0);
+    const replayed = await getContext(client, source.id);
+    expect(replayed.work_item.version).toBe(committed.work_item.version);
+    expect(replayed.event_total).toBe(committed.event_total);
+    expect(replayed.canonical.canonical_work_item.id).toBe(destination.id);
+    await expect(page.locator("body")).not.toContainText(retainedOperationId);
   } finally {
     await client.dispose();
   }

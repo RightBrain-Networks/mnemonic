@@ -1,9 +1,9 @@
+import { decodeMergeReviewRevision } from "../lib/revision-codecs.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
   dashboardMergeInput,
   decodeCanonicalWorkProjection,
-  decodeMergeReviewRevision,
   decodeWorkContext,
   decodeWorkItemDetail,
   decodeWorkSearchPage,

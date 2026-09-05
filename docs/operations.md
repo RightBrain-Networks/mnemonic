@@ -395,9 +395,9 @@ database plus matching binaries with explicit acceptance of all post-backup data
 loss. Passing repository tests does not claim any production rehearsal or
 cutover occurred.
 
-### Phase 11 structured completion evidence 0.6.0 cutover
+### Phase 11 structured completion evidence cutover
 
-Phase 11 is one coordinated prerelease boundary: API, MCP, and dashboard
+Phase 11 introduced one coordinated prerelease boundary: API, MCP, and dashboard
 `0.6.0`, plugin `0.10.0`, and migration
 `0019_structured_completion_evidence`. It adds two initially empty immutable
 evidence tables and private completion/reopen generation bindings. The migration
@@ -408,6 +408,11 @@ pre-0019 row count, pre-existing column value, and permanent receipt byte
 remains unchanged; only the new private generation columns receive their
 deterministic backfill.
 
+The current API, MCP, and dashboard release is `0.7.0`. It retains the Phase 11
+schema, plugin `0.10.0`, and exact tool/mutation catalog. Upgrading an existing
+0019 deployment to `0.7.0` requires no new migration; the 0018-to-0019 cutover
+procedure below still applies to deployments that have not adopted Phase 11.
+
 Do not expose a 0.5.x first-party API, MCP adapter, dashboard, or plugin against
 head 0019. The new checkpoint/work/event columns are private, but strict clients
 do not understand evidence-bearing completion responses or the 28th MCP tool.
@@ -416,7 +421,7 @@ store, or standalone compatibility mutation.
 
 Before scheduling the cutover:
 
-1. Build and pin the coordinated artifacts. Confirm OpenAPI `0.6.0`, plugin
+1. Build and pin the coordinated artifacts. Confirm OpenAPI `0.7.0`, plugin
    `0.10.0`, migration hashes, exactly 28 MCP tools/11 protected writes,
    13 REST receipt kinds, and 11 protected browser mutations.
 2. Run the complete backend, MCP, frontend, Playwright, pre-commit, shared
@@ -518,7 +523,7 @@ For the live quiesced rollout:
 
    Use the empty-evidence flag only before enabling 0.6 writers. Nonzero
    evidence becomes expected steady-state inventory afterward, not corruption.
-7. Deploy API, then MCP/dashboard `0.6.0`, then plugin `0.10.0`. Before reopening
+7. Deploy API, then MCP/dashboard `0.7.0`, then plugin `0.10.0`. Before reopening
    writes, confirm no 0.5.x first-party process remains and run authenticated
    read-only health, OpenAPI, exact catalog, old receipt replay, empty history,
    nginx identity, and real MCP HTTP/stdio probes.

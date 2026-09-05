@@ -102,6 +102,7 @@ export type WorkDetailPaneProps = {
   onUseCurrentVersion: () => void;
   onEdit: () => void;
   mergeOpen: boolean;
+  mergeRecoveryVisible: boolean;
   onOpenMerge: () => void;
   onCloseMerge: () => void;
   onMerged: (result: WorkMergeResult) => void | Promise<void>;
@@ -276,7 +277,7 @@ function TabBody({ context, isDuplicate, props }: { context: WorkContext; isDupl
         {/* Merge mode only opens on a canonical root, but a lost merge response followed by a
             live-sync reload can turn the open source into a duplicate while its merge intent is
             still unresolved. The panel stays mounted so its recovery block and exact retry survive. */}
-        {props.mergeOpen && <WorkMergePanel source={context} onClose={props.onCloseMerge} onMerged={props.onMerged} onSourceChanged={props.onMergeSourceChanged} />}
+        {props.mergeOpen && <WorkMergePanel source={context} recoveryVisible={props.mergeRecoveryVisible} onClose={props.onCloseMerge} onMerged={props.onMerged} onSourceChanged={props.onMergeSourceChanged} />}
         <RelationshipPanel context={context} onChanged={props.onRelationshipsChanged} />
       </>;
     case "questions":

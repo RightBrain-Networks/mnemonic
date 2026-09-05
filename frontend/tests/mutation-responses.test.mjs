@@ -1,9 +1,8 @@
+import { decodeCheckpoint, decodeCheckpointPage } from "../lib/checkpoint-codecs.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
   classifyMutationResponse,
-  decodeCheckpoint,
-  decodeCheckpointPage,
   MUTATION_KINDS
 } from "../lib/mutation-responses.ts";
 import {
@@ -454,7 +453,17 @@ test("merge success binds exact direction, revisions, relationship witness, and 
   ]);
   assert.equal("created_for_duplicate_merge_id" in outcome.value.supporting_relationship, false);
 
+  const uppercaseRevisions = structuredClone(result);
+  uppercaseRevisions.merge.reviewed_source_revision.context_checkpoint_id =
+    checkpointId.toUpperCase();
+  uppercaseRevisions.merge.reviewed_destination_revision.context_checkpoint_id =
+    destinationCheckpointId.toUpperCase();
+  assert.equal((await classify(spec, 201, uppercaseRevisions)).type, "success");
+
   const poisoned = [
+    (() => { const value = structuredClone(result); value.merge.reviewed_source_revision.extra = true; return value; })(),
+    (() => { const value = structuredClone(result); delete value.merge.reviewed_destination_revision.work_event_count; return value; })(),
+    (() => { const value = structuredClone(result); value.merge.reviewed_source_revision.work_event_count = 0; return value; })(),
     (() => { const value = structuredClone(result); value.merge.private_fk = mergeId; return value; })(),
     (() => { const value = structuredClone(result); value.merge_events.reverse(); return value; })(),
     (() => { const value = structuredClone(result); value.merge_events[0].metadata.extra = true; return value; })(),

@@ -24,8 +24,8 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 ## Delivery Snapshot
 
-As of 2026-09-04, Phases 1–11 are shipped in the repository at
-application/API/MCP/dashboard `0.6.0`, plugin `0.10.0`, and migration
+As of 2026-09-05, Phases 1–11 are shipped in the repository. The current release is
+application/API/MCP/dashboard `0.7.0`, plugin `0.10.0`, and migration
 `0019_structured_completion_evidence`. Production-target preflight and cutover
 remain explicit operator gates. Phases 12–13 remain planned.
 

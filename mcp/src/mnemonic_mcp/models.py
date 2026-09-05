@@ -35,6 +35,8 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
+from .response_validation import validate_page_bounds, validate_page_items
+
 Status = Literal["pending", "deferred", "done", "wont-do", "promoted"]
 EventStatus = Literal["open", "pending", "deferred", "done", "wont-do", "promoted"]
 EventCreateStatus = Literal["open", "pending", "deferred", "wont-do", "promoted"]
@@ -1077,9 +1079,17 @@ class Project(CanonicalResponse):
 
 class ProjectPage(CanonicalResponse):
     items: list[Project]
-    total: int
-    limit: int
-    offset: int
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def enforce_page_contract(self) -> Self:
+        validate_page_items(
+            self.items, total=self.total, limit=self.limit, offset=self.offset,
+            key=lambda item: item.id,
+        )
+        return self
 
 
 class CheckpointInput(BaseModel):
@@ -1614,8 +1624,7 @@ def _validate_completion_evidence_page_identity(page: CompletionEvidencePage) ->
 
 
 def _validate_completion_evidence_page_counts(page: CompletionEvidencePage) -> None:
-    if len(page.items) > page.limit or page.total < len(page.items):
-        raise ValueError("Completion evidence page counts are incoherent.")
+    validate_page_bounds(count=len(page.items), total=page.total, limit=page.limit)
     structured_on_page = sum(
         bool(item.verification_results or item.artifact_references) for item in page.items
     )
@@ -1949,12 +1958,29 @@ class AdjacentRelationshipRead(CanonicalResponse):
     direction: RelationshipDirection
     counterpart: WorkPointer
 
+    @model_validator(mode="after")
+    def enforce_projection(self) -> Self:
+        direction, counterpart_id = _relationship_projection(
+            self.relationship, self.relative_to_work_item_id
+        )
+        if self.direction != direction or self.counterpart.id != counterpart_id:
+            raise ValueError("Relationship adjacency must match its endpoints.")
+        return self
+
 
 class RelationshipPage(CanonicalResponse):
     items: list[AdjacentRelationshipRead]
-    total: int
-    limit: int
-    offset: int
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def enforce_page_contract(self) -> Self:
+        validate_page_items(
+            self.items, total=self.total, limit=self.limit, offset=self.offset,
+            key=lambda item: item.relationship.id,
+        )
+        return self
 
 
 class RelationshipCreationResult(CanonicalResponse):
@@ -2094,8 +2120,9 @@ class HumanAttentionPage(CanonicalResponse):
 
     @model_validator(mode="after")
     def enforce_attention_page_contract(self) -> Self:
-        if len(self.items) > self.limit or len(self.items) > self.total:
-            raise ValueError("Human-attention page bounds are inconsistent.")
+        validate_page_items(
+            self.items, total=self.total, limit=self.limit, key=lambda item: item.gate.id,
+        )
         if self.limit == 0 and (self.items or self.next_cursor is not None):
             raise ValueError("Count-only attention pages cannot contain items or a cursor.")
         return self
@@ -2109,8 +2136,9 @@ class HumanGatePage(CanonicalResponse):
 
     @model_validator(mode="after")
     def enforce_gate_page_contract(self) -> Self:
-        if len(self.items) > self.limit or len(self.items) > self.total:
-            raise ValueError("Human-gate page bounds are inconsistent.")
+        validate_page_items(
+            self.items, total=self.total, limit=self.limit, key=lambda item: item.id,
+        )
         return self
 
 
@@ -2189,20 +2217,15 @@ class WorkPage(CanonicalResponse):
 
     @model_validator(mode="after")
     def enforce_page_contract(self) -> Self:
-        if len(self.items) > self.limit:
-            raise ValueError("Work pages cannot exceed their declared limit.")
-        if self.items and (
-            self.offset >= self.total or self.offset + len(self.items) > self.total
-        ):
-            raise ValueError("Work page items must fit within the declared total.")
+        validate_page_items(
+            self.items, total=self.total, limit=self.limit, offset=self.offset,
+            key=lambda item: item.summary.work_item.id,
+        )
         if self.items and not (
             all(isinstance(item, WorkSearchHit) for item in self.items)
             or all(isinstance(item, HierarchySummary) for item in self.items)
         ):
             raise ValueError("A work page cannot mix full search hits and hierarchy roots.")
-        work_item_ids = [item.summary.work_item.id for item in self.items]
-        if len(work_item_ids) != len(set(work_item_ids)):
-            raise ValueError("Work pages cannot repeat work items.")
         return self
 
 
@@ -2216,12 +2239,10 @@ class ReadyWorkPage(CanonicalResponse):
 
     @model_validator(mode="after")
     def enforce_ready_page_contract(self) -> Self:
-        if len(self.items) > self.limit:
-            raise ValueError("Ready-work pages cannot exceed their declared limit.")
-        if self.items and (
-            self.offset >= self.total or self.offset + len(self.items) > self.total
-        ):
-            raise ValueError("Ready-work page items must fit within the declared total.")
+        validate_page_items(
+            self.items, total=self.total, limit=self.limit, offset=self.offset,
+            key=lambda item: item.work_item.id,
+        )
         if any(
             item.work_item.status != "pending"
             or item.display_state not in {"pending", "dropped"}
@@ -2233,9 +2254,17 @@ class ReadyWorkPage(CanonicalResponse):
 
 class CheckpointPage(CanonicalResponse):
     items: list[CheckpointRead]
-    total: int
-    limit: int
-    offset: int
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def enforce_page_contract(self) -> Self:
+        validate_page_items(
+            self.items, total=self.total, limit=self.limit, offset=self.offset,
+            key=lambda item: item.id,
+        )
+        return self
 
 
 class RelationshipCounts(CanonicalResponse):
@@ -2596,10 +2625,18 @@ def _validated_event_metadata(event: WorkEventRead) -> WorkEventMetadata:
 
 class WorkEventPage(CanonicalResponse):
     items: list[WorkEventRead]
-    total: int
-    limit: int
-    offset: int
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
     pre_phase5_history_may_be_incomplete: bool
+
+    @model_validator(mode="after")
+    def enforce_page_contract(self) -> Self:
+        validate_page_items(
+            self.items, total=self.total, limit=self.limit, offset=self.offset,
+            key=lambda item: item.id,
+        )
+        return self
 
 
 class WorkContext(CanonicalResponse):
@@ -2795,16 +2832,11 @@ class WorkContext(CanonicalResponse):
                 raise ValueError("Recall relationship slices are not in canonical order.")
             for adjacent in relationships:
                 edge = adjacent.relationship
-                expected_direction, expected_counterpart = _context_relationship_projection(
-                    edge, self.work_item.id
-                )
                 if (
                     edge.id in seen_relationship_ids
                     or edge.project_id != self.work_item.project_id
                     or adjacent.relative_to_work_item_id != self.work_item.id
                     or adjacent.direction != direction
-                    or adjacent.direction != expected_direction
-                    or adjacent.counterpart.id != expected_counterpart
                 ):
                     raise ValueError("Recall relationships are outside the requested work item.")
                 seen_relationship_ids.add(edge.id)
@@ -2829,7 +2861,7 @@ class WorkContext(CanonicalResponse):
                 raise ValueError("Merge eligibility structural counts are incoherent.")
 
 
-def _context_relationship_projection(
+def _relationship_projection(
     edge: RelationshipEdgeRead,
     work_item_id: UUID,
 ) -> tuple[RelationshipDirection, UUID]:
@@ -2841,7 +2873,7 @@ def _context_relationship_projection(
     if edge.target_work_item_id == work_item_id:
         direction = "undirected" if edge.relationship_type == "related" else "incoming"
         return direction, edge.source_work_item_id
-    raise ValueError("Recall relationship does not touch the requested work item.")
+    raise ValueError("Relationship does not touch its relative work item.")
 
 
 class ClaimReceipt(CanonicalResponse):

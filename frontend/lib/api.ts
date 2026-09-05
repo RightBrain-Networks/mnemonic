@@ -20,8 +20,11 @@ const SAFE_ERROR_CONTEXT = new Set([
   "holder_client", "expires_at", "canonical_work_item_id"
 ]);
 
-const SAFE_VALIDATION_LOCATION_ROOTS = new Set(["body", "query", "path", "header", "cookie"]);
-const SAFE_VALIDATION_LOCATION_PARTS = new Set([
+// Reviewed in docs/validation-vocabulary.json; validation-vocabulary.test.mjs pins this subset.
+export const SAFE_VALIDATION_LOCATION_ROOTS: ReadonlySet<string> = new Set([
+  "body", "query", "path", "header", "cookie"
+]);
+export const SAFE_VALIDATION_LOCATION_PARTS: ReadonlySet<string> = new Set([
   "actor",
   "actor_client",
   "actor_model",
@@ -40,6 +43,7 @@ const SAFE_VALIDATION_LOCATION_PARTS = new Set([
   "created_by_client",
   "created_by_model",
   "created_by_session_id",
+  "cursor",
   "description",
   "direction",
   "destination_work_item_id",

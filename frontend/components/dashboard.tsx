@@ -16,6 +16,7 @@ import ThemeSelector from "@/components/theme-selector";
 import ProjectSettingsPanel from "@/components/project-settings";
 import DuplicateSuggestionPanel from "@/components/duplicate-suggestion-panel";
 import HumanAttentionList from "@/components/human-attention-list";
+import MutationRecoveryPanel from "@/components/mutation-recovery-panel";
 import WorkDetailPane from "@/components/work-detail-pane";
 import WorkItemList from "@/components/work-item-list";
 import { usePaneCrossfade } from "@/components/use-pane-crossfade";
@@ -33,10 +34,12 @@ import {
   MutationIntentRegistry,
   mutationCreateKey,
   mutationWorkKey,
+  selectMutationScope,
   useMutationIntents,
   useMutationUnloadWarning,
   type MutationIntentSummary
 } from "@/lib/mutation-intent";
+import { mutationLabels, selectMutationRecovery } from "@/lib/mutation-recovery";
 import {
   dashboardSortPreference,
   dashboardStatusPreference,
@@ -82,7 +85,7 @@ import {
   AffectedPathsValidationError,
   parseAffectedPathsDraft
 } from "@/lib/affected-paths";
-import { decodeCheckpointPage } from "@/lib/mutation-responses";
+import { decodeCheckpointPage } from "@/lib/checkpoint-codecs";
 import {
   completionEvidenceDraftIsEmpty,
   completionEvidenceDraftIssues,
@@ -91,20 +94,6 @@ import {
   type CompletionEvidenceDraft,
   type CompletionEvidenceIssue
 } from "@/lib/completion-evidence";
-
-const mutationLabels: Record<MutationIntentSummary["kind"], string> = {
-  create_work: "Create work",
-  add_checkpoint: "Add checkpoint",
-  append_event: "Append progress",
-  add_relationship: "Add relationship",
-  update_work: "Update work",
-  defer_work: "Defer work",
-  complete_work: "Complete work",
-  delete_work: "Delete work",
-  remove_relationship: "Remove relationship",
-  resolve_human_input: "Resolve human question",
-  merge_work: "Merge duplicate work"
-};
 
 const iconPaths = {
   search: "m21 21-4.4-4.4M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0Z",
@@ -140,45 +129,6 @@ function Logo() {
     <path d="M335.5,406.8C351.2,335.3,399.2,304,456.7,304c75,0,123.8,43.6,123.8,108.1c0,49.7-26.2,81.1-71.5,120.3c-34.9,30.5-53.2,56.7-53.2,87.2" fill="none" stroke="#ffffff" strokeWidth="88" strokeLinecap="round" strokeLinejoin="round" />
     <circle cx="460" cy="741.9" r="42" fill="#ffffff" />
   </svg>;
-}
-
-function MutationRecoveryPanel({
-  intents,
-  retryingMutation,
-  onRetry,
-  modal = false
-}: {
-  intents: readonly MutationIntentSummary[];
-  retryingMutation: string;
-  onRetry: (intent: MutationIntentSummary) => void;
-  modal?: boolean;
-}) {
-  if (!intents.length) return null;
-  return <section
-    className={`mutation-recovery ${modal ? "mutation-recovery-modal" : "mutation-recovery-global"}`}
-    role="alert"
-    aria-live="polite"
-  >
-    <div>
-      <strong>Pending mutations need this tab.</strong>
-      <span>Do not reload or close it; the exact retry request exists only in memory.</span>
-    </div>
-    <ul>{intents.map((intent) => <li key={intent.slot}>
-      <span>{mutationLabels[intent.kind]} · {intent.state === "in_flight"
-        ? "waiting for a response"
-        : intent.state === "safety_conflict"
-          ? "safety conflict"
-          : "outcome unknown"}</span>
-      {intent.state === "safety_conflict"
-        && <small>Stop and inspect the client and server state before continuing.</small>}
-      {intent.state === "unresolved" && <button
-        type="button"
-        className="button button-secondary"
-        disabled={Boolean(retryingMutation)}
-        onClick={() => onRetry(intent)}
-      >{retryingMutation === intent.slot ? "Retrying…" : "Retry exact request"}</button>}
-    </li>)}</ul>
-  </section>;
 }
 
 function Dialog({
@@ -277,7 +227,6 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const mutationIntents = useMutationIntents(mutationRegistry);
   useMutationUnloadWarning(mutationRegistry);
   const [retryingMutation, setRetryingMutation] = useState("");
-  const dispatchedMutationIntents = mutationIntents.filter((intent) => intent.state !== "prepared");
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState("");
@@ -1492,7 +1441,17 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setRetryingMutation(intent.slot);
     let contextReconciled = true;
     try {
-      await mutationRegistry.retry(intent.slot);
+      if (intent.kind === "merge_work") {
+        const result = await mutationRegistry.retry<"merge_work">(intent.slot);
+        const selected = openedRef.current?.work_item;
+        if (selected?.id === result.merge.source_work_item_id
+          && selected.project_id === result.merge.project_id) {
+          await merged(result);
+          return;
+        }
+      } else {
+        await mutationRegistry.retry(intent.slot);
+      }
       setRefresh((value) => value + 1);
       setAttentionRefresh((value) => value + 1);
       setCheckpointRefresh((value) => value + 1);
@@ -1648,61 +1607,43 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   }
 
   const activeProjectMutationBlocked = Boolean(
-    activeId && mutationRegistry.hasDispatchedForProject(activeId)
+    activeId && selectMutationScope(mutationIntents, { projectId: activeId }).blocked
   );
   const openedWorkKey = opened
     ? mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
     : null;
+  const openedPaneVisible = view === "library" && !projectsError && projects.length > 0
+    && opened !== null;
   const openedWorkMutationBlocked = Boolean(
-    openedWorkKey && mutationRegistry.blocks([openedWorkKey])
+    openedWorkKey && selectMutationScope(mutationIntents, { conflictKeys: [openedWorkKey] }).blocked
   );
   const detailMutationBlocked = openedWorkMutationBlocked
     || contextReconciliationRequired && contextLoading;
   const createWorkMutationBlocked = Boolean(
-    project && mutationRegistry.blocks([mutationCreateKey(project.id)])
+    project && selectMutationScope(mutationIntents, {
+      conflictKeys: [mutationCreateKey(project.id)]
+    }).blocked
   );
-  const createDialogMutationIntents = workDialog !== "closed" && project
-    ? dispatchedMutationIntents.filter((intent) => (
-      intent.kind === "create_work"
-      && intent.conflictKeys.includes(mutationCreateKey(project.id))
-    ))
-    : [];
-  const deleteDialogMutationIntents = deleteTarget
-    ? dispatchedMutationIntents.filter((intent) => (
-      intent.kind === "delete_work"
-      && intent.conflictKeys.includes(
-        mutationWorkKey(deleteTarget.project_id, deleteTarget.id)
-      )
-    ))
-    : [];
-  const deleteDialogMutationSlots = new Set(
-    deleteDialogMutationIntents.map((intent) => intent.slot)
-  );
-  // The merge panel renders its own recovery block for the open item's merge.
-  const mergePanelMutationIntents = openedWorkKey && mergeOpen
-    ? dispatchedMutationIntents.filter((intent) => (
-      intent.kind === "merge_work" && intent.conflictKeys.includes(openedWorkKey)
-    ))
-    : [];
-  const mergePanelMutationSlots = new Set(
-    mergePanelMutationIntents.map((intent) => intent.slot)
-  );
-  const openedPaneMutationIntents = openedWorkKey
-    ? dispatchedMutationIntents.filter((intent) => (
-      !deleteDialogMutationSlots.has(intent.slot)
-      && !mergePanelMutationSlots.has(intent.slot)
-      && intent.conflictKeys.includes(openedWorkKey)
-    ))
-    : [];
-  const localMutationSlots = new Set([
-    ...createDialogMutationIntents,
-    ...mergePanelMutationIntents,
-    ...openedPaneMutationIntents,
-    ...deleteDialogMutationIntents
-  ].map((intent) => intent.slot));
-  const globalMutationIntents = dispatchedMutationIntents.filter(
-    (intent) => !localMutationSlots.has(intent.slot)
-  );
+  const {
+    createDialog: createDialogMutationIntents,
+    deleteDialog: deleteDialogMutationIntents,
+    mergePanel: mergePanelMutationIntents,
+    openedPane: openedPaneMutationIntents,
+    global: globalMutationIntents
+  } = selectMutationRecovery(mutationIntents, {
+    createWorkKey: workDialog !== "closed" && project ? mutationCreateKey(project.id) : undefined,
+    deleteWorkKey: deleteTarget
+      ? mutationWorkKey(deleteTarget.project_id, deleteTarget.id)
+      : undefined,
+    // The graph owns recovery only while its exact source panel is visible and interactive.
+    // Other tabs and unavailable/reconciling context use the always-visible pane header.
+    mergeSlot: opened && openedPaneVisible && mergeOpen && tab === "graph"
+      && context?.work_item.id === opened.work_item.id
+      && !(contextReconciliationRequired && contextLoading)
+      ? `merge-work:${opened.work_item.project_id}:${opened.work_item.id}`
+      : undefined,
+    openedWorkKey: openedPaneVisible ? openedWorkKey ?? undefined : undefined
+  });
   const modalRecovery = (intents: readonly MutationIntentSummary[]) => (
     intents.length
       ? <MutationRecoveryPanel
@@ -1877,6 +1818,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                   onUseCurrentVersion={useCurrentVersion}
                   onEdit={startEdit}
                   mergeOpen={mergeOpen}
+                  mergeRecoveryVisible={mergePanelMutationIntents.length > 0}
                   onOpenMerge={openMerge}
                   onCloseMerge={() => setMergeOpen(false)}
                   onMerged={merged}

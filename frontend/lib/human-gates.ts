@@ -1,42 +1,24 @@
+import { decodeHumanGateRevision } from "./revision-codecs.ts";
+import { decodeWorkSummary } from "./work-codecs.ts";
 import type {
   AdjacentRelationshipRead,
-  CheckpointPointer,
   HumanAttentionItem,
   HumanAttentionPage,
-  HumanGateContextRevision,
   HumanGatePage,
   HumanGateRead,
   HumanGateStatus,
-  LeasePublic,
-  Readiness,
-  WorkIdentityPointer,
-  WorkContext,
-  WorkStatus,
-  WorkSummary
+  WorkContext
 } from "@/lib/types";
 import {
   boundedText,
-  decodeWorkItem,
   exactKeys,
   finiteInteger,
   nullableBoundedText,
   objectValue,
   sameUuid,
   validUtcDateTime,
-  validUuid,
-  type JsonObject
+  validUuid
 } from "./wire-guards.ts";
-const WORK_STATUSES = new Set<WorkStatus>([
-  "pending", "deferred", "done", "wont-do", "promoted"
-]);
-const DISPLAY_STATES = new Set([
-  ...WORK_STATUSES,
-  "active",
-  "dropped",
-  "blocked",
-  "waiting",
-  "duplicate"
-]);
 const GATE_FIELDS = [
   "id", "project_id", "work_item_id", "gate_type", "question",
   "requested_by_client", "requested_by_session_id", "requested_by_model",
@@ -47,64 +29,15 @@ const GATE_FIELDS = [
   "resolved_by_session_id", "resolved_by_model", "resolved_context_revision",
   "context_changed_at_resolution"
 ] as const;
-const REVISION_FIELDS = [
-  "work_version", "context_checkpoint_id", "relationship_event_count"
-] as const;
-const CHECKPOINT_POINTER_FIELDS = [
-  "id", "work_item_id", "kind", "source_client", "source_session_id", "source_model",
-  "repository_branch", "verified_against", "tags", "migration_origin", "legacy_record_id",
-  "created_at"
-] as const;
-const LEASE_FIELDS = [
-  "holder_client", "holder_session_id", "acquired_at", "renewed_at", "expires_at"
-] as const;
-const READINESS_FIELDS = [
-  "lifecycle_status", "is_duplicate", "canonical_work_item_id", "is_terminal",
-  "has_active_lease", "has_dropped_lease",
-  "active_lease", "unresolved_blocker_count", "is_blocked", "unresolved_gate_count",
-  "is_gated", "is_ready", "display_state"
-] as const;
-const ANCESTOR_FIELDS = ["id", "title", "status"] as const;
-const WORK_SUMMARY_FIELDS = [
-  "work_item", "checkpoint_count", "ancestor_path", "ancestor_path_truncated",
-  "current_context", "readiness"
-] as const;
 const CURSOR_PAGE_FIELDS = ["items", "total", "limit", "next_cursor"] as const;
 const HUMAN_ATTENTION_ITEM_FIELDS = ["gate", "summary"] as const;
 
 export const HUMAN_GATE_DECODER_FIELDS = {
   GATE_FIELDS,
-  decodeAncestor: ANCESTOR_FIELDS,
-  decodeCheckpointPointer: CHECKPOINT_POINTER_FIELDS,
   "decodeCursorPage:attention": CURSOR_PAGE_FIELDS,
   "decodeCursorPage:gates": CURSOR_PAGE_FIELDS,
-  "decodeHumanAttentionPage:item": HUMAN_ATTENTION_ITEM_FIELDS,
-  decodeLease: LEASE_FIELDS,
-  decodeReadiness: READINESS_FIELDS,
-  decodeRevision: REVISION_FIELDS,
-  decodeWorkSummary: WORK_SUMMARY_FIELDS
+  "decodeHumanAttentionPage:item": HUMAN_ATTENTION_ITEM_FIELDS
 } as const;
-
-function decodeRevision(value: unknown): HumanGateContextRevision {
-  const revision = objectValue(value);
-  if (
-    !revision
-    || !exactKeys(revision, REVISION_FIELDS)
-    || !finiteInteger(revision.work_version, 1)
-    || !validUuid(revision.context_checkpoint_id)
-    || !finiteInteger(revision.relationship_event_count)
-  ) throw new Error("Mnemonic returned an invalid human-gate revision.");
-  return revision as unknown as HumanGateContextRevision;
-}
-
-export function sameHumanGateRevision(
-  left: HumanGateContextRevision,
-  right: HumanGateContextRevision
-): boolean {
-  return left.work_version === right.work_version
-    && left.relationship_event_count === right.relationship_event_count
-    && sameUuid(left.context_checkpoint_id, right.context_checkpoint_id);
-}
 
 export function humanGateProjectionKey(gate: HumanGateRead): string {
   return [
@@ -149,8 +82,8 @@ export function decodeHumanGate(
     || expected?.status !== undefined && gate.status !== expected.status
   ) throw new Error("Mnemonic returned an invalid human gate.");
 
-  decodeRevision(gate.requested_context_revision);
-  decodeRevision(gate.current_context_revision);
+  decodeHumanGateRevision(gate.requested_context_revision);
+  decodeHumanGateRevision(gate.current_context_revision);
 
   if (gate.status === "unresolved") {
     if (
@@ -171,7 +104,7 @@ export function decodeHumanGate(
       || !nullableBoundedText(gate.resolved_by_model, 120)
       || typeof gate.context_changed_at_resolution !== "boolean"
     ) throw new Error("Mnemonic returned an incoherent resolved human gate.");
-    decodeRevision(gate.resolved_context_revision);
+    decodeHumanGateRevision(gate.resolved_context_revision);
     if (Date.parse(gate.resolved_at) < Date.parse(String(gate.created_at))) {
       throw new Error("Mnemonic returned an incoherent resolved human gate.");
     }
@@ -179,149 +112,6 @@ export function decodeHumanGate(
   return gate as unknown as HumanGateRead;
 }
 
-export function decodeCheckpointPointer(value: unknown, workItemId: string): CheckpointPointer {
-  const checkpoint = objectValue(value);
-  if (
-    !checkpoint
-    || !exactKeys(checkpoint, CHECKPOINT_POINTER_FIELDS)
-    || !validUuid(checkpoint.id)
-    || !sameUuid(checkpoint.work_item_id, workItemId)
-    || !["context", "progress", "completion"].includes(String(checkpoint.kind))
-    || !boundedText(checkpoint.source_client, 80)
-    || !boundedText(checkpoint.source_session_id, 200)
-    || !nullableBoundedText(checkpoint.source_model, 120)
-    || !nullableBoundedText(checkpoint.repository_branch, 200)
-    || !(checkpoint.verified_against === null
-      || typeof checkpoint.verified_against === "string"
-        && /^[a-fA-F0-9]{7,64}$/.test(checkpoint.verified_against))
-    || !Array.isArray(checkpoint.tags)
-    || checkpoint.tags.some((tag) => !boundedText(tag, 50))
-    || !(checkpoint.migration_origin === null
-      || checkpoint.migration_origin === "legacy-handoff-snapshot"
-      || checkpoint.migration_origin === "legacy-comment")
-    || !(checkpoint.legacy_record_id === null || validUuid(checkpoint.legacy_record_id))
-    || !validUtcDateTime(checkpoint.created_at)
-  ) throw new Error("Mnemonic returned an invalid attention checkpoint pointer.");
-  return checkpoint as unknown as CheckpointPointer;
-}
-
-function decodeLease(value: unknown): LeasePublic | null {
-  if (value === null) return null;
-  const lease = objectValue(value);
-  if (
-    !lease
-    || !exactKeys(lease, LEASE_FIELDS)
-    || !boundedText(lease.holder_client, 80)
-    || !boundedText(lease.holder_session_id, 200)
-    || !validUtcDateTime(lease.acquired_at)
-    || !validUtcDateTime(lease.renewed_at)
-    || !validUtcDateTime(lease.expires_at)
-  ) throw new Error("Mnemonic returned an invalid attention lease.");
-  return lease as unknown as LeasePublic;
-}
-
-export function decodeReadiness(
-  value: unknown,
-  status: WorkStatus,
-  workItemId: string
-): Readiness {
-  const readiness = objectValue(value);
-  if (
-    !readiness
-    || !exactKeys(readiness, READINESS_FIELDS)
-    || readiness.lifecycle_status !== status
-    || typeof readiness.is_duplicate !== "boolean"
-    || !validUuid(readiness.canonical_work_item_id)
-    || (readiness.is_duplicate
-      ? sameUuid(readiness.canonical_work_item_id, workItemId)
-      : !sameUuid(readiness.canonical_work_item_id, workItemId))
-    || typeof readiness.is_terminal !== "boolean"
-    || typeof readiness.has_active_lease !== "boolean"
-    || typeof readiness.has_dropped_lease !== "boolean"
-    || !finiteInteger(readiness.unresolved_blocker_count)
-    || typeof readiness.is_blocked !== "boolean"
-    || !finiteInteger(readiness.unresolved_gate_count)
-    || typeof readiness.is_gated !== "boolean"
-    || typeof readiness.is_ready !== "boolean"
-    || typeof readiness.display_state !== "string"
-    || !DISPLAY_STATES.has(readiness.display_state)
-  ) throw new Error("Mnemonic returned invalid attention readiness.");
-  const lease = decodeLease(readiness.active_lease);
-  const terminal = ["done", "wont-do", "promoted"].includes(status);
-  const ready = status === "pending"
-    && !readiness.is_duplicate
-    && lease === null
-    && readiness.unresolved_blocker_count === 0
-    && readiness.unresolved_gate_count === 0;
-  const displayState = readiness.is_duplicate
-    ? "duplicate"
-    : status !== "pending"
-    ? status
-    : readiness.unresolved_gate_count > 0
-      ? "waiting"
-      : readiness.unresolved_blocker_count > 0
-        ? "blocked"
-        : lease !== null
-          ? "active"
-          : readiness.has_dropped_lease
-            ? "dropped"
-            : "pending";
-  if (
-    readiness.is_terminal !== terminal
-    || readiness.has_active_lease !== (lease !== null)
-    || readiness.has_active_lease && readiness.has_dropped_lease
-    || readiness.is_blocked !== (readiness.unresolved_blocker_count > 0)
-    || readiness.is_gated !== (readiness.unresolved_gate_count > 0)
-    || readiness.is_ready !== ready
-    || readiness.display_state !== displayState
-  ) throw new Error("Mnemonic returned incoherent attention readiness.");
-  return { ...readiness, active_lease: lease } as unknown as Readiness;
-}
-
-export function decodeWorkIdentityPointer(value: unknown): WorkIdentityPointer {
-  const ancestor = objectValue(value);
-  if (
-    !ancestor
-    || !exactKeys(ancestor, ANCESTOR_FIELDS)
-    || !validUuid(ancestor.id)
-    || !boundedText(ancestor.title, 200)
-    || typeof ancestor.status !== "string"
-    || !WORK_STATUSES.has(ancestor.status as WorkStatus)
-  ) throw new Error("Mnemonic returned an invalid attention ancestry path.");
-  return ancestor as unknown as WorkIdentityPointer;
-}
-
-export function decodeWorkSummary(value: unknown, projectId: string): WorkSummary {
-  const summary = objectValue(value);
-  if (
-    !summary
-    || !exactKeys(summary, WORK_SUMMARY_FIELDS)
-  ) throw new Error("Mnemonic returned an invalid attention work summary.");
-  const workItem = decodeWorkItem(
-    summary.work_item,
-    projectId,
-    undefined,
-    "Mnemonic returned an invalid attention work summary."
-  );
-  if (
-    !finiteInteger(summary.checkpoint_count, 1)
-    || !Array.isArray(summary.ancestor_path)
-    || summary.ancestor_path.length > 50
-    || typeof summary.ancestor_path_truncated !== "boolean"
-  ) throw new Error("Mnemonic returned an invalid attention work summary.");
-  const ancestors = summary.ancestor_path.map(decodeWorkIdentityPointer);
-  if (new Set(ancestors.map((item) => item.id.toLowerCase())).size !== ancestors.length) {
-    throw new Error("Mnemonic returned an invalid attention ancestry path.");
-  }
-  return {
-    work_item: workItem,
-    checkpoint_count: summary.checkpoint_count,
-    ancestor_path: ancestors,
-    ancestor_path_truncated: summary.ancestor_path_truncated,
-    current_context: decodeCheckpointPointer(summary.current_context, workItem.id),
-    readiness: decodeReadiness(summary.readiness, workItem.status, workItem.id)
-  };
-}
 
 function decodeCursorPage(
   value: unknown,

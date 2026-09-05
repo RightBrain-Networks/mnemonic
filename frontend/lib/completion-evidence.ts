@@ -1,3 +1,7 @@
+import {
+  CHECKPOINT_DECODER_FIELDS,
+  decodeCheckpointPointer as decodeGeneralCheckpointPointer
+} from "./checkpoint-codecs.ts";
 import type {
   ArtifactReferenceInput,
   ArtifactReferenceRead,
@@ -71,7 +75,6 @@ const WORK_STATUSES = new Set<WorkStatus>([
   "wont-do",
   "promoted"
 ]);
-const CHECKPOINT_KINDS = new Set(["context", "progress", "completion"]);
 const RESULT_KEYS = new Set([
   "verification_type",
   "name",
@@ -721,11 +724,6 @@ function validEventId(value: unknown): value is string {
   }
 }
 
-const CHECKPOINT_POINTER_READ_KEYS = [
-  "id", "work_item_id", "kind", "source_client", "source_session_id",
-  "source_model", "repository_branch", "verified_against", "tags",
-  "migration_origin", "legacy_record_id", "created_at"
-] as const;
 const RESULT_READ_REQUIRED_KEYS = [
   "id", "work_item_id", "completion_checkpoint_id", "position",
   "verification_type", "name", "outcome", "summary", "created_at"
@@ -760,7 +758,7 @@ const EVIDENCE_PAGE_READ_KEYS = [
 ] as const;
 
 export const COMPLETION_EVIDENCE_DECODER_FIELDS = {
-  decodeCheckpointPointer: CHECKPOINT_POINTER_READ_KEYS,
+  decodeCheckpointPointer: CHECKPOINT_DECODER_FIELDS.decodeCheckpointPointer,
   "decodeVerificationResult:command": COMMAND_RESULT_READ_KEYS,
   "decodeVerificationResult:observation": OBSERVATION_RESULT_READ_KEYS,
   decodeArtifactReference: ARTIFACT_READ_KEYS,
@@ -770,32 +768,20 @@ export const COMPLETION_EVIDENCE_DECODER_FIELDS = {
 } as const;
 
 function decodeCheckpointPointer(value: unknown, workItemId: string) {
-  const checkpoint = objectValue(value);
+  const checkpoint = decodeGeneralCheckpointPointer(
+    value,
+    workItemId,
+    "Mnemonic returned invalid completion evidence."
+  );
   if (
-    !checkpoint
-    || !exactKeys(checkpoint, CHECKPOINT_POINTER_READ_KEYS)
-    || !validUuid(checkpoint.id)
-    || !sameUuid(checkpoint.work_item_id, workItemId)
-    || typeof checkpoint.kind !== "string"
-    || !CHECKPOINT_KINDS.has(checkpoint.kind)
-    || checkpoint.kind !== "completion"
-    || !boundedText(checkpoint.source_client, 80)
-    || !boundedText(checkpoint.source_session_id, 200)
-    || !nullableBoundedText(checkpoint.source_model, 120)
-    || !nullableBoundedText(checkpoint.repository_branch, 200)
-    || !(checkpoint.verified_against === null
-      || typeof checkpoint.verified_against === "string" && /^[a-fA-F0-9]{7,64}$/.test(checkpoint.verified_against))
-    || !Array.isArray(checkpoint.tags)
-    || checkpoint.tags.some((tag) => !boundedText(tag, 50) || tag !== tag.toLowerCase())
+    checkpoint.kind !== "completion"
+    || checkpoint.tags.some((tag) => tag !== tag.toLowerCase())
     || new Set(checkpoint.tags).size !== checkpoint.tags.length
-    || !(checkpoint.migration_origin === null
-      || checkpoint.migration_origin === "legacy-handoff-snapshot"
-      || checkpoint.migration_origin === "legacy-comment")
-    || !nullableUuid(checkpoint.legacy_record_id)
     || !validCanonicalServerCreatedAt(checkpoint.created_at)
   ) throw new Error("Mnemonic returned invalid completion evidence.");
-  return checkpoint as unknown as CompletionEvidenceEpisodeRead["completion_checkpoint"];
+  return checkpoint as CompletionEvidenceEpisodeRead["completion_checkpoint"];
 }
+
 
 function decodeVerificationResult(
   value: unknown,
