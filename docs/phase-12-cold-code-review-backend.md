@@ -331,3 +331,30 @@ frontend stack, MCP/plugin, or required CI validation.
 
 **No B1/B2/B3 finding or performance/restore evidence gate remains open in this
 review.**
+
+## Incremental review: scope index OIDs before resolving definitions
+
+**Disposition: ACCEPT.** The second reviewer independently inspected the small
+read-only audit/test delta at worktree HEAD
+`1b46ddd5f909bc9ae1ffc731632b3e88909469aa` plus its uncommitted changes.
+
+`scripts/audit_duplicate_handling.py:3155–3166` first materializes index OIDs
+whose owning relation is `checkpoints` in the explicitly requested audit schema.
+Only the outer query calls `pg_catalog.pg_get_indexdef` and applies the unchanged
+case-insensitive `%affected_paths%` match. The materialized CTE prevents that
+function call from being evaluated against unrelated schemas before filtering.
+For the audited relation, index membership, definition matching, and the count's
+meaning are unchanged. Catalog relations, equality/matching operators, and the
+index-definition function retain explicit `pg_catalog` qualification; the
+surrounding catalog audit also retains its protected search path.
+
+The matching change in
+`backend/tests/test_repository_freshness_migration_postgres.py:1121–1129`
+preserves that test's original wider scope: all indexes in its current disposable
+schema. It similarly filters raw OIDs before resolving their definitions. Neither
+change weakens the production audit's target-schema/table boundary or accepts an
+unexpected affected-paths index.
+
+No additional required finding was identified. This disposition is based on
+source-level semantic and namespace review; it does not claim completion of the
+coordinator's ongoing full backend or E2E reruns.

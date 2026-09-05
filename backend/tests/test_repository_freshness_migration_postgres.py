@@ -1118,10 +1118,15 @@ def test_0018_populated_upgrade_preserves_all_prior_facts_and_receipts():
             assert connection.scalar(
                 text(
                     """
-                    SELECT count(*)
-                    FROM pg_indexes
-                    WHERE schemaname = current_schema()
-                      AND indexdef ILIKE '%affected_paths%'
+                    WITH scoped_indexes AS MATERIALIZED (
+                        SELECT indexrelid
+                        FROM pg_index
+                        JOIN pg_class relation ON relation.oid = indrelid
+                        JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+                        WHERE namespace.nspname = current_schema()
+                    )
+                    SELECT count(*) FROM scoped_indexes
+                    WHERE pg_get_indexdef(indexrelid) ILIKE '%affected_paths%'
                     """
                 )
             ) == 0

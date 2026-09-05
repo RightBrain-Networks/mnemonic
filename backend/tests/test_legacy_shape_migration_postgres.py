@@ -451,6 +451,12 @@ def test_completion_generation_advances_only_on_reopen(
             f"{item}/complete",
             json={
                 "expected_version": version,
+                "client_operation_id": str(uuid4()),
+                "job_completion_report": {
+                    "summary": prompt,
+                    "fyi_items": [],
+                    "prompt_revision": "1",
+                },
                 "checkpoint": {
                     "prompt": prompt,
                     "source_client": "pytest",

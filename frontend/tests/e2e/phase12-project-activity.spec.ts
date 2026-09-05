@@ -197,7 +197,8 @@ test("recovering another report action preserves an unrelated follow-up draft", 
     await form.getByLabel("Title", {exact:true}).fill("Keep this separate font decision");
     await form.getByLabel("Work summary", {exact:true}).fill("This draft belongs to the other report.");
     await page.getByRole("button", {name:"Retry exact request",exact:true}).click();
-    await expect(page.getByText("Dismiss summary · outcome unknown", {exact:true})).toHaveCount(0);
+    await expect.poll(() => attempts).toBe(2);
+    await expect(page.locator(".mutation-recovery-global")).toHaveCount(0);
     await expect(form.getByLabel("Title", {exact:true})).toHaveValue("Keep this separate font decision");
     await expect(form.getByLabel("Work summary", {exact:true})).toHaveValue("This draft belongs to the other report.");
     expect(attempts).toBe(2);

@@ -2,13 +2,13 @@
 
 Recorded on 2026-09-05 for application/API/MCP/dashboard `0.8.0`, plugin
 `0.11.0`, and Alembic `0021_job_completion_reports`. The implementation was
-rebased onto `4131559`, retaining the upstream parallel-CI and legacy completion
-history fixes. All database and browser writes used disposable test environments;
+rebased onto `8887740`, retaining the upstream parallel-CI, legacy completion
+history, and definitive unsealed-episode refusal fixes. All database and browser writes used disposable test environments;
 no production data was read, migrated, restored, or deployed.
 
 ## Completed checks
 
-- Backend: **1,201 passed**, no skips, against PostgreSQL 17 with Python 3.14.6
+- Backend: **1,204 passed**, no skips, against PostgreSQL 17 with Python 3.14.6
   and four independent pytest workers. This includes populated migrations,
   legacy shapes and exact historical receipt recovery, database guards and
   parity, all three report closeouts, settings conflicts, human dismissal and
@@ -16,7 +16,7 @@ no production data was read, migrated, restored, or deployed.
   and the combined maximum report/evidence/escaped-checkpoint envelope.
 - Backend Ruff and whole-source `ty` passed. Operational-script Ruff checks
   include the new activity audit and historical acceptance fixture helper.
-- MCP: **808 passed**, no skips, including the authentic isolated Claude CLI
+- MCP: **809 passed**, no skips, including the authentic isolated Claude CLI
   fresh `0.11.0` install and `0.10.0 -> 0.11.0` update, exact cached payload and
   executable mode, all 32 tool contracts, resource/prompt behavior, bounded
   malformed-wire handling, report/evidence serialization, and historical retry
@@ -24,6 +24,12 @@ no production data was read, migrated, restored, or deployed.
 - Dashboard: **301 unit tests passed** under Node 24; typecheck passed. The
   optimized Next.js production build also passed in the disposable acceptance
   stacks. No application key is exposed in the browser bundle or responses.
+- Configured Playwright stack: **127 passed, 4 conditional skips**, no failures.
+  Desktop and narrow Chromium exercise all Phase 12 flows; Firefox covers the
+  existing motion/live-update acceptance lane. The four unchanged skips apply
+  only to desktop filter/divider interactions that do not exist in the narrow
+  stacked layout. The full run includes the delayed-prompt closeout regression
+  and waits for completed receipt recovery before checking preserved drafts.
 - Plugin helper: **71 unittest cases and 108 subtests passed**. All three skill
   validators passed; the catalog remains three skills and five shared references.
 - The real REST/MCP/dashboard stack checker passed its authenticated lifecycle,
@@ -80,7 +86,8 @@ Corrections include atomic restore incarnation rotation, audit detection of a
 missing report and transition witness, a genuine distinct-work allocator race,
 strict malformed cursor handling, report-only draft guards, retained source
 context refresh, per-view failed-read retry, unrelated-action retry isolation,
-and closeout buttons waiting for their loaded prompt revision. The final small
+closeout buttons waiting for their loaded prompt revision, and schema-scoped
+index-definition evaluation during parallel catalog checks. The final small
 prompt-loading correction received an additional cold-review acceptance.
 
 ## Performance, restoration, and documentation

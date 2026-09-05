@@ -3152,11 +3152,18 @@ def _catalog_on_pg_catalog_path(
         unexpected_affected_paths_index_count = _scalar(
             connection,
             """
-            SELECT count(*)
-            FROM pg_catalog.pg_indexes
-            WHERE schemaname OPERATOR(pg_catalog.=) CAST(:audit_schema AS text)
-              AND tablename OPERATOR(pg_catalog.=) 'checkpoints'
-              AND indexdef OPERATOR(pg_catalog.~~*) '%affected_paths%'
+            WITH scoped_indexes AS MATERIALIZED (
+                SELECT indexes.indexrelid FROM pg_catalog.pg_index AS indexes
+                JOIN pg_catalog.pg_class AS relation
+                  ON relation.oid OPERATOR(pg_catalog.=) indexes.indrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid OPERATOR(pg_catalog.=) relation.relnamespace
+                WHERE namespace.nspname OPERATOR(pg_catalog.=) CAST(:audit_schema AS text)
+                  AND relation.relname OPERATOR(pg_catalog.=) 'checkpoints'
+            )
+            SELECT count(*) FROM scoped_indexes
+            WHERE pg_catalog.pg_get_indexdef(indexrelid)
+                  OPERATOR(pg_catalog.~~*) '%affected_paths%'
             """,
             {"audit_schema": audit_schema},
         )
