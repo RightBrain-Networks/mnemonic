@@ -68,17 +68,49 @@ def _alembic_config(connection: Connection) -> Config:
     return config
 
 
+@pytest.fixture(scope="session")
+def legacy_engine(postgres_engine: Engine) -> Iterator[Engine]:
+    """A database of this worker's own, because catalog scans are per database.
+
+    Replaying the chain needs a real schema per shape, and dropping those
+    schemas in the shared test database raced the suites that digest a whole
+    catalog: a relation can vanish between a scan reading ``pg_class`` and the
+    ``pg_get_*def`` call over its OID, and PostgreSQL reports "could not open
+    relation with OID". Nothing else connects to this database, so no scan can
+    observe the churn, and each xdist worker gets its own.
+    """
+
+    server = postgres_engine.url.set(database="postgres").difference_update_query(["options"])
+    name = "mnemonic_legacy_" + uuid4().hex
+    admin = create_engine(server, isolation_level="AUTOCOMMIT", hide_parameters=True)
+    with admin.begin() as connection:
+        connection.execute(text(f'CREATE DATABASE "{name}"'))
+    engine = create_engine(
+        postgres_engine.url.set(database=name).difference_update_query(["options"]),
+        pool_pre_ping=True,
+        hide_parameters=True,
+    )
+    try:
+        yield engine
+    finally:
+        # Every connection must be gone before the database can be dropped.
+        engine.dispose()
+        with admin.begin() as connection:
+            connection.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+        admin.dispose()
+
+
 @pytest.fixture
-def disposable_schema(postgres_engine: Engine) -> Iterator[str]:
+def disposable_schema(legacy_engine: Engine) -> Iterator[str]:
     """A schema of this test's own, so a partial chain cannot disturb others."""
 
     schema = "mnemonic_test_legacy_" + uuid4().hex
-    with postgres_engine.begin() as connection:
+    with legacy_engine.begin() as connection:
         connection.execute(CreateSchema(schema))
     try:
         yield schema
     finally:
-        with postgres_engine.begin() as connection:
+        with legacy_engine.begin() as connection:
             connection.execute(DropSchema(schema, cascade=True))
 
 
@@ -130,9 +162,9 @@ def _upgrade_to_head(engine: Engine, schema: str) -> None:
             raise
 
 
-def _engine_for_schema(postgres_engine: Engine, schema: str) -> Engine:
+def _engine_for_schema(legacy_engine: Engine, schema: str) -> Engine:
     return create_engine(
-        postgres_engine.url.update_query_dict(
+        legacy_engine.url.update_query_dict(
             {"options": f"-c search_path={schema} -c timezone=UTC"}
         ),
         pool_pre_ping=True,
@@ -142,16 +174,16 @@ def _engine_for_schema(postgres_engine: Engine, schema: str) -> Engine:
 
 @pytest.mark.parametrize("shape", _LEGACY_SHAPES, ids=lambda shape: shape["name"])
 def test_legacy_row_shapes_migrate_to_head(
-    postgres_engine: Engine,
+    legacy_engine: Engine,
     disposable_schema: str,
     shape: dict[str, Any],
 ):
     """Stage a shape at the revision that could write it, then run the chain."""
 
-    identifiers = _stage_shape(postgres_engine, disposable_schema, shape)
-    _upgrade_to_head(postgres_engine, disposable_schema)
+    identifiers = _stage_shape(legacy_engine, disposable_schema, shape)
+    _upgrade_to_head(legacy_engine, disposable_schema)
 
-    with postgres_engine.connect() as connection:
+    with legacy_engine.connect() as connection:
         transaction = connection.begin()
         try:
             _scope_to_schema(connection, disposable_schema)
@@ -165,7 +197,7 @@ def test_legacy_row_shapes_migrate_to_head(
 
 
 def test_migrated_legacy_completion_is_servable(
-    postgres_engine: Engine,
+    legacy_engine: Engine,
     disposable_schema: str,
 ):
     """Migrating the row is only half of it: the route has to serve it too.
@@ -177,10 +209,10 @@ def test_migrated_legacy_completion_is_servable(
     """
 
     shape = _shape("done-before-the-event-timeline")
-    identifiers = _stage_shape(postgres_engine, disposable_schema, shape)
-    _upgrade_to_head(postgres_engine, disposable_schema)
+    identifiers = _stage_shape(legacy_engine, disposable_schema, shape)
+    _upgrade_to_head(legacy_engine, disposable_schema)
 
-    engine = _engine_for_schema(postgres_engine, disposable_schema)
+    engine = _engine_for_schema(legacy_engine, disposable_schema)
     try:
         settings = Settings(
             database_url=engine.url.render_as_string(hide_password=False),
@@ -206,16 +238,16 @@ def test_migrated_legacy_completion_is_servable(
 
 
 def test_migrated_provable_completion_still_resolves_its_pointer(
-    postgres_engine: Engine,
+    legacy_engine: Engine,
     disposable_schema: str,
 ):
     """The control case: a completion with real evidence keeps its exact pointer."""
 
     shape = _shape("completion-checkpoint-before-the-event-timeline")
-    identifiers = _stage_shape(postgres_engine, disposable_schema, shape)
-    _upgrade_to_head(postgres_engine, disposable_schema)
+    identifiers = _stage_shape(legacy_engine, disposable_schema, shape)
+    _upgrade_to_head(legacy_engine, disposable_schema)
 
-    engine = _engine_for_schema(postgres_engine, disposable_schema)
+    engine = _engine_for_schema(legacy_engine, disposable_schema)
     try:
         settings = Settings(
             database_url=engine.url.render_as_string(hide_password=False),
@@ -253,7 +285,7 @@ def test_legacy_shape_corpus_stages_below_the_revision_it_exercises():
 
 
 def test_every_preflight_condition_is_named_and_independently_executable(
-    postgres_engine: Engine,
+    legacy_engine: Engine,
     disposable_schema: str,
 ):
     """A preflight that reports one message for many conditions cannot be acted on.
@@ -272,7 +304,7 @@ def test_every_preflight_condition_is_named_and_independently_executable(
     assert len(names) == len(set(names)), "Preflight condition names must be unique"
     assert all(name and name.strip() for name in names)
 
-    with postgres_engine.connect() as connection:
+    with legacy_engine.connect() as connection:
         transaction = connection.begin()
         try:
             _scope_to_schema(connection, disposable_schema)
@@ -291,13 +323,13 @@ def test_every_preflight_condition_is_named_and_independently_executable(
 
 
 def test_preflight_names_the_condition_a_real_violation_trips(
-    postgres_engine: Engine,
+    legacy_engine: Engine,
     disposable_schema: str,
 ):
     """An unpaired completion checkpoint must name itself, not "something is wrong"."""
 
     identifiers = {name: str(uuid4()) for name in ("project_id", "work_id", "checkpoint_id")}
-    with postgres_engine.connect() as connection:
+    with legacy_engine.connect() as connection:
         transaction = connection.begin()
         try:
             _scope_to_schema(connection, disposable_schema)
@@ -350,7 +382,7 @@ def _generation(engine: Engine, work_item_id: str) -> int | None:
 
 
 def test_legacy_completion_cannot_leave_done(
-    postgres_engine: Engine,
+    legacy_engine: Engine,
     disposable_schema: str,
 ):
     """Documented in architecture.md and operations.md, so pin it here.
@@ -361,10 +393,10 @@ def test_legacy_completion_cannot_leave_done(
     """
 
     shape = _shape("done-before-the-event-timeline")
-    identifiers = _stage_shape(postgres_engine, disposable_schema, shape)
-    _upgrade_to_head(postgres_engine, disposable_schema)
+    identifiers = _stage_shape(legacy_engine, disposable_schema, shape)
+    _upgrade_to_head(legacy_engine, disposable_schema)
 
-    engine = _engine_for_schema(postgres_engine, disposable_schema)
+    engine = _engine_for_schema(legacy_engine, disposable_schema)
     try:
         settings = Settings(
             database_url=engine.url.render_as_string(hide_password=False),
