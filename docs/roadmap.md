@@ -1240,6 +1240,13 @@ Keep prose verification instructions in the checkpoint where useful, but store f
 event timelines, and the dashboard receives data-free invalidations. There is
 no durable project-wide cursor/feed, SSE stream, or webhook surface yet.
 
+The [Phase 12 implementation plan](phase-12-project-activity-feed-implementation-plan.md)
+also covers required agent-authored reports for Done, Won’t do, and Promoted
+closeouts, a project-editable authoring prompt, the Summaries inbox, human
+dismissal, and manual pending follow-ups linked to both report and source work.
+These additions remain planned; the document records the implementation
+contract and adversarial planning review, not shipped functionality.
+
 ## Objective
 
 Provide an efficient incremental coordination API.
