@@ -28,6 +28,7 @@ from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import Connection, Engine, create_engine, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from mnemonic_api.config import Settings
@@ -68,17 +69,49 @@ def _alembic_config(connection: Connection) -> Config:
     return config
 
 
+@pytest.fixture(scope="session")
+def legacy_engine(postgres_engine: Engine) -> Iterator[Engine]:
+    """A database of this worker's own, because catalog scans are per database.
+
+    Replaying the chain needs a real schema per shape, and dropping those
+    schemas in the shared test database raced the suites that digest a whole
+    catalog: a relation can vanish between a scan reading ``pg_class`` and the
+    ``pg_get_*def`` call over its OID, and PostgreSQL reports "could not open
+    relation with OID". Nothing else connects to this database, so no scan can
+    observe the churn, and each xdist worker gets its own.
+    """
+
+    server = postgres_engine.url.set(database="postgres").difference_update_query(["options"])
+    name = "mnemonic_legacy_" + uuid4().hex
+    admin = create_engine(server, isolation_level="AUTOCOMMIT", hide_parameters=True)
+    with admin.begin() as connection:
+        connection.execute(text(f'CREATE DATABASE "{name}"'))
+    engine = create_engine(
+        postgres_engine.url.set(database=name).difference_update_query(["options"]),
+        pool_pre_ping=True,
+        hide_parameters=True,
+    )
+    try:
+        yield engine
+    finally:
+        # Every connection must be gone before the database can be dropped.
+        engine.dispose()
+        with admin.begin() as connection:
+            connection.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+        admin.dispose()
+
+
 @pytest.fixture
-def disposable_schema(postgres_engine: Engine) -> Iterator[str]:
+def disposable_schema(legacy_engine: Engine) -> Iterator[str]:
     """A schema of this test's own, so a partial chain cannot disturb others."""
 
     schema = "mnemonic_test_legacy_" + uuid4().hex
-    with postgres_engine.begin() as connection:
+    with legacy_engine.begin() as connection:
         connection.execute(CreateSchema(schema))
     try:
         yield schema
     finally:
-        with postgres_engine.begin() as connection:
+        with legacy_engine.begin() as connection:
             connection.execute(DropSchema(schema, cascade=True))
 
 
@@ -130,9 +163,9 @@ def _upgrade_to_head(engine: Engine, schema: str) -> None:
             raise
 
 
-def _engine_for_schema(postgres_engine: Engine, schema: str) -> Engine:
+def _engine_for_schema(legacy_engine: Engine, schema: str) -> Engine:
     return create_engine(
-        postgres_engine.url.update_query_dict(
+        legacy_engine.url.update_query_dict(
             {"options": f"-c search_path={schema} -c timezone=UTC"}
         ),
         pool_pre_ping=True,
@@ -142,16 +175,16 @@ def _engine_for_schema(postgres_engine: Engine, schema: str) -> Engine:
 
 @pytest.mark.parametrize("shape", _LEGACY_SHAPES, ids=lambda shape: shape["name"])
 def test_legacy_row_shapes_migrate_to_head(
-    postgres_engine: Engine,
+    legacy_engine: Engine,
     disposable_schema: str,
     shape: dict[str, Any],
 ):
     """Stage a shape at the revision that could write it, then run the chain."""
 
-    identifiers = _stage_shape(postgres_engine, disposable_schema, shape)
-    _upgrade_to_head(postgres_engine, disposable_schema)
+    identifiers = _stage_shape(legacy_engine, disposable_schema, shape)
+    _upgrade_to_head(legacy_engine, disposable_schema)
 
-    with postgres_engine.connect() as connection:
+    with legacy_engine.connect() as connection:
         transaction = connection.begin()
         try:
             _scope_to_schema(connection, disposable_schema)
@@ -165,7 +198,7 @@ def test_legacy_row_shapes_migrate_to_head(
 
 
 def test_migrated_legacy_completion_is_servable(
-    postgres_engine: Engine,
+    legacy_engine: Engine,
     disposable_schema: str,
 ):
     """Migrating the row is only half of it: the route has to serve it too.
@@ -177,10 +210,10 @@ def test_migrated_legacy_completion_is_servable(
     """
 
     shape = _shape("done-before-the-event-timeline")
-    identifiers = _stage_shape(postgres_engine, disposable_schema, shape)
-    _upgrade_to_head(postgres_engine, disposable_schema)
+    identifiers = _stage_shape(legacy_engine, disposable_schema, shape)
+    _upgrade_to_head(legacy_engine, disposable_schema)
 
-    engine = _engine_for_schema(postgres_engine, disposable_schema)
+    engine = _engine_for_schema(legacy_engine, disposable_schema)
     try:
         settings = Settings(
             database_url=engine.url.render_as_string(hide_password=False),
@@ -206,16 +239,16 @@ def test_migrated_legacy_completion_is_servable(
 
 
 def test_migrated_provable_completion_still_resolves_its_pointer(
-    postgres_engine: Engine,
+    legacy_engine: Engine,
     disposable_schema: str,
 ):
     """The control case: a completion with real evidence keeps its exact pointer."""
 
     shape = _shape("completion-checkpoint-before-the-event-timeline")
-    identifiers = _stage_shape(postgres_engine, disposable_schema, shape)
-    _upgrade_to_head(postgres_engine, disposable_schema)
+    identifiers = _stage_shape(legacy_engine, disposable_schema, shape)
+    _upgrade_to_head(legacy_engine, disposable_schema)
 
-    engine = _engine_for_schema(postgres_engine, disposable_schema)
+    engine = _engine_for_schema(legacy_engine, disposable_schema)
     try:
         settings = Settings(
             database_url=engine.url.render_as_string(hide_password=False),
@@ -253,7 +286,7 @@ def test_legacy_shape_corpus_stages_below_the_revision_it_exercises():
 
 
 def test_every_preflight_condition_is_named_and_independently_executable(
-    postgres_engine: Engine,
+    legacy_engine: Engine,
     disposable_schema: str,
 ):
     """A preflight that reports one message for many conditions cannot be acted on.
@@ -272,7 +305,7 @@ def test_every_preflight_condition_is_named_and_independently_executable(
     assert len(names) == len(set(names)), "Preflight condition names must be unique"
     assert all(name and name.strip() for name in names)
 
-    with postgres_engine.connect() as connection:
+    with legacy_engine.connect() as connection:
         transaction = connection.begin()
         try:
             _scope_to_schema(connection, disposable_schema)
@@ -291,13 +324,13 @@ def test_every_preflight_condition_is_named_and_independently_executable(
 
 
 def test_preflight_names_the_condition_a_real_violation_trips(
-    postgres_engine: Engine,
+    legacy_engine: Engine,
     disposable_schema: str,
 ):
     """An unpaired completion checkpoint must name itself, not "something is wrong"."""
 
     identifiers = {name: str(uuid4()) for name in ("project_id", "work_id", "checkpoint_id")}
-    with postgres_engine.connect() as connection:
+    with legacy_engine.connect() as connection:
         transaction = connection.begin()
         try:
             _scope_to_schema(connection, disposable_schema)
@@ -339,3 +372,174 @@ def test_preflight_names_the_condition_a_real_violation_trips(
             assert "completion_checkpoint_event_pairing" in str(failure.value)
         finally:
             transaction.rollback()
+
+
+def _generation(engine: Engine, work_item_id: str) -> int | None:
+    with engine.connect() as connection:
+        return connection.scalar(
+            text("SELECT completion_generation FROM work_items WHERE id = CAST(:id AS uuid)"),
+            {"id": work_item_id},
+        )
+
+
+def test_legacy_completion_cannot_leave_done(
+    legacy_engine: Engine,
+    disposable_schema: str,
+):
+    """Documented in architecture.md and operations.md, so pin it here.
+
+    The condition is permanently true, so the caller gets a 409 naming it rather
+    than a 503 that invites a retry. It comes from the episode-departure guard,
+    not from anything about the generation number.
+    """
+
+    shape = _shape("done-before-the-event-timeline")
+    identifiers = _stage_shape(legacy_engine, disposable_schema, shape)
+    _upgrade_to_head(legacy_engine, disposable_schema)
+
+    engine = _engine_for_schema(legacy_engine, disposable_schema)
+    try:
+        settings = Settings(
+            database_url=engine.url.render_as_string(hide_password=False),
+            api_key=TEST_API_KEY,
+        )
+        with TestClient(create_app(settings, engine=engine)) as client:
+            client.headers["Authorization"] = f"Bearer {TEST_API_KEY}"
+            base = (
+                f"/api/v1/projects/{identifiers['project_id']}"
+                f"/work-items/{identifiers['work_id']}"
+            )
+            work = client.get(base).json()["work_item"]
+            assert work["status"] == "done"
+            assert _generation(engine, identifiers["work_id"]) == 0
+
+            reopen = client.patch(
+                base, json={"status": "pending", "expected_version": work["version"]}
+            )
+            assert reopen.status_code == 409, reopen.text
+            assert reopen.json()["detail"]["code"] == "completion_episode_unsealed"
+            # The refusal must not have moved the row.
+            assert client.get(base).json()["work_item"]["status"] == "done"
+            assert _generation(engine, identifiers["work_id"]) == 0
+    finally:
+        engine.dispose()
+
+
+def test_completion_generation_advances_only_on_reopen(
+    api: TestClient,
+    postgres_engine: Engine,
+    project: dict[str, Any],
+    work_payload: dict[str, Any],
+):
+    """The lifecycle architecture.md describes, observed end to end.
+
+    Generation counts reopen cycles, not completions, so completing never
+    advances it and a once-completed item stays at 0 -- the same value work that
+    was never completed carries.
+    """
+
+    collection = f"/api/v1/projects/{project['id']}/work-items"
+    created = api.post(collection, json=work_payload)
+    assert created.status_code == 201, created.text
+    work = created.json()["work_item"]
+    item = f"{collection}/{work['id']}"
+
+    assert _generation(postgres_engine, work["id"]) == 0
+
+    def complete(version: int, prompt: str) -> None:
+        response = api.post(
+            f"{item}/complete",
+            json={
+                "expected_version": version,
+                "checkpoint": {
+                    "prompt": prompt,
+                    "source_client": "pytest",
+                    "source_session_id": str(uuid4()),
+                },
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    complete(work["version"], "Completed the first cycle.")
+    assert _generation(postgres_engine, work["id"]) == 0, "completing must not advance it"
+
+    done = api.get(item).json()["work_item"]
+    reopened = api.patch(
+        item, json={"status": "pending", "expected_version": done["version"]}
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert _generation(postgres_engine, work["id"]) == 1, "reopening advances it"
+
+    complete(reopened.json()["version"], "Completed the second cycle.")
+    assert _generation(postgres_engine, work["id"]) == 1
+
+    with postgres_engine.connect() as connection:
+        checkpoint_generations = [
+            row[0]
+            for row in connection.execute(
+                text(
+                    "SELECT completion_generation FROM checkpoints "
+                    "WHERE work_item_id = CAST(:id AS uuid) AND kind = 'completion' "
+                    "ORDER BY created_at"
+                ),
+                {"id": work["id"]},
+            )
+        ]
+        reopen_generations = [
+            row[0]
+            for row in connection.execute(
+                text(
+                    "SELECT reopen_generation FROM work_events "
+                    "WHERE work_item_id = CAST(:id AS uuid) "
+                    "AND event_type = 'work_reopened' ORDER BY id"
+                ),
+                {"id": work["id"]},
+            )
+        ]
+    # Each completion checkpoint carries the cycle it belongs to, and the reopen
+    # witness carries the generation its reopen produced.
+    assert checkpoint_generations == [0, 1]
+    assert reopen_generations == [1]
+
+
+def test_database_still_refuses_an_unsealed_departure_behind_the_409(
+    legacy_engine: Engine,
+    disposable_schema: str,
+):
+    """The 409 is a courtesy; the trigger is the authority.
+
+    Writing the transition directly, as the service would with its pre-check
+    removed, must still fail closed rather than move the row.
+    """
+
+    shape = _shape("done-before-the-event-timeline")
+    identifiers = _stage_shape(legacy_engine, disposable_schema, shape)
+    _upgrade_to_head(legacy_engine, disposable_schema)
+
+    engine = _engine_for_schema(legacy_engine, disposable_schema)
+    try:
+        with engine.connect() as connection:
+            transaction = connection.begin()
+            try:
+                with pytest.raises(DBAPIError) as failure:
+                    connection.execute(
+                        text(
+                            "UPDATE work_items SET status = 'pending', "
+                            "version = version + 1, updated_at = pg_catalog.now() "
+                            "WHERE id = CAST(:id AS uuid)"
+                        ),
+                        {"id": identifiers["work_id"]},
+                    )
+                assert "sealed completion episode" in str(failure.value.orig)
+            finally:
+                transaction.rollback()
+        with engine.connect() as connection:
+            assert (
+                connection.scalar(
+                    text("SELECT status FROM work_items WHERE id = CAST(:id AS uuid)"),
+                    {"id": identifiers["work_id"]},
+                )
+                == "done"
+            )
+    finally:
+        engine.dispose()

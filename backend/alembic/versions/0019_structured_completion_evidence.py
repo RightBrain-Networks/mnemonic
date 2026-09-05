@@ -155,9 +155,11 @@ def _legacy_eventless_completion(schema: str, work_alias: str) -> str:
     entirely: a missing or duplicated event for it is a real integrity fault,
     and ``completion_checkpoint_event_pairing`` below still fails closed on it.
 
-    Because generation 0 marks the absence of an episode, and a reopen witness
-    may not carry generation 0, these items cannot be reopened after Phase 11.
-    They stay exactly as history recorded them.
+    Generation 0 does not itself mark the absence of an episode -- work completed
+    once and never reopened sits there too -- so read the episode, never the
+    number.  What does follow is that these items cannot leave ``done``:
+    ``completion_episode_departure_guard`` permits a departure only from a
+    sealed episode.  They stay exactly as history recorded them.
     """
 
     return f"""

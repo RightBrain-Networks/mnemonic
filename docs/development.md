@@ -302,6 +302,14 @@ The Phase 11 additions verify:
   named and independently executable, so a refusal identifies the rows to look
   at instead of reporting that something, somewhere, is wrong.
 
+That suite replays the chain in a database of its own, one per xdist worker,
+rather than in the shared disposable schema. Catalog scans are per database, and
+several suites digest a whole catalog; a schema dropped between such a scan
+reading `pg_class` and its `pg_get_*def` call over an OID makes PostgreSQL
+report `could not open relation with OID`. Keeping the replay churn in a private
+database means no other suite can observe it. Do not move these tests back into
+the shared schema to save the database.
+
 Add a shape to `tests/fixtures/legacy-shapes-v1.json` whenever one is
 discovered. A migration that cannot accept a shape that corpus stages is a
 migration that cannot accept the deployed database, and a route that cannot

@@ -45,6 +45,10 @@ _APPLICATION_ERRORS = {
         "This lifecycle transition is not allowed. Recall the latest work item and choose a permitted transition."
     ),
     "work_not_pending": "This work item is not pending and cannot perform that operation.",
+    "completion_episode_unsealed": (
+        "This work was completed before Mnemonic recorded completion episodes, so it cannot be "
+        "reopened. Its history is retained; save any continuation as new work."
+    ),
     "work_blocked": "This work item has an unresolved blocker.",
     "work_gated": (
         "This work item has unresolved human input. Inspect its current context or the human "

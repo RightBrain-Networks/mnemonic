@@ -216,6 +216,34 @@ def append_checkpoint_record(
     return checkpoint
 
 
+def require_sealed_completion_episode(database: Session, work_item: WorkItem) -> None:
+    """Refuse to leave ``done`` without the sealed episode the database demands.
+
+    ``completion_episode_departure_guard`` enforces this, but a trigger raising
+    reaches the caller as a 503 ``database_unavailable`` -- a transient-sounding
+    answer for a permanently true condition. Asking the database's own predicate
+    first turns it into a 409 naming the condition, and cannot drift from the
+    guard because it is the same function.
+
+    Work completed before ``0010_work_events`` is the case that reaches this:
+    it owns no completion episode at all. The predicate is total -- a missing or
+    ambiguous episode returns false rather than raising -- so an unsealed
+    episode of any shape answers here rather than at the trigger.
+    """
+
+    sealed = database.scalar(
+        select(
+            func.mnemonic_completion_episode_is_sealed(
+                work_item.id, work_item.completion_generation
+            )
+        )
+    )
+    if sealed is not True:
+        from mnemonic_api.errors import completion_episode_unsealed
+
+        raise completion_episode_unsealed()
+
+
 def update_work_record(database: Session, work_item: WorkItem, payload: WorkItemPatch) -> None:
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
@@ -242,6 +270,8 @@ def update_work_record(database: Session, work_item: WorkItem, payload: WorkItem
                 "invalid_status_transition",
                 "That lifecycle transition is not allowed.",
             )
+        if work_item.status == "done":
+            require_sealed_completion_episode(database, work_item)
     terminal_transition = (
         requested_status in {"done", "wont-do", "promoted"}
         and requested_status != work_item.status
