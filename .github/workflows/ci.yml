@@ -159,7 +159,10 @@ jobs:
         run: uv sync --project backend --frozen
       - name: Run backend tests
         working-directory: backend
-        run: uv run pytest -q
+        # Each xdist worker is its own process, so the session fixture hands it
+        # its own disposable schema. Left off addopts so a plain local run stays
+        # serial and readable; -n 0 disables it here.
+        run: uv run pytest -q -n auto
 
   mcp-tests:
     name: MCP tests
