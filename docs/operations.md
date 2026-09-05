@@ -181,9 +181,13 @@ which rows to inspect. It deliberately accepts one historical shape. Work
 completed before `0010_work_events` owns no completion checkpoint and therefore
 no completion event, because `0010` reconstructs only provable facts; such an
 item carries no completion episode, migrates unchanged at generation 0, and
-reads back with a null current completion pointer and no episodes. It cannot be
-reopened afterwards. A `done` item that does own a completion checkpoint whose
-event is missing or duplicated is a real fault and still stops the upgrade.
+reads back with a null current completion pointer and no episodes. It cannot
+leave `done` afterwards: a reopen raises `done work may depart only from a
+sealed completion episode`, which reaches the caller as a 503
+`database_unavailable`. That refusal is permanent, not a transient database
+fault, and retrying will not clear it. A `done` item that does own a completion
+checkpoint whose event is missing or duplicated is a real fault and still stops
+the upgrade.
 
 Migration `0019_structured_completion_evidence` has a broader guarded
 downgrade. It can return to 0018 only while both evidence tables are empty,

@@ -339,3 +339,131 @@ def test_preflight_names_the_condition_a_real_violation_trips(
             assert "completion_checkpoint_event_pairing" in str(failure.value)
         finally:
             transaction.rollback()
+
+
+def _generation(engine: Engine, work_item_id: str) -> int | None:
+    with engine.connect() as connection:
+        return connection.scalar(
+            text("SELECT completion_generation FROM work_items WHERE id = CAST(:id AS uuid)"),
+            {"id": work_item_id},
+        )
+
+
+def test_legacy_completion_cannot_leave_done(
+    postgres_engine: Engine,
+    disposable_schema: str,
+):
+    """Documented in architecture.md and operations.md, so pin it here.
+
+    The refusal is permanent rather than a transient database fault, and it
+    comes from the episode-departure guard, not from anything about the
+    generation number.
+    """
+
+    shape = _shape("done-before-the-event-timeline")
+    identifiers = _stage_shape(postgres_engine, disposable_schema, shape)
+    _upgrade_to_head(postgres_engine, disposable_schema)
+
+    engine = _engine_for_schema(postgres_engine, disposable_schema)
+    try:
+        settings = Settings(
+            database_url=engine.url.render_as_string(hide_password=False),
+            api_key=TEST_API_KEY,
+        )
+        with TestClient(create_app(settings, engine=engine)) as client:
+            client.headers["Authorization"] = f"Bearer {TEST_API_KEY}"
+            base = (
+                f"/api/v1/projects/{identifiers['project_id']}"
+                f"/work-items/{identifiers['work_id']}"
+            )
+            work = client.get(base).json()["work_item"]
+            assert work["status"] == "done"
+            assert _generation(engine, identifiers["work_id"]) == 0
+
+            reopen = client.patch(
+                base, json={"status": "pending", "expected_version": work["version"]}
+            )
+            assert reopen.status_code == 503, reopen.text
+            assert reopen.json()["detail"]["code"] == "database_unavailable"
+            # The refusal must not have moved the row.
+            assert client.get(base).json()["work_item"]["status"] == "done"
+            assert _generation(engine, identifiers["work_id"]) == 0
+    finally:
+        engine.dispose()
+
+
+def test_completion_generation_advances_only_on_reopen(
+    api: TestClient,
+    postgres_engine: Engine,
+    project: dict[str, Any],
+    work_payload: dict[str, Any],
+):
+    """The lifecycle architecture.md describes, observed end to end.
+
+    Generation counts reopen cycles, not completions, so completing never
+    advances it and a once-completed item stays at 0 -- the same value work that
+    was never completed carries.
+    """
+
+    collection = f"/api/v1/projects/{project['id']}/work-items"
+    created = api.post(collection, json=work_payload)
+    assert created.status_code == 201, created.text
+    work = created.json()["work_item"]
+    item = f"{collection}/{work['id']}"
+
+    assert _generation(postgres_engine, work["id"]) == 0
+
+    def complete(version: int, prompt: str) -> None:
+        response = api.post(
+            f"{item}/complete",
+            json={
+                "expected_version": version,
+                "checkpoint": {
+                    "prompt": prompt,
+                    "source_client": "pytest",
+                    "source_session_id": str(uuid4()),
+                },
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    complete(work["version"], "Completed the first cycle.")
+    assert _generation(postgres_engine, work["id"]) == 0, "completing must not advance it"
+
+    done = api.get(item).json()["work_item"]
+    reopened = api.patch(
+        item, json={"status": "pending", "expected_version": done["version"]}
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert _generation(postgres_engine, work["id"]) == 1, "reopening advances it"
+
+    complete(reopened.json()["version"], "Completed the second cycle.")
+    assert _generation(postgres_engine, work["id"]) == 1
+
+    with postgres_engine.connect() as connection:
+        checkpoint_generations = [
+            row[0]
+            for row in connection.execute(
+                text(
+                    "SELECT completion_generation FROM checkpoints "
+                    "WHERE work_item_id = CAST(:id AS uuid) AND kind = 'completion' "
+                    "ORDER BY created_at"
+                ),
+                {"id": work["id"]},
+            )
+        ]
+        reopen_generations = [
+            row[0]
+            for row in connection.execute(
+                text(
+                    "SELECT reopen_generation FROM work_events "
+                    "WHERE work_item_id = CAST(:id AS uuid) "
+                    "AND event_type = 'work_reopened' ORDER BY id"
+                ),
+                {"id": work["id"]},
+            )
+        ]
+    # Each completion checkpoint carries the cycle it belongs to, and the reopen
+    # witness carries the generation its reopen produced.
+    assert checkpoint_generations == [0, 1]
+    assert reopen_generations == [1]

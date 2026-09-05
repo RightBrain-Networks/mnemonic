@@ -467,11 +467,41 @@ migration with no completion checkpoint and therefore no completion event:
 refuses to invent one it cannot witness, and no constraint in the chain ever
 tied `done` to a completion event. Such an item owns no completion episode. It
 migrates unchanged at `completion_generation` 0 -- the same value work that was
-never completed carries -- and every episode rule skips it. Because a reopen
-witness may not carry generation 0, these items cannot be reopened; they stay
-exactly as history recorded them. A `done` item that does own a completion
-checkpoint is a different matter: a missing or duplicated event for it is a real
-integrity fault and still fails closed.
+never completed carries -- and every episode rule skips it. It also cannot
+leave `done`: `completion_episode_departure_guard` allows a departure only from
+a sealed episode, so a reopen raises `done work may depart only from a sealed
+completion episode`, which the API surfaces as a 503 `database_unavailable`.
+They stay exactly as history recorded them. A `done` item that does own a
+completion checkpoint is a different matter: a missing or duplicated event for
+it is a real integrity fault and still fails closed.
+
+### Completion generations
+
+`completion_generation` numbers a work item's completion cycles. It is database
+managed end to end: the guard rejects any caller-supplied change, so no request
+body, receipt, or client ever sets it, and it is stripped from work context
+projections rather than exposed.
+
+| Value | Meaning |
+| --- | --- |
+| `0` | The first cycle. Both work that was never completed and work completed once and never reopened sit here. |
+| positive | The *n*th reopen. Reopening sets it to `1` from any value `<= 0`, and to `OLD + 1` otherwise. |
+| negative | A binding `0019` assigned to a completion that already existed at 0018: `-id` of the completion event. Only migrated rows carry one, and a negative value implies `done`. |
+
+A completion checkpoint inherits the work item's generation at insert and is
+unique per work item and generation; a `work_reopened` event carries the
+generation its reopen produced, is likewise unique, and may never be `0`. One
+observed lifecycle: create at `0`, complete leaving `0` with a completion
+checkpoint at `0`, reopen moving to `1` with a reopen event at `1`, complete
+again leaving `1` with a second completion checkpoint at `1`. Completing does
+not advance the generation -- only reopening does.
+
+**The value alone never tells you whether a completion episode exists.** A
+`done` item at generation 0 may own a sealed episode or, for the pre-`0010`
+history above, none at all, and a migrated item reopened once moves from a
+negative generation to `1`, so generations are not monotonic across the
+migration boundary. Read the episode itself -- a `completion` checkpoint bound
+to its `work_completed` event -- rather than inferring one from the number.
 
 Database constraints cover strict vocabularies, string and byte bounds,
 type-dependent command/exit-code and artifact-reference grammars, family
