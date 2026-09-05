@@ -1,34 +1,41 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { OperationalBadge, StatusBadge } from "@/components/work-item-card";
+import { useCanonicalWorkSearch } from "@/components/use-canonical-work-search";
+import MutationRecoveryPanel, { type MutationRecoveryNotice } from "@/components/mutation-recovery-panel";
 import { api, ApiError, errorMessage, workItemPath } from "@/lib/api";
 import { currentContext } from "@/lib/current-context";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import {
   dashboardMergeInput,
   decodeWorkContext,
-  decodeWorkSearchPage,
   duplicateMergeEligibilityReasons,
   mergeWorkPath
 } from "@/lib/duplicate-handling";
 import {
   mutationWorkKey,
   useMutationIntentRegistry,
-  useMutationIntents
+  useMutationScope
 } from "@/lib/mutation-intent";
-import { workSearchParams } from "@/lib/work-item-search";
 import type {
-  Page,
   WorkContext,
   WorkMergeResult,
   WorkSearchHit
 } from "@/lib/types";
 
-const DESTINATION_LIMIT = 10;
-
 const iconPaths = {
   close: "m6 6 12 12M6 18 18 6"
+};
+
+const mergeRecoveryNotice: MutationRecoveryNotice = {
+  titles: {
+    unresolved: "The merge outcome is unknown.",
+    safety_conflict: "Merge retry safety conflict.",
+    in_flight: "Merge request in flight."
+  },
+  description: "Keep this tab open. The exact request is frozen in memory for both work IDs.",
+  retryLabel: "Retry exact pending merge"
 };
 
 function Icon({ name, size = 18 }: { name: keyof typeof iconPaths; size?: number }) {
@@ -71,26 +78,28 @@ function DirectionPanel({
 
 export default function WorkMergePanel({
   source,
+  recoveryVisible,
   onClose,
   onMerged,
   onSourceChanged
 }: {
   source: WorkContext;
+  recoveryVisible: boolean;
   onClose: () => void;
   onMerged: (result: WorkMergeResult) => void | Promise<void>;
   onSourceChanged: () => void | Promise<void>;
 }) {
   const reviewRequest = useRef(0);
   const registry = useMutationIntentRegistry();
-  const intents = useMutationIntents(registry);
   const slot = `merge-work:${source.work_item.project_id}:${source.work_item.id}`;
-  const mergeIntent = intents.find((intent) => intent.slot === slot);
-  const dispatched = Boolean(mergeIntent && mergeIntent.state !== "prepared");
+  const { intents, blocked: dispatched } = useMutationScope({ slot }, registry);
+  const mergeIntent = intents[0];
   const [query, setQuery] = useState("");
-  const [searchedQuery, setSearchedQuery] = useState("");
-  const [results, setResults] = useState<Page<WorkSearchHit> | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState("");
+  const { searchedQuery, page: results, searching, error: searchError } = useCanonicalWorkSearch({
+    projectId: source.work_item.project_id,
+    excludedWorkId: source.work_item.id,
+    query
+  });
   const [selected, setSelected] = useState<WorkSearchHit | null>(null);
   const [review, setReview] = useState<{
     source: WorkContext;
@@ -102,52 +111,6 @@ export default function WorkMergePanel({
   const [permanent, setPermanent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [stale, setStale] = useState(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setSearchedQuery(query.trim()), 250);
-    return () => clearTimeout(timer);
-  }, [query]);
-
-  useEffect(() => {
-    if (!searchedQuery) {
-      setResults(null);
-      setSearchError("");
-      return;
-    }
-    const controller = new AbortController();
-    const params = workSearchParams({
-      status: "all",
-      sort: "updated",
-      limit: DESTINATION_LIMIT,
-      offset: 0,
-      query: searchedQuery,
-      duplicateScope: "canonical"
-    });
-    setSearching(true);
-    setSearchError("");
-    api<unknown>(`${workItemPath(source.work_item.project_id)}?${params}`, {
-      signal: controller.signal
-    }).then((value) => {
-      if (controller.signal.aborted) return;
-      const page = decodeWorkSearchPage(value, source.work_item.project_id, {
-        duplicateScope: "canonical",
-        query: searchedQuery,
-        expectedLimit: DESTINATION_LIMIT,
-        expectedOffset: 0
-      });
-      setResults({
-        ...page,
-        items: page.items.filter((item) => (
-          item.summary.work_item.id.toLowerCase() !== source.work_item.id.toLowerCase()
-        ))
-      });
-    }).catch((cause) => {
-      if (!controller.signal.aborted) setSearchError(errorMessage(cause));
-    }).finally(() => {
-      if (!controller.signal.aborted) setSearching(false);
-    });
-    return () => controller.abort();
-  }, [searchedQuery, source.work_item.id, source.work_item.project_id]);
 
   async function loadReview(destination: WorkSearchHit) {
     const requestId = ++reviewRequest.current;
@@ -259,11 +222,12 @@ export default function WorkMergePanel({
       <div><span className="section-label merge-eyebrow">IRREVERSIBLE MERGE</span><h4>Merge as duplicate</h4></div>
       <button type="button" className="icon-button" aria-label="Close merge" disabled={cannotClose} onClick={onClose}><Icon name="close" /></button>
     </div>
-    {mergeIntent && mergeIntent.state !== "prepared" && <div className="mutation-recovery" role="alert">
-      <strong>{mergeIntent.state === "unresolved" ? "The merge outcome is unknown." : mergeIntent.state === "safety_conflict" ? "Merge retry safety conflict." : "Merge request in flight."}</strong>
-      <span>Keep this tab open. The exact request is frozen in memory for both work IDs.</span>
-      {mergeIntent.state === "unresolved" && <button type="button" className="button button-secondary" disabled={saving} onClick={() => void retryExact()}>{saving ? "Retrying…" : "Retry exact pending merge"}</button>}
-    </div>}
+    {recoveryVisible && <MutationRecoveryPanel
+      intents={intents}
+      retryingMutation={saving ? slot : ""}
+      onRetry={() => void retryExact()}
+      notice={mergeRecoveryNotice}
+    />}
     <div className="merge-pick-grid">
       <div className="merge-direction-panel merge-direction-source" data-direction="source">
         <span className="section-label">SOURCE · BECOMES AN IMMUTABLE DUPLICATE AUDIT</span>

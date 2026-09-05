@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { OperationalBadge, StatusBadge, formatDate } from "@/components/work-item-card";
+import { useCanonicalWorkSearch } from "@/components/use-canonical-work-search";
 import { api, ApiError, errorMessage, workItemPath } from "@/lib/api";
 import { dashboardSessionId } from "@/lib/dashboard-session";
-import { decodeWorkSearchPage } from "@/lib/duplicate-handling";
 import {
   mutationWorkKey,
   useMutationIntentRegistry,
-  useMutationIntents
+  useMutationScope
 } from "@/lib/mutation-intent";
 import {
   relationshipConflictMessage,
@@ -19,18 +19,15 @@ import {
 import type {
   AdjacentRelationshipRead,
   Checkpoint,
-  Page,
   RelationshipCreateInput,
   RelationshipCreationResult,
   RelationshipDirection,
   RelationshipType,
   WorkContext,
-  WorkSearchHit,
   WorkSummary
 } from "@/lib/types";
-import { workSearchParams } from "@/lib/work-item-search";
 import { dashboardMutationActor } from "@/lib/work-events";
-import { decodeCheckpointPage } from "@/lib/mutation-responses";
+import { decodeCheckpointPage } from "@/lib/checkpoint-codecs";
 
 const groupOrder = [
   "Blocked by",
@@ -58,13 +55,14 @@ type CheckpointChoice = {
 export default function RelationshipPanel({ context, onChanged }: Props) {
   const work = context.work_item;
   const mutationRegistry = useMutationIntentRegistry();
-  const mutationIntents = useMutationIntents(mutationRegistry);
   const [editorOpen, setEditorOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [searchedQuery, setSearchedQuery] = useState("");
-  const [searchPage, setSearchPage] = useState<Page<WorkSearchHit> | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState("");
+  const { searchedQuery, page: searchPage, searching, error: searchError } = useCanonicalWorkSearch({
+    projectId: work.project_id,
+    excludedWorkId: work.id,
+    query,
+    enabled: editorOpen
+  });
   const [counterpart, setCounterpart] = useState<WorkSummary | null>(null);
   const [type, setType] = useState<RelationshipType>("related");
   const [direction, setDirection] = useState<Exclude<RelationshipDirection, "undirected">>("outgoing");
@@ -97,51 +95,6 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
     context.undirected_relationships
   ]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => setSearchedQuery(query.trim()), 250);
-    return () => clearTimeout(timer);
-  }, [query]);
-
-  useEffect(() => {
-    if (!editorOpen || !searchedQuery) {
-      setSearchPage(null);
-      setSearchError("");
-      setSearching(false);
-      return;
-    }
-    const controller = new AbortController();
-    const params = workSearchParams({
-      status: "all",
-      sort: "updated",
-      limit: 10,
-      offset: 0,
-      query: searchedQuery
-    });
-    setSearching(true);
-    setSearchError("");
-    api<unknown>(`${workItemPath(work.project_id)}?${params}`, {
-      signal: controller.signal
-    }).then((value) => {
-      const page = decodeWorkSearchPage(value, work.project_id, {
-        duplicateScope: "canonical",
-        query: searchedQuery,
-        expectedLimit: 10,
-        expectedOffset: 0
-      });
-      if (!controller.signal.aborted) setSearchPage({
-        ...page,
-        items: page.items.filter((item) => (
-          item.summary.work_item.id.toLowerCase() !== work.id.toLowerCase()
-        ))
-      });
-    }).catch((error) => {
-      if (!controller.signal.aborted) setSearchError(errorMessage(error));
-    }).finally(() => {
-      if (!controller.signal.aborted) setSearching(false);
-    });
-    return () => controller.abort();
-  }, [editorOpen, searchedQuery, work.id, work.project_id]);
-
   const counterpartId = counterpart?.work_item.id ?? "";
   const sourceId = direction === "outgoing" ? work.id : counterpartId;
   const targetId = direction === "outgoing" ? counterpartId : work.id;
@@ -150,10 +103,8 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
     workConflictKey,
     ...(counterpartId ? [mutationWorkKey(work.project_id, counterpartId)] : [])
   ];
-  const mutationBlocked = context.canonical.is_duplicate || mutationIntents.some((intent) => (
-    intent.state !== "prepared"
-    && intent.conflictKeys.some((key) => relationshipConflictKeys.includes(key))
-  ));
+  const mutationScope = useMutationScope({ conflictKeys: relationshipConflictKeys }, mutationRegistry);
+  const mutationBlocked = context.canonical.is_duplicate || mutationScope.blocked;
 
   useEffect(() => mutationRegistry.subscribeRecovered((intent) => {
     if (
@@ -163,7 +114,6 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
     if (intent.kind === "add_relationship") {
       setCounterpart(null);
       setQuery("");
-      setSearchedQuery("");
       setCheckpointId("");
     }
     setActionError("");
@@ -245,7 +195,6 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
       setActionNotice(result.created ? "Relationship added." : "That exact relationship already existed.");
       setCounterpart(null);
       setQuery("");
-      setSearchedQuery("");
       setCheckpointId("");
     } catch (error) {
       const conflict = relationshipConflictMessage(error instanceof ApiError ? error.code : undefined);

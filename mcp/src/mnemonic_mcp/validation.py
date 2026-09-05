@@ -13,6 +13,7 @@ from pydantic import ConfigDict, ValidationError
 
 from .transport import bounded_stdio_server
 
+# Reviewed in docs/validation-vocabulary.json; test_validation_vocabulary.py pins this subset.
 VALIDATION_FIELDS = frozenset(
     {
         "name",

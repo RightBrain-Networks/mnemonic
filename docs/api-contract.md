@@ -1,11 +1,14 @@
 # Phase 11 API contract
 
-This is the application/API/MCP `0.6.0`, plugin `0.10.0`, and migration
-`0019_structured_completion_evidence` contract. It adds optional structured
+This is the application/API/MCP `0.7.0`, plugin `0.10.0`, and migration
+`0019_structured_completion_evidence` contract. Phase 11 adds optional structured
 verification results and artifact references inside atomic completion plus a
 bounded, event-backed evidence-history read. Phase 10's caller-declared
 repository scopes and local freshness workflow and Phase 9's authoritative
 duplicate merges remain unchanged.
+
+Release `0.7.0` retains that schema and the exact 28 MCP tools, 11 protected MCP
+writes, 13 REST receipt kinds, and 11 protected browser mutations.
 
 All application routes use `/api/v1` and
 `Authorization: Bearer <MNEMONIC_API_KEY>`. `GET /healthz` and

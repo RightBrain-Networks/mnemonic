@@ -1,10 +1,11 @@
+import { sameHumanGateRevision } from "../lib/revision-codecs.ts";
+import { decodeWorkSummary } from "../lib/work-codecs.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
   decodeHumanAttentionPage,
   decodeHumanGate,
   decodeHumanGatePage,
-  decodeWorkSummary,
   humanAttentionSearchParams,
   humanGateCurrentDriftMessage,
   humanGateChangedLabels,
@@ -13,8 +14,7 @@ import {
   humanGatePath,
   humanGateProjectionKey,
   humanGateResolutionStatus,
-  hasCompleteRelationshipReview,
-  sameHumanGateRevision
+  hasCompleteRelationshipReview
 } from "../lib/human-gates.ts";
 
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";

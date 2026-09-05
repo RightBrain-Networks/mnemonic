@@ -16,7 +16,7 @@ import {
   mutationGateKey,
   mutationWorkKey,
   useMutationIntentRegistry,
-  useMutationIntents
+  useMutationScope
 } from "@/lib/mutation-intent";
 import type {
   HumanGateRead,
@@ -60,7 +60,6 @@ export default function HumanGateResolution({
   onResolved: () => void | Promise<void>;
 }) {
   const registry = useMutationIntentRegistry();
-  const intents = useMutationIntents(registry);
   const initialReviewContext = suppliedContext
     && hasCompleteRelationshipReview(suppliedContext) ? suppliedContext : null;
   const [answer, setAnswer] = useState("");
@@ -76,9 +75,8 @@ export default function HumanGateResolution({
   const loadedReviewAgainstIncomingKey = useRef<string | null>(null);
   const gateKey = mutationGateKey(gate.project_id, gate.id);
   const workKey = mutationWorkKey(gate.project_id, gate.work_item_id);
-  const pendingIntent = intents.find((intent) => (
-    intent.state !== "prepared" && intent.conflictKeys.includes(gateKey)
-  ));
+  const gateScope = useMutationScope({ conflictKeys: [gateKey] }, registry);
+  const pendingIntent = gateScope.intents[0];
   const incomingRevisionKey = humanGateProjectionKey(gate);
   const reviewedProjectionIsCurrent = Boolean(
     reviewContext

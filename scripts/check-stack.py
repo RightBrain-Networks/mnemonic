@@ -871,7 +871,7 @@ async def cleanup_synthetic_work(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-11 API."""
     try:
-        require(document["info"]["version"] == "0.6.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.7.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         endpoint_refs = {
             "/api/v1/projects/{project_id}/work-items": "#/components/schemas/WorkItemCreate",
@@ -1280,14 +1280,14 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.6.0",
+                    and initialized.serverInfo.version == "0.7.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.6.0 structured-completion-evidence contract, real MCP "
+                    "PASS: REST 0.7.0 structured-completion-evidence contract, real MCP "
                     "initialization, 28-tool catalog, exact eleven protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )

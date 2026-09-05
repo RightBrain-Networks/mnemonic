@@ -38,6 +38,44 @@ export interface MutationIntentSummary {
   readonly message: string | null;
 }
 
+export type DispatchedMutationIntent = MutationIntentSummary & {
+  readonly state: Exclude<MutationIntentState, "prepared">;
+};
+
+export type MutationScope = {
+  readonly projectId?: string;
+  readonly conflictKeys?: readonly string[];
+  readonly kinds?: readonly MutationKind[];
+  readonly slot?: string;
+  readonly exceptSlot?: string;
+};
+
+export function isDispatchedMutation(
+  intent: MutationIntentSummary | undefined
+): intent is DispatchedMutationIntent {
+  return Boolean(intent && intent.state !== "prepared");
+}
+
+export function matchesMutationScope(intent: MutationIntentSummary, scope: MutationScope): boolean {
+  return (scope.projectId === undefined
+      || intent.projectId.toLowerCase() === scope.projectId.toLowerCase())
+    && (scope.conflictKeys === undefined || intersects(intent.conflictKeys, scope.conflictKeys))
+    && (scope.kinds === undefined || scope.kinds.includes(intent.kind))
+    && (scope.slot === undefined || intent.slot === scope.slot)
+    && intent.slot !== scope.exceptSlot;
+}
+
+export function selectMutationScope(
+  intents: Iterable<MutationIntentSummary>,
+  scope: MutationScope = {}
+): { blocked: boolean; intents: readonly DispatchedMutationIntent[] } {
+  const selected: DispatchedMutationIntent[] = [];
+  for (const intent of intents) {
+    if (isDispatchedMutation(intent) && matchesMutationScope(intent, scope)) selected.push(intent);
+  }
+  return { blocked: selected.length > 0, intents: selected };
+}
+
 export interface PrepareMutation<K extends MutationKind> {
   readonly kind: K;
   readonly slot: string;
@@ -158,26 +196,20 @@ export class MutationIntentRegistry {
   }
 
   hasDispatched(): boolean {
-    return [...this.#intents.values()].some((intent) => intent.state !== "prepared");
+    return selectMutationScope(this.#intents.values()).blocked;
   }
 
   hasDispatchedForProject(projectId: string): boolean {
-    return [...this.#intents.values()].some((intent) => (
-      intent.projectId.toLowerCase() === projectId.toLowerCase() && intent.state !== "prepared"
-    ));
+    return selectMutationScope(this.#intents.values(), { projectId }).blocked;
   }
 
   blocks(conflictKeys: readonly string[], exceptSlot?: string): boolean {
-    return [...this.#intents.values()].some((intent) => (
-      intent.slot !== exceptSlot
-      && intent.state !== "prepared"
-      && intersects(intent.conflictKeys, conflictKeys)
-    ));
+    return selectMutationScope(this.#intents.values(), { conflictKeys, exceptSlot }).blocked;
   }
 
   prepare<K extends MutationKind>(input: PrepareMutation<K>): MutationIntent<K> {
     const existing = this.#intents.get(input.slot);
-    if (existing && existing.state !== "prepared") {
+    if (isDispatchedMutation(existing)) {
       throw new MutationIntentError(BLOCKED, "blocked", existing.slot);
     }
     if (this.blocks(input.conflictKeys, input.slot)) {
@@ -376,6 +408,10 @@ export function useMutationIntents(
     selectedRegistry.getSnapshot,
     selectedRegistry.getSnapshot
   );
+}
+
+export function useMutationScope(scope: MutationScope, registry?: MutationIntentRegistry) {
+  return selectMutationScope(useMutationIntents(registry), scope);
 }
 
 export function useMutationUnloadWarning(registry: MutationIntentRegistry): void {

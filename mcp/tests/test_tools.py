@@ -430,7 +430,7 @@ def test_work_pages_reject_repeated_work_items(work_summary):
             "status": work_summary["work_item"]["status"],
         },
     }
-    with pytest.raises(ValueError, match="cannot repeat work items"):
+    with pytest.raises(ValueError, match="cannot repeat their identity"):
         WorkPage.model_validate(
             {"items": [hit, hit], "total": 2, "limit": 20, "offset": 0}
         )
@@ -1993,7 +1993,7 @@ async def test_gate_read_scope_or_filter_mismatch_is_rejected_without_values(
             },
         )
 
-    with pytest.raises(ToolError, match="incoherent human-gate data") as caught:
+    with pytest.raises(ToolError, match="unexpected response") as caught:
         await adapter(settings, attention_handler).call_tool(
             "list_human_attention", {"project_id": PROJECT_ID}
         )
@@ -2011,7 +2011,7 @@ async def test_gate_read_scope_or_filter_mismatch_is_rejected_without_values(
             },
         )
 
-    with pytest.raises(ToolError, match="incoherent human-gate data") as caught:
+    with pytest.raises(ToolError, match="unexpected response") as caught:
         await adapter(settings, history_handler).call_tool(
             "list_work_gates",
             {
@@ -2590,7 +2590,7 @@ async def test_event_tools_reject_responses_outside_requested_scope(
                 },
             )
 
-        with pytest.raises(ToolError, match="outside the requested scope"):
+        with pytest.raises(ToolError, match="unexpected response"):
             await adapter(settings, list_handler).call_tool(
                 "list_work_events",
                 {"project_id": PROJECT_ID, "work_item_id": WORK_ID},
@@ -4816,7 +4816,7 @@ async def test_alias_search_rejects_nonself_matched_member(settings, work_summar
             },
         )
 
-    with pytest.raises(ToolError, match="outside the requested search scope"):
+    with pytest.raises(ToolError, match="unexpected response"):
         await adapter(settings, handler).call_tool(
             "search_work",
             {

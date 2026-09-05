@@ -1,3 +1,8 @@
+import { WORK_DECODER_FIELDS } from "../lib/work-codecs.ts";
+import { REVISION_DECODER_FIELDS } from "../lib/revision-codecs.ts";
+import { READINESS_DECODER_FIELDS } from "../lib/readiness-codecs.ts";
+import { RELATIONSHIP_DECODER_FIELDS } from "../lib/relationship-codecs.ts";
+import { CHECKPOINT_DECODER_FIELDS } from "../lib/checkpoint-codecs.ts";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -11,7 +16,7 @@ import { COMPLETION_EVIDENCE_DECODER_FIELDS } from "../lib/completion-evidence.t
 
 const SNAPSHOT_URL = new URL("../../docs/openapi.json", import.meta.url);
 const DEFAULTED_RESPONSE_FIELDS = {
-  "frontend/lib/mutation-responses.ts:decodeCheckpoint": [
+  "frontend/lib/checkpoint-codecs.ts:decodeCheckpoint": [
     "affected_paths"
   ],
   "frontend/lib/mutation-responses.ts:decodeMutationResult:complete_work": [
@@ -23,7 +28,7 @@ const DEFAULTED_RESPONSE_FIELDS = {
   "frontend/lib/completion-evidence.ts:decodeVerificationResult:observation": [
     "observed_at", "observed_at_commit"
   ],
-  "frontend/lib/human-gates.ts:decodeWorkSummary": [
+  "frontend/lib/work-codecs.ts:decodeWorkSummary": [
     "ancestor_path",
     "ancestor_path_truncated"
   ],
@@ -55,6 +60,11 @@ test("strict frontend decoders match the committed OpenAPI component contracts",
   assert.ok(schemas, "OpenAPI snapshot must declare component schemas");
 
   const decoderFields = {
+    ...qualifiedFields("frontend/lib/work-codecs.ts", WORK_DECODER_FIELDS),
+    ...qualifiedFields("frontend/lib/revision-codecs.ts", REVISION_DECODER_FIELDS),
+    ...qualifiedFields("frontend/lib/readiness-codecs.ts", READINESS_DECODER_FIELDS),
+    ...qualifiedFields("frontend/lib/relationship-codecs.ts", RELATIONSHIP_DECODER_FIELDS),
+    ...qualifiedFields("frontend/lib/checkpoint-codecs.ts", CHECKPOINT_DECODER_FIELDS),
     ...qualifiedFields(
       "frontend/lib/completion-evidence.ts",
       COMPLETION_EVIDENCE_DECODER_FIELDS

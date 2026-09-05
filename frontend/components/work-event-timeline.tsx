@@ -8,7 +8,7 @@ import { dashboardSessionId } from "@/lib/dashboard-session";
 import {
   mutationWorkKey,
   useMutationIntentRegistry,
-  useMutationIntents
+  useMutationScope
 } from "@/lib/mutation-intent";
 import type { WorkContext, WorkEventPage, WorkEventType } from "@/lib/types";
 import {
@@ -63,11 +63,9 @@ export default function WorkEventTimeline({
 }) {
   const work = context.work_item;
   const mutationRegistry = useMutationIntentRegistry();
-  const mutationIntents = useMutationIntents(mutationRegistry);
   const workConflictKey = mutationWorkKey(work.project_id, work.id);
-  const mutationBlocked = context.canonical.is_duplicate || mutationIntents.some((intent) => (
-    intent.state !== "prepared" && intent.conflictKeys.includes(workConflictKey)
-  ));
+  const mutationScope = useMutationScope({ conflictKeys: [workConflictKey] }, mutationRegistry);
+  const mutationBlocked = context.canonical.is_duplicate || mutationScope.blocked;
   const [recoverySignal, setRecoverySignal] = useState(0);
   const [page, setPage] = useState<WorkEventPage | null>(null);
   const [offset, setOffset] = useState(0);

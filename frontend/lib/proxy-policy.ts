@@ -1,3 +1,4 @@
+import { validHumanGateRevision, validMergeReviewRevision } from "./revision-codecs.ts";
 import {
   UUID_PATTERN,
   boundedText,
@@ -291,33 +292,6 @@ function validActor(value: unknown): boolean {
       || boundedText(actor.actor_model, 120));
 }
 
-function validHumanGateRevision(value: unknown): boolean {
-  const revision = jsonObject(value);
-  return Boolean(
-    revision
-    && allowedKeys(revision, [
-      "work_version", "context_checkpoint_id", "relationship_event_count"
-    ])
-    && Object.keys(revision).length === 3
-    && finiteInteger(revision.work_version, 1)
-    && validUuid(revision.context_checkpoint_id)
-    && finiteInteger(revision.relationship_event_count, 0)
-  );
-}
-
-function validMergeReviewRevision(value: unknown): boolean {
-  const revision = jsonObject(value);
-  return Boolean(
-    revision
-    && allowedKeys(revision, [
-      "work_version", "context_checkpoint_id", "work_event_count"
-    ])
-    && Object.keys(revision).length === 3
-    && finiteInteger(revision.work_version, 1)
-    && validUuid(revision.context_checkpoint_id)
-    && finiteInteger(revision.work_event_count, 1)
-  );
-}
 
 
 function validStringArray(value: unknown, maximumItems: number, maximumLength: number): boolean {

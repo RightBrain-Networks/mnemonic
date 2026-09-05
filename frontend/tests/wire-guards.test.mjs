@@ -1,10 +1,10 @@
+import { decodeWorkItem } from "../lib/work-codecs.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
   UUID_PATTERN,
   UTC_DATE_TIME_PATTERN,
   boundedText,
-  decodeWorkItem,
   exactKeys,
   finiteInteger,
   nullableBoundedText,
