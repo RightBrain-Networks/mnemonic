@@ -4,33 +4,38 @@ import type {
   CompletionResult,
   DeletionResult,
   RelationshipCreationResult,
-  RelationshipEdgeRead,
   RelationshipRemovalResult,
   HumanGateRead,
-  Page,
   WorkCreation,
   WorkItem,
   WorkMergeResult
 } from "@/lib/types";
-import { validAffectedPaths } from "./affected-paths.ts";
+import { decodeHumanGate } from "./human-gates.ts";
+import { decodeWorkIdentityPointer, decodeWorkItem } from "./work-codecs.ts";
+import { decodeCheckpoint } from "./checkpoint-codecs.ts";
 import {
-  decodeHumanGate,
-  decodeWorkIdentityPointer,
-  sameHumanGateRevision
-} from "./human-gates.ts";
+  decodeRelationship,
+  expectedRelationship,
+  relationshipIdentity
+} from "./relationship-codecs.ts";
+import {
+  decodeMergeReviewRevision,
+  sameHumanGateRevision,
+  sameMergeReviewRevision,
+  validHumanGateRevision,
+  validMergeReviewRevision
+} from "./revision-codecs.ts";
 import { isDefinitiveProxyError } from "./proxy-policy.ts";
 import {
   UUID_PATTERN,
   boundedText,
   compareUtcDateTimes,
-  decodeWorkItem,
   exactKeys,
   finiteInteger,
-  nullableBoundedText,
-  nullableUuid,
+  jsonEqual,
   objectValue,
+  sameNullableUuid,
   sameUuid,
-  validUnicode,
   validUtcDateTime,
   validUuid,
   type JsonObject
@@ -87,34 +92,11 @@ export type MutationHttpOutcome<K extends MutationKind = MutationKind> =
   | { readonly type: "safety_conflict"; readonly error: ApiError }
   | { readonly type: "unresolved"; readonly message: string };
 
-const CHECKPOINT_KINDS = new Set(["context", "progress", "completion"]);
-const RELATIONSHIP_TYPES = new Set([
-  "blocks",
-  "parent-child",
-  "discovered-from",
-  "duplicate-of",
-  "related"
-]);
-const CHECKPOINT_RESPONSE_FIELDS = [
-  "id", "work_item_id", "kind", "prompt", "source_client", "source_session_id",
-  "source_model", "source_session_url", "repository_branch", "verified_against", "tags",
-  "affected_paths", "source_metadata", "migration_origin", "legacy_record_id", "created_at"
-] as const;
-const CHECKPOINT_REQUIRED_RESPONSE_FIELDS = CHECKPOINT_RESPONSE_FIELDS.filter(
-  (field) => field !== "affected_paths"
-);
-const RELATIONSHIP_RESPONSE_FIELDS = [
-  "id", "project_id", "relationship_type", "source_work_item_id",
-  "target_work_item_id", "context_checkpoint_work_item_id", "context_checkpoint_id",
-  "created_by_client", "created_by_session_id", "created_by_model", "created_at"
-] as const;
 const WORK_COMPLETION_RESPONSE_FIELDS = [
   "work_item", "checkpoint", "completion_evidence"
 ] as const;
 
 export const MUTATION_RESPONSE_DECODER_FIELDS = {
-  decodeCheckpoint: CHECKPOINT_RESPONSE_FIELDS,
-  decodeRelationship: RELATIONSHIP_RESPONSE_FIELDS,
   "decodeMutationResult:complete_work": WORK_COMPLETION_RESPONSE_FIELDS
 } as const;
 const EXPECTED_STATUS: Record<MutationKind, number> = {
@@ -184,41 +166,6 @@ const DEFINITIVE_API_STRING_ERRORS = new Map<number, ReadonlySet<string>>([
   [401, new Set(["Valid bearer authentication is required"])]
 ]);
 
-function validJson(value: unknown, stack = new WeakSet<object>()): boolean {
-  if (value === null || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (typeof value === "string") return validUnicode(value) && !value.includes("\0");
-  if (typeof value !== "object" || stack.has(value)) return false;
-  stack.add(value);
-  const valid = Array.isArray(value)
-    ? value.every((entry) => validJson(entry, stack))
-    : Boolean(objectValue(value))
-      && Object.entries(value).every(([key, entry]) => (
-        validUnicode(key) && !key.includes("\0") && validJson(entry, stack)
-      ));
-  stack.delete(value);
-  return valid;
-}
-
-function jsonEqual(left: unknown, right: unknown): boolean {
-  if (!validJson(left) || !validJson(right)) return false;
-  if (left === right) return true;
-  if (Array.isArray(left) || Array.isArray(right)) {
-    return Array.isArray(left)
-      && Array.isArray(right)
-      && left.length === right.length
-      && left.every((entry, index) => jsonEqual(entry, right[index]));
-  }
-  const leftObject = objectValue(left);
-  const rightObject = objectValue(right);
-  if (!leftObject || !rightObject) return false;
-  const leftKeys = Object.keys(leftObject).sort();
-  const rightKeys = Object.keys(rightObject).sort();
-  return leftKeys.length === rightKeys.length
-    && leftKeys.every((key, index) => (
-      key === rightKeys[index] && jsonEqual(leftObject[key], rightObject[key])
-    ));
-}
 
 function parsePath(path: string, suffix: string): { projectId: string; workItemId?: string; relationshipId?: string } | null {
   const workMatch = new RegExp(`^/projects/(${UUID_PATTERN.source.slice(1, -1)})/work-items/(${UUID_PATTERN.source.slice(1, -1)})${suffix}$`).exec(path);
@@ -258,167 +205,6 @@ function requestBody(request: FrozenMutationRequest): JsonObject {
   return body;
 }
 
-export function decodeCheckpoint(
-  value: unknown,
-  workItemId: string,
-  expectedKind?: string,
-  expectedInput?: unknown
-): Checkpoint {
-  const checkpoint = objectValue(value);
-  const hasAffectedPaths = checkpoint !== null
-    && Object.hasOwn(checkpoint, "affected_paths");
-  if (
-    !checkpoint
-    || !exactKeys(
-      checkpoint,
-      hasAffectedPaths ? CHECKPOINT_RESPONSE_FIELDS : CHECKPOINT_REQUIRED_RESPONSE_FIELDS
-    )
-    || !validUuid(checkpoint.id)
-    || !sameUuid(checkpoint.work_item_id, workItemId)
-    || typeof checkpoint.kind !== "string"
-    || !CHECKPOINT_KINDS.has(checkpoint.kind)
-    || (expectedKind !== undefined && checkpoint.kind !== expectedKind)
-    || !boundedText(checkpoint.prompt, 100_000)
-    || !boundedText(checkpoint.source_client, 80)
-    || !boundedText(checkpoint.source_session_id, 200)
-    || !nullableBoundedText(checkpoint.source_model, 120)
-    || !(checkpoint.source_session_url === null || boundedText(checkpoint.source_session_url, 2_000))
-    || !nullableBoundedText(checkpoint.repository_branch, 200)
-    || !(checkpoint.verified_against === null
-      || (typeof checkpoint.verified_against === "string" && /^[a-fA-F0-9]{7,64}$/.test(checkpoint.verified_against)))
-    || hasAffectedPaths && (
-      !validAffectedPaths(checkpoint.affected_paths)
-      || checkpoint.affected_paths.length === 0
-      || checkpoint.verified_against === null
-    )
-    || !Array.isArray(checkpoint.tags)
-    || checkpoint.tags.some((tag) => !boundedText(tag, 50) || tag !== tag.toLowerCase())
-    || new Set(checkpoint.tags).size !== checkpoint.tags.length
-    || !objectValue(checkpoint.source_metadata)
-    || !validJson(checkpoint.source_metadata)
-    || !(checkpoint.migration_origin === null
-      || checkpoint.migration_origin === "legacy-handoff-snapshot"
-      || checkpoint.migration_origin === "legacy-comment")
-    || !nullableUuid(checkpoint.legacy_record_id)
-    || !validUtcDateTime(checkpoint.created_at)
-  ) {
-    throw new Error("Mnemonic returned an invalid mutation response.");
-  }
-  if (expectedInput !== undefined) {
-    const input = objectValue(expectedInput);
-    const expectedAffectedPaths = input?.affected_paths ?? [];
-    const expectedVerified = input?.verified_against === undefined
-      || input.verified_against === null
-      ? null
-      : typeof input.verified_against === "string"
-        ? input.verified_against.trim().toLowerCase()
-        : undefined;
-    if (
-      !input
-      || expectedVerified === undefined
-      || !validAffectedPaths(expectedAffectedPaths)
-      || checkpoint.migration_origin !== null
-      || checkpoint.legacy_record_id !== null
-      || checkpoint.prompt !== input.prompt
-      || checkpoint.source_client !== input.source_client
-      || checkpoint.source_session_id !== input.source_session_id
-      || checkpoint.source_model !== (input.source_model ?? null)
-      || checkpoint.source_session_url !== (input.source_session_url ?? null)
-      || checkpoint.repository_branch !== (input.repository_branch ?? null)
-      || checkpoint.verified_against !== expectedVerified
-      || !jsonEqual(
-        hasAffectedPaths ? checkpoint.affected_paths : [],
-        expectedAffectedPaths
-      )
-      || !jsonEqual(checkpoint.tags, input.tags ?? [])
-      || !jsonEqual(checkpoint.source_metadata, input.source_metadata ?? {})
-    ) {
-      throw new Error("Mnemonic returned an incoherent mutation response.");
-    }
-  }
-  return {
-    ...checkpoint,
-    affected_paths: hasAffectedPaths ? checkpoint.affected_paths : []
-  } as unknown as Checkpoint;
-}
-
-export function decodeCheckpointPage(
-  value: unknown,
-  workItemId: string,
-  expected: { limit?: number; offset?: number } = {}
-): Page<Checkpoint> {
-  const page = objectValue(value);
-  if (
-    !page
-    || !exactKeys(page, ["items", "total", "limit", "offset"])
-    || !Array.isArray(page.items)
-    || !finiteInteger(page.total)
-    || !finiteInteger(page.limit, 1, 100)
-    || !finiteInteger(page.offset)
-    || page.items.length > page.limit
-    || page.items.length > page.total
-    || page.items.length > 0 && page.offset + page.items.length > page.total
-    || expected.limit !== undefined && page.limit !== expected.limit
-    || expected.offset !== undefined && page.offset !== expected.offset
-  ) throw new Error("Mnemonic returned an invalid checkpoint page.");
-  const items = page.items.map((entry) => decodeCheckpoint(entry, workItemId));
-  if (new Set(items.map((checkpoint) => checkpoint.id.toLowerCase())).size !== items.length) {
-    throw new Error("Mnemonic returned repeated checkpoint identities.");
-  }
-  return { items, total: page.total, limit: page.limit, offset: page.offset };
-}
-
-type ExpectedRelationship = {
-  type: string;
-  source: string;
-  target: string;
-};
-
-function expectedRelationship(
-  input: JsonObject,
-  newWorkItemId?: string
-): ExpectedRelationship | null {
-  const type = input.relationship_type ?? input.type;
-  let source = input.source_work_item_id;
-  let target = input.target_work_item_id;
-  if (newWorkItemId) {
-    if (input.direction === "outgoing") {
-      source = newWorkItemId;
-      target = input.other_work_item_id;
-    } else if (input.direction === "incoming") {
-      source = input.other_work_item_id;
-      target = newWorkItemId;
-    } else {
-      return null;
-    }
-  }
-  if (
-    typeof type !== "string"
-    || !RELATIONSHIP_TYPES.has(type)
-    || !validUuid(source)
-    || !validUuid(target)
-    || sameUuid(source, target)
-  ) return null;
-  let normalizedSource = source;
-  let normalizedTarget = target;
-  if (
-    type === "related"
-    && normalizedTarget.toLowerCase() < normalizedSource.toLowerCase()
-  ) {
-    [normalizedSource, normalizedTarget] = [normalizedTarget, normalizedSource];
-  }
-  return { type, source: normalizedSource, target: normalizedTarget };
-}
-
-function relationshipIdentity(
-  type: unknown,
-  source: unknown,
-  target: unknown
-): string | null {
-  return typeof type === "string" && validUuid(source) && validUuid(target)
-    ? [type, source.toLowerCase(), target.toLowerCase()].join(":")
-    : null;
-}
 
 function initialRelationshipOrder(input: JsonObject): string {
   const context = input.context_checkpoint_id;
@@ -433,96 +219,12 @@ function initialRelationshipOrder(input: JsonObject): string {
   ].join("\0");
 }
 
-export function decodeRelationship(
-  value: unknown,
-  projectId: string,
-  input?: JsonObject,
-  newWorkItemId?: string,
-  requestDetailsMustMatch = true
-): RelationshipEdgeRead {
-  const relationship = objectValue(value);
-  if (
-    !relationship
-    || !exactKeys(relationship, RELATIONSHIP_RESPONSE_FIELDS)
-    || !validUuid(relationship.id)
-    || !sameUuid(relationship.project_id, projectId)
-    || typeof relationship.relationship_type !== "string"
-    || !RELATIONSHIP_TYPES.has(relationship.relationship_type)
-    || !validUuid(relationship.source_work_item_id)
-    || !validUuid(relationship.target_work_item_id)
-    || sameUuid(relationship.source_work_item_id, relationship.target_work_item_id)
-    || !nullableUuid(relationship.context_checkpoint_work_item_id)
-    || !nullableUuid(relationship.context_checkpoint_id)
-    || ((relationship.context_checkpoint_id === null) !== (relationship.context_checkpoint_work_item_id === null))
-    || (relationship.context_checkpoint_work_item_id !== null
-      && !sameUuid(relationship.context_checkpoint_work_item_id, relationship.source_work_item_id)
-      && !sameUuid(relationship.context_checkpoint_work_item_id, relationship.target_work_item_id))
-    || (relationship.relationship_type === "discovered-from"
-      && !sameUuid(relationship.context_checkpoint_work_item_id, relationship.target_work_item_id))
-    || !boundedText(relationship.created_by_client, 80)
-    || !boundedText(relationship.created_by_session_id, 200)
-    || !nullableBoundedText(relationship.created_by_model, 120)
-    || !validUtcDateTime(relationship.created_at)
-  ) {
-    throw new Error("Mnemonic returned an invalid mutation response.");
-  }
-  if (input) {
-    const expected = expectedRelationship(input, newWorkItemId);
-    if (!expected) throw new Error("The frozen mutation request is invalid.");
-    if (
-      relationship.relationship_type !== expected.type
-      || !sameUuid(relationship.source_work_item_id, expected.source)
-      || !sameUuid(relationship.target_work_item_id, expected.target)
-      || requestDetailsMustMatch && (
-        relationship.created_by_client !== (input.created_by_client ?? "dashboard")
-        || relationship.created_by_session_id !== input.created_by_session_id
-        || relationship.created_by_model !== (input.created_by_model ?? null)
-        || !sameNullableUuid(relationship.context_checkpoint_id, input.context_checkpoint_id ?? null)
-      )
-    ) {
-      throw new Error("Mnemonic returned an incoherent mutation response.");
-    }
-  }
-  return relationship as unknown as RelationshipEdgeRead;
-}
-
-function sameNullableUuid(left: unknown, right: unknown): boolean {
-  return left === null && right === null || sameUuid(left, right);
-}
-
-function mergeRevision(value: unknown): {
-  work_version: number;
-  context_checkpoint_id: string;
-  work_event_count: number;
-} {
-  const revision = objectValue(value);
-  if (
-    !revision
-    || !exactKeys(revision, [
-      "work_version", "context_checkpoint_id", "work_event_count"
-    ])
-    || !finiteInteger(revision.work_version, 1)
-    || !validUuid(revision.context_checkpoint_id)
-    || !finiteInteger(revision.work_event_count, 1)
-  ) throw new Error("Mnemonic returned an invalid merge response.");
-  return revision as {
-    work_version: number;
-    context_checkpoint_id: string;
-    work_event_count: number;
-  };
-}
-
 function sameMergeRevision(left: unknown, right: unknown): boolean {
-  try {
-    const leftRevision = mergeRevision(left);
-    const rightRevision = mergeRevision(right);
-    return leftRevision.work_version === rightRevision.work_version
-      && leftRevision.work_event_count === rightRevision.work_event_count
-      && sameUuid(leftRevision.context_checkpoint_id, rightRevision.context_checkpoint_id);
-  } catch {
-    return false;
-  }
+  return validMergeReviewRevision(left)
+    && validMergeReviewRevision(right)
+    && sameMergeReviewRevision(left, right);
 }
+
 
 function decodeMergeResult(
   value: unknown,
@@ -564,9 +266,9 @@ function decodeMergeResult(
     || !finiteInteger(merge.resulting_source_work_version, 2)
     || !finiteInteger(merge.resulting_destination_work_version, 2)
     || merge.resulting_source_work_version
-      !== mergeRevision(merge.reviewed_source_revision).work_version + 1
+      !== decodeMergeReviewRevision(merge.reviewed_source_revision, "Mnemonic returned an invalid merge response.").work_version + 1
     || merge.resulting_destination_work_version
-      !== mergeRevision(merge.reviewed_destination_revision).work_version + 1
+      !== decodeMergeReviewRevision(merge.reviewed_destination_revision, "Mnemonic returned an invalid merge response.").work_version + 1
     || !boundedText(merge.rationale, 4_000)
     || merge.rationale !== body.rationale
     || merge.merged_by_client !== body.merged_by_client
@@ -687,8 +389,8 @@ function decodeMergeResult(
   return {
     merge: {
       ...merge,
-      reviewed_source_revision: mergeRevision(merge.reviewed_source_revision),
-      reviewed_destination_revision: mergeRevision(merge.reviewed_destination_revision)
+      reviewed_source_revision: decodeMergeReviewRevision(merge.reviewed_source_revision, "Mnemonic returned an invalid merge response."),
+      reviewed_destination_revision: decodeMergeReviewRevision(merge.reviewed_destination_revision, "Mnemonic returned an invalid merge response.")
     } as unknown as WorkMergeResult["merge"],
     source_work_item: source,
     destination_work_item: destination,
@@ -931,16 +633,10 @@ function decodeSuccess<K extends MutationKind>(
       || gate.resolved_by_model !== (body.resolved_by_model ?? null)
       || !gate.resolved_context_revision
       || !sameHumanGateRevision(gate.current_context_revision, gate.resolved_context_revision)
-      || !reviewed
-      || !exactKeys(reviewed, [
-        "work_version", "context_checkpoint_id", "relationship_event_count"
-      ])
-      || !finiteInteger(reviewed.work_version, 1)
-      || !validUuid(reviewed.context_checkpoint_id)
-      || !finiteInteger(reviewed.relationship_event_count)
+      || !validHumanGateRevision(reviewed)
       || !sameHumanGateRevision(
         gate.resolved_context_revision,
-        reviewed as unknown as typeof gate.resolved_context_revision
+        reviewed
       )
     ) throw new Error("Mnemonic returned an incoherent human-gate resolution.");
     decoded = gate;

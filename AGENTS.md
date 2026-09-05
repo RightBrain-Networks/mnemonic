@@ -87,6 +87,9 @@ evidence mutation. Do not mix older processes with this schema, infer repository
 scope, evidence truth, or merges from historical data, or add projection,
 redirect, coalescing, or compatibility paths.
 
+The current application/API/MCP/dashboard release is `0.7.0`. It retains that
+Phase 11 schema and catalog, with Claude plugin `0.10.0` unchanged.
+
 ## Commit & Pull Request Guidelines
 
 Use short, specific, sentence-case subjects instead of generic `Updates`. Keep commits scoped. PRs should target `main`, remain short-lived, and explain behavior and migration/config impact, link relevant work, list checks run, and include screenshots for visual changes. The `Required checks` GitHub Actions status must pass before merge; never bypass the gitleaks hook with `--no-verify`. Never commit `.env`, keys, test output, backups, or database volumes.

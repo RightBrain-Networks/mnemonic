@@ -23,6 +23,7 @@ import {
   validExternalArtifactUrl
 } from "../lib/completion-evidence.ts";
 import { invalidMutationBody } from "../lib/proxy-policy.ts";
+import { decodeCheckpointPointer } from "../lib/checkpoint-codecs.ts";
 
 const fixtureUrl = new URL("../../tests/fixtures/completion-evidence-v1.json", import.meta.url);
 const fixture = JSON.parse(await readFile(fixtureUrl, "utf8"));
@@ -375,6 +376,47 @@ test("strict history decoding retains bigint identities as strings and ordered e
   assert.deepEqual(decoded.items[1].artifact_references, []);
   assert.equal(decoded.items[0].verification_results[0].summary, "The frontend unit suite passed.");
   assert.equal(decoded.items[0].artifact_references[0].reference, "https://example.test/pull/11");
+});
+
+test("evidence composes shared pointer validation with completion-only timestamp and tag rules", () => {
+  const historyWith = (completion_checkpoint) => page({
+    items: [episode(MAX_COMPLETION_EVENT_ID.toString(), { completion_checkpoint })],
+    total: 1,
+    structured_completion_total: 0
+  });
+  assert.doesNotThrow(() => decodeCompletionEvidencePage(historyWith(pointer()), work));
+
+  for (const change of [
+    { kind: "context" },
+    { kind: "progress" },
+    { tags: ["Frontend"] },
+    { tags: ["frontend", "frontend"] },
+    { created_at: "2026-09-03T18:04:12.1Z" }
+  ]) {
+    const value = { ...pointer(), ...change };
+    assert.equal(decodeCheckpointPointer(value, work), value);
+    assert.throws(
+      () => decodeCompletionEvidencePage(historyWith(value), work),
+      /invalid completion evidence/
+    );
+  }
+
+  const omitted = pointer();
+  delete omitted.source_model;
+  for (const value of [
+    omitted,
+    { ...pointer(), source_model: undefined },
+    { ...pointer(), tags: null },
+    { ...pointer(), work_item_id: olderCheckpoint },
+    { ...pointer(), affected_paths: ["frontend/**"] },
+    { ...pointer(), created_at: "2026-02-30T18:04:12Z" }
+  ]) {
+    assert.throws(() => decodeCheckpointPointer(value, work), /attention checkpoint pointer/);
+    assert.throws(
+      () => decodeCompletionEvidencePage(historyWith(value), work),
+      /invalid completion evidence/
+    );
+  }
 });
 
 test("history decoding enforces the backend work-version maximum", () => {

@@ -13,18 +13,16 @@ import type {
   WorkMergeInput,
   WorkSearchHit
 } from "@/lib/types";
-import {
-  decodeHumanGate,
-  decodeReadiness,
-  decodeWorkIdentityPointer,
-  decodeWorkSummary
-} from "./human-gates.ts";
-import { decodeCheckpoint, decodeRelationship } from "./mutation-responses.ts";
+import { decodeHumanGate } from "./human-gates.ts";
+import { decodeReadiness } from "./readiness-codecs.ts";
+import { decodeWorkIdentityPointer, decodeWorkItem, decodeWorkSummary } from "./work-codecs.ts";
+import { decodeCheckpoint } from "./checkpoint-codecs.ts";
+import { decodeRelationship } from "./relationship-codecs.ts";
+import { decodeMergeReviewRevision } from "./revision-codecs.ts";
 import { decodeWorkEventForWork } from "./work-events.ts";
 import {
   boundedText,
   compareUtcDateTimes,
-  decodeWorkItem,
   exactKeys,
   finiteInteger,
   objectValue,
@@ -42,9 +40,6 @@ const PROJECTION_FIELDS = [
   "duplicate_member_count"
 ] as const;
 const DETAIL_FIELDS = ["work_item", "canonical"] as const;
-const REVISION_FIELDS = [
-  "work_version", "context_checkpoint_id", "work_event_count"
-] as const;
 const COUNTS_FIELDS = ["incoming", "outgoing", "undirected", "total"] as const;
 const ELIGIBILITY_FIELDS = [
   "incident_blocks_count",
@@ -90,7 +85,6 @@ const CONTEXT_FIELDS = [
 
 export const DUPLICATE_HANDLING_DECODER_FIELDS = {
   decodeCanonicalWorkProjection: PROJECTION_FIELDS,
-  decodeMergeReviewRevision: REVISION_FIELDS,
   decodeWorkContext: CONTEXT_FIELDS,
   decodeWorkItemDetail: DETAIL_FIELDS,
   "decodeWorkSearchPage:item": SEARCH_HIT_FIELDS,
@@ -103,26 +97,6 @@ function pointerEqual(left: WorkIdentityPointer, right: WorkIdentityPointer): bo
     && left.status === right.status;
 }
 
-export function decodeMergeReviewRevision(value: unknown): MergeReviewRevision {
-  const revision = objectValue(value);
-  if (
-    !revision
-    || !exactKeys(revision, REVISION_FIELDS)
-    || !finiteInteger(revision.work_version, 1)
-    || !validUuid(revision.context_checkpoint_id)
-    || !finiteInteger(revision.work_event_count, 1)
-  ) throw new Error("Mnemonic returned an invalid merge review revision.");
-  return revision as unknown as MergeReviewRevision;
-}
-
-export function sameMergeReviewRevision(
-  left: MergeReviewRevision,
-  right: MergeReviewRevision
-): boolean {
-  return left.work_version === right.work_version
-    && left.work_event_count === right.work_event_count
-    && sameUuid(left.context_checkpoint_id, right.context_checkpoint_id);
-}
 
 export function duplicateMergeEligibilityReasons(
   eligibility: DuplicateMergeEligibility

@@ -6,7 +6,7 @@ import type {
   DuplicateSuggestionSignal,
   WorkStatus
 } from "@/lib/types";
-import { decodeWorkIdentityPointer } from "./human-gates.ts";
+import { decodeWorkIdentityPointer } from "./work-codecs.ts";
 import { normalizedTags } from "./work-item-view.ts";
 import {
   boundedText,

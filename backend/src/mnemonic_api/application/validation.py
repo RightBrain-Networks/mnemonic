@@ -10,6 +10,7 @@ a fixed message per family.
 from collections.abc import Iterable, Mapping
 
 PUBLIC_LOCATION_REPLACEMENT = "field"
+# Reviewed in docs/validation-vocabulary.json; test_validation_vocabulary.py pins this subset.
 PUBLIC_LOCATION_SEGMENTS = frozenset(
     """
     body query path header cookie project_id work_item_id relationship_id
@@ -33,6 +34,9 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     focus_gate_id recall_pointer_template initial_prompt exclude_work_item_id
     completion_evidence verification_results artifact_references verification_type
     outcome command exit_code observed_at observed_at_commit artifact_type label reference
+    destination_work_item_id reviewed_source_revision reviewed_destination_revision
+    work_event_count merged_by_client merged_by_session_id merged_by_model rationale
+    repository_url duplicate_scope canonical_work_item_id
     """.split()
 )
 

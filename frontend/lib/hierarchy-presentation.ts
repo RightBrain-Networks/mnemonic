@@ -1,5 +1,5 @@
 import type { HierarchyPresentation, HierarchySummary, Page } from "@/lib/types";
-import { decodeWorkSummary } from "./human-gates.ts";
+import { decodeWorkSummary } from "./work-codecs.ts";
 import {
   exactKeys,
   finiteInteger,

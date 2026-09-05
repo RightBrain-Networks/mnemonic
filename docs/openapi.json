@@ -6680,7 +6680,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.6.0"
+    "version": "0.7.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -9468,6 +9468,8 @@
         "required"
       ],
       "property_sets": {
+        "frontend/lib/checkpoint-codecs.ts:decodeCheckpoint": "CheckpointRead",
+        "frontend/lib/checkpoint-codecs.ts:decodeCheckpointPointer": "CheckpointPointer",
         "frontend/lib/completion-evidence.ts:decodeArtifactReference": "ArtifactReferenceRead",
         "frontend/lib/completion-evidence.ts:decodeCheckpointPointer": "CheckpointPointer",
         "frontend/lib/completion-evidence.ts:decodeCompletionEvidencePage": "CompletionEvidencePage",
@@ -9476,7 +9478,6 @@
         "frontend/lib/completion-evidence.ts:decodeVerificationResult:command": "CommandVerificationRead",
         "frontend/lib/completion-evidence.ts:decodeVerificationResult:observation": "ObservationVerificationRead",
         "frontend/lib/duplicate-handling.ts:decodeCanonicalWorkProjection": "CanonicalWorkProjection",
-        "frontend/lib/duplicate-handling.ts:decodeMergeReviewRevision": "MergeReviewRevision",
         "frontend/lib/duplicate-handling.ts:decodeWorkContext": "WorkContext",
         "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": "WorkItemDetailRead",
         "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": "Page_Union_WorkSearchHit__HierarchySummary__",
@@ -9488,18 +9489,17 @@
         "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage:item": "HierarchySummary",
         "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPresentation": "HierarchyPresentation",
         "frontend/lib/human-gates.ts:GATE_FIELDS": "HumanGateRead",
-        "frontend/lib/human-gates.ts:decodeAncestor": "WorkIdentityPointer",
-        "frontend/lib/human-gates.ts:decodeCheckpointPointer": "CheckpointPointer",
         "frontend/lib/human-gates.ts:decodeCursorPage:attention": "HumanAttentionPage",
         "frontend/lib/human-gates.ts:decodeCursorPage:gates": "HumanGatePage",
         "frontend/lib/human-gates.ts:decodeHumanAttentionPage:item": "HumanAttentionItem",
-        "frontend/lib/human-gates.ts:decodeLease": "LeasePublic",
-        "frontend/lib/human-gates.ts:decodeReadiness": "Readiness",
-        "frontend/lib/human-gates.ts:decodeRevision": "HumanGateContextRevision",
-        "frontend/lib/human-gates.ts:decodeWorkSummary": "WorkSummary",
-        "frontend/lib/mutation-responses.ts:decodeCheckpoint": "CheckpointRead",
         "frontend/lib/mutation-responses.ts:decodeMutationResult:complete_work": "WorkCompletionRead",
-        "frontend/lib/mutation-responses.ts:decodeRelationship": "RelationshipEdgeRead",
+        "frontend/lib/readiness-codecs.ts:decodeLease": "LeasePublic",
+        "frontend/lib/readiness-codecs.ts:decodeReadiness": "Readiness",
+        "frontend/lib/relationship-codecs.ts:decodeRelationship": "RelationshipEdgeRead",
+        "frontend/lib/revision-codecs.ts:decodeHumanGateRevision": "HumanGateContextRevision",
+        "frontend/lib/revision-codecs.ts:decodeMergeReviewRevision": "MergeReviewRevision",
+        "frontend/lib/work-codecs.ts:decodeWorkIdentityPointer": "WorkIdentityPointer",
+        "frontend/lib/work-codecs.ts:decodeWorkSummary": "WorkSummary",
         "frontend/lib/work-events.ts:EVENT_FIELDS": "WorkEventRead",
         "frontend/lib/work-events.ts:decodeWorkEventPage": "WorkEventPage"
       }

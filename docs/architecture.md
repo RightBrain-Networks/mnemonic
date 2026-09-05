@@ -1,6 +1,6 @@
 # Mnemonic architecture through Phase 11
 
-This architecture describes application/API/MCP `0.6.0`, Claude plugin `0.10.0`,
+This architecture describes application/API/MCP `0.7.0`, Claude plugin `0.10.0`,
 and Alembic head `0019_structured_completion_evidence`. The longer-term
 direction and later-phase boundaries are in [`roadmap.md`](roadmap.md).
 
