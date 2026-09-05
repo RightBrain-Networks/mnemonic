@@ -101,6 +101,17 @@ def completion_evidence_unavailable() -> ApplicationError:
 
 
 
+def completion_episode_unsealed() -> ApplicationError:
+    return ApplicationError(
+        409,
+        "completion_episode_unsealed",
+        (
+            "This work was completed without a sealed completion episode and cannot leave "
+            "done. Its history is retained; record any continuation as new work."
+        ),
+    )
+
+
 def gate_not_found() -> ApplicationError:
     return not_found("gate_not_found", "Human gate not found in this work item.")
 

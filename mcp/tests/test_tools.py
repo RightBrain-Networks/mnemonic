@@ -3435,6 +3435,7 @@ async def test_delete_passes_version_and_conflict_is_not_retried(settings):
         ("work_blocked", "unresolved blocker"),
         ("work_gated", "unresolved human input"),
         ("invalid_status_transition", "lifecycle transition is not allowed"),
+        ("completion_episode_unsealed", "cannot be reopened"),
         ("lease_expired", "claim has expired"),
         ("lease_token_mismatch", "does not match"),
         ("claim_request_expired", "new claim_request_id"),

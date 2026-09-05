@@ -1040,6 +1040,17 @@ test("finite error envelopes distinguish rejection, safety conflict, and unknown
     }
   });
   assert.equal(workNotPending.type, "rejected");
+  // Work completed before the event timeline owns no sealed episode, so the
+  // dashboard has to render the refusal rather than drop an unknown code.
+  const unsealed = await classify(spec, 409, {
+    detail: {
+      code: "completion_episode_unsealed",
+      message: "This work was completed without a sealed completion episode.",
+      context: {}
+    }
+  });
+  assert.equal(unsealed.type, "rejected");
+  assert.equal(unsealed.error.code, "completion_episode_unsealed");
 });
 
 test("operation IDs are never accepted back in a success or error body", async () => {

@@ -38,8 +38,12 @@ Lease conflicts use stable codes: `work_not_pending`, `lease_held`,
 lease token or claim request ID.
 
 Lifecycle and graph conflicts use stable codes including
-`invalid_status_transition`, `work_blocked`, `relationship_context_invalid`,
-`relationship_cycle`, `parent_already_set`, and `active_relationships`.
+`invalid_status_transition`, `work_blocked`, `completion_episode_unsealed`,
+`relationship_context_invalid`, `relationship_cycle`, `parent_already_set`, and
+`active_relationships`. `completion_episode_unsealed` refuses to move work out
+of `done` when its completion owns no sealed episode -- work completed before
+`0010_work_events` is the case that reaches it. The condition is permanent, so
+the refusal is a 409 rather than a retryable fault.
 Self-edges and a missing discovery context fail strict request validation with
 422. Missing or cross-project endpoints/checkpoints use sanitized 404 codes.
 Error context never includes checkpoint content or non-allowlisted upstream values.

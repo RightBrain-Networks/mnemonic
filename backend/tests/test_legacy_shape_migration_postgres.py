@@ -28,6 +28,7 @@ from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import Connection, Engine, create_engine, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from mnemonic_api.config import Settings
@@ -387,9 +388,9 @@ def test_legacy_completion_cannot_leave_done(
 ):
     """Documented in architecture.md and operations.md, so pin it here.
 
-    The refusal is permanent rather than a transient database fault, and it
-    comes from the episode-departure guard, not from anything about the
-    generation number.
+    The condition is permanently true, so the caller gets a 409 naming it rather
+    than a 503 that invites a retry. It comes from the episode-departure guard,
+    not from anything about the generation number.
     """
 
     shape = _shape("done-before-the-event-timeline")
@@ -415,8 +416,8 @@ def test_legacy_completion_cannot_leave_done(
             reopen = client.patch(
                 base, json={"status": "pending", "expected_version": work["version"]}
             )
-            assert reopen.status_code == 503, reopen.text
-            assert reopen.json()["detail"]["code"] == "database_unavailable"
+            assert reopen.status_code == 409, reopen.text
+            assert reopen.json()["detail"]["code"] == "completion_episode_unsealed"
             # The refusal must not have moved the row.
             assert client.get(base).json()["work_item"]["status"] == "done"
             assert _generation(engine, identifiers["work_id"]) == 0
@@ -499,3 +500,46 @@ def test_completion_generation_advances_only_on_reopen(
     # witness carries the generation its reopen produced.
     assert checkpoint_generations == [0, 1]
     assert reopen_generations == [1]
+
+
+def test_database_still_refuses_an_unsealed_departure_behind_the_409(
+    legacy_engine: Engine,
+    disposable_schema: str,
+):
+    """The 409 is a courtesy; the trigger is the authority.
+
+    Writing the transition directly, as the service would with its pre-check
+    removed, must still fail closed rather than move the row.
+    """
+
+    shape = _shape("done-before-the-event-timeline")
+    identifiers = _stage_shape(legacy_engine, disposable_schema, shape)
+    _upgrade_to_head(legacy_engine, disposable_schema)
+
+    engine = _engine_for_schema(legacy_engine, disposable_schema)
+    try:
+        with engine.connect() as connection:
+            transaction = connection.begin()
+            try:
+                with pytest.raises(DBAPIError) as failure:
+                    connection.execute(
+                        text(
+                            "UPDATE work_items SET status = 'pending', "
+                            "version = version + 1, updated_at = pg_catalog.now() "
+                            "WHERE id = CAST(:id AS uuid)"
+                        ),
+                        {"id": identifiers["work_id"]},
+                    )
+                assert "sealed completion episode" in str(failure.value.orig)
+            finally:
+                transaction.rollback()
+        with engine.connect() as connection:
+            assert (
+                connection.scalar(
+                    text("SELECT status FROM work_items WHERE id = CAST(:id AS uuid)"),
+                    {"id": identifiers["work_id"]},
+                )
+                == "done"
+            )
+    finally:
+        engine.dispose()

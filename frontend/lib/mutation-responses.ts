@@ -132,6 +132,7 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "version_conflict",
     "invalid_status_transition",
     "work_not_pending",
+    "completion_episode_unsealed",
     "work_blocked",
     "lease_held",
     "lease_expired",

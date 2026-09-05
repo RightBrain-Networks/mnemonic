@@ -469,9 +469,11 @@ tied `done` to a completion event. Such an item owns no completion episode. It
 migrates unchanged at `completion_generation` 0 -- the same value work that was
 never completed carries -- and every episode rule skips it. It also cannot
 leave `done`: `completion_episode_departure_guard` allows a departure only from
-a sealed episode, so a reopen raises `done work may depart only from a sealed
-completion episode`, which the API surfaces as a 503 `database_unavailable`.
-They stay exactly as history recorded them. A `done` item that does own a
+a sealed episode. The API asks that guard's own predicate before it writes and
+answers 409 `completion_episode_unsealed`, so a permanent condition never
+reaches the caller as a retryable database fault; the trigger remains the
+authority and still fails closed behind it. They stay exactly as history
+recorded them. A `done` item that does own a
 completion checkpoint is a different matter: a missing or duplicated event for
 it is a real integrity fault and still fails closed.
 
