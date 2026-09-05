@@ -433,15 +433,14 @@ test("activity pagination, refresh recovery, replay, and proxy denials stay cohe
 
     await activity.getByRole("button", { name: "Older" }).click();
     await expect(activity.locator(".event-pagination")).toContainText("21–27 of 27");
-    let failNextEventPage = false;
+    let failEventPages = false;
     await page.route(
       "**/api/mnemonic/projects/" + state.projectId + "/work-items/" + workId + "/events?*",
       async (route) => {
-        if (!failNextEventPage) {
+        if (!failEventPages) {
           await route.continue();
           return;
         }
-        failNextEventPage = false;
         await route.fulfill({
           status: 502,
           contentType: "application/json",
@@ -451,7 +450,7 @@ test("activity pagination, refresh recovery, replay, and proxy denials stay cohe
     );
     const failedRefreshBody = "Retry recovery progress " + suffix;
     await appendProgress(client, state.projectId, workId, failedRefreshBody, suffix + "-retry");
-    failNextEventPage = true;
+    failEventPages = true;
     sendSync!(JSON.stringify({
       type: "invalidate",
       revision: 2,
@@ -460,7 +459,8 @@ test("activity pagination, refresh recovery, replay, and proxy denials stay cohe
     await expect(activity.getByRole("alert")).toContainText("Forced event refresh failure.");
     await expect(activity.locator(".event-list")).toHaveCount(0);
     await expect(activity.locator(".event-pagination")).toHaveCount(0);
-    await activity.getByRole("button", { name: "Try again" }).click();
+    failEventPages = false;
+    // The accepted activity cursor may already be current: this failed view must retry itself.
     await expect(activity.locator("article.work-event").filter({ hasText: failedRefreshBody })).toHaveCount(1);
     await expect(activity.locator(".event-pagination")).toContainText("1–20 of 28");
   } finally {

@@ -336,13 +336,9 @@ test("a hung response body becomes retryable with the exact frozen request", {
   const registry = new MutationIntentRegistry(async (url, init) => {
     calls.push({ url: String(url), method: init.method, body: init.body, signal: init.signal });
     if (calls.length > 1) return deletionResponse();
-    return {
-      status: 200,
-      text: () => {
-        bodyReadStarted = true;
-        return new Promise(() => {});
-      }
-    };
+    return new Response(new ReadableStream({
+      pull() { bodyReadStarted = true; return new Promise(() => {}); }
+    }), { status: 200 });
   }, () => operation, 10);
 
   await assert.rejects(

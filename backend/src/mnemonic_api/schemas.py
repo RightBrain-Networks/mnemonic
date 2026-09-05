@@ -29,6 +29,15 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema, WithJsonSchema
 
+from mnemonic_api.phase12_schemas import (
+    AuthoringPrompt,
+    HumanDismissalRead,
+    JobCompletionReportFollowUpRead,
+    JobCompletionReportInput,
+    JobCompletionReportRead,
+    PositiveRevision,
+)
+
 AFFECTED_PATH_MAX_COUNT = 64
 AFFECTED_PATH_MAX_BYTES = 512
 AFFECTED_PATHS_MAX_BYTES = 16384
@@ -1298,12 +1307,22 @@ class ProjectRead(Timestamps):
 
 
 class ProjectSettingsPatch(APIModel):
-    recall_pointer_template: RecallPointerTemplate | None
+    expected_revision: PositiveRevision
+    recall_pointer_template: RecallPointerTemplate | None = None
+    job_completion_report_prompt: AuthoringPrompt | None = None
+
+    @model_validator(mode="after")
+    def editable_setting(self) -> Self:
+        if not self.model_fields_set - {"expected_revision"}:
+            raise ValueError("Provide at least one editable setting")
+        return self
 
 
 class ProjectSettingsRead(APIModel):
     project_id: UUID
     recall_pointer_template: str | None
+    job_completion_report_prompt: AuthoringPrompt
+    revision: PositiveRevision
 
 
 class CheckpointPayload(APIModel):
@@ -1415,6 +1434,19 @@ class WorkItemPatch(APIModel):
         default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
     )
 
+    job_completion_report: JobCompletionReportInput | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description=("Required for fresh Done/Won’t do/Promoted closeouts. Sparse omission is "
+                     "accepted only to recover an already-completed historical receipt."),
+    )
+
+    @field_validator("job_completion_report", mode="before")
+    @classmethod
+    def report_cannot_be_null(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("job_completion_report cannot be null")
+        return value
+
     @model_validator(mode="after")
     def editable_fields(self) -> Self:
         fields = self.model_fields_set - {
@@ -1422,6 +1454,7 @@ class WorkItemPatch(APIModel):
             "lease_token",
             "actor",
             "client_operation_id",
+            "job_completion_report",
         }
         if not fields:
             raise ValueError("Provide at least one editable field besides expected_version")
@@ -1457,6 +1490,19 @@ class WorkCompletionRequest(APIModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+
+    job_completion_report: JobCompletionReportInput | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description=("Required for fresh Done/Won’t do/Promoted closeouts. Sparse omission is "
+                     "accepted only to recover an already-completed historical receipt."),
+    )
+
+    @field_validator("job_completion_report", mode="before")
+    @classmethod
+    def report_cannot_be_null(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("job_completion_report cannot be null")
+        return value
 
     @field_validator("completion_evidence", mode="before")
     @classmethod
@@ -1746,6 +1792,25 @@ class WorkItemRead(Timestamps):
     priority: int
     initial_checkpoint_id: UUID
     version: int
+
+
+class WorkUpdateRead(WorkItemRead):
+    job_completion_report: JobCompletionReportRead | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def report_coherence(self) -> Self:
+        if "job_completion_report" in self.model_fields_set and self.job_completion_report is None:
+            raise ValueError("job_completion_report cannot be null")
+        report = self.job_completion_report
+        if report is not None and (
+            report.project_id != self.project_id or report.work_item_id != self.id
+            or report.closeout_work_version != self.version or report.closeout_status != self.status
+            or report.work_title_at_closeout != self.title
+        ):
+            raise ValueError("Closeout report does not match this work update")
+        return self
 
 
 class CheckpointRead(APIModel):
@@ -3288,6 +3353,9 @@ class ReleaseResult(APIModel):
 
 
 class WorkCompletionRead(APIModel):
+    job_completion_report: JobCompletionReportRead | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     work_item: WorkItemRead
     checkpoint: CompletionCheckpointRead
     completion_evidence: CompletionEvidencePayloadRead | SkipJsonSchema[None] = Field(
@@ -3297,6 +3365,7 @@ class WorkCompletionRead(APIModel):
 
     @model_validator(mode="after")
     def completion_is_coherent(self) -> Self:
+        self._check_report_coherence()
         if "completion_evidence" in self.model_fields_set and self.completion_evidence is None:
             raise ValueError("completion_evidence cannot be null")
         if (
@@ -3312,6 +3381,74 @@ class WorkCompletionRead(APIModel):
                 checkpoint_id=self.checkpoint.id,
                 created_at=self.checkpoint.created_at,
             )
+        return self
+
+    def _check_report_coherence(self) -> None:
+        report = self.job_completion_report
+        if "job_completion_report" in self.model_fields_set and report is None:
+            raise ValueError("job_completion_report cannot be null")
+        if report is not None and (
+            report.work_item_id != self.work_item.id
+            or report.project_id != self.work_item.project_id
+            or report.closeout_status != "done"
+            or report.completion_checkpoint_id != self.checkpoint.id
+            or report.closeout_work_version != self.work_item.version
+            or report.work_title_at_closeout != self.work_item.title
+        ):
+            raise ValueError("Report does not match this completion")
+
+
+class JobCompletionReportDismissalRequest(APIModel):
+    actor: MutationActor
+
+
+class JobCompletionReportDismissalCreate(JobCompletionReportDismissalRequest):
+    client_operation_id: UUID = Field(repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION)
+
+
+class JobCompletionReportDismissalResult(APIModel):
+    project_id: UUID
+    report_id: UUID
+    dismissed: StrictBool
+    human_dismissal: HumanDismissalRead
+
+
+class JobCompletionReportFollowUpRequest(APIModel):
+    actor: MutationActor
+    title: Title
+    summary: Summary
+    priority: Annotated[StrictInt, Field(ge=0, le=100)] = 0
+    initial_checkpoint: InitialCheckpointCreate
+
+    @model_validator(mode="after")
+    def actor_matches_checkpoint(self) -> Self:
+        checkpoint = self.initial_checkpoint
+        if (self.actor.actor_client, self.actor.actor_session_id, self.actor.actor_model) != (
+            checkpoint.source_client, checkpoint.source_session_id, checkpoint.source_model
+        ):
+            raise ValueError("Follow-up actor must match initial checkpoint attribution")
+        return self
+
+
+class JobCompletionReportFollowUpCreate(JobCompletionReportFollowUpRequest):
+    client_operation_id: UUID = Field(repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION)
+
+
+class JobCompletionReportFollowUpResult(APIModel):
+    work_item: WorkItemRead
+    initial_checkpoint: CheckpointRead
+    follow_up: JobCompletionReportFollowUpRead
+
+    @model_validator(mode="after")
+    def created_work_matches(self) -> Self:
+        if (
+            self.work_item.status != "pending" or self.work_item.version != 1
+            or self.work_item.id != self.initial_checkpoint.work_item_id
+            or self.work_item.initial_checkpoint_id != self.initial_checkpoint.id
+            or self.follow_up.follow_up_work_item_id != self.work_item.id
+            or self.follow_up.project_id != self.work_item.project_id
+        ):
+            raise ValueError("Follow-up creation is incoherent")
         return self
 
 

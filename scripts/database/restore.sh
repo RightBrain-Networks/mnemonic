@@ -55,7 +55,24 @@ trap 'rm -f "$restore_sql"' EXIT HUP INT TERM
 # PUBLIC function execution, and its exact owner-only privilege state is part of
 # the audited catalog contract.
 pg_restore --no-owner --exit-on-error --file=- "$file" >> "$restore_sql"
+# A restored archive can rewind acknowledged journal positions. Rotate stream
+# incarnations inside the same transaction, before any restored state can be
+# served. Pre-0020 archives receive new incarnations when migration creates them.
+cat >> "$restore_sql" <<'SQL'
+DO $mnemonic_restore_activity$
+BEGIN
+    IF pg_catalog.to_regclass('public.project_activity_heads') IS NOT NULL THEN
+        IF pg_catalog.to_regprocedure(
+            'public.mnemonic_rotate_activity_streams_after_restore()'
+        ) IS NULL THEN
+            RAISE EXCEPTION 'Restored activity requires its stream rotation function';
+        END IF;
+        PERFORM public.mnemonic_rotate_activity_streams_after_restore();
+    END IF;
+END
+$mnemonic_restore_activity$;
+SQL
 psql --no-psqlrc --single-transaction --set=ON_ERROR_STOP=1 --file="$restore_sql"
 rm -f "$restore_sql"
 trap - EXIT HUP INT TERM
-echo 'Database restored. Start the application to apply any newer migrations.'
+echo 'Database restored; restored activity streams rotated. Apply newer migrations and audit before reopening traffic.'

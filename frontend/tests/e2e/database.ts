@@ -1,3 +1,4 @@
+import type { E2EState } from "./global.setup";
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
@@ -92,7 +93,7 @@ function parseMigrationProof(serialized: string): Phase11MigrationProof {
   }
   const row = value as MigrationProofRow;
   if (
-    row.revision !== "0019_structured_completion_evidence"
+    row.revision !== "0021_job_completion_reports"
     || typeof row.completion_event_id !== "string"
     || !/^[1-9][0-9]*$/.test(row.completion_event_id)
     || typeof row.completion_generation !== "string"
@@ -145,110 +146,26 @@ export async function expireLease(projectId: string, workItemId: string): Promis
   }
 }
 
-export async function migrateEvidenceFreeCompletionThrough0018(
-  projectId: string,
-  workItemId: string,
-  checkpointId: string,
-  clientOperationId: string
-): Promise<Phase11MigrationProof> {
-  requireUuid(projectId, "project ID");
-  requireUuid(workItemId, "work-item ID");
-  requireUuid(checkpointId, "completion checkpoint ID");
-  requireUuid(clientOperationId, "client operation ID");
-  const composeProject = requireDisposableE2EComposeProject(
-    "Phase 11 migration acceptance"
-  );
-
-  const serializedPreflight = await queryDatabase(
-    composeProject,
-    `
-      SELECT pg_catalog.json_build_object(
-        'revision', (SELECT version_num FROM alembic_version),
-        'evidence_rows',
-          (SELECT pg_catalog.count(*)::integer FROM verification_results)
-          + (SELECT pg_catalog.count(*)::integer FROM artifact_references),
-        'evidence_receipts', (
-          SELECT pg_catalog.count(*)::integer
-          FROM client_operations
-          WHERE response_body ? 'completion_evidence'
-        )
-      )::text;
-    `
-  );
-  let preflight: unknown;
+export async function seedMigratedHistoricalCompletion(): Promise<E2EState> {
+  const composeProject = requireDisposableE2EComposeProject("Offline historical migration acceptance");
+  const count = await queryDatabase(composeProject, "SELECT count(*) FROM projects;");
+  if (count !== "0") throw new Error("Historical E2E setup requires a fresh disposable database with no projects.");
+  await runCompose(composeProject, ["stop", "web", "api"]);
   try {
-    preflight = JSON.parse(serializedPreflight);
-  } catch (error) {
-    throw new Error("The Phase 11 migration preflight was not valid JSON.", { cause: error });
-  }
-  if (
-    !preflight
-    || typeof preflight !== "object"
-    || Array.isArray(preflight)
-    || (preflight as Record<string, unknown>).revision
-      !== "0019_structured_completion_evidence"
-    || (preflight as Record<string, unknown>).evidence_rows !== 0
-    || (preflight as Record<string, unknown>).evidence_receipts !== 0
-  ) {
-    throw new Error(
-      `Phase 11 migration acceptance requires an unused evidence schema: ${serializedPreflight}`
-    );
-  }
-
-  let migrationError: unknown;
-  let proof: Phase11MigrationProof | undefined;
-  try {
-    await runCompose(composeProject, ["stop", "web", "api"]);
-    await runCompose(composeProject, [
-      "run",
-      "--rm",
-      "--no-deps",
-      "api",
-      "alembic",
-      "downgrade",
-      "0018_repository_freshness"
+    await runCompose(composeProject, ["run", "--rm", "--no-deps", "api", "alembic", "downgrade", "0018_repository_freshness"]);
+    const output = await runCompose(composeProject, [
+      "run", "--rm", "--no-deps", "--volume",
+      `${resolve(process.cwd(), "../scripts/seed_e2e_historical_completion.py")}:/tmp/seed_e2e_historical_completion.py:ro`,
+      "api", "python", "/tmp/seed_e2e_historical_completion.py", "--run-id", crypto.randomUUID()
     ]);
-
-    const serializedPhase10State = await queryDatabase(
-      composeProject,
-      `
-        SELECT pg_catalog.json_build_object(
-          'revision', (SELECT version_num FROM alembic_version),
-          'verification_results', pg_catalog.to_regclass('verification_results'),
-          'artifact_references', pg_catalog.to_regclass('artifact_references')
-        )::text;
-      `
-    );
-    let phase10State: unknown;
-    try {
-      phase10State = JSON.parse(serializedPhase10State);
-    } catch (error) {
-      throw new Error("The 0018 migration proof was not valid JSON.", { cause: error });
-    }
-    if (
-      !phase10State
-      || typeof phase10State !== "object"
-      || Array.isArray(phase10State)
-      || (phase10State as Record<string, unknown>).revision
-        !== "0018_repository_freshness"
-      || (phase10State as Record<string, unknown>).verification_results !== null
-      || (phase10State as Record<string, unknown>).artifact_references !== null
-    ) {
-      throw new Error(
-        `The disposable database did not reach the exact 0018 boundary: ${serializedPhase10State}`
-      );
-    }
-
-    await runCompose(composeProject, [
-      "run",
-      "--rm",
-      "--no-deps",
-      "api",
-      "alembic",
-      "upgrade",
-      "head"
-    ]);
-
+    const seed = JSON.parse(output.trim()) as E2EState;
+    const projectId = seed.projectId;
+    const workItemId = seed.historicalCompletion.workItemId;
+    const checkpointId = seed.historicalCompletion.completionCheckpointId;
+    const clientOperationId = seed.historicalCompletion.clientOperationId;
+    requireUuid(projectId, "project ID"); requireUuid(workItemId, "work-item ID");
+    requireUuid(checkpointId, "completion checkpoint ID"); requireUuid(clientOperationId, "client operation ID");
+    await runCompose(composeProject, ["run", "--rm", "--no-deps", "api", "alembic", "upgrade", "head"]);
     const serializedProof = await queryDatabase(
       composeProject,
       `
@@ -293,23 +210,9 @@ export async function migrateEvidenceFreeCompletionThrough0018(
           AND work.id = '${workItemId}'::uuid;
       `
     );
-    proof = parseMigrationProof(serializedProof);
-  } catch (error) {
-    migrationError = error;
+    const proof = parseMigrationProof(serializedProof);
+    return { ...seed, historicalCompletion: { ...seed.historicalCompletion, ...proof } };
   } finally {
-    try {
-      await runCompose(composeProject, ["up", "-d", "--wait", "api", "web"]);
-    } catch (restartError) {
-      if (migrationError) {
-        throw new AggregateError(
-          [migrationError, restartError],
-          "Phase 11 migration bootstrap failed and the E2E application services did not restart."
-        );
-      }
-      throw restartError;
-    }
+    await runCompose(composeProject, ["up", "-d", "--wait", "api", "web"]);
   }
-  if (migrationError) throw migrationError;
-  if (!proof) throw new Error("Phase 11 migration acceptance did not produce a proof.");
-  return proof;
 }

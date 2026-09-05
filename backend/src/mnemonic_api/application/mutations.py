@@ -1,4 +1,4 @@
-"""One lifecycle for the thirteen receipt-protected REST mutations.
+"""One lifecycle for the fifteen receipt-protected REST mutations.
 
 Every route that accepts an optional ``client_operation_id`` runs the same
 sequence, so it is written once here and each route contributes only its
@@ -46,6 +46,7 @@ from mnemonic_api.services.client_operations import (
     prepare_client_operation,
     reserve_client_operation,
 )
+from mnemonic_api.services.project_mutations import project_mutation
 
 type Outcome = Literal["executed", "replayed", "no_op", "conflict", "unavailable"]
 
@@ -106,16 +107,20 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
         database.commit()
         _record_success(trace, operation)
         return operation.response
-    result = execute(cast(Payload, operation.domain_payload))
-    completed = complete_client_operation(
-        database,
-        operation,
-        result,
-        mutation_applied=_mutation_applied(operation.spec, result),
+    database.info["client_operation_keyed"] = (
+        getattr(payload, "client_operation_id", None) is not None
     )
-    if before_commit is not None:
-        before_commit()
-    database.commit()
+    with project_mutation(database, project_id, protected=True):
+        result = execute(cast(Payload, operation.domain_payload))
+        completed = complete_client_operation(
+            database,
+            operation,
+            result,
+            mutation_applied=_mutation_applied(operation.spec, result),
+        )
+        if before_commit is not None:
+            before_commit()
+        database.commit()
     _record_success(trace, completed)
     return completed.response
 

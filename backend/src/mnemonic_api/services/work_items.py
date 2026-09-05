@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from mnemonic_api.database import rows_affected
 from mnemonic_api.errors import ApplicationError, conflict, not_found
 from mnemonic_api.models import Checkpoint, Project, WorkItem, WorkRelationship
+from mnemonic_api.phase12_schemas import JobCompletionReportInput
 from mnemonic_api.schemas import (
     CheckpointCreate,
     CompletionCheckpointCreate,
@@ -102,6 +103,8 @@ def create_work_records(
     database: Session, project_id: UUID, payload: WorkItemCreate
 ) -> tuple[WorkItem, Checkpoint, list[WorkRelationship]]:
     """Stage required work, context, and requested graph facts in one transaction."""
+    if payload.status != "pending":
+        raise ApplicationError(422, "initial_status_must_be_pending", "New work must be pending.")
     if payload.initial_relationships:
         lock_project_graph(database, project_id)
         locked_work_items = lock_endpoint_work_items(
@@ -251,7 +254,8 @@ def update_work_record(database: Session, work_item: WorkItem, payload: WorkItem
     require_version(work_item, payload.expected_version)
     changes = payload.model_dump(
         exclude_unset=True,
-        exclude={"expected_version", "lease_token", "actor", "client_operation_id"},
+        exclude={"expected_version", "lease_token", "actor", "client_operation_id",
+                 "job_completion_report"},
     )
     before = {
         field: getattr(work_item, field) for field in ("title", "summary", "priority", "status")
@@ -276,6 +280,20 @@ def update_work_record(database: Session, work_item: WorkItem, payload: WorkItem
         requested_status in {"done", "wont-do", "promoted"}
         and requested_status != work_item.status
     )
+    from mnemonic_api.services.job_completion_reports import (
+        prepare_closeout_report,
+        seal_closeout_report,
+    )
+
+    report_id = uuid4() if terminal_transition else None
+    report_settings = None
+    if terminal_transition:
+        report_settings = prepare_closeout_report(
+            database, work_item, payload.job_completion_report
+        )
+    elif payload.job_completion_report is not None:
+        raise ApplicationError(422, "job_completion_report_not_applicable",
+                               "Reports belong only to an actual closeout transition.")
     if terminal_transition:
         require_no_unresolved_gates(database, work_item.id)
         consume_lease_for_terminal_mutation(database, work_item.id, payload.lease_token)
@@ -287,7 +305,7 @@ def update_work_record(database: Session, work_item: WorkItem, payload: WorkItem
     work_item.version += 1
     work_item.updated_at = mutation_time
     database.flush()
-    stage_work_changed(
+    event = stage_work_changed(
         database,
         work_item,
         before=before,
@@ -295,7 +313,13 @@ def update_work_record(database: Session, work_item: WorkItem, payload: WorkItem
         actor=payload.actor,
         created_at=mutation_time,
     )
+    event.job_completion_report_id = report_id
     database.flush()
+    if report_id is not None:
+        assert payload.job_completion_report is not None and report_settings is not None
+        assert payload.actor is not None
+        seal_closeout_report(database, work_item, event, report_id, payload.job_completion_report,
+                             report_settings, payload.actor)
 
 
 def defer_work_record(
@@ -340,6 +364,7 @@ def complete_work_record(
     payload: CompletionCheckpointCreate,
     lease_token: str | None = None,
     completion_evidence: CompletionEvidenceInput | None = None,
+    job_completion_report: JobCompletionReportInput | None = None,
 ) -> Checkpoint:
     from mnemonic_api.services.completion_evidence import (
         hydrate_completion_evidence,
@@ -351,6 +376,13 @@ def complete_work_record(
     if work_item.status != "pending":
         raise conflict("work_not_pending", "Only pending work can be completed.")
     require_version(work_item, expected_version)
+    from mnemonic_api.services.job_completion_reports import (
+        prepare_closeout_report,
+        seal_closeout_report,
+    )
+
+    report_settings = prepare_closeout_report(database, work_item, job_completion_report)
+    report_id = uuid4()
     require_unblocked(database, work_item.id)
     require_no_unresolved_gates(database, work_item.id)
     consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
@@ -368,13 +400,18 @@ def complete_work_record(
     work_item.version += 1
     work_item.updated_at = mutation_time
     database.flush()
-    stage_work_completed(
+    event = stage_work_completed(
         database,
         work_item,
         checkpoint,
         from_status="pending",
     )
+    event.job_completion_report_id = report_id
     database.flush()
+    assert job_completion_report is not None
+    seal_closeout_report(database, work_item, event, report_id, job_completion_report,
+        report_settings, source_actor(payload.source_client, payload.source_session_id,
+                                      payload.source_model), checkpoint.id)
     sealed_evidence = hydrate_completion_evidence(database, checkpoint)
     if sealed_evidence != inserted_evidence:
         from mnemonic_api.errors import completion_evidence_unavailable

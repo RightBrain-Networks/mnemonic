@@ -35,10 +35,12 @@ from mnemonic_api.schemas import (
     WorkItemDetailRead,
     WorkItemPatch,
     WorkItemRead,
+    WorkUpdateRead,
 )
 from mnemonic_api.services.completion_evidence import hydrate_completion_evidence
 from mnemonic_api.services.duplicates import work_item_detail
 from mnemonic_api.services.hierarchy import hierarchy_page
+from mnemonic_api.services.job_completion_reports import closeout_report
 from mnemonic_api.services.readiness import ready_work_page
 from mnemonic_api.services.relationships import relationship_edge
 from mnemonic_api.services.work_context import assemble_work_context, checkpoint_read
@@ -97,7 +99,7 @@ def get_work(project_id: UUID, work_item_id: UUID, database: Database) -> WorkIt
     return work_item_detail(database, project_id, work_item)
 
 
-@router.patch("/projects/{project_id}/work-items/{work_item_id}", response_model=WorkItemRead)
+@router.patch("/projects/{project_id}/work-items/{work_item_id}", response_model=WorkUpdateRead)
 def update_work(
     project_id: UUID,
     work_item_id: UUID,
@@ -105,11 +107,15 @@ def update_work(
     request: Request,
     database: Database,
 ) -> JSONResponse:
-    def execute(domain_payload: WorkItemPatch) -> WorkItemRead:
+    def execute(domain_payload: WorkItemPatch) -> WorkUpdateRead:
         work_item = require_work_item(database, project_id, work_item_id, lock=True)
         update_work_record(database, work_item, domain_payload)
         database.refresh(work_item)
-        return WorkItemRead.model_validate(work_item)
+        data = WorkItemRead.model_validate(work_item).model_dump()
+        report = closeout_report(database, work_item)
+        if report is not None:
+            data["job_completion_report"] = report
+        return WorkUpdateRead(**data)
 
     return run_registered_mutation(
         "update_work",
@@ -169,10 +175,14 @@ def complete_work(
             domain_payload.checkpoint,
             domain_payload.lease_token,
             domain_payload.completion_evidence,
+            domain_payload.job_completion_report,
         )
         database.refresh(work_item)
         database.refresh(checkpoint)
         response_fields = {}
+        report = closeout_report(database, work_item)
+        if report is not None:
+            response_fields["job_completion_report"] = report
         evidence = hydrate_completion_evidence(database, checkpoint)
         if evidence is not None:
             response_fields["completion_evidence"] = evidence

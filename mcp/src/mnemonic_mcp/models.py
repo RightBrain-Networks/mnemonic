@@ -35,6 +35,7 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
+from .phase12_models import JobCompletionReportRead, reject_null_report
 from .response_validation import validate_page_bounds, validate_page_items
 
 Status = Literal["pending", "deferred", "done", "wont-do", "promoted"]
@@ -1790,6 +1791,29 @@ class WorkItemRead(CanonicalResponse):
     updated_at: datetime
 
 
+class WorkUpdateRead(WorkItemRead):
+    """Flattened update result; old receipts keep the report field absent."""
+
+    job_completion_report: Annotated[
+        JobCompletionReportRead | SkipJsonSchema[None],
+        Field(json_schema_extra=_omit_default_from_json_schema),
+    ] = Field(default=None, exclude_if=lambda value: value is None)
+
+    _non_null_report = field_validator("job_completion_report", mode="before")(reject_null_report)
+
+    @model_validator(mode="after")
+    def enforce_report_ownership(self) -> Self:
+        report = self.job_completion_report
+        if report is not None and (
+            report.project_id != self.project_id or report.work_item_id != self.id
+            or report.closeout_status != self.status or self.status not in {"wont-do", "promoted"}
+            or report.closeout_work_version != self.version
+            or report.work_title_at_closeout != self.title
+        ):
+            raise ValueError("Update report disagrees with its terminal work identity.")
+        return self
+
+
 class WorkIdentityPointer(CanonicalResponse):
     id: UUID
     title: str
@@ -3157,6 +3181,30 @@ class WorkChanges(BaseModel):
 class WorkCompletion(CanonicalResponse):
     work_item: WorkItemRead
     checkpoint: CheckpointRead
+    job_completion_report: Annotated[
+        JobCompletionReportRead | SkipJsonSchema[None],
+        Field(json_schema_extra=_omit_default_from_json_schema),
+    ] = Field(default=None, exclude_if=lambda value: value is None)
+
+    _non_null_report = field_validator("job_completion_report", mode="before")(reject_null_report)
+
+    @model_validator(mode="after")
+    def enforce_report_ownership(self) -> Self:
+        report = self.job_completion_report
+        if report is not None and (
+            report.project_id != self.work_item.project_id
+            or report.work_item_id != self.work_item.id
+            or report.closeout_status != "done" or self.work_item.status != "done"
+            or report.closeout_work_version != self.work_item.version
+            or report.work_title_at_closeout != self.work_item.title
+            or report.completion_checkpoint_id != self.checkpoint.id
+            or report.actor_client != self.checkpoint.source_client
+            or report.actor_session_id != self.checkpoint.source_session_id
+            or report.actor_model != self.checkpoint.source_model
+        ):
+            raise ValueError("Completion report disagrees with its exact completion episode.")
+        return self
+
     completion_evidence: Annotated[
         CompletionEvidencePayloadRead | SkipJsonSchema[None],
         Field(json_schema_extra=_omit_default_from_json_schema),

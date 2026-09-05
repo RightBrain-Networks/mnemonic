@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.models import Checkpoint, WorkItem
 
+from .report_fixtures import reported
+
 pytestmark = pytest.mark.postgres
 
 
@@ -236,7 +238,7 @@ def test_affected_paths_round_trip_only_through_full_checkpoint_surfaces(
     completion_body["affected_paths"] = completion_paths
     completion_response = api.post(
         f"{endpoint}/complete",
-        json={"expected_version": 1, "checkpoint": completion_body},
+        json=reported({"expected_version": 1, "checkpoint": completion_body}),
     )
     assert completion_response.status_code == 200, completion_response.text
     completion = completion_response.json()["checkpoint"]
@@ -395,19 +397,19 @@ def test_append_history_current_context_and_terminal_clarification(
 
     completed = api.post(
         f"{endpoint}/complete",
-        json={
+        json=reported({
             "expected_version": 1,
             "checkpoint": checkpoint_payload(
                 "Implemented and verified the work.", "session-complete"
             )
             | {"kind": "context"},
-        },
+        }),
     )
     # Completion payloads deliberately reject caller-selected kinds.
     assert completed.status_code == 422
     completed = api.post(
         f"{endpoint}/complete",
-        json={
+        json=reported({
             "expected_version": 1,
             "checkpoint": {
                 key: value
@@ -416,7 +418,7 @@ def test_append_history_current_context_and_terminal_clarification(
                 ).items()
                 if key != "kind"
             },
-        },
+        }),
     )
     assert completed.status_code == 200, completed.text
     assert completed.json()["work_item"]["status"] == "done"
@@ -440,19 +442,21 @@ def test_lifecycle_versions_typed_errors_and_soft_delete(api, project, work_payl
     endpoint = item_path(project, work_item)
     assert api.patch(endpoint, json={"expected_version": 1, "status": "done"}).status_code == 422
 
-    retired = api.patch(endpoint, json={"expected_version": 1, "status": "wont-do"})
+    retired = api.patch(
+        endpoint, json=reported({"expected_version": 1, "status": "wont-do"}, retirement=True)
+    )
     assert retired.status_code == 200
     assert retired.json()["version"] == 2
     completed = api.post(
         f"{endpoint}/complete",
-        json={
+        json=reported({
             "expected_version": 2,
             "checkpoint": {
                 "prompt": "Cannot complete retired work.",
                 "source_client": "claude-code",
                 "source_session_id": "retired-completion",
             },
-        },
+        }),
     )
     assert completed.status_code == 409
     assert completed.json()["detail"]["code"] == "work_not_pending"
@@ -470,30 +474,35 @@ def test_lifecycle_versions_typed_errors_and_soft_delete(api, project, work_payl
 
     completed = api.post(
         f"{endpoint}/complete",
-        json={
+        json=reported({
             "expected_version": 3,
             "checkpoint": {
                 "prompt": "Completed after reopening.",
                 "source_client": "claude-code",
                 "source_session_id": "completion",
             },
-        },
+        }),
     )
     assert completed.status_code == 200
     repeated = api.post(
         f"{endpoint}/complete",
-        json={
+        json=reported({
             "expected_version": 4,
             "checkpoint": {
                 "prompt": "Duplicate completion.",
                 "source_client": "claude-code",
                 "source_session_id": "completion",
             },
-        },
+        }),
     )
     assert repeated.status_code == 409
     assert repeated.json()["detail"]["code"] == "work_not_pending"
-    assert api.patch(endpoint, json={"expected_version": 4, "status": "wont-do"}).status_code == 409
+    assert (
+        api.patch(
+            endpoint, json=reported({"expected_version": 4, "status": "wont-do"}, retirement=True)
+        ).status_code
+        == 409
+    )
 
     reopened = api.patch(endpoint, json={"expected_version": 4, "status": "pending"})
     assert reopened.status_code == 200
@@ -561,14 +570,14 @@ def test_deferral_is_dedicated_nonterminal_and_excluded_from_agent_claims(
     assert claim.json()["detail"]["code"] == "work_not_pending"
     completion = api.post(
         f"{endpoint}/complete",
-        json={
+        json=reported({
             "expected_version": 2,
             "checkpoint": {
                 "prompt": "Deferred work cannot be completed.",
                 "source_client": "claude-code",
                 "source_session_id": "deferred-completion",
             },
-        },
+        }),
     )
     assert completion.status_code == 409
     assert completion.json()["detail"]["code"] == "work_not_pending"

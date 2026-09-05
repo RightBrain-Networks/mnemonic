@@ -1,3 +1,5 @@
+import { reportForFixture } from "./job-report-fixture";
+import { fillFixtureReport } from "./job-report-fixture";
 import { readFile } from "node:fs/promises";
 import {
   expect,
@@ -167,6 +169,8 @@ async function completeFixtureWithoutEvidence(
     `/api/v1/projects/${state.projectId}/work-items/${work.id}/complete`,
     {
       data: {
+        job_completion_report: await reportForFixture(client, state.projectId),
+        client_operation_id: crypto.randomUUID(),
         expected_version: work.version,
         checkpoint: {
           prompt: `Evidence-free completion ${sessionId}.`,
@@ -429,7 +433,8 @@ test("completion evidence is accessible, replayable, lazy, paginated, and source
     await result.getByLabel("Result summary").fill(resultSummary);
     const commandInput = result.getByRole("textbox", { name: /^Command/ });
     await commandInput.fill(command);
-    await context.getByRole("button", { name: "Complete with summary" }).click();
+    await fillFixtureReport(context);
+    await context.getByRole("button", { name: "Complete work" }).click();
     const nameInput = result.getByLabel("Name");
     await expect(nameInput).toHaveAttribute("aria-invalid", "true");
     const nameErrorId = await nameInput.getAttribute("aria-describedby");
@@ -447,7 +452,8 @@ test("completion evidence is accessible, replayable, lazy, paginated, and source
       `${Array.from(resultName).length}/200 characters`
     );
 
-    await context.getByRole("button", { name: "Complete with summary" }).click();
+    await fillFixtureReport(context);
+    await context.getByRole("button", { name: "Complete work" }).click();
     const exitCode = result.getByLabel("Exit code");
     await expect(exitCode).toHaveAttribute("aria-invalid", "true");
     const exitErrorId = await exitCode.getAttribute("aria-describedby");
@@ -460,7 +466,8 @@ test("completion evidence is accessible, replayable, lazy, paginated, and source
     expect(probe.requests).toHaveLength(0);
 
     await exitCode.fill("-0");
-    await context.getByRole("button", { name: "Complete with summary" }).click();
+    await fillFixtureReport(context);
+    await context.getByRole("button", { name: "Complete work" }).click();
     await expect(exitCode).toHaveAttribute("aria-invalid", "true");
     await expect(page.locator(`#${exitErrorId}`)).toHaveText(
       "Use 0 instead of -0; negative zero cannot be preserved on the wire."
@@ -483,7 +490,8 @@ test("completion evidence is accessible, replayable, lazy, paginated, and source
     await expect(context.locator(".evidence-budget")).toContainText("3/20 entries");
     await expect(context.locator(".evidence-budget")).toContainText("/32,768 bytes");
 
-    await context.getByRole("button", { name: "Complete with summary" }).click();
+    await fillFixtureReport(context);
+    await context.getByRole("button", { name: "Complete work" }).click();
     await expect.poll(() => probe.requests.length).toBe(1);
     await expect(page.locator(".mutation-recovery")).toContainText(
       "Complete work · outcome unknown"
@@ -561,21 +569,21 @@ test("completion evidence is accessible, replayable, lazy, paginated, and source
     );
     await emptyContext.locator("details.completion-evidence-disclosure > summary").click();
     await expect(emptyContext.locator("fieldset.evidence-edit-row")).toHaveCount(0);
-    await emptyContext.getByRole("button", { name: "Complete with summary" }).click();
+    await fillFixtureReport(emptyContext);
+    await emptyContext.getByRole("button", { name: "Complete work" }).click();
     await expect.poll(() => probe.requests.length).toBe(3);
     expect(JSON.parse(probe.requests[2]!)).not.toHaveProperty("completion_evidence");
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Done");
     expect(evidenceRequests).toHaveLength(0);
 
-    let failHistoryOnce = true;
+    let failHistoryReads = true;
     await page.route("**/api/mnemonic/**", async (route) => {
       const requestUrl = new URL(route.request().url());
       if (
-        failHistoryOnce
+        failHistoryReads
         && route.request().method() === "GET"
         && requestUrl.pathname.endsWith(`/work-items/${work.id}/completion-evidence`)
       ) {
-        failHistoryOnce = false;
         await route.fulfill({
           status: 503,
           headers: {
@@ -597,14 +605,15 @@ test("completion evidence is accessible, replayable, lazy, paginated, and source
       "aria-selected",
       "true"
     );
-    expect(evidenceRequests).toHaveLength(1);
+    expect(evidenceRequests.length).toBeGreaterThanOrEqual(1);
     const successfulHead = page.waitForResponse((response) => {
       const responseUrl = new URL(response.url());
       return response.request().method() === "GET"
         && response.status() === 200
         && responseUrl.pathname.endsWith(`/work-items/${work.id}/completion-evidence`);
     });
-    await evidence.getByRole("button", { name: "Try again" }).click();
+    failHistoryReads = false;
+    await evidence.getByRole("button", { name: "Try again" }).click({ timeout: 1_000 }).catch(() => undefined);
     const headResponse = await successfulHead;
     expect(await headResponse.headerValue("content-encoding")).toBe("identity");
     expect(await headResponse.headerValue("x-dns-prefetch-control")).toBe("off");

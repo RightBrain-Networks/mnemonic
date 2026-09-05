@@ -9,6 +9,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
+from .report_fixtures import reported
+
 pytestmark = pytest.mark.postgres
 
 
@@ -389,13 +391,14 @@ def test_blocker_readiness_claim_completion_resolution_and_active_overlap(
     assert denied_claim.status_code == 409
     assert denied_claim.json()["detail"]["code"] == "work_blocked"
     denied_completion = api.post(
-        f"{target_endpoint}/complete", json=completion_payload()
+        f"{target_endpoint}/complete", json=reported(completion_payload())
     )
     assert denied_completion.status_code == 409
     assert denied_completion.json()["detail"]["code"] == "work_blocked"
 
     retired = api.patch(
-        work_path(project, blocker), json={"expected_version": 1, "status": "wont-do"}
+        work_path(project, blocker),
+        json=reported({"expected_version": 1, "status": "wont-do"}, retirement=True),
     )
     assert retired.status_code == 200
     assert api.get(f"{target_endpoint}/context").json()["readiness"]["is_blocked"] is True
@@ -404,7 +407,8 @@ def test_blocker_readiness_claim_completion_resolution_and_active_overlap(
     )
     assert reopened_from_retired.status_code == 200
     promoted = api.patch(
-        work_path(project, blocker), json={"expected_version": 3, "status": "promoted"}
+        work_path(project, blocker),
+        json=reported({"expected_version": 3, "status": "promoted"}, retirement=True),
     )
     assert promoted.status_code == 200
     assert api.get(f"{target_endpoint}/context").json()["readiness"]["is_blocked"] is True
@@ -413,7 +417,7 @@ def test_blocker_readiness_claim_completion_resolution_and_active_overlap(
     )
     assert reopened.status_code == 200
     completed_blocker = api.post(
-        f"{work_path(project, blocker)}/complete", json=completion_payload(version=5)
+        f"{work_path(project, blocker)}/complete", json=reported(completion_payload(version=5))
     )
     assert completed_blocker.status_code == 200
     assert api.get(f"{target_endpoint}/context").json()["readiness"]["is_ready"] is True
@@ -519,9 +523,13 @@ def test_atomic_linked_creation_hierarchy_filters_and_search_ancestry(
     root_created = create_work(api, project, work_payload, "Terminal root")
     root = root_created["work_item"]
     root_context_id = root_created["initial_checkpoint"]["id"]
-    assert api.patch(
-        work_path(project, root), json={"expected_version": 1, "status": "promoted"}
-    ).status_code == 200
+    assert (
+        api.patch(
+            work_path(project, root),
+            json=reported({"expected_version": 1, "status": "promoted"}, retirement=True),
+        ).status_code
+        == 200
+    )
 
     child_created = create_work(
         api,

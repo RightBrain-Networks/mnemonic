@@ -24,6 +24,8 @@ from mnemonic_api.schemas import DuplicateSuggestionRequest
 from mnemonic_api.semantic import BGE_QUERY_PREFIX
 from mnemonic_api.services import duplicate_suggestions as suggestion_service
 
+from .report_fixtures import reported
+
 pytestmark = pytest.mark.postgres
 
 
@@ -151,6 +153,7 @@ def bulk_save(
 ):
     target_id = None
     done_ids = []
+    other_states = []
     with postgres_engine.begin() as connection:
         connection.execute(text("SET CONSTRAINTS ALL DEFERRED"))
         connection.execute(
@@ -189,15 +192,7 @@ def bulk_save(
                                 || pg_catalog.lpad(bulk.ordinal::text, 6, '0')
                        END,
                        'Bulk suggestion candidate ' || bulk.ordinal::text,
-                       CASE
-                           WHEN CAST(:status_cycle AS boolean) THEN
-                               (ARRAY[
-                                   'pending', 'deferred', 'pending', 'wont-do', 'promoted'
-                               ])[
-                                   ((bulk.ordinal - 1) % 5) + 1
-                               ]
-                           ELSE 'pending'
-                       END,
+                       'pending',
                        0,
                        bulk.checkpoint_id,
                        1,
@@ -254,6 +249,11 @@ def bulk_save(
                 {"target_ordinal": target_ordinal},
             )
         if status_cycle:
+            other_states = list(connection.execute(text(
+                "SELECT work_item_id, (ARRAY['pending','deferred','done','wont-do','promoted'])"
+                "[((ordinal - 1) % 5) + 1] AS status FROM advisory_bulk_ids "
+                "WHERE ((ordinal - 1) % 5) + 1 IN (2,4,5) ORDER BY ordinal"
+            )))
             done_ids = list(
                 connection.scalars(
                     text(
@@ -267,19 +267,29 @@ def bulk_save(
                 )
             )
         connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+    for work_item_id, target_status in other_states:
+        assert api is not None
+        endpoint = f"/api/v1/projects/{project_id}/work-items/{work_item_id}"
+        if target_status == "deferred":
+            response = api.post(endpoint + "/defer", json={"expected_version": 1})
+        else:
+            response = api.patch(endpoint, json=reported(
+                {"expected_version": 1, "status": target_status}, retirement=True,
+            ))
+        assert response.status_code == 200, response.text
     if done_ids:
         assert api is not None
         for work_item_id in done_ids:
             completed = api.post(
                 f"/api/v1/projects/{project_id}/work-items/{work_item_id}/complete",
-                json={
+                json=reported({
                     "expected_version": 1,
                     "checkpoint": {
                         "prompt": "Bulk fixture completion episode.",
                         "source_client": "duplicate-suggestion-tests",
                         "source_session_id": "bulk-fixture",
                     },
-                },
+                }),
             )
             assert completed.status_code == 200, completed.text
     assert target_id is None or isinstance(target_id, UUID)
@@ -1300,5 +1310,5 @@ def test_title_key_function_and_partial_expression_index_are_frozen(postgres_eng
                 """
             )
         ).one()
-        assert head == "0019_structured_completion_evidence"
+        assert head == "0021_job_completion_reports"
         assert capacity == 64

@@ -38,7 +38,7 @@ def test_stack_checker_requires_full_truthful_repository_declaration():
         checker.validated_repository_scope(baseline.lower(), ["bad path"])
 
 
-def test_stack_checker_pins_phase_11_rest_contract():
+def test_stack_checker_pins_phase_12_rest_contract():
     checker = stack_checker()
     document = json.loads((REPOSITORY_ROOT / "docs" / "openapi.json").read_text())
 
@@ -77,7 +77,7 @@ def test_stack_checker_pins_phase_11_rest_contract():
     ]["post"]["responses"]["201"]["content"]["application/json"]["schema"] = {
         "$ref": "#/components/schemas/CheckpointPointer"
     }
-    with pytest.raises(RuntimeError, match="expected Phase 11 response"):
+    with pytest.raises(RuntimeError, match="expected Phase 12 response"):
         checker.validate_rest_contract(wrong_response)
     leaked_pointer = copy.deepcopy(document)
     leaked_pointer["components"]["schemas"]["CheckpointPointer"]["properties"][
@@ -105,7 +105,7 @@ def test_stack_checker_pins_phase_11_rest_contract():
         checker.validate_rest_contract(leaked_generation)
 
 
-async def test_stack_checker_pins_phase_11_mcp_contract():
+async def test_stack_checker_pins_phase_12_mcp_contract():
     checker = stack_checker()
     server = build_server(Settings(api_key="x" * 32))
     tools = await server.list_tools()
@@ -170,3 +170,49 @@ async def test_stack_checker_pins_phase_11_mcp_contract():
     del complete_work.inputSchema["properties"]["completion_evidence"]
     with pytest.raises(RuntimeError, match="completion evidence"):
         checker.validate_mcp_catalog(SimpleNamespace(tools=missing_evidence))
+
+
+async def test_stack_checker_rejects_report_catalog_bypasses():
+    checker = stack_checker()
+    tools = await build_server(Settings(api_key="x" * 32)).list_tools()
+    for name in ("complete_work", "update_work"):
+        missing = copy.deepcopy(tools)
+        closeout = next(tool for tool in missing if tool.name == name)
+        del closeout.inputSchema["properties"]["job_completion_report"]
+        with pytest.raises(RuntimeError, match="sparse report"):
+            checker.validate_mcp_catalog(SimpleNamespace(tools=missing))
+    missing_read = [tool for tool in tools if tool.name != "get_activity"]
+    with pytest.raises(RuntimeError, match="Unexpected MCP tool catalog"):
+        checker.validate_mcp_catalog(SimpleNamespace(tools=missing_read))
+
+
+async def test_synthetic_report_fetches_current_revision_before_intent(monkeypatch):
+    checker = stack_checker()
+    calls = []
+
+    async def read_tool(session, name, arguments):
+        calls.append((name, arguments))
+        return {
+            "project_id": "exact-project", "job_completion_report_prompt": "Use clear prose.",
+            "revision": "17",
+        }
+
+    monkeypatch.setattr(checker, "tool", read_tool)
+    report = await checker.synthetic_job_report(None, "exact-project", "The disposable test ended.")
+    assert calls == [("get_project_settings", {"project_id": "exact-project"})]
+    assert report == {
+        "summary": "The disposable test ended.", "fyi_items": [], "prompt_revision": "17",
+    }
+    assert "client_operation_id" not in report
+
+
+def test_stack_checker_validates_exact_report_prose_outcome_and_ownership(work_item):
+    from test_phase12 import REPORT_INPUT, report
+
+    checker = stack_checker()
+    response = {**work_item, "status": "promoted", "version": 4, "job_completion_report": report("promoted")}
+    checker.require_job_report(response, REPORT_INPUT, work_item["id"], "promoted")
+    mismatched = copy.deepcopy(response)
+    mismatched["job_completion_report"]["summary"] = "A different assertion."
+    with pytest.raises(RuntimeError, match="authored text"):
+        checker.require_job_report(mismatched, REPORT_INPUT, work_item["id"], "promoted")

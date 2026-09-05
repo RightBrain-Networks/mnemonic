@@ -21,6 +21,8 @@ export interface Project {
 export interface ProjectSettings {
   project_id: string;
   recall_pointer_template: string | null;
+  job_completion_report_prompt: string;
+  revision: string;
 }
 
 export interface Page<T> {
@@ -540,6 +542,7 @@ export interface CompletionResult {
   work_item: WorkItem;
   checkpoint: Checkpoint;
   completion_evidence?: CompletionEvidencePayloadRead;
+  job_completion_report?: JobCompletionReport;
 }
 
 export type VerificationType = "command" | "observation";
@@ -651,6 +654,7 @@ export interface WorkCompletionInput extends ClientOperationInput {
   expected_version: number;
   checkpoint: CheckpointInput;
   completion_evidence?: CompletionEvidenceInput;
+  job_completion_report?: JobCompletionReportInput;
 }
 
 export interface WorkDeletionInput extends ClientOperationInput {
@@ -667,11 +671,146 @@ export interface RelationshipRemovalInput extends ClientOperationInput {
   actor: MutationActor;
 }
 
+export interface WorkUpdate extends WorkItem {
+  job_completion_report?: JobCompletionReport;
+}
+
 export interface WorkPatch extends ClientOperationInput {
+  job_completion_report?: JobCompletionReportInput;
   expected_version: number;
   title?: string;
   summary?: string;
   priority?: number;
   status?: MutableWorkStatus;
   actor?: MutationActor;
+}
+
+
+export type CloseoutStatus = "done" | "wont-do" | "promoted";
+export interface JobCompletionReportInput {
+  summary: string;
+  fyi_items: string[];
+  prompt_revision: string;
+}
+export interface JobCompletionReport extends JobCompletionReportInput {
+  id: string;
+  project_id: string;
+  work_item_id: string;
+  closeout_event_id: string;
+  closeout_work_version: number;
+  closeout_status: CloseoutStatus;
+  completion_checkpoint_id: string | null;
+  work_title_at_closeout: string;
+  actor_client: string;
+  actor_session_id: string;
+  actor_model: string | null;
+  prompt_sha256: string;
+  created_at: string;
+}
+export interface JobReportSourceState {
+  work_item_id: string;
+  status: WorkStatus;
+  canonical_work_item_id: string;
+  deleted: boolean;
+}
+export interface JobReportDismissal {
+  id: string;
+  actor_client: string;
+  actor_session_id: string;
+  actor_model: string | null;
+  created_at: string;
+}
+export interface JobReportEnvelope {
+  created_sequence: string;
+  report: JobCompletionReport;
+  human_dismissed: boolean;
+  human_dismissal: JobReportDismissal | null;
+  source_work_state: JobReportSourceState;
+  follow_up_count: string;
+}
+export interface JobReportDetail extends JobReportEnvelope {
+  report: JobCompletionReport & { authoring_prompt: string };
+}
+export interface JobReportPage {
+  project_id: string;
+  stream_id: string;
+  dismissal: "undismissed" | "dismissed" | "all";
+  work_item_id: string | null;
+  as_of_sequence: string;
+  items: JobReportEnvelope[];
+  has_more: boolean;
+  next_cursor: string | null;
+}
+export interface JobReportCount {
+  project_id: string;
+  undismissed_count: string;
+  as_of_sequence: string;
+}
+export interface JobReportDismissalResult {
+  project_id: string;
+  report_id: string;
+  human_dismissal: JobReportDismissal;
+  dismissed: boolean;
+}
+export interface JobReportFollowUp {
+  id: string;
+  project_id: string;
+  report_id: string;
+  created_sequence: string;
+  source_work_item_id: string;
+  follow_up_work_item_id: string;
+  actor_client: string;
+  actor_session_id: string;
+  actor_model: string | null;
+  created_at: string;
+}
+export interface JobReportFollowUpResult {
+  work_item: WorkItem;
+  initial_checkpoint: Checkpoint;
+  follow_up: JobReportFollowUp;
+}
+export interface JobReportFollowUpInput extends ClientOperationInput {
+  title: string;
+  summary: string;
+  priority: number;
+  initial_checkpoint: CheckpointInput;
+  actor: MutationActor;
+}
+export interface JobReportProvenancePage {
+  project_id: string;
+  report_id?: string;
+  work_item_id?: string;
+  direction?: "origin" | "created";
+  items: JobReportFollowUp[];
+  as_of_sequence: string;
+  has_more: boolean;
+  next_cursor: string | null;
+}
+export type ProjectActivityKind =
+  | "work_event" | "job_completion_report_created" | "job_completion_report_dismissed"
+  | "job_completion_report_follow_up_created" | "project_created" | "project_updated"
+  | "project_settings_updated" | "lease_renewed";
+export interface ProjectActivityItem {
+  sequence: string;
+  kind: ProjectActivityKind;
+  work_event_id: string | null;
+  event_type: WorkEventType | null;
+  work_item_id: string | null;
+  job_completion_report_id: string | null;
+  human_dismissal_id: string | null;
+  follow_up_id: string | null;
+  settings_revision: string | null;
+  lease_generation_id: string | null;
+  recorded_at: string;
+  origin: "live" | "history_import";
+}
+export interface ProjectActivityPage {
+  project_id: string;
+  stream_id: string;
+  items: ProjectActivityItem[];
+  next_cursor: string;
+  has_more: boolean;
+  through_sequence: string;
+  historical_through_sequence: string;
+  historical_coverage: "recorded_work_events_only";
 }

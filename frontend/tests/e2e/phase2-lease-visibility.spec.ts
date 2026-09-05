@@ -83,7 +83,7 @@ test("an active lease is visible without exposing its capability and refreshes a
   await expect(lease).toContainText("Lease acquired");
   await expect(lease).toContainText("Renewed");
   await expect(lease).toContainText("Expires");
-  const completion = pane.getByRole("button", { name: "Complete with summary" });
+  const completion = pane.getByRole("button", { name: "Complete work" });
   await expect(completion).toBeDisabled();
   await expect(completion).toHaveAttribute(
     "title",

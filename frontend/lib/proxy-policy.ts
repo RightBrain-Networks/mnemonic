@@ -8,6 +8,7 @@ import {
   validBoundedMetadata,
   validUuid
 } from "./wire-guards.ts";
+import { decimalString, validJobReportInput, validReportPrompt } from "./job-completion-reports.ts";
 import { validAffectedPaths } from "./affected-paths.ts";
 import {
   COMPLETION_EXPECTED_VERSION_MAX,
@@ -88,6 +89,8 @@ export const DEFINITIVE_PROXY_ERRORS = {
     status: 400,
     detail: "The human-gate resolution body does not match the dashboard allowlist."
   },
+  invalidReportDismissal: { status: 400, detail: "The report-dismissal body does not match the dashboard allowlist." },
+  invalidReportFollowUp: { status: 400, detail: "The report follow-up body does not match the dashboard allowlist." },
   invalidWorkMerge: {
     status: 400,
     detail: "The work-merge body does not match the dashboard allowlist."
@@ -133,6 +136,13 @@ export function isDefinitiveProxyError(status: number, detail: string): boolean 
 
 const UUID = UUID_PATTERN.source.slice(1, -1);
 const PROJECT = new RegExp(`^projects/${UUID}$`);
+const PROJECT_ACTIVITY = new RegExp(`^projects/${UUID}/activity$`);
+const JOB_REPORTS = new RegExp(`^projects/${UUID}/job-completion-reports$`);
+const JOB_REPORT_COUNT = new RegExp(`^projects/${UUID}/job-completion-reports/count$`);
+const JOB_REPORT = new RegExp(`^projects/${UUID}/job-completion-reports/${UUID}$`);
+const JOB_REPORT_DISMISS = new RegExp(`^projects/${UUID}/job-completion-reports/${UUID}/dismiss$`);
+const JOB_REPORT_FOLLOW_UPS = new RegExp(`^projects/${UUID}/job-completion-reports/${UUID}/follow-ups$`);
+const WORK_REPORT_FOLLOW_UPS = new RegExp(`^projects/${UUID}/work-items/${UUID}/report-follow-ups$`);
 const PROJECT_SETTINGS = new RegExp(`^projects/${UUID}/settings$`);
 const WORK_ITEMS = new RegExp(`^projects/${UUID}/work-items$`);
 const DUPLICATE_SUGGESTIONS = new RegExp(`^projects/${UUID}/duplicate-suggestions$`);
@@ -195,6 +205,16 @@ const FORBIDDEN_CONTROL_TRANSPORT_NAMES = new Set([
 export function allowedQueryKeys(path: string, method: string): string[] | null {
   // Lease receipts and arguments carry browser-forbidden capabilities.
   if (LEASE_CAPABILITY.test(path)) return null;
+  if (PROJECT_ACTIVITY.test(path) && method === "GET") return ["after", "start", "limit"];
+  if (JOB_REPORT_COUNT.test(path) && method === "GET") return [];
+  if (JOB_REPORTS.test(path) && method === "GET") return ["dismissal", "work_item_id", "limit", "cursor"];
+  if (JOB_REPORT.test(path) && method === "GET") return [];
+  if (JOB_REPORT_DISMISS.test(path) && method === "POST") return [];
+  if (JOB_REPORT_FOLLOW_UPS.test(path)) {
+    if (method === "GET") return ["limit", "cursor"];
+    if (method === "POST") return [];
+  }
+  if (WORK_REPORT_FOLLOW_UPS.test(path) && method === "GET") return ["direction", "limit", "cursor"];
   if (path === "projects") {
     if (method === "GET") return ["limit", "offset"];
     if (method === "POST") return [];
@@ -361,7 +381,9 @@ function coveredMutation(path: string, method: string): boolean {
     || method === "POST" && WORK_DELETE.test(path)
     || method === "POST" && WORK_MERGE.test(path)
     || method === "DELETE" && RELATIONSHIP.test(path)
-    || method === "POST" && GATE_RESOLVE.test(path);
+    || method === "POST" && GATE_RESOLVE.test(path)
+    || method === "POST" && JOB_REPORT_DISMISS.test(path)
+    || method === "POST" && JOB_REPORT_FOLLOW_UPS.test(path);
 }
 
 function validClientOperation(body: Record<string, unknown>): boolean {
@@ -480,11 +502,12 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   if (WORK_ITEM.test(path) && method === "PATCH") {
     if (
       !allowedKeys(body, [
-        "expected_version", "title", "summary", "priority", "status", "actor",
+        "expected_version", "title", "summary", "priority", "status", "actor", "job_completion_report",
         CLIENT_OPERATION_FIELD
       ])
       || !finiteInteger(body.expected_version, 1)
       || !validActor(body.actor)
+      || (Object.hasOwn(body, "job_completion_report") && !validJobReportInput(body.job_completion_report))
       || !["title", "summary", "priority", "status"].some((key) => key in body)
       || (body.title !== undefined && !boundedText(body.title, 200))
       || (body.summary !== undefined && !boundedText(body.summary, 1_000))
@@ -502,10 +525,13 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   }
   if (PROJECT_SETTINGS.test(path) && method === "PATCH") {
     if (
-      !allowedKeys(body, ["recall_pointer_template"])
-      || Object.keys(body).length !== 1
-      || (body.recall_pointer_template !== null
+      !allowedKeys(body, ["expected_revision", "recall_pointer_template", "job_completion_report_prompt"])
+      || !decimalString(body.expected_revision, true)
+      || !(Object.hasOwn(body, "recall_pointer_template") || Object.hasOwn(body, "job_completion_report_prompt"))
+      || (Object.hasOwn(body, "recall_pointer_template") && body.recall_pointer_template !== null
         && !boundedText(body.recall_pointer_template, 100000))
+      || (Object.hasOwn(body, "job_completion_report_prompt") && body.job_completion_report_prompt !== null
+        && !validReportPrompt(body.job_completion_report_prompt))
     ) return DEFINITIVE_PROXY_ERRORS.invalidProjectSettingsPatch.detail;
   }
   if (WORK_DELETE.test(path) && method === "POST") {
@@ -547,11 +573,12 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   if (WORK_COMPLETE.test(path) && method === "POST") {
     if (
       !allowedKeys(body, [
-        "expected_version", "checkpoint", "completion_evidence", CLIENT_OPERATION_FIELD
+        "expected_version", "checkpoint", "completion_evidence", "job_completion_report", CLIENT_OPERATION_FIELD
       ])
       || !finiteInteger(body.expected_version, 1, COMPLETION_EXPECTED_VERSION_MAX)
       || !validCheckpointPayload(body.checkpoint, false)
       || completionEvidenceIssues(body.completion_evidence).length > 0
+      || (Object.hasOwn(body, "job_completion_report") && !validJobReportInput(body.job_completion_report))
     ) return DEFINITIVE_PROXY_ERRORS.invalidWorkCompletion.detail;
   }
   if (GATE_RESOLVE.test(path) && method === "POST") {
@@ -566,6 +593,21 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !(body.resolved_by_model === undefined || body.resolved_by_model === null)
       || !validHumanGateRevision(body.reviewed_context_revision)
     ) return DEFINITIVE_PROXY_ERRORS.invalidHumanGateResolution.detail;
+  }
+  if (JOB_REPORT_DISMISS.test(path) && method === "POST") {
+    if (!allowedKeys(body, ["actor", CLIENT_OPERATION_FIELD]) || !validActor(body.actor)
+      || jsonObject(body.actor)?.actor_client !== "dashboard") return DEFINITIVE_PROXY_ERRORS.invalidReportDismissal.detail;
+  }
+  if (JOB_REPORT_FOLLOW_UPS.test(path) && method === "POST") {
+    const actor = jsonObject(body.actor);
+    const checkpoint = jsonObject(body.initial_checkpoint);
+    if (!allowedKeys(body, ["title", "summary", "priority", "initial_checkpoint", "actor", CLIENT_OPERATION_FIELD])
+      || !boundedText(body.title, 200) || !boundedText(body.summary, 1_000)
+      || !(body.priority === undefined || finiteInteger(body.priority, 0, 100))
+      || !validActor(body.actor) || actor?.actor_client !== "dashboard"
+      || !validCheckpointPayload(body.initial_checkpoint, false)
+      || checkpoint?.source_client !== actor?.actor_client || checkpoint?.source_session_id !== actor?.actor_session_id
+      || (checkpoint?.source_model ?? null) !== (actor?.actor_model ?? null)) return DEFINITIVE_PROXY_ERRORS.invalidReportFollowUp.detail;
   }
   if (WORK_MERGE.test(path) && method === "POST") {
     if (
@@ -701,4 +743,16 @@ export function trustedRequest(headers: Headers, method: string, origins: Set<st
   } catch {
     return false;
   }
+}
+
+
+export function phase12ResponseLimitBytes(path: string, method = "GET"): number | null {
+  if (PROJECT_ACTIVITY.test(path)) return 524_288;
+  if (JOB_REPORT_COUNT.test(path)) return 1_024;
+  if (JOB_REPORTS.test(path)) return 2_097_152;
+  if (JOB_REPORT.test(path) || WORK_REPORT_FOLLOW_UPS.test(path)) return 262_144;
+  if (JOB_REPORT_FOLLOW_UPS.test(path)) return method === "GET" ? 262_144 : 1_048_576;
+  if (JOB_REPORT_DISMISS.test(path)) return 16_384;
+  if (PROJECT_SETTINGS.test(path)) return 1_048_576;
+  return null;
 }

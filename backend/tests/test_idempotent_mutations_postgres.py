@@ -11,6 +11,8 @@ from sqlalchemy import event, text
 
 import mnemonic_api.application.middleware as middleware_module
 
+from .report_fixtures import reported
+
 
 def work_collection(project: dict) -> str:
     return f"/api/v1/projects/{project['id']}/work-items"
@@ -61,6 +63,7 @@ def work_event_count(engine, work_item_id: str) -> int:
 
 def domain_lock_barrier(relation_name: str):
     barrier = Barrier(3)
+    observed_connections = set()
 
     def pause_before_domain_lock(
         connection,
@@ -70,10 +73,13 @@ def domain_lock_barrier(relation_name: str):
         context,
         executemany,
     ) -> None:
-        del connection, cursor, parameters, context, executemany
+        del cursor, parameters, context, executemany
         normalized = " ".join(statement.lower().split())
-        if f"from {relation_name}" in normalized and "for update" in normalized:
-            barrier.wait(timeout=5)
+        # Every fresh mutation now serializes at the project before a work/graph lock.
+        if "from projects" in normalized and "for update" in normalized:
+            if id(connection) not in observed_connections:
+                observed_connections.add(id(connection))
+                barrier.wait(timeout=5)
 
     return barrier, pause_before_domain_lock
 
@@ -410,7 +416,7 @@ def test_affected_paths_are_sparse_but_bind_checkpoint_receipts(
 
     completion_key = str(uuid4())
     completion_paths = ["backend/tests/**"]
-    completion_body = {
+    completion_body = reported({
         "expected_version": 1,
         "checkpoint": {
             **checkpoint_fields,
@@ -418,22 +424,22 @@ def test_affected_paths_are_sparse_but_bind_checkpoint_receipts(
             "affected_paths": completion_paths,
         },
         "client_operation_id": completion_key,
-    }
+    })
     completed = assert_exact_replay(
         api, "POST", f"{endpoint}/complete", completion_body, 200
     )
     assert completed["checkpoint"]["affected_paths"] == completion_paths
-    assert api.post(f"{endpoint}/complete", json=completion_body).json() == completed
+    assert api.post(f"{endpoint}/complete", json=reported(completion_body)).json() == completed
 
     completion_conflict = api.post(
         f"{endpoint}/complete",
-        json={
+        json=reported({
             **completion_body,
             "checkpoint": {
                 **completion_body["checkpoint"],
                 "affected_paths": ["backend/tests/integration/**"],
             },
-        },
+        }),
     )
     assert completion_conflict.status_code == 409
     assert completion_conflict.json()["detail"]["code"] == "client_operation_conflict"
@@ -879,7 +885,7 @@ def test_terminal_and_release_replay_before_disappeared_or_replaced_state(
         "checkpoint": {**checkpoint_fields, "prompt": "Completion evidence."},
         "client_operation_id": str(uuid4()),
     }
-    completed = api.post(f"{completion_path}/complete", json=completion_body)
+    completed = api.post(f"{completion_path}/complete", json=reported(completion_body))
     assert completed.status_code == 200, completed.text
     reopened = api.patch(
         completion_path,
@@ -891,7 +897,7 @@ def test_terminal_and_release_replay_before_disappeared_or_replaced_state(
         },
     )
     assert reopened.status_code == 200, reopened.text
-    completion_replay = api.post(f"{completion_path}/complete", json=completion_body)
+    completion_replay = api.post(f"{completion_path}/complete", json=reported(completion_body))
     assert completion_replay.status_code == 200
     assert completion_replay.json() == completed.json()
     assert api.get(completion_path).json()["work_item"]["status"] == "pending"

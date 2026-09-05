@@ -13,6 +13,8 @@ import mnemonic_api.application.routes.leases as leases_module
 from mnemonic_api.models import WorkLease
 from mnemonic_api.services.leases import claim_receipt
 
+from .report_fixtures import reported
+
 pytestmark = pytest.mark.postgres
 
 
@@ -21,9 +23,18 @@ def collection(project):
 
 
 def create_work(api, project, payload, **changes):
+    status = changes.pop("status", "pending")
     response = api.post(collection(project), json={**payload, **changes})
     assert response.status_code == 201, response.text
-    return response.json()
+    created = response.json()
+    if status != "pending":
+        closed = api.patch(item_path(project, created["work_item"]), json=reported(
+            {"expected_version": 1, "status": status}, retirement=True,
+        ))
+        assert closed.status_code == 200, closed.text
+        created["work_item"] = {key: value for key, value in closed.json().items()
+                                if key != "job_completion_report"}
+    return created
 
 
 def item_path(project, work_item):
@@ -329,18 +340,18 @@ def test_terminal_mutations_require_active_token_and_consume_the_lease(
         f"{completed_endpoint}/claim", json=claim_payload("complete-request")
     ).json()
     missing = api.post(
-        f"{completed_endpoint}/complete", json=completion_payload(expected_version=1)
+        f"{completed_endpoint}/complete", json=reported(completion_payload(expected_version=1))
     )
     assert missing.status_code == 409
     assert missing.json()["detail"]["code"] == "lease_token_mismatch"
     wrong = api.post(
         f"{completed_endpoint}/complete",
-        json=completion_payload(expected_version=1, lease_token="wrong-token"),
+        json=reported(completion_payload(expected_version=1, lease_token="wrong-token")),
     )
     assert wrong.status_code == 409
     completed = api.post(
         f"{completed_endpoint}/complete",
-        json=completion_payload(1, completed_claim["lease_token"]),
+        json=reported(completion_payload(1, completed_claim["lease_token"])),
     )
     assert completed.status_code == 200, completed.text
     assert completed.json()["work_item"]["status"] == "done"
@@ -361,26 +372,30 @@ def test_terminal_mutations_require_active_token_and_consume_the_lease(
     retired_claim = api.post(
         f"{retired_endpoint}/claim", json=claim_payload("retire-request")
     ).json()
-    assert api.patch(
-        retired_endpoint, json={"expected_version": 1, "status": "wont-do"}
-    ).status_code == 409
+    assert (
+        api.patch(
+            retired_endpoint,
+            json=reported({"expected_version": 1, "status": "wont-do"}, retirement=True),
+        ).status_code
+        == 409
+    )
     wrong_retirement = api.patch(
         retired_endpoint,
-        json={
+        json=reported({
             "expected_version": 1,
             "status": "wont-do",
             "lease_token": "wrong-retirement-token",
-        },
+        }, retirement=True),
     )
     assert wrong_retirement.status_code == 409
     assert wrong_retirement.json()["detail"]["code"] == "lease_token_mismatch"
     retired = api.patch(
         retired_endpoint,
-        json={
+        json=reported({
             "expected_version": 1,
             "status": "wont-do",
             "lease_token": retired_claim["lease_token"],
-        },
+        }, retirement=True),
     )
     assert retired.status_code == 200
     assert retired.json()["status"] == "wont-do"
@@ -451,15 +466,17 @@ def test_checkpoint_tokens_and_expired_terminal_behavior(
     expire_lease(postgres_engine, work_item["id"])
     stale = api.patch(
         endpoint,
-        json={
+        json=reported({
             "expected_version": 1,
             "status": "promoted",
             "lease_token": claim["lease_token"],
-        },
+        }, retirement=True),
     )
     assert stale.status_code == 409
     assert stale.json()["detail"]["code"] == "lease_expired"
-    promoted = api.patch(endpoint, json={"expected_version": 1, "status": "promoted"})
+    promoted = api.patch(
+        endpoint, json=reported({"expected_version": 1, "status": "promoted"}, retirement=True)
+    )
     assert promoted.status_code == 200
 
 
@@ -565,11 +582,11 @@ def test_capabilities_are_body_only_and_lease_routes_reject_every_query_paramete
     rejected_terminal = api.patch(
         endpoint,
         params={"lease_token": query_token},
-        json={
+        json=reported({
             "expected_version": 1,
             "status": "wont-do",
             "lease_token": receipt["lease_token"],
-        },
+        }, retirement=True),
     )
     rejected_deletion = api.post(
         f"{endpoint}/delete",

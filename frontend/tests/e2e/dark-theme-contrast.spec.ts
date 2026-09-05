@@ -243,7 +243,7 @@ const contrastFixture = `
                   <div class="form-stack"><label class="field">Tags <span class="optional">Comma separated</span><input value="accessibility"></label></div></details>
                 <div class="error-notice"><p>Checkpoint could not be saved.</p></div>
                 <div class="comment-actions"><button class="button button-secondary">Add checkpoint</button>
-                  <button class="button button-primary">Complete with summary</button>
+                  <button class="button button-primary">Complete work</button>
                   <p class="terminal-action-note">Resolve every human question before completing.</p></div>
               </form>
             </section>

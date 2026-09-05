@@ -98,6 +98,81 @@ in logs or metric labels. Suggestion cache rows are derived existing-work data
 and may be rebuilt; the draft and result are never persisted. Routine probes
 must verify only aggregate behavior and must not commit a merge.
 
+## Phase 12 activity and completion reports cutover
+
+The current coordinated boundary is API/MCP/dashboard `0.8.0`, plugin `0.11.0`,
+and Alembic `0021_job_completion_reports`. Inventory exactly 32 MCP tools,
+11 protected MCP writes, 15 REST receipt kinds, 13 protected browser mutations,
+and 17 work-event types. Keep older writers stopped: fresh closeouts now require
+a report and operation UUID, fresh work starts Pending, and settings use revision
+checks. Permanent historical receipts remain recoverable with their exact old
+request; do not manufacture missing reports or evidence for historical work.
+
+Before changing a production database, pin the coordinated artifacts, reserve a
+maintenance window, close ingress and quiesce every writer including direct
+clients, then take a fresh named custom-format backup. Validate its archive
+listing, copy it off-machine, and restore it on an isolated PostgreSQL 17
+instance. Record row/content and permanent-receipt comparisons, migration lock
+time, audit duration, activity ordering, and representative old receipt replay.
+The isolated repository checks are evidence about the implementation; they do
+not establish production-target readiness or execute a production cutover.
+
+With `DATABASE_URL` supplied privately in the operator environment, the read-only
+preflight at the prior head is:
+
+```sh
+uv run --project backend python scripts/audit_project_activity.py \
+  --expected-head 0019_structured_completion_evidence
+```
+
+Any nonzero exit, blocking finding, unexpected head, or runtime failure stops
+the rollout. Apply `0020_project_activity` then `0021_job_completion_reports`
+with writers still stopped. The first migration imports existing work events
+in stable per-project order and records the explicit historical boundary. The
+second supplies existing projects with a nonblank default report prompt and
+empty report inboxes; it preserves existing work, checkpoints, settings values,
+and receipt bytes. No historical agent summary is inferred. Audit each head
+using the matching `--expected-head`; the final command is:
+
+```sh
+uv run --project backend python scripts/audit_project_activity.py \
+  --expected-head 0021_job_completion_reports
+```
+
+The aggregate audit checks prior-phase invariants together with journal
+coverage/prefixes, settings, every live qualifying closeout's report, immutable
+report/event/prompt bindings, review and undismissed counts, dual follow-up
+provenance, enabled guards, exact catalog definitions, and privileges. Keep its
+content-free output; do not put report prose, prompts, IDs, operation keys, or
+receipt bodies in ordinary telemetry. It accepts only explicitly frozen
+migration-built and supported dump/restore catalog representations.
+
+Deploy the coordinated API, MCP, dashboard, and plugin while ingress remains
+closed. Confirm readiness, current catalog/schema versions, a default nonblank
+prompt, empty historical report inboxes, and historical receipt recovery. Run
+fresh-closeout, dismissal/retry, follow-up provenance, settings-conflict, and
+activity recovery probes against an isolated production-shaped clone. Take and
+restore a post-upgrade backup, rerun the aggregate audit, and only then reopen
+traffic. The supported restore script rotates restored activity incarnations
+inside the schema-replacement transaction; verify a cursor captured before
+restore returns `activity_stream_changed` after restoration.
+
+The dashboard polls at 15-second intervals while visible and treats live socket
+messages as hints. A lost socket hint is not a lost journal fact. Monitor
+sanitized availability/error counts and bounded mutation/read latency. Fresh
+project mutations share a ten-second absolute budget and at most two seconds
+per lock wait. A protected `client_operation_unavailable` requires the same
+frozen-intent retry; unprotected `project_mutation_unavailable` does not grant
+retry safety. A failed audit is an integrity incident, not an invitation to
+edit append-only rows, reset counters, purge receipts, or synthesize reports.
+
+A lossless downgrade from 0021 is guarded before DDL and is only available
+before report/review/follow-up state, changed prompt revisions, or new report
+receipt state exists. Downgrade from 0020 additionally refuses live activity
+beyond the imported boundary. Once new state exists, fix forward or deliberately
+restore an entire chosen archive with matching binaries, accepting the loss of
+all later writes. Never trim history to make a guard pass.
+
 ## Upgrading the single-host Compose stack
 
 Mnemonic has one API container, and that container is the only schema migrator.
@@ -422,7 +497,7 @@ pre-0019 row count, pre-existing column value, and permanent receipt byte
 remains unchanged; only the new private generation columns receive their
 deterministic backfill.
 
-The current API, MCP, and dashboard release is `0.7.0`. It retains the Phase 11
+The subsequent API, MCP, and dashboard release `0.7.0` retained the Phase 11
 schema, plugin `0.10.0`, and exact tool/mutation catalog. Upgrading an existing
 0019 deployment to `0.7.0` requires no new migration; the 0018-to-0019 cutover
 procedure below still applies to deployments that have not adopted Phase 11.
@@ -811,7 +886,13 @@ or weaken hierarchy constraints.
 
 ### Identifier-free aggregate monitoring
 
-Run `scripts/audit_duplicate_handling.py` regularly with its default
+At current head 0021, run `scripts/audit_project_activity.py` using the private
+`DATABASE_URL` environment variable. It composes the historical domain checks
+with Phase 12 activity/report checks. Alert on any blocking finding or runtime
+failure, and inventory deployed `0.8.0` clients and plugin `0.11.0` together.
+The historical audit below applies only to its explicitly named older heads.
+
+For the historical Phase 11 boundary, run `scripts/audit_duplicate_handling.py` with
 `--expected-head 0019_structured_completion_evidence` from a private environment
 that can reach PostgreSQL and the backup directory. Alert on any blocking
 finding. At 0018 and 0019 it requires exactly one of the two reviewed raw
@@ -1088,13 +1169,23 @@ run a restore against a database you have not explicitly chosen to replace.
 docker compose exec backup sh /opt/mnemonic/backup.sh once
 docker compose stop web mcp api backup
 docker compose --profile maintenance run --rm -e MNEMONIC_RESTORE_FILE=mnemonic-YYYYMMDDTHHMMSSZ-SUFFIX.dump -e MNEMONIC_CONFIRM_RESTORE=replace-mnemonic-data restore
+# Keep ingress closed and direct clients stopped throughout these steps.
+docker compose run --rm api alembic upgrade head
+# Supply DATABASE_URL privately for this read-only operator command.
+uv run --project backend python scripts/audit_project_activity.py
 docker compose up -d --wait
+# Reopen traffic only after readiness and restored data checks pass.
 ```
 
 PostgreSQL must remain running during this sequence. The restore script refuses
 to run without the explicit confirmation value, rejects filenames containing
 directory paths, and uses a single transaction for schema replacement and
-archive loading so errors restore the original target. It replays archived ACL
+archive loading so errors restore the original target. If the archive contains
+project activity, it also rotates every stream UUID inside that same transaction;
+a missing rotation function makes the restore fail closed. Sequences and source
+facts remain unchanged by rotation. An older archive receives new streams when
+0020 is applied. Never serve restored activity using its archived stream UUID:
+a rewind could otherwise make an acknowledged cursor silently skip later work. It replays archived ACL
 commands for public-schema application objects while rebinding ownership to the
 fixed current application role. Mnemonic does not use non-public application
 schemas or optional PostgreSQL extensions; the script
@@ -1120,7 +1211,11 @@ merge discards that merge and every unrelated later write as one database-wide
 recovery boundary. A pre-Phase-10 archive likewise cannot recover later declared
 checkpoint scopes or the scoped receipt evidence that binds them.
 A pre-Phase-11 archive cannot recover later evidence rows, completion/reopen
-generation bindings, or evidence-bearing receipt responses.
+generation bindings, or evidence-bearing receipt responses. A pre-Phase-12
+archive cannot recover later reports, human dismissal decisions, follow-up
+associations, prompt edits, activity-only facts, or their receipts. Verify these
+facts, exact permanent receipt replay, automatic stream rotation, stale-cursor
+rejection, and the new-head aggregate audit in every current restore drill.
 
 Deletion from the dashboard is a soft delete. No ordinary work/checkpoint/event
 API or MCP read can retrieve a deleted work item. The immutable rows remain

@@ -2885,6 +2885,54 @@
         "title": "HumanAttentionPage",
         "type": "object"
       },
+      "HumanDismissalRead": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_client": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Actor Client",
+            "type": "string"
+          },
+          "actor_model": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Model"
+          },
+          "actor_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Actor Session Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "actor_client",
+          "actor_session_id",
+          "actor_model"
+        ],
+        "title": "HumanDismissalRead",
+        "type": "object"
+      },
       "HumanGateContextRevision": {
         "additionalProperties": false,
         "properties": {
@@ -3455,6 +3503,715 @@
         "title": "InitialRelationshipCreate",
         "type": "object"
       },
+      "JobCompletionReportCount": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of_sequence": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "As Of Sequence",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "undismissed_count": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Undismissed Count",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "undismissed_count",
+          "as_of_sequence"
+        ],
+        "title": "JobCompletionReportCount",
+        "type": "object"
+      },
+      "JobCompletionReportDetailEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "created_sequence": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Created Sequence",
+            "type": "string"
+          },
+          "follow_up_count": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Follow Up Count",
+            "type": "string"
+          },
+          "human_dismissal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HumanDismissalRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "human_dismissed": {
+            "title": "Human Dismissed",
+            "type": "boolean"
+          },
+          "report": {
+            "$ref": "#/components/schemas/JobCompletionReportDetailRead"
+          },
+          "source_work_state": {
+            "$ref": "#/components/schemas/SourceWorkState"
+          }
+        },
+        "required": [
+          "created_sequence",
+          "report",
+          "human_dismissed",
+          "human_dismissal",
+          "source_work_state",
+          "follow_up_count"
+        ],
+        "title": "JobCompletionReportDetailEnvelope",
+        "type": "object"
+      },
+      "JobCompletionReportDetailRead": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_client": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Actor Client",
+            "type": "string"
+          },
+          "actor_model": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Model"
+          },
+          "actor_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Actor Session Id",
+            "type": "string"
+          },
+          "authoring_prompt": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Authoring Prompt",
+            "type": "string"
+          },
+          "closeout_event_id": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Closeout Event Id",
+            "type": "string"
+          },
+          "closeout_status": {
+            "enum": [
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Closeout Status",
+            "type": "string"
+          },
+          "closeout_work_version": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Closeout Work Version",
+            "type": "integer"
+          },
+          "completion_checkpoint_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Checkpoint Id"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "fyi_items": {
+            "items": {
+              "maxLength": 600,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Fyi Items",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "prompt_revision": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Prompt Revision",
+            "type": "string"
+          },
+          "prompt_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Prompt Sha256",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          },
+          "work_title_at_closeout": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Work Title At Closeout",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "fyi_items",
+          "prompt_revision",
+          "id",
+          "project_id",
+          "work_item_id",
+          "closeout_event_id",
+          "closeout_work_version",
+          "closeout_status",
+          "completion_checkpoint_id",
+          "work_title_at_closeout",
+          "actor_client",
+          "actor_session_id",
+          "actor_model",
+          "prompt_sha256",
+          "created_at",
+          "authoring_prompt"
+        ],
+        "title": "JobCompletionReportDetailRead",
+        "type": "object"
+      },
+      "JobCompletionReportDismissalCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/MutationActor"
+          },
+          "client_operation_id": {
+            "description": "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with the exact same operation and semantic arguments after an unknown outcome.",
+            "format": "uuid",
+            "title": "Client Operation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor",
+          "client_operation_id"
+        ],
+        "title": "JobCompletionReportDismissalCreate",
+        "type": "object"
+      },
+      "JobCompletionReportDismissalResult": {
+        "additionalProperties": false,
+        "properties": {
+          "dismissed": {
+            "title": "Dismissed",
+            "type": "boolean"
+          },
+          "human_dismissal": {
+            "$ref": "#/components/schemas/HumanDismissalRead"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "report_id": {
+            "format": "uuid",
+            "title": "Report Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "report_id",
+          "dismissed",
+          "human_dismissal"
+        ],
+        "title": "JobCompletionReportDismissalResult",
+        "type": "object"
+      },
+      "JobCompletionReportEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "created_sequence": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Created Sequence",
+            "type": "string"
+          },
+          "follow_up_count": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Follow Up Count",
+            "type": "string"
+          },
+          "human_dismissal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HumanDismissalRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "human_dismissed": {
+            "title": "Human Dismissed",
+            "type": "boolean"
+          },
+          "report": {
+            "$ref": "#/components/schemas/JobCompletionReportRead"
+          },
+          "source_work_state": {
+            "$ref": "#/components/schemas/SourceWorkState"
+          }
+        },
+        "required": [
+          "created_sequence",
+          "report",
+          "human_dismissed",
+          "human_dismissal",
+          "source_work_state",
+          "follow_up_count"
+        ],
+        "title": "JobCompletionReportEnvelope",
+        "type": "object"
+      },
+      "JobCompletionReportFollowUpCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/MutationActor"
+          },
+          "client_operation_id": {
+            "description": "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with the exact same operation and semantic arguments after an unknown outcome.",
+            "format": "uuid",
+            "title": "Client Operation Id",
+            "type": "string"
+          },
+          "initial_checkpoint": {
+            "$ref": "#/components/schemas/InitialCheckpointCreate"
+          },
+          "priority": {
+            "default": 0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "summary": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor",
+          "title",
+          "summary",
+          "initial_checkpoint",
+          "client_operation_id"
+        ],
+        "title": "JobCompletionReportFollowUpCreate",
+        "type": "object"
+      },
+      "JobCompletionReportFollowUpRead": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_client": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Actor Client",
+            "type": "string"
+          },
+          "actor_model": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Model"
+          },
+          "actor_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Actor Session Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_sequence": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Created Sequence",
+            "type": "string"
+          },
+          "follow_up_work_item_id": {
+            "format": "uuid",
+            "title": "Follow Up Work Item Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "report_id": {
+            "format": "uuid",
+            "title": "Report Id",
+            "type": "string"
+          },
+          "source_work_item_id": {
+            "format": "uuid",
+            "title": "Source Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "report_id",
+          "source_work_item_id",
+          "follow_up_work_item_id",
+          "created_sequence",
+          "actor_client",
+          "actor_session_id",
+          "actor_model",
+          "created_at"
+        ],
+        "title": "JobCompletionReportFollowUpRead",
+        "type": "object"
+      },
+      "JobCompletionReportFollowUpResult": {
+        "additionalProperties": false,
+        "properties": {
+          "follow_up": {
+            "$ref": "#/components/schemas/JobCompletionReportFollowUpRead"
+          },
+          "initial_checkpoint": {
+            "$ref": "#/components/schemas/CheckpointRead"
+          },
+          "work_item": {
+            "$ref": "#/components/schemas/WorkItemRead"
+          }
+        },
+        "required": [
+          "work_item",
+          "initial_checkpoint",
+          "follow_up"
+        ],
+        "title": "JobCompletionReportFollowUpResult",
+        "type": "object"
+      },
+      "JobCompletionReportInput": {
+        "additionalProperties": false,
+        "properties": {
+          "fyi_items": {
+            "items": {
+              "maxLength": 600,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Fyi Items",
+            "type": "array"
+          },
+          "prompt_revision": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Prompt Revision",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "fyi_items",
+          "prompt_revision"
+        ],
+        "title": "JobCompletionReportInput",
+        "type": "object"
+      },
+      "JobCompletionReportPage": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of_sequence": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "As Of Sequence",
+            "type": "string"
+          },
+          "dismissal": {
+            "enum": [
+              "undismissed",
+              "dismissed",
+              "all"
+            ],
+            "title": "Dismissal",
+            "type": "string"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobCompletionReportEnvelope"
+            },
+            "maxItems": 50,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "stream_id": {
+            "format": "uuid",
+            "title": "Stream Id",
+            "type": "string"
+          },
+          "work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Item Id"
+          }
+        },
+        "required": [
+          "project_id",
+          "stream_id",
+          "dismissal",
+          "work_item_id",
+          "as_of_sequence",
+          "items",
+          "has_more",
+          "next_cursor"
+        ],
+        "title": "JobCompletionReportPage",
+        "type": "object"
+      },
+      "JobCompletionReportRead": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_client": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Actor Client",
+            "type": "string"
+          },
+          "actor_model": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Model"
+          },
+          "actor_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Actor Session Id",
+            "type": "string"
+          },
+          "closeout_event_id": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Closeout Event Id",
+            "type": "string"
+          },
+          "closeout_status": {
+            "enum": [
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Closeout Status",
+            "type": "string"
+          },
+          "closeout_work_version": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Closeout Work Version",
+            "type": "integer"
+          },
+          "completion_checkpoint_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Checkpoint Id"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "fyi_items": {
+            "items": {
+              "maxLength": 600,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Fyi Items",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "prompt_revision": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Prompt Revision",
+            "type": "string"
+          },
+          "prompt_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Prompt Sha256",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          },
+          "work_title_at_closeout": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Work Title At Closeout",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "fyi_items",
+          "prompt_revision",
+          "id",
+          "project_id",
+          "work_item_id",
+          "closeout_event_id",
+          "closeout_work_version",
+          "closeout_status",
+          "completion_checkpoint_id",
+          "work_title_at_closeout",
+          "actor_client",
+          "actor_session_id",
+          "actor_model",
+          "prompt_sha256",
+          "created_at"
+        ],
+        "title": "JobCompletionReportRead",
+        "type": "object"
+      },
       "JsonValue": {},
       "LeasePublic": {
         "additionalProperties": false,
@@ -4022,6 +4779,238 @@
         "title": "ProgressEventMetadata",
         "type": "object"
       },
+      "ProjectActivityPage": {
+        "additionalProperties": false,
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "historical_coverage": {
+            "const": "recorded_work_events_only",
+            "title": "Historical Coverage",
+            "type": "string"
+          },
+          "historical_through_sequence": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Historical Through Sequence",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectActivityRead"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Next Cursor",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "stream_id": {
+            "format": "uuid",
+            "title": "Stream Id",
+            "type": "string"
+          },
+          "through_sequence": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Through Sequence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "stream_id",
+          "items",
+          "next_cursor",
+          "has_more",
+          "through_sequence",
+          "historical_through_sequence",
+          "historical_coverage"
+        ],
+        "title": "ProjectActivityPage",
+        "type": "object"
+      },
+      "ProjectActivityRead": {
+        "additionalProperties": false,
+        "properties": {
+          "event_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "work_created",
+                  "work_updated",
+                  "work_status_changed",
+                  "work_reopened",
+                  "work_claimed",
+                  "work_released",
+                  "checkpoint_added",
+                  "progress",
+                  "dependency_added",
+                  "dependency_removed",
+                  "relationship_added",
+                  "relationship_removed",
+                  "work_completed",
+                  "work_deleted",
+                  "work_merged",
+                  "human_attention_requested",
+                  "human_attention_resolved"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
+          },
+          "follow_up_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Id"
+          },
+          "human_dismissal_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Human Dismissal Id"
+          },
+          "job_completion_report_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Completion Report Id"
+          },
+          "kind": {
+            "enum": [
+              "work_event",
+              "project_created",
+              "project_updated",
+              "project_settings_updated",
+              "lease_renewed",
+              "job_completion_report_created",
+              "job_completion_report_dismissed",
+              "job_completion_report_follow_up_created"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "lease_generation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Generation Id"
+          },
+          "origin": {
+            "enum": [
+              "live",
+              "history_import"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "recorded_at": {
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "sequence": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Sequence",
+            "type": "string"
+          },
+          "settings_revision": {
+            "anyOf": [
+              {
+                "maxLength": 19,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settings Revision"
+          },
+          "work_event_id": {
+            "anyOf": [
+              {
+                "maxLength": 19,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Event Id"
+          },
+          "work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Item Id"
+          }
+        },
+        "required": [
+          "sequence",
+          "kind",
+          "work_event_id",
+          "event_type",
+          "work_item_id",
+          "job_completion_report_id",
+          "human_dismissal_id",
+          "follow_up_id",
+          "settings_revision",
+          "lease_generation_id",
+          "recorded_at",
+          "origin"
+        ],
+        "title": "ProjectActivityRead",
+        "type": "object"
+      },
       "ProjectCreate": {
         "additionalProperties": false,
         "properties": {
@@ -4171,6 +5160,25 @@
       "ProjectSettingsPatch": {
         "additionalProperties": false,
         "properties": {
+          "expected_revision": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Expected Revision",
+            "type": "string"
+          },
+          "job_completion_report_prompt": {
+            "anyOf": [
+              {
+                "maxLength": 8000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Completion Report Prompt"
+          },
           "recall_pointer_template": {
             "anyOf": [
               {
@@ -4186,7 +5194,7 @@
           }
         },
         "required": [
-          "recall_pointer_template"
+          "expected_revision"
         ],
         "title": "ProjectSettingsPatch",
         "type": "object"
@@ -4194,6 +5202,12 @@
       "ProjectSettingsRead": {
         "additionalProperties": false,
         "properties": {
+          "job_completion_report_prompt": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Job Completion Report Prompt",
+            "type": "string"
+          },
           "project_id": {
             "format": "uuid",
             "title": "Project Id",
@@ -4209,11 +5223,19 @@
               }
             ],
             "title": "Recall Pointer Template"
+          },
+          "revision": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Revision",
+            "type": "string"
           }
         },
         "required": [
           "project_id",
-          "recall_pointer_template"
+          "recall_pointer_template",
+          "job_completion_report_prompt",
+          "revision"
         ],
         "title": "ProjectSettingsRead",
         "type": "object"
@@ -4675,6 +5697,101 @@
         "title": "ReleaseResult",
         "type": "object"
       },
+      "ReportFollowUpPage": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of_sequence": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "As Of Sequence",
+            "type": "string"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobCompletionReportFollowUpRead"
+            },
+            "maxItems": 50,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "report_id": {
+            "format": "uuid",
+            "title": "Report Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "report_id",
+          "items",
+          "as_of_sequence",
+          "has_more",
+          "next_cursor"
+        ],
+        "title": "ReportFollowUpPage",
+        "type": "object"
+      },
+      "SourceWorkState": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_work_item_id": {
+            "format": "uuid",
+            "title": "Canonical Work Item Id",
+            "type": "string"
+          },
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "work_item_id",
+          "status",
+          "canonical_work_item_id",
+          "deleted"
+        ],
+        "title": "SourceWorkState",
+        "type": "object"
+      },
       "StatusChange": {
         "additionalProperties": false,
         "properties": {
@@ -5002,6 +6119,11 @@
             "title": "Expected Version",
             "type": "integer"
           },
+          "job_completion_report": {
+            "$ref": "#/components/schemas/JobCompletionReportInput",
+            "description": "Required for fresh Done/Won\u2019t do/Promoted closeouts. Sparse omission is accepted only to recover an already-completed historical receipt.",
+            "title": "Job Completion Report"
+          },
           "lease_token": {
             "anyOf": [
               {
@@ -5043,6 +6165,10 @@
           "completion_evidence": {
             "$ref": "#/components/schemas/CompletionEvidencePayloadRead",
             "title": "Completion Evidence"
+          },
+          "job_completion_report": {
+            "$ref": "#/components/schemas/JobCompletionReportRead",
+            "title": "Job Completion Report"
           },
           "work_item": {
             "$ref": "#/components/schemas/WorkItemRead"
@@ -5916,6 +7042,11 @@
             "title": "Expected Version",
             "type": "integer"
           },
+          "job_completion_report": {
+            "$ref": "#/components/schemas/JobCompletionReportInput",
+            "description": "Required for fresh Done/Won\u2019t do/Promoted closeouts. Sparse omission is accepted only to recover an already-completed historical receipt.",
+            "title": "Job Completion Report"
+          },
           "lease_token": {
             "anyOf": [
               {
@@ -6466,6 +7597,72 @@
         "title": "WorkReleasedUnattributedMetadata",
         "type": "object"
       },
+      "WorkReportFollowUpPage": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of_sequence": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "As Of Sequence",
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "origin",
+              "created"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobCompletionReportFollowUpRead"
+            },
+            "maxItems": 50,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "work_item_id",
+          "direction",
+          "items",
+          "as_of_sequence",
+          "has_more",
+          "next_cursor"
+        ],
+        "title": "WorkReportFollowUpPage",
+        "type": "object"
+      },
       "WorkSearchHit": {
         "additionalProperties": false,
         "properties": {
@@ -6650,6 +7847,79 @@
         "title": "WorkSummaryMinimal",
         "type": "object"
       },
+      "WorkUpdateRead": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "initial_checkpoint_id": {
+            "format": "uuid",
+            "title": "Initial Checkpoint Id",
+            "type": "string"
+          },
+          "job_completion_report": {
+            "$ref": "#/components/schemas/JobCompletionReportRead",
+            "title": "Job Completion Report"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created_at",
+          "updated_at",
+          "id",
+          "project_id",
+          "title",
+          "summary",
+          "status",
+          "priority",
+          "initial_checkpoint_id",
+          "version"
+        ],
+        "title": "WorkUpdateRead",
+        "type": "object"
+      },
       "WorkUpdatedMetadata": {
         "additionalProperties": false,
         "properties": {
@@ -6680,7 +7950,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.7.0"
+    "version": "0.8.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -6881,6 +8151,99 @@
         "summary": "Update Project"
       }
     },
+    "/api/v1/projects/{project_id}/activity": {
+      "get": {
+        "operationId": "get_activity_api_v1_projects__project_id__activity_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "now",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectActivityPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Activity"
+      }
+    },
     "/api/v1/projects/{project_id}/duplicate-suggestions": {
       "post": {
         "operationId": "duplicate_suggestions_api_v1_projects__project_id__duplicate_suggestions_post",
@@ -7027,6 +8390,428 @@
           }
         ],
         "summary": "Get Human Attention"
+      }
+    },
+    "/api/v1/projects/{project_id}/job-completion-reports": {
+      "get": {
+        "operationId": "list_reports_api_v1_projects__project_id__job_completion_reports_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dismissal",
+            "required": false,
+            "schema": {
+              "default": "undismissed",
+              "enum": [
+                "undismissed",
+                "dismissed",
+                "all"
+              ],
+              "title": "Dismissal",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "work_item_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Work Item Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCompletionReportPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Reports"
+      }
+    },
+    "/api/v1/projects/{project_id}/job-completion-reports/count": {
+      "get": {
+        "operationId": "count_reports_api_v1_projects__project_id__job_completion_reports_count_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCompletionReportCount"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Count Reports"
+      }
+    },
+    "/api/v1/projects/{project_id}/job-completion-reports/{report_id}": {
+      "get": {
+        "operationId": "get_report_api_v1_projects__project_id__job_completion_reports__report_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Report Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCompletionReportDetailEnvelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Report"
+      }
+    },
+    "/api/v1/projects/{project_id}/job-completion-reports/{report_id}/dismiss": {
+      "post": {
+        "operationId": "dismiss_api_v1_projects__project_id__job_completion_reports__report_id__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Report Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobCompletionReportDismissalCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCompletionReportDismissalResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Dismiss"
+      }
+    },
+    "/api/v1/projects/{project_id}/job-completion-reports/{report_id}/follow-ups": {
+      "get": {
+        "operationId": "get_report_follow_ups_api_v1_projects__project_id__job_completion_reports__report_id__follow_ups_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Report Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportFollowUpPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Report Follow Ups"
+      },
+      "post": {
+        "operationId": "follow_up_api_v1_projects__project_id__job_completion_reports__report_id__follow_ups_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Report Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobCompletionReportFollowUpCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCompletionReportFollowUpResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Follow Up"
       }
     },
     "/api/v1/projects/{project_id}/ready-work": {
@@ -7865,7 +9650,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WorkItemRead"
+                  "$ref": "#/components/schemas/WorkUpdateRead"
                 }
               }
             },
@@ -9459,6 +11244,105 @@
         ],
         "summary": "Renew Claim"
       }
+    },
+    "/api/v1/projects/{project_id}/work-items/{work_item_id}/report-follow-ups": {
+      "get": {
+        "operationId": "get_work_report_follow_ups_api_v1_projects__project_id__work_items__work_item_id__report_follow_ups_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "work_item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Work Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "required": true,
+            "schema": {
+              "enum": [
+                "origin",
+                "created"
+              ],
+              "title": "Direction",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkReportFollowUpPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Work Report Follow Ups"
+      }
     }
   },
   "x-mnemonic-schema-consumers": {
@@ -9492,7 +11376,18 @@
         "frontend/lib/human-gates.ts:decodeCursorPage:attention": "HumanAttentionPage",
         "frontend/lib/human-gates.ts:decodeCursorPage:gates": "HumanGatePage",
         "frontend/lib/human-gates.ts:decodeHumanAttentionPage:item": "HumanAttentionItem",
+        "frontend/lib/job-completion-reports.ts:decodeJobReport": "JobCompletionReportRead",
+        "frontend/lib/job-completion-reports.ts:decodeProjectSettings": "ProjectSettingsRead",
+        "frontend/lib/job-completion-reports.ts:decodeReportCount": "JobCompletionReportCount",
+        "frontend/lib/job-completion-reports.ts:decodeReportDetail": "JobCompletionReportDetailRead",
+        "frontend/lib/job-completion-reports.ts:decodeReportDismissal": "HumanDismissalRead",
+        "frontend/lib/job-completion-reports.ts:decodeReportEnvelope": "JobCompletionReportEnvelope",
+        "frontend/lib/job-completion-reports.ts:decodeReportFollowUp": "JobCompletionReportFollowUpRead",
+        "frontend/lib/job-completion-reports.ts:decodeReportPage": "JobCompletionReportPage",
+        "frontend/lib/job-completion-reports.ts:decodeSourceState": "SourceWorkState",
         "frontend/lib/mutation-responses.ts:decodeMutationResult:complete_work": "WorkCompletionRead",
+        "frontend/lib/project-activity.ts:decodeActivityItem": "ProjectActivityRead",
+        "frontend/lib/project-activity.ts:decodeActivityPage": "ProjectActivityPage",
         "frontend/lib/readiness-codecs.ts:decodeLease": "LeasePublic",
         "frontend/lib/readiness-codecs.ts:decodeReadiness": "Readiness",
         "frontend/lib/relationship-codecs.ts:decodeRelationship": "RelationshipEdgeRead",

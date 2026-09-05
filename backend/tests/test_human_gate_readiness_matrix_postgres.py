@@ -8,6 +8,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from .report_fixtures import reported
+
 pytestmark = pytest.mark.postgres
 
 
@@ -417,7 +419,7 @@ def apply_lifecycle(api, target_path: str, lifecycle: str) -> None:
     elif lifecycle == "wont-do":
         retired = api.patch(
             target_path,
-            json={"expected_version": 1, "status": "wont-do"},
+            json=reported({"expected_version": 1, "status": "wont-do"}, retirement=True),
         )
         assert retired.status_code == 200, retired.text
         assert retired.json()["status"] == "wont-do"
@@ -480,7 +482,7 @@ def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
         if case.blocker == "resolved":
             completed = api.post(
                 f"{item_path(project, blocker)}/complete",
-                json=completion_payload(work_payload, f"Resolved blocker {unique}."),
+                json=reported(completion_payload(work_payload, f"Resolved blocker {unique}.")),
             )
             assert completed.status_code == 200, completed.text
             assert completed.json()["work_item"]["status"] == "done"
@@ -587,7 +589,7 @@ def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
     if case.lifecycle == "deferred":
         forbidden_terminal = api.patch(
             target_path,
-            json={"expected_version": 2, "status": "wont-do"},
+            json=reported({"expected_version": 2, "status": "wont-do"}, retirement=True),
         )
         assert forbidden_terminal.status_code == 409
         assert forbidden_terminal.json() == {
@@ -693,7 +695,7 @@ def test_overlapping_gate_blocker_and_active_lease_errors_have_stable_precedence
     )
     completion = api.post(
         f"{target_path}/complete",
-        json=completion_payload(work_payload, f"Cannot complete overlap {unique}."),
+        json=reported(completion_payload(work_payload, f"Cannot complete overlap {unique}.")),
     )
     assert_conflict(
         completion,
@@ -702,7 +704,7 @@ def test_overlapping_gate_blocker_and_active_lease_errors_have_stable_precedence
     )
     terminal = api.patch(
         target_path,
-        json={"expected_version": 1, "status": "wont-do"},
+        json=reported({"expected_version": 1, "status": "wont-do"}, retirement=True),
     )
     assert_conflict(
         terminal,

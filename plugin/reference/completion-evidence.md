@@ -22,7 +22,10 @@ failed, or did not occur in prose.
 
 ## Record evidence only with completion
 
-`complete_work` is the only evidence write. Its optional
+`complete_work` is the only evidence write. Every fresh Done also requires a
+separate nested human-facing `job_completion_report`; read
+[job-completion-reports.md](${CLAUDE_PLUGIN_ROOT}/reference/job-completion-reports.md).
+Reports on Won’t do/Promoted use `update_work` and never invent evidence. Its optional
 `completion_evidence` contains ordered `verification_results` and
 `artifact_references`. There is no evidence append, update, delete, correction,
 or replacement tool. A non-empty object is part of the protected completion

@@ -8,6 +8,7 @@ import {
   isCompletionEvidenceRoute,
   invalidMutationBody,
   proxyBodyLimitBytes,
+  phase12ResponseLimitBytes,
   readBodyChunk,
   trustedRequest,
   upstreamAbortSignal,
@@ -18,6 +19,8 @@ import {
   identityContentEncoding,
   readIdentityEvidenceBytes
 } from "@/lib/completion-evidence";
+
+import { readBoundedBytes } from "@/lib/bounded-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -166,7 +169,9 @@ async function proxy(request: Request, context: Context): Promise<Response> {
           decodeIdentityEvidenceJson(evidenceBytes);
           responseBody = evidenceBytes;
         } else {
-          responseBody = await upstream.arrayBuffer();
+          responseBody = phase12ResponseLimitBytes(route, request.method) !== null
+            ? await readBoundedBytes(upstream, phase12ResponseLimitBytes(route, request.method)!)
+            : await upstream.arrayBuffer();
           JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(responseBody));
         }
       } catch {

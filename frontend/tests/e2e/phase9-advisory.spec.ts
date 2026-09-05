@@ -1,3 +1,4 @@
+import { reportForFixture } from "./job-report-fixture";
 import { readFile } from "node:fs/promises";
 import {
   expect,
@@ -86,6 +87,8 @@ async function completeWork(client: APIRequestContext, work: WorkItem, suffix: s
     `/api/v1/projects/${state.projectId}/work-items/${work.id}/complete`,
     {
       data: {
+        job_completion_report: await reportForFixture(client, state.projectId),
+        client_operation_id: crypto.randomUUID(),
         expected_version: work.version,
         checkpoint: {
           prompt: `Completion evidence ${suffix}.`,
@@ -98,7 +101,7 @@ async function completeWork(client: APIRequestContext, work: WorkItem, suffix: s
           tags: ["phase-9", "advisory"],
           source_metadata: {}
         },
-        client_operation_id: crypto.randomUUID()
+
       }
     }
   );

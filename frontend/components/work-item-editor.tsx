@@ -1,3 +1,5 @@
+import JobReportEditor from "@/components/job-report-editor";
+import type { JobReportDraft } from "@/lib/job-completion-reports";
 import type { FormEvent } from "react";
 import type { WorkItem, WorkStatus } from "@/lib/types";
 import { statusLabels } from "@/components/work-item-card";
@@ -15,6 +17,8 @@ export function draftFromWork(work: WorkItem): WorkEditDraft {
 }
 
 type Props = {
+  jobReportDraft: JobReportDraft;
+  onJobReportDraft: (draft: JobReportDraft) => void;
   work: WorkItem;
   draft: WorkEditDraft;
   setDraft: (updater: (draft: WorkEditDraft) => WorkEditDraft) => void;
@@ -30,6 +34,7 @@ type Props = {
 };
 
 export default function WorkItemEditor({
+  jobReportDraft, onJobReportDraft,
   work,
   draft,
   setDraft,
@@ -56,6 +61,7 @@ export default function WorkItemEditor({
     </select><span className="field-hint">{gated
       ? "Terminal lifecycle changes stay unavailable until every human question is resolved. Nonterminal fields remain editable."
       : work.status === "pending" ? "Done is available only through the completion workflow. Use the card’s Defer action to hold work out of the queue." : work.status === "deferred" ? "Only a human can defer work. Moving it to Pending restores that lifecycle, but blockers or human gates can still keep it out of ready discovery." : `${statusLabels[work.status]} work can only remain there or reopen as Pending.`}</span></label>
+    {work.status === "pending" && (draft.status === "wont-do" || draft.status === "promoted") && <JobReportEditor projectId={work.project_id} draft={jobReportDraft} onChange={onJobReportDraft} disabled={blocked || saving} />}
     {error && <div className="error-notice" role="alert"><p>{error}</p>{!conflict && <button type="button" className="button button-secondary" onClick={onLoadCurrent}>Load current version</button>}</div>}
     {conflict && <section className="conflict-panel"><h3>Current saved version · v{conflict.version}</h3><pre>{JSON.stringify({ title: conflict.title, summary: conflict.summary, priority: conflict.priority, status: conflict.status }, null, 2)}</pre><button type="button" className="button button-secondary" disabled={blocked} onClick={onUseCurrentVersion}>Keep my edits on version {conflict.version}</button></section>}
     <div className="dialog-actions sticky-actions">

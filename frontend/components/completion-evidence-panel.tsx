@@ -1,5 +1,6 @@
 "use client";
 
+import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useRef, useState } from "react";
 import { completionEvidenceApi, errorMessage, workItemPath } from "@/lib/api";
 import {
@@ -497,6 +498,11 @@ export default function CompletionEvidencePanel({
       if (!controller.signal.aborted) setLoadingMore(false);
     }
   }
+
+  useFailedReadRetry({
+    scope: `evidence:${projectId}:${workItemId}`, failed: Boolean(error), busy: loading || loadingMore,
+    retry: () => { if (page && nextCursor) void loadMore(); else setReload((value) => value + 1); }
+  });
 
   if (loading) {
     return <div className="loading-state detail-loading" role="status"><span className="spinner" />Loading completion evidence…</div>;

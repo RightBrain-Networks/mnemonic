@@ -477,7 +477,7 @@ html[data-pane-crossfade]::view-transition-new(root) {
   .sidebar nav { min-width: 0; }
   .sidebar nav .nav-item { min-width: 0; gap: 6px; padding: 10px 8px; font-size: 10px; }
   .sidebar nav .nav-item > svg:last-child { display: none; }
-  .sidebar nav .nav-item > span:not(.attention-nav-count) { min-width: 0; line-height: 1.25; }
+  .sidebar nav .nav-item > span:not(.attention-nav-count):not(.summary-nav-count) { min-width: 0; line-height: 1.25; }
   .topbar { padding: 0 20px; height: 46px; }
   .topbar-note { display: none; }
   .breadcrumb { font-size: 10px; }
@@ -1096,7 +1096,7 @@ html[data-theme="dark"] :is(.evidence-outcome.is-inconclusive, .evidence-outcome
 }
 
 /* Phases 7–8 human attention and branch presentation. */
-.attention-nav-count { flex: 0 0 auto !important; min-width: 22px; padding: 2px 6px; border-radius: 999px; color: #fff; background: var(--accent); font: 700 9px/1.5 var(--mono); text-align: center; }
+.attention-nav-count, .summary-nav-count { flex: 0 0 auto !important; min-width: 22px; padding: 2px 6px; border-radius: 999px; color: #fff; background: var(--accent); font: 700 9px/1.5 var(--mono); text-align: center; }
 .status-waiting { color: #8f1d14; background: var(--danger-soft); box-shadow: inset 0 0 0 1px #f2b8af; }
 .status-blocked { color: #8f1d14; background: var(--danger-soft); box-shadow: inset 0 0 0 1px #f2b8af; }
 .operational-badge.active { color: #6d35d7; background: var(--violet-soft); border: 1px solid #d8c5ff; }
@@ -1636,7 +1636,7 @@ html[data-theme="dark"] .sync-status-dot {
   background: #958b97;
   box-shadow: 0 0 0 3px rgb(169 157 171 / .18);
 }
-html[data-theme="dark"] :is(.nav-item.active, .button-primary, .attention-nav-count) {
+html[data-theme="dark"] :is(.nav-item.active, .button-primary, .attention-nav-count, .summary-nav-count) {
   color: #fff;
   background: var(--accent-fill);
   border-color: #b83d00;
@@ -2042,4 +2042,37 @@ html.theme-crossfade *::after {
   html.theme-crossfade *::after {
     transition-duration: .01ms !important;
   }
+}
+
+/* Human reports retain plain text and exact historical ownership. */
+.settings-stack, .job-report-list { display: grid; gap: 1.5rem; }
+.job-report-card { min-width: 0; padding: clamp(1rem, 3vw, 2rem); background: var(--surface); border: 1px solid var(--line); border-radius: 1rem; }
+.job-report-content h3 { margin: .75rem 0; font-size: 1.25rem; overflow-wrap: anywhere; unicode-bidi: isolate; }
+.report-heading, .report-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.report-heading time, .report-source-state, .report-provenance { font-size: .875rem; color: var(--muted); }
+.human-report-summary, .human-report-fyis { max-width: 75ch; font-size: 1rem; line-height: 1.65; }
+.human-report-summary, .human-report-fyis li, .job-report-prompt { white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: isolate; }
+.human-report-fyis { padding-inline-start: 1.5rem; }
+.human-report-fyis li + li { margin-top: .65rem; }
+.report-source-state { margin-top: 1rem; }
+.report-card-actions { margin-top: 1.25rem; }
+.report-provenance { margin-top: 1rem; }
+.report-provenance summary { cursor: pointer; }
+.report-provenance dl > div { display: grid; grid-template-columns: minmax(6rem, 1fr) minmax(0, 3fr); gap: .5rem; margin-top: .4rem; }
+.report-provenance dd { margin: 0; overflow-wrap: anywhere; }
+.job-report-editor { border: 1px solid var(--line); padding: 1rem; border-radius: .75rem; min-width: 0; margin: 1rem 0; }
+.job-report-editor legend { font-weight: 600; padding: 0 .4rem; }
+.report-fyi-field { display: flex; gap: .75rem; align-items: flex-start; }
+.report-fyi-field .field { flex: 1; min-width: 0; }
+.report-follow-up-form { border-top: 1px solid var(--line); margin-top: 1.5rem; padding-top: 1.5rem; }
+.report-follow-up-form > p { overflow-wrap: anywhere; }
+.job-report-prompt { line-height: 1.6; }
+.work-report-provenance { margin-top: 1.5rem; }
+.work-report-provenance li { margin: .75rem 0; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .report-card-actions { align-items: stretch; }
+  .report-card-actions > .button { flex: 1 1 45%; }
+  .report-fyi-field { flex-direction: column; }
+  .report-fyi-field .field { width: 100%; }
+  .report-provenance dl > div { grid-template-columns: 1fr; }
 }

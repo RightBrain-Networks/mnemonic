@@ -7,5 +7,10 @@
     "tags": [],
     "source_metadata": {}
   },
-  "client_operation_id": "573d6fe4-5bd0-452c-8400-bc29ee7bf1f7"
+  "client_operation_id": "573d6fe4-5bd0-452c-8400-bc29ee7bf1f7",
+  "job_completion_report": {
+    "summary": "The requested work is complete and its final context has been saved. No structured test results or artifact references were recorded for this closeout.",
+    "fyi_items": [],
+    "prompt_revision": "1"
+  }
 }

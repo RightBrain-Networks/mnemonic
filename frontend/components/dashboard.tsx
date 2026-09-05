@@ -15,6 +15,10 @@ import DashboardViewChrome from "@/components/dashboard-view-chrome";
 import ThemeSelector from "@/components/theme-selector";
 import ProjectSettingsPanel from "@/components/project-settings";
 import DuplicateSuggestionPanel from "@/components/duplicate-suggestion-panel";
+import { useFailedReadRetry } from "@/components/use-failed-read-retry";
+import JobReportList from "@/components/job-report-list";
+import { useProjectActivity } from "@/components/use-project-activity";
+import { decodeProjectSettings, decodeReportCount, emptyJobReportDraft, jobReportFromDraft, jobReportDraftHasEdits, type JobReportDraft } from "@/lib/job-completion-reports";
 import HumanAttentionList from "@/components/human-attention-list";
 import MutationRecoveryPanel from "@/components/mutation-recovery-panel";
 import WorkDetailPane from "@/components/work-detail-pane";
@@ -221,7 +225,7 @@ function locationWorkSelection(): string | null {
 type ContextLoadResult = "loaded" | "superseded" | "failed";
 type WorkDialogState = "closed" | "open" | "suspended";
 
-export default function Dashboard({ view = "library", timeZone }: { view?: "library" | "attention" | "settings"; timeZone?: string | null; }) {
+export default function Dashboard({ view = "library", timeZone }: { view?: "library" | "attention" | "summaries" | "settings"; timeZone?: string | null; }) {
   setDisplayTimeZone(timeZone);
   const [mutationRegistry] = useState(() => new MutationIntentRegistry());
   const mutationIntents = useMutationIntents(mutationRegistry);
@@ -237,6 +241,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [newProjectError, setNewProjectError] = useState("");
   const [projectSettings, setProjectSettings] = useState<ProjectSettings | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsFetching, setSettingsFetching] = useState(false);
   const [settingsLoadError, setSettingsLoadError] = useState("");
   const [settingsRefresh, setSettingsRefresh] = useState(0);
 
@@ -256,6 +261,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [attentionRefresh, setAttentionRefresh] = useState(0);
+  const [reportRefresh, setReportRefresh] = useState(0);
+  const [reportCount, setReportCount] = useState<string | null>(null);
+  const [activityReadyProjectId, setActivityReadyProjectId] = useState("");
   const [attentionCount, setAttentionCount] = useState<number | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -301,6 +309,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [checkpointSaving, setCheckpointSaving] = useState(false);
   const [completionEvidenceDraft, setCompletionEvidenceDraft] =
     useState<CompletionEvidenceDraft>(emptyCompletionEvidenceDraft);
+  const [jobReportDraft, setJobReportDraft] = useState<JobReportDraft>(emptyJobReportDraft);
   const [completionEvidenceIssues, setCompletionEvidenceIssues] =
     useState<readonly CompletionEvidenceIssue[]>([]);
 
@@ -313,7 +322,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [liveSyncStatus, setLiveSyncStatus] = useState<LiveSyncStatus>("connecting");
   const project = projects.find((item) => item.id === activeId);
   const queue = useWorkQueuePages({
-    enabled: view === "library" && Boolean(activeId) && preferencesReady,
+    enabled: view === "library" && Boolean(activeId) && activityReadyProjectId === activeId && preferencesReady,
     projectId: activeId,
     status,
     sort,
@@ -326,6 +335,26 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     sourceSessionId: sourceSessionFilter,
     refresh
   });
+  const activity = useProjectActivity({
+    projectId: activeId,
+    onBootstrap: setActivityReadyProjectId,
+    onInvalidation: (changes) => {
+      if (changes.work) { setRefresh((value) => value + 1); setAttentionRefresh((value) => value + 1); setContextRefresh((value) => value + 1); setCheckpointRefresh((value) => value + 1); setEventRefresh((value) => value + 1); }
+      if (changes.reports) setReportRefresh((value) => value + 1);
+      if (changes.settings) setSettingsRefresh((value) => value + 1);
+      if (changes.projects) setProjectsRefresh((value) => value + 1);
+    },
+    onRetryDirty: () => {
+      if (queue.error) queue.retry();
+      if (settingsLoadError) setSettingsRefresh((value) => value + 1);
+      if (contextError) setContextRefresh((value) => value + 1);
+      if (projectsError) setProjectsRefresh((value) => value + 1);
+      if (attentionCount === null) setAttentionRefresh((value) => value + 1);
+      if (reportCount === null) setReportRefresh((value) => value + 1);
+    }
+  });
+  const activityPoll = useRef(activity.poll);
+  activityPoll.current = activity.poll;
   const crossfade = usePaneCrossfade();
   const activeIdRef = useRef(activeId);
   const openedRef = useRef(opened);
@@ -345,6 +374,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
 
   useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
   useEffect(() => { openedRef.current = opened; }, [opened]);
+  useEffect(() => { setJobReportDraft(emptyJobReportDraft()); }, [openedId]);
 
   useEffect(() => {
     try {
@@ -387,7 +417,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   }, [activeId]);
 
   useEffect(() => {
-    if (!activeId) {
+    if (!activeId || activityReadyProjectId !== activeId) {
       setAttentionCount(null);
       return;
     }
@@ -403,7 +433,17 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       if (!controller.signal.aborted) setAttentionCount(null);
     });
     return () => controller.abort();
-  }, [activeId, attentionRefresh]);
+  }, [activeId, activityReadyProjectId, attentionRefresh]);
+
+  useEffect(() => {
+    setReportCount(null);
+    if (!activeId || activityReadyProjectId !== activeId) return;
+    const controller = new AbortController();
+    api<unknown>(`/projects/${activeId}/job-completion-reports/count`, { signal: controller.signal })
+      .then((value) => { if (!controller.signal.aborted) setReportCount(decodeReportCount(value, activeId).undismissed_count); })
+      .catch(() => { if (!controller.signal.aborted) setReportCount(null); });
+    return () => controller.abort();
+  }, [activeId, activityReadyProjectId, reportRefresh]);
 
   useEffect(() => {
     if (!preferencesReady) return;
@@ -419,9 +459,10 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     const generation = ++settingsLoadGeneration.current;
     settingsLoadController.current?.abort();
     settingsLoadController.current = null;
-    if (!activeId) {
+    if (!activeId || activityReadyProjectId !== activeId) {
       setProjectSettings(null);
       setSettingsLoading(false);
+      setSettingsFetching(false);
       setSettingsLoadError("");
       return;
     }
@@ -430,8 +471,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     const blockingLoad = isBlockingProjectSettingsLoad(activeId, projectSettings);
     setProjectSettings((current) => current?.project_id === activeId ? current : null);
     setSettingsLoading(blockingLoad);
+    setSettingsFetching(true);
     setSettingsLoadError("");
-    api<ProjectSettings>(`/projects/${encodeURIComponent(activeId)}/settings`, {
+    api<unknown>(`/projects/${encodeURIComponent(activeId)}/settings`, {
       signal: controller.signal
     })
       .then((loaded) => {
@@ -440,10 +482,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           settingsLoadGeneration.current,
           controller.signal.aborted
         )) return;
-        if (loaded.project_id !== activeId) {
-          throw new Error("Mnemonic returned settings for a different project.");
-        }
-        setProjectSettings(loaded);
+        setProjectSettings(decodeProjectSettings(loaded, activeId));
       })
       .catch((error) => {
         if (isCurrentProjectSettingsLoad(
@@ -462,6 +501,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           settingsLoadController.current = null;
         }
         setSettingsLoading(false);
+        setSettingsFetching(false);
       });
     return () => {
       controller.abort();
@@ -469,7 +509,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         settingsLoadController.current = null;
       }
     };
-  }, [activeId, settingsRefresh]);
+  }, [activeId, activityReadyProjectId, settingsRefresh]);
 
   useEffect(() => {
     const timer = setTimeout(() => setSearch(query.trim()), 300);
@@ -543,6 +583,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     }
 
     const disconnect = connectLiveSync((message) => {
+      activityPoll.current();
+      setReportRefresh((value) => value + 1);
       if (message.type === "ready") {
         pending.projects = true;
         pending.settings = true;
@@ -578,10 +620,12 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     if (mode === "edit") return;
     // A live-sync refresh must not supersede a context load already in flight (an exact audit
     // load, a ?work= restore, or a post-mutation reconcile); it runs once that load settles.
-    if (contextLoading) return;
+    if (contextLoading || mutationRegistry.blocks([
+      mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
+    ])) return;
     lastContextRefresh.current = contextRefresh;
     void loadContext(opened, ++recordRequest.current);
-  }, [contextLoading, contextRefresh, mode, opened]);
+  }, [contextLoading, contextRefresh, mode, opened, mutationIntents, mutationRegistry]);
 
   useEffect(() => {
     if (!notice || notice.error) return;
@@ -668,7 +712,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     if (
       id !== activeId
       && activeId
-      && mutationRegistry.hasDispatchedForProject(activeId)
+      && selectMutationScope(mutationRegistry.getSnapshot(), { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up"].includes(intent.kind))
     ) {
       setNotice({
         message: "Resolve pending mutations before switching projects. Reloading would lose the exact retry request.",
@@ -848,6 +892,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setCheckpointAffectedPaths("");
     setCheckpointAffectedPathsError("");
     setCheckpointTags("");
+    setJobReportDraft(emptyJobReportDraft());
     setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
     setCompletionEvidenceIssues([]);
     setCheckpointKind("progress");
@@ -928,11 +973,13 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setCheckpointAffectedPaths("");
     setCheckpointAffectedPathsError("");
     setCheckpointTags("");
+    setJobReportDraft(emptyJobReportDraft());
     setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
     setCompletionEvidenceIssues([]);
   }
 
   function viewDuplicateGroup(canonicalId: string): void {
+    if (!leavingOpenedWorkAllowed()) return;
     clearSelection();
     setQuery("");
     setSearch("");
@@ -987,12 +1034,15 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       });
       return false;
     }
-    if (
-      (checkpointBody || checkpointBranch || checkpointCommit
-        || checkpointAffectedPaths || checkpointTags
-        || !completionEvidenceDraftIsEmpty(completionEvidenceDraft))
-      && !window.confirm("Discard your unsaved checkpoint?")
-    ) return false;
+    const checkpointEdited = Boolean(checkpointBody || checkpointBranch || checkpointCommit
+      || checkpointAffectedPaths || checkpointTags
+      || !completionEvidenceDraftIsEmpty(completionEvidenceDraft));
+    const reportEdited = jobReportDraftHasEdits(jobReportDraft);
+    const discardMessage = checkpointEdited && reportEdited
+      ? "Discard your unsaved checkpoint and job completion report?"
+      : reportEdited ? "Discard your unsaved job completion report?"
+        : "Discard your unsaved checkpoint?";
+    if ((checkpointEdited || reportEdited) && !window.confirm(discardMessage)) return false;
     if (unsavedEditsKept()) return false;
     return true;
   }
@@ -1155,6 +1205,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setEditSaving(true);
     setEditError("");
     try {
+      if (patch.status === "wont-do" || patch.status === "promoted") patch.job_completion_report = jobReportFromDraft(jobReportDraft);
       const saved = await mutationRegistry.execute({
         kind: "update_work",
         slot: `update-work:${base.project_id}:${base.id}`,
@@ -1164,8 +1215,10 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         path: workItemPath(base.project_id, base.id),
         payload: patch
       });
-      const savedSummary = { ...opened, work_item: saved };
-      setContext((value) => value ? { ...value, work_item: saved } : value);
+      if (saved.job_completion_report) { setJobReportDraft(emptyJobReportDraft()); setReportRefresh((value) => value + 1); }
+      const { job_completion_report: _report, ...savedWork } = saved;
+      const savedSummary = { ...opened, work_item: savedWork };
+      setContext((value) => value ? { ...value, work_item: savedWork } : value);
       setOpened(savedSummary);
       setEventRefresh((value) => value + 1);
       setRefresh((value) => value + 1);
@@ -1248,6 +1301,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       );
       const base = workItemPath(context.work_item.project_id, context.work_item.id);
       if (complete) {
+        const report = jobReportFromDraft(jobReportDraft);
         await mutationRegistry.execute({
           kind: "complete_work",
           slot: `complete-work:${context.work_item.project_id}:${context.work_item.id}`,
@@ -1260,10 +1314,13 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           payload: {
             expected_version: context.work_item.version,
             checkpoint,
+            job_completion_report: report,
             ...(completionEvidence ? { completion_evidence: completionEvidence } : {})
           }
         });
-        setNotice({ message: "Completion checkpoint recorded and work marked done." });
+        setNotice({ message: "Human report and completion checkpoint recorded. Work marked done." });
+        setJobReportDraft(emptyJobReportDraft());
+        setReportRefresh((value) => value + 1);
         setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
         setCompletionEvidenceIssues([]);
       } else {
@@ -1454,6 +1511,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       }
       setRefresh((value) => value + 1);
       setAttentionRefresh((value) => value + 1);
+      setReportRefresh((value) => value + 1);
       setCheckpointRefresh((value) => value + 1);
       setEventRefresh((value) => value + 1);
       setContextRefresh((value) => value + 1);
@@ -1479,6 +1537,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         setCheckpointAffectedPathsError("");
         setCheckpointTags("");
         if (intent.kind === "complete_work") {
+          setJobReportDraft(emptyJobReportDraft());
           setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
           setCompletionEvidenceIssues([]);
         }
@@ -1575,7 +1634,10 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   }
 
   function blockNavigationWhilePending(event: MouseEvent<HTMLAnchorElement>): void {
-    if (!activeProjectMutationBlocked) return;
+    if (!mutationRegistry.hasDispatched()) {
+      if (opened && !leavingOpenedWorkAllowed()) event.preventDefault();
+      return;
+    }
     event.preventDefault();
     setNotice({
       message: "Resolve pending mutations before leaving this dashboard document.",
@@ -1644,6 +1706,26 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       : undefined,
     openedWorkKey: openedPaneVisible ? openedWorkKey ?? undefined : undefined
   });
+  useFailedReadRetry({
+    scope: `checkpoints:${opened?.work_item.project_id}:${openedId}:${checkpointOffset}`,
+    failed: Boolean(checkpointLoadError), busy: checkpointLoading, enabled: Boolean(opened),
+    retry: () => setCheckpointRefresh((value) => value + 1)
+  });
+  useFailedReadRetry({
+    scope: `context:${opened?.work_item.project_id}:${openedId}`,
+    failed: Boolean(contextError), busy: contextLoading,
+    enabled: Boolean(opened) && mode !== "edit" && !openedWorkMutationBlocked,
+    retry: () => retryOpenedContext()
+  });
+  useFailedReadRetry({
+    scope: `settings:${activeId}`, failed: Boolean(settingsLoadError), busy: settingsFetching,
+    enabled: Boolean(activeId) && activityReadyProjectId === activeId,
+    retry: () => setSettingsRefresh((value) => value + 1)
+  });
+  useFailedReadRetry({
+    scope: "projects", failed: Boolean(projectsError), busy: projectsLoading,
+    retry: () => setProjectsRefresh((value) => value + 1)
+  });
   const modalRecovery = (intents: readonly MutationIntentSummary[]) => (
     intents.length
       ? <MutationRecoveryPanel
@@ -1656,12 +1738,12 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   );
 
   return <MutationIntentProvider registry={mutationRegistry}><div className="app-shell">
-    <a className="skip-link" href="#main-content">{view === "settings" ? "Skip to project settings" : view === "attention" ? "Skip to human questions" : "Skip to work items"}</a>
+    <a className="skip-link" href="#main-content">{view === "settings" ? "Skip to project settings" : view === "attention" ? "Skip to human questions" : view === "summaries" ? "Skip to summaries" : "Skip to work items"}</a>
     <aside className="sidebar">
       <a href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={blockNavigationWhilePending}><Logo /><span>mnemonic<span className="brand-period">.</span></span></a>
       <div className="workspace-picker">
         <label className="section-label" htmlFor="project-select">YOUR WORKSPACE</label>
-        <div className="select-wrap"><select id="project-select" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={projectsLoading || !projects.length || activeProjectMutationBlocked} onChange={(event) => chooseProject(event.target.value)}>
+        <div className="select-wrap"><select id="project-select" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
           {!projects.length && <option value="">{projectsLoading ? "Loading projects…" : "Select a project"}</option>}
           {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select><span className="select-chevron" aria-hidden="true">⌄</span></div>
@@ -1671,6 +1753,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       <nav aria-label="Workspace navigation">
         <a className={`nav-item ${view === "library" ? "active" : ""}`} href="/" aria-current={view === "library" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="library" /><span>Work library</span><Icon name="arrow" size={15} /></a>
         <a className={`nav-item ${view === "attention" ? "active" : ""}`} href="/attention" aria-current={view === "attention" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="attention" /><span>Needs Attention</span>{attentionCount !== null && <span className="attention-nav-count" aria-label={`${attentionCount} unresolved human question${attentionCount === 1 ? "" : "s"}`}>{attentionCount}</span>}<Icon name="arrow" size={15} /></a>
+        <a className={`nav-item ${view === "summaries" ? "active" : ""}`} href="/summaries" aria-current={view === "summaries" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="box" /><span>Summaries</span>{reportCount !== null && <span className="summary-nav-count" aria-label={`${reportCount} undismissed summaries`}>{reportCount}</span>}<Icon name="arrow" size={15} /></a>
         <a className={`nav-item ${view === "settings" ? "active" : ""}`} href="/settings" aria-current={view === "settings" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="settings" /><span>Project settings</span><Icon name="arrow" size={15} /></a>
       </nav>
       <div className="sidebar-note"><img className="note-art" src="/img/robot.svg" alt="" width={115} height={115} aria-hidden="true" /><h2>Keep your agents on the same page.</h2><p>Work units are reserved and nothing is forgotten.</p></div>
@@ -1678,8 +1761,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     </aside>
 
     <main id="main-content" className="main-content">
-      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view !== "library" && <><span className="breadcrumb-slash">/</span><span>{view === "settings" ? "Project settings" : "Needs Attention"}</span></>}</div><span className="topbar-note"><span className="small-mark">m.</span>Context worth keeping</span></header>
+      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view !== "library" && <><span className="breadcrumb-slash">/</span><span>{view === "settings" ? "Project settings" : view === "summaries" ? "Summaries" : "Needs Attention"}</span></>}</div><span className="topbar-note"><span className="small-mark">m.</span>Context worth keeping</span></header>
       <div className={`page-content ${view === "library" ? "page-content-library" : ""}`}>
+        {activity.error && <div className="error-notice" role="alert"><p>Activity updates: {activity.error}</p><button type="button" className="button button-secondary" onClick={activity.streamChanged ? activity.reloadSnapshot : activity.poll}>{activity.streamChanged ? "Reload current snapshot" : "Retry updates"}</button></div>}
         {view === "settings" ? <>
           <DashboardViewChrome
             eyebrow="PROJECT CONFIGURATION"
@@ -1703,6 +1787,18 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
               onSaved={handleProjectSettingsSaved}
               onNotice={(message, error) => setNotice({ message, error })}
             />}
+        </> : view === "summaries" ? <>
+          <DashboardViewChrome eyebrow="WORK RESULTS FOR PEOPLE" title="Summaries"
+            description={project ? `Closeout reports to review in “${project.name}”.` : "Choose a project to read its closeout reports."}
+            liveSyncStatus={liveSyncStatus} onRefresh={() => { setReportRefresh((value) => value + 1); activity.poll(); }} />
+          {project && activityReadyProjectId === project.id
+            ? <JobReportList key={project.id} projectId={project.id} refreshSignal={reportRefresh}
+                onChanged={() => { setReportRefresh((value) => value + 1); setRefresh((value) => value + 1); }}
+                onOpenWork={(workItemId) => {
+                  if (mutationRegistry.hasDispatched()) { setNotice({ message: "Resolve pending mutations before leaving this dashboard document.", error: true }); return; }
+                  window.location.assign(`/?work=${encodeURIComponent(workItemId)}`);
+                }} />
+            : <div className="loading-state" role="status">{project ? "Opening the project feed…" : "Select a project to read summaries."}</div>}
         </> : view === "attention" ? <>
           <DashboardViewChrome
             eyebrow="EXPLICIT HUMAN OVERSIGHT"
@@ -1719,7 +1815,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
             projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
             <HumanAttentionList
-              project={project}
+              project={activityReadyProjectId === activeId ? project : undefined}
               refreshSignal={attentionRefresh}
               onOpen={openAttentionWork}
               onResolved={() => {
@@ -1827,7 +1923,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                   onDefer={(item) => void toggleDeferral(item)}
                   deferring={Boolean(openedId && deferringId === openedId)}
                   onOpenCanonical={(workItemId) => {
-                    if (opened) void openExactWork(opened.work_item.project_id, workItemId);
+                    if (opened && (workItemId === opened.work_item.id || leavingOpenedWorkAllowed())) {
+                      void openExactWork(opened.work_item.project_id, workItemId);
+                    }
                   }}
                   onViewDuplicateGroup={viewDuplicateGroup}
                   onCopy={(value, key, success) => void copyText(value, key, success)}
@@ -1846,6 +1944,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                   checkpointAffectedPathsError={checkpointAffectedPathsError}
                   checkpointTags={checkpointTags}
                   checkpointSaving={checkpointSaving}
+                  jobReportDraft={jobReportDraft}
+                  onJobReportDraft={setJobReportDraft}
                   completionEvidenceDraft={completionEvidenceDraft}
                   completionEvidenceIssues={completionEvidenceIssues}
                   evidenceRefreshSignal={eventRefresh}

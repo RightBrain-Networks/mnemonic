@@ -5,6 +5,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from .report_fixtures import reported
+
 pytestmark = pytest.mark.postgres
 
 
@@ -568,14 +570,14 @@ def test_every_fresh_alias_mutation_fails_without_side_effects(
         ),
         "complete": api.post(
             f"{work_path(project, source)}/complete",
-            json={
+            json=reported({
                 "expected_version": alias_version,
                 "checkpoint": {
                     "prompt": "Forbidden alias completion.",
                     "source_client": "pytest",
                     "source_session_id": "fresh-alias-complete",
                 },
-            },
+            }),
         ),
         "delete": api.post(
             f"{work_path(project, source)}/delete",

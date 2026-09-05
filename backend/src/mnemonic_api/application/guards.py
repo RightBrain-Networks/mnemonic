@@ -17,9 +17,7 @@ CLIENT_OPERATION_TRANSPORT_NAMES = frozenset(
         "x-client-operation-id",
     }
 )
-_OPERATION_ID_BODY_ONLY = (
-    "Client operation IDs are accepted only in supported JSON request bodies."
-)
+_OPERATION_ID_BODY_ONLY = "Client operation IDs are accepted only in supported JSON request bodies."
 
 
 def transport_rejection(location: str, field: str | None, message: str) -> HTTPException:
@@ -53,7 +51,7 @@ def reject_client_operation_transport(request: Request) -> None:
 
 
 def reject_registered_mutation_query(request: Request) -> None:
-    """Keep the thirteen receipt-protected mutation routes query-free."""
+    """Keep receipt-protected mutation routes query-free."""
     if request.query_params:
         raise transport_rejection(
             "query", None, "Query parameters are not accepted for registered mutations."
@@ -65,3 +63,19 @@ def reject_lease_operation_query(request: Request) -> None:
         raise transport_rejection(
             "query", None, "Query parameters are not accepted for lease operations."
         )
+
+
+async def reject_read_body_and_duplicate_query(request: Request) -> None:
+    """Strict bounded reads never silently choose among duplicate query values."""
+    names = [name for name, _ in request.query_params.multi_items()]
+    if len(names) != len(set(names)):
+        raise transport_rejection("query", None, "Repeated query parameters are not accepted.")
+    async for chunk in request.stream():
+        if chunk:
+            raise transport_rejection("body", None, "A request body is not accepted for this read.")
+
+
+async def reject_empty_read_request(request: Request) -> None:
+    if request.query_params:
+        raise transport_rejection("query", None, "Query parameters are not accepted for this read.")
+    await reject_read_body_and_duplicate_query(request)

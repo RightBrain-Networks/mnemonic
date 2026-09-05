@@ -19,8 +19,10 @@ type SeededWork = {
 };
 
 async function clearRecallPointerTemplate(client: APIRequestContext): Promise<void> {
+  const current = await client.get(`/api/v1/projects/${state.projectId}/settings`);
+  const { revision } = await current.json() as { revision: string };
   const response = await client.patch(`/api/v1/projects/${state.projectId}/settings`, {
-    data: { recall_pointer_template: null }
+    data: { expected_revision: revision, recall_pointer_template: null }
   });
   expect(response.ok(), await response.text()).toBe(true);
 }
@@ -72,7 +74,8 @@ test("a background settings refresh cannot disable or overwrite a save", async (
             contentType: "application/json",
             body: JSON.stringify({
               project_id: state.projectId,
-              recall_pointer_template: responseTemplate
+              revision: String(patchCount + 1), job_completion_report_prompt: "Write a concise human summary.",
+          recall_pointer_template: responseTemplate
             })
           });
         } catch {
@@ -87,6 +90,7 @@ test("a background settings refresh cannot disable or overwrite a save", async (
         contentType: "application/json",
         body: JSON.stringify({
           project_id: state.projectId,
+          revision: String(patchCount + 1), job_completion_report_prompt: "Write a concise human summary.",
           recall_pointer_template: responseTemplate
         })
       });
@@ -102,6 +106,7 @@ test("a background settings refresh cannot disable or overwrite a save", async (
         contentType: "application/json",
         body: JSON.stringify({
           project_id: state.projectId,
+          revision: String(patchCount + 1), job_completion_report_prompt: "Write a concise human summary.",
           recall_pointer_template: storedTemplate
         })
       });
@@ -113,7 +118,7 @@ test("a background settings refresh cannot disable or overwrite a save", async (
   await page.goto("/settings");
   await page.locator("#project-select").selectOption(state.projectId);
   const content = page.getByLabel("Recall pointer content");
-  const save = page.getByRole("button", { name: "Save", exact: true });
+  const save = page.locator(".settings-card").filter({ has: page.getByRole("heading", { name: "Recall pointer content", exact: true }) }).getByRole("button", { name: "Save", exact: true });
   const clear = page.getByRole("button", { name: "Clear", exact: true });
   await expect(content).toHaveValue(oldTemplate);
   await content.fill(newTemplate);
@@ -188,7 +193,7 @@ test("project recall pointer settings drive card and detail clipboard content", 
 
     const content = page.getByLabel("Recall pointer content");
     await expect(content).toHaveValue(DEFAULT_RECALL_POINTER_TEMPLATE);
-    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+    await expect(page.locator(".settings-card").filter({ has: page.getByRole("heading", { name: "Recall pointer content", exact: true }) }).getByRole("button", { name: "Save", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Clear", exact: true })).toBeVisible();
     for (const { macro } of RECALL_POINTER_MACROS) {
       await expect(page.getByText(macro, { exact: true })).toBeVisible();
@@ -200,7 +205,7 @@ test("project recall pointer settings drive card and detail clipboard content", 
       return response.request().method() === "PATCH"
         && url.pathname === `/api/mnemonic/projects/${state.projectId}/settings`;
     });
-    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.locator(".settings-card").filter({ has: page.getByRole("heading", { name: "Recall pointer content", exact: true }) }).getByRole("button", { name: "Save", exact: true }).click();
     expect((await saveResponse).ok()).toBe(true);
 
     await workspaceNavigation.getByRole("link", { name: "Work library" }).click();

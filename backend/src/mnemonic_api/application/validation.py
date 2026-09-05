@@ -37,6 +37,8 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     destination_work_item_id reviewed_source_revision reviewed_destination_revision
     work_event_count merged_by_client merged_by_session_id merged_by_model rationale
     repository_url duplicate_scope canonical_work_item_id
+    job_completion_report fyi_items prompt_revision report_id dismissal after start
+    job_completion_report_prompt expected_revision
     """.split()
 )
 

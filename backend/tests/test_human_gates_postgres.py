@@ -16,6 +16,8 @@ import mnemonic_api.application.middleware as middleware_module
 from mnemonic_api.services.relationships import _work_pointers
 from mnemonic_api.services.work_context import _summary_inputs
 
+from .report_fixtures import reported
+
 
 def collection(project: dict) -> str:
     return f"/api/v1/projects/{project['id']}/work-items"
@@ -133,13 +135,13 @@ def test_gate_request_capability_overlap_attention_resolution_and_replay(
 
     blocked_completion = api.post(
         f"{collection(project)}/{work['id']}/complete",
-        json={"expected_version": 1, "checkpoint": work_payload["initial_checkpoint"]},
+        json=reported({"expected_version": 1, "checkpoint": work_payload["initial_checkpoint"]}),
     )
     assert blocked_completion.status_code == 409
     assert blocked_completion.json()["detail"]["code"] == "work_gated"
     blocked_terminal = api.patch(
         f"{collection(project)}/{work['id']}",
-        json={"expected_version": 1, "status": "wont-do"},
+        json=reported({"expected_version": 1, "status": "wont-do"}, retirement=True),
     )
     assert blocked_terminal.status_code == 409
     assert blocked_terminal.json()["detail"]["code"] == "work_gated"
@@ -831,10 +833,10 @@ def test_gate_request_and_completion_race_has_one_valid_linearized_outcome(
             start.wait(timeout=5)
             return client.post(
                 f"{collection(project)}/{work['id']}/complete",
-                json={
+                json=reported({
                     "expected_version": 1,
                     "checkpoint": work_payload["initial_checkpoint"],
-                },
+                }),
                 headers={"Authorization": authorization},
             )
 
@@ -1294,10 +1296,10 @@ def test_hierarchy_presentation_uses_structural_descendants_and_explicit_discove
     assert claim.status_code == 200, claim.text
     completed = api.post(
         f"{collection(project)}/{grandchild['work_item']['id']}/complete",
-        json={
+        json=reported({
             "expected_version": 1,
             "checkpoint": checkpoint_fields,
-        },
+        }),
     )
     assert completed.status_code == 200, completed.text
 

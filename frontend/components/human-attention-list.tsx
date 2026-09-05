@@ -1,5 +1,6 @@
 "use client";
 
+import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useRef, useState } from "react";
 import HumanGateResolution from "@/components/human-gate-resolution";
 import { SearchBreadcrumb } from "@/components/work-hierarchy";
@@ -115,6 +116,8 @@ export default function HumanAttentionList({
     });
     return () => controller.abort();
   }, [cursor, pageIndex, project?.id, refreshSignal, reload, workItemId]);
+
+  useFailedReadRetry({ scope: `attention:${project?.id}:${workItemId}:${cursor}`, failed: Boolean(loadError), busy: loading, enabled: Boolean(project), retry: () => setReload((value) => value + 1) });
 
   function refreshHead(): void {
     setCursorStack([null]);

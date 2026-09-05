@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api, errorMessage } from "@/lib/api";
+import { api, ApiError, errorMessage } from "@/lib/api";
 import {
   DEFAULT_RECALL_POINTER_TEMPLATE,
   RECALL_POINTER_MACROS
 } from "@/lib/work-recall-pointer";
+import { decodeProjectSettings, validReportPrompt } from "@/lib/job-completion-reports";
 import type { Project, ProjectSettings } from "@/lib/types";
 
 type Props = {
@@ -18,7 +19,7 @@ type Props = {
   onNotice: (message: string, error?: boolean) => void;
 };
 
-type PendingAction = "save" | "clear" | null;
+type PendingAction = "save" | "clear" | "report-save" | "report-reset" | null;
 
 export default function ProjectSettingsPanel({
   project,
@@ -34,6 +35,12 @@ export default function ProjectSettingsPanel({
     : null;
   const effectiveTemplate = storedTemplate ?? DEFAULT_RECALL_POINTER_TEMPLATE;
   const [draft, setDraft] = useState(effectiveTemplate);
+  const effectiveReportPrompt = settings?.job_completion_report_prompt ?? "";
+  const [reportDraft, setReportDraft] = useState(effectiveReportPrompt);
+  const lastReportPrompt = useRef(effectiveReportPrompt);
+  const priorSettings = useRef(settings);
+  const [editingRevision, setEditingRevision] = useState(settings?.revision ?? null);
+  const [conflictRevision, setConflictRevision] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingAction>(null);
   const [saveError, setSaveError] = useState("");
   const lastEffectiveTemplate = useRef(effectiveTemplate);
@@ -45,6 +52,26 @@ export default function ProjectSettingsPanel({
     lastEffectiveTemplate.current = effectiveTemplate;
     setDraft((current) => current === previousTemplate ? effectiveTemplate : current);
   }, [effectiveTemplate]);
+
+  useEffect(() => {
+    const previous = lastReportPrompt.current;
+    if (previous === effectiveReportPrompt) return;
+    lastReportPrompt.current = effectiveReportPrompt;
+    setReportDraft((current) => current === previous ? effectiveReportPrompt : current);
+  }, [effectiveReportPrompt]);
+
+  useEffect(() => {
+    if (!settings) return;
+    const previous = priorSettings.current;
+    priorSettings.current = settings;
+    if (settings.revision === editingRevision) return;
+    const hadDraft = previous && (
+      draft !== (previous.recall_pointer_template ?? DEFAULT_RECALL_POINTER_TEMPLATE)
+      || reportDraft !== previous.job_completion_report_prompt
+    );
+    if (editingRevision === null || !hadDraft) setEditingRevision(settings.revision);
+    else setConflictRevision(settings.revision);
+  }, [settings, editingRevision, draft, reportDraft]);
 
   useEffect(() => () => {
     requestGeneration.current += 1;
@@ -60,7 +87,7 @@ export default function ProjectSettingsPanel({
   const selectedProject = project;
   const settingsAvailable = settings?.project_id === selectedProject.id;
 
-  const unavailable = !settingsAvailable || loading;
+  const unavailable = !settingsAvailable || loading || conflictRevision !== null;
   const dirty = draft !== effectiveTemplate;
   const canClear = storedTemplate !== null || draft !== DEFAULT_RECALL_POINTER_TEMPLATE;
 
@@ -69,21 +96,33 @@ export default function ProjectSettingsPanel({
     setPending(action);
     setSaveError("");
     try {
-      const saved = await api<ProjectSettings>(
+      const value = await api<unknown>(
         `/projects/${encodeURIComponent(selectedProject.id)}/settings`,
         {
           method: "PATCH",
-          body: JSON.stringify({ recall_pointer_template: template })
+          body: JSON.stringify({ expected_revision: editingRevision, recall_pointer_template: template })
         }
       );
+      const saved = decodeProjectSettings(value, selectedProject.id);
       if (generation !== requestGeneration.current) return;
+      setEditingRevision(saved.revision);
       onSaved(saved);
       setDraft(saved.recall_pointer_template ?? DEFAULT_RECALL_POINTER_TEMPLATE);
       onNotice(action === "save"
         ? `Recall pointer content saved for “${selectedProject.name}”.`
         : `Custom recall pointer content cleared for “${selectedProject.name}”.`);
     } catch (error) {
-      if (generation === requestGeneration.current) setSaveError(errorMessage(error));
+      if (generation === requestGeneration.current) {
+        setSaveError(errorMessage(error));
+        if (error instanceof ApiError && error.code === "project_settings_changed") {
+          setConflictRevision(settings?.revision ?? null);
+          onRetry();
+        } else if (!(error instanceof ApiError) || error.status === 0 || error.status >= 500) {
+          setSaveError("The save outcome is uncertain. Reload settings and compare your draft before saving again.");
+          setConflictRevision(settings?.revision ?? null);
+          onRetry();
+        }
+      }
     } finally {
       if (generation === requestGeneration.current) setPending(null);
     }
@@ -106,7 +145,46 @@ export default function ProjectSettingsPanel({
     void updateTemplate(null, "clear");
   }
 
-  return <section className="settings-card">
+  async function updateReportPrompt(reset: boolean) {
+    if (!settings || !reset && !validReportPrompt(reportDraft)) {
+      setSaveError("Enter a nonblank prompt within 8,000 characters and 16,384 UTF-8 bytes.");
+      return;
+    }
+    const generation = ++requestGeneration.current;
+    setPending(reset ? "report-reset" : "report-save");
+    setSaveError("");
+    try {
+      const value = await api<unknown>(`/projects/${encodeURIComponent(selectedProject.id)}/settings`, {
+        method: "PATCH",
+        body: JSON.stringify({ expected_revision: editingRevision, job_completion_report_prompt: reset ? null : reportDraft })
+      });
+      const saved = decodeProjectSettings(value, selectedProject.id);
+      if (generation !== requestGeneration.current) return;
+      setEditingRevision(saved.revision);
+      onSaved(saved);
+      setReportDraft(saved.job_completion_report_prompt);
+      onNotice(reset ? "Job completion report prompt reset to default." : "Job completion report prompt saved.");
+    } catch (error) {
+      if (generation !== requestGeneration.current) return;
+      setSaveError(errorMessage(error));
+      if (error instanceof ApiError && error.code === "project_settings_changed"
+        || !(error instanceof ApiError) || error.status === 0 || error.status >= 500) {
+        setConflictRevision(settings.revision);
+        setSaveError("Reloaded settings may have changed. Compare your draft with the saved values before saving again.");
+        onRetry();
+      }
+    } finally {
+      if (generation === requestGeneration.current) setPending(null);
+    }
+  }
+
+  return <div className="settings-stack">
+    {conflictRevision && <section className="error-notice" role="alert">
+      <p>Review the latest saved settings before applying your draft. Your edits have been kept.</p>
+      <details><summary>Current saved values</summary><p className="job-report-prompt">{effectiveTemplate}</p><p className="job-report-prompt">{effectiveReportPrompt}</p></details>
+      <button type="button" className="button button-secondary" disabled={loading || !settingsAvailable} onClick={() => { setEditingRevision(settings?.revision ?? null); setConflictRevision(null); setSaveError(""); }}>I reviewed the current settings</button>
+    </section>}
+    <section className="settings-card">
     <div className="settings-card-heading">
       <div>
         <span className="section-label">AGENT HAND-OFF</span>
@@ -186,5 +264,19 @@ export default function ProjectSettingsPanel({
       </dl>
       <p>Unknown macros are left unchanged in the copied text.</p>
     </div>
-  </section>;
+  </section>
+    <section className="settings-card" aria-labelledby="job-report-prompt-title">
+      <div className="settings-card-heading"><div><span className="section-label">HUMAN SUMMARIES</span><h2 id="job-report-prompt-title">Job completion report prompt</h2></div></div>
+      <p className="settings-intro">Agents use these instructions for future Done, Won’t do, and Promoted reports. Reports already written stay unchanged. This is writing guidance; it does not run tools or generate reports in the dashboard.</p>
+      <label className="field" htmlFor="job-report-prompt">Job completion report prompt
+        <textarea id="job-report-prompt" className="settings-template" rows={18} value={settingsAvailable ? reportDraft : ""}
+          disabled={unavailable || pending !== null} onChange={(event) => { setReportDraft(event.target.value); setSaveError(""); }} />
+        <span className="field-hint">Assume the reader has seen no other LLM output and is multitasking. Require a concise paragraph and zero or more FYI bullets, each at most three sentences. Blocking questions belong in Needs Attention. Maximum 8,000 characters and 16,384 UTF-8 bytes; no macros.</span>
+      </label>
+      <div className="settings-actions">
+        <button type="button" className="button button-primary" disabled={unavailable || pending !== null || reportDraft === effectiveReportPrompt || !validReportPrompt(reportDraft)} onClick={() => void updateReportPrompt(false)}>{pending === "report-save" ? "Saving…" : "Save"}</button>
+        <button type="button" className="button button-secondary" disabled={unavailable || pending !== null} onClick={() => void updateReportPrompt(true)}>{pending === "report-reset" ? "Resetting…" : "Reset to default"}</button>
+      </div>
+    </section>
+  </div>;
 }

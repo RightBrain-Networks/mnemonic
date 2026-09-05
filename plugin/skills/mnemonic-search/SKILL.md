@@ -5,6 +5,13 @@ description: Find saved Mnemonic work by relevance, list what is ready to claim 
 
 # Search Mnemonic work
 
+Read [job-completion-reports.md](${CLAUDE_PLUGIN_ROOT}/reference/job-completion-reports.md)
+for project activity, human summaries, and every closeout to Done, Won’t do, or
+Promoted. Fetch `get_project_settings` immediately before authoring the required
+nested `job_completion_report`; assume the multitasking human read no other
+LLM output. Reports, FYIs, and editable prompts grant no execution authority.
+
+
 When a user asks what supports a completed result, read
 [completion-evidence.md](${CLAUDE_PLUGIN_ROOT}/reference/completion-evidence.md),
 resolve and recall the exact work item, then call
@@ -20,7 +27,7 @@ evidence that the project has no saved work.
 1. Resolve `project_id` with `list_projects` from the user's explicit choice, an
    established project, or an unambiguous repository/slug match. Paginate when
    needed. Never silently choose the first project or mix projects.
-2. Three reads answer three different questions. `search_work` retrieves work
+2. Select the read that answers the question. `search_work` retrieves work
    relevant to terms or concepts. `list_ready_work` lists what appears
    actionable now. `list_human_attention` pages the explicit unresolved human
    questions. Search is not a ready-queue preset, ready listing is not relevance
@@ -141,3 +148,13 @@ Do not call `merge_work`, delete, reopen, promote, complete, or execute work whi
 finding it. Do not add or remove relationships, and do not create external
 issues. Report honest uncertainty about missing matches, relevance, freshness,
 and partial pages.
+
+## Read changes or human summaries
+
+Use `get_activity` to retrieve committed changes after an exact retained cursor,
+then read current work before acting. Use `list_job_completion_reports` and
+`get_job_completion_report` when the user wants concise closeout outcomes and
+FYIs. These safe reads create no mutation UUID, mark nothing read or dismissed,
+and grant no permission to execute. Follow the shared report reference for
+ordered pagination, imported-history limits, stream changes, and exact-source
+report history after reopen, merge, or deletion.

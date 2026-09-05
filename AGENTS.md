@@ -15,7 +15,8 @@ Backend code, migrations, and tests live under `backend/`; the MCP adapter and t
 - `cd mcp && uv sync --frozen && uv run pytest -q && uv run ruff check . && uv run ty check src/mnemonic_mcp`: verify, lint, and type-check the MCP package.
 - `cd frontend && npm ci --no-audit --no-fund && npm test && npm run typecheck && npm run build`: verify the dashboard. The audit and funding requests only add registry latency to a lockfile install; run `npm audit` on its own when you want advisories.
 - `cd frontend && npm run test:e2e:stack`: provision and run the isolated Playwright acceptance stack.
-- `uv run --project backend python scripts/audit_duplicate_handling.py --backup-directory ./backups`: run the read-only aggregate Phase 11 audit at the final 0019 head from a private environment with database access.
+- `uv run --project backend python scripts/audit_duplicate_handling.py --backup-directory ./backups`: run the read-only Phase 11 preflight before migrating from 0019.
+- `uv run --project backend python scripts/audit_project_activity.py`: run the aggregate Phase 12 integrity audit from a private environment with database access.
 
 Use Python 3.14, `uv`, and Node 24. Keep the backend and MCP virtual environments separate.
 
@@ -77,18 +78,17 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The final Phase 11 compatibility boundary is application/API/MCP `0.6.0`, Claude
-plugin `0.10.0`, and Alembic head `0019_structured_completion_evidence`. Its catalog is
-exactly 28 MCP tools, 11
-receipt-protected MCP writes, 13 REST receipt kinds, and 11 protected browser
-mutations. The suggestion POST is a safe read, not a fourteenth receipt kind.
-Completion evidence is nested only in `complete_work`; do not add a standalone
-evidence mutation. Do not mix older processes with this schema, infer repository
-scope, evidence truth, or merges from historical data, or add projection,
-redirect, coalescing, or compatibility paths.
-
-The current application/API/MCP/dashboard release is `0.7.0`. It retains that
-Phase 11 schema and catalog, with Claude plugin `0.10.0` unchanged.
+The current application/API/MCP/dashboard release is `0.8.0`, Claude plugin
+`0.11.0`, and Alembic head `0021_job_completion_reports`. The catalog is exactly
+32 MCP tools, 11 receipt-protected MCP writes, 15 REST receipt kinds, 13 protected
+browser mutations, 17 work-event types, and three plugin skills. The suggestion
+POST is a safe read. Completion evidence and job completion reports are nested
+only in the existing closeout mutations; do not add standalone agent writes.
+Fresh work starts pending. Every actual Done, Won’t do, or Promoted closeout
+requires a report and operation UUID. Sparse historical requests remain
+parseable exclusively for permanent receipt replay before fresh domain guards.
+Do not run older processes against this schema, infer historical reports, or add
+projection, redirect, coalescing, or compatibility execution paths.
 
 ## Commit & Pull Request Guidelines
 

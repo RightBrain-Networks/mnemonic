@@ -42,7 +42,7 @@ and to reject force pushes and branch deletion. That aggregate status fails
 unless Gitleaks, Ruff, `ty`, backend tests, MCP tests, and frontend checks all
 succeed.
 
-## Backend verification through Phase 11
+## Backend verification through Phase 12
 
 Shared-boundary extension rules are documented in the
 [public validation vocabulary](validation-vocabulary.md),
@@ -378,7 +378,7 @@ Stop the disposable database afterward from the repository root:
 docker compose -f compose.test.yaml down
 ```
 
-## MCP verification through Phase 11
+## MCP verification through Phase 12
 
 Run from `mcp`:
 
@@ -389,7 +389,7 @@ uv run ruff check .
 uv run ty check src/mnemonic_mcp
 ```
 
-The MCP suite verifies the exact 28-tool canonical catalog, strict unknown-field
+The MCP suite verifies the exact 32-tool canonical catalog, strict unknown-field
 rejection, nested checkpoint request bodies, canonical/grouped search hits,
 compact ready results, bounded recall, deterministic checkpoint/event
 pagination, versioned mutation receipts, typed graph and lease behavior, the
@@ -426,16 +426,17 @@ for query and cursor markers. They also pin the tool-description rules to check
 open gates and write supporting context first, never withdraw or self-resolve a
 gate, and restart the attention traversal. HTTP and stdio expose the same 25
 names at that historical Phase 7–8 boundary; Core exposes 26.
-`get_activity`, `resolve_human_input`, and removed hand-off surfaces
-remain absent.
+At that historical boundary, `get_activity`, `resolve_human_input`, and removed
+hand-off surfaces were absent. Phase 12 adds `get_activity`; human resolution
+and removed hand-off surfaces remain absent.
 
 Phase 10 MCP assertions cover omitted and explicit-empty checkpoint input,
 canonical rejection of an explicit-empty response, exact grammar and bounds,
 baseline dependency, order-sensitive request/response coherence, all full
 context/resource/prompt projections, and unchanged compact pointers. Static
 tests also prove the adapter contains no Git, subprocess, checkout, repository,
-or network assessment path. The catalog remains exactly 27 tools and eleven
-protected writes; there is no freshness tool or new receipt kind.
+or network assessment path. At the Phase 10 boundary, the catalog had exactly
+27 tools and eleven protected writes; there is no freshness tool or new receipt kind.
 
 Phase 11 MCP assertions extend only `complete_work` and add the safe
 `list_completion_evidence` read. They consume the repository-level shared
@@ -452,15 +453,26 @@ The Phase 11 catalog is exactly 28 tools and eleven protected writes; there is
 no standalone evidence mutation, resource/prompt evidence expansion, or
 automatic artifact access.
 
-The inner plugin manifest is `0.10.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.10.0` install
-plus a sequential `0.6.1 -> 0.7.0 -> 0.8.0 -> 0.9.0 -> 0.10.0` marketplace update. Use an
+Phase 12 adds `get_activity`, `get_project_settings`,
+`list_job_completion_reports`, and `get_job_completion_report`, keeping exactly
+32 tools and eleven protected writes. Tests cover strict canonical string
+sequences, cursor encoding/scope/order/continuation, per-read byte budgets,
+immutable report ownership and prompt hashes, current review envelopes, and
+sanitized malformed-wire failures. Closeout tests bind authored report text,
+ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
+old receipt replay stays sparse. A report’s insertion time is independent of
+checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
+
+The inner plugin manifest is `0.11.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.11.0` install
+plus a sequential `0.6.1 -> 0.7.0 -> 0.8.0 -> 0.9.0 -> 0.10.0 -> 0.11.0` marketplace update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
 the inventory remains exactly three skills (`mnemonic-save`, `mnemonic-search`,
-and `mnemonic-recall`), four shared references (`authority-and-provenance.md`,
-`completion-evidence.md`, `repository-freshness.md`, and `work-graph.md`), and
+and `mnemonic-recall`), five shared references (`authority-and-provenance.md`,
+`completion-evidence.md`, `job-completion-reports.md`, `repository-freshness.md`,
+and `work-graph.md`), and
 one executable (`mnemonic-repository-freshness`).
 A compatibility copy of the old prerelease schema or workflow is not a valid
 substitute.
@@ -500,7 +512,7 @@ uv run --project backend ruff check \
   scripts/check-stack.py
 ```
 
-## Dashboard verification through Phase 11
+## Dashboard verification through Phase 12
 
 Run from `frontend`:
 
@@ -523,13 +535,13 @@ invalidation, actor request construction, progress composer errors, pagination/
 filtering, and the partial-history notice at desktop and narrow viewports. The
 ready endpoint remains intentionally proxy-denied.
 
-Mutation tests cover all eleven browser writes, one UUID and exact frozen serialized
+Mutation tests cover all thirteen browser writes, one UUID and exact frozen serialized
 body per intent, in-flight coalescing, same-document recovery after component or
 view unmount, exact manual retry after ambiguous outcomes, and a non-discardable
 safety state for key conflicts. Strict per-operation decoders require the
 expected status, exact shape, and path/result coherence before clearing
-recovery. Proxy-policy tests admit the top-level UUID only on those eleven
-routes, including gate resolution and merge, and reject invalid, nested,
+recovery. Proxy-policy tests admit the top-level UUID only on those thirteen
+routes, including gate resolution, merge, report dismissal, and report follow-ups, and reject invalid, nested,
 query/header/cookie, secret-equal, and excluded-route IDs without echoing them.
 Gate creation, lease paths, and token-bearing browser mutations remain denied.
 
@@ -552,7 +564,7 @@ ambiguous retry, stale-review replacement, and current-root refetch after
 success. Since the two-column work library, that merge review is an inline
 panel at the top of the detail pane's Graph tab rather than a dialog; the same
 destination search, eligibility facts, registry intent, and recovery block apply
-there. The browser registry remains exactly eleven kinds and admits no lease
+there. The browser registry contains exactly thirteen kinds and admits no lease
 token.
 
 Advisory Node tests cover exact request construction and strict response
@@ -771,6 +783,36 @@ on port 3000; update the configured origins when changing the port. Browser
 requests always use `/api/mnemonic`; the upstream API address and bearer key
 remain server-only.
 
+## Phase 12 acceptance additions
+
+Current application/API/MCP/dashboard versions are `0.8.0`, plugin is `0.11.0`,
+and Alembic head is `0021_job_completion_reports`. Validate all surfaces together
+with the existing regression suites. Historical Phase 11 downgrade/catalog tests
+must seed valid historical shapes with offline SQL at 0019; never run current
+application writers against an older schema or strip reports from fresh receipts.
+
+Backend checks cover fresh and populated upgrades through 0020/0021, typed
+activity coverage, per-project ordering and stream changes, all three closeout
+seals, settings compare-and-set, report cursor snapshots, repeat dismissal,
+dual-provenance pending follow-ups, and exact receipt replay. Test direct SQL
+invariants, rollback at every aggregate step, races, bounded contention and
+privacy, populated audits, and preservation after restore/rebootstrap.
+
+Browser acceptance covers Summaries immediately below Needs Attention, its
+count/list/detail, standalone report prose and FYIs, dismissal, independent
+manual follow-ups, current prompt editing at `/settings`, and all three
+closeout editors. Retain exact report drafts and UUIDs across ambiguous results,
+block conflicting actions for their full scope, and recover once in the correct
+pane or global area. Prove activity polling/reconnect catches external writes
+without resetting in-flight human drafts; count, visibility and focus should
+converge. Keep commands, report text, and project prompts inert.
+
+The existing Phase 11 baseline below remains historical evidence. Phase 12
+release completion additionally requires the new audit, read/write checker,
+full current backend/MCP/frontend suites, and independent cold code reviews.
+See [project activity and reports](project-activity-and-reports.md) for the wire
+contracts and [operations](operations.md) for target-environment cutover.
+
 ## Full running-stack check
 
 After starting current images with:
@@ -785,16 +827,17 @@ Run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 28-tool
+Read-only mode verifies REST/MCP health, authentication, the exact 32-tool
 catalog, the exact eleven protected schemas and annotations, the absence of an MCP
 resolution tool, REST-backed project listing, the dashboard proxy's host/origin
-boundary, server-side key isolation, and the shipped WOFF2 font assets. It does
+boundary, server-side key isolation, settings/activity/report read contracts, and the
+shipped WOFF2 font assets. It does
 not create, gate, edit, relate, claim, append events, resolve, complete, or
 delete records.
 
 Writes require the explicit `--project-id` opt-in. Run this only against a
 disposable stack or an explicitly authorized project. Use a dedicated validation project whose contents
-may safely include five synthetic, soft-deleted records:
+may safely retain synthetic reports, receipts, merge facts, and soft-deleted records:
 
 ```sh
 uv run --project mcp python scripts/check-stack.py \
@@ -816,7 +859,7 @@ The write path performs the combined canonical lifecycle:
 1. prepares and retains one UUID plus exact arguments for every protected call,
    deliberately discards the first create result, and recovers the original IDs
    through exact same-key replay without duplicate events;
-2. proves the exact-title suggestion group through the 27th safe-read tool with
+2. proves the exact-title suggestion group through the safe suggestion tool with
    no version/event effect or prompt exposure, then proves canonical/grouped
    search with exact matched-member identity, bounded recall, resource/prompt
    behavior, and request-known credential/capability rejection;
@@ -875,10 +918,16 @@ Add `--other-project-id` to prove the new ID cannot be read through a second
 project. Do not pass either project option without authorization to write in the
 named project. Prefer a disposable full stack for automated write-path checks.
 
-## Phase 11 implementation and deployment gates
+The Phase 12 write path also fetches current settings before authored closeouts,
+checks the exact stored reports for Done/Won’t do/Promoted, dismisses with
+same-key replay and new-key natural no-op, manually creates a pending follow-up
+with both provenance links, and verifies exact activity entries through cursor
+catch-up. It proves report retrieval after the source work is soft-deleted.
 
-The coordinated repository implementation is incomplete until all of these
-pass together:
+## Historical Phase 11 implementation and deployment gates
+
+The following checklist records the Phase 11 baseline. Its historical version
+and catalog values do not supersede the Phase 12 boundary above:
 
 1. `pre-commit run --all-files` and the full backend suite against isolated
    PostgreSQL with no database skips, followed by backend Ruff and `ty`;
@@ -937,14 +986,14 @@ Do not treat a focused suite, PostgreSQL-skipped run, read-only smoke, helper
 suite backed only by a version-reporting wrapper, or marketplace refresh by
 itself as a Phase 11 implementation result. Repository completion requires the
 isolated database/E2E/security lanes, full pre-commit, and cold adversarial
-review. It must not be described as deployment approval. When operators do
-deploy, application/API/MCP/dashboard `0.7.0`, plugin `0.10.0`, migration
-`0019_structured_completion_evidence`, and the operational guidance form one
+review. It must not be described as deployment approval. At the prior deployment boundary,
+application/API/MCP/dashboard `0.7.0`, plugin `0.10.0`, migration
+`0019_structured_completion_evidence`, and the operational guidance formed one
 compatible boundary. Once Phase 11 state exists, 0.5.x first-party clients are
 unsupported; add no projection shim, legacy model union, receipt rewrite,
 standalone evidence write, or old-backend bridge.
 
-## Manual browser pass through Phase 11
+## Manual browser pass through Phase 12
 
 Exercise project empty state and switching, root browsing, lazy child expansion,
 subtree-aware filters, flat-search breadcrumbs, Pending/Active/Dropped/Deferred

@@ -1,3 +1,4 @@
+import { fillFixtureReport } from "./job-report-fixture";
 import { readFile } from "node:fs/promises";
 import { expect, request as playwrightRequest, test, type Locator, type Page } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
@@ -657,7 +658,8 @@ test("one work item groups immutable checkpoints through its full dashboard life
 
   context = await openTab(pane, "Context");
   await context.getByLabel("Checkpoint text").fill(completion);
-  await context.getByRole("button", { name: "Complete with summary" }).click();
+  await fillFixtureReport(context);
+  await context.getByRole("button", { name: "Complete work" }).click();
   await expect(pane.locator(".detail-identity > .status-badge")).toHaveText(/Done/);
   history = await openTab(pane, "History");
   await expect(history.locator("article.checkpoint")).toHaveCount(4);

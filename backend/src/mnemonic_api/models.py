@@ -18,6 +18,7 @@ from sqlalchemy import (
     MetaData,
     SmallInteger,
     String,
+    Table,
     Text,
     UniqueConstraint,
     func,
@@ -25,6 +26,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from mnemonic_api import phase12_db_tables as phase12
 
 # The work lifecycle vocabulary. WorkItem's status_valid check constraint is the
 # database guard for the same five values.
@@ -60,10 +63,15 @@ class Project(Base):
 
 
 class ProjectSettings(Base):
-    """Optional project-local dashboard behavior overrides."""
+    """Independent project configuration with a compare-and-set revision."""
 
     __tablename__ = "project_settings"
     __table_args__ = (
+        CheckConstraint("revision > 0", name="revision_positive"),
+        CheckConstraint(
+            "mnemonic_job_report_text_valid_v1(job_completion_report_prompt, 8000, 16384, true)",
+            name="report_prompt_valid",
+        ),
         CheckConstraint(
             "mnemonic_has_non_whitespace(recall_pointer_template)",
             name="recall_pointer_template_nonblank",
@@ -75,9 +83,11 @@ class ProjectSettings(Base):
     )
 
     project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("projects.id", ondelete="RESTRICT"), primary_key=True
     )
-    recall_pointer_template: Mapped[str] = mapped_column(Text)
+    recall_pointer_template: Mapped[str | None] = mapped_column(Text)
+    job_completion_report_prompt: Mapped[str] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column(BigInteger, default=1, server_default="1")
 
 
 class ClientOperation(Base):
@@ -107,7 +117,8 @@ class ClientOperation(Base):
             "operation_kind IN ('create_work', 'add_checkpoint', 'append_event', "
             "'add_relationship', 'update_work', 'defer_work', 'complete_work', "
             "'delete_work', 'remove_relationship', 'release_claim', "
-            "'request_human_input', 'resolve_human_input', 'merge_work')",
+            "'request_human_input', 'resolve_human_input', 'merge_work', "
+            "'dismiss_job_completion_report', 'create_job_completion_report_follow_up')",
             name="operation_kind_valid",
         ),
         CheckConstraint(
@@ -226,6 +237,7 @@ class WorkItem(Base):
     priority: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
     initial_checkpoint_id: Mapped[UUID] = mapped_column()
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    last_reportable_closeout_version: Mapped[int | None] = mapped_column(Integer)
     completion_generation: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -973,6 +985,16 @@ class WorkEvent(Base):
 
     __tablename__ = "work_events"
     __table_args__ = (
+        UniqueConstraint("project_id", "work_item_id", "id", name="uq_work_events_project_work_id"),
+        UniqueConstraint("project_id", "work_item_id", "id", "job_completion_report_id",
+                         name="uq_work_events_report_owner"),
+        ForeignKeyConstraint(
+            ["project_id", "work_item_id", "job_completion_report_id", "id"],
+            ["job_completion_reports.project_id", "job_completion_reports.work_item_id",
+             "job_completion_reports.id", "job_completion_reports.closeout_event_id"],
+            name="fk_work_events_job_report", ondelete="RESTRICT", deferrable=True,
+            initially="DEFERRED", use_alter=True,
+        ),
         CheckConstraint(
             "event_type IN ('work_created', 'work_updated', 'work_status_changed', "
             "'work_reopened', 'work_claimed', 'work_released', 'checkpoint_added', "
@@ -1315,6 +1337,7 @@ class WorkEvent(Base):
     gate_id: Mapped[UUID | None] = mapped_column()
     created_for_duplicate_merge_id: Mapped[UUID | None] = mapped_column()
     work_duplicate_merge_id: Mapped[UUID | None] = mapped_column()
+    job_completion_report_id: Mapped[UUID | None] = mapped_column()
     reopen_generation: Mapped[int | None] = mapped_column(BigInteger)
     metadata_version: Mapped[int] = mapped_column(SmallInteger, default=1, server_default="1")
     event_metadata: Mapped[dict[str, Any]] = mapped_column(
@@ -1324,3 +1347,91 @@ class WorkEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.clock_timestamp()
     )
+
+
+class ProjectActivityHead(Base):
+    __table__ = Table("project_activity_heads", Base.metadata, *phase12.activity_head_elements())
+
+    project_id: Mapped[UUID]
+    stream_id: Mapped[UUID]
+    last_sequence: Mapped[int]
+    historical_through_sequence: Mapped[int]
+
+
+class ProjectActivity(Base):
+    __table__ = Table("project_activity", Base.metadata, *phase12.activity_elements())
+
+    project_id: Mapped[UUID]
+    sequence: Mapped[int]
+    kind: Mapped[str]
+    work_event_id: Mapped[int | None]
+    work_item_id: Mapped[UUID | None]
+    job_completion_report_id: Mapped[UUID | None]
+    human_dismissal_id: Mapped[UUID | None]
+    follow_up_id: Mapped[UUID | None]
+    settings_revision: Mapped[int | None]
+    lease_generation_id: Mapped[UUID | None]
+    recorded_at: Mapped[datetime]
+    origin: Mapped[str]
+
+
+class JobCompletionReport(Base):
+    __table__ = Table("job_completion_reports", Base.metadata, *phase12.report_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    work_item_id: Mapped[UUID]
+    closeout_event_id: Mapped[int]
+    closeout_work_version: Mapped[int]
+    closeout_status: Mapped[str]
+    completion_checkpoint_id: Mapped[UUID | None]
+    work_title_at_closeout: Mapped[str]
+    summary: Mapped[str]
+    fyi_items: Mapped[list[str]]
+    prompt_revision: Mapped[int]
+    prompt_sha256: Mapped[str]
+    prompt_text: Mapped[str]
+    created_at: Mapped[datetime]
+    actor_client: Mapped[str]
+    actor_session_id: Mapped[str]
+    actor_model: Mapped[str | None]
+
+
+class JobCompletionReportReview(Base):
+    __table__ = Table("job_completion_report_reviews", Base.metadata, *phase12.review_elements())
+
+    report_id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    work_item_id: Mapped[UUID]
+    created_sequence: Mapped[int]
+    dismissal_id: Mapped[UUID | None]
+    dismissed_at: Mapped[datetime | None]
+    dismissal_actor_client: Mapped[str | None]
+    dismissal_actor_session_id: Mapped[str | None]
+    dismissal_actor_model: Mapped[str | None]
+    follow_up_count: Mapped[int]
+
+
+class ProjectJobCompletionReportCount(Base):
+    __table__ = Table("project_job_completion_report_counts", Base.metadata,
+                      *phase12.report_count_elements())
+
+    project_id: Mapped[UUID]
+    undismissed_count: Mapped[int]
+
+
+class JobCompletionReportFollowUp(Base):
+    __table__ = Table(
+        "job_completion_report_follow_ups", Base.metadata, *phase12.follow_up_elements()
+    )
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    report_id: Mapped[UUID]
+    source_work_item_id: Mapped[UUID]
+    follow_up_work_item_id: Mapped[UUID]
+    created_sequence: Mapped[int]
+    created_at: Mapped[datetime]
+    actor_client: Mapped[str]
+    actor_session_id: Mapped[str]
+    actor_model: Mapped[str | None]

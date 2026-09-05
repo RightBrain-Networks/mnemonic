@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import ApplicationError
 from mnemonic_api.models import WorkGate
+from mnemonic_api.phase12_schemas import JobCompletionReportInput
 from mnemonic_api.schemas import (
     CheckpointCreate,
     CompletionCheckpointCreate,
@@ -313,12 +314,17 @@ def terminal_work(
     action: str,
 ) -> object:
     work = require_work_item(database, project_id, work_item_id, lock=True)
+    # This direct service test models the receipt-reserved domain context.
+    database.info["client_operation_keyed"] = True
+    report = JobCompletionReportInput(summary="This test work reached its stated closeout.",
+                                      fyi_items=[], prompt_revision="1")
     if action == "complete":
         return complete_work_record(
             database,
             work,
             expected_version=1,
             payload=completion_payload(work_payload, action),
+            job_completion_report=report,
         )
     if action in {"wont-do", "promoted"}:
         update_work_record(
@@ -328,6 +334,7 @@ def terminal_work(
                 expected_version=1,
                 status=action,
                 actor=actor(action),
+                job_completion_report=report,
             ),
         )
         return work
@@ -839,7 +846,7 @@ def test_reviewed_revision_b_is_rejected_after_locked_revision_c_then_fresh_c_su
         ) == 1
 
 
-def test_unrelated_progress_commits_while_focal_gate_work_is_contended(
+def test_same_project_progress_waits_for_commit_with_focal_gate_work(
     api: TestClient,
     project: dict,
     work_payload: dict,
@@ -871,24 +878,20 @@ def test_unrelated_progress_commits_while_focal_gate_work_is_contended(
                 waiter_pid=focal_pid,
                 future=focal_future,
             )
-            unrelated_future, _ = launch_operation(
+            unrelated_future, unrelated_pid = launch_operation(
                 executor,
                 postgres_engine,
                 lambda database: progress_work(
                     database, project_id, unrelated_id, "during-contention"
                 ),
             )
-            unrelated_outcome = unrelated_future.result(timeout=5)
-            assert unrelated_outcome.succeeded
-            with postgres_engine.connect() as observer:
-                assert observer.scalar(
-                    text(
-                        "SELECT count(*) FROM work_events "
-                        "WHERE work_item_id = :work_item_id AND event_type = 'progress'"
-                    ),
-                    {"work_item_id": unrelated_id},
-                ) == 1
+            wait_until_blocked(
+                postgres_engine, holder_pid=holder_pid, waiter_pid=unrelated_pid,
+                future=unrelated_future,
+            )
             transaction.commit()
+            unrelated_outcome = unrelated_future.result(timeout=10)
+            assert unrelated_outcome.succeeded
             focal_outcome = focal_future.result(timeout=10)
 
     assert focal_outcome.succeeded
