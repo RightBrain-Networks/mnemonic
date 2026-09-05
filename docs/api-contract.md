@@ -890,7 +890,10 @@ completion episode newest first, including pre-0019/evidence-free episodes with
 empty arrays. `structured_completion_total` counts episodes having at least one
 child; `total` counts every episode at the stable first-page high-water mark.
 The current checkpoint pointer is non-null only for visible canonical work that
-is presently `done`. An exact alias retains its own history and separately names
+is presently `done` and owns a completion episode. Work completed before
+`0010_work_events` has no episode at all, so the pointer is `null` and `items`
+is empty while `lifecycle_status` stays `done`; that is a complete answer, not
+an error. An exact alias retains its own history and separately names
 its canonical continuation; no redirect or history blending occurs. Soft-deleted
 work is concealed from this ordinary read while its evidence rows remain intact
 for receipt recovery and operator audit.

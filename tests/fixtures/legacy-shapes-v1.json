@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "purpose": "Row shapes only superseded code could have written, replayed through the whole migration chain.",
+  "shapes": [
+    {
+      "name": "done-before-the-event-timeline",
+      "staged_at": "0009_ready_work_indexes",
+      "history": "Completing work wrote no completion checkpoint before 0010. Migration 0010 derives work_completed strictly from completion checkpoints, so it reconstructs work_created for this item and deliberately invents no completion. No constraint in the chain ever tied done to a completion event, so this reached Phase 11 as a done item with no episode at all.",
+      "identifiers": ["project_id", "work_id", "checkpoint_id"],
+      "statements": [
+        "INSERT INTO projects (id, name, slug) VALUES (CAST(:project_id AS uuid), 'Legacy timeline project', 'legacy-timeline-project')",
+        "INSERT INTO work_items (id, project_id, title, summary, status, initial_checkpoint_id, version) VALUES (CAST(:work_id AS uuid), CAST(:project_id AS uuid), 'Decided before events existed', 'Completed while the timeline did not yet exist', 'done', CAST(:checkpoint_id AS uuid), 3)",
+        "INSERT INTO checkpoints (id, work_item_id, kind, prompt, source_client, source_session_id) VALUES (CAST(:checkpoint_id AS uuid), CAST(:work_id AS uuid), 'context', 'Historical prompt text, preserved exactly.', 'legacy-client', 'legacy-session')"
+      ],
+      "expectations": [
+        {
+          "description": "the completion survives as done rather than being rewritten or dropped",
+          "sql": "SELECT count(*) FROM work_items WHERE id = CAST(:work_id AS uuid) AND status = 'done'",
+          "equals": 1
+        },
+        {
+          "description": "no completion event is invented for it",
+          "sql": "SELECT count(*) FROM work_events WHERE work_item_id = CAST(:work_id AS uuid) AND event_type = 'work_completed'",
+          "equals": 0
+        },
+        {
+          "description": "it carries generation 0, the value meaning no completion episode",
+          "sql": "SELECT completion_generation FROM work_items WHERE id = CAST(:work_id AS uuid)",
+          "equals": 0
+        },
+        {
+          "description": "its only checkpoint keeps its exact historical prompt",
+          "sql": "SELECT prompt FROM checkpoints WHERE id = CAST(:checkpoint_id AS uuid)",
+          "equals": "Historical prompt text, preserved exactly."
+        },
+        {
+          "description": "0010 still reconstructs the one fact it can prove",
+          "sql": "SELECT count(*) FROM work_events WHERE work_item_id = CAST(:work_id AS uuid) AND event_type = 'work_created' AND origin = 'backfill'",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "name": "completion-checkpoint-before-the-event-timeline",
+      "staged_at": "0009_ready_work_indexes",
+      "history": "The control case for the shape above. This completion did leave a completion checkpoint, so 0010 can prove it and does backfill the matching work_completed event. Phase 11 must build a real episode here, which is what keeps the legacy exemption narrow.",
+      "identifiers": ["project_id", "work_id", "checkpoint_id", "completion_id"],
+      "statements": [
+        "INSERT INTO projects (id, name, slug) VALUES (CAST(:project_id AS uuid), 'Provable completion project', 'provable-completion-project')",
+        "INSERT INTO work_items (id, project_id, title, summary, status, initial_checkpoint_id, version) VALUES (CAST(:work_id AS uuid), CAST(:project_id AS uuid), 'Completed with a completion checkpoint', 'Its completion is provable from stored evidence', 'done', CAST(:checkpoint_id AS uuid), 2)",
+        "INSERT INTO checkpoints (id, work_item_id, kind, prompt, source_client, source_session_id) VALUES (CAST(:checkpoint_id AS uuid), CAST(:work_id AS uuid), 'context', 'The original hand-off prompt.', 'legacy-client', 'legacy-session')",
+        "INSERT INTO checkpoints (id, work_item_id, kind, prompt, source_client, source_session_id) VALUES (CAST(:completion_id AS uuid), CAST(:work_id AS uuid), 'completion', 'The completion summary as it was written.', 'legacy-client', 'legacy-session')"
+      ],
+      "expectations": [
+        {
+          "description": "0010 backfills exactly the completion event it can prove",
+          "sql": "SELECT count(*) FROM work_events WHERE work_item_id = CAST(:work_id AS uuid) AND event_type = 'work_completed' AND checkpoint_id = CAST(:completion_id AS uuid)",
+          "equals": 1
+        },
+        {
+          "description": "a provable completion gets a real episode, never generation 0",
+          "sql": "SELECT count(*) FROM work_items WHERE id = CAST(:work_id AS uuid) AND completion_generation < 0",
+          "equals": 1
+        },
+        {
+          "description": "the completion checkpoint and the work item agree on that generation",
+          "sql": "SELECT count(*) FROM work_items AS work JOIN checkpoints AS checkpoint ON checkpoint.work_item_id = work.id AND checkpoint.kind = 'completion' WHERE work.id = CAST(:work_id AS uuid) AND checkpoint.completion_generation = work.completion_generation",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "name": "open-and-abandoned-before-the-status-rename",
+      "staged_at": "0009_ready_work_indexes",
+      "history": "Before 0012 the lifecycle spelled unstarted work 'open' and had no 'deferred'. Terminal non-done statuses never carried completion evidence, so Phase 11 must carry them forward untouched at generation 0.",
+      "identifiers": ["project_id", "open_work_id", "open_checkpoint_id", "abandoned_work_id", "abandoned_checkpoint_id"],
+      "statements": [
+        "INSERT INTO projects (id, name, slug) VALUES (CAST(:project_id AS uuid), 'Status rename project', 'status-rename-project')",
+        "INSERT INTO work_items (id, project_id, title, summary, status, initial_checkpoint_id, version) VALUES (CAST(:open_work_id AS uuid), CAST(:project_id AS uuid), 'Still open when the rename landed', 'Unstarted work spelled the old way', 'open', CAST(:open_checkpoint_id AS uuid), 1)",
+        "INSERT INTO checkpoints (id, work_item_id, kind, prompt, source_client, source_session_id) VALUES (CAST(:open_checkpoint_id AS uuid), CAST(:open_work_id AS uuid), 'context', 'An open hand-off from before the rename.', 'legacy-client', 'legacy-session')",
+        "INSERT INTO work_items (id, project_id, title, summary, status, initial_checkpoint_id, version) VALUES (CAST(:abandoned_work_id AS uuid), CAST(:project_id AS uuid), 'Abandoned before events existed', 'Terminal without ever being completed', 'wont-do', CAST(:abandoned_checkpoint_id AS uuid), 2)",
+        "INSERT INTO checkpoints (id, work_item_id, kind, prompt, source_client, source_session_id) VALUES (CAST(:abandoned_checkpoint_id AS uuid), CAST(:abandoned_work_id AS uuid), 'context', 'An abandoned hand-off from before the rename.', 'legacy-client', 'legacy-session')"
+      ],
+      "expectations": [
+        {
+          "description": "0012 renames open to pending rather than dropping the row",
+          "sql": "SELECT count(*) FROM work_items WHERE id = CAST(:open_work_id AS uuid) AND status = 'pending'",
+          "equals": 1
+        },
+        {
+          "description": "an abandoned item keeps its terminal status",
+          "sql": "SELECT count(*) FROM work_items WHERE id = CAST(:abandoned_work_id AS uuid) AND status = 'wont-do'",
+          "equals": 1
+        },
+        {
+          "description": "neither carries a completion episode",
+          "sql": "SELECT count(*) FROM work_items WHERE id IN (CAST(:open_work_id AS uuid), CAST(:abandoned_work_id AS uuid)) AND completion_generation = 0",
+          "equals": 2
+        }
+      ]
+    }
+  ]
+}

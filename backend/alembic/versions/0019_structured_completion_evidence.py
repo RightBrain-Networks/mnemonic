@@ -138,168 +138,219 @@ def _lock_upgrade_relations(schema: str) -> None:
         op.execute(f"LOCK TABLE {schema}.{relation} IN ACCESS EXCLUSIVE MODE")
 
 
-def _require_clean_0018_history(schema: str) -> None:
-    bind = op.get_bind()
-    invalid = bind.scalar(
-        sa.text(
-            f"""
-            SELECT EXISTS (
-                SELECT 1
-                FROM {schema}.checkpoints AS checkpoint
-                LEFT JOIN {schema}.work_events AS event
-                  ON event.work_item_id = checkpoint.work_item_id
-                 AND event.checkpoint_id = checkpoint.id
-                 AND event.event_type = 'work_completed'
-                WHERE checkpoint.kind = 'completion'
-                GROUP BY checkpoint.work_item_id, checkpoint.id
-                HAVING pg_catalog.count(event.id) <> 1
-            ) OR EXISTS (
-                SELECT 1
-                FROM {schema}.work_events AS event
-                LEFT JOIN {schema}.checkpoints AS checkpoint
-                  ON checkpoint.work_item_id = event.work_item_id
-                 AND checkpoint.id = event.checkpoint_id
-                 AND checkpoint.kind = 'completion'
-                WHERE event.event_type = 'work_completed'
-                  AND checkpoint.id IS NULL
-            ) OR EXISTS (
-                SELECT 1
-                FROM {schema}.work_items AS work
-                WHERE work.status = 'done'
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM {schema}.work_events AS event
-                      WHERE event.work_item_id = work.id
-                        AND event.event_type = 'work_completed'
-                  )
-            ) OR EXISTS (
-                SELECT 1
-                FROM {schema}.work_events
-                WHERE event_type IN ('work_completed', 'work_reopened')
-                  AND (id < 1 OR id > {_EVENT_ID_MAX})
-            )
-            """
-        )
-    )
-    if invalid:
-        raise RuntimeError("0019 preflight found invalid completion or reopen history")
+def _legacy_eventless_completion(schema: str, work_alias: str) -> str:
+    """SQL for a completion that predates the event timeline entirely.
 
-    # The caller holds client_operations ACCESS EXCLUSIVE, so this exact
-    # non-null expression-key check cannot race the unique index created below.
-    duplicate_completion_receipt = bind.scalar(
-        sa.text(
-            f"""
-            SELECT EXISTS (
-                SELECT 1
-                FROM {schema}.client_operations AS operation
-                WHERE operation.operation_kind = 'complete_work'
-                  AND operation.state = 'completed'
-                  AND operation.response_body #>> '{{checkpoint,id}}' IS NOT NULL
-                  AND operation.response_body #>> '{{work_item,id}}' IS NOT NULL
-                GROUP BY operation.response_body #>> '{{checkpoint,id}}',
-                         operation.response_body #>> '{{work_item,id}}'
-                HAVING pg_catalog.count(*) > 1
-            )
-            """
-        )
-    )
-    if duplicate_completion_receipt:
-        raise RuntimeError(
-            "0019 preflight found duplicate completion receipt correspondence"
-        )
+    Migration 0010 introduced ``work_events`` and derived ``work_completed``
+    strictly from ``completion`` checkpoints, deliberately reconstructing only
+    provable facts rather than inventing a completion it could not witness.  A
+    work item completed before 0010 therefore arrives here as ``done`` with no
+    completion checkpoint and no completion event -- no episode at all, and
+    nothing 0018 ever promised otherwise: no constraint or trigger in the chain
+    ties ``done`` to a completion event.
 
-    order_invalid = bind.scalar(
-        sa.text(
+    Phase 11 carries such an item forward unchanged at generation 0, the same
+    value a never-completed item holds, and every episode rule skips it.  A
+    ``done`` item that does own a completion checkpoint is a different matter
+    entirely: a missing or duplicated event for it is a real integrity fault,
+    and ``completion_checkpoint_event_pairing`` below still fails closed on it.
+
+    Because generation 0 marks the absence of an episode, and a reopen witness
+    may not carry generation 0, these items cannot be reopened after Phase 11.
+    They stay exactly as history recorded them.
+    """
+
+    return f"""
+        NOT EXISTS (
+            SELECT 1
+            FROM {schema}.checkpoints AS legacy_checkpoint
+            WHERE legacy_checkpoint.work_item_id = {work_alias}.id
+              AND legacy_checkpoint.kind = 'completion'
+        )
+        AND NOT EXISTS (
+            SELECT 1
+            FROM {schema}.work_events AS legacy_event
+            WHERE legacy_event.work_item_id = {work_alias}.id
+              AND legacy_event.event_type = 'work_completed'
+        )
+    """
+
+
+def _preflight_conditions(schema: str) -> tuple[tuple[str, str], ...]:
+    """Every 0018 history condition 0019 refuses to migrate, each named.
+
+    One condition per entry, never a disjunction: an operator reading the
+    failure has to learn which rows to look at, and a single message covering
+    several unrelated conditions tells them only that something, somewhere, is
+    wrong.  ``test_legacy_shape_migration_postgres.py`` seeds each condition
+    and asserts its own name comes back.
+    """
+
+    return (
+        (
+            "completion_checkpoint_event_pairing",
+            f"""
+            SELECT 1
+            FROM {schema}.checkpoints AS checkpoint
+            LEFT JOIN {schema}.work_events AS event
+              ON event.work_item_id = checkpoint.work_item_id
+             AND event.checkpoint_id = checkpoint.id
+             AND event.event_type = 'work_completed'
+            WHERE checkpoint.kind = 'completion'
+            GROUP BY checkpoint.work_item_id, checkpoint.id
+            HAVING pg_catalog.count(event.id) <> 1
+            """,
+        ),
+        (
+            "completion_event_without_checkpoint",
+            f"""
+            SELECT 1
+            FROM {schema}.work_events AS event
+            LEFT JOIN {schema}.checkpoints AS checkpoint
+              ON checkpoint.work_item_id = event.work_item_id
+             AND checkpoint.id = event.checkpoint_id
+             AND checkpoint.kind = 'completion'
+            WHERE event.event_type = 'work_completed'
+              AND checkpoint.id IS NULL
+            """,
+        ),
+        (
+            "done_work_without_completion_event",
+            f"""
+            SELECT 1
+            FROM {schema}.work_items AS work
+            WHERE work.status = 'done'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM {schema}.work_events AS event
+                  WHERE event.work_item_id = work.id
+                    AND event.event_type = 'work_completed'
+              )
+              AND NOT ({_legacy_eventless_completion(schema, "work")})
+            """,
+        ),
+        (
+            "completion_event_id_out_of_range",
+            f"""
+            SELECT 1
+            FROM {schema}.work_events
+            WHERE event_type IN ('work_completed', 'work_reopened')
+              AND (id < 1 OR id > {_EVENT_ID_MAX})
+            """,
+        ),
+        (
+            # The caller holds client_operations ACCESS EXCLUSIVE, so this exact
+            # non-null expression-key check cannot race the unique index created
+            # below.
+            "duplicate_completion_receipt_correspondence",
+            f"""
+            SELECT 1
+            FROM {schema}.client_operations AS operation
+            WHERE operation.operation_kind = 'complete_work'
+              AND operation.state = 'completed'
+              AND operation.response_body #>> '{{checkpoint,id}}' IS NOT NULL
+              AND operation.response_body #>> '{{work_item,id}}' IS NOT NULL
+            GROUP BY operation.response_body #>> '{{checkpoint,id}}',
+                     operation.response_body #>> '{{work_item,id}}'
+            HAVING pg_catalog.count(*) > 1
+            """,
+        ),
+        (
+            "live_completion_version_ordering",
             f"""
             WITH live_completion AS (
-                SELECT event.id,
-                       event.work_item_id,
-                       CASE
-                           WHEN pg_catalog.jsonb_typeof(event.metadata -> 'work_version')
-                                = 'number'
-                            AND event.metadata ->> 'work_version' ~ '^[1-9][0-9]*$'
-                            AND pg_catalog.length(
-                                    event.metadata ->> 'work_version'
-                                ) <= 19
-                           THEN CASE
-                               WHEN (event.metadata ->> 'work_version')::numeric
-                                        <= 9223372036854775807
-                               THEN (event.metadata ->> 'work_version')::bigint
-                           END
-                       END AS work_version,
-                       pg_catalog.lag(event.id) OVER (
-                           PARTITION BY event.work_item_id ORDER BY event.id
-                       ) AS prior_id,
-                       pg_catalog.lag(
-                           CASE
-                               WHEN pg_catalog.jsonb_typeof(
-                                        event.metadata -> 'work_version'
-                                    ) = 'number'
-                                AND event.metadata ->> 'work_version' ~ '^[1-9][0-9]*$'
-                                AND pg_catalog.length(
-                                        event.metadata ->> 'work_version'
-                                    ) <= 19
-                               THEN CASE
-                                   WHEN (event.metadata ->> 'work_version')::numeric
-                                            <= 9223372036854775807
-                                   THEN (event.metadata ->> 'work_version')::bigint
-                               END
-                           END
-                       ) OVER (
-                           PARTITION BY event.work_item_id ORDER BY event.id
-                       ) AS prior_version
-                FROM {schema}.work_events AS event
-                WHERE event.event_type = 'work_completed'
-                  AND event.origin = 'live'
-            ), current_done AS (
-                SELECT DISTINCT ON (event.work_item_id)
-                       event.work_item_id,
-                       work.version,
-                       CASE
-                           WHEN event.origin = 'live'
-                            AND pg_catalog.jsonb_typeof(
-                                    event.metadata -> 'work_version'
-                                ) = 'number'
-                            AND event.metadata ->> 'work_version' ~ '^[1-9][0-9]*$'
-                            AND pg_catalog.length(
-                                    event.metadata ->> 'work_version'
-                                ) <= 19
-                           THEN CASE
-                               WHEN (event.metadata ->> 'work_version')::numeric
-                                        <= 9223372036854775807
-                               THEN (event.metadata ->> 'work_version')::bigint
-                           END
-                       END AS completion_version
-                FROM {schema}.work_events AS event
-                JOIN {schema}.work_items AS work ON work.id = event.work_item_id
-                WHERE event.event_type = 'work_completed'
-                  AND work.status = 'done'
-                ORDER BY event.work_item_id, event.id DESC
+                {_completion_version_order(schema)}
             )
-            SELECT EXISTS (
-                SELECT 1 FROM live_completion
-                WHERE work_version IS NULL
-                   OR (prior_id IS NOT NULL AND work_version <= prior_version)
-            ) OR EXISTS (
-                SELECT 1
-                FROM {schema}.work_events AS live
-                JOIN {schema}.work_events AS backfill
-                  ON backfill.work_item_id = live.work_item_id
-                 AND backfill.event_type = 'work_completed'
-                 AND backfill.origin = 'backfill'
-                WHERE live.event_type = 'work_completed'
-                  AND live.origin = 'live'
-                  AND live.id <= backfill.id
-            ) OR EXISTS (
-                SELECT 1 FROM current_done
-                WHERE completion_version IS NOT NULL
-                  AND completion_version > version
+            SELECT 1 FROM live_completion
+            WHERE work_version IS NULL
+               OR (prior_id IS NOT NULL AND work_version <= prior_version)
+            """,
+        ),
+        (
+            "live_completion_precedes_backfill",
+            f"""
+            SELECT 1
+            FROM {schema}.work_events AS live
+            JOIN {schema}.work_events AS backfill
+              ON backfill.work_item_id = live.work_item_id
+             AND backfill.event_type = 'work_completed'
+             AND backfill.origin = 'backfill'
+            WHERE live.event_type = 'work_completed'
+              AND live.origin = 'live'
+              AND live.id <= backfill.id
+            """,
+        ),
+        (
+            "completion_version_exceeds_work_version",
+            f"""
+            WITH current_done AS (
+                {_current_done_completion_version(schema)}
             )
-            """
-        )
+            SELECT 1 FROM current_done
+            WHERE completion_version IS NOT NULL
+              AND completion_version > version
+            """,
+        ),
     )
-    if order_invalid:
-        raise RuntimeError("0019 preflight found invalid completion event ordering")
+
+
+def _bounded_work_version(expression: str) -> str:
+    """Read a positive, representable ``work_version`` out of event metadata."""
+
+    return f"""
+        CASE
+            WHEN pg_catalog.jsonb_typeof({expression} -> 'work_version') = 'number'
+             AND {expression} ->> 'work_version' ~ '^[1-9][0-9]*$'
+             AND pg_catalog.length({expression} ->> 'work_version') <= 19
+            THEN CASE
+                WHEN ({expression} ->> 'work_version')::numeric
+                         <= 9223372036854775807
+                THEN ({expression} ->> 'work_version')::bigint
+            END
+        END
+    """
+
+
+def _completion_version_order(schema: str) -> str:
+    version = _bounded_work_version("event.metadata")
+    return f"""
+        SELECT event.id,
+               event.work_item_id,
+               {version} AS work_version,
+               pg_catalog.lag(event.id) OVER (
+                   PARTITION BY event.work_item_id ORDER BY event.id
+               ) AS prior_id,
+               pg_catalog.lag({version}) OVER (
+                   PARTITION BY event.work_item_id ORDER BY event.id
+               ) AS prior_version
+        FROM {schema}.work_events AS event
+        WHERE event.event_type = 'work_completed'
+          AND event.origin = 'live'
+    """
+
+
+def _current_done_completion_version(schema: str) -> str:
+    version = _bounded_work_version("event.metadata")
+    return f"""
+        SELECT DISTINCT ON (event.work_item_id)
+               event.work_item_id,
+               work.version,
+               CASE
+                   WHEN event.origin = 'live' THEN {version}
+               END AS completion_version
+        FROM {schema}.work_events AS event
+        JOIN {schema}.work_items AS work ON work.id = event.work_item_id
+        WHERE event.event_type = 'work_completed'
+          AND work.status = 'done'
+        ORDER BY event.work_item_id, event.id DESC
+    """
+
+
+def _require_clean_0018_history(schema: str) -> None:
+    bind = op.get_bind()
+    for name, condition in _preflight_conditions(schema):
+        if bind.scalar(sa.text(f"SELECT EXISTS ({condition})")):
+            raise RuntimeError(f"0019 preflight rejected 0018 history: {name}")
 
 
 def _trigger_snapshot(schema: str) -> dict[tuple[str, str], tuple[str, str]]:
@@ -350,13 +401,20 @@ def _backfill_generations(schema: str) -> None:
             f"""
             UPDATE {schema}.work_items AS work
             SET completion_generation = CASE
-                WHEN work.status = 'done' THEN (
-                    SELECT -event.id
-                    FROM {schema}.work_events AS event
-                    WHERE event.work_item_id = work.id
-                      AND event.event_type = 'work_completed'
-                    ORDER BY event.id DESC
-                    LIMIT 1
+                WHEN work.status = 'done' THEN COALESCE(
+                    (
+                        SELECT -event.id
+                        FROM {schema}.work_events AS event
+                        WHERE event.work_item_id = work.id
+                          AND event.event_type = 'work_completed'
+                        ORDER BY event.id DESC
+                        LIMIT 1
+                    ),
+                    -- A completion predating the event timeline owns no
+                    -- episode, so it carries generation 0 like work that was
+                    -- never completed.  The preflight has already proved this
+                    -- is the legacy shape and not a missing event.
+                    0
                 )
                 ELSE 0
             END
@@ -2195,6 +2253,7 @@ def _advance_work_event_sequence(schema: str) -> None:
 
 
 def _validate_upgraded_history(schema: str) -> None:
+    legacy_eventless_completion = _legacy_eventless_completion(schema, "work")
     invalid = op.get_bind().scalar(
         sa.text(
             f"""
@@ -2324,6 +2383,7 @@ def _validate_upgraded_history(schema: str) -> None:
                              AND completion.completion_generation
                                     = work.completion_generation
                        )
+                       AND NOT ({legacy_eventless_completion})
                    )
                    OR (
                        work.status = 'done'

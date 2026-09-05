@@ -426,6 +426,29 @@ def _episode_reads(
     return items
 
 
+def _has_completion_history(database: Session, work_item_id: UUID) -> bool:
+    """Whether this work holds any completion fact at all.
+
+    A missing current pointer is corruption when either half of a completion
+    survives, and merely history when neither does.
+    """
+
+    return bool(
+        database.scalar(
+            select(
+                exists().where(
+                    Checkpoint.work_item_id == work_item_id,
+                    Checkpoint.kind == "completion",
+                )
+                | exists().where(
+                    WorkEvent.work_item_id == work_item_id,
+                    WorkEvent.event_type == "work_completed",
+                )
+            )
+        )
+    )
+
+
 def completion_evidence_page(
     database: Session,
     project_id: UUID,
@@ -577,9 +600,16 @@ def completion_evidence_page(
                 .limit(2)
             )
         )
-        if len(current_checkpoint_ids) != 1:
+        if len(current_checkpoint_ids) == 1:
+            current_checkpoint_id = current_checkpoint_ids[0]
+        elif current_checkpoint_ids or _has_completion_history(database, work_item_id):
+            # More than one current checkpoint is always corruption, and so is
+            # none while the item does hold completion history.  Work completed
+            # before 0010 introduced the event timeline holds none at all: 0010
+            # derives completion events strictly from completion checkpoints and
+            # refuses to invent one, so the item owns no episode and there is no
+            # pointer to resolve.  Absent is the honest answer for it.
             raise completion_evidence_unavailable()
-        current_checkpoint_id = current_checkpoint_ids[0]
 
     next_cursor = None
     if has_next and as_of is not None and rows:

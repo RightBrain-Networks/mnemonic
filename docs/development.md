@@ -292,7 +292,20 @@ The Phase 11 additions verify:
   regressions freeze the Phase 11 vocabulary checks; and
 - the real archive rehearsal and catalog tests prove all 18 Phase 11 functions
   retain their `PUBLIC EXECUTE` revocations and both evidence relations retain
-  effective owner-only privileges after restore.
+  effective owner-only privileges after restore; and
+- `tests/test_legacy_shape_migration_postgres.py` stages the row shapes only
+  superseded code could write, at the revision that could write them, and runs
+  the whole chain over each. Every other migration test starts from an empty
+  schema or populates one through the current services, so it can only produce
+  head-shaped rows; this suite is the one that presents the deployed database's
+  actual history. It also proves each 0019 preflight condition is separately
+  named and independently executable, so a refusal identifies the rows to look
+  at instead of reporting that something, somewhere, is wrong.
+
+Add a shape to `tests/fixtures/legacy-shapes-v1.json` whenever one is
+discovered. A migration that cannot accept a shape that corpus stages is a
+migration that cannot accept the deployed database, and a route that cannot
+serve one has only moved the same assumption upstack.
 
 For a focused Phase 10 backend iteration, run from `backend` with the real test
 database configured; the complete suite remains the release gate:
@@ -300,6 +313,7 @@ database configured; the complete suite remains the release gate:
 ```sh
 uv run pytest -q \
   tests/test_repository_freshness_migration_postgres.py \
+  tests/test_legacy_shape_migration_postgres.py \
   tests/test_validation.py \
   tests/test_client_operations.py \
   tests/test_work_items_postgres.py \
