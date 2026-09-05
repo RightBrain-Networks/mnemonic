@@ -24,7 +24,7 @@ from mnemonic_api.services.client_operations import (
     request_fingerprint,
 )
 
-from .conftest import BACKEND_DIR, recreate_disposable_schema
+from .conftest import BACKEND_DIR, reset_disposable_schema
 
 pytestmark = pytest.mark.postgres
 
@@ -46,7 +46,7 @@ _ALLOWED_OPERATION_KINDS = (
 
 @pytest.fixture(autouse=True)
 def reset_phase78_rows(postgres_engine: Engine) -> Iterator[None]:
-    recreate_disposable_schema(postgres_engine)
+    reset_disposable_schema(postgres_engine)
     yield
 
 
