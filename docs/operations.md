@@ -174,6 +174,17 @@ serve only 0.5-compatible binaries and fix forward or restore the complete
 database with matching binaries. There is no force option, metadata shadow copy,
 old-backend bridge, response projection shim, or receipt rewrite.
 
+Migration `0019_structured_completion_evidence` refuses to upgrade on any
+condition it cannot migrate, and names the one it found: a failure reads
+`0019 preflight rejected 0018 history: <condition>`, so the refusal identifies
+which rows to inspect. It deliberately accepts one historical shape. Work
+completed before `0010_work_events` owns no completion checkpoint and therefore
+no completion event, because `0010` reconstructs only provable facts; such an
+item carries no completion episode, migrates unchanged at generation 0, and
+reads back with a null current completion pointer and no episodes. It cannot be
+reopened afterwards. A `done` item that does own a completion checkpoint whose
+event is missing or duplicated is a real fault and still stops the upgrade.
+
 Migration `0019_structured_completion_evidence` has a broader guarded
 downgrade. It can return to 0018 only while both evidence tables are empty,
 every retained completion/reopen episode satisfies the reversible chronology,

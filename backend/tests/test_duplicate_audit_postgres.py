@@ -256,7 +256,7 @@ def test_phase11_upgrade_preflight_rejects_duplicate_receipt_key_without_ddl(
 
             with pytest.raises(
                 RuntimeError,
-                match="duplicate completion receipt correspondence",
+                match="duplicate_completion_receipt_correspondence",
             ) as raised:
                 command.upgrade(config, "0019_structured_completion_evidence")
 

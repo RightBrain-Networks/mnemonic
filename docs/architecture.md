@@ -461,6 +461,18 @@ retained `work_completed` events and receive deterministic negative generation
 identities; every evidence table begins empty. No historical prompt, metadata,
 event, receipt body, version, time, or identifier is rewritten.
 
+Work completed before `0010_work_events` introduced the timeline reaches this
+migration with no completion checkpoint and therefore no completion event:
+`0010` derives completion events strictly from completion checkpoints and
+refuses to invent one it cannot witness, and no constraint in the chain ever
+tied `done` to a completion event. Such an item owns no completion episode. It
+migrates unchanged at `completion_generation` 0 -- the same value work that was
+never completed carries -- and every episode rule skips it. Because a reopen
+witness may not carry generation 0, these items cannot be reopened; they stay
+exactly as history recorded them. A `done` item that does own a completion
+checkpoint is a different matter: a missing or duplicated event for it is a real
+integrity fault and still fails closed.
+
 Database constraints cover strict vocabularies, string and byte bounds,
 type-dependent command/exit-code and artifact-reference grammars, family
 position uniqueness, same-project ownership, and duplicate artifact identities.

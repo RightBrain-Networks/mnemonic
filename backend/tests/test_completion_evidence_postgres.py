@@ -3910,7 +3910,7 @@ def test_phase11_upgrade_preflight_rejects_oversized_work_version_without_overfl
     completed = _complete(api, project, work, 1, "oversized-upgrade-version")
     assert completed.status_code == 200, completed.text
 
-    with pytest.raises(RuntimeError, match="invalid completion event ordering"):
+    with pytest.raises(RuntimeError, match="live_completion_version_ordering"):
         with postgres_engine.begin() as connection:
             config = _alembic_config(connection)
             command.downgrade(config, "0018_repository_freshness")

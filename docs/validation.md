@@ -1,5 +1,42 @@
 # Mnemonic validation record
 
+## Legacy eventless completions accepted by 0019 — 2026-09-05
+
+This checkpoint records a production defect found and fixed on the deployed
+stack at `/srv/mnemonic`. It claims no new release, backup, or cutover.
+
+- **The deployed API crash-looped on start-up**, because it runs
+  `alembic upgrade head` before `uvicorn` and migration `0019` refused the
+  database. `mcp`, `web`, and `backup` all wait on `api: service_healthy` and
+  so never started; PostgreSQL stayed healthy throughout and no data was lost.
+- **The cause was two work items completed on 2026-08-31, before `0010`
+  introduced the event timeline.** Each holds only a `context` checkpoint and a
+  single backfilled `work_created` event, so `0010` -- which derives
+  `work_completed` strictly from completion checkpoints -- correctly invented
+  no completion for them. The `0019` preflight nevertheless required every
+  `done` item to own a `work_completed` event, an invariant no constraint or
+  trigger in the chain establishes. Running the four preflight conditions
+  separately against the live database showed exactly one violated, with 0
+  violations on the other three.
+- **A copy of the production database was migrated to `0019` with the fix.**
+  Restored from a 1,683,767-byte custom-format dump at head
+  `0018_repository_freshness`, it reached `0019` and preserved all 123 work
+  items with unchanged statuses (92 `done`, 15 `pending`, 8 `deferred`, 8
+  `wont-do`), all 264 checkpoints, and all 557 events. The two legacy
+  completions carry `completion_generation` 0; the other 90 completions
+  received real negative generations. The same copy at head `0018` reproduced
+  the original refusal at the identical line.
+- **The API served both legacy items from the migrated copy.** Their
+  completion-evidence reads returned 200 with a null current pointer and no
+  episodes, where the unfixed route answered 503; a normally completed item
+  still resolved its exact pointer and episode.
+- **The complete backend suite passed 1,107 tests against PostgreSQL 17;
+  backend Ruff and whole-source `ty` passed.** That count includes the eight
+  new legacy-shape migration tests. Both new gates were confirmed to fail
+  against the unfixed code before the fix was restored: the migration gate
+  reported `0019 preflight rejected 0018 history:
+  done_work_without_completion_event`, and the route gate reported 503.
+
 ## Phase 11 structured completion evidence implementation — 2026-09-04
 
 This checkpoint covers application/API/MCP/dashboard `0.6.0`, plugin
