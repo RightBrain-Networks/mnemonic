@@ -1,5 +1,9 @@
 "use client";
 
+import WorkReportProvenance from "@/components/work-report-provenance";
+import JobReportEditor from "@/components/job-report-editor";
+import type { JobReportDraft } from "@/lib/job-completion-reports";
+
 import {
   useLayoutEffect,
   useRef,
@@ -128,6 +132,8 @@ export type WorkDetailPaneProps = {
   checkpointAffectedPathsError: string;
   checkpointTags: string;
   checkpointSaving: boolean;
+  jobReportDraft: JobReportDraft;
+  onJobReportDraft: (draft: JobReportDraft) => void;
   completionEvidenceDraft: CompletionEvidenceDraft;
   completionEvidenceIssues: readonly CompletionEvidenceIssue[];
   evidenceRefreshSignal: number;
@@ -219,7 +225,7 @@ function DuplicateAuditPanel({
 function ContextTab({ context, isDuplicate, props }: { context: WorkContext; isDuplicate: boolean; props: WorkDetailPaneProps }) {
   if (props.mode === "edit" && props.editDraft && !isDuplicate) {
     return <div className="detail-edit">
-      <WorkItemEditor work={context.work_item} draft={props.editDraft} setDraft={props.setEditDraft} saving={props.editSaving} blocked={props.mutationBlocked} gated={context.readiness.is_gated} error={props.editError} conflict={props.conflict} onSubmit={props.onSaveEdits} onCancel={props.onCancelEdit} onLoadCurrent={props.onLoadCurrent} onUseCurrentVersion={props.onUseCurrentVersion} />
+      <WorkItemEditor jobReportDraft={props.jobReportDraft} onJobReportDraft={props.onJobReportDraft} work={context.work_item} draft={props.editDraft} setDraft={props.setEditDraft} saving={props.editSaving} blocked={props.mutationBlocked} gated={context.readiness.is_gated} error={props.editError} conflict={props.conflict} onSubmit={props.onSaveEdits} onCancel={props.onCancelEdit} onLoadCurrent={props.onLoadCurrent} onUseCurrentVersion={props.onUseCurrentVersion} />
     </div>;
   }
   const current = currentContext(context);
@@ -241,8 +247,9 @@ function ContextTab({ context, isDuplicate, props }: { context: WorkContext; isD
         <label className="field">Checkpoint kind<select value={props.checkpointKind} disabled={immutable} onChange={(event) => props.onCheckpointKind(event.target.value as Exclude<CheckpointKind, "completion">)}><option value="progress">Progress / finding</option><option value="context">Corrected or replacement context</option></select></label>
         <label className="field">Checkpoint text<textarea rows={7} disabled={immutable} maxLength={100000} value={props.checkpointBody} onChange={(event) => props.onCheckpointBody(event.target.value)} placeholder="What changed, what was learned, hazards, evidence, and useful next steps…" /><span className="field-hint">The text is stored exactly and cannot be edited or deleted.</span></label>
         <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input disabled={props.mutationBlocked} maxLength={200} value={props.checkpointBranch} onChange={(event) => props.onCheckpointBranch(event.target.value)} /></label><label className="field">Caller-asserted baseline commit<input className="mono" disabled={props.mutationBlocked} maxLength={64} value={props.checkpointCommit} onChange={(event) => props.onCheckpointCommit(event.target.value)} /></label><AffectedPathsEditor disabled={props.mutationBlocked} value={props.checkpointAffectedPaths} error={props.checkpointAffectedPathsError} onChange={props.onCheckpointAffectedPaths} /><label className="field">Tags <span className="optional">Comma separated</span><input disabled={props.mutationBlocked} value={props.checkpointTags} onChange={(event) => props.onCheckpointTags(event.target.value)} /></label></div></details>
+        {context.work_item.status === "pending" && <JobReportEditor projectId={context.work_item.project_id} draft={props.jobReportDraft} onChange={props.onJobReportDraft} disabled={props.checkpointSaving || immutable} />}
         {context.work_item.status === "pending" && <details className="edit-context completion-evidence-disclosure">
-          <summary>Completion evidence <span className="optional">Optional · used only by Complete with summary</span></summary>
+          <summary>Completion evidence <span className="optional">Optional · used only by Complete work</span></summary>
           <CompletionEvidenceEditor
             draft={props.completionEvidenceDraft}
             issues={props.completionEvidenceIssues}
@@ -251,7 +258,7 @@ function ContextTab({ context, isDuplicate, props }: { context: WorkContext; isD
           />
         </details>}
         {props.checkpointActionError && <div className="error-notice" role="alert"><p>{props.checkpointActionError}</p></div>}
-        <div className="comment-actions"><button type="submit" className="button button-secondary" disabled={props.checkpointSaving || props.mutationBlocked || !props.checkpointBody.trim()}>{props.checkpointSaving ? "Saving…" : "Add checkpoint"}</button>{context.work_item.status === "pending" && <button type="button" className="button button-primary" title={completionExplanation ?? undefined} aria-describedby={completionExplanation ? completionExplanationId : undefined} disabled={props.checkpointSaving || terminalActionDisabled(context.readiness, props.mutationBlocked, "completion") || !props.checkpointBody.trim()} onClick={props.onComplete}>{props.checkpointSaving ? "Saving…" : "Complete with summary"}<Icon name="check" size={16} /></button>}{context.work_item.status === "pending" && completionExplanation && <p className="terminal-action-note" id={completionExplanationId}>{completionExplanation}</p>}</div>
+        <div className="comment-actions"><button type="submit" className="button button-secondary" disabled={props.checkpointSaving || props.mutationBlocked || !props.checkpointBody.trim()}>{props.checkpointSaving ? "Saving…" : "Add checkpoint"}</button>{context.work_item.status === "pending" && <button type="button" className="button button-primary" title={completionExplanation ?? undefined} aria-describedby={completionExplanation ? completionExplanationId : undefined} disabled={props.checkpointSaving || terminalActionDisabled(context.readiness, props.mutationBlocked, "completion") || props.jobReportDraft.promptRevision === null || !props.checkpointBody.trim()} onClick={props.onComplete}>{props.checkpointSaving ? "Saving…" : "Complete work"}<Icon name="check" size={16} /></button>}{context.work_item.status === "pending" && completionExplanation && <p className="terminal-action-note" id={completionExplanationId}>{completionExplanation}</p>}</div>
       </form>
     </section>}
   </>;
@@ -263,6 +270,7 @@ function TabBody({ context, isDuplicate, props }: { context: WorkContext; isDupl
       return <ContextTab context={context} isDuplicate={isDuplicate} props={props} />;
     case "history":
       return <>
+        <WorkReportProvenance projectId={context.work_item.project_id} workItemId={context.work_item.id} refreshSignal={props.eventRefreshSignal} onOpenWork={props.onOpenCanonical} />
         <CheckpointTimeline page={props.checkpointPage} offset={props.checkpointOffset} currentCheckpointId={currentContext(context).id} loading={props.checkpointLoading} error={props.checkpointLoadError} onOffset={props.onCheckpointOffset} onReload={props.onReloadCheckpoints} />
         <section className="context-section"><div className="section-label">WORK RECORD</div><dl className="metadata-grid"><div><dt>Created</dt><dd>{formatDateTime(context.work_item.created_at)}</dd></div><div><dt>Last activity</dt><dd>{formatDateTime(context.work_item.updated_at)}</dd></div><div><dt>Checkpoints</dt><dd>{context.checkpoint_total}</dd></div><div><dt>Omitted from bounded recall</dt><dd>{context.omitted_checkpoint_count}</dd></div><div className="span-two"><dt>Work item ID</dt><dd className="mono break-all">{context.work_item.id}</dd></div></dl></section>
       </>;

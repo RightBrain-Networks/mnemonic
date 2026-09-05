@@ -1,5 +1,6 @@
 "use client";
 
+import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, errorMessage, workItemPath } from "@/lib/api";
 import { decodeWorkSearchPage } from "@/lib/duplicate-handling";
@@ -228,6 +229,8 @@ export function useWorkQueuePages({
   const error = failure?.viewKey === viewKey ? failure.message : "";
   const appendError = appendFailure?.viewKey === viewKey ? appendFailure.message : "";
   const total = visible?.total ?? null;
+  useFailedReadRetry({ scope: `queue:${viewKey}`, failed: Boolean(error), busy: fetching, enabled, retry });
+  useFailedReadRetry({ scope: `queue-append:${viewKey}`, failed: Boolean(appendError), busy: appending || fetching, enabled, retry: retryAppend });
   return {
     viewKey,
     flatSearch,

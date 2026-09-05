@@ -1,3 +1,4 @@
+import { fillFixtureReport } from "./job-report-fixture";
 import { readFile } from "node:fs/promises";
 import {
   expect,
@@ -145,7 +146,8 @@ test("browser creates, displays, appends, completes, and refreshes declared scop
       .click();
     await context.getByLabel("Caller-asserted baseline commit").fill(baseline);
     await context.getByLabel(/Declared affected paths/).fill(completionPaths.join("\n"));
-    await context.getByRole("button", { name: "Complete with summary" }).click();
+    await fillFixtureReport(context);
+    await context.getByRole("button", { name: "Complete work" }).click();
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText(/Done/);
     const completionBody = mutationBodies.at(-1) as {
       checkpoint?: { affected_paths?: unknown };

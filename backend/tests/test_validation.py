@@ -30,12 +30,9 @@ from mnemonic_api.schemas import (
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SCOPE_CORPUS = json.loads(
-    (
-        REPOSITORY_ROOT
-        / "tests"
-        / "fixtures"
-        / "repository-freshness-scope-v1.json"
-    ).read_text(encoding="utf-8")
+    (REPOSITORY_ROOT / "tests" / "fixtures" / "repository-freshness-scope-v1.json").read_text(
+        encoding="utf-8"
+    )
 )
 
 
@@ -136,9 +133,7 @@ def test_affected_paths_empty_is_unknown_and_canonically_omitted_at_every_nestin
     assert "affected_paths" not in work.model_dump(mode="json")["initial_checkpoint"]
 
     historical_read = CheckpointRead.model_validate(checkpoint_read_payload())
-    explicit_empty_read = CheckpointRead.model_validate(
-        checkpoint_read_payload(affected_paths=[])
-    )
+    explicit_empty_read = CheckpointRead.model_validate(checkpoint_read_payload(affected_paths=[]))
     assert historical_read.affected_paths == explicit_empty_read.affected_paths == []
     assert "affected_paths" not in explicit_empty_read.model_dump(mode="json")
 
@@ -239,9 +234,7 @@ def test_nonempty_affected_paths_require_a_baseline_on_inputs_and_reads():
             }
         )
     with pytest.raises(ValidationError):
-        CheckpointRead.model_validate(
-            checkpoint_read_payload(affected_paths=["src/**"])
-        )
+        CheckpointRead.model_validate(checkpoint_read_payload(affected_paths=["src/**"]))
 
 
 def test_shared_repository_scope_corpus_matches_backend_validator():
@@ -253,9 +246,7 @@ def test_shared_repository_scope_corpus_matches_backend_validator():
         "verified_against": "abcdef1",
     }
     for path in SCOPE_CORPUS["valid_paths"]:
-        parsed = InitialCheckpointCreate.model_validate(
-            {**base, "affected_paths": [path]}
-        )
+        parsed = InitialCheckpointCreate.model_validate({**base, "affected_paths": [path]})
         assert parsed.affected_paths == [path]
     for path in SCOPE_CORPUS["invalid_paths"]:
         with pytest.raises(ValidationError):
@@ -263,23 +254,20 @@ def test_shared_repository_scope_corpus_matches_backend_validator():
 
     for case in SCOPE_CORPUS["generated_scopes"]:
         paths = generated_scope(case)
-        assert sum(len(path.encode("ascii")) for path in paths) == int(
-            case["expected_total_bytes"]
-        )
+        assert sum(len(path.encode("ascii")) for path in paths) == int(case["expected_total_bytes"])
         if case["valid"]:
-            assert InitialCheckpointCreate.model_validate(
-                {**base, "affected_paths": paths}
-            ).affected_paths == paths
-        else:
-            with pytest.raises(ValidationError):
+            assert (
                 InitialCheckpointCreate.model_validate(
                     {**base, "affected_paths": paths}
-                )
+                ).affected_paths
+                == paths
+            )
+        else:
+            with pytest.raises(ValidationError):
+                InitialCheckpointCreate.model_validate({**base, "affected_paths": paths})
     for case in SCOPE_CORPUS["literal_scopes"]:
         with pytest.raises(ValidationError):
-            InitialCheckpointCreate.model_validate(
-                {**base, "affected_paths": case["paths"]}
-            )
+            InitialCheckpointCreate.model_validate({**base, "affected_paths": case["paths"]})
 
     supported = set(SCOPE_CORPUS["component_characters"])
     for codepoint in range(128):
@@ -291,9 +279,7 @@ def test_shared_repository_scope_corpus_matches_backend_validator():
             ).affected_paths == [path]
         else:
             with pytest.raises(ValidationError):
-                InitialCheckpointCreate.model_validate(
-                    {**base, "affected_paths": [path]}
-                )
+                InitialCheckpointCreate.model_validate({**base, "affected_paths": [path]})
 
     with pytest.raises(ValidationError, match="verified_against"):
         InitialCheckpointCreate.model_validate(
@@ -520,9 +506,14 @@ def test_project_patch_rejects_invalid_edits(payload):
 
 def test_project_settings_patch_is_exact_nullable_and_bounded():
     template = "  Recall $WORK_ITEM_TITLE.\r\nKeep this spacing.\t "
-    parsed = ProjectSettingsPatch(recall_pointer_template=template)
+    parsed = ProjectSettingsPatch(expected_revision="1", recall_pointer_template=template)
     assert parsed.recall_pointer_template == template
-    assert ProjectSettingsPatch(recall_pointer_template=None).recall_pointer_template is None
+    assert (
+        ProjectSettingsPatch(
+            expected_revision="1", recall_pointer_template=None
+        ).recall_pointer_template
+        is None
+    )
 
     for payload in [
         {},
@@ -533,7 +524,7 @@ def test_project_settings_patch_is_exact_nullable_and_bounded():
         {"recall_pointer_template": "valid", "unknown": "field"},
     ]:
         with pytest.raises(ValidationError):
-            ProjectSettingsPatch.model_validate(payload)
+            ProjectSettingsPatch.model_validate({"expected_revision": "1", **payload})
 
 
 def test_project_settings_validation_location_is_public():
@@ -756,10 +747,7 @@ def test_unauthenticated_rest_bodies_are_rejected_before_parsing(body: bytes):
         database_url="postgresql://localhost:1/unavailable",
         api_key="x" * 32,
     )
-    path = (
-        "/api/v1/projects/00000000-0000-0000-0000-000000000001/"
-        "work-items"
-    )
+    path = "/api/v1/projects/00000000-0000-0000-0000-000000000001/work-items"
 
     with TestClient(create_app(settings)) as client:
         response = client.post(

@@ -385,12 +385,13 @@ def assemble_work_context(
                 FROM adjacent_rows AS adjacent
             )
             SELECT
-                to_jsonb(w)
-                    - 'deleted_at'
-                    - 'search_vector'
-                    - 'completion_generation'
-                    - 'current_checkpoint_id'
-                    - 'current_relationship_event_count'
+                jsonb_build_object(
+                    'id', w.id, 'project_id', w.project_id,
+                    'title', w.title, 'summary', w.summary,
+                    'status', w.status, 'priority', w.priority,
+                    'initial_checkpoint_id', w.initial_checkpoint_id,
+                    'version', w.version, 'created_at', w.created_at, 'updated_at', w.updated_at
+                )
                     AS work_item,
                 jsonb_build_object(
                     'work_version', w.version,

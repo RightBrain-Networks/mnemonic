@@ -4,6 +4,8 @@ import {
 } from "./completion-evidence.ts";
 import type { CompletionEvidencePage } from "./types.ts";
 
+import { readBoundedJson } from "./bounded-json.ts";
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code?: string;
@@ -184,13 +186,18 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new ApiError("Cannot reach Mnemonic. Check that the application is running, then try again.", 0);
   }
+  const phase12 = /\/(activity|job-completion-reports|report-follow-ups|settings)(?:[/?]|$)/.test(path);
+  const maximumBytes = path.includes("/activity") ? 524_288
+    : /job-completion-reports\/count(?:\?|$)/.test(path) ? 1_024
+      : /job-completion-reports(?:\?|$)/.test(path) ? 2_097_152
+        : path.includes("/settings") ? 1_048_576 : 262_144;
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({})) as { detail?: unknown };
+    const payload = await (phase12 ? readBoundedJson(response, maximumBytes) : response.json()).catch(() => ({})) as { detail?: unknown };
     const detail = detailMessage(payload.detail);
     throw new ApiError(detail.message, response.status, detail.code);
   }
   if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  return (phase12 ? readBoundedJson(response, maximumBytes) : response.json()) as Promise<T>;
 }
 
 export async function completionEvidenceApi(

@@ -399,12 +399,18 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
         source = database.get(
             WorkItem,
             merge.source_work_item_id,
-            options=(defer(WorkItem.completion_generation),),
+            options=(
+                defer(WorkItem.completion_generation),
+                defer(WorkItem.last_reportable_closeout_version),
+            ),
         )
         destination = database.get(
             WorkItem,
             merge.destination_work_item_id,
-            options=(defer(WorkItem.completion_generation),),
+            options=(
+                defer(WorkItem.completion_generation),
+                defer(WorkItem.last_reportable_closeout_version),
+            ),
         )
         relationship = database.get(WorkRelationship, merge.duplicate_relationship_id)
         assert source is not None
@@ -412,13 +418,13 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
         assert relationship is not None
         relationship_events = database.scalars(
             select(WorkEvent)
-            .options(defer(WorkEvent.reopen_generation))
+            .options(defer(WorkEvent.reopen_generation), defer(WorkEvent.job_completion_report_id))
             .where(WorkEvent.created_for_duplicate_merge_id == merge_id)
             .order_by(WorkEvent.id)
         ).all()
         merge_events = database.scalars(
             select(WorkEvent)
-            .options(defer(WorkEvent.reopen_generation))
+            .options(defer(WorkEvent.reopen_generation), defer(WorkEvent.job_completion_report_id))
             .where(WorkEvent.work_duplicate_merge_id == merge_id)
             .order_by(WorkEvent.id)
         ).all()
@@ -1112,10 +1118,15 @@ def test_0018_populated_upgrade_preserves_all_prior_facts_and_receipts():
             assert connection.scalar(
                 text(
                     """
-                    SELECT count(*)
-                    FROM pg_indexes
-                    WHERE schemaname = current_schema()
-                      AND indexdef ILIKE '%affected_paths%'
+                    WITH scoped_indexes AS MATERIALIZED (
+                        SELECT indexrelid
+                        FROM pg_index
+                        JOIN pg_class relation ON relation.oid = indrelid
+                        JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+                        WHERE namespace.nspname = current_schema()
+                    )
+                    SELECT count(*) FROM scoped_indexes
+                    WHERE pg_get_indexdef(indexrelid) ILIKE '%affected_paths%'
                     """
                 )
             ) == 0

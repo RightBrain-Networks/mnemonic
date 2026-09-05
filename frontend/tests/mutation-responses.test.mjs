@@ -325,7 +325,7 @@ test("completion response binds authoritative evidence IDs, parents, positions, 
   assert.equal((await classify(oldSpec, 200, value)).type, "unresolved");
 });
 
-test("Core exposes exactly eleven closed browser mutation kinds", () => {
+test("Core exposes exactly thirteen closed browser mutation kinds", () => {
   assert.deepEqual(MUTATION_KINDS, [
     "create_work",
     "add_checkpoint",
@@ -337,7 +337,9 @@ test("Core exposes exactly eleven closed browser mutation kinds", () => {
     "delete_work",
     "remove_relationship",
     "resolve_human_input",
-    "merge_work"
+    "merge_work",
+    "dismiss_job_completion_report",
+    "create_job_completion_report_follow_up"
   ]);
 });
 

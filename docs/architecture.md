@@ -1,8 +1,24 @@
-# Mnemonic architecture through Phase 11
+# Mnemonic architecture through Phase 12
 
-This architecture describes application/API/MCP `0.7.0`, Claude plugin `0.10.0`,
-and Alembic head `0019_structured_completion_evidence`. The longer-term
+This architecture describes application/API/MCP `0.8.0`, Claude plugin `0.11.0`,
+and Alembic head `0021_job_completion_reports`. The longer-term
 direction and later-phase boundaries are in [`roadmap.md`](roadmap.md).
+
+## Phase 12 integration
+
+[Project activity and human reports](project-activity-and-reports.md) describes
+the current contracts. `project_reports` routes compose bounded journal/report
+services; the database produces transactional per-project activity. All fresh
+mutation paths use `project_mutation` after permanent receipt replay to enforce
+project-first ordering and one bounded domain budget.
+
+Reports are immutable closeout facts, separate from work identity, technical
+checkpoints, evidence, and current human review state. A maintained review row
+and partial indexes support the undismissed inbox; a project counter gives an
+exact badge without scanning dismissed history. Follow-up associations retain
+report/source/new-work identities without introducing a new work-graph edge.
+Settings have independent nullable recall content and effective nonblank report
+prompt fields under one compare-and-set revision. No LLM runs in the server.
 
 ## Product model
 
@@ -22,6 +38,11 @@ flowchart LR
     Completion --> Verification[Verification results]
     Completion --> Artifact[Artifact references]
     WorkItem --> Event[Immutable event timeline]
+    Event --> Activity[Commit-ordered project activity]
+    WorkItem --> Report[Immutable human closeout report]
+    Report --> Review[Human dismissal state]
+    Report --> FollowUp[Pending follow-up provenance]
+    Report -. current inbox .-> Summaries[Summaries]
     WorkItem --> Gate[Immutable human gate]
     Gate -. unresolved .-> Attention[Needs Attention queue]
     WorkItem -. derived snapshot .-> Ready[Ready-work query]
@@ -259,9 +280,10 @@ The MCP service is a typed HTTP adapter. Its eleven protected mutation tools
 require the caller to prepare and retain one operation UUID plus the complete
 arguments; the adapter sends only one HTTP attempt. Its other tools use work,
 checkpoint, lease, relationship, human-gate, evidence, and duplicate terminology. Its exact
-28-tool
+32-tool
 catalog includes request, attention, and gate-history operations but deliberately
-no resolution tool; `list_completion_evidence` is the sole new safe read,
+no resolution, dismissal, or report-follow-up write tools; Phase 12 adds four safe
+reads for activity, project settings, report lists, and report detail,
 `merge_work` is its only authoritative duplicate mutation,
 while `suggest_duplicate_work` is an independently retryable safe read.
 Full checkpoint models transport non-empty `affected_paths` declarations;

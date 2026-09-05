@@ -31,6 +31,7 @@ from mnemonic_api.application.routes import (
     history,
     human_gates,
     leases,
+    project_reports,
     projects,
     relationships,
     work_items,
@@ -55,6 +56,7 @@ def api_router() -> APIRouter:
     )
     for router in (
         projects.router,
+        project_reports.router,
         work_search.router,
         work_items.router,
         completion_evidence.router,

@@ -1,14 +1,12 @@
-# Phase 11 API contract
+# Phase 12 API contract
 
-This is the application/API/MCP `0.7.0`, plugin `0.10.0`, and migration
-`0019_structured_completion_evidence` contract. Phase 11 adds optional structured
-verification results and artifact references inside atomic completion plus a
-bounded, event-backed evidence-history read. Phase 10's caller-declared
-repository scopes and local freshness workflow and Phase 9's authoritative
-duplicate merges remain unchanged.
-
-Release `0.7.0` retains that schema and the exact 28 MCP tools, 11 protected MCP
-writes, 13 REST receipt kinds, and 11 protected browser mutations.
+This is application/API/MCP/dashboard `0.8.0`, plugin `0.11.0`, and migration
+`0021_job_completion_reports`. The catalog has exactly 32 MCP tools, 11 protected
+MCP writes, 15 REST receipt kinds, and 13 protected browser mutations.
+[Project activity and human reports](project-activity-and-reports.md) documents
+the new resource shapes, strict cursors, required closeout companions, settings,
+retry rules, and human review workflow. Existing structured completion evidence,
+repository freshness, and authoritative duplicate semantics continue below.
 
 All application routes use `/api/v1` and
 `Authorization: Bearer <MNEMONIC_API_KEY>`. `GET /healthz` and
@@ -87,10 +85,10 @@ neither error proves whether a write committed.
 
 ## Idempotent mutation receipts
 
-Exactly thirteen project-scoped REST mutations use a top-level
-`client_operation_id` UUID. It is optional on the original twelve only while
-`complete_work` carries no structured evidence; it is mandatory for every
-non-empty evidence completion and every merge:
+Exactly fifteen project-scoped REST mutations use a top-level
+`client_operation_id` UUID. It is mandatory for every fresh closeout, every
+merge, and the two human report actions. Other originally optional REST writes
+retain their unkeyed single-attempt form:
 
 | Operation | Route |
 | --- | --- |
@@ -107,6 +105,8 @@ non-empty evidence completion and every merge:
 | request human input | `POST /projects/{project_id}/work-items/{work_item_id}/gates` |
 | resolve human input | `POST /projects/{project_id}/work-items/{work_item_id}/gates/{gate_id}/resolve` |
 | merge work | `POST /projects/{project_id}/work-items/{source_work_item_id}/merge` |
+| dismiss report | `POST /projects/{project_id}/job-completion-reports/{report_id}/dismiss` |
+| create report follow-up | `POST /projects/{project_id}/job-completion-reports/{report_id}/follow-ups` |
 
 A caller generates one UUID before the first attempt and retains the complete,
 validated semantic request. An exact retry under the same
@@ -138,15 +138,14 @@ responses, errors, events, resources, prompts, logs, or browser persistence.
 `actor` whenever the operation ID is present. Their unkeyed direct-REST form
 remains valid and may remain unattributed.
 
-Direct REST callers may omit `client_operation_id` from the original twelve;
-that preserves a single unprotected attempt and makes no retry-safety promise.
-The exception is a completion with at least one evidence child, which requires
-the UUID before reservation or any domain write. `merge_work` has no unkeyed
-form. Exactly eleven canonical
-MCP mutation tools require it: the previous ten plus `merge_work`.
-Human-only deferral and gate resolution have no MCP tools. The dashboard
-generates it for eleven covered browser operations: its previous ten plus merge,
-while capability-bearing release and gate creation remain denied.
+Direct REST callers may omit `client_operation_id` for eligible non-closeout
+writes; that makes no retry-safety promise. Every actual Pending → Done, Won’t
+do, or Promoted transition requires it and an authored report. `merge_work`,
+report dismissal, and report follow-up have no unkeyed form. Exactly eleven
+canonical MCP mutation tools require it. Human-only deferral, gate resolution,
+report dismissal, and follow-up creation have no MCP mutation tools. The
+dashboard generates it for thirteen protected actions; capability-bearing
+release and gate creation remain denied.
 It freezes the entire request and retries only that exact in-memory intent.
 Project create/update, project settings, claim, claim-and-recall, and
 renew-claim remain outside this ledger. Claim recovery continues to use its
@@ -171,14 +170,14 @@ Project fields are `id`, `name`, `slug`, `description`,
 `repository_url`, `created_at`, and `updated_at`. Slugs are unique,
 lowercase, and hyphen-separated; omitting one derives it from the name.
 
-Project settings use `GET /projects/{project_id}/settings` and
-`PATCH /projects/{project_id}/settings`. GET returns exactly
-`{project_id, recall_pointer_template}`; `null` selects the built-in template.
-PATCH requires exactly `{recall_pointer_template}`, whose value is nonblank text
-of at most 100,000 characters or `null` to clear the saved override, and returns
-the same read shape. Unknown projects return 404. These routes need no
-`client_operation_id`, remain outside the receipt ledger, and are admitted by
-the dashboard proxy.
+Project settings use `GET /projects/{project_id}/settings` and PATCH at the same
+path. GET returns `{project_id, recall_pointer_template,
+job_completion_report_prompt, revision}`. PATCH requires decimal-string
+`expected_revision` and one or both editable fields. Null recall clears its
+override; null report prompt resets its effective nonblank default. Omission
+preserves the other field. A real change increments revision once, and stale
+edits fail with `project_settings_changed`. These human settings writes remain
+outside the receipt ledger. New projects have a saved default report prompt.
 
 ## Canonical work-item routes
 
@@ -378,6 +377,11 @@ Completion accepts:
 ```json
 {
   "expected_version": 2,
+  "job_completion_report": {
+    "summary": "The requested change is complete and ready for review.",
+    "fyi_items": [],
+    "prompt_revision": "1"
+  },
   "checkpoint": {
     "prompt": "What changed, verification observed, and remaining considerations",
     "source_client": "claude-code",
@@ -808,6 +812,11 @@ existing strict request with:
 ```json
 {
   "expected_version": 7,
+  "job_completion_report": {
+    "summary": "The requested change is implemented and its backend checks passed. It is ready for review.",
+    "fyi_items": [],
+    "prompt_revision": "1"
+  },
   "checkpoint": {
     "prompt": "Implemented and verified the requested change.",
     "source_client": "codex",
@@ -919,7 +928,7 @@ and
 show the present and omitted field shapes. The latter contains no
 `completion_evidence` member at all; its successful `WorkCompletionRead` also
 omits that member. If the first non-empty request has an unknown outcome, send
-that exact same body—including the same checkpoint, ordered nested evidence,
+that exact same body—including the same report, prompt revision, checkpoint, ordered nested evidence,
 expected version, lease token if any, and `client_operation_id`—to the same
 completion route. An exact retry returns the original response. Do not create
 a new UUID or substitute the sparse request.
@@ -954,6 +963,7 @@ function-call notation; replace every value with facts from the exact work):
 first_intent = {
   project_id, work_item_id, expected_version: 7,
   checkpoint: first_checkpoint,
+  job_completion_report: report_authored_from_current_settings,
   client_operation_id: "11584ccf-c787-4c6a-bb89-a69a02c1554d",
   completion_evidence: observed_evidence
 }
@@ -969,6 +979,7 @@ update_work(
 complete_work(
   project_id, work_item_id, expected_version: 9,
   checkpoint: replacement_checkpoint,
+  job_completion_report: replacement_report_from_current_settings,
   client_operation_id: "573d6fe4-5bd0-452c-8400-bc29ee7bf1f7"
 )  # completion_evidence omitted
 list_completion_evidence(project_id, work_item_id, limit: 10)
@@ -1093,7 +1104,7 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 28 tools:
+The catalog is exactly 32 tools:
 
 ```text
 list_projects, create_project,
@@ -1103,7 +1114,8 @@ list_work_gates, append_event, list_work_events,
 update_work, complete_work, list_completion_evidence, delete_work,
 claim_work, claim_and_recall, renew_claim, release_claim,
 add_relationship, get_relationship, list_relationships, remove_relationship,
-merge_work, suggest_duplicate_work
+merge_work, suggest_duplicate_work,
+get_activity, get_project_settings, list_job_completion_reports, get_job_completion_report
 ```
 
 Exactly `create_work`, `add_checkpoint`, `append_event`, `add_relationship`,
@@ -1114,6 +1126,13 @@ mutations. Prepare the
 complete arguments once, retain them privately, and retry only that exact tool,
 UUID, and argument object after an unknown outcome. Project administration,
 claim acquisition/recovery, and renewal retain their separate contracts.
+
+Every fresh closeout also requires `job_completion_report`; authors first read
+`get_project_settings`. The report prompt assumes no other LLM output was read.
+Missing companions stay structurally parseable for historical same-key receipt
+replay only. `update_work` carries reports for Won’t do/Promoted; Done uses
+`complete_work`. New work starts Pending. Agent tools do not dismiss reports or
+create report follow-ups; those are human REST/browser actions.
 
 `complete_work` accepts the same strict optional evidence object as REST and
 validates the complete response against the exact frozen request, including
@@ -1235,7 +1254,7 @@ raises the streaming proxy body cap to 2,097,152 bytes and the transport budget
 to 60 seconds. It forwards `Retry-After: 1` only for the typed busy response,
 never enters the protected-intent registry, and publishes no live invalidation.
 
-The eleven covered browser writes require one top-level operation UUID and a frozen body.
+The thirteen covered browser writes require one top-level operation UUID and a frozen body.
 The existing completion body alone may contain `completion_evidence`; it is
 validated before registration and frozen with the rest of the intent. No
 standalone evidence POST or browser mutation kind exists.

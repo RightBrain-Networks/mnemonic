@@ -196,13 +196,13 @@ test("browser completion accepts only the exact nested Phase 11 evidence contrac
   );
 });
 
-test("project settings expose only the exact recall-pointer patch", () => {
+test("project settings require a revision for independent recall-pointer patches", () => {
   const path = `projects/${project}/settings`;
   assert.equal(invalidMutationBody(path, "PATCH", {
-    recall_pointer_template: "Recall $WORK_ITEM_ID"
+    expected_revision: "1", recall_pointer_template: "Recall $WORK_ITEM_ID"
   }), null);
   assert.equal(invalidMutationBody(path, "PATCH", {
-    recall_pointer_template: null
+    expected_revision: "1", recall_pointer_template: null
   }), null);
   for (const body of [
     {},

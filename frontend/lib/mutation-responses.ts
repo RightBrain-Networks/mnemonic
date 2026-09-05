@@ -8,6 +8,9 @@ import type {
   HumanGateRead,
   WorkCreation,
   WorkItem,
+  WorkUpdate,
+  JobReportDismissalResult,
+  JobReportFollowUpResult,
   WorkMergeResult
 } from "@/lib/types";
 import { decodeHumanGate } from "./human-gates.ts";
@@ -48,6 +51,9 @@ import {
   normalizeCompletionEvidenceInput
 } from "./completion-evidence.ts";
 
+import { decodeReportDismissal, decodeReportFollowUp, matchCloseoutReport } from "./job-completion-reports.ts";
+import { readBoundedJson } from "./bounded-json.ts";
+
 export const MUTATION_KINDS = [
   "create_work",
   "add_checkpoint",
@@ -59,7 +65,9 @@ export const MUTATION_KINDS = [
   "delete_work",
   "remove_relationship",
   "resolve_human_input",
-  "merge_work"
+  "merge_work",
+  "dismiss_job_completion_report",
+  "create_job_completion_report_follow_up"
 ] as const;
 
 export type MutationKind = typeof MUTATION_KINDS[number];
@@ -69,13 +77,15 @@ export interface MutationResultByKind {
   add_checkpoint: Checkpoint;
   append_event: WorkEventRead;
   add_relationship: RelationshipCreationResult;
-  update_work: WorkItem;
+  update_work: WorkUpdate;
   defer_work: WorkItem;
   complete_work: CompletionResult;
   delete_work: DeletionResult;
   remove_relationship: RelationshipRemovalResult;
   resolve_human_input: HumanGateRead;
   merge_work: WorkMergeResult;
+  dismiss_job_completion_report: JobReportDismissalResult;
+  create_job_completion_report_follow_up: JobReportFollowUpResult;
 }
 
 export interface FrozenMutationRequest {
@@ -84,6 +94,7 @@ export interface FrozenMutationRequest {
   readonly path: string;
   readonly body: string;
   readonly operationId: string;
+  readonly expectedSourceWorkItemId?: string;
 }
 
 export type MutationHttpOutcome<K extends MutationKind = MutationKind> =
@@ -93,7 +104,7 @@ export type MutationHttpOutcome<K extends MutationKind = MutationKind> =
   | { readonly type: "unresolved"; readonly message: string };
 
 const WORK_COMPLETION_RESPONSE_FIELDS = [
-  "work_item", "checkpoint", "completion_evidence"
+  "work_item", "checkpoint", "completion_evidence", "job_completion_report"
 ] as const;
 
 export const MUTATION_RESPONSE_DECODER_FIELDS = {
@@ -110,7 +121,9 @@ const EXPECTED_STATUS: Record<MutationKind, number> = {
   delete_work: 200,
   remove_relationship: 200,
   resolve_human_input: 200,
-  merge_work: 201
+  merge_work: 201,
+  dismiss_job_completion_report: 200,
+  create_job_completion_report_follow_up: 201
 };
 const AMBIGUOUS_STATUSES = new Set([408, 425, 429, 502, 504]);
 const ERROR_ROOT_KEYS = new Set(["detail"]);
@@ -126,9 +139,10 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "work_item_not_found",
     "checkpoint_not_found",
     "relationship_not_found",
-    "gate_not_found"
+    "gate_not_found", "job_completion_report_not_found"
   ])],
   [409, new Set([
+    "job_report_prompt_changed", "project_settings_changed",
     "version_conflict",
     "invalid_status_transition",
     "work_not_pending",
@@ -159,7 +173,8 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
   ])],
   [422, new Set([
     "event_secret_echo", "client_operation_secret_echo", "gate_secret_echo",
-    "merge_secret_echo"
+    "merge_secret_echo", "job_completion_report_required", "job_completion_report_not_applicable", "client_operation_id_required",
+    "initial_status_must_be_pending", "job_report_secret_echo"
   ])],
   [503, new Set(["duplicate_graph_invalid"])]
 ]);
@@ -522,7 +537,13 @@ function decodeSuccess<K extends MutationKind>(
   } else if (request.kind === "update_work") {
     const path = parsePath(request.path, "");
     if (!path?.workItemId) throw new Error("The frozen mutation request is invalid.");
-    const workItem = decodeWorkItem(value, path.projectId, path.workItemId);
+    const raw = objectValue(value);
+    if (!raw) throw new Error("Mnemonic returned an invalid work update.");
+    const { job_completion_report: report, ...workFields } = raw;
+    if (Object.hasOwn(body, "job_completion_report") !== Object.hasOwn(raw, "job_completion_report")) {
+      throw new Error("Mnemonic returned an incoherent closeout report.");
+    }
+    const workItem = decodeWorkItem(workFields, path.projectId, path.workItemId);
     if (
       workItem.version !== Number(body.expected_version) + 1
       || (body.title !== undefined && workItem.title !== String(body.title).trim())
@@ -530,7 +551,9 @@ function decodeSuccess<K extends MutationKind>(
       || (body.priority !== undefined && workItem.priority !== body.priority)
       || (body.status !== undefined && workItem.status !== body.status)
     ) throw new Error("Mnemonic returned an incoherent mutation response.");
-    decoded = workItem;
+    decoded = Object.hasOwn(body, "job_completion_report")
+      ? { ...workItem, job_completion_report: matchCloseoutReport(report, path.projectId, workItem, body.job_completion_report, body.actor, null) }
+      : workItem;
   } else if (request.kind === "defer_work") {
     const path = parsePath(request.path, "/defer");
     if (!path?.workItemId) throw new Error("The frozen mutation request is invalid.");
@@ -554,9 +577,8 @@ function decodeSuccess<K extends MutationKind>(
       || !result
       || !exactKeys(
         result,
-        expectedEvidence
-          ? ["work_item", "checkpoint", "completion_evidence"]
-          : ["work_item", "checkpoint"]
+        ["work_item", "checkpoint", ...(expectedEvidence ? ["completion_evidence"] : []),
+          ...(Object.hasOwn(body, "job_completion_report") ? ["job_completion_report"] : [])]
       )
     ) {
       throw new Error("Mnemonic returned an invalid mutation response.");
@@ -579,6 +601,45 @@ function decodeSuccess<K extends MutationKind>(
       decoded = { work_item: workItem, checkpoint, completion_evidence: evidence };
     } else {
       decoded = { work_item: workItem, checkpoint };
+    }
+    if (Object.hasOwn(body, "job_completion_report")) {
+      (decoded as CompletionResult).job_completion_report = matchCloseoutReport(
+        result.job_completion_report, path.projectId, workItem, body.job_completion_report,
+        body.checkpoint, checkpoint.id
+      );
+    }
+  } else if (request.kind === "dismiss_job_completion_report" || request.kind === "create_job_completion_report_follow_up") {
+    const uuid = UUID_PATTERN.source.slice(1, -1);
+    const suffix = request.kind === "dismiss_job_completion_report" ? "dismiss" : "follow-ups";
+    const match = new RegExp(`^/projects/(${uuid})/job-completion-reports/(${uuid})/${suffix}$`).exec(request.path);
+    const result = objectValue(value);
+    const actor = objectValue(body.actor);
+    if (!match || !result || !actor) throw new Error("The frozen report action is invalid.");
+    const projectId = match[1]!;
+    const reportId = match[2]!;
+    if (request.kind === "dismiss_job_completion_report") {
+      if (!exactKeys(result, ["project_id", "report_id", "dismissed", "human_dismissal"])
+        || !sameUuid(result.project_id, projectId) || !sameUuid(result.report_id, reportId)
+        || typeof result.dismissed !== "boolean") throw new Error("Mnemonic returned an invalid dismissal.");
+      const dismissal = decodeReportDismissal(result.human_dismissal, projectId, reportId);
+      if (result.dismissed && (dismissal.actor_client !== actor.actor_client
+        || dismissal.actor_session_id !== actor.actor_session_id
+        || dismissal.actor_model !== (actor.actor_model ?? null))) throw new Error("Mnemonic returned an incoherent dismissal.");
+      decoded = { project_id: projectId, report_id: reportId, dismissed: result.dismissed, human_dismissal: dismissal };
+    } else {
+      if (!exactKeys(result, ["work_item", "initial_checkpoint", "follow_up"])) throw new Error("Mnemonic returned an invalid follow-up.");
+      const work = decodeWorkItem(result.work_item, projectId);
+      const checkpoint = decodeCheckpoint(result.initial_checkpoint, work.id, "context", body.initial_checkpoint);
+      const link = decodeReportFollowUp(result.follow_up, projectId, reportId);
+      if (!validUuid(request.expectedSourceWorkItemId) || !sameUuid(link.source_work_item_id, request.expectedSourceWorkItemId)
+        || !sameUuid(link.follow_up_work_item_id, work.id) || !sameUuid(work.initial_checkpoint_id, checkpoint.id)
+        || work.version !== 1 || work.status !== "pending" || work.title !== String(body.title).trim()
+        || work.summary !== String(body.summary).trim() || work.priority !== (body.priority ?? 0)
+        || link.actor_client !== actor.actor_client || link.actor_session_id !== actor.actor_session_id
+        || link.actor_model !== (actor.actor_model ?? null) || checkpoint.source_client !== link.actor_client
+        || checkpoint.source_session_id !== link.actor_session_id || checkpoint.source_model !== link.actor_model
+      ) throw new Error("Mnemonic returned an incoherent follow-up.");
+      decoded = { work_item: work, initial_checkpoint: checkpoint, follow_up: link };
     }
   } else if (request.kind === "delete_work") {
     const path = parsePath(request.path, "/delete");
@@ -728,8 +789,7 @@ export async function classifyMutationResponse<K extends MutationKind>(
 ): Promise<MutationHttpOutcome<K>> {
   let value: unknown;
   try {
-    const text = await response.text();
-    value = JSON.parse(text);
+    value = await readBoundedJson(response, 3_145_728);
   } catch {
     return {
       type: "unresolved",

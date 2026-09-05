@@ -1,3 +1,4 @@
+import { reportForFixture } from "./job-report-fixture";
 import { readFile } from "node:fs/promises";
 import { expect, request, test } from "@playwright/test";
 import { expireLease } from "./database";
@@ -46,7 +47,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
       data: {
         title,
         summary: `Phase 3 graph fixture for ${title}.`,
-        status,
+        status: "pending",
         priority: 31,
         initial_checkpoint: {
           prompt: `Immutable starting context for ${title}.`,
@@ -62,6 +63,13 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
       work_item: { id: string };
       initial_checkpoint: { id: string };
     };
+    if (status !== "pending") {
+      const retired = await client.patch(`/api/v1/projects/${state.projectId}/work-items/${created.work_item.id}`, {
+        data: { expected_version: 1, status, actor: { actor_client: "playwright-api", actor_session_id: `phase3-${suffix}` },
+          client_operation_id: crypto.randomUUID(), job_completion_report: await reportForFixture(client, state.projectId) }
+      });
+      expect(retired.ok(), await retired.text()).toBe(true);
+    }
     initialCheckpoints.set(created.work_item.id, created.initial_checkpoint.id);
     return created.work_item.id;
   }
@@ -106,6 +114,8 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
       `/api/v1/projects/${state.projectId}/work-items/${doneRootId}/complete`,
       {
         data: {
+          job_completion_report: await reportForFixture(client, state.projectId),
+          client_operation_id: crypto.randomUUID(),
           expected_version: 1,
           checkpoint: {
             prompt: `Completed ancestor fixture for ${suffix}.`,

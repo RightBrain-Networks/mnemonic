@@ -1,5 +1,6 @@
 "use client";
 
+import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useRef, useState } from "react";
 import HumanGateResolution from "@/components/human-gate-resolution";
 import { clientLabel, formatDateTime } from "@/components/work-item-card";
@@ -84,6 +85,8 @@ function GateHistory({ context, refreshSignal }: { context: WorkContext; refresh
     setPageIndex(0);
     setReload((value) => value + 1);
   }, [open, refreshSignal]);
+
+  useFailedReadRetry({ scope: `gate-history:${work.project_id}:${work.id}:${cursor}`, failed: Boolean(error), busy: loading, enabled: open, retry: () => setReload((value) => value + 1) });
 
   return <section className="gate-history">
     <button type="button" className="button button-secondary" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? "Hide full gate history" : "Browse full paired gate history"}</button>

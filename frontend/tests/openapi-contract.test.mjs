@@ -1,3 +1,5 @@
+import { JOB_REPORT_DECODER_FIELDS } from "../lib/job-completion-reports.ts";
+import { PROJECT_ACTIVITY_DECODER_FIELDS } from "../lib/project-activity.ts";
 import { WORK_DECODER_FIELDS } from "../lib/work-codecs.ts";
 import { REVISION_DECODER_FIELDS } from "../lib/revision-codecs.ts";
 import { READINESS_DECODER_FIELDS } from "../lib/readiness-codecs.ts";
@@ -20,7 +22,7 @@ const DEFAULTED_RESPONSE_FIELDS = {
     "affected_paths"
   ],
   "frontend/lib/mutation-responses.ts:decodeMutationResult:complete_work": [
-    "completion_evidence"
+    "completion_evidence", "job_completion_report"
   ],
   "frontend/lib/completion-evidence.ts:decodeVerificationResult:command": [
     "exit_code", "observed_at", "observed_at_commit"
@@ -60,6 +62,8 @@ test("strict frontend decoders match the committed OpenAPI component contracts",
   assert.ok(schemas, "OpenAPI snapshot must declare component schemas");
 
   const decoderFields = {
+    ...qualifiedFields("frontend/lib/job-completion-reports.ts", JOB_REPORT_DECODER_FIELDS),
+    ...qualifiedFields("frontend/lib/project-activity.ts", PROJECT_ACTIVITY_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/work-codecs.ts", WORK_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/revision-codecs.ts", REVISION_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/readiness-codecs.ts", READINESS_DECODER_FIELDS),

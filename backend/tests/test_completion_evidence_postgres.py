@@ -40,6 +40,18 @@ from mnemonic_api.schemas import (
 from mnemonic_api.services.client_operations import prepare_client_operation
 
 from .conftest import BACKEND_DIR, TEST_API_KEY
+from .phase11_completion_fixtures import (
+    complete as _legacy_complete,
+)
+from .phase11_completion_fixtures import (
+    create_work as _legacy_create_work,
+)
+from .phase11_completion_fixtures import (
+    reopen as _legacy_reopen,
+)
+from .phase11_completion_fixtures import (
+    set_terminal as _legacy_set_terminal,
+)
 from .test_duplicate_merge_invariants_postgres import _stage_merge
 from .test_phase6_migration_postgres import _wait_for_relation_lock
 
@@ -105,7 +117,19 @@ def _create_work(
     return response.json()["work_item"]
 
 
+def _job_report_payload(api: TestClient, project: dict[str, object]) -> dict[str, object]:
+    settings = api.get(f"/api/v1/projects/{project['id']}/settings")
+    assert settings.status_code == 200, settings.text
+    return {
+        "summary": "Completed the requested work and recorded the review results.",
+        "fyi_items": [],
+        "prompt_revision": settings.json()["revision"],
+    }
+
+
 def _completion_payload(
+    api: TestClient,
+    project: dict[str, object],
     version: int,
     session: str,
     *,
@@ -127,8 +151,9 @@ def _completion_payload(
     }
     if evidence is not ...:
         payload["completion_evidence"] = evidence
-    if operation_id is not ...:
-        payload["client_operation_id"] = operation_id
+    payload["job_completion_report"] = _job_report_payload(api, project)
+    if operation_id is not None:
+        payload["client_operation_id"] = str(uuid4()) if operation_id is ... else operation_id
     return payload
 
 
@@ -167,9 +192,7 @@ def _mixed_evidence(marker: str = "durable-evidence-only-token") -> dict[str, ob
     }
 
 
-def _maximum_escaping_completion_payload(
-    operation_id: str, lease_token: str
-) -> dict[str, object]:
+def _maximum_escaping_completion_payload(operation_id: str, lease_token: str) -> dict[str, object]:
     control = "\x01"
     results: list[dict[str, object]] = []
     for index in range(20):
@@ -229,6 +252,8 @@ def _complete(
     return api.post(
         f"{_item_path(project, work)}/complete",
         json=_completion_payload(
+            api,
+            project,
             version,
             session,
             evidence=evidence,
@@ -264,9 +289,10 @@ def _insert_direct_completion_checkpoint(
     *,
     checkpoint_id: UUID | None = None,
 ) -> dict[str, object]:
-    row = connection.execute(
-        text(
-            """
+    row = (
+        connection.execute(
+            text(
+                """
             INSERT INTO checkpoints (
                 id, work_item_id, kind, prompt, source_client,
                 source_session_id, repository_branch, affected_paths,
@@ -279,12 +305,15 @@ def _insert_direct_completion_checkpoint(
             )
             RETURNING id, created_at
             """
-        ),
-        {
-            "id": str(checkpoint_id or uuid4()),
-            "work_item_id": str(work_item_id),
-        },
-    ).mappings().one()
+            ),
+            {
+                "id": str(checkpoint_id or uuid4()),
+                "work_item_id": str(work_item_id),
+            },
+        )
+        .mappings()
+        .one()
+    )
     return dict(row)
 
 
@@ -385,6 +414,7 @@ def _insert_direct_completion_event(
     version: int,
     *,
     event_id: int | None = None,
+    seal_report: bool = True,
 ) -> int:
     columns = ""
     values = ""
@@ -395,6 +425,7 @@ def _insert_direct_completion_event(
         "checkpoint_id": str(checkpoint["id"]),
         "created_at": checkpoint["created_at"],
         "version": version,
+        "report_id": str(uuid4()),
     }
     if event_id is not None:
         columns = "id, "
@@ -407,7 +438,7 @@ def _insert_direct_completion_event(
             INSERT INTO work_events (
                 {columns}project_id, work_item_id, event_type, actor_kind,
                 actor_client, actor_session_id, origin, checkpoint_id,
-                metadata_version, metadata, created_at
+                metadata_version, metadata, created_at, job_completion_report_id
             ) {override} VALUES (
                 {values}CAST(:project_id AS uuid), CAST(:work_item_id AS uuid),
                 'work_completed', 'client', 'pytest', 'direct-sql-completion',
@@ -415,7 +446,7 @@ def _insert_direct_completion_event(
                 pg_catalog.jsonb_build_object(
                     'from_status', 'pending', 'to_status', 'done',
                     'work_version', CAST(:version AS integer)
-                ), :created_at
+                ), :created_at, CAST(:report_id AS uuid)
             )
             RETURNING id
             """
@@ -423,6 +454,29 @@ def _insert_direct_completion_event(
         parameters,
     )
     assert isinstance(inserted, int)
+    if seal_report:
+        connection.execute(
+            text(
+                """
+                INSERT INTO job_completion_reports (
+                    id, project_id, work_item_id, closeout_event_id,
+                    closeout_work_version, closeout_status, completion_checkpoint_id,
+                    work_title_at_closeout, summary, fyi_items, prompt_revision,
+                    prompt_text, prompt_sha256, actor_client, actor_session_id
+                ) SELECT CAST(:report_id AS uuid), work.project_id, work.id, :event_id,
+                         work.version, work.status, CAST(:checkpoint_id AS uuid),
+                         work.title, 'Completed and reviewed the requested work.',
+                         '{}'::text[], settings.revision, settings.job_completion_report_prompt,
+                         encode(sha256(convert_to(settings.job_completion_report_prompt,
+                                                 'UTF8')), 'hex'),
+                         'pytest', 'direct-sql-completion'
+                  FROM work_items work
+                  JOIN project_settings settings ON settings.project_id = work.project_id
+                  WHERE work.id = CAST(:work_item_id AS uuid)
+                """
+            ),
+            {**parameters, "event_id": inserted},
+        )
     return inserted
 
 
@@ -430,18 +484,22 @@ def _transition_direct_reopen(
     connection: Connection,
     work_item_id: object,
 ) -> dict[str, object]:
-    row = connection.execute(
-        text(
-            """
+    row = (
+        connection.execute(
+            text(
+                """
             UPDATE work_items
             SET status = 'pending', version = version + 1,
                 updated_at = clock_timestamp()
             WHERE id = CAST(:work_item_id AS uuid)
             RETURNING project_id, status, version, updated_at, completion_generation
             """
-        ),
-        {"work_item_id": str(work_item_id)},
-    ).mappings().one()
+            ),
+            {"work_item_id": str(work_item_id)},
+        )
+        .mappings()
+        .one()
+    )
     return dict(row)
 
 
@@ -500,9 +558,10 @@ def _completion_durable_snapshot(
     operation_id: object,
 ) -> dict[str, object]:
     with engine.connect() as connection:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT work.status, work.version, work.completion_generation,
                        work.updated_at,
                        (SELECT count(*) FROM checkpoints AS checkpoint
@@ -523,12 +582,15 @@ def _completion_durable_snapshot(
                 FROM work_items AS work
                 WHERE work.id = CAST(:work_item_id AS uuid)
                 """
-            ),
-            {
-                "work_item_id": str(work_item_id),
-                "operation_id": str(operation_id),
-            },
-        ).mappings().one()
+                ),
+                {
+                    "work_item_id": str(work_item_id),
+                    "operation_id": str(operation_id),
+                },
+            )
+            .mappings()
+            .one()
+        )
         return dict(row)
 
 
@@ -882,6 +944,21 @@ def test_maximum_escaping_completion_representations_fit_896_kib(
     operation_id = str(uuid4())
     lease_token = "\x02" * 200
     request_body = _maximum_escaping_completion_payload(operation_id, lease_token)
+    request_body["job_completion_report"] = {
+        **_job_report_payload(api, project),
+        "summary": "😀" * 2000,
+        "fyi_items": ["😀" * 209] * 9 + ["😀" * 215],
+    }
+    assert (
+        sum(
+            len(value.encode("utf-8"))
+            for value in [
+                request_body["job_completion_report"]["summary"],
+                *request_body["job_completion_report"]["fyi_items"],
+            ]
+        )
+        == 16384
+    )
     parsed = WorkCompletionCreate.model_validate(request_body)
     assert parsed.completion_evidence is not None
     assert len(parsed.checkpoint.prompt) == 100000
@@ -901,10 +978,13 @@ def test_maximum_escaping_completion_representations_fit_896_kib(
         result.outcome == "failed" and result.exit_code == -2147483648
         for result in parsed.completion_evidence.verification_results
     )
-    assert completion_evidence_text_bytes(
-        parsed.completion_evidence.verification_results,
-        parsed.completion_evidence.artifact_references,
-    ) == 32768
+    assert (
+        completion_evidence_text_bytes(
+            parsed.completion_evidence.verification_results,
+            parsed.completion_evidence.artifact_references,
+        )
+        == 32768
+    )
 
     compact_request = json.dumps(
         parsed.model_dump(mode="json", exclude_none=True),
@@ -938,6 +1018,7 @@ def test_maximum_escaping_completion_representations_fit_896_kib(
                 "work_item_id": work["id"],
             },
         )
+        connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
         connection.execute(
             text("ALTER TABLE work_items ENABLE TRIGGER completion_generation_guard")
         )
@@ -983,9 +1064,7 @@ def test_maximum_escaping_completion_representations_fit_896_kib(
         "postgres_jsonb": stored_jsonb_bytes,
     }
     assert all(isinstance(value, int) for value in measurements.values())
-    assert all(800 * 1024 < value <= 896 * 1024 for value in measurements.values()), (
-        measurements
-    )
+    assert all(800 * 1024 < value <= 896 * 1024 for value in measurements.values()), measurements
 
 
 def test_sparse_empty_forms_and_nonempty_identity_requirement_are_atomic(
@@ -1015,6 +1094,7 @@ def test_sparse_empty_forms_and_nonempty_identity_requirement_are_atomic(
         1,
         "missing-operation",
         evidence=_mixed_evidence("must-not-persist-marker"),
+        operation_id=None,
     )
     assert rejected.status_code == 422
     assert "must-not-persist-marker" not in rejected.text
@@ -1409,6 +1489,7 @@ def test_history_fails_closed_on_duplicate_completion_event_binding(
                 """
             )
         )
+        connection.execute(text("ALTER TABLE work_events DISABLE TRIGGER job_report_event_guard"))
         connection.execute(
             text("ALTER TABLE work_events DISABLE TRIGGER completion_lifecycle_event_insert_guard")
         )
@@ -1431,6 +1512,7 @@ def test_history_fails_closed_on_duplicate_completion_event_binding(
             {"work_item_id": work["id"]},
         )
         connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+        connection.execute(text("ALTER TABLE work_events ENABLE TRIGGER job_report_event_guard"))
         connection.execute(
             text("ALTER TABLE work_events ENABLE TRIGGER completion_lifecycle_event_insert_guard")
         )
@@ -1502,9 +1584,7 @@ def test_history_fails_closed_on_malformed_immediate_prior_live_completion(
     work_payload: dict[str, object],
     postgres_engine: Engine,
 ):
-    work = _two_completion_episodes(
-        api, project, work_payload, title="Malformed prior completion"
-    )
+    work = _two_completion_episodes(api, project, work_payload, title="Malformed prior completion")
     with postgres_engine.begin() as connection:
         _drop_event_mutation_guards(connection)
         connection.execute(
@@ -1522,9 +1602,7 @@ def test_history_fails_closed_on_malformed_immediate_prior_live_completion(
             {"work_item_id": work["id"]},
         )
 
-    response = api.get(
-        f"{_item_path(project, work)}/completion-evidence", params={"limit": 1}
-    )
+    response = api.get(f"{_item_path(project, work)}/completion-evidence", params={"limit": 1})
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "completion_evidence_unavailable"
 
@@ -1731,16 +1809,12 @@ def test_history_fails_closed_on_exact_child_set_or_receipt_drift(
                 path = ["completion_evidence", "verification_results", "0", "summary"]
                 replacement = '"tampered receipt summary"'
             elif drift == "receipt_uuid_spelling":
-                result_id = completed.json()["completion_evidence"][
-                    "verification_results"
-                ][0]["id"]
+                result_id = completed.json()["completion_evidence"]["verification_results"][0]["id"]
                 path = ["completion_evidence", "verification_results", "0", "id"]
                 replacement = json.dumps("{" + result_id + "}")
             else:
                 path = ["work_item", "priority"]
-                replacement = (
-                    "true" if drift == "receipt_boolean_for_integer" else "30.0"
-                )
+                replacement = "true" if drift == "receipt_boolean_for_integer" else "30.0"
             connection.execute(
                 text(
                     """
@@ -1938,6 +2012,8 @@ def test_fault_after_each_durable_completion_step_rolls_back_exactly(
     assert claim.status_code == 200, claim.text
     operation_id = str(uuid4())
     request_body = _completion_payload(
+        api,
+        project,
         1,
         f"rollback-{fault}",
         evidence=_mixed_evidence(),
@@ -1977,6 +2053,8 @@ def test_unknown_outcome_after_commit_replays_exact_evidence_receipt(
     work = _create_work(api, project, work_payload)
     operation_id = str(uuid4())
     request_body = _completion_payload(
+        api,
+        project,
         1,
         "unknown-after-commit",
         evidence=_mixed_evidence(),
@@ -2078,6 +2156,8 @@ def test_evidence_receipt_replays_exactly_after_authoritative_merge(
     destination = _create_work(api, project, work_payload, title="Replay destination after merge")
     operation_id = str(uuid4())
     request_body = _completion_payload(
+        api,
+        project,
         1,
         "replay-after-merge",
         evidence=_mixed_evidence("merge-replay-evidence"),
@@ -2110,8 +2190,7 @@ def test_evidence_receipt_replays_exactly_after_authoritative_merge(
     assert replayed.status_code == 200, replayed.text
     assert replayed.json() == completed.json()
     assert (
-        _completion_durable_snapshot(postgres_engine, source["id"], operation_id)
-        == before_replay
+        _completion_durable_snapshot(postgres_engine, source["id"], operation_id) == before_replay
     )
 
 
@@ -2124,6 +2203,8 @@ def test_evidence_receipt_replays_exactly_after_soft_deletion_and_recovery(
     work = _create_work(api, project, work_payload)
     operation_id = str(uuid4())
     request_body = _completion_payload(
+        api,
+        project,
         1,
         "replay-after-deletion",
         evidence=_mixed_evidence("deletion-replay-evidence"),
@@ -2166,6 +2247,8 @@ def test_evidence_receipt_replays_exactly_after_complete_schema_snapshot_restore
     work = _create_work(api, project, work_payload)
     operation_id = str(uuid4())
     request_body = _completion_payload(
+        api,
+        project,
         1,
         "replay-after-restore",
         evidence=_mixed_evidence("restore-replay-evidence"),
@@ -2204,8 +2287,7 @@ def test_evidence_receipt_replays_exactly_after_complete_schema_snapshot_restore
         assert replayed.status_code == 200, replayed.text
         assert replayed.json() == completed.json()
         assert (
-            _completion_durable_snapshot(target_engine, work["id"], operation_id)
-            == source_snapshot
+            _completion_durable_snapshot(target_engine, work["id"], operation_id) == source_snapshot
         )
     finally:
         target_engine.dispose()
@@ -2220,8 +2302,7 @@ def _database_artifact_reference_is_valid(
 ) -> bool:
     accepted = connection.scalar(
         text(
-            "SELECT mnemonic_completion_artifact_reference_v1_is_valid("
-            ":artifact_type, :reference)"
+            "SELECT mnemonic_completion_artifact_reference_v1_is_valid(:artifact_type, :reference)"
         ),
         {"artifact_type": artifact_type, "reference": reference},
     )
@@ -2235,11 +2316,14 @@ def _assert_database_shared_artifact_vectors(connection: Connection) -> None:
         if case["case_id"] == "duplicate_artifact":
             continue
         for artifact in artifacts:
-            assert _database_artifact_reference_is_valid(
-                connection,
-                artifact["artifact_type"],
-                artifact["reference"],
-            ) is case["valid"], case["case_id"]
+            assert (
+                _database_artifact_reference_is_valid(
+                    connection,
+                    artifact["artifact_type"],
+                    artifact["reference"],
+                )
+                is case["valid"]
+            ), case["case_id"]
 
 
 def _assert_database_ipv6_attack_vectors(connection: Connection) -> None:
@@ -2260,9 +2344,7 @@ def _assert_database_ipv6_attack_vectors(connection: Connection) -> None:
         "https://[0:0:0:0:0:0:0:1]/runs/1",
         "https://[0000::1]/runs/1",
     ):
-        assert not _database_artifact_reference_is_valid(
-            connection, "external_issue", invalid_url
-        )
+        assert not _database_artifact_reference_is_valid(connection, "external_issue", invalid_url)
 
     for hostname, expected in (
         ("::", True),
@@ -2281,29 +2363,34 @@ def _assert_database_ipv6_attack_vectors(connection: Connection) -> None:
         ("2001:0:0:1:2:3:4:5", False),
     ):
         for port in ("", ":8443"):
-            assert _database_artifact_reference_is_valid(
-                connection,
-                "test_run",
-                f"https://[{hostname}]{port}/runs/1",
-            ) is expected, (hostname, port)
+            assert (
+                _database_artifact_reference_is_valid(
+                    connection,
+                    "test_run",
+                    f"https://[{hostname}]{port}/runs/1",
+                )
+                is expected
+            ), (hostname, port)
 
 
 def _assert_database_ipv6_mask_parity(connection: Connection) -> None:
     nonzero_groups = ("1", "2", "3", "4", "5", "6", "7", "8")
     for mask in range(256):
         expanded = ":".join(
-            "0" if mask & (1 << position) else nonzero_groups[position]
-            for position in range(8)
+            "0" if mask & (1 << position) else nonzero_groups[position] for position in range(8)
         )
         canonical = str(ipaddress.IPv6Address(expanded))
         for hostname in {expanded, canonical}:
             expected = hostname == canonical
             for port in ("", ":8443"):
-                assert _database_artifact_reference_is_valid(
-                    connection,
-                    "test_run",
-                    f"https://[{hostname}]{port}/runs/1",
-                ) is expected, (mask, hostname, port)
+                assert (
+                    _database_artifact_reference_is_valid(
+                        connection,
+                        "test_run",
+                        f"https://[{hostname}]{port}/runs/1",
+                    )
+                    is expected
+                ), (mask, hostname, port)
 
 
 def _assert_database_branch_vectors(connection: Connection) -> None:
@@ -2316,9 +2403,7 @@ def _assert_database_branch_vectors(connection: Connection) -> None:
         ("work/phase11\x85", False),
         ("\x1cwork/phase11", False),
     ):
-        assert _database_artifact_reference_is_valid(
-            connection, "branch", branch
-        ) is expected
+        assert _database_artifact_reference_is_valid(connection, "branch", branch) is expected
 
 
 def test_database_artifact_validator_matches_shared_single_reference_vectors(
@@ -2392,11 +2477,11 @@ def test_database_rejects_post_completion_mutation_append_and_truncate(
         "work_events",
         "client_operations",
     ):
-        with pytest.raises(DBAPIError, match="cannot be truncated"):
+        with pytest.raises(DBAPIError, match="cannot be truncated|cannot truncate"):
             with postgres_engine.begin() as connection:
                 connection.execute(text(f"TRUNCATE TABLE {table}"))
 
-    with pytest.raises(DBAPIError, match="cannot be truncated"):
+    with pytest.raises(DBAPIError, match="job report history is immutable"):
         with postgres_engine.begin() as connection:
             connection.execute(text("TRUNCATE TABLE projects CASCADE"))
 
@@ -2474,13 +2559,15 @@ def test_direct_sql_legal_aggregate_commits_with_artifacts_inserted_first(
             connection, project["id"], work["id"], checkpoint, version
         )
         connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
-        assert connection.scalar(
-            text(
-                "SELECT mnemonic_completion_episode_is_sealed("
-                "CAST(:work_item_id AS uuid), 0)"
-            ),
-            {"work_item_id": work["id"]},
-        ) is True
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT mnemonic_completion_episode_is_sealed(CAST(:work_item_id AS uuid), 0)"
+                ),
+                {"work_item_id": work["id"]},
+            )
+            is True
+        )
 
     with postgres_engine.connect() as connection:
         counts = connection.execute(
@@ -2568,13 +2655,16 @@ def test_direct_sql_eventless_episode_cannot_exit_pending_with_or_without_eviden
                     )
 
     with postgres_engine.connect() as connection:
-        assert connection.scalar(
-            text(
-                "SELECT count(*) FROM checkpoints "
-                "WHERE work_item_id = CAST(:work_item_id AS uuid) AND kind = 'completion'"
-            ),
-            {"work_item_id": work["id"]},
-        ) == 0
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT count(*) FROM checkpoints "
+                    "WHERE work_item_id = CAST(:work_item_id AS uuid) AND kind = 'completion'"
+                ),
+                {"work_item_id": work["id"]},
+            )
+            == 0
+        )
 
 
 def test_direct_sql_rejects_duplicate_pending_generation_checkpoints(
@@ -2662,18 +2752,23 @@ def test_direct_sql_rejects_malformed_evidence_aggregates_at_forced_check(
                     )
             version = _transition_direct_completion_to_done(connection, work["id"])
             _insert_direct_completion_event(
-                connection, project["id"], work["id"], checkpoint, version
+                connection, project["id"], work["id"], checkpoint, version, seal_report=False
             )
-            connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+            connection.execute(
+                text("SET CONSTRAINTS completion_checkpoint_episode_guard IMMEDIATE")
+            )
 
     with postgres_engine.connect() as connection:
-        assert connection.scalar(
-            text(
-                "SELECT count(*) FROM checkpoints "
-                "WHERE work_item_id = CAST(:work_item_id AS uuid) AND kind = 'completion'"
-            ),
-            {"work_item_id": work["id"]},
-        ) == 0
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT count(*) FROM checkpoints "
+                    "WHERE work_item_id = CAST(:work_item_id AS uuid) AND kind = 'completion'"
+                ),
+                {"work_item_id": work["id"]},
+            )
+            == 0
+        )
 
 
 def test_direct_sql_witness_free_recompletion_rolls_back_entire_episode(
@@ -2796,7 +2891,9 @@ def test_direct_sql_rejects_missing_malformed_future_and_caller_bound_reopen_wit
                             """
                         ),
                         {"work_item_id": work["id"]},
-                    ).mappings().one()
+                    )
+                    .mappings()
+                    .one()
                 )
                 _insert_direct_reopen_event(connection, work["id"], transition)
             else:
@@ -2811,9 +2908,7 @@ def test_direct_sql_rejects_missing_malformed_future_and_caller_bound_reopen_wit
                         work["id"],
                         transition,
                         metadata={
-                            "changes": {
-                                "status": {"before": "done", "after": "pending"}
-                            },
+                            "changes": {"status": {"before": "done", "after": "pending"}},
                             "from_status": "done",
                             "to_status": "done",
                             "work_version": transition["version"],
@@ -2868,7 +2963,9 @@ def test_direct_sql_rejects_duplicate_reopen_witness_after_committed_transition(
                         """
                     ),
                     {"work_item_id": work["id"]},
-                ).mappings().one()
+                )
+                .mappings()
+                .one()
             )
             _insert_direct_reopen_event(connection, work["id"], transition)
 
@@ -2886,9 +2983,10 @@ def test_direct_sql_rejects_stale_reopen_witness_reused_for_later_generation(
 
     with pytest.raises(DBAPIError, match="reopen event does not match its guarded transition"):
         with postgres_engine.begin() as connection:
-            stale = connection.execute(
-                text(
-                    """
+            stale = (
+                connection.execute(
+                    text(
+                        """
                     SELECT metadata, created_at
                     FROM work_events
                     WHERE work_item_id = CAST(:work_item_id AS uuid)
@@ -2896,9 +2994,12 @@ def test_direct_sql_rejects_stale_reopen_witness_reused_for_later_generation(
                     ORDER BY reopen_generation
                     LIMIT 1
                     """
-                ),
-                {"work_item_id": work["id"]},
-            ).mappings().one()
+                    ),
+                    {"work_item_id": work["id"]},
+                )
+                .mappings()
+                .one()
+            )
             transition = _transition_direct_reopen(connection, work["id"])
             assert transition["completion_generation"] == 2
             _insert_direct_reopen_event(
@@ -2954,9 +3055,11 @@ def test_direct_sql_rejects_pending_to_done_at_integer_version_ceiling(
                 ),
                 {"work_item_id": work["id"]},
             )
+            connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
             connection.execute(
                 text("ALTER TABLE work_items ENABLE TRIGGER completion_generation_guard")
             )
+            connection.execute(text("SET CONSTRAINTS ALL DEFERRED"))
             _insert_direct_completion_checkpoint(connection, work["id"])
             connection.execute(
                 text(
@@ -3046,7 +3149,7 @@ def test_transition_captured_version_rejects_bump_before_event_but_allows_later_
     postgres_engine: Engine,
 ):
     work = _create_work(api, project, work_payload)
-    with pytest.raises(DBAPIError, match="completion event version does not match transition"):
+    with pytest.raises(DBAPIError, match="closeout report must seal before departure"):
         with postgres_engine.begin() as connection:
             checkpoint = _insert_direct_completion_checkpoint(connection, work["id"])
             transition_version = _transition_direct_completion_to_done(connection, work["id"])
@@ -3187,13 +3290,16 @@ def test_three_direct_completion_generations_commit_across_forced_constraint_mod
         ).all()
         assert reopen_generations == [1, 2]
         for generation in (0, 1, 2):
-            assert connection.scalar(
-                text(
-                    "SELECT mnemonic_completion_episode_is_sealed("
-                    "CAST(:work_item_id AS uuid), :generation)"
-                ),
-                {"work_item_id": work["id"], "generation": generation},
-            ) is True
+            assert (
+                connection.scalar(
+                    text(
+                        "SELECT mnemonic_completion_episode_is_sealed("
+                        "CAST(:work_item_id AS uuid), :generation)"
+                    ),
+                    {"work_item_id": work["id"], "generation": generation},
+                )
+                is True
+            )
 
 
 @pytest.mark.parametrize("phase", ("before-done", "after-done"))
@@ -3220,20 +3326,22 @@ def test_direct_sql_rejects_soft_delete_during_unsealed_completion_intervals(
             )
             connection.execute(
                 text(
-                    "UPDATE work_items SET deleted_at = NULL "
-                    "WHERE id = CAST(:work_item_id AS uuid)"
+                    "UPDATE work_items SET deleted_at = NULL WHERE id = CAST(:work_item_id AS uuid)"
                 ),
                 {"work_item_id": work["id"]},
             )
 
     with postgres_engine.connect() as connection:
-        assert connection.scalar(
-            text(
-                "SELECT count(*) FROM checkpoints "
-                "WHERE work_item_id = CAST(:work_item_id AS uuid) AND kind = 'completion'"
-            ),
-            {"work_item_id": work["id"]},
-        ) == 0
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT count(*) FROM checkpoints "
+                    "WHERE work_item_id = CAST(:work_item_id AS uuid) AND kind = 'completion'"
+                ),
+                {"work_item_id": work["id"]},
+            )
+            == 0
+        )
 
 
 @pytest.mark.parametrize(
@@ -3276,7 +3384,9 @@ def test_retained_deletion_event_blocks_completion_after_deleted_at_is_cleared(
                         """
                     ),
                     {"work_item_id": work["id"]},
-                ).mappings().one()
+                )
+                .mappings()
+                .one()
             )
             if attack == "checkpoint":
                 _insert_direct_completion_checkpoint(connection, work["id"])
@@ -3322,7 +3432,7 @@ def test_direct_sql_rejects_authoritative_aliasing_during_unsealed_completion(
     expected_message = (
         "pending completion requires one live current episode"
         if phase == "before-done"
-        else "lifecycle event requires live canonical work"
+        else "closeout report must seal before departure"
     )
     with pytest.raises(DBAPIError, match=expected_message):
         with postgres_engine.begin() as connection:
@@ -3353,20 +3463,26 @@ def test_direct_sql_rejects_authoritative_aliasing_during_unsealed_completion(
                 )
 
     with postgres_engine.connect() as connection:
-        assert connection.scalar(
-            text(
-                "SELECT count(*) FROM work_duplicate_merges "
-                "WHERE source_work_item_id = CAST(:source_id AS uuid)"
-            ),
-            {"source_id": source["id"]},
-        ) == 0
-        assert connection.scalar(
-            text(
-                "SELECT count(*) FROM checkpoints "
-                "WHERE work_item_id = CAST(:source_id AS uuid) AND kind = 'completion'"
-            ),
-            {"source_id": source["id"]},
-        ) == 0
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT count(*) FROM work_duplicate_merges "
+                    "WHERE source_work_item_id = CAST(:source_id AS uuid)"
+                ),
+                {"source_id": source["id"]},
+            )
+            == 0
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT count(*) FROM checkpoints "
+                    "WHERE work_item_id = CAST(:source_id AS uuid) AND kind = 'completion'"
+                ),
+                {"source_id": source["id"]},
+            )
+            == 0
+        )
 
 
 def test_concurrent_structured_completions_retain_one_exact_atomic_episode(
@@ -3385,6 +3501,8 @@ def test_concurrent_structured_completions_retain_one_exact_atomic_episode(
             return client.post(
                 f"{_item_path(project, work)}/complete",
                 json=_completion_payload(
+                    api,
+                    project,
                     1,
                     marker,
                     evidence=_mixed_evidence(marker),
@@ -3679,11 +3797,20 @@ def _ordinary_completion_snapshot(connection, work_item_id: str) -> dict[str, ob
     return snapshot
 
 
+@pytest.fixture
+def phase11_database(api: TestClient, postgres_engine: Engine) -> Engine:
+    """Start legacy catalog tests at 0019 before any historical SQL fixture writes."""
+    del api
+    with postgres_engine.begin() as connection:
+        command.downgrade(_alembic_config(connection), "0019_structured_completion_evidence")
+    return postgres_engine
+
+
 def test_phase11_upgrade_downgrade_restores_exact_0018_catalog(
-    api: TestClient,
+    phase11_database: Engine,
     postgres_engine: Engine,
 ):
-    del api
+    del phase11_database
     with postgres_engine.begin() as connection:
         config = _alembic_config(connection)
         command.downgrade(config, "0018_repository_freshness")
@@ -3693,7 +3820,7 @@ def test_phase11_upgrade_downgrade_restores_exact_0018_catalog(
         command.downgrade(config, "0018_repository_freshness")
 
         assert _exact_schema_catalog_snapshot(connection) == expected
-        command.upgrade(config, "head")
+        command.upgrade(config, "0019_structured_completion_evidence")
 
 
 def test_phase11_migration_roundtrip_supports_apostrophe_schema(
@@ -3734,9 +3861,7 @@ def test_phase11_fresh_catalog_hash_is_independent_of_database_owner(
         quoted_schema = connection.dialect.identifier_preparer.quote_identifier(schema)
         try:
             connection.exec_driver_sql(f"CREATE ROLE {quoted_role} NOLOGIN")
-            connection.exec_driver_sql(
-                f"CREATE SCHEMA {quoted_schema} AUTHORIZATION {quoted_role}"
-            )
+            connection.exec_driver_sql(f"CREATE SCHEMA {quoted_schema} AUTHORIZATION {quoted_role}")
             connection.exec_driver_sql(f"SET LOCAL ROLE {quoted_role}")
             connection.execute(
                 text("SELECT pg_catalog.set_config('search_path', :path, true)"),
@@ -3748,9 +3873,10 @@ def test_phase11_fresh_catalog_hash_is_independent_of_database_owner(
             assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
                 "0019_structured_completion_evidence"
             )
-            assert connection.scalar(
-                text(
-                    """
+            assert (
+                connection.scalar(
+                    text(
+                        """
                     SELECT pg_catalog.bool_and(owner.rolname = CAST(:role AS text))
                     FROM (
                         SELECT relation.relowner AS owner_oid
@@ -3773,9 +3899,11 @@ def test_phase11_fresh_catalog_hash_is_independent_of_database_owner(
                     JOIN pg_catalog.pg_roles AS owner
                       ON owner.oid = phase11_object.owner_oid
                     """
-                ),
-                {"role": role, "schema": schema},
-            ) is True
+                    ),
+                    {"role": role, "schema": schema},
+                )
+                is True
+            )
         finally:
             transaction.rollback()
 
@@ -3818,8 +3946,7 @@ def test_phase11_upgrade_normalizes_hostile_default_privileges(
             "GRANT ALL PRIVILEGES ON TABLES TO PUBLIC"
         )
         connection.exec_driver_sql(
-            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {quoted_schema} "
-            f"{function_default_privilege}"
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {quoted_schema} {function_default_privilege}"
         )
 
         command.upgrade(config, "0019_structured_completion_evidence")
@@ -3882,11 +4009,11 @@ def test_phase11_upgrade_normalizes_hostile_default_privileges(
     ids=("detached", "wrong-cache", "exhausted"),
 )
 def test_phase11_upgrade_rejects_invalid_empty_history_identity_sequence(
-    api: TestClient,
+    phase11_database: Engine,
     postgres_engine: Engine,
     sequence_tamper: str,
 ):
-    del api
+    del phase11_database
     with pytest.raises(RuntimeError, match="work_events identity sequence"):
         with postgres_engine.begin() as connection:
             config = _alembic_config(connection)
@@ -3901,13 +4028,11 @@ def test_phase11_upgrade_rejects_invalid_empty_history_identity_sequence(
 
 
 def test_phase11_upgrade_preflight_rejects_oversized_work_version_without_overflow(
-    api: TestClient,
-    project: dict[str, object],
-    work_payload: dict[str, object],
+    phase11_database: Engine,
     postgres_engine: Engine,
 ):
-    work = _create_work(api, project, work_payload, title="Oversized legacy work version")
-    completed = _complete(api, project, work, 1, "oversized-upgrade-version")
+    project, work = _legacy_create_work(postgres_engine, title="Oversized legacy work version")
+    completed = _legacy_complete(postgres_engine, project, work, 1, "oversized-upgrade-version")
     assert completed.status_code == 200, completed.text
 
     with pytest.raises(RuntimeError, match="live_completion_version_ordering"):
@@ -3916,10 +4041,7 @@ def test_phase11_upgrade_preflight_rejects_oversized_work_version_without_overfl
             command.downgrade(config, "0018_repository_freshness")
             connection.execute(text("DROP TRIGGER events_immutable ON work_events"))
             connection.execute(
-                text(
-                    "ALTER TABLE work_events "
-                    "DROP CONSTRAINT ck_work_events_metadata_v1_valid"
-                )
+                text("ALTER TABLE work_events DROP CONSTRAINT ck_work_events_metadata_v1_valid")
             )
             connection.execute(
                 text(
@@ -3939,14 +4061,12 @@ def test_phase11_upgrade_preflight_rejects_oversized_work_version_without_overfl
 
 
 def test_evidence_free_downgrade_reupgrade_preserves_completion_history(
-    api: TestClient,
-    project: dict[str, object],
-    work_payload: dict[str, object],
+    phase11_database: Engine,
     postgres_engine: Engine,
 ):
-    work = _create_work(api, project, work_payload)
-    completed = _complete(
-        api,
+    project, work = _legacy_create_work(postgres_engine)
+    completed = _legacy_complete(
+        postgres_engine,
         project,
         work,
         1,
@@ -3963,7 +4083,7 @@ def test_evidence_free_downgrade_reupgrade_preserves_completion_history(
                 "0018_repository_freshness"
             )
             assert _ordinary_completion_snapshot(connection, str(work["id"])) == expected
-            command.upgrade(_alembic_config(connection), "head")
+            command.upgrade(_alembic_config(connection), "0019_structured_completion_evidence")
             assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
                 "0019_structured_completion_evidence"
             )
@@ -3979,16 +4099,18 @@ def test_evidence_free_downgrade_reupgrade_preserves_completion_history(
 
 
 def test_two_completion_cycle_downgrade_reupgrade_maps_exact_legacy_generations(
-    api: TestClient,
-    project: dict[str, object],
-    work_payload: dict[str, object],
+    phase11_database: Engine,
     postgres_engine: Engine,
 ):
-    work = _create_work(api, project, work_payload, title="Two retained completions")
-    first = _complete(api, project, work, 1, "legacy-cycle-first", operation_id=str(uuid4()))
+    project, work = _legacy_create_work(postgres_engine, title="Two retained completions")
+    first = _legacy_complete(
+        postgres_engine, project, work, 1, "legacy-cycle-first", operation_id=str(uuid4())
+    )
     assert first.status_code == 200, first.text
-    _reopen(api, project, work, 2)
-    second = _complete(api, project, work, 3, "legacy-cycle-second", operation_id=str(uuid4()))
+    _legacy_reopen(postgres_engine, project, work, 2)
+    second = _legacy_complete(
+        postgres_engine, project, work, 3, "legacy-cycle-second", operation_id=str(uuid4())
+    )
     assert second.status_code == 200, second.text
 
     with postgres_engine.begin() as connection:
@@ -4027,19 +4149,17 @@ def test_two_completion_cycle_downgrade_reupgrade_maps_exact_legacy_generations(
         )
 
         command.downgrade(config, "0018_repository_freshness")
-        command.upgrade(config, "head")
+        command.upgrade(config, "0019_structured_completion_evidence")
 
 
 def test_downgrade_rejects_wrong_current_legacy_completion_pointer(
-    api: TestClient,
-    project: dict[str, object],
-    work_payload: dict[str, object],
+    phase11_database: Engine,
     postgres_engine: Engine,
 ):
-    work = _create_work(api, project, work_payload, title="Wrong legacy current")
-    assert _complete(api, project, work, 1, "older").status_code == 200
-    _reopen(api, project, work, 2)
-    assert _complete(api, project, work, 3, "newer").status_code == 200
+    project, work = _legacy_create_work(postgres_engine, title="Wrong legacy current")
+    assert _legacy_complete(postgres_engine, project, work, 1, "older").status_code == 200
+    _legacy_reopen(postgres_engine, project, work, 2)
+    assert _legacy_complete(postgres_engine, project, work, 3, "newer").status_code == 200
 
     with postgres_engine.begin() as connection:
         config = _alembic_config(connection)
@@ -4078,25 +4198,14 @@ def test_downgrade_rejects_wrong_current_legacy_completion_pointer(
 
 @pytest.mark.parametrize("terminal_status", ("deferred", "wont-do", "promoted"))
 def test_downgrade_accepts_each_legal_terminal_reopen_without_completion(
-    api: TestClient,
-    project: dict[str, object],
-    work_payload: dict[str, object],
+    phase11_database: Engine,
     postgres_engine: Engine,
     terminal_status: str,
 ):
-    work = _create_work(api, project, work_payload, title=f"Reopen {terminal_status}")
-    if terminal_status == "deferred":
-        terminal = api.post(
-            f"{_item_path(project, work)}/defer",
-            json={"expected_version": 1},
-        )
-    else:
-        terminal = api.patch(
-            _item_path(project, work),
-            json={"expected_version": 1, "status": terminal_status},
-        )
+    project, work = _legacy_create_work(postgres_engine, title=f"Reopen {terminal_status}")
+    terminal = _legacy_set_terminal(postgres_engine, project, work, terminal_status)
     assert terminal.status_code == 200, terminal.text
-    reopened = _reopen(api, project, work, 2)
+    reopened = _legacy_reopen(postgres_engine, project, work, 2)
     assert reopened.json()["status"] == "pending"
 
     with postgres_engine.begin() as connection:
@@ -4105,18 +4214,16 @@ def test_downgrade_accepts_each_legal_terminal_reopen_without_completion(
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
             "0018_repository_freshness"
         )
-        command.upgrade(config, "head")
+        command.upgrade(config, "0019_structured_completion_evidence")
 
 
 def test_downgrade_refuses_after_nonempty_evidence_use(
-    api: TestClient,
-    project: dict[str, object],
-    work_payload: dict[str, object],
+    phase11_database: Engine,
     postgres_engine: Engine,
 ):
-    work = _create_work(api, project, work_payload)
-    completed = _complete(
-        api,
+    project, work = _legacy_create_work(postgres_engine)
+    completed = _legacy_complete(
+        postgres_engine,
         project,
         work,
         1,
@@ -4136,15 +4243,13 @@ def test_downgrade_refuses_after_nonempty_evidence_use(
 
 
 def test_downgrade_refuses_on_evidence_bearing_receipt_without_child_rows(
-    api: TestClient,
-    project: dict[str, object],
-    work_payload: dict[str, object],
+    phase11_database: Engine,
     postgres_engine: Engine,
 ):
-    work = _create_work(api, project, work_payload)
+    project, work = _legacy_create_work(postgres_engine)
     operation_id = str(uuid4())
-    completed = _complete(
-        api,
+    completed = _legacy_complete(
+        postgres_engine,
         project,
         work,
         1,
@@ -4184,11 +4289,11 @@ def test_downgrade_refuses_on_evidence_bearing_receipt_without_child_rows(
 
 @pytest.mark.parametrize("isolation_level", ("REPEATABLE READ", "SERIALIZABLE"))
 def test_downgrade_rejects_non_read_committed_isolation_before_ddl(
-    api: TestClient,
+    phase11_database: Engine,
     postgres_engine: Engine,
     isolation_level: str,
 ):
-    del api
+    del phase11_database
     with postgres_engine.connect().execution_options(isolation_level=isolation_level) as connection:
         with connection.begin():
             with pytest.raises(RuntimeError, match="requires READ COMMITTED isolation"):
@@ -4202,12 +4307,10 @@ def test_downgrade_rejects_non_read_committed_isolation_before_ddl(
 
 
 def test_downgrade_sees_evidence_writer_committed_while_waiting_for_first_lock(
-    api: TestClient,
-    project: dict[str, object],
-    work_payload: dict[str, object],
+    phase11_database: Engine,
     postgres_engine: Engine,
 ):
-    work = _create_work(api, project, work_payload, title="Writer-first downgrade race")
+    project, work = _legacy_create_work(postgres_engine, title="Writer-first downgrade race")
     operation_id = str(uuid4())
     writer_paused = Event()
     allow_writer_commit = Event()
@@ -4239,8 +4342,8 @@ def test_downgrade_sees_evidence_writer_committed_while_waiting_for_first_lock(
             relation_oid = connection.scalar(text("SELECT 'client_operations'::regclass::oid"))
         with ThreadPoolExecutor(max_workers=2) as executor:
             writer_future = executor.submit(
-                _complete,
-                api,
+                _legacy_complete,
+                postgres_engine,
                 project,
                 work,
                 1,
@@ -4296,10 +4399,10 @@ def test_downgrade_sees_evidence_writer_committed_while_waiting_for_first_lock(
 
 
 def test_downgrade_waits_for_harmless_receipt_first_holder_then_succeeds(
-    api: TestClient,
+    phase11_database: Engine,
     postgres_engine: Engine,
 ):
-    del api
+    del phase11_database
     downgrade_ready = Event()
     downgrade_pids: list[int] = []
     holder = postgres_engine.connect()
@@ -4335,16 +4438,16 @@ def test_downgrade_waits_for_harmless_receipt_first_holder_then_succeeds(
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
             "0018_repository_freshness"
         )
-        command.upgrade(_alembic_config(connection), "head")
+        command.upgrade(_alembic_config(connection), "0019_structured_completion_evidence")
 
 
 @pytest.mark.parametrize("target_relation", ("verification_results", "work_events"))
 def test_downgrade_inverse_lock_order_times_out_without_ddl_then_retries(
-    api: TestClient,
+    phase11_database: Engine,
     postgres_engine: Engine,
     target_relation: str,
 ):
-    del api
+    del phase11_database
     downgrade_ready = Event()
     downgrade_pids: list[int] = []
     holder = postgres_engine.connect()
@@ -4395,7 +4498,7 @@ def test_downgrade_inverse_lock_order_times_out_without_ddl_then_retries(
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
             "0018_repository_freshness"
         )
-        command.upgrade(_alembic_config(connection), "head")
+        command.upgrade(_alembic_config(connection), "0019_structured_completion_evidence")
 
 
 @pytest.mark.parametrize(
@@ -4420,11 +4523,11 @@ def test_downgrade_inverse_lock_order_times_out_without_ddl_then_retries(
     ids=("body", "attribute", "function-acl", "relation-acl", "column-acl"),
 )
 def test_downgrade_rejects_exact_phase11_catalog_tamper_before_ddl(
-    api: TestClient,
+    phase11_database: Engine,
     postgres_engine: Engine,
     tamper_statement: str,
 ):
-    del api
+    del phase11_database
     with pytest.raises(RuntimeError, match="indeterminate Phase 11 catalog"):
         with postgres_engine.begin() as connection:
             connection.execute(text(tamper_statement))
@@ -4444,10 +4547,7 @@ def test_downgrade_rejects_exact_phase11_catalog_tamper_before_ddl(
         "ALTER INDEX ix_work_items_duplicate_title_key_v1 SET (fillfactor = 75)",
         "GRANT SELECT ON work_items TO PUBLIC",
         "GRANT SELECT (title) ON work_items TO PUBLIC",
-        (
-            "ALTER TABLE projects ADD CONSTRAINT "
-            "completion_state_episode_guard CHECK (true)"
-        ),
+        ("ALTER TABLE projects ADD CONSTRAINT completion_state_episode_guard CHECK (true)"),
     ),
     ids=(
         "function-attribute",
@@ -4458,11 +4558,11 @@ def test_downgrade_rejects_exact_phase11_catalog_tamper_before_ddl(
     ),
 )
 def test_downgrade_rejects_phase10_survivor_catalog_tamper_before_ddl(
-    api: TestClient,
+    phase11_database: Engine,
     postgres_engine: Engine,
     tamper_statement: str,
 ):
-    del api
+    del phase11_database
     with pytest.raises(RuntimeError, match="Phase 10 survivor catalog"):
         with postgres_engine.begin() as connection:
             connection.execute(text(tamper_statement))
@@ -4476,12 +4576,10 @@ def test_downgrade_rejects_phase10_survivor_catalog_tamper_before_ddl(
 
 
 def test_downgrade_independently_rejects_corrupt_generation_history(
-    api: TestClient,
-    project: dict[str, object],
-    work_payload: dict[str, object],
+    phase11_database: Engine,
     postgres_engine: Engine,
 ):
-    work = _create_work(api, project, work_payload)
+    project, work = _legacy_create_work(postgres_engine)
     with pytest.raises(RuntimeError, match="invalid completion generation mapping"):
         with postgres_engine.begin() as connection:
             connection.execute(text("ALTER TABLE work_items DISABLE TRIGGER USER"))
@@ -4512,13 +4610,11 @@ def test_downgrade_independently_rejects_corrupt_generation_history(
 
 
 def test_downgrade_rejects_current_completion_on_non_done_work(
-    api: TestClient,
-    project: dict[str, object],
-    work_payload: dict[str, object],
+    phase11_database: Engine,
     postgres_engine: Engine,
 ):
-    work = _create_work(api, project, work_payload)
-    completed = _complete(api, project, work, 1, "non-done-current-completion")
+    project, work = _legacy_create_work(postgres_engine)
+    completed = _legacy_complete(postgres_engine, project, work, 1, "non-done-current-completion")
     assert completed.status_code == 200, completed.text
 
     with pytest.raises(RuntimeError, match="invalid completion generation mapping"):
@@ -4545,13 +4641,11 @@ def test_downgrade_rejects_current_completion_on_non_done_work(
 
 
 def test_downgrade_rejects_identity_sequence_behind_retained_history(
-    api: TestClient,
-    project: dict[str, object],
-    work_payload: dict[str, object],
+    phase11_database: Engine,
     postgres_engine: Engine,
 ):
-    work = _create_work(api, project, work_payload)
-    completed = _complete(api, project, work, 1, "sequence-preflight")
+    project, work = _legacy_create_work(postgres_engine)
+    completed = _legacy_complete(postgres_engine, project, work, 1, "sequence-preflight")
     assert completed.status_code == 200, completed.text
 
     with pytest.raises(RuntimeError, match="invalid work_events identity sequence"):
@@ -4574,16 +4668,14 @@ def test_downgrade_rejects_identity_sequence_behind_retained_history(
 
 @pytest.mark.parametrize("receipt_body", (None, "null", "[]", "1", "{}"))
 def test_downgrade_rejects_sql_null_and_malformed_completion_receipts(
-    api: TestClient,
-    project: dict[str, object],
-    work_payload: dict[str, object],
+    phase11_database: Engine,
     postgres_engine: Engine,
     receipt_body: str | None,
 ):
-    work = _create_work(api, project, work_payload)
+    project, work = _legacy_create_work(postgres_engine)
     operation_id = str(uuid4())
-    completed = _complete(
-        api,
+    completed = _legacy_complete(
+        postgres_engine,
         project,
         work,
         1,
@@ -4639,17 +4731,15 @@ def test_downgrade_rejects_sql_null_and_malformed_completion_receipts(
     ids=("null-title", "string-version", "extra-key", "checkpoint-drift"),
 )
 def test_downgrade_rejects_malformed_nested_completion_receipt_fields(
-    api: TestClient,
-    project: dict[str, object],
-    work_payload: dict[str, object],
+    phase11_database: Engine,
     postgres_engine: Engine,
     path: tuple[str, ...],
     replacement: str,
 ):
-    work = _create_work(api, project, work_payload)
+    project, work = _legacy_create_work(postgres_engine)
     operation_id = str(uuid4())
-    completed = _complete(
-        api,
+    completed = _legacy_complete(
+        postgres_engine,
         project,
         work,
         1,

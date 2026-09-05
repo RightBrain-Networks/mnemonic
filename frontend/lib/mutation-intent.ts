@@ -84,6 +84,7 @@ export interface PrepareMutation<K extends MutationKind> {
   readonly method: "POST" | "PATCH" | "DELETE";
   readonly path: string;
   readonly payload: object;
+  readonly expectedSourceWorkItemId?: string;
 }
 
 export class MutationIntentError extends Error {
@@ -150,6 +151,10 @@ export function mutationWorkKey(projectId: string, workItemId: string): string {
 
 export function mutationGateKey(projectId: string, gateId: string): string {
   return `gate:${projectId.toLowerCase()}:${gateId.toLowerCase()}`;
+}
+
+export function mutationReportKey(projectId: string, reportId: string): string {
+  return `report:${projectId.toLowerCase()}:${reportId.toLowerCase()}`;
 }
 
 export function mutationCreateKey(projectId: string): string {
@@ -231,6 +236,7 @@ export class MutationIntentRegistry {
       method: input.method,
       path: input.path,
       operationId,
+      ...(input.expectedSourceWorkItemId ? { expectedSourceWorkItemId: input.expectedSourceWorkItemId } : {}),
       body,
       state: "prepared",
       attempts: 0,
@@ -257,6 +263,7 @@ export class MutationIntentRegistry {
       || existing.projectId !== input.projectId
       || existing.method !== input.method
       || existing.path !== input.path
+      || existing.expectedSourceWorkItemId !== input.expectedSourceWorkItemId
       || !sameKeys(existing.conflictKeys, input.conflictKeys)
       || JSON.stringify({ ...input.payload, client_operation_id: existing.operationId }) !== existing.body
     ) {

@@ -768,7 +768,7 @@ RESPONSE_V1_DIGESTS = {
 @pytest.mark.parametrize(
     ("kind", "target", "payload", "expected_request"),
     canonical_vector_cases(),
-    ids=REGISTERED_OPERATION_KINDS,
+    ids=tuple(CANONICAL_DIGESTS),
 )
 def test_every_registered_operation_has_a_frozen_canonical_and_digest_vector(
     kind, target, payload, expected_request
@@ -797,7 +797,7 @@ def test_every_registered_operation_has_a_frozen_canonical_and_digest_vector(
 @pytest.mark.parametrize(
     ("kind", "source", "expected_body"),
     response_vector_cases(),
-    ids=REGISTERED_OPERATION_KINDS,
+    ids=tuple(CANONICAL_DIGESTS),
 )
 def test_every_registered_operation_has_a_frozen_response_v1_vector(
     kind, source, expected_body
@@ -1045,7 +1045,7 @@ def test_gate_response_replay_regenerates_computed_fields_and_refuses_tampering(
 
 def test_registry_is_closed_and_non_capability_bearing():
     assert tuple(OPERATION_REGISTRY) == REGISTERED_OPERATION_KINDS
-    assert len(OPERATION_REGISTRY) == 13
+    assert len(OPERATION_REGISTRY) == 15
     assert {
         spec.request_model.__name__ for spec in OPERATION_REGISTRY.values()
     } == {
@@ -1062,6 +1062,8 @@ def test_registry_is_closed_and_non_capability_bearing():
         "HumanGateRequestCreate",
         "HumanGateResolutionCreate",
         "WorkMergeCreate",
+        "JobCompletionReportDismissalCreate",
+        "JobCompletionReportFollowUpCreate",
     }
     for kind, spec in OPERATION_REGISTRY.items():
         assert spec.kind == kind

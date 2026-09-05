@@ -23,13 +23,22 @@ MCP_COMPONENT_OVERRIDES = {
 }
 
 FRONTEND_PROPERTY_SETS = {
-    "frontend/lib/completion-evidence.ts:decodeArtifactReference": (
-        "ArtifactReferenceRead"
+    "frontend/lib/job-completion-reports.ts:decodeJobReport": "JobCompletionReportRead",
+    "frontend/lib/job-completion-reports.ts:decodeReportDetail": "JobCompletionReportDetailRead",
+    "frontend/lib/job-completion-reports.ts:decodeProjectSettings": "ProjectSettingsRead",
+    "frontend/lib/job-completion-reports.ts:decodeReportEnvelope": "JobCompletionReportEnvelope",
+    "frontend/lib/job-completion-reports.ts:decodeReportPage": "JobCompletionReportPage",
+    "frontend/lib/job-completion-reports.ts:decodeReportCount": "JobCompletionReportCount",
+    "frontend/lib/job-completion-reports.ts:decodeReportDismissal": "HumanDismissalRead",
+    "frontend/lib/job-completion-reports.ts:decodeReportFollowUp": (
+        "JobCompletionReportFollowUpRead"
     ),
+    "frontend/lib/job-completion-reports.ts:decodeSourceState": "SourceWorkState",
+    "frontend/lib/project-activity.ts:decodeActivityItem": "ProjectActivityRead",
+    "frontend/lib/project-activity.ts:decodeActivityPage": "ProjectActivityPage",
+    "frontend/lib/completion-evidence.ts:decodeArtifactReference": ("ArtifactReferenceRead"),
     "frontend/lib/completion-evidence.ts:decodeCheckpointPointer": "CheckpointPointer",
-    "frontend/lib/completion-evidence.ts:decodeCompletionEvidencePage": (
-        "CompletionEvidencePage"
-    ),
+    "frontend/lib/completion-evidence.ts:decodeCompletionEvidencePage": ("CompletionEvidencePage"),
     "frontend/lib/completion-evidence.ts:decodeCompletionEvidencePage:item": (
         "CompletionEvidenceEpisodeRead"
     ),
@@ -53,15 +62,11 @@ FRONTEND_PROPERTY_SETS = {
     "frontend/lib/revision-codecs.ts:decodeHumanGateRevision": "HumanGateContextRevision",
     "frontend/lib/work-codecs.ts:decodeWorkSummary": "WorkSummary",
     "frontend/lib/checkpoint-codecs.ts:decodeCheckpoint": "CheckpointRead",
-    "frontend/lib/mutation-responses.ts:decodeMutationResult:complete_work": (
-        "WorkCompletionRead"
-    ),
+    "frontend/lib/mutation-responses.ts:decodeMutationResult:complete_work": ("WorkCompletionRead"),
     "frontend/lib/relationship-codecs.ts:decodeRelationship": "RelationshipEdgeRead",
     "frontend/lib/work-events.ts:EVENT_FIELDS": "WorkEventRead",
     "frontend/lib/work-events.ts:decodeWorkEventPage": "WorkEventPage",
-    "frontend/lib/duplicate-handling.ts:decodeCanonicalWorkProjection": (
-        "CanonicalWorkProjection"
-    ),
+    "frontend/lib/duplicate-handling.ts:decodeCanonicalWorkProjection": ("CanonicalWorkProjection"),
     "frontend/lib/revision-codecs.ts:decodeMergeReviewRevision": "MergeReviewRevision",
     "frontend/lib/duplicate-handling.ts:decodeWorkContext": "WorkContext",
     "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": "WorkItemDetailRead",
@@ -72,9 +77,7 @@ FRONTEND_PROPERTY_SETS = {
     "frontend/lib/duplicate-suggestions.ts:decodeDuplicateCandidateSummary": (
         "DuplicateCandidateSummary"
     ),
-    "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestion:item": (
-        "DuplicateSuggestion"
-    ),
+    "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestion:item": ("DuplicateSuggestion"),
     "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestionPage": (
         "DuplicateSuggestionPage"
     ),
@@ -82,9 +85,7 @@ FRONTEND_PROPERTY_SETS = {
         "Page_Union_WorkSearchHit__HierarchySummary__"
     ),
     "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage:item": "HierarchySummary",
-    "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPresentation": (
-        "HierarchyPresentation"
-    ),
+    "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPresentation": ("HierarchyPresentation"),
 }
 
 CONSUMER_METADATA = {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useMemo, useState } from "react";
 import { OperationalBadge, StatusBadge, formatDate } from "@/components/work-item-card";
 import { useCanonicalWorkSearch } from "@/components/use-canonical-work-search";
@@ -155,6 +156,8 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
     });
     return () => controller.abort();
   }, [checkpointRetry, counterpart, direction, editorOpen, targetId, type, work.id, work.project_id, work.title]);
+
+  useFailedReadRetry({ scope: `relationship-checkpoints:${work.project_id}:${work.id}:${counterpart?.work_item.id}`, failed: Boolean(checkpointError), busy: checkpointsLoading, enabled: editorOpen && Boolean(counterpart), retry: () => setCheckpointRetry((value) => value + 1) });
 
   async function addRelationship() {
     if (!counterpart || saving || removingId) return;

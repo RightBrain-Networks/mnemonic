@@ -32,7 +32,7 @@ from mnemonic_api.services.leases import (
     release_lease_record,
     renew_lease_record,
 )
-from mnemonic_api.services.relationships import lock_project_graph
+from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.work_context import assemble_work_context
 from mnemonic_api.services.work_items import require_work_item
 
@@ -47,12 +47,13 @@ def claim_work(
     request: Request,
     database: Database,
 ) -> ClaimReceipt:
-    work_item = require_work_item(database, project_id, work_item_id, lock=True)
-    receipt = claim_lease_record(
-        database, work_item, payload, settings_of(request).lease_ttl_seconds
-    )
-    database.commit()
-    return receipt
+    with project_mutation(database, project_id):
+        work_item = require_work_item(database, project_id, work_item_id, lock=True)
+        receipt = claim_lease_record(
+            database, work_item, payload, settings_of(request).lease_ttl_seconds
+        )
+        database.commit()
+        return receipt
 
 
 @router.post(
@@ -66,24 +67,20 @@ def claim_and_recall(
     request: Request,
     database: Database,
 ) -> ClaimAndRecall:
-    # The project -> work lock order freezes canonical/relationship state across
-    # the claim and the context's post-query graph projections. The focal work
-    # lock likewise freezes its lease, gate, checkpoint, and event state. This
-    # retains atomic rollback without repeatable-read serialization failures.
-    lock_project_graph(database, project_id)
-    work_item = require_work_item(database, project_id, work_item_id, lock=True)
-    receipt = claim_lease_record(
-        database, work_item, payload, settings_of(request).lease_ttl_seconds
-    )
-    context = assemble_work_context(
-        database,
-        project_id,
-        work_item_id,
-        recent_limit=5,
-        coherent_read=False,
-    )
-    database.commit()
-    return ClaimAndRecall(lease=receipt, context=context)
+    with project_mutation(database, project_id):
+        work_item = require_work_item(database, project_id, work_item_id, lock=True)
+        receipt = claim_lease_record(
+            database, work_item, payload, settings_of(request).lease_ttl_seconds
+        )
+        context = assemble_work_context(
+            database,
+            project_id,
+            work_item_id,
+            recent_limit=5,
+            coherent_read=False,
+        )
+        database.commit()
+        return ClaimAndRecall(lease=receipt, context=context)
 
 
 @router.post(
@@ -97,12 +94,13 @@ def renew_claim(
     request: Request,
     database: Database,
 ) -> ClaimReceipt:
-    work_item = require_work_item(database, project_id, work_item_id, lock=True)
-    receipt = renew_lease_record(
-        database, work_item, payload.lease_token, settings_of(request).lease_ttl_seconds
-    )
-    database.commit()
-    return receipt
+    with project_mutation(database, project_id):
+        work_item = require_work_item(database, project_id, work_item_id, lock=True)
+        receipt = renew_lease_record(
+            database, work_item, payload.lease_token, settings_of(request).lease_ttl_seconds
+        )
+        database.commit()
+        return receipt
 
 
 @router.post(

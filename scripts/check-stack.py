@@ -10,7 +10,7 @@ removes the reversible graph but deliberately retains immutable completion
 evidence plus both merged work items, their frozen relationship, merge record,
 events, and receipts as evidence.
 
-The writable Phase 11 path also requires --verified-against plus one or more
+The writable Phase 12 path also requires --verified-against plus one or more
 --affected-path values. They must describe a real commit and dependency scope
 that the operator actually inspected; the checker never fabricates repository
 provenance and does not run Git itself.
@@ -33,11 +33,19 @@ from uuid import UUID, uuid4
 import httpx
 from mcp.client.streamable_http import streamablehttp_client
 from mnemonic_mcp.models import CheckpointInput
+from mnemonic_mcp.phase12_models import (
+    JobCompletionReportInput,
+    JobCompletionReportRead,
+)
 from pydantic import AnyUrl, ValidationError
 
 from mcp import ClientSession
 
 CANONICAL_TOOLS = {
+    "get_activity",
+    "get_project_settings",
+    "list_job_completion_reports",
+    "get_job_completion_report",
     "list_projects",
     "create_project",
     "create_work",
@@ -174,7 +182,7 @@ async def tool(session: ClientSession, name: str, arguments: dict[str, Any]) -> 
 
 
 def synthetic_summary(marker: str) -> str:
-    return f"Synthetic Phase 11 integration check {marker}"
+    return f"Synthetic Phase 12 integration check {marker}"
 
 
 def mutation_actor(run_id: str) -> dict[str, str]:
@@ -868,10 +876,233 @@ async def cleanup_synthetic_work(
     return preserved_work_item_ids
 
 
+def validate_phase12_rest_contract(document: dict[str, Any]) -> None:
+    schemas = document["components"]["schemas"]
+    prefix = "/api/v1/projects/{project_id}"
+    reads = {
+        "/activity": "ProjectActivityPage", "/settings": "ProjectSettingsRead",
+        "/job-completion-reports": "JobCompletionReportPage",
+        "/job-completion-reports/count": "JobCompletionReportCount",
+        "/job-completion-reports/{report_id}": "JobCompletionReportDetailEnvelope",
+    }
+    for suffix, name in reads.items():
+        response = document["paths"][prefix + suffix]["get"]["responses"]["200"]
+        require(
+            response["content"]["application/json"]["schema"]
+            == {"$ref": f"#/components/schemas/{name}"},
+            f"REST Phase 12 {suffix} does not expose its exact safe-read shape.",
+        )
+    for name in ("WorkCompletionCreate", "WorkItemPatch", "WorkCompletionRead", "WorkUpdateRead"):
+        schema = schemas[name]
+        require(
+            "job_completion_report" in schema["properties"]
+            and "job_completion_report" not in schema.get("required", []),
+            f"REST {name} lost sparse historical report replay.",
+        )
+    require(
+        set(schemas["JobCompletionReportInput"]["required"])
+        == {"summary", "fyi_items", "prompt_revision"}
+        and "job_completion_report" not in schemas["WorkItemRead"]["properties"]
+        and "job_completion_report_prompt" in schemas["ProjectSettingsRead"]["required"]
+        and "revision" in schemas["ProjectSettingsRead"]["required"],
+        "REST Phase 12 report/settings contracts are incomplete.",
+    )
+
+
+def validate_phase12_mcp_catalog(tools: dict[str, Any]) -> None:
+    for name in ("complete_work", "update_work"):
+        schema = tools[name].inputSchema
+        require(
+            "job_completion_report" in schema["properties"]
+            and "job_completion_report" not in schema["required"]
+            and set(schema["$defs"]["JobCompletionReportInput"]["required"])
+            == {"summary", "fyi_items", "prompt_revision"}
+            and "job_completion_report" in tools[name].outputSchema["properties"],
+            f"MCP {name} lacks its sparse report input and exact response contract.",
+        )
+    for name, expected in {
+        "get_activity": "ProjectActivityPage",
+        "get_project_settings": "ProjectSettingsRead",
+        "list_job_completion_reports": "JobCompletionReportPage",
+        "get_job_completion_report": "JobCompletionReportDetailEnvelope",
+    }.items():
+        require(
+            tools[name].outputSchema.get("title") == expected,
+            f"MCP {name} has an unexpected Phase 12 safe-read projection.",
+        )
+
+
+async def synthetic_job_report(
+    session: ClientSession, project_id: str, summary: str, fyi_items: list[str] | None = None
+) -> dict[str, Any]:
+    """Bind deliberately authored synthetic prose to the prompt just obtained."""
+    settings = await tool(session, "get_project_settings", {"project_id": project_id})
+    require(
+        settings["project_id"] == project_id and bool(settings["job_completion_report_prompt"].strip()),
+        "The project has no effective report authoring prompt.",
+    )
+    return JobCompletionReportInput(
+        summary=summary, fyi_items=[] if fyi_items is None else fyi_items,
+        prompt_revision=settings["revision"],
+    ).model_dump(mode="json")
+
+
+def require_job_report(
+    result: dict[str, Any], requested: dict[str, Any], work_item_id: str, outcome: str
+) -> dict[str, Any]:
+    actual = result.get("job_completion_report")
+    require(isinstance(actual, dict), "Fresh closeout omitted its human-facing report.")
+    report = JobCompletionReportRead.model_validate_json(json.dumps(actual), strict=True)
+    work = result.get("work_item", result)
+    require(
+        str(report.work_item_id) == work_item_id
+        and str(report.project_id) == work["project_id"]
+        and report.closeout_status == outcome and report.closeout_work_version == work["version"]
+        and report.model_dump(mode="json", include={"summary", "fyi_items", "prompt_revision"})
+        == requested,
+        "Closeout report ownership, outcome, version or authored text disagrees.",
+    )
+    return actual
+
+
+async def phase12_read_probe(session: ClientSession, project_id: str) -> str:
+    settings = await tool(session, "get_project_settings", {"project_id": project_id})
+    require(bool(settings["job_completion_report_prompt"].strip()), "Report prompt is blank.")
+    initial = await tool(session, "get_activity", {"project_id": project_id, "start": "now"})
+    require(initial["items"] == [] and not initial["has_more"], "Activity now bootstrap failed.")
+    reports = await tool(session, "list_job_completion_reports", {"project_id": project_id, "limit": 1})
+    if reports["items"]:
+        await tool(session, "get_job_completion_report", {
+            "project_id": project_id, "report_id": reports["items"][0]["report"]["id"],
+        })
+    return initial["next_cursor"]
+
+
+async def phase12_dismiss_report(
+    api: httpx.AsyncClient, project_id: str, report_id: str, run_id: str
+) -> None:
+    path = f"projects/{project_id}/job-completion-reports/{report_id}/dismiss"
+    actor = {"actor_client": "dashboard", "actor_session_id": run_id, "actor_model": None}
+    arguments = retained_mutation({"actor": actor})
+    first = await retained_api_mutation(api, "POST", path, arguments)
+    repeated = await retained_api_mutation(api, "POST", path, arguments)
+    require(first.status_code == 200 and first.json()["dismissed"] is True, "First report dismissal failed.")
+    require(first.content == repeated.content, "Dismissal replay changed its permanent result.")
+    again = await retained_api_mutation(api, "POST", path, retained_mutation({"actor": actor}))
+    require(
+        again.status_code == 200 and again.json()["dismissed"] is False
+        and again.json()["human_dismissal"] == first.json()["human_dismissal"],
+        "A deliberate second dismissal did not preserve the first human action.",
+    )
+
+
+async def phase12_follow_up_action(
+    api: httpx.AsyncClient, project_id: str, report_id: str, source_work_item_id: str,
+    run_id: str, checkpoint_input: dict[str, Any], known_work_item_ids: set[str],
+) -> dict[str, Any]:
+    arguments = retained_mutation({
+        "actor": {"actor_client": "dashboard", "actor_session_id": run_id, "actor_model": None},
+        "title": "Use Comic Sans for the synthetic font choice",
+        "summary": "Disposable report follow-up exercising the Arial to Comic Sans override.",
+        "priority": 0,
+        "initial_checkpoint": {
+            **checkpoint_input, "source_client": "dashboard", "source_session_id": run_id,
+            "source_model": None,
+            "prompt": "Change the synthetic font preference from Arial to Comic Sans. This "
+            "is a disposable acceptance objective and does not change the product by itself.",
+        },
+    })
+    path = f"projects/{project_id}/job-completion-reports/{report_id}/follow-ups"
+    created = await retained_api_mutation(api, "POST", path, arguments)
+    require(created.status_code == 201, "Manual report follow-up creation failed.")
+    result = created.json()
+    work = result["work_item"]
+    known_work_item_ids.add(work["id"])
+    follow_up = result["follow_up"]
+    require(
+        work["status"] == "pending" and follow_up["report_id"] == report_id
+        and follow_up["source_work_item_id"] == source_work_item_id
+        and follow_up["follow_up_work_item_id"] == work["id"]
+        and work["id"] != source_work_item_id,
+        "Report follow-up lost pending state or one of its immutable source links.",
+    )
+    replayed = await retained_api_mutation(api, "POST", path, arguments)
+    require(replayed.content == created.content, "Follow-up replay created or returned different work.")
+    return result
+
+
+async def phase12_activity_catch_up(
+    session: ClientSession, project_id: str, after: str, report_id: str, follow_up_id: str
+) -> None:
+    collected: list[dict[str, Any]] = []
+    stream_id = None
+    for _ in range(10):
+        page = await tool(session, "get_activity", {"project_id": project_id, "after": after, "limit": 100})
+        if stream_id is None:
+            stream_id = page["stream_id"]
+        require(page["stream_id"] == stream_id, "Project stream changed during the synthetic run.")
+        collected.extend(page["items"])
+        after = page["next_cursor"]
+        if not page["has_more"]:
+            break
+    else:
+        raise RuntimeError("Synthetic activity exceeded ten bounded pages.")
+    sequences = [int(item["sequence"]) for item in collected]
+    require(sequences == sorted(set(sequences)), "Activity resume repeated or reordered entries.")
+    for kind in ("job_completion_report_created", "job_completion_report_dismissed"):
+        require(
+            sum(item["kind"] == kind and item["job_completion_report_id"] == report_id for item in collected) == 1,
+            f"Activity did not map {kind} exactly once.",
+        )
+    require(
+        sum(item["follow_up_id"] == follow_up_id for item in collected) == 1,
+        "Activity replay duplicated or omitted follow-up provenance.",
+    )
+
+
+async def phase12_human_report_flow(
+    session: ClientSession, api: httpx.AsyncClient, project_id: str,
+    source_identity: dict[str, str], run_id: str, checkpoint_input: dict[str, Any],
+    known_work_item_ids: set[str], activity_start: str,
+) -> None:
+    detail = await tool(session, "get_work", source_identity)
+    source, _ = work_detail_parts(detail, source_identity["work_item_id"])
+    requested = await synthetic_job_report(
+        session, project_id,
+        "The disposable verification task was marked Promoted to test a recorded hand-off. "
+        "This does not create an external issue, assign an agent, or imply product work finished.",
+        ["This synthetic report uses Arial as a sample choice; a follow-up can request Comic Sans."],
+    )
+    closed = await protected_tool(session, "update_work", retained_mutation({
+        **source_identity, "expected_version": source["version"], "changes": {"status": "promoted"},
+        **mutation_actor(run_id), "job_completion_report": requested,
+    }))
+    report = require_job_report(closed, requested, source["id"], "promoted")
+    report_id = report["id"]
+    reports = await tool(session, "list_job_completion_reports", {**source_identity, "limit": 50})
+    require(any(item["report"]["id"] == report_id for item in reports["items"]), "New report is absent from Summaries.")
+    follow_up = await phase12_follow_up_action(
+        api, project_id, report_id, source["id"], run_id, checkpoint_input, known_work_item_ids
+    )
+    current = await tool(session, "get_job_completion_report", {"project_id": project_id, "report_id": report_id})
+    require(not current["human_dismissed"] and current["follow_up_count"] == "1", "Follow-up silently dismissed or miscounted its report.")
+    await phase12_dismiss_report(api, project_id, report_id, run_id)
+    current = await tool(session, "get_job_completion_report", {"project_id": project_id, "report_id": report_id})
+    require(current["human_dismissed"] and current["report"]["summary"] == requested["summary"], "Dismissal lost immutable report text.")
+    reports = await tool(session, "list_job_completion_reports", {**source_identity, "limit": 50})
+    require(all(item["report"]["id"] != report_id for item in reports["items"]), "Dismissed report remains in the inbox.")
+    await phase12_activity_catch_up(session, project_id, activity_start, report_id, follow_up["follow_up"]["id"])
+    new_work = follow_up["work_item"]
+    await protected_tool(session, "delete_work", retained_mutation({
+        "project_id": project_id, "work_item_id": new_work["id"],
+        "expected_version": new_work["version"], **mutation_actor(run_id),
+    }))
+
+
 def validate_rest_contract(document: Any) -> None:
-    """Reject a healthy but contract-incompatible pre-Phase-11 API."""
+    """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.7.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.8.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         endpoint_refs = {
             "/api/v1/projects/{project_id}/work-items": "#/components/schemas/WorkItemCreate",
@@ -888,7 +1119,7 @@ def validate_rest_contract(document: Any) -> None:
             ]["schema"]
             require(
                 request_schema == {"$ref": expected_ref},
-                f"REST {path} does not expose the expected Phase 11 request.",
+                f"REST {path} does not expose the expected Phase 12 request.",
             )
         response_refs = {
             ("/api/v1/projects/{project_id}/work-items", "201"): (
@@ -909,7 +1140,7 @@ def validate_rest_contract(document: Any) -> None:
             ]["application/json"]["schema"]
             require(
                 response_schema == {"$ref": expected_ref},
-                f"REST {path} does not expose the expected Phase 11 response.",
+                f"REST {path} does not expose the expected Phase 12 response.",
             )
         require(
             schemas["WorkItemCreate"]["properties"]["initial_checkpoint"]
@@ -919,7 +1150,7 @@ def validate_rest_contract(document: Any) -> None:
         require(
             schemas["WorkCompletionCreate"]["properties"]["checkpoint"]
             == {"$ref": "#/components/schemas/CompletionCheckpointCreate"},
-            "REST complete-work does not bind the Phase 11 checkpoint schema.",
+            "REST complete-work does not bind the Phase 12 checkpoint schema.",
         )
         completion_create = schemas["WorkCompletionCreate"]
         require(
@@ -1001,6 +1232,7 @@ def validate_rest_contract(document: Any) -> None:
                 ),
                 f"REST {name} incorrectly requires repository provenance.",
             )
+        validate_phase12_rest_contract(document)
         checkpoint_read = schemas["CheckpointRead"]
         require(
             _validation_schema(checkpoint_read["properties"]["affected_paths"])
@@ -1013,15 +1245,15 @@ def validate_rest_contract(document: Any) -> None:
             "REST compact checkpoint pointers expose repository scope.",
         )
     except (KeyError, TypeError) as error:
-        raise RuntimeError("REST OpenAPI is missing the Phase 11 contract.") from error
+        raise RuntimeError("REST OpenAPI is missing the Phase 12 contract.") from error
 
 
 def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
     require(
-        len(catalog.tools) == 28
-        and len(tools_by_name) == 28
+        len(catalog.tools) == 32
+        and len(tools_by_name) == 32
         and len(PROTECTED_MUTATION_TOOLS) == 11
         and set(tools_by_name) == CANONICAL_TOOLS,
         "Unexpected MCP tool catalog.",
@@ -1138,6 +1370,7 @@ def validate_mcp_catalog(catalog: Any) -> None:
         == "CompletionEvidencePage",
         "MCP completion evidence lacks its exact extended write and safe read.",
     )
+    validate_phase12_mcp_catalog(tools_by_name)
     for name in ("search_work", "list_human_attention"):
         pointer = tools_by_name[name].outputSchema["$defs"]["CheckpointPointer"]
         require(
@@ -1280,22 +1513,22 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.7.0",
+                    and initialized.serverInfo.version == "0.8.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.7.0 structured-completion-evidence contract, real MCP "
-                    "initialization, 28-tool catalog, exact eleven protected mutation "
+                    "PASS: REST 0.8.0 structured-completion-evidence contract, real MCP "
+                    "initialization, 32-tool catalog, exact eleven protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )
                 if not args.project_id:
                     print(
                         "Read-only checks complete. Supply --project-id, --verified-against, and "
                         "at least one --affected-path to explicitly authorize one disposable "
-                        "Phase 11 lifecycle and a permanently retained merge."
+                        "Phase 12 lifecycle and a permanently retained merge."
                     )
                     return
 
@@ -1307,6 +1540,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     "WARNING: writable checks are disposable-project only; one irreversible "
                     "two-item merged group and its evidence will remain permanently."
                 )
+                activity_start = await phase12_read_probe(session, project_id)
                 run_id = str(uuid4())
                 print(
                     "INFO: synthetic run ID "
@@ -2197,7 +2431,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "title": f"Temporary terminal work check {terminal_marker}",
                             "summary": synthetic_summary(marker),
                             "priority": 30,
-                            "status": "wont-do",
+                            "status": "pending",
                             "initial_checkpoint": {
                                 **checkpoint_input,
                                 "prompt": f"Synthetic terminal candidate for run {run_id}.",
@@ -2218,7 +2452,23 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "project_id": project_id,
                         "work_item_id": terminal_id,
                     }
-                    await require_event_types(session, terminal_identity, ["work_created"])
+                    retirement_report = await synthetic_job_report(
+                        session, project_id,
+                        "The temporary verification task was deliberately retired after checking "
+                        "that new work starts pending. This was a disposable test and delivered "
+                        "no product changes.",
+                    )
+                    terminal = await protected_tool(
+                        session, "update_work", retained_mutation({
+                            **terminal_identity, "expected_version": terminal["version"],
+                            "changes": {"status": "wont-do"}, **mutation_actor(run_id),
+                            "job_completion_report": retirement_report,
+                        }),
+                    )
+                    require_job_report(terminal, retirement_report, terminal_id, "wont-do")
+                    await require_event_types(
+                        session, terminal_identity, ["work_created", "work_status_changed"]
+                    )
 
                     blocker_identity = {
                         "project_id": project_id,
@@ -2579,7 +2829,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "The terminal fixture did not reopen.",
                     )
                     await require_event_types(
-                        session, terminal_identity, ["work_created", "work_reopened"]
+                        session, terminal_identity, ["work_created", "work_status_changed", "work_reopened"]
                     )
                     ready_page = await tool(
                         session,
@@ -2873,6 +3123,13 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "checkpoint": completion_input,
                             "lease_token": lease_token,
                             "completion_evidence": completion_evidence,
+                            "job_completion_report": await synthetic_job_report(
+                                session, project_id,
+                                "The disposable integration check completed its first pass through "
+                                "the application. Work history, coordination and retry checks passed "
+                                "up to this point. This test does not approve or deploy product changes.",
+                                ["The test leaves its immutable history available for later inspection."],
+                            ),
                         }
                     )
                     completion = await protected_tool(
@@ -2887,6 +3144,9 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and completion["checkpoint"]["affected_paths"]
                         == initial_affected_paths,
                         "Completion did not atomically save its checkpoint and done status.",
+                    )
+                    require_job_report(
+                        completion, completion_arguments["job_completion_report"], work_item_id, "done"
                     )
                     returned_evidence = require_completion_evidence(
                         completion, completion_evidence
@@ -3115,6 +3375,12 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             **identity,
                             "expected_version": reopened["version"],
                             "checkpoint": evidence_free_checkpoint,
+                            "job_completion_report": await synthetic_job_report(
+                                session, project_id,
+                                "The disposable task was reopened and closed again to verify that "
+                                "each closeout keeps its own human summary. This second closeout "
+                                "does not add structured verification evidence or deploy changes.",
+                            ),
                         }
                     )
                     evidence_free_completion = await protected_tool(
@@ -3610,6 +3876,10 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "Exact alias claim redirected, widened context, or changed merge facts.",
                     )
 
+                    await phase12_human_report_flow(
+                        session, api, project_id, terminal_identity, run_id, checkpoint_input,
+                        known_work_item_ids, activity_start,
+                    )
                     synthetic_ids = (
                         child_id,
                         terminal_id,
@@ -3649,8 +3919,20 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             == 404,
                             "Soft-deleted synthetic work remains readable.",
                         )
+                    preserved_report = await tool(session, "get_job_completion_report", {
+                        "project_id": project_id,
+                        "report_id": completion["job_completion_report"]["id"],
+                    })
+                    require(
+                        preserved_report["source_work_state"]["deleted"] is True
+                        and preserved_report["report"]["summary"]
+                        == completion["job_completion_report"]["summary"],
+                        "Soft deletion lost the exact immutable closeout report.",
+                    )
                     print(
-                        "PASS: canonical create/suggest/search/recall/checkpoints/events, "
+                        "PASS: Phase 12 activity resume, all three report closeouts, human "
+                        "dismissal/replay and pending follow-up with dual provenance; "
+                        "canonical create/suggest/search/recall/checkpoints/events, "
                         "resource/prompt, dashboard edit, typed stale conflict, "
                         "claim/replay/renew/release, pointer and capability isolation, "
                         "human-gate request/resolution replay, single activity advance, "
@@ -3702,7 +3984,7 @@ def validate_repository_cli_arguments(
     if args.project_id and not args.cleanup_run_id:
         if args.verified_against is None or not args.affected_paths:
             parser.error(
-                "Writable Phase 11 checks require --verified-against and at least one "
+                "Writable Phase 12 checks require --verified-against and at least one "
                 "--affected-path from the repository actually inspected by the operator."
             )
         try:
@@ -3733,7 +4015,7 @@ def main() -> None:
         "--project-id",
         type=project_uuid,
         help=(
-            "Explicitly authorizes a disposable Phase 11 writable lifecycle, including an "
+            "Explicitly authorizes a disposable Phase 12 writable lifecycle, including an "
             "irreversible two-item merge whose evidence is permanently retained"
         ),
     )

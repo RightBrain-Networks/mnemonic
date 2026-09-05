@@ -17,7 +17,9 @@ export const mutationLabels: Record<MutationIntentSummary["kind"], string> = {
   delete_work: "Delete work",
   remove_relationship: "Remove relationship",
   resolve_human_input: "Resolve human question",
-  merge_work: "Merge duplicate work"
+  merge_work: "Merge duplicate work",
+  dismiss_job_completion_report: "Dismiss summary",
+  create_job_completion_report_follow_up: "Create report follow-up"
 };
 
 type RecoveryOwner = "createDialog" | "deleteDialog" | "mergePanel" | "openedPane";

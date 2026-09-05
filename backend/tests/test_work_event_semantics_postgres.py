@@ -19,6 +19,8 @@ from mnemonic_api.models import WorkEvent, WorkLease, WorkRelationship
 from mnemonic_api.services.work_events import stage_work_claimed, stage_work_released
 from tests.conftest import TEST_API_KEY
 
+from .report_fixtures import reported
+
 pytestmark = pytest.mark.postgres
 
 
@@ -100,12 +102,12 @@ def test_lifecycle_completion_reopen_and_delete_emit_one_exact_fact(
 
     retired = api.patch(
         endpoint,
-        json={
+        json=reported({
             "expected_version": 1,
             "summary": "Retired with one companion change.",
             "status": "wont-do",
             "actor": actor("lifecycle-retired"),
-        },
+        }, retirement=True),
     )
     assert retired.status_code == 200, retired.text
     reopened = api.patch(
@@ -115,7 +117,7 @@ def test_lifecycle_completion_reopen_and_delete_emit_one_exact_fact(
     assert reopened.status_code == 200, reopened.text
     completed = api.post(
         f"{endpoint}/complete",
-        json=completion_payload(work_payload, 3, session="lifecycle-completed"),
+        json=reported(completion_payload(work_payload, 3, session="lifecycle-completed")),
     )
     assert completed.status_code == 200, completed.text
     completion_checkpoint_id = completed.json()["checkpoint"]["id"]
@@ -612,12 +614,12 @@ def test_event_staging_faults_roll_back_work_lease_checkpoint_and_relationship(
     with pytest.raises(RuntimeError, match="synthetic event staging failure"):
         api.post(
             f"{completed_endpoint}/complete",
-            json=completion_payload(
+            json=reported(completion_payload(
                 work_payload,
                 1,
                 session="completion-rollback-checkpoint",
                 lease_token=claim["lease_token"],
-            ),
+            )),
         )
     retained = api.get(completed_endpoint).json()["work_item"]
     assert retained["status"] == "pending"

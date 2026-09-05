@@ -8,6 +8,8 @@ from sqlalchemy import false, text
 
 from mnemonic_api.services import readiness as readiness_service
 
+from .report_fixtures import reported
+
 pytestmark = pytest.mark.postgres
 
 
@@ -95,7 +97,7 @@ def test_ready_work_predicate_order_filters_and_pointer_boundary(
     )
     retired = api.patch(
         f"{collection(project)}/{terminal['id']}",
-        json={"expected_version": 1, "status": "wont-do"},
+        json=reported({"expected_version": 1, "status": "wont-do"}, retirement=True),
     )
     assert retired.status_code == 200, retired.text
 

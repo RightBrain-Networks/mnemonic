@@ -51,3 +51,21 @@ def test_duplicate_suggestion_request_matches_openapi_shape():
     assert set(model_schema["required"]) == set(component["required"])
     for name in model_schema["properties"]:
         assert model_schema["properties"][name] == component["properties"][name]
+
+
+def test_phase12_models_match_published_openapi_shape():
+    """New focused models participate in the same independent shape inventory."""
+    from mnemonic_mcp import phase12_models
+
+    document = json.loads((REPOSITORY_ROOT / "docs/openapi.json").read_text())
+    components = document["components"]["schemas"]
+    for name in (
+        "JobCompletionReportInput", "JobCompletionReportRead", "JobCompletionReportDetailRead",
+        "HumanDismissalRead", "SourceWorkState", "JobCompletionReportEnvelope",
+        "JobCompletionReportDetailEnvelope", "JobCompletionReportPage", "ProjectActivityRead",
+        "ProjectActivityPage", "ProjectSettingsRead",
+    ):
+        schema = getattr(phase12_models, name).model_json_schema()
+        assert name in components, name
+        assert set(schema.get("properties", {})) == set(components[name].get("properties", {})), name
+        assert set(schema.get("required", [])) == set(components[name].get("required", [])), name

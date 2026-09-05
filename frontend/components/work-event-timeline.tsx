@@ -1,5 +1,6 @@
 "use client";
 
+import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useMemo, useRef, useState } from "react";
 import WorkEventComposer from "@/components/work-event-composer";
 import { formatDate } from "@/components/work-item-card";
@@ -143,6 +144,8 @@ export default function WorkEventTimeline({
     });
     return () => controller.abort();
   }, [eventType, offset, reload, work.id, work.project_id]);
+
+  useFailedReadRetry({ scope: `events:${work.project_id}:${work.id}:${eventType}:${offset}`, failed: Boolean(loadError), busy: loading, enabled: true, retry: () => setReload((value) => value + 1) });
 
   async function append(body: string) {
     await mutationRegistry.execute({

@@ -37,5 +37,12 @@
         "reference": "https://github.com/example/mnemonic/pull/123"
       }
     ]
+  },
+  "job_completion_report": {
+    "summary": "The requested completion history is implemented. Reviewers can now see the recorded checks and related work in one place. The backend tests passed; this example does not claim a deployment.",
+    "fyi_items": [
+      "The history includes only checks the agent actually recorded. Missing evidence does not prove that a check passed or failed."
+    ],
+    "prompt_revision": "1"
   }
 }

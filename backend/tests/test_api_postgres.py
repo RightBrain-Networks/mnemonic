@@ -26,6 +26,7 @@ def save(api, project, payload, **changes):
     checkpoint_changes = {
         field: changes.pop(field) for field in CHECKPOINT_OVERRIDES if field in changes
     }
+    terminal_status = changes.pop("status", "pending")
     body = {
         **payload,
         **changes,
@@ -33,7 +34,21 @@ def save(api, project, payload, **changes):
     }
     response = api.post(path(project), json=body)
     assert response.status_code == 201, response.text
-    return response.json()
+    created = response.json()
+    if terminal_status != "pending":
+        checkpoint = body["initial_checkpoint"]
+        retired = api.patch(path(project, created["work_item"]), json={
+            "expected_version": 1, "status": terminal_status, "client_operation_id": str(uuid4()),
+            "actor": {"actor_client": checkpoint["source_client"],
+                      "actor_session_id": checkpoint["source_session_id"],
+                      "actor_model": checkpoint.get("source_model")},
+            "job_completion_report": {"summary": "This test work was deliberately retired.",
+                                      "fyi_items": [], "prompt_revision": "1"},
+        })
+        assert retired.status_code == 200, retired.text
+        created["work_item"] = {key: value for key, value in retired.json().items()
+                                if key != "job_completion_report"}
+    return created
 
 
 def test_project_crud_counts_and_conflict(api, project):
@@ -60,28 +75,31 @@ def test_project_crud_counts_and_conflict(api, project):
 
 def test_project_settings_are_exact_nullable_and_project_local(api, project):
     endpoint = f"/api/v1/projects/{project['id']}/settings"
-    unset = {"project_id": project["id"], "recall_pointer_template": None}
-    assert api.get(endpoint).json() == unset
+    unset = api.get(endpoint).json()
+    assert unset["recall_pointer_template"] is None
+    assert unset["revision"] == "1"
+    assert "multitasking" in unset["job_completion_report_prompt"]
 
     template = "  Recall $WORK_ITEM_TITLE\r\nfor $PROJECT_ID.\t "
-    saved = api.patch(endpoint, json={"recall_pointer_template": template})
+    saved = api.patch(
+        endpoint, json={"expected_revision": "1", "recall_pointer_template": template}
+    )
     assert saved.status_code == 200, saved.text
-    assert saved.json() == {**unset, "recall_pointer_template": template}
+    assert saved.json() == {**unset, "revision": "2", "recall_pointer_template": template}
     assert api.get(endpoint).json() == saved.json()
 
     other = api.post("/api/v1/projects", json={"name": "Settings isolation"}).json()
     assert api.get(f"/api/v1/projects/{other['id']}/settings").json() == {
-        "project_id": other["id"],
-        "recall_pointer_template": None,
+        **unset, "project_id": other["id"],
     }
 
-    cleared = api.patch(endpoint, json={"recall_pointer_template": None})
+    cleared = api.patch(endpoint, json={"expected_revision": "2", "recall_pointer_template": None})
     assert cleared.status_code == 200, cleared.text
-    assert cleared.json() == unset
-    assert api.get(endpoint).json() == unset
+    assert cleared.json() == {**unset, "revision": "3"}
+    assert api.get(endpoint).json() == {**unset, "revision": "3"}
 
 
-def test_two_simultaneous_first_project_settings_saves_both_succeed(api, project):
+def test_simultaneous_settings_saves_require_review_of_the_winning_revision(api, project):
     endpoint = f"/api/v1/projects/{project['id']}/settings"
     templates = [
         "Writer A: $PROJECT_ID / $WORK_ITEM_ID",
@@ -91,15 +109,17 @@ def test_two_simultaneous_first_project_settings_saves_both_succeed(api, project
 
     def writer(template):
         barrier.wait(timeout=5)
-        return api.patch(endpoint, json={"recall_pointer_template": template})
+        return api.patch(
+            endpoint, json={"expected_revision": "1", "recall_pointer_template": template}
+        )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(writer, templates))
 
-    assert [response.status_code for response in responses] == [200, 200]
-    assert {
-        response.json()["recall_pointer_template"] for response in responses
-    } == set(templates)
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    assert next(response for response in responses if response.status_code == 200).json()[
+        "recall_pointer_template"
+    ] in templates
     assert api.get(endpoint).json()["recall_pointer_template"] in templates
 
 
@@ -111,13 +131,13 @@ def test_project_settings_validate_payload_and_project(api, project):
         {"recall_pointer_template": "x" * 100001},
         {"recall_pointer_template": "valid", "unknown": "field"},
     ]:
-        response = api.patch(endpoint, json=payload)
+        response = api.patch(endpoint, json={"expected_revision": "1", **payload})
         assert response.status_code == 422, response.text
 
     missing_endpoint = f"/api/v1/projects/{uuid4()}/settings"
     assert api.get(missing_endpoint).status_code == 404
     assert api.patch(
-        missing_endpoint, json={"recall_pointer_template": "valid"}
+        missing_endpoint, json={"expected_revision": "1", "recall_pointer_template": "valid"}
     ).status_code == 404
 
 

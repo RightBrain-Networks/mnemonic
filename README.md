@@ -110,7 +110,7 @@ Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemon
 reachable remotely.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current application/API/MCP release is `0.7.0`, retaining the Phase 11 contract and plugin version `0.10.0`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
+not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current application/API/MCP release is `0.8.0`, with plugin version `0.11.0` and database head `0021_job_completion_reports`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
 
 - **`mnemonic-save`** searches for existing work, explicitly compares a stable
   draft with grouped duplicate candidates while preserving Create anyway,
@@ -227,16 +227,27 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   completion, terminal transitions, and deletion without revoking exact active
   claim replay, renewal, release, checkpoints, or progress. Resolution is a
   direct REST/dashboard human action; MCP intentionally has no resolve tool.
-- Makes retries safe for thirteen project-scoped REST mutations with
+- Makes retries safe for fifteen project-scoped REST mutations with
   caller-generated `client_operation_id` values and durable typed success
-  receipts. Exactly eleven of the 28 canonical MCP tools require the UUID,
+  receipts. Exactly eleven of the 32 canonical MCP tools require the UUID,
   including `request_human_input` and `merge_work`; the dashboard retains frozen
-  same-document requests for its eleven non-capability mutations, including
-  deferral, gate resolution, and merge. Direct REST may omit the UUID for the
-  older twelve operations and remain retry-unprotected, but a completion carrying
-  any structured evidence and every `merge_work` request require it. An exact
-  retry returns the original historical result without repeating domain or event
-  work, after which callers reread current state.
+  same-document requests for its thirteen non-capability mutations, including
+  deferral, gate resolution, merge, report dismissal, and report follow-ups. Every
+  fresh closeout, merge, dismissal, and report follow-up requires an operation
+  UUID. Exact retries return the original historical result before fresh domain
+  guards, including previously acknowledged report-free closeouts.
+- Requires a concise human summary and optional FYI bullets on each fresh Done,
+  Won’t do, or Promoted closeout. Agents author the report assuming the reader
+  has read no other LLM output. Projects ship a sensible authoring prompt,
+  editable independently of recall pointer content at `/settings`.
+- Provides a top-level Summaries inbox. Dismissal hides a report from the default
+  inbox while retaining it in the API. Create Follow-up opens manually reviewed
+  pending work linked to both the report and its original work item; it neither
+  dismisses the report nor assigns an agent.
+- Exposes a durable, commit-ordered project activity cursor. The dashboard uses
+  authenticated polling plus data-free socket hints to catch up after missed
+  notifications. Historical imports contain recorded work events only. SSE,
+  webhooks, and arbitrary resource reservations remain future work.
 - Keeps checkpoints and events separate. A checkpoint is substantial resume
   context; a progress event is a short historical fact. Recall includes at most
   20 recent events, while the dashboard pages the complete per-work Activity

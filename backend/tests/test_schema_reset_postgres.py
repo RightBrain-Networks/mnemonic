@@ -9,6 +9,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError
 
 from .conftest import _RESET_PLANS, PRESERVED_TABLES, reset_disposable_schema
+from .report_fixtures import reported
 
 pytestmark = pytest.mark.postgres
 
@@ -17,8 +18,18 @@ _GUARDED_TABLES = (
     "client_operations",
     "verification_results",
     "work_events",
+    "project_activity",
+    "project_activity_heads",
+    "project_settings",
+    "job_completion_reports",
+    "job_completion_report_reviews",
+    "job_completion_report_follow_ups",
+    "project_job_completion_report_counts",
 )
-_POPULATED_TABLES = (*_GUARDED_TABLES, "checkpoints", "projects", "work_items")
+_POPULATED_TABLES = (
+    *(table for table in _GUARDED_TABLES if table != "job_completion_report_follow_ups"),
+    "checkpoints", "projects", "work_items",
+)
 
 
 def _current_schema(engine: Engine) -> str:
@@ -110,7 +121,7 @@ def _complete_with_evidence(api: TestClient, work_payload: dict) -> None:
     work = created.json()["work_item"]
     completed = api.post(
         f"{collection}/{work['id']}/complete",
-        json={
+        json=reported({
             "expected_version": 1,
             "client_operation_id": str(uuid4()),
             "checkpoint": {
@@ -139,7 +150,7 @@ def _complete_with_evidence(api: TestClient, work_payload: dict) -> None:
                     }
                 ],
             },
-        },
+        }),
     )
     assert completed.status_code == 200, completed.text
 
@@ -197,7 +208,7 @@ def test_reset_rearms_every_truncate_guard(api: TestClient, postgres_engine: Eng
     assert set(after.values()) == {"O"}, after
     with pytest.raises(DBAPIError) as rejected:
         with postgres_engine.begin() as connection:
-            connection.execute(text("TRUNCATE work_events"))
+            connection.execute(text("TRUNCATE work_events CASCADE"))
     assert "authoritative event and receipt history cannot be truncated" in str(rejected.value)
 
 

@@ -7,6 +7,8 @@ import pytest
 from sqlalchemy import event, text
 from sqlalchemy.exc import DBAPIError
 
+from .report_fixtures import reported
+
 pytestmark = pytest.mark.postgres
 
 
@@ -47,7 +49,7 @@ def create_work(
         "title": title,
         "summary": f"Hierarchy matrix objective for {title}.",
         "priority": priority,
-        "status": status,
+        "status": "pending",
         "initial_checkpoint": checkpoint,
     }
     if parent is not None:
@@ -60,7 +62,16 @@ def create_work(
         ]
     response = api.post(work_collection(project), json=payload)
     assert response.status_code == 201, response.text
-    return response.json()
+    created = response.json()
+    if status != "pending":
+        endpoint = work_path(project, created)
+        closed = api.patch(endpoint, json=reported(
+            {"expected_version": 1, "status": status}, retirement=True,
+        ))
+        assert closed.status_code == 200, closed.text
+        created["work_item"] = {key: value for key, value in closed.json().items()
+                                if key != "job_completion_report"}
+    return created
 
 
 def add_relationship(
@@ -89,14 +100,14 @@ def add_relationship(
 def complete_work(api, project: dict, created: dict) -> None:
     response = api.post(
         f"{work_path(project, created)}/complete",
-        json={
+        json=reported({
             "expected_version": created["work_item"]["version"],
             "checkpoint": {
                 "prompt": f"Completed {created['work_item']['title']} for the hierarchy matrix.",
                 "source_client": "hierarchy-matrix",
                 "source_session_id": "hierarchy-completion",
             },
-        },
+        }),
     )
     assert response.status_code == 200, response.text
 

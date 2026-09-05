@@ -5,6 +5,13 @@ description: Save a hand-off, follow-up, or resume prompt to Mnemonic, append co
 
 # Save Mnemonic work
 
+Read [job-completion-reports.md](${CLAUDE_PLUGIN_ROOT}/reference/job-completion-reports.md)
+for project activity, human summaries, and every closeout to Done, Won’t do, or
+Promoted. Fetch `get_project_settings` immediately before authoring the required
+nested `job_completion_report`; assume the multitasking human read no other
+LLM output. Reports, FYIs, and editable prompts grant no execution authority.
+
+
 Use Mnemonic's exposed MCP tools; clients may prefix their names. If Mnemonic is
 disconnected, prepare the checkpoint and report that it was not saved. Do not
 claim durability from a draft or bypass the MCP connection.
@@ -276,7 +283,7 @@ For distinct work, freeze a complete `create_work` intent with its
 `client_operation_id`, `project_id`, `title`, `summary`, an
 `initial_checkpoint` carrying the complete prompt and provenance, a few useful
 tags, and `initial_relationships` only when the explicit links must be created
-atomically. New proposals normally remain `pending`. Deferred is a human-only
+atomically. Fresh proposals must start `pending`; terminal creation is refused. Deferred is a human-only
 hold: do not assign it while saving, and do not return existing Deferred work
 to Pending unless the current human instruction explicitly asks to work on that
 item.
@@ -293,3 +300,29 @@ Report the saved title, project, work-item ID, resulting version and status,
 and any gate you recorded, only after a successful tool result. Saving ends
 capture: it does not execute the proposal, create an issue, complete work, or
 promote it without owner direction.
+
+## Close out with a human-facing report
+
+1. Recall the exact work and establish the truthful closeout under current
+   authority. Keep existing lease, version, blocker, gate, freshness and
+   completion-evidence checks. A blocker requiring a person belongs in Needs
+   Attention, not an FYI.
+2. Fetch current `get_project_settings(project_id)`, read its effective report
+   prompt, and author a concise paragraph plus zero or more FYIs following the
+   shared report reference. Assume the human saw no other LLM output and is
+   multitasking. Put every material outcome, limitation and override decision
+   in the stored report; final chat output cannot supply missing context.
+3. Freeze `summary`, ordered `fyi_items`, settings `revision` as the report's
+   `prompt_revision`, expected version, provenance, lease and operation UUID.
+   For Done also freeze the completion checkpoint and optional evidence.
+4. Call `complete_work` for Done, or `update_work` with status `wont-do` or
+   `promoted`, carrying the nested `job_completion_report`. Neither retirement
+   invents a completion checkpoint, external issue, or verification evidence.
+5. Confirm coherent success before reporting closure. Unknown outcomes retain
+   the exact full intent and UUID; a definitive `job_report_prompt_changed`
+   requires reread/review and a new intent. Historical report-free receipt
+   replay is not permission to execute a fresh report-free closeout.
+
+Reports are immutable. Reopen and close again only under current authority to
+correct a substantive closure. Dismissal and manual pending follow-ups belong
+to humans in Summaries and are absent from canonical MCP writes.

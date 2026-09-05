@@ -13,7 +13,37 @@ from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.schema import CreateSchema
 
+from . import phase11_completion_fixtures as history
+from .conftest import BACKEND_DIR, reset_disposable_schema
+
 pytestmark = pytest.mark.postgres
+
+
+@pytest.fixture(autouse=True)
+def phase11_audit_schema(postgres_engine):
+    """Keep this frozen prior-phase audit suite on its genuine 0019 boundary."""
+    reset_disposable_schema(postgres_engine)
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    with postgres_engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.downgrade(config, history.HEAD)
+    yield
+    reset_disposable_schema(postgres_engine)
+
+
+@pytest.fixture
+def project(postgres_engine, phase11_audit_schema):
+    with postgres_engine.begin() as connection:
+        return history._insert(
+            connection,
+            "projects",
+            {
+                "id": uuid4(),
+                "name": "First project",
+                "slug": "first-project",
+            },
+        )
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _PHASE10_DUMP_REPARSED_CHECKS = (
@@ -83,14 +113,10 @@ def _reparse_catalog_like_pg_restore(
         ),
         {
             "audit_schema": schema,
-            "constraint_identities": [
-                f"{table}.{name}" for table, name in checks
-            ],
+            "constraint_identities": [f"{table}.{name}" for table, name in checks],
         },
     ).all()
-    assert tuple((row.table_name, row.constraint_name) for row in constraint_rows) == (
-        checks
-    )
+    assert tuple((row.table_name, row.constraint_name) for row in constraint_rows) == (checks)
 
     index_rows = ()
     if indexes:
@@ -122,8 +148,7 @@ def _reparse_catalog_like_pg_restore(
             f"ALTER TABLE {qualified_table} DROP CONSTRAINT {quoted_constraint}"
         )
         connection.exec_driver_sql(
-            f"ALTER TABLE {qualified_table} ADD CONSTRAINT {quoted_constraint} "
-            f"{row.definition}"
+            f"ALTER TABLE {qualified_table} ADD CONSTRAINT {quoted_constraint} {row.definition}"
         )
     for row in index_rows:
         connection.exec_driver_sql(f"DROP INDEX {quoted_schema}.{quote(row.index_name)}")
@@ -138,7 +163,6 @@ def test_phase11_audit_catalog_hashes_are_coupled_to_migration_contract():
 
 
 def test_phase11_upgrade_preflight_rejects_duplicate_receipt_key_without_ddl(
-    api,
     project,
     work_payload,
     postgres_engine,
@@ -147,15 +171,16 @@ def test_phase11_upgrade_preflight_rejects_duplicate_receipt_key_without_ddl(
     migration = audit._phase11_revision_contract()
     operation_id = str(uuid4())
     duplicate_operation_id = str(uuid4())
-    created = api.post(
-        f"/api/v1/projects/{project['id']}/work-items",
-        json={**work_payload, "title": "Duplicate receipt upgrade preflight"},
+    created = history.create_fixture(
+        postgres_engine, project, {**work_payload, "title": "Duplicate receipt upgrade preflight"}
     )
     assert created.status_code == 201, created.text
     work = created.json()["work_item"]
-    completed = api.post(
-        f"/api/v1/projects/{project['id']}/work-items/{work['id']}/complete",
-        json={
+    completed = history.complete_fixture(
+        postgres_engine,
+        project,
+        {"id": work["id"]},
+        {
             "expected_version": 1,
             "checkpoint": work_payload["initial_checkpoint"],
             "client_operation_id": operation_id,
@@ -179,9 +204,7 @@ def test_phase11_upgrade_preflight_rejects_duplicate_receipt_key_without_ddl(
             config = Config(str(REPOSITORY_ROOT / "backend" / "alembic.ini"))
             config.attributes["connection"] = connection
             command.downgrade(config, "0018_repository_freshness")
-            connection.execute(
-                text("SET CONSTRAINTS client_operation_completion_guard DEFERRED")
-            )
+            connection.execute(text("SET CONSTRAINTS client_operation_completion_guard DEFERRED"))
             connection.execute(
                 text(
                     """
@@ -263,15 +286,18 @@ def test_phase11_upgrade_preflight_rejects_duplicate_receipt_key_without_ddl(
             assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
                 "0018_repository_freshness"
             )
-            assert migration._phase10_survivor_catalog_digest(
-                schema, connection=connection
-            ) == survivor_before
-            assert connection.execute(
-                text("SELECT * FROM client_operations ORDER BY id")
-            ).all() == receipts_before
-            assert connection.execute(
-                text(
-                    """
+            assert (
+                migration._phase10_survivor_catalog_digest(schema, connection=connection)
+                == survivor_before
+            )
+            assert (
+                connection.execute(text("SELECT * FROM client_operations ORDER BY id")).all()
+                == receipts_before
+            )
+            assert (
+                connection.execute(
+                    text(
+                        """
                     SELECT pg_catalog.to_regclass('verification_results'),
                            pg_catalog.to_regclass('artifact_references'),
                            EXISTS (
@@ -285,8 +311,11 @@ def test_phase11_upgrade_preflight_rejects_duplicate_receipt_key_without_ddl(
                                'ix_client_operations_completion_receipt_correspondence'
                            )
                     """
-                )
-            ).one() == phase11_markers_before == (None, None, False, None)
+                    )
+                ).one()
+                == phase11_markers_before
+                == (None, None, False, None)
+            )
             error = str(raised.value)
             assert operation_id not in error
             assert duplicate_operation_id not in error
@@ -310,22 +339,24 @@ def test_phase11_upgrade_preflight_rejects_duplicate_receipt_key_without_ddl(
 
 
 def test_phase11_receipt_correspondence_unique_index_rejects_second_completed_pair(
-    api,
     project,
     work_payload,
     postgres_engine,
 ):
     operation_id = str(uuid4())
     duplicate_operation_id = str(uuid4())
-    created = api.post(
-        f"/api/v1/projects/{project['id']}/work-items",
-        json={**work_payload, "title": "Unique completion receipt correspondence"},
+    created = history.create_fixture(
+        postgres_engine,
+        project,
+        {**work_payload, "title": "Unique completion receipt correspondence"},
     )
     assert created.status_code == 201, created.text
     work = created.json()["work_item"]
-    completed = api.post(
-        f"/api/v1/projects/{project['id']}/work-items/{work['id']}/complete",
-        json={
+    completed = history.complete_fixture(
+        postgres_engine,
+        project,
+        {"id": work["id"]},
+        {
             "expected_version": 1,
             "checkpoint": work_payload["initial_checkpoint"],
             "client_operation_id": operation_id,
@@ -344,9 +375,7 @@ def test_phase11_receipt_correspondence_unique_index_rejects_second_completed_pa
                 {"operation_id": operation_id},
             ).one()
             duplicate = connection.begin_nested()
-            connection.execute(
-                text("SET CONSTRAINTS client_operation_completion_guard DEFERRED")
-            )
+            connection.execute(text("SET CONSTRAINTS client_operation_completion_guard DEFERRED"))
             connection.execute(
                 text(
                     """
@@ -398,16 +427,20 @@ def test_phase11_receipt_correspondence_unique_index_rejects_second_completed_pa
             )
             duplicate.rollback()
 
-            assert connection.execute(
-                text(
-                    "SELECT * FROM client_operations "
-                    "WHERE client_operation_id = CAST(:operation_id AS uuid)"
-                ),
-                {"operation_id": operation_id},
-            ).one() == original
-            assert connection.scalar(
-                text(
-                    """
+            assert (
+                connection.execute(
+                    text(
+                        "SELECT * FROM client_operations "
+                        "WHERE client_operation_id = CAST(:operation_id AS uuid)"
+                    ),
+                    {"operation_id": operation_id},
+                ).one()
+                == original
+            )
+            assert (
+                connection.scalar(
+                    text(
+                        """
                     SELECT pg_catalog.count(*)
                     FROM client_operations
                     WHERE operation_kind = 'complete_work'
@@ -415,12 +448,14 @@ def test_phase11_receipt_correspondence_unique_index_rejects_second_completed_pa
                       AND response_body #>> '{checkpoint,id}' = :checkpoint_id
                       AND response_body #>> '{work_item,id}' = :work_item_id
                     """
-                ),
-                {
-                    "checkpoint_id": completed.json()["checkpoint"]["id"],
-                    "work_item_id": work["id"],
-                },
-            ) == 1
+                    ),
+                    {
+                        "checkpoint_id": completed.json()["checkpoint"]["id"],
+                        "work_item_id": work["id"],
+                    },
+                )
+                == 1
+            )
         finally:
             transaction.rollback()
 
@@ -442,9 +477,7 @@ def test_phase10_dump_reparsed_catalog_is_audited_and_migrates(postgres_engine):
             config.attributes["connection"] = connection
             command.upgrade(config, audit.REPOSITORY_FRESHNESS_HEAD)
 
-            fresh_digest = migration._phase10_survivor_catalog_digest(
-                schema, connection=connection
-            )
+            fresh_digest = migration._phase10_survivor_catalog_digest(schema, connection=connection)
             assert fresh_digest == (
                 "5171e0e22b9b6f838277725146ad81ccdcb747a82244fba3dd2aa42bb3cfa8fe"
             )
@@ -474,27 +507,29 @@ def test_phase10_dump_reparsed_catalog_is_audited_and_migrates(postgres_engine):
                     "completion_state_episode_guard CHECK (true)"
                 )
             )
-            assert audit._catalog(connection, audit.REPOSITORY_FRESHNESS_HEAD)[
-                "phase10_survivor_catalog_failure_count"
-            ] == 1
+            assert (
+                audit._catalog(connection, audit.REPOSITORY_FRESHNESS_HEAD)[
+                    "phase10_survivor_catalog_failure_count"
+                ]
+                == 1
+            )
             tampered.rollback()
 
             command.upgrade(config, audit.FINAL_HEAD)
             assert (
-                migration._phase10_survivor_catalog_digest(
-                    schema, connection=connection
-                )
+                migration._phase10_survivor_catalog_digest(schema, connection=connection)
                 == restored_digest
             )
-            assert audit._catalog(connection, audit.FINAL_HEAD)[
-                "phase10_survivor_catalog_failure_count"
-            ] == 0
+            assert (
+                audit._catalog(connection, audit.FINAL_HEAD)[
+                    "phase10_survivor_catalog_failure_count"
+                ]
+                == 0
+            )
 
             command.downgrade(config, audit.REPOSITORY_FRESHNESS_HEAD)
             assert (
-                migration._phase10_survivor_catalog_digest(
-                    schema, connection=connection
-                )
+                migration._phase10_survivor_catalog_digest(schema, connection=connection)
                 == restored_digest
             )
             command.upgrade(config, audit.FINAL_HEAD)
@@ -509,18 +544,24 @@ def test_phase11_catalog_checks_are_dump_reparse_stable(postgres_engine):
         try:
             schema = connection.scalar(text("SELECT pg_catalog.current_schema()"))
             assert isinstance(schema, str)
-            assert audit._catalog(connection, audit.FINAL_HEAD)[
-                "completion_evidence_constraint_failure_count"
-            ] == 0
+            assert (
+                audit._catalog(connection, audit.FINAL_HEAD)[
+                    "completion_evidence_constraint_failure_count"
+                ]
+                == 0
+            )
 
             _reparse_catalog_like_pg_restore(
                 connection,
                 schema,
                 checks=_PHASE11_DUMP_REPARSED_CHECKS,
             )
-            assert audit._catalog(connection, audit.FINAL_HEAD)[
-                "completion_evidence_constraint_failure_count"
-            ] == 0
+            assert (
+                audit._catalog(connection, audit.FINAL_HEAD)[
+                    "completion_evidence_constraint_failure_count"
+                ]
+                == 0
+            )
         finally:
             transaction.rollback()
 
@@ -542,9 +583,10 @@ def test_phase11_survivor_digest_is_search_path_and_index_independent(postgres_e
                 schema, connection=connection
             )
             assert visible_digest in migration._PHASE10_SURVIVOR_CATALOG_SHA256S
-            assert connection.scalar(
-                text("SELECT pg_catalog.current_setting('search_path')")
-            ) == original_search_path
+            assert (
+                connection.scalar(text("SELECT pg_catalog.current_setting('search_path')"))
+                == original_search_path
+            )
 
             connection.execute(
                 text("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
@@ -553,9 +595,10 @@ def test_phase11_survivor_digest_is_search_path_and_index_independent(postgres_e
                 schema, connection=connection
             )
             assert hidden_digest == visible_digest
-            assert connection.scalar(
-                text("SELECT pg_catalog.current_setting('search_path')")
-            ) == "pg_catalog"
+            assert (
+                connection.scalar(text("SELECT pg_catalog.current_setting('search_path')"))
+                == "pg_catalog"
+            )
             connection.execute(
                 text("SELECT pg_catalog.set_config('search_path', :path, true)"),
                 {"path": original_search_path},
@@ -570,9 +613,10 @@ def test_phase11_survivor_digest_is_search_path_and_index_independent(postgres_e
                     "ix_artifact_references_completion_checkpoint_id_id"
                 )
             )
-            assert migration._phase10_survivor_catalog_digest(
-                schema, connection=connection
-            ) == visible_digest
+            assert (
+                migration._phase10_survivor_catalog_digest(schema, connection=connection)
+                == visible_digest
+            )
             without_phase11_indexes.rollback()
         finally:
             transaction.rollback()
@@ -743,9 +787,7 @@ def test_audit_requires_exact_advisory_function_and_index(postgres_engine):
             wrong_attributes = audit._catalog(connection, audit.FINAL_HEAD)
             assert wrong_attributes["missing_function_count"] == 1
 
-            connection.execute(
-                text("DROP FUNCTION mnemonic_duplicate_title_key_v1(text)")
-            )
+            connection.execute(text("DROP FUNCTION mnemonic_duplicate_title_key_v1(text)"))
             connection.execute(
                 text(
                     """
@@ -841,9 +883,7 @@ def test_audit_return_type_checks_resist_oid_regtype_operator_capture(postgres_e
                     """
                 )
             )
-            connection.exec_driver_sql(
-                f'SET LOCAL search_path = "{schema}", pg_catalog'
-            )
+            connection.exec_driver_sql(f'SET LOCAL search_path = "{schema}", pg_catalog')
             assert connection.scalar(
                 text(
                     "SELECT 'pg_catalog.text'::pg_catalog.regtype::pg_catalog.oid "
@@ -856,9 +896,7 @@ def test_audit_return_type_checks_resist_oid_regtype_operator_capture(postgres_e
             assert captured["missing_function_count"] == 1
             assert captured["missing_index_count"] == 0
             assert captured["title_key_contract_failure_count"] == 0
-            assert audit._catalog_blocking_counts(captured)[
-                "missing_required_functions"
-            ] == 1
+            assert audit._catalog_blocking_counts(captured)["missing_required_functions"] == 1
         finally:
             transaction.rollback()
 
@@ -875,13 +913,9 @@ def test_audit_blocks_when_core_merge_ledger_is_missing(postgres_engine):
             connection.execute(text("DROP TABLE work_duplicate_merges CASCADE"))
             missing_ledger = audit._catalog(connection, audit.FINAL_HEAD)
             assert missing_ledger["missing_table_count"] == 1
-            assert audit._catalog_blocking_counts(missing_ledger)[
-                "missing_required_tables"
-            ] == 1
+            assert audit._catalog_blocking_counts(missing_ledger)["missing_required_tables"] == 1
 
-            connection.execute(
-                text("CREATE VIEW work_duplicate_merges AS SELECT 1 AS placeholder")
-            )
+            connection.execute(text("CREATE VIEW work_duplicate_merges AS SELECT 1 AS placeholder"))
             lookalike_view = audit._catalog(connection, audit.FINAL_HEAD)
             assert lookalike_view["missing_table_count"] == 1
         finally:
@@ -922,21 +956,19 @@ def test_whole_audit_uses_trusted_path_and_cannot_skip_core_counts(postgres_engi
                     """
                 )
             )
-            connection.exec_driver_sql(
-                f'SET LOCAL search_path = "{schema}", pg_catalog'
-            )
+            connection.exec_driver_sql(f'SET LOCAL search_path = "{schema}", pg_catalog')
             hostile_search_path = connection.scalar(
                 text("SELECT pg_catalog.current_setting('search_path')")
             )
-            assert connection.scalar(
-                text(
-                    "SELECT 'work_duplicate_merges'::name "
-                    "= 'work_duplicate_merges'::text"
+            assert (
+                connection.scalar(
+                    text("SELECT 'work_duplicate_merges'::name = 'work_duplicate_merges'::text")
                 )
-            ) is False
+                is False
+            )
 
-            head_matches, head_count, counts, catalog = (
-                audit._database_audit_snapshot(connection, audit.FINAL_HEAD)
+            head_matches, head_count, counts, catalog = audit._database_audit_snapshot(
+                connection, audit.FINAL_HEAD
             )
 
             assert head_matches is True
@@ -944,9 +976,10 @@ def test_whole_audit_uses_trusted_path_and_cannot_skip_core_counts(postgres_engi
             assert catalog["missing_table_count"] == 0
             assert "authoritative_merges" in counts
             assert "checkpoint_receipt_scope_violation_count" in counts
-            assert connection.scalar(
-                text("SELECT pg_catalog.current_setting('search_path')")
-            ) == hostile_search_path
+            assert (
+                connection.scalar(text("SELECT pg_catalog.current_setting('search_path')"))
+                == hostile_search_path
+            )
         finally:
             transaction.rollback()
 
@@ -971,13 +1004,10 @@ def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
             altered_attributes = connection.begin_nested()
             connection.execute(
                 text(
-                    "ALTER TABLE checkpoints "
-                    "DROP CONSTRAINT ck_checkpoints_affected_paths_valid_v1"
+                    "ALTER TABLE checkpoints DROP CONSTRAINT ck_checkpoints_affected_paths_valid_v1"
                 )
             )
-            connection.execute(
-                text("DROP FUNCTION mnemonic_affected_paths_valid_v1(varchar[])")
-            )
+            connection.execute(text("DROP FUNCTION mnemonic_affected_paths_valid_v1(varchar[])"))
             connection.execute(
                 text(
                     """
@@ -1025,9 +1055,7 @@ def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
                 )
             )
             configuration_drift = audit._catalog(connection, audit.FINAL_HEAD)
-            assert configuration_drift[
-                "missing_repository_freshness_function_count"
-            ] == 1
+            assert configuration_drift["missing_repository_freshness_function_count"] == 1
             altered_configuration.rollback()
 
             hostile_array_equality = connection.begin_nested()
@@ -1048,16 +1076,10 @@ def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
                 )
             )
             schema = connection.scalar(text("SELECT pg_catalog.current_schema()"))
-            connection.exec_driver_sql(
-                f'SET LOCAL search_path = "{schema}", pg_catalog'
-            )
-            assert connection.scalar(
-                text("SELECT ARRAY['left']::text[] = ARRAY['right']::text[]")
-            )
+            connection.exec_driver_sql(f'SET LOCAL search_path = "{schema}", pg_catalog')
+            assert connection.scalar(text("SELECT ARRAY['left']::text[] = ARRAY['right']::text[]"))
             namespace_safe = audit._catalog(connection, audit.FINAL_HEAD)
-            assert namespace_safe[
-                "missing_repository_freshness_function_count"
-            ] == 1
+            assert namespace_safe["missing_repository_freshness_function_count"] == 1
             hostile_array_equality.rollback()
 
             hostile_internal_char_equality = connection.begin_nested()
@@ -1077,22 +1099,17 @@ def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
                     """
                 )
             )
-            connection.exec_driver_sql(
-                f'SET LOCAL search_path = "{schema}", pg_catalog'
-            )
+            connection.exec_driver_sql(f'SET LOCAL search_path = "{schema}", pg_catalog')
             hostile_search_path = connection.scalar(
                 text("SELECT pg_catalog.current_setting('search_path')")
             )
-            assert connection.scalar(
-                text("SELECT 'v'::\"char\" = 'i'::\"char\"")
-            )
+            assert connection.scalar(text("SELECT 'v'::\"char\" = 'i'::\"char\""))
             internal_char_safe = audit._catalog(connection, audit.FINAL_HEAD)
-            assert internal_char_safe[
-                "missing_repository_freshness_function_count"
-            ] == 1
-            assert connection.scalar(
-                text("SELECT pg_catalog.current_setting('search_path')")
-            ) == hostile_search_path
+            assert internal_char_safe["missing_repository_freshness_function_count"] == 1
+            assert (
+                connection.scalar(text("SELECT pg_catalog.current_setting('search_path')"))
+                == hostile_search_path
+            )
             hostile_internal_char_equality.rollback()
 
             altered_contract = connection.begin_nested()
@@ -1124,9 +1141,12 @@ def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
             connection.execute(
                 text("ALTER TABLE checkpoints ALTER COLUMN affected_paths DROP DEFAULT")
             )
-            assert audit._catalog(connection, audit.FINAL_HEAD)[
-                "checkpoint_affected_paths_column_failure_count"
-            ] > 0
+            assert (
+                audit._catalog(connection, audit.FINAL_HEAD)[
+                    "checkpoint_affected_paths_column_failure_count"
+                ]
+                > 0
+            )
             altered_column.rollback()
 
             altered_constraint = connection.begin_nested()
@@ -1136,9 +1156,12 @@ def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
                     "DROP CONSTRAINT ck_checkpoints_affected_paths_require_commit"
                 )
             )
-            assert audit._catalog(connection, audit.FINAL_HEAD)[
-                "checkpoint_affected_paths_constraint_failure_count"
-            ] > 0
+            assert (
+                audit._catalog(connection, audit.FINAL_HEAD)[
+                    "checkpoint_affected_paths_constraint_failure_count"
+                ]
+                > 0
+            )
             altered_constraint.rollback()
 
             overloaded_constraint = connection.begin_nested()
@@ -1170,9 +1193,12 @@ def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
                     "OR verified_against IS NOT NULL)"
                 )
             )
-            assert audit._catalog(connection, audit.FINAL_HEAD)[
-                "checkpoint_affected_paths_constraint_failure_count"
-            ] == 1
+            assert (
+                audit._catalog(connection, audit.FINAL_HEAD)[
+                    "checkpoint_affected_paths_constraint_failure_count"
+                ]
+                == 1
+            )
             overloaded_constraint.rollback()
 
             overloaded_operator = connection.begin_nested()
@@ -1196,9 +1222,7 @@ def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
                     """
                 )
             )
-            connection.exec_driver_sql(
-                f'SET LOCAL search_path = "{schema}", pg_catalog'
-            )
+            connection.exec_driver_sql(f'SET LOCAL search_path = "{schema}", pg_catalog')
             connection.execute(
                 text(
                     "ALTER TABLE checkpoints "
@@ -1213,9 +1237,12 @@ def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
                     "OR verified_against IS NOT NULL)"
                 )
             )
-            assert audit._catalog(connection, audit.FINAL_HEAD)[
-                "checkpoint_affected_paths_constraint_failure_count"
-            ] == 1
+            assert (
+                audit._catalog(connection, audit.FINAL_HEAD)[
+                    "checkpoint_affected_paths_constraint_failure_count"
+                ]
+                == 1
+            )
             overloaded_operator.rollback()
 
             spoofed_constraint_text = connection.begin_nested()
@@ -1241,14 +1268,10 @@ def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
                     """
                 )
             )
-            connection.exec_driver_sql(
-                f'SET LOCAL search_path = "{schema}", pg_catalog'
-            )
+            connection.exec_driver_sql(f'SET LOCAL search_path = "{schema}", pg_catalog')
             assert connection.scalar(text("SELECT 'left'::text = 'right'::text"))
             spoof_safe = audit._catalog(connection, audit.FINAL_HEAD)
-            assert spoof_safe[
-                "checkpoint_affected_paths_constraint_failure_count"
-            ] == 2
+            assert spoof_safe["checkpoint_affected_paths_constraint_failure_count"] == 2
             spoofed_constraint_text.rollback()
 
             unexpected_index = connection.begin_nested()
@@ -1258,19 +1281,28 @@ def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
                     "ON checkpoints USING gin (affected_paths)"
                 )
             )
-            assert audit._catalog(connection, audit.FINAL_HEAD)[
-                "unexpected_affected_paths_index_count"
-            ] == 1
+            assert (
+                audit._catalog(connection, audit.FINAL_HEAD)[
+                    "unexpected_affected_paths_index_count"
+                ]
+                == 1
+            )
             unexpected_index.rollback()
 
             altered_trigger = connection.begin_nested()
             connection.execute(text("DROP TRIGGER checkpoints_immutable ON checkpoints"))
-            assert audit._catalog(connection, audit.FINAL_HEAD)[
-                "checkpoint_immutability_trigger_failure_count"
-            ] == 1
-            assert audit._catalog(connection, audit.ADVISORY_HEAD)[
-                "checkpoint_immutability_trigger_failure_count"
-            ] == 1
+            assert (
+                audit._catalog(connection, audit.FINAL_HEAD)[
+                    "checkpoint_immutability_trigger_failure_count"
+                ]
+                == 1
+            )
+            assert (
+                audit._catalog(connection, audit.ADVISORY_HEAD)[
+                    "checkpoint_immutability_trigger_failure_count"
+                ]
+                == 1
+            )
             altered_trigger.rollback()
 
             altered_trigger_function = connection.begin_nested()
@@ -1288,12 +1320,18 @@ def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
                     """
                 )
             )
-            assert audit._catalog(connection, audit.FINAL_HEAD)[
-                "checkpoint_immutability_trigger_failure_count"
-            ] == 1
-            assert audit._catalog(connection, audit.ADVISORY_HEAD)[
-                "checkpoint_immutability_trigger_failure_count"
-            ] == 1
+            assert (
+                audit._catalog(connection, audit.FINAL_HEAD)[
+                    "checkpoint_immutability_trigger_failure_count"
+                ]
+                == 1
+            )
+            assert (
+                audit._catalog(connection, audit.ADVISORY_HEAD)[
+                    "checkpoint_immutability_trigger_failure_count"
+                ]
+                == 1
+            )
             altered_trigger_function.rollback()
         finally:
             transaction.rollback()
@@ -1316,9 +1354,7 @@ def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
         ),
     ),
 )
-def test_audit_requires_exact_client_operation_guards(
-    postgres_engine, trigger_name, function_name
-):
+def test_audit_requires_exact_client_operation_guards(postgres_engine, trigger_name, function_name):
     audit = _audit_module()
     with postgres_engine.connect() as connection:
         transaction = connection.begin()
@@ -1327,14 +1363,10 @@ def test_audit_requires_exact_client_operation_guards(
             assert baseline["client_operation_guard_failure_count"] == 0
 
             missing_trigger = connection.begin_nested()
-            connection.execute(
-                text(f"DROP TRIGGER {trigger_name} ON client_operations")
-            )
+            connection.execute(text(f"DROP TRIGGER {trigger_name} ON client_operations"))
             missing = audit._catalog(connection, audit.FINAL_HEAD)
             assert missing["client_operation_guard_failure_count"] == 1
-            assert audit._catalog_blocking_counts(missing)[
-                "client_operation_guard_failures"
-            ] == 1
+            assert audit._catalog_blocking_counts(missing)["client_operation_guard_failures"] == 1
             missing_trigger.rollback()
 
             altered_function = connection.begin_nested()
@@ -1361,13 +1393,14 @@ def test_audit_requires_exact_client_operation_guards(
 
 
 def test_audit_counts_repository_scope_and_receipt_shape_drift(
-    api, project, work_payload, checkpoint_fields, postgres_engine
+    project, work_payload, checkpoint_fields, postgres_engine
 ):
     audit = _audit_module()
     create_operation_id = str(uuid4())
-    created = api.post(
-        f"/api/v1/projects/{project['id']}/work-items",
-        json={
+    created = history.create_fixture(
+        postgres_engine,
+        project,
+        {
             **work_payload,
             "title": "Audit repository freshness",
             "initial_checkpoint": {
@@ -1381,9 +1414,11 @@ def test_audit_counts_repository_scope_and_receipt_shape_drift(
     work_item_id = created.json()["work_item"]["id"]
 
     add_operation_id = str(uuid4())
-    added = api.post(
-        f"/api/v1/projects/{project['id']}/work-items/{work_item_id}/checkpoints",
-        json={
+    added = history.checkpoint_fixture(
+        postgres_engine,
+        project,
+        {"id": work_item_id},
+        {
             **checkpoint_fields,
             "kind": "progress",
             "affected_paths": ["backend/src/**"],
@@ -1393,9 +1428,11 @@ def test_audit_counts_repository_scope_and_receipt_shape_drift(
     assert added.status_code == 201, added.text
 
     complete_operation_id = str(uuid4())
-    completed = api.post(
-        f"/api/v1/projects/{project['id']}/work-items/{work_item_id}/complete",
-        json={
+    completed = history.complete_fixture(
+        postgres_engine,
+        project,
+        {"id": work_item_id},
+        {
             "expected_version": 1,
             "checkpoint": {
                 **checkpoint_fields,
@@ -1408,9 +1445,10 @@ def test_audit_counts_repository_scope_and_receipt_shape_drift(
     assert completed.status_code == 200, completed.text
 
     sparse_operation_id = str(uuid4())
-    sparse = api.post(
-        f"/api/v1/projects/{project['id']}/work-items",
-        json={
+    sparse = history.create_fixture(
+        postgres_engine,
+        project,
+        {
             **work_payload,
             "title": "Audit historical sparse receipt shape",
             "client_operation_id": sparse_operation_id,
@@ -1496,9 +1534,7 @@ def test_audit_counts_repository_scope_and_receipt_shape_drift(
                 )
             )
             schema = connection.scalar(text("SELECT pg_catalog.current_schema()"))
-            connection.exec_driver_sql(
-                f'SET LOCAL search_path = "{schema}", pg_catalog'
-            )
+            connection.exec_driver_sql(f'SET LOCAL search_path = "{schema}", pg_catalog')
             assert connection.execute(
                 text(
                     "SELECT 'completed'::varchar = 'completed'::varchar, "
@@ -1510,10 +1546,7 @@ def test_audit_counts_repository_scope_and_receipt_shape_drift(
             assert overload_safe["checkpoint_receipt_scope_violation_count"] == 0
 
             connection.execute(
-                text(
-                    "DROP TRIGGER client_operation_mutation_guard "
-                    "ON client_operations"
-                )
+                text("DROP TRIGGER client_operation_mutation_guard ON client_operations")
             )
             connection.execute(
                 text(
@@ -1529,9 +1562,12 @@ def test_audit_counts_repository_scope_and_receipt_shape_drift(
                 ),
                 {"operation_id": create_operation_id},
             )
-            assert audit._repository_freshness_counts(connection)[
-                "checkpoint_receipt_scope_violation_count"
-            ] == 0
+            assert (
+                audit._repository_freshness_counts(connection)[
+                    "checkpoint_receipt_scope_violation_count"
+                ]
+                == 0
+            )
             connection.execute(
                 text(
                     """
@@ -1557,9 +1593,12 @@ def test_audit_counts_repository_scope_and_receipt_shape_drift(
                 ),
                 {"operation_id": create_operation_id},
             )
-            assert audit._repository_freshness_counts(connection)[
-                "checkpoint_receipt_scope_violation_count"
-            ] == 1
+            assert (
+                audit._repository_freshness_counts(connection)[
+                    "checkpoint_receipt_scope_violation_count"
+                ]
+                == 1
+            )
             connection.execute(
                 text(
                     """
@@ -1570,9 +1609,12 @@ def test_audit_counts_repository_scope_and_receipt_shape_drift(
                 ),
                 {"operation_id": create_operation_id},
             )
-            assert audit._repository_freshness_counts(connection)[
-                "checkpoint_receipt_scope_violation_count"
-            ] == 0
+            assert (
+                audit._repository_freshness_counts(connection)[
+                    "checkpoint_receipt_scope_violation_count"
+                ]
+                == 0
+            )
             connection.execute(
                 text(
                     """
@@ -1625,17 +1667,17 @@ def test_audit_counts_repository_scope_and_receipt_shape_drift(
                 ),
                 {"operation_id": sparse_operation_id},
             )
-            assert audit._repository_freshness_counts(connection)[
-                "checkpoint_receipt_scope_violation_count"
-            ] == 4
-
-            connection.execute(
-                text("DROP TRIGGER checkpoints_immutable ON checkpoints")
+            assert (
+                audit._repository_freshness_counts(connection)[
+                    "checkpoint_receipt_scope_violation_count"
+                ]
+                == 4
             )
+
+            connection.execute(text("DROP TRIGGER checkpoints_immutable ON checkpoints"))
             connection.execute(
                 text(
-                    "ALTER TABLE checkpoints "
-                    "DROP CONSTRAINT ck_checkpoints_affected_paths_valid_v1"
+                    "ALTER TABLE checkpoints DROP CONSTRAINT ck_checkpoints_affected_paths_valid_v1"
                 )
             )
             connection.execute(
@@ -1665,9 +1707,7 @@ def test_audit_counts_repository_scope_and_receipt_shape_drift(
 
 def test_audit_rejects_negative_minimum_backup_capacity(monkeypatch):
     audit = _audit_module()
-    monkeypatch.setattr(
-        "sys.argv", ["audit", "--minimum-backup-free-bytes", "-1"]
-    )
+    monkeypatch.setattr("sys.argv", ["audit", "--minimum-backup-free-bytes", "-1"])
     with pytest.raises(SystemExit) as raised:
         audit._parse_args({"DATABASE_URL": "postgresql://localhost/mnemonic"})
     assert raised.value.code == 2
@@ -1706,9 +1746,9 @@ def test_audit_completion_evidence_inventory_blocks_only_when_requested():
     }
 
     assert audit._blocking_counts(counts) == {}
-    assert audit._blocking_counts(
-        counts, require_empty_completion_evidence=True
-    ) == {"unexpected_pre_enablement_completion_evidence_count": 2}
+    assert audit._blocking_counts(counts, require_empty_completion_evidence=True) == {
+        "unexpected_pre_enablement_completion_evidence_count": 2
+    }
 
 
 def test_audit_empty_scope_mode_requires_phase_10_head(monkeypatch):
@@ -1744,21 +1784,14 @@ def test_audit_phase11_catalog_fingerprints_detect_every_object_class(postgres_e
     mutations = {
         "relation": "ALTER TABLE verification_results SET (fillfactor = 75)",
         "relation_acl": "GRANT SELECT ON verification_results TO PUBLIC",
-        "column": (
-            "ALTER TABLE verification_results ALTER COLUMN name TYPE varchar(199)"
-        ),
+        "column": ("ALTER TABLE verification_results ALTER COLUMN name TYPE varchar(199)"),
         "column_acl": "GRANT SELECT (summary) ON verification_results TO PUBLIC",
         "constraint": (
             "ALTER TABLE verification_results "
             "DROP CONSTRAINT ck_verification_results_position_range"
         ),
-        "index": (
-            "ALTER INDEX uq_verification_results_episode_position "
-            "SET (fillfactor = 75)"
-        ),
-        "trigger": (
-            "ALTER TABLE work_items DISABLE TRIGGER completion_generation_guard"
-        ),
+        "index": ("ALTER INDEX uq_verification_results_episode_position SET (fillfactor = 75)"),
+        "trigger": ("ALTER TABLE work_items DISABLE TRIGGER completion_generation_guard"),
         "function": """
             CREATE OR REPLACE FUNCTION mnemonic_guard_completion_generation()
             RETURNS trigger
@@ -1770,9 +1803,7 @@ def test_audit_phase11_catalog_fingerprints_detect_every_object_class(postgres_e
             END
             $function$
         """,
-        "function_attribute": (
-            "ALTER FUNCTION mnemonic_guard_completion_generation() COST 7"
-        ),
+        "function_attribute": ("ALTER FUNCTION mnemonic_guard_completion_generation() COST 7"),
         "function_acl": (
             "GRANT EXECUTE ON FUNCTION mnemonic_guard_completion_generation() TO PUBLIC"
         ),
@@ -1791,9 +1822,9 @@ def test_audit_phase11_catalog_fingerprints_detect_every_object_class(postgres_e
                 catalog = audit._catalog(connection, audit.FINAL_HEAD)
                 key = expected_keys[object_class]
                 assert catalog[key] == 1, object_class
-                assert audit._catalog_blocking_counts(catalog)[
-                    key.removesuffix("_count") + "s"
-                ] == 1
+                assert (
+                    audit._catalog_blocking_counts(catalog)[key.removesuffix("_count") + "s"] == 1
+                )
                 tamper.rollback()
         finally:
             transaction.rollback()
@@ -1802,22 +1833,34 @@ def test_audit_phase11_catalog_fingerprints_detect_every_object_class(postgres_e
 def test_phase11_catalog_normalization_only_rewrites_schema_identifiers():
     audit = _audit_module()
 
-    assert audit._normalize_phase11_catalog_value(
-        'CREATE INDEX x ON "tenant-work".work_items (requested_work_id)',
-        "tenant-work",
-    ) == "CREATE INDEX x ON <schema>.work_items (requested_work_id)"
-    assert audit._normalize_phase11_catalog_value(
-        "work.work_events work_items requested_work_id AS work",
-        "work",
-    ) == "<schema>.work_events work_items requested_work_id AS work"
-    assert audit._normalize_phase11_catalog_value(
-        'search_path="tenant-work",pg_catalog',
-        "tenant-work",
-    ) == "search_path=<schema>,pg_catalog"
-    assert audit._normalize_phase11_catalog_value(
-        "'\"tenant''s\".work_events'::regclass",
-        "tenant's",
-    ) == "'<schema>.work_events'::regclass"
+    assert (
+        audit._normalize_phase11_catalog_value(
+            'CREATE INDEX x ON "tenant-work".work_items (requested_work_id)',
+            "tenant-work",
+        )
+        == "CREATE INDEX x ON <schema>.work_items (requested_work_id)"
+    )
+    assert (
+        audit._normalize_phase11_catalog_value(
+            "work.work_events work_items requested_work_id AS work",
+            "work",
+        )
+        == "<schema>.work_events work_items requested_work_id AS work"
+    )
+    assert (
+        audit._normalize_phase11_catalog_value(
+            'search_path="tenant-work",pg_catalog',
+            "tenant-work",
+        )
+        == "search_path=<schema>,pg_catalog"
+    )
+    assert (
+        audit._normalize_phase11_catalog_value(
+            "'\"tenant''s\".work_events'::regclass",
+            "tenant's",
+        )
+        == "'<schema>.work_events'::regclass"
+    )
 
 
 def test_audit_phase11_catalog_detects_internal_fk_trigger_tamper(postgres_engine):
@@ -1862,9 +1905,12 @@ def test_audit_phase11_sequence_check_honors_is_called(postgres_engine):
         sequence = None
         sequence_state = None
         try:
-            assert audit._completion_evidence_counts(connection)[
-                "work_event_identity_sequence_violation_count"
-            ] == 0
+            assert (
+                audit._completion_evidence_counts(connection)[
+                    "work_event_identity_sequence_violation_count"
+                ]
+                == 0
+            )
             sequence = connection.scalar(
                 text("SELECT pg_catalog.pg_get_serial_sequence('work_events', 'id')")
             )
@@ -1880,9 +1926,12 @@ def test_audit_phase11_sequence_check_honors_is_called(postgres_engine):
                 {"sequence": sequence},
             )
 
-            assert audit._completion_evidence_counts(connection)[
-                "work_event_identity_sequence_violation_count"
-            ] == 1
+            assert (
+                audit._completion_evidence_counts(connection)[
+                    "work_event_identity_sequence_violation_count"
+                ]
+                == 1
+            )
         finally:
             transaction.rollback()
             if sequence is not None and sequence_state is not None:
@@ -2206,7 +2255,6 @@ def _set_based_phase11_receipt_correspondence_count(connection) -> int:
 
 
 def test_phase11_audit_batches_are_keyset_bounded_and_count_exactly(
-    api,
     project,
     work_payload,
     postgres_engine,
@@ -2214,15 +2262,16 @@ def test_phase11_audit_batches_are_keyset_bounded_and_count_exactly(
 ):
     audit = _audit_module()
     for index in range(2):
-        created = api.post(
-            f"/api/v1/projects/{project['id']}/work-items",
-            json={**work_payload, "title": f"Bounded audit {index}"},
+        created = history.create_fixture(
+            postgres_engine, project, {**work_payload, "title": f"Bounded audit {index}"}
         )
         assert created.status_code == 201, created.text
         work = created.json()["work_item"]
-        completed = api.post(
-            f"/api/v1/projects/{project['id']}/work-items/{work['id']}/complete",
-            json={
+        completed = history.complete_fixture(
+            postgres_engine,
+            project,
+            {"id": work["id"]},
+            {
                 "expected_version": 1,
                 "checkpoint": work_payload["initial_checkpoint"],
                 "completion_evidence": {
@@ -2240,9 +2289,11 @@ def test_phase11_audit_batches_are_keyset_bounded_and_count_exactly(
         )
         assert completed.status_code == 200, completed.text
         if index == 0:
-            reopened = api.patch(
-                f"/api/v1/projects/{project['id']}/work-items/{work['id']}",
-                json={
+            reopened = history.reopen_fixture(
+                postgres_engine,
+                project,
+                {"id": work["id"]},
+                {
                     "expected_version": 2,
                     "status": "pending",
                     "actor": {
@@ -2252,9 +2303,11 @@ def test_phase11_audit_batches_are_keyset_bounded_and_count_exactly(
                 },
             )
             assert reopened.status_code == 200, reopened.text
-            recompleted = api.post(
-                f"/api/v1/projects/{project['id']}/work-items/{work['id']}/complete",
-                json={
+            recompleted = history.complete_fixture(
+                postgres_engine,
+                project,
+                {"id": work["id"]},
+                {
                     "expected_version": 3,
                     "checkpoint": work_payload["initial_checkpoint"],
                     "completion_evidence": {
@@ -2272,17 +2325,12 @@ def test_phase11_audit_batches_are_keyset_bounded_and_count_exactly(
             assert recompleted.status_code == 200, recompleted.text
 
     with postgres_engine.connect() as connection:
-        set_based_reopen, set_based_event_id = (
-            _set_based_phase11_reopen_and_id_counts(connection)
-        )
+        set_based_reopen, set_based_event_id = _set_based_phase11_reopen_and_id_counts(connection)
         set_based_receipt = _set_based_phase11_receipt_correspondence_count(connection)
         expected = audit._completion_evidence_counts(connection)
     assert expected["reopen_binding_violation_count"] == set_based_reopen
     assert expected["completion_event_id_violation_count"] == set_based_event_id
-    assert (
-        expected["receipt_evidence_correspondence_violation_count"]
-        == set_based_receipt
-    )
+    assert expected["receipt_evidence_correspondence_violation_count"] == set_based_receipt
 
     statements: list[tuple[str, object]] = []
 
@@ -2294,9 +2342,7 @@ def test_phase11_audit_batches_are_keyset_bounded_and_count_exactly(
     event.listen(postgres_engine, "before_cursor_execute", capture_statement)
     try:
         with postgres_engine.connect() as connection:
-            connection.execute(
-                text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-            )
+            connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
             assert connection.scalar(text("SHOW transaction_isolation")) == "repeatable read"
             assert connection.scalar(text("SHOW transaction_read_only")) == "on"
             actual = audit._completion_evidence_counts(connection)
@@ -2305,17 +2351,13 @@ def test_phase11_audit_batches_are_keyset_bounded_and_count_exactly(
 
     assert actual == expected
     keyset_statements = [
-        statement
-        for statement, _ in statements
-        if "phase11-audit-keyset" in statement
+        statement for statement, _ in statements if "phase11-audit-keyset" in statement
     ]
     assert keyset_statements
     assert any("id >" in statement for statement in keyset_statements)
     assert all("id <=" in statement for statement in keyset_statements)
     high_water_statements = [
-        statement
-        for statement, _ in statements
-        if "phase11-audit-high-water" in statement
+        statement for statement, _ in statements if "phase11-audit-high-water" in statement
     ]
     assert high_water_statements
     assert all("ORDER BY id DESC" in statement for statement in high_water_statements)
@@ -2363,31 +2405,33 @@ def test_phase11_audit_batches_are_keyset_bounded_and_count_exactly(
 
 
 def test_phase11_batched_reopen_and_event_id_counts_match_set_based_corruption(
-    api,
     project,
     work_payload,
     postgres_engine,
     monkeypatch,
 ):
     audit = _audit_module()
-    created = api.post(
-        f"/api/v1/projects/{project['id']}/work-items",
-        json={**work_payload, "title": "Batched reopen parity"},
+    created = history.create_fixture(
+        postgres_engine, project, {**work_payload, "title": "Batched reopen parity"}
     )
     assert created.status_code == 201, created.text
     work = created.json()["work_item"]
-    completed = api.post(
-        f"/api/v1/projects/{project['id']}/work-items/{work['id']}/complete",
-        json={
+    completed = history.complete_fixture(
+        postgres_engine,
+        project,
+        {"id": work["id"]},
+        {
             "expected_version": 1,
             "checkpoint": work_payload["initial_checkpoint"],
             "client_operation_id": str(uuid4()),
         },
     )
     assert completed.status_code == 200, completed.text
-    reopened = api.patch(
-        f"/api/v1/projects/{project['id']}/work-items/{work['id']}",
-        json={
+    reopened = history.reopen_fixture(
+        postgres_engine,
+        project,
+        {"id": work["id"]},
+        {
             "expected_version": 2,
             "status": "pending",
             "actor": {
@@ -2428,14 +2472,11 @@ def test_phase11_batched_reopen_and_event_id_counts_match_set_based_corruption(
                 ),
                 {"work_item_id": work["id"]},
             )
-            expected_reopen, expected_event_id = (
-                _set_based_phase11_reopen_and_id_counts(connection)
-            )
+            expected_reopen, expected_event_id = _set_based_phase11_reopen_and_id_counts(connection)
             assert expected_reopen > 0
             assert expected_event_id == 1
             assert (
-                audit._phase11_batched_reopen_binding_violation_count(connection)
-                == expected_reopen
+                audit._phase11_batched_reopen_binding_violation_count(connection) == expected_reopen
             )
             assert (
                 audit._phase11_batched_completion_event_id_violation_count(connection)
@@ -2607,23 +2648,23 @@ def test_phase11_audit_keyset_high_water_cannot_hide_skipped_candidates():
 
 
 def test_phase11_duplicate_matching_receipts_across_size_one_batches(
-    api,
     project,
     work_payload,
     postgres_engine,
     monkeypatch,
 ):
     audit = _audit_module()
-    created = api.post(
-        f"/api/v1/projects/{project['id']}/work-items",
-        json={**work_payload, "title": "Duplicate receipts across audit pages"},
+    created = history.create_fixture(
+        postgres_engine, project, {**work_payload, "title": "Duplicate receipts across audit pages"}
     )
     assert created.status_code == 201, created.text
     work = created.json()["work_item"]
     operation_id = str(uuid4())
-    completed = api.post(
-        f"/api/v1/projects/{project['id']}/work-items/{work['id']}/complete",
-        json={
+    completed = history.complete_fixture(
+        postgres_engine,
+        project,
+        {"id": work["id"]},
+        {
             "expected_version": 1,
             "checkpoint": work_payload["initial_checkpoint"],
             "completion_evidence": {
@@ -2698,10 +2739,8 @@ def test_phase11_duplicate_matching_receipts_across_size_one_batches(
             monkeypatch.setattr(audit, "PHASE11_AUDIT_BATCH_SIZE", 1)
             monkeypatch.setattr(audit, "_phase11_id_batches", tracked_batches)
             expected = _set_based_phase11_receipt_correspondence_count(connection)
-            actual = (
-                audit._phase11_batched_receipt_evidence_correspondence_violation_count(
-                    connection
-                )
+            actual = audit._phase11_batched_receipt_evidence_correspondence_violation_count(
+                connection
             )
 
             assert actual == expected == 1
@@ -2717,28 +2756,27 @@ def test_phase11_duplicate_matching_receipts_across_size_one_batches(
 
 
 def test_phase11_cross_work_evidence_keeps_checkpoint_global_receipt_parity(
-    api,
     project,
     work_payload,
     postgres_engine,
     monkeypatch,
 ):
     audit = _audit_module()
-    owner_created = api.post(
-        f"/api/v1/projects/{project['id']}/work-items",
-        json={**work_payload, "title": "Receipt parity checkpoint owner"},
+    owner_created = history.create_fixture(
+        postgres_engine, project, {**work_payload, "title": "Receipt parity checkpoint owner"}
     )
-    other_created = api.post(
-        f"/api/v1/projects/{project['id']}/work-items",
-        json={**work_payload, "title": "Receipt parity corrupt evidence owner"},
+    other_created = history.create_fixture(
+        postgres_engine, project, {**work_payload, "title": "Receipt parity corrupt evidence owner"}
     )
     assert owner_created.status_code == 201, owner_created.text
     assert other_created.status_code == 201, other_created.text
     owner = owner_created.json()["work_item"]
     other = other_created.json()["work_item"]
-    completed = api.post(
-        f"/api/v1/projects/{project['id']}/work-items/{owner['id']}/complete",
-        json={
+    completed = history.complete_fixture(
+        postgres_engine,
+        project,
+        {"id": owner["id"]},
+        {
             "expected_version": 1,
             "checkpoint": work_payload["initial_checkpoint"],
             "completion_evidence": {
@@ -2793,10 +2831,8 @@ def test_phase11_cross_work_evidence_keeps_checkpoint_global_receipt_parity(
             )
 
             expected = _set_based_phase11_receipt_correspondence_count(connection)
-            actual = (
-                audit._phase11_batched_receipt_evidence_correspondence_violation_count(
-                    connection
-                )
+            actual = audit._phase11_batched_receipt_evidence_correspondence_violation_count(
+                connection
             )
 
             assert audit._phase11_batched_evidence_owner_violation_count(connection) == 1
@@ -2806,23 +2842,23 @@ def test_phase11_cross_work_evidence_keeps_checkpoint_global_receipt_parity(
 
 
 def test_phase11_reverse_receipt_plan_uses_checkpoint_first_indexes(
-    api,
     project,
     work_payload,
     postgres_engine,
     monkeypatch,
 ):
     audit = _audit_module()
-    created = api.post(
-        f"/api/v1/projects/{project['id']}/work-items",
-        json={**work_payload, "title": "Reverse audit index probes"},
+    created = history.create_fixture(
+        postgres_engine, project, {**work_payload, "title": "Reverse audit index probes"}
     )
     assert created.status_code == 201, created.text
     work = created.json()["work_item"]
     operation_id = str(uuid4())
-    completed = api.post(
-        f"/api/v1/projects/{project['id']}/work-items/{work['id']}/complete",
-        json={
+    completed = history.complete_fixture(
+        postgres_engine,
+        project,
+        {"id": work["id"]},
+        {
             "expected_version": 1,
             "checkpoint": work_payload["initial_checkpoint"],
             "completion_evidence": {
@@ -2847,9 +2883,7 @@ def test_phase11_reverse_receipt_plan_uses_checkpoint_first_indexes(
             reverse_statements = []
             original_scalar = audit._scalar
 
-            def capture_reverse_statement(
-                scalar_connection, statement, parameters=None
-            ):
+            def capture_reverse_statement(scalar_connection, statement, parameters=None):
                 if "phase11-audit-reverse-receipt-classification" in statement:
                     reverse_statements.append((statement, parameters))
                 return original_scalar(scalar_connection, statement, parameters)
@@ -2864,10 +2898,7 @@ def test_phase11_reverse_receipt_plan_uses_checkpoint_first_indexes(
             connection.execute(text("ALTER TABLE client_operations DISABLE TRIGGER USER"))
             for table_name in ("verification_results", "artifact_references"):
                 connection.execute(
-                    text(
-                        f"ALTER TABLE {table_name} DROP CONSTRAINT "
-                        f"fk_{table_name}_work_item"
-                    )
+                    text(f"ALTER TABLE {table_name} DROP CONSTRAINT fk_{table_name}_work_item")
                 )
                 connection.execute(
                     text(
@@ -2946,10 +2977,7 @@ def test_phase11_reverse_receipt_plan_uses_checkpoint_first_indexes(
                 {"operation_id": operation_id, "row_count": unrelated_row_count},
             )
             connection.execute(
-                text(
-                    "ANALYZE verification_results, artifact_references, "
-                    "client_operations"
-                )
+                text("ANALYZE verification_results, artifact_references, client_operations")
             )
 
             explained = connection.execute(
@@ -2994,8 +3022,7 @@ def test_phase11_reverse_receipt_plan_uses_checkpoint_first_indexes(
             )
             assert any("id <" in node.get("Index Cond", "") for node in verification_nodes)
             assert all(
-                "completion_checkpoint_id" in node.get("Index Cond", "")
-                for node in artifact_nodes
+                "completion_checkpoint_id" in node.get("Index Cond", "") for node in artifact_nodes
             )
             assert all(
                 "{checkpoint,id}" in node.get("Index Cond", "")
@@ -3005,28 +3032,26 @@ def test_phase11_reverse_receipt_plan_uses_checkpoint_first_indexes(
         finally:
             transaction.rollback()
             connection.execute(
-                text(
-                    "ANALYZE verification_results, artifact_references, "
-                    "client_operations"
-                )
+                text("ANALYZE verification_results, artifact_references, client_operations")
             )
             connection.commit()
 
 
 def test_audit_phase11_receipt_rows_require_exact_bidirectional_json_and_cardinality(
-    api, project, work_payload, postgres_engine
+    project, work_payload, postgres_engine
 ):
     audit = _audit_module()
-    created = api.post(
-        f"/api/v1/projects/{project['id']}/work-items",
-        json={**work_payload, "title": "Audit exact completion evidence"},
+    created = history.create_fixture(
+        postgres_engine, project, {**work_payload, "title": "Audit exact completion evidence"}
     )
     assert created.status_code == 201, created.text
     work = created.json()["work_item"]
     operation_id = str(uuid4())
-    completed = api.post(
-        f"/api/v1/projects/{project['id']}/work-items/{work['id']}/complete",
-        json={
+    completed = history.complete_fixture(
+        postgres_engine,
+        project,
+        {"id": work["id"]},
+        {
             "expected_version": 1,
             "checkpoint": {
                 **work_payload["initial_checkpoint"],
@@ -3088,11 +3113,7 @@ def test_audit_phase11_receipt_rows_require_exact_bidirectional_json_and_cardina
             changed_count = audit._completion_evidence_counts(connection)[
                 "receipt_evidence_correspondence_violation_count"
             ]
-            assert (
-                changed_count
-                == _set_based_phase11_receipt_correspondence_count(connection)
-                > 0
-            )
+            assert changed_count == _set_based_phase11_receipt_correspondence_count(connection) > 0
             changed_receipt.rollback()
 
             numeric_type_drift = connection.begin_nested()
@@ -3120,11 +3141,7 @@ def test_audit_phase11_receipt_rows_require_exact_bidirectional_json_and_cardina
             numeric_count = audit._completion_evidence_counts(connection)[
                 "receipt_evidence_correspondence_violation_count"
             ]
-            assert (
-                numeric_count
-                == _set_based_phase11_receipt_correspondence_count(connection)
-                > 0
-            )
+            assert numeric_count == _set_based_phase11_receipt_correspondence_count(connection) > 0
             numeric_type_drift.rollback()
 
             missing_receipt = connection.begin_nested()
@@ -3140,9 +3157,7 @@ def test_audit_phase11_receipt_rows_require_exact_bidirectional_json_and_cardina
                 "receipt_evidence_correspondence_violation_count"
             ]
             assert (
-                duplicate_count
-                == _set_based_phase11_receipt_correspondence_count(connection)
-                > 0
+                duplicate_count == _set_based_phase11_receipt_correspondence_count(connection) > 0
             )
             missing_receipt.rollback()
 
@@ -3172,9 +3187,12 @@ def test_audit_phase11_receipt_rows_require_exact_bidirectional_json_and_cardina
                 ),
                 {"operation_id": operation_id},
             )
-            assert audit._completion_evidence_counts(connection)[
-                "receipt_evidence_correspondence_violation_count"
-            ] > 0
+            assert (
+                audit._completion_evidence_counts(connection)[
+                    "receipt_evidence_correspondence_violation_count"
+                ]
+                > 0
+            )
             duplicate_receipt.rollback()
 
             missing_rows = connection.begin_nested()
@@ -3198,9 +3216,12 @@ def test_audit_phase11_receipt_rows_require_exact_bidirectional_json_and_cardina
                 ),
                 {"checkpoint_id": checkpoint_id},
             )
-            assert audit._completion_evidence_counts(connection)[
-                "receipt_evidence_correspondence_violation_count"
-            ] > 0
+            assert (
+                audit._completion_evidence_counts(connection)[
+                    "receipt_evidence_correspondence_violation_count"
+                ]
+                > 0
+            )
             missing_rows.rollback()
 
             null_receipt = connection.begin_nested()
@@ -3246,8 +3267,7 @@ def test_audit_phase11_receipt_rows_require_exact_bidirectional_json_and_cardina
         ),
         (
             "ck_client_operations_request_fingerprint_salt_length",
-            "request_fingerprint_salt = pg_catalog.substring("
-            "request_fingerprint_salt, 1, 31)",
+            "request_fingerprint_salt = pg_catalog.substring(request_fingerprint_salt, 1, 31)",
         ),
         (
             "ck_client_operations_request_fingerprint_length",
@@ -3265,7 +3285,6 @@ def test_audit_phase11_receipt_rows_require_exact_bidirectional_json_and_cardina
     ),
 )
 def test_audit_and_downgrade_share_exact_malformed_receipt_corpus(
-    api,
     project,
     work_payload,
     postgres_engine,
@@ -3273,16 +3292,17 @@ def test_audit_and_downgrade_share_exact_malformed_receipt_corpus(
     receipt_tamper: str,
 ):
     audit = _audit_module()
-    created = api.post(
-        f"/api/v1/projects/{project['id']}/work-items",
-        json={**work_payload, "title": "Shared malformed receipt corpus"},
+    created = history.create_fixture(
+        postgres_engine, project, {**work_payload, "title": "Shared malformed receipt corpus"}
     )
     assert created.status_code == 201, created.text
     work = created.json()["work_item"]
     operation_id = str(uuid4())
-    completed = api.post(
-        f"/api/v1/projects/{project['id']}/work-items/{work['id']}/complete",
-        json={
+    completed = history.complete_fixture(
+        postgres_engine,
+        project,
+        {"id": work["id"]},
+        {
             "expected_version": 1,
             "checkpoint": {
                 **work_payload["initial_checkpoint"],
@@ -3299,8 +3319,7 @@ def test_audit_and_downgrade_share_exact_malformed_receipt_corpus(
             assert audit._phase11_downgrade_blocking_count(connection) == 0
             connection.execute(
                 text(
-                    "ALTER TABLE client_operations "
-                    "DISABLE TRIGGER client_operation_mutation_guard"
+                    "ALTER TABLE client_operations DISABLE TRIGGER client_operation_mutation_guard"
                 )
             )
             if constraint_name is not None:
@@ -3320,21 +3339,18 @@ def test_audit_and_downgrade_share_exact_malformed_receipt_corpus(
             schema = connection.scalar(text("SELECT pg_catalog.current_schema()"))
             assert isinstance(schema, str)
             quoted_schema = connection.dialect.identifier_preparer.quote_identifier(schema)
-            migration_count = contract._phase11_downgrade_blocking_count(
-                connection, quoted_schema
-            )
+            migration_count = contract._phase11_downgrade_blocking_count(connection, quoted_schema)
             assert audit_count == migration_count == 1
         finally:
             transaction.rollback()
 
 
 def test_audit_bigint_minimum_generation_corruption_fails_closed_without_overflow(
-    api, project, work_payload, postgres_engine
+    project, work_payload, postgres_engine
 ):
     audit = _audit_module()
-    created = api.post(
-        f"/api/v1/projects/{project['id']}/work-items",
-        json={**work_payload, "title": "Bigint minimum generation"},
+    created = history.create_fixture(
+        postgres_engine, project, {**work_payload, "title": "Bigint minimum generation"}
     )
     assert created.status_code == 201, created.text
     work_id = created.json()["work_item"]["id"]

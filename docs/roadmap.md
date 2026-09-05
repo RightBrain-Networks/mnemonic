@@ -24,10 +24,10 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 ## Delivery Snapshot
 
-As of 2026-09-05, Phases 1–11 are shipped in the repository. The current release is
-application/API/MCP/dashboard `0.7.0`, plugin `0.10.0`, and migration
-`0019_structured_completion_evidence`. Production-target preflight and cutover
-remain explicit operator gates. Phases 12–13 remain planned.
+As of 2026-09-05, Phases 1–12 are shipped in the repository. The current release is
+application/API/MCP/dashboard `0.8.0`, plugin `0.11.0`, and migration
+`0021_job_completion_reports`. Production-target preflight and cutover
+remain explicit operator gates. Phase 13 remains planned.
 
 | Roadmap element | Status | Implemented functionality |
 | --- | --- | --- |
@@ -42,7 +42,7 @@ remain explicit operator gates. Phases 12–13 remain planned.
 | Phase 9 — Duplicate handling | Shipped | Immutable authoritative merges, retained non-actionable aliases, canonical-aware reads/search/hierarchy, explicit draft duplicate suggestions, resource controls, and coordinated 0.4.0/0.8.0 clients. Production cutover and recovery gates remain explicit. |
 | Phase 10 — Repository freshness verification | Shipped | Immutable ordered checkpoint dependency declarations plus a local, repository-selected, three-state Git assessment with fail-closed runtime, index, filter, normalization, race, privacy, and authority boundaries. |
 | Phase 11 — Completion evidence | Shipped | Optional caller-reported verification results and artifact references commit atomically with an exact completion episode, replay through its permanent receipt, and remain available through bounded REST, MCP, and dashboard history reads. |
-| Phase 12 — Project activity feed | Planned | Per-work timelines and data-free dashboard invalidations exist; a durable project-wide cursor/feed, SSE, and webhooks have not shipped. |
+| Phase 12 — Project activity feed | Shipped | Durable commit-ordered activity, required human closeout reports, project-configurable authoring prompts, Summaries, dismissal, and manually linked pending follow-ups. SSE and webhooks remain future transports. |
 | Phase 13 — Resource reservations | Planned | Work-item leases exist; arbitrary resource-key reservations have not shipped. |
 
 ---
@@ -1236,59 +1236,33 @@ Keep prose verification instructions in the checkpoint where useful, but store f
 
 # Phase 12 - Project Activity Feed
 
-**Status: Planned; per-work activity shipped.** Phase 5 provides paged per-work
-event timelines, and the dashboard receives data-free invalidations. There is
-no durable project-wide cursor/feed, SSE stream, or webhook surface yet.
+**Status: Shipped.** Migrations `0020_project_activity` and
+`0021_job_completion_reports` add a durable project journal, immutable closeout
+reports, independent human review state, and report follow-up provenance.
 
-The [Phase 12 implementation plan](phase-12-project-activity-feed-implementation-plan.md)
-also covers required agent-authored reports for Done, Won’t do, and Promoted
-closeouts, a project-editable authoring prompt, the Summaries inbox, human
-dismissal, and manual pending follow-ups linked to both report and source work.
-These additions remain planned; the document records the implementation
-contract and adversarial planning review, not shipped functionality.
+The [implementation plan](phase-12-project-activity-feed-implementation-plan.md)
+records the design and planning review. The shipped contract includes:
 
-## Objective
+- A transactional per-project activity counter, strict project/stream-scoped
+  cursors, bounded forward paging, and honest recorded-event-only history import.
+- Mandatory concise summaries and ordered FYI bullets on every fresh pending-to-
+  Done, Won’t do, or Promoted closeout. Previously acknowledged requests replay
+  their permanent receipts before these fresh execution requirements.
+- Project settings with independent recall and report prompt fields, effective
+  nonblank defaults, and compare-and-set revisions. Reports retain the exact
+  prompt snapshot used to author them.
+- A Summaries inbox with monotonic human dismissal and manual pending follow-ups
+  linked to the report and exact source work. Neither action becomes an MCP write.
+- Four new MCP reads, keeping 11 protected agent writes while expanding the
+  complete catalog to 32 tools, 15 REST receipt kinds, and 13 browser mutations.
+- Authenticated dashboard catch-up polling alongside data-free socket hints.
+  Hidden tabs pause, and reconnect/focus/project changes obtain coherent snapshots.
 
-Provide an efficient incremental coordination API.
+Activity entries and reports are retained indefinitely in this phase. Restore
+that rewinds acknowledged state requires stream-ID rotation before reopening
+service. SSE, webhooks, and MCP subscriptions can build on the durable feed in a
+future phase; this release does not add those transports.
 
-Search answers:
-
-> What work matches this idea?
-
-An activity feed answers:
-
-> What changed since I last looked?
-
-## Proposed API
-
-```text
-get_activity(
-    project_id,
-    after_event_id=...
-)
-```
-
-Use monotonically ordered project events or another stable cursor.
-
-## Future Uses
-
-This can later back:
-
-- SSE,
-- webhooks,
-- MCP subscriptions,
-- live dashboard updates,
-- external orchestrators.
-
-Do not require real-time transport initially. The durable ordered feed is the important primitive.
-
-## Acceptance Criteria
-
-- Agents can cheaply retrieve changes since a known cursor.
-- Feed ordering is deterministic.
-- Clients can resume after interruption without missing events.
-
----
 
 # Phase 13 - Resource Reservations
 
@@ -1524,7 +1498,7 @@ At this point multiple agents can safely share a project.
 
 **Status: Partially shipped.** Phase 5 delivered append-only per-work events and
 the timeline UI, and Phase 9 implements authoritative duplicate merging plus
-advisory comparison. The Phase 12 project activity feed remains planned.
+advisory comparison. Phase 12 adds the durable project activity feed and human closeout reports.
 
 1. Add append-only work events.
 2. Add project activity feed.

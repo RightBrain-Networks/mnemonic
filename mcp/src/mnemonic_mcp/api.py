@@ -34,6 +34,33 @@ class TransportEffect(StrEnum):
 
 
 _APPLICATION_ERRORS = {
+    "initial_status_must_be_pending": "Fresh work must start pending before a report-bearing closeout.",
+    "job_completion_report_required": (
+        "Every fresh Done, Won't do, or Promoted closeout requires a job completion report. "
+        "Read get_project_settings and author its summary and FYIs before creating a new intent."
+    ),
+    "job_completion_report_not_applicable": (
+        "A job completion report is accepted only for an actual reportable closeout transition."
+    ),
+    "job_report_prompt_changed": (
+        "Project settings changed. Read get_project_settings, review the report against the "
+        "current prompt, and prepare a new intent only after this definitive rejection."
+    ),
+    "project_activity_unavailable": "Project activity is unavailable; retry this safe read later.",
+    "job_completion_report_unavailable": "Report history is unavailable; retry this safe read later.",
+    "project_settings_unavailable": "Project settings are unavailable; do not invent a report prompt.",
+    "project_settings_changed": "Project settings changed. Read current settings before editing.",
+    "invalid_activity_cursor": "That activity cursor is invalid for this project or head.",
+    "invalid_report_cursor": "That report cursor is invalid for this project or filter.",
+    "activity_stream_changed": (
+        "The project activity stream changed. Establish an explicit fresh snapshot before "
+        "rebootstrapping; do not silently skip history by starting at now."
+    ),
+    "project_mutation_unavailable": (
+        "The project mutation could not finish. Reconcile current state using its existing "
+        "retry rules before continuing."
+    ),
+    "client_operation_id_required": "This mutation requires a retained client_operation_id.",
     "slug_conflict": "A project with this slug already exists. List projects before creating another.",
     "semantic_unavailable": (
         "Mnemonic semantic search is unavailable. Retry with semantic disabled."
@@ -157,8 +184,9 @@ async def _bounded_identity_response(
     *,
     params: dict[str, Any] | None,
     payload: dict[str, Any] | None,
+    max_bytes: int,
 ) -> httpx.Response:
-    """Read at most 3 MiB of identity-coded bytes before UTF-8/JSON handling."""
+    """Read a bounded amount of identity-coded bytes before UTF-8/JSON handling."""
     async with client.stream(
         method,
         path,
@@ -172,13 +200,13 @@ async def _bounded_identity_response(
             raise BoundedIdentityResponseViolation("non-identity response coding")
         if declared_oversize_values(
             response.headers.get_list("content-length"),
-            COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES,
+            max_bytes,
         ):
             raise BoundedIdentityResponseViolation("oversized declared response")
 
         body = bytearray()
         async for chunk in response.aiter_raw(chunk_size=MCP_STREAM_CHUNK_BYTES):
-            if len(chunk) > COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES - len(body):
+            if len(chunk) > max_bytes - len(body):
                 raise BoundedIdentityResponseViolation("oversized streamed response")
             body.extend(chunk)
 
@@ -203,6 +231,7 @@ async def _dispatch_request(
     params: dict[str, Any] | None,
     payload: dict[str, Any] | None,
     bounded_identity_response: bool,
+    response_max_bytes: int,
 ) -> httpx.Response:
     if bounded_identity_response:
         return await _bounded_identity_response(
@@ -211,11 +240,13 @@ async def _dispatch_request(
             path,
             params=params,
             payload=payload,
+            max_bytes=response_max_bytes,
         )
     return await client.request(method, path, params=params, json=payload)
 
 
 _NOT_FOUND_MESSAGES = {
+    "job_completion_report_not_found": "Job completion report not found in this project.",
     "project_not_found": (
         "Project not found. Use list_projects to resolve the correct project_id."
     ),
@@ -566,6 +597,7 @@ class MnemonicAPI:
         extended_read_timeout: bool = False,
         strict_wire_response: bool = False,
         bounded_identity_response: bool = False,
+        response_max_bytes: int = COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES,
     ) -> ResponseModel | None:
         # A request-scoped client avoids sharing event-loop state across SDK
         # stateless HTTP sessions or stdio clients. No automatic write retries.
@@ -578,6 +610,8 @@ class MnemonicAPI:
             effect != TransportEffect.SAFE_READ or method != "GET"
         ):
             raise ValueError("Bounded identity responses require an explicit safe GET.")
+        if not 1 <= response_max_bytes <= COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES:
+            raise ValueError("Invalid bounded response byte limit.")
         try:
             async with httpx.AsyncClient(
                 base_url=f"{self.settings.api_url.rstrip('/')}/api/v1/",
@@ -607,6 +641,7 @@ class MnemonicAPI:
                             params=params,
                             payload=payload,
                             bounded_identity_response=bounded_identity_response,
+                            response_max_bytes=response_max_bytes,
                         )
                 else:
                     response = await _dispatch_request(
@@ -616,6 +651,7 @@ class MnemonicAPI:
                         params=params,
                         payload=payload,
                         bounded_identity_response=bounded_identity_response,
+                        response_max_bytes=response_max_bytes,
                     )
         except (
             BoundedIdentityResponseViolation,

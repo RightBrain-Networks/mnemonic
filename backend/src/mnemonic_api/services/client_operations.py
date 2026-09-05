@@ -36,7 +36,14 @@ from mnemonic_api.schemas import (
     HumanGateRequestCreate,
     HumanGateResolutionCreate,
     InitialRelationshipCreate,
+    JobCompletionReportDismissalCreate,
+    JobCompletionReportDismissalRequest,
+    JobCompletionReportDismissalResult,
+    JobCompletionReportFollowUpCreate,
+    JobCompletionReportFollowUpRequest,
+    JobCompletionReportFollowUpResult,
     LeaseReleaseCreate,
+    MutationActor,
     ProgressEventCreate,
     RelationshipCreate,
     RelationshipCreationResult,
@@ -58,6 +65,7 @@ from mnemonic_api.schemas import (
     WorkMergeCreate,
     WorkMergeRequest,
     WorkMergeResult,
+    WorkUpdateRead,
 )
 
 type OperationKind = Literal[
@@ -74,6 +82,8 @@ type OperationKind = Literal[
     "request_human_input",
     "resolve_human_input",
     "merge_work",
+    "dismiss_job_completion_report",
+    "create_job_completion_report_follow_up",
 ]
 REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
     "create_work",
@@ -89,6 +99,8 @@ REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
     "request_human_input",
     "resolve_human_input",
     "merge_work",
+    "dismiss_job_completion_report",
+    "create_job_completion_report_follow_up",
 )
 
 REQUEST_FINGERPRINT_VERSION = 1
@@ -120,7 +132,7 @@ class OperationSpec:
     status_code: int
     target_fields: tuple[str, ...]
     domain_model: type[APIModel]
-    mutation_applied_field: Literal["created", "removed", "released"] | None = None
+    mutation_applied_field: Literal["created", "removed", "released", "dismissed"] | None = None
     request_fingerprint_version: int = REQUEST_FINGERPRINT_VERSION
     response_contract_version: int = RESPONSE_CONTRACT_VERSION
     response_is_non_capability_bearing: bool = True
@@ -148,7 +160,7 @@ def _spec(
     response_model: type[APIModel],
     status_code: int,
     *target_fields: str,
-    mutation_applied_field: Literal["created", "removed", "released"] | None = None,
+    mutation_applied_field: Literal["created", "removed", "released", "dismissed"] | None = None,
     domain_model: type[APIModel] | None = None,
 ) -> OperationSpec:
     if "client_operation_id" not in request_model.model_fields:
@@ -186,7 +198,7 @@ _REGISTRY: dict[OperationKind, OperationSpec] = {
         200,
         mutation_applied_field="created",
     ),
-    "update_work": _spec("update_work", WorkItemPatch, WorkItemRead, 200, "work_item_id"),
+    "update_work": _spec("update_work", WorkItemPatch, WorkUpdateRead, 200, "work_item_id"),
     "defer_work": _spec(
         "defer_work", WorkDeferralCreate, WorkItemRead, 200, "work_item_id"
     ),
@@ -239,6 +251,16 @@ _REGISTRY: dict[OperationKind, OperationSpec] = {
         201,
         "work_item_id",
         domain_model=WorkMergeRequest,
+    ),
+    "dismiss_job_completion_report": _spec(
+        "dismiss_job_completion_report", JobCompletionReportDismissalCreate,
+        JobCompletionReportDismissalResult, 200, "report_id", mutation_applied_field="dismissed",
+        domain_model=JobCompletionReportDismissalRequest,
+    ),
+    "create_job_completion_report_follow_up": _spec(
+        "create_job_completion_report_follow_up", JobCompletionReportFollowUpCreate,
+        JobCompletionReportFollowUpResult, 201, "report_id",
+        domain_model=JobCompletionReportFollowUpRequest,
     ),
 }
 OPERATION_REGISTRY: Mapping[OperationKind, OperationSpec] = MappingProxyType(_REGISTRY)
@@ -409,6 +431,7 @@ def prepare_client_operation(
             cast(WorkCompletionCreate, payload),
             known_secret_values=known_secret_values,
         )
+    reject_report_secret_substrings(payload, known_secret_values=known_secret_values)
     forbidden_response_values = reject_client_operation_secret_echo(
         payload, known_secret_values=known_secret_values
     )
@@ -470,6 +493,28 @@ def reject_completion_evidence_secret_substrings(
     for value in _nested_strings(evidence.model_dump(mode="json")):
         if any(secret in value for secret in exact_secrets) or any(
             spelling in value.casefold() for spelling in uuid_spellings
+        ):
+            raise client_operation_secret_echo()
+
+
+def reject_report_secret_substrings(
+    payload: APIModel, *, known_secret_values: Iterable[str] = (),
+) -> None:
+    report = getattr(payload, "job_completion_report", None)
+    if report is None:
+        return
+    secrets_to_check = {value for value in known_secret_values if value}
+    token = getattr(payload, "lease_token", None)
+    if token:
+        secrets_to_check.add(token)
+    operation_id = getattr(payload, "client_operation_id", None)
+    spellings = set()
+    if operation_id is not None:
+        value = str(operation_id)
+        spellings = {value, value.replace("-", ""), "urn:uuid:" + value, "{" + value + "}"}
+    for value in [report.summary, *report.fyi_items]:
+        if any(secret in value for secret in secrets_to_check) or any(
+            spelling in value.casefold() for spelling in spellings
         ):
             raise client_operation_secret_echo()
 
@@ -887,16 +932,18 @@ def _update_work_matches(
     payload: APIModel,
     typed: APIModel,
 ) -> bool:
-    result = cast(WorkItemRead, typed)
+    result = cast(WorkUpdateRead, typed)
     request = cast(WorkItemPatch, payload)
     changed_fields = request.model_fields_set - {
         "expected_version",
         "lease_token",
         "actor",
         "client_operation_id",
+        "job_completion_report",
     }
     return (
-        result.project_id == project_id
+        _report_matches(result.job_completion_report, request.job_completion_report, request.actor)
+        and result.project_id == project_id
         and str(result.id) == target_envelope.get("work_item_id")
         and result.version == request.expected_version + 1
         and all(getattr(result, field) == getattr(request, field) for field in changed_fields)
@@ -936,6 +983,10 @@ def _complete_work_matches(
         and result.checkpoint.kind == "completion"
         and _checkpoint_matches_payload(result.checkpoint, request.checkpoint)
         and _completion_evidence_matches(result, request)
+        and _report_matches(result.job_completion_report, request.job_completion_report,
+            MutationActor(actor_client=request.checkpoint.source_client,
+                          actor_session_id=request.checkpoint.source_session_id,
+                          actor_model=request.checkpoint.source_model))
     )
 
 
@@ -1103,6 +1154,39 @@ def _merge_work_matches(
     )
 
 
+def _report_matches(actual, expected, actor: MutationActor | None) -> bool:
+    if actual is None or expected is None:
+        return actual is None and expected is None
+    return (
+        actual.summary == expected.summary and actual.fyi_items == expected.fyi_items
+        and actual.prompt_revision == expected.prompt_revision and actor is not None
+        and all(getattr(actual, field) == getattr(actor, field)
+                for field in ("actor_client", "actor_session_id", "actor_model"))
+    )
+
+
+def _dismiss_report_matches(project_id: UUID, target: Mapping[str, str],
+                            payload: APIModel, typed: APIModel) -> bool:
+    result = cast(JobCompletionReportDismissalResult, typed)
+    request = cast(JobCompletionReportDismissalRequest, payload)
+    return (result.project_id == project_id and str(result.report_id) == target.get("report_id")
+        and (not result.dismissed or all(getattr(result.human_dismissal, field) == value
+                                        for field, value in request.actor.model_dump().items())))
+
+
+def _follow_up_matches(project_id: UUID, target: Mapping[str, str],
+                       payload: APIModel, typed: APIModel) -> bool:
+    result = cast(JobCompletionReportFollowUpResult, typed)
+    request = cast(JobCompletionReportFollowUpRequest, payload)
+    return (result.work_item.project_id == project_id
+        and str(result.follow_up.report_id) == target.get("report_id")
+        and all(getattr(result.work_item, field) == getattr(request, field)
+                for field in ("title", "summary", "priority"))
+        and _checkpoint_matches_payload(result.initial_checkpoint, request.initial_checkpoint)
+        and all(getattr(result.follow_up, field) == value
+                for field, value in request.actor.model_dump().items()))
+
+
 _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
     {
         "create_work": _create_work_matches,
@@ -1118,6 +1202,8 @@ _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
         "request_human_input": _request_human_input_matches,
         "resolve_human_input": _resolve_human_input_matches,
         "merge_work": _merge_work_matches,
+        "dismiss_job_completion_report": _dismiss_report_matches,
+        "create_job_completion_report_follow_up": _follow_up_matches,
     }
 )
 if set(_RESPONSE_MATCHERS) != set(OPERATION_REGISTRY):  # pragma: no cover - import guard

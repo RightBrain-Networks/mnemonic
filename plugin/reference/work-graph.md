@@ -162,3 +162,11 @@ is its own protected intent under the same shared rules; a replay returns the
 original `created`/`removed` result, so read the graph again for current state. Do not delete
 descriptive provenance merely because a blocker became `done`, and never put
 operation-control data into relationship context or history.
+
+## Report follow-up provenance is separate
+
+Human-created report follow-ups link a new pending work item to both the exact
+job completion report and the work that produced it. This typed provenance is
+not a sixth relationship type, `discovered-from`, a dependency, a child, or
+permission to reopen or redirect a frozen source. See
+[job-completion-reports.md](${CLAUDE_PLUGIN_ROOT}/reference/job-completion-reports.md).
