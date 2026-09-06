@@ -240,6 +240,32 @@ test("work_merged is a distinct live decision fact with exact direction metadata
   );
 });
 
+test("dashboard lifecycle events are displayed as explicit human decisions", () => {
+  const statusEvent = event({
+    event_type: "work_status_changed",
+    body: null,
+    metadata: { from_status: "pending", to_status: "deferred" }
+  });
+  assert.match(workEventDescription(statusEvent), /^Explicit human decision:/);
+
+  const claimed = event({
+    event_type: "work_claimed",
+    body: null,
+    metadata: { expires_at: "2026-09-01T12:15:00Z" }
+  });
+  assert.match(workEventDescription(claimed), /^Explicit human decision:/);
+
+  const agentStatus = {
+    ...statusEvent,
+    actor_client: "claude-code",
+    actor_model: "agent-model"
+  };
+  assert.equal(
+    workEventDescription(agentStatus),
+    "Changed status from pending to deferred."
+  );
+});
+
 test("strict decoders reject widened event/page responses and malformed metadata", () => {
   const rejects = (overrides) => assert.throws(
     () => decodeWorkEvent(event(overrides)),

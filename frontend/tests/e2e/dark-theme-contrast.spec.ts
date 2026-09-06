@@ -212,7 +212,17 @@ const contrastFixture = `
               <button class="button copy-button detail-copy-context is-copied">Copied</button>
               <button class="button button-secondary">Edit</button>
               <button class="button button-secondary">Merge as duplicate…</button>
-              <button class="button defer-button">Defer</button>
+              <div class="status-split-button">
+                <button class="button defer-button status-split-primary">Defer</button>
+                <button class="button defer-button status-split-toggle" aria-expanded="true"><span>⌄</span></button>
+                <div class="status-action-menu" role="menu">
+                  <button id="status-menu-item" role="menuitem">Pending</button>
+                  <button role="menuitem">Active</button>
+                  <button role="menuitem" disabled>Done</button>
+                  <button role="menuitem">Won’t Do</button>
+                  <button role="menuitem">Promote</button>
+                </div>
+              </div>
               <button class="button button-secondary is-copied">Copy canonical ID</button>
               <button id="detail-delete" class="button detail-delete">Delete</button>
               <p class="terminal-action-note">Resolve the gate before completing.</p>
@@ -442,7 +452,8 @@ test("dark-theme text stays in the 7.21:1 to 9.5:1 contrast band", async ({ page
   for (const selector of [
     "#primary-button", "#secondary-button", "#danger-button", "#danger-icon",
     "#relationship-summary", "#queue-copy-button", "#more-filters-toggle",
-    "#detail-copy-id", "#detail-copy-context", "#detail-tab-graph", "#detail-delete"
+    "#detail-copy-id", "#detail-copy-context", "#detail-tab-graph", "#detail-delete",
+    "#status-menu-item"
   ]) {
     await frame.locator(selector).hover({ force: true });
     expect(await auditTextContrast(page, fixture)).toEqual([]);

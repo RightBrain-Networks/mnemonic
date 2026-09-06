@@ -8,7 +8,9 @@ kinds, 13 protected browser mutations, and 17 work-event types.
 ## Closing work
 
 Fresh work starts Pending. Every actual Pending → Done, Won’t do, or Promoted
-transition requires an operation UUID and an agent-authored report:
+transition requires an operation UUID and a closeout report. Agent clients
+author the report; the dashboard’s explicit manual status action generates a
+narrow human-decision report that does not invent execution or verification:
 
 ```json
 {

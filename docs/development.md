@@ -544,7 +544,9 @@ expected status, exact shape, and path/result coherence before clearing
 recovery. Proxy-policy tests admit the top-level UUID only on those thirteen
 routes, including gate resolution, merge, report dismissal, and report follow-ups, and reject invalid, nested,
 query/header/cookie, secret-equal, and excluded-route IDs without echoing them.
-Gate creation, lease paths, and token-bearing browser mutations remain denied.
+Gate creation and token-bearing lease mutations remain denied. The two token-free
+dashboard status routes accept only a dashboard actor and exact version/lease
+review state, return no capability, and have dedicated proxy-policy tests.
 
 Phase 7–8 Node regressions cover literal gate/event decoding, exact reviewed and
 resolved revisions, drift facts, Waiting/readiness and terminal guards,
@@ -786,7 +788,7 @@ remain server-only.
 
 ## Phase 12 acceptance additions
 
-Current application/API/MCP/dashboard versions are `0.8.0`, plugin is `0.11.0`,
+Current application/API/MCP/dashboard versions are `0.9.0`, plugin is `0.11.0`,
 and Alembic head is `0021_job_completion_reports`. Validate all surfaces together
 with the existing regression suites. Historical Phase 11 downgrade/catalog tests
 must seed valid historical shapes with offline SQL at 0019; never run current
@@ -1062,12 +1064,14 @@ requests return sanitized actionable errors. Confirm work with active
 relationships cannot be deleted. A nonmatching ancestor should
 remain visible only when a matching descendant needs navigation scaffolding.
 
-Use an API or MCP client—not the browser—to claim a visible work item, then add
-an unresolved incoming blocker. Confirm lifecycle, `Active`, and `Blocked` stay
-distinct; the retained lease remains visible through safe holder/timestamps but
-no token appears in browser state or network payloads. Release it through the
-client, verify new claims remain blocked, complete the blocker, and verify
-readiness recovers. Confirm no claim or force-release UI exists.
+Use an API or MCP client to create an agent-owned claim, then add an unresolved
+incoming blocker. Confirm lifecycle, `Active`, and `Blocked` stay distinct;
+the retained lease remains visible through safe holder/timestamps but no token
+appears in browser state or network payloads. Confirm there is no capability
+claim, renewal, or force-release UI. Separately exercise the detail split
+control: a human may mark eligible work Active through the token-free route and
+may choose Pending only against the exact safe lease projection reviewed (or a
+Dropped row). Complete the blocker and verify readiness recovers.
 
 Use MCP to request human input on claimed work. Confirm `Active`, `Blocked`, and `Waiting`
 remain independent, waiting wins only the display label, the item leaves ready

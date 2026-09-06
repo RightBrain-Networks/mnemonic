@@ -170,6 +170,120 @@ def test_claim_replay_context_readiness_renew_release_and_no_work_activity(
     assert api.get(endpoint).json()["work_item"] == before
 
 
+def test_dashboard_manual_active_and_pending_are_token_free_human_decisions(
+    api, project, work_payload, postgres_engine
+):
+    work_item = create_work(api, project, work_payload)["work_item"]
+    endpoint = item_path(project, work_item)
+    actor = {
+        "actor_client": "dashboard",
+        "actor_session_id": "manual-status",
+        "actor_model": None,
+    }
+    claim_request_id = str(uuid4())
+    activation_body = {
+        "expected_version": 1,
+        "actor": actor,
+        "claim_request_id": claim_request_id,
+    }
+
+    invalid_actor = api.post(
+        f"{endpoint}/activate",
+        json={**activation_body, "actor": {**actor, "actor_client": "agent"}},
+    )
+    assert invalid_actor.status_code == 422
+    stale = api.post(
+        f"{endpoint}/activate",
+        json={**activation_body, "expected_version": 2},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "version_conflict"
+
+    activated = api.post(f"{endpoint}/activate", json=activation_body)
+    assert activated.status_code == 200, activated.text
+    lease = activated.json()
+    assert set(lease) == {
+        "holder_client",
+        "holder_session_id",
+        "acquired_at",
+        "renewed_at",
+        "expires_at",
+    }
+    assert lease["holder_client"] == "dashboard"
+    assert lease["holder_session_id"] == "manual-status"
+    assert "lease_token" not in activated.text
+    assert "claim_request_id" not in activated.text
+    assert api.post(f"{endpoint}/activate", json=activation_body).json() == lease
+
+    claimed_events = api.get(
+        f"{endpoint}/events", params={"event_type": "work_claimed"}
+    ).json()
+    assert claimed_events["total"] == 1
+    assert claimed_events["items"][0]["actor_client"] == "dashboard"
+    assert claimed_events["items"][0]["actor_session_id"] == "manual-status"
+    assert claimed_events["items"][0]["actor_model"] is None
+
+    wrong_lease = {**lease, "expires_at": lease["acquired_at"]}
+    changed = api.post(
+        f"{endpoint}/return-to-pending",
+        json={
+            "expected_version": 1,
+            "expected_lease_state": "active",
+            "expected_active_lease": wrong_lease,
+            "actor": actor,
+        },
+    )
+    assert changed.status_code == 409
+    assert changed.json()["detail"]["code"] == "lease_state_changed"
+
+    pending_body = {
+        "expected_version": 1,
+        "expected_lease_state": "active",
+        "expected_active_lease": lease,
+        "actor": actor,
+    }
+    pending = api.post(f"{endpoint}/return-to-pending", json=pending_body)
+    assert pending.status_code == 200, pending.text
+    assert pending.json() == {"work_item_id": work_item["id"], "released": True}
+    repeated = api.post(f"{endpoint}/return-to-pending", json=pending_body)
+    assert repeated.status_code == 200
+    assert repeated.json() == {"work_item_id": work_item["id"], "released": False}
+    readiness = api.get(f"{endpoint}/context").json()["readiness"]
+    assert readiness["display_state"] == "pending"
+    assert readiness["active_lease"] is None
+
+    reactivated = api.post(
+        f"{endpoint}/activate",
+        json={**activation_body, "claim_request_id": str(uuid4())},
+    )
+    assert reactivated.status_code == 200, reactivated.text
+    expire_lease(postgres_engine, work_item["id"])
+    dropped = api.get(f"{endpoint}/context").json()["readiness"]
+    assert dropped["display_state"] == "dropped"
+    assert dropped["active_lease"] is None
+    dropped_pending = api.post(
+        f"{endpoint}/return-to-pending",
+        json={
+            "expected_version": 1,
+            "expected_lease_state": "dropped",
+            "expected_active_lease": None,
+            "actor": actor,
+        },
+    )
+    assert dropped_pending.status_code == 200, dropped_pending.text
+    assert dropped_pending.json()["released"] is True
+
+    released_events = api.get(
+        f"{endpoint}/events", params={"event_type": "work_released"}
+    ).json()
+    assert released_events["total"] == 2
+    assert all(event["actor_client"] == "dashboard" for event in released_events["items"])
+    assert all(event["actor_session_id"] == "manual-status"
+               for event in released_events["items"])
+    assert "lease_token" not in json.dumps(released_events)
+    assert "claim_request_id" not in json.dumps(released_events)
+
+
 def test_deferring_dropped_work_clears_expired_lease_before_pending_resume(
     api, project, work_payload, postgres_engine
 ):

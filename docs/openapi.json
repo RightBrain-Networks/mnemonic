@@ -2457,6 +2457,114 @@
         "type": "object",
         "x-utf8-aggregate-max-bytes": 32768
       },
+      "DashboardLeaseObservation": {
+        "additionalProperties": false,
+        "description": "Exact safe active-lease projection reviewed in the dashboard.",
+        "properties": {
+          "acquired_at": {
+            "format": "date-time",
+            "title": "Acquired At",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "holder_client": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Holder Client",
+            "type": "string"
+          },
+          "holder_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Holder Session Id",
+            "type": "string"
+          },
+          "renewed_at": {
+            "format": "date-time",
+            "title": "Renewed At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "holder_client",
+          "holder_session_id",
+          "acquired_at",
+          "renewed_at",
+          "expires_at"
+        ],
+        "title": "DashboardLeaseObservation",
+        "type": "object"
+      },
+      "DashboardWorkActivationCreate": {
+        "additionalProperties": false,
+        "description": "Browser-only human decision to represent work as Active with a safe lease.",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/MutationActor"
+          },
+          "claim_request_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Claim Request Id",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version",
+          "actor",
+          "claim_request_id"
+        ],
+        "title": "DashboardWorkActivationCreate",
+        "type": "object"
+      },
+      "DashboardWorkPendingCreate": {
+        "additionalProperties": false,
+        "description": "Browser-only human decision to clear the exact observed lease state.",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/MutationActor"
+          },
+          "expected_active_lease": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DashboardLeaseObservation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expected_lease_state": {
+            "enum": [
+              "active",
+              "dropped"
+            ],
+            "title": "Expected Lease State",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version",
+          "expected_lease_state",
+          "actor"
+        ],
+        "title": "DashboardWorkPendingCreate",
+        "type": "object"
+      },
       "DuplicateCandidateSummary": {
         "additionalProperties": false,
         "properties": {
@@ -7950,7 +8058,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.8.0"
+    "version": "0.9.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -9675,6 +9783,72 @@
         "summary": "Update Work"
       }
     },
+    "/api/v1/projects/{project_id}/work-items/{work_item_id}/activate": {
+      "post": {
+        "description": "Record an explicit dashboard-human Active decision without returning a token.",
+        "operationId": "activate_work_from_dashboard_api_v1_projects__project_id__work_items__work_item_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "work_item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Work Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DashboardWorkActivationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeasePublic"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Activate Work From Dashboard"
+      }
+    },
     "/api/v1/projects/{project_id}/work-items/{work_item_id}/checkpoints": {
       "get": {
         "operationId": "list_checkpoints_api_v1_projects__project_id__work_items__work_item_id__checkpoints_get",
@@ -11342,6 +11516,72 @@
           }
         ],
         "summary": "Get Work Report Follow Ups"
+      }
+    },
+    "/api/v1/projects/{project_id}/work-items/{work_item_id}/return-to-pending": {
+      "post": {
+        "description": "Record an explicit dashboard-human Pending decision for Active/Dropped work.",
+        "operationId": "return_work_to_pending_from_dashboard_api_v1_projects__project_id__work_items__work_item_id__return_to_pending_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "work_item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Work Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DashboardWorkPendingCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Return Work To Pending From Dashboard"
       }
     }
   },

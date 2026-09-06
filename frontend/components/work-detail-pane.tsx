@@ -5,11 +5,14 @@ import JobReportEditor from "@/components/job-report-editor";
 import type { JobReportDraft } from "@/lib/job-completion-reports";
 
 import {
+  useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
   type FormEvent,
+  type KeyboardEvent,
   type ReactNode,
   type RefObject
 } from "react";
@@ -51,6 +54,11 @@ import type {
   CompletionEvidenceDraft,
   CompletionEvidenceIssue
 } from "@/lib/completion-evidence";
+import {
+  availableStatusActions,
+  statusActionDisabledReason,
+  type ManualStatusAction
+} from "@/lib/work-status-actions";
 
 const iconPaths = {
   copy: "M9 5V3h12v14h-3M3 7h12v14H3V7Z",
@@ -112,8 +120,9 @@ export type WorkDetailPaneProps = {
   onMerged: (result: WorkMergeResult) => void | Promise<void>;
   onMergeSourceChanged: () => void | Promise<void>;
   onDelete: () => void;
-  onDefer: (summary: WorkSummary) => void;
-  deferring: boolean;
+  onStatusAction: (action: ManualStatusAction, summary: WorkSummary) => void;
+  statusChanging: boolean;
+  reportSettingsReady: boolean;
   onOpenCanonical: (workItemId: string) => void;
   onViewDuplicateGroup: (canonicalWorkItemId: string) => void;
   onCopy: (value: string, key: string, success: string) => void;
@@ -295,6 +304,124 @@ function TabBody({ context, isDuplicate, props }: { context: WorkContext; isDupl
   }
 }
 
+function StatusActionButton({
+  summary,
+  disabled,
+  busy,
+  reportSettingsReady,
+  onAction
+}: {
+  summary: WorkSummary;
+  disabled: boolean;
+  busy: boolean;
+  reportSettingsReady: boolean;
+  onAction: (action: ManualStatusAction, summary: WorkSummary) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const { work_item: work, readiness } = summary;
+  const actions = availableStatusActions(work.status, readiness);
+  const primaryDisabled = disabled || busy || work.status === "deferred";
+
+  useEffect(() => setOpen(false), [work.id]);
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [open]);
+
+  function closeAndFocus(): void {
+    setOpen(false);
+    toggleRef.current?.focus();
+  }
+
+  function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>): void {
+    const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>(
+      "button:not(:disabled)"
+    ) ?? [])];
+    if (!items.length) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number | null = null;
+    if (event.key === "ArrowDown") next = current < items.length - 1 ? current + 1 : 0;
+    if (event.key === "ArrowUp") next = current > 0 ? current - 1 : items.length - 1;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = items.length - 1;
+    if (next !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      items[next]?.focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeAndFocus();
+    }
+  }
+
+  return <div className="status-split-button" ref={rootRef}>
+    <button
+      className="button defer-button status-split-primary"
+      type="button"
+      disabled={primaryDisabled}
+      aria-label={`Defer ${work.title}`}
+      title={work.status === "deferred"
+        ? "This work item is already Deferred. Choose another status from the menu."
+        : "Explicitly hold this work item out of the work queue"}
+      onClick={() => onAction("defer", summary)}
+    >{busy ? "Saving…" : "Defer"}</button>
+    <button
+      ref={toggleRef}
+      className="button defer-button status-split-toggle"
+      type="button"
+      disabled={disabled || busy}
+      aria-label={`Choose a status for ${work.title}`}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      aria-controls={menuId}
+      onClick={() => setOpen((value) => !value)}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(true);
+        }
+      }}
+    ><span aria-hidden="true">⌄</span></button>
+    {open && <div
+      ref={menuRef}
+      className="status-action-menu"
+      id={menuId}
+      role="menu"
+      aria-label={`Manual status actions for ${work.title}`}
+      onKeyDown={moveMenuFocus}
+    >{actions.map((action) => {
+      const reason = statusActionDisabledReason(
+        action.value,
+        readiness,
+        reportSettingsReady
+      );
+      return <button
+        type="button"
+        role="menuitem"
+        key={action.value}
+        disabled={Boolean(reason)}
+        title={reason ?? `Explicitly mark this work item ${action.label}`}
+        aria-label={`${action.label} ${work.title}`}
+        onClick={() => {
+          setOpen(false);
+          onAction(action.value, summary);
+        }}
+      >{action.label}</button>;
+    })}</div>}
+  </div>;
+}
+
 function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailPaneProps }) {
   // A context is only trusted for the header when it belongs to the selection;
   // the dashboard sets both together, so a mismatch renders as still loading.
@@ -326,7 +453,6 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
     : "";
   const mergeLeaseExplanationId = `merge-lease-explanation-${work.id}`;
   const actionsLocked = !context || props.mutationBlocked;
-  const deferrable = work.status === "pending" || work.status === "deferred";
   const reconciling = props.reconciliationRequired && props.contextLoading;
   const tabs = detailTabs(context, opened);
 
@@ -359,20 +485,13 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
         <button type="button" className={`button copy-button detail-copy-context ${props.copiedKey === contextKey ? "is-copied" : ""}`} aria-label="Copy current context" disabled={!context} onClick={() => { if (context) props.onCopy(currentContext(context).prompt, contextKey, "Current context copied exactly as stored."); }}><Icon name="copy" size={16} />{props.copiedKey === contextKey ? "Copied" : "Copy context"}</button>
         {!isDuplicate && <button type="button" className="button button-secondary" aria-label="Edit work item" disabled={actionsLocked} onClick={props.onEdit}>Edit</button>}
         {!isDuplicate && <button type="button" className="button button-secondary" title={mergeLeaseExplanation || undefined} aria-describedby={mergeLeaseExplanation ? mergeLeaseExplanationId : undefined} disabled={actionsLocked || Boolean(mergeLeaseExplanation)} onClick={props.onOpenMerge}>Merge as duplicate…</button>}
-        {!isDuplicate && deferrable && <button
-          className="button defer-button"
-          type="button"
-          disabled={actionsLocked || props.deferring || readiness.has_active_lease || readiness.is_duplicate}
-          aria-label={work.status === "deferred" ? `Move ${work.title} to Pending` : `Defer ${work.title}`}
-          title={readiness.is_duplicate
-            ? "Duplicate audit records are immutable. Open it to navigate to canonical work."
-            : readiness.has_active_lease
-            ? "Active work cannot be deferred until its lease is released or expires."
-            : work.status === "deferred"
-              ? "Move this work item back to Pending; blockers and human gates still apply"
-              : "Hold this work item out of the work queue"}
-          onClick={() => props.onDefer(pointerSummary)}
-        >{props.deferring ? "Saving…" : work.status === "deferred" ? "Move to Pending" : "Defer"}</button>}
+        {!isDuplicate && <StatusActionButton
+          summary={pointerSummary}
+          disabled={actionsLocked}
+          busy={props.statusChanging}
+          reportSettingsReady={props.reportSettingsReady}
+          onAction={props.onStatusAction}
+        />}
         {!isDuplicate && context && context.duplicate_member_total > 0 && <button type="button" className={`button button-secondary ${props.copiedKey === canonicalKey ? "is-copied" : ""}`} onClick={() => props.onCopy(work.id, canonicalKey, "Canonical work ID copied.")}><Icon name="copy" size={16} />Copy canonical ID</button>}
         {!isDuplicate && <button type="button" className="button detail-delete" aria-label="Delete work item" title={readiness.is_gated ? "Resolve every human question before deleting this work item." : "Delete work item"} aria-describedby={deleteExplanation ? deleteExplanationId : undefined} disabled={!context || terminalActionDisabled(readiness, props.mutationBlocked)} onClick={props.onDelete}>Delete</button>}
         {!isDuplicate && deleteExplanation && <p className="terminal-action-note" id={deleteExplanationId}>

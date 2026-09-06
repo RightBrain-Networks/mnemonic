@@ -15,7 +15,13 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import conflict
 from mnemonic_api.models import WorkItem, WorkLease
-from mnemonic_api.schemas import ClaimReceipt, MutationActor, ReleaseResult, WorkClaimCreate
+from mnemonic_api.schemas import (
+    ClaimReceipt,
+    DashboardWorkPendingCreate,
+    MutationActor,
+    ReleaseResult,
+    WorkClaimCreate,
+)
 from mnemonic_api.services.readiness import require_fresh_claim_eligible
 from mnemonic_api.services.work_events import (
     stage_work_claimed,
@@ -223,6 +229,58 @@ def release_lease_record(
     if lease.expires_at > database_now:
         _token_mismatch()
     return ReleaseResult(work_item_id=work_item.id, released=False)
+
+
+def release_lease_for_human_decision(
+    database: Session,
+    work_item: WorkItem,
+    payload: DashboardWorkPendingCreate,
+) -> ReleaseResult:
+    """Clear the exact lease state a person reviewed without exposing its token."""
+    from mnemonic_api.services.duplicates import require_canonical_work_item
+
+    require_canonical_work_item(database, work_item)
+    lease = _locked_lease(database, work_item.id)
+    if lease is None:
+        return ReleaseResult(work_item_id=work_item.id, released=False)
+
+    database_now = _database_now(database)
+    lease_is_active = lease.expires_at > database_now
+    if lease_is_active != (payload.expected_lease_state == "active"):
+        raise conflict(
+            "lease_state_changed",
+            "This work item's lease changed. Reload it before choosing Pending.",
+        )
+    expected = payload.expected_active_lease
+    if expected is not None and (
+        lease.holder_client != expected.holder_client
+        or lease.holder_session_id != expected.holder_session_id
+        or lease.acquired_at != expected.acquired_at
+        or lease.renewed_at != expected.renewed_at
+        or lease.expires_at != expected.expires_at
+    ):
+        raise conflict(
+            "lease_state_changed",
+            "This work item's lease changed. Reload it before choosing Pending.",
+        )
+
+    release_id = uuid4()
+    lease.pending_release_id = release_id
+    database.flush()
+    stage_work_released(
+        database,
+        work_item,
+        lease_generation_id=lease.lease_generation_id,
+        lease_release_id=release_id,
+        lease_holder_client=lease.holder_client,
+        lease_holder_session_id=lease.holder_session_id,
+        actor=payload.actor,
+        created_at=database_now,
+    )
+    database.flush()
+    database.delete(lease)
+    database.flush()
+    return ReleaseResult(work_item_id=work_item.id, released=True)
 
 
 def validate_optional_lease_token(

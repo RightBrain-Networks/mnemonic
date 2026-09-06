@@ -61,6 +61,8 @@ import type {
   Checkpoint,
   CheckpointInput,
   CheckpointKind,
+  DashboardWorkActivationInput,
+  DashboardWorkPendingInput,
   DeletionResult,
   DuplicateScope,
   Page,
@@ -80,8 +82,16 @@ import type {
 import { validUuid } from "@/lib/wire-guards";
 import type { DetailTab } from "@/lib/work-detail-tabs";
 import { editableLifecycleStatuses, normalizedTags } from "@/lib/work-item-view";
-import { dashboardMutationActor } from "@/lib/work-events";
 import { paneCrossfadeTargets } from "@/lib/pane-crossfade";
+import { dashboardMutationActor } from "@/lib/work-events";
+import {
+  decodeDashboardActivationResult,
+  decodeLeaseReleaseResult,
+  humanDecisionCompletionCheckpoint,
+  humanDecisionReport,
+  statusActionDisabledReason,
+  type ManualStatusAction
+} from "@/lib/work-status-actions";
 import { scheduleHierarchyFilterCommit } from "@/lib/work-item-search";
 import { statusFilterTransition } from "@/lib/work-queue";
 import { workRecallPointer } from "@/lib/work-recall-pointer";
@@ -314,7 +324,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     useState<readonly CompletionEvidenceIssue[]>([]);
 
   const [deleteTarget, setDeleteTarget] = useState<WorkItem | null>(null);
-  const [deferringId, setDeferringId] = useState<string | null>(null);
+  const [statusChangingId, setStatusChangingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
@@ -1413,67 +1423,185 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     }
   }
 
-  async function toggleDeferral(summary: WorkSummary) {
+  async function changeManualStatus(
+    action: ManualStatusAction,
+    summary: WorkSummary
+  ): Promise<void> {
     const work = summary.work_item;
-    if (
-      deferringId
-      || summary.readiness.is_duplicate
-      || (work.status !== "pending" && work.status !== "deferred")
-    ) return;
+    const settings = projectSettings?.project_id === work.project_id
+      ? projectSettings
+      : null;
+    if (statusChangingId || summary.readiness.is_duplicate) return;
+    if (action === "defer" && work.status === "deferred") return;
+    if (action !== "defer") {
+      const reason = statusActionDisabledReason(action, summary.readiness, Boolean(settings));
+      if (reason) {
+        setNotice({ message: reason, error: true });
+        return;
+      }
+    }
+
     const conflictKeys = [mutationWorkKey(work.project_id, work.id)];
     if (mutationRegistry.blocks(conflictKeys)) {
       setNotice({
-        message: "Resolve the pending mutation for this work item before changing its queue state.",
+        message: "Resolve the pending mutation for this work item before changing its status.",
         error: true
       });
       return;
     }
-    setDeferringId(work.id);
+
+    const basePath = workItemPath(work.project_id, work.id);
+    const actor = dashboardMutationActor(dashboardSessionId());
+    let currentWork = work;
+    setStatusChangingId(work.id);
     try {
-      const actor = dashboardMutationActor(dashboardSessionId());
-      if (work.status === "deferred") {
-        await mutationRegistry.execute({
+      if (
+        action !== "active"
+        && (summary.readiness.has_active_lease || summary.readiness.has_dropped_lease)
+      ) {
+        const payload: DashboardWorkPendingInput = {
+          expected_version: currentWork.version,
+          expected_lease_state: summary.readiness.has_active_lease ? "active" : "dropped",
+          expected_active_lease: summary.readiness.has_active_lease
+            ? summary.readiness.active_lease
+            : null,
+          actor
+        };
+        const value = await api<unknown>(`${basePath}/return-to-pending`, {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+        decodeLeaseReleaseResult(value, work.id);
+      }
+
+      if (currentWork.status !== "pending") {
+        const reopened = await mutationRegistry.execute({
           kind: "update_work",
           slot: `update-work:${work.project_id}:${work.id}`,
           projectId: work.project_id,
           conflictKeys,
           method: "PATCH",
-          path: workItemPath(work.project_id, work.id),
+          path: basePath,
           payload: {
-            expected_version: work.version,
+            expected_version: currentWork.version,
             status: "pending",
             actor
           }
         });
-        setNotice({
-          message: summary.readiness.is_gated
-            ? `“${work.title}” is Pending but still needs human attention, so it remains out of ready discovery.`
-            : summary.readiness.is_blocked
-              ? `“${work.title}” is Pending but still blocked, so it remains out of ready discovery.`
-              : `“${work.title}” is Pending and available in the work queue.`
+        const { job_completion_report: _report, ...reopenedWork } = reopened;
+        currentWork = reopenedWork;
+      }
+
+      if (action === "active") {
+        const payload: DashboardWorkActivationInput = {
+          expected_version: currentWork.version,
+          actor,
+          claim_request_id: crypto.randomUUID()
+        };
+        const value = await api<unknown>(`${basePath}/activate`, {
+          method: "POST",
+          body: JSON.stringify(payload)
         });
-      } else {
+        decodeDashboardActivationResult(value, actor);
+      } else if (action === "defer") {
         await mutationRegistry.execute({
           kind: "defer_work",
           slot: `defer-work:${work.project_id}:${work.id}`,
           projectId: work.project_id,
           conflictKeys,
           method: "POST",
-          path: `${workItemPath(work.project_id, work.id)}/defer`,
+          path: `${basePath}/defer`,
           payload: {
-            expected_version: work.version,
+            expected_version: currentWork.version,
             actor
           }
         });
-        setNotice({ message: `“${work.title}” is Deferred and held out of the work queue.` });
+      } else if (action === "done") {
+        if (!settings) throw new Error("Project report settings are not ready.");
+        const checkpoint = {
+          ...checkpointPayload(humanDecisionCompletionCheckpoint(currentWork)),
+          source_metadata: {
+            decision: "explicit-human",
+            action: "manual-status-change"
+          }
+        };
+        await mutationRegistry.execute({
+          kind: "complete_work",
+          slot: `complete-work:${work.project_id}:${work.id}`,
+          projectId: work.project_id,
+          conflictKeys,
+          method: "POST",
+          path: `${basePath}/complete`,
+          payload: {
+            expected_version: currentWork.version,
+            checkpoint,
+            job_completion_report: humanDecisionReport(
+              currentWork,
+              "done",
+              settings.revision
+            )
+          }
+        });
+        setCheckpointOffset(0);
+        setCheckpointRefresh((value) => value + 1);
+        setReportRefresh((value) => value + 1);
+      } else if (action === "wont-do" || action === "promoted") {
+        if (!settings) throw new Error("Project report settings are not ready.");
+        await mutationRegistry.execute({
+          kind: "update_work",
+          slot: `update-work:${work.project_id}:${work.id}`,
+          projectId: work.project_id,
+          conflictKeys,
+          method: "PATCH",
+          path: basePath,
+          payload: {
+            expected_version: currentWork.version,
+            status: action,
+            actor,
+            job_completion_report: humanDecisionReport(
+              currentWork,
+              action,
+              settings.revision
+            )
+          }
+        });
+        setReportRefresh((value) => value + 1);
       }
+
+      const decision = action === "defer"
+        ? "Deferred and held out of the work queue"
+        : action === "pending"
+          ? summary.readiness.is_gated
+            ? "Pending but still needs human attention, so it remains out of ready discovery"
+            : summary.readiness.is_blocked
+              ? "Pending but still blocked, so it remains out of ready discovery"
+              : "Pending and available in the work queue"
+          : action === "active"
+            ? "Active"
+            : action === "done"
+              ? "Done"
+              : action === "wont-do"
+                ? "Won’t Do"
+                : "Promoted";
+      setNotice({
+        message: `Explicit human decision recorded: “${work.title}” is ${decision}.`
+      });
+      if (action === "done" || action === "wont-do" || action === "promoted") {
+        setJobReportDraft(emptyJobReportDraft());
+      }
+      if (action === "done") {
+        setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
+        setCompletionEvidenceIssues([]);
+      }
+      setEventRefresh((value) => value + 1);
+      setAttentionRefresh((value) => value + 1);
       setRefresh((value) => value + 1);
       if (openedRef.current?.work_item.id === work.id) void reloadOpenContext();
     } catch (error) {
       if (isVersionConflict(error)) setRefresh((value) => value + 1);
       setNotice({ message: errorMessage(error), error: true });
     } finally {
-      setDeferringId(null);
+      setStatusChangingId(null);
     }
   }
 
@@ -1919,9 +2047,10 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                   onCloseMerge={() => setMergeOpen(false)}
                   onMerged={merged}
                   onMergeSourceChanged={mergeSourceChanged}
+                  onStatusAction={(action, item) => void changeManualStatus(action, item)}
+                  statusChanging={Boolean(openedId && statusChangingId === openedId)}
+                  reportSettingsReady={projectSettings?.project_id === opened?.work_item.project_id}
                   onDelete={() => { if (context) openDeletion(context.work_item); }}
-                  onDefer={(item) => void toggleDeferral(item)}
-                  deferring={Boolean(openedId && deferringId === openedId)}
                   onOpenCanonical={(workItemId) => {
                     if (opened && (workItemId === opened.work_item.id || leavingOpenedWorkAllowed())) {
                       void openExactWork(opened.work_item.project_id, workItemId);

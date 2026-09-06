@@ -68,14 +68,28 @@ test("an active lease is visible without exposing its capability and refreshes a
   await expect(card).toHaveCount(1);
   await expect(card.locator(".status-badge")).toHaveText(/Active/);
 
-  // The lease summary and the Defer control live in the detail pane. The saved
-  // checkpoint text arrives on its own before the lease-based disable is trusted,
-  // so a still-loading pane cannot satisfy the assertion by accident.
+  // The split control remains available for an explicit human override. Its
+  // menu excludes Active because that is the exact current operational state.
   const pane = await selectWork(page, title);
   await expect(pane.locator(".prompt-body")).toHaveText("This checkpoint must remain separate from the temporary lease.");
   const defer = pane.getByRole("button", { name: `Defer ${title}` });
-  await expect(defer).toBeDisabled();
-  await expect(defer).toHaveAttribute("title", "Active work cannot be deferred until its lease is released or expires.");
+  await expect(defer).toBeEnabled();
+  await expect(defer).toHaveAttribute(
+    "title",
+    "Explicitly hold this work item out of the work queue"
+  );
+  const statusChooser = pane.getByRole("button", { name: `Choose a status for ${title}` });
+  await statusChooser.click();
+  await expect(pane.getByRole("menuitem")).toHaveText([
+    "Pending",
+    "Done",
+    "Won’t Do",
+    "Promote"
+  ]);
+  await expect(pane.getByRole("menuitem", { name: `Active ${title}` })).toHaveCount(0);
+  await pane.screenshot({ path: testInfo.outputPath("manual-status-menu.png") });
+  await page.keyboard.press("Escape");
+  await expect(pane.getByRole("menu")).toHaveCount(0);
   const lease = pane.getByLabel("Active work lease");
   await expect(lease).toContainText("Active session");
   await expect(lease).toContainText("Claude Code");
@@ -115,9 +129,13 @@ test("an active lease is visible without exposing its capability and refreshes a
   const dropped = await selectWork(page, title);
   await expect(dropped.locator(".detail-identity > .status-badge")).toHaveText(/Dropped/);
   await expect(dropped.getByLabel("Active work lease")).toHaveCount(0);
+  await dropped.getByRole("button", { name: `Choose a status for ${title}` }).click();
+  await dropped.getByRole("menuitem", { name: `Pending ${title}` }).click();
+  await expect(page.locator(".toast")).toContainText("Explicit human decision recorded");
+  await expect(card).toHaveCount(0);
 });
 
-test("a human can defer a pending card and return it to the queue", async ({ page }, testInfo) => {
+test("a human can move work through every manual status", async ({ page }, testInfo) => {
   const apiURL = process.env.MNEMONIC_E2E_API_URL;
   const apiKey = process.env.MNEMONIC_E2E_API_KEY;
   if (!apiURL || !apiKey) throw new Error("Run this test through the disposable E2E stack.");
@@ -169,7 +187,8 @@ test("a human can defer a pending card and return it to the queue", async ({ pag
   await expect(card.locator(".status-badge")).toHaveText("Deferred");
   const deferred = await selectWork(page, title);
   await expect(deferred.locator(".detail-identity > .status-badge")).toHaveText("Deferred");
-  await deferred.getByRole("button", { name: `Move ${title} to Pending` }).click();
+  await deferred.getByRole("button", { name: `Choose a status for ${title}` }).click();
+  await deferred.getByRole("menuitem", { name: `Pending ${title}` }).click();
   await expect(page.locator(".toast")).toContainText("Pending and available in the work queue");
   await expect(card).toHaveCount(0);
 
@@ -181,6 +200,76 @@ test("a human can defer a pending card and return it to the queue", async ({ pag
   await expect(returned.locator(".detail-identity > .status-badge")).toHaveText("Pending");
   await expect(returned.getByRole("button", { name: `Defer ${title}` })).toBeEnabled();
 
+  const pendingChooser = returned.getByRole("button", {
+    name: `Choose a status for ${title}`
+  });
+  await pendingChooser.click();
+  await expect(returned.getByRole("menuitem")).toHaveText([
+    "Active",
+    "Done",
+    "Won’t Do",
+    "Promote"
+  ]);
+  await expect(returned.getByRole("menuitem", { name: `Pending ${title}` })).toHaveCount(0);
+  await returned.getByRole("menuitem", { name: `Active ${title}` }).click();
+  await expect(page.locator(".toast")).toContainText("Explicit human decision recorded");
+  await expect(page.locator(".toast")).toContainText("is Active");
+  await expect(card).toHaveCount(0);
+
+  await closeDetail(page);
+  await page.getByRole("button", { name: "Active", exact: true }).click();
+  await expect(card).toHaveCount(1);
+  const active = await selectWork(page, title);
+  await expect(active.locator(".detail-identity > .status-badge")).toHaveText("Active");
+  await active.getByRole("button", { name: `Choose a status for ${title}` }).click();
+  await expect(active.getByRole("menuitem", { name: `Active ${title}` })).toHaveCount(0);
+  await active.getByRole("menuitem", { name: `Pending ${title}` }).click();
+  await expect(page.locator(".toast")).toContainText("Explicit human decision recorded");
+  await expect(page.locator(".toast")).toContainText("is Pending");
+  await expect(card).toHaveCount(0);
+
+  await closeDetail(page);
+  await page.getByRole("button", { name: "Pending", exact: true }).click();
+  await expect(card).toHaveCount(1);
+
+  const pendingAgain = await selectWork(page, title);
+  await pendingAgain.getByRole("button", { name: `Choose a status for ${title}` }).click();
+  await pendingAgain.getByRole("menuitem", { name: `Won’t Do ${title}` }).click();
+  await expect(page.locator(".toast")).toContainText("is Won’t Do");
+  await expect(card).toHaveCount(0);
+
+  await closeDetail(page);
+  await page.getByRole("button", { name: "Won’t do", exact: true }).click();
+  await expect(card).toHaveCount(1);
+  const wontDo = await selectWork(page, title);
+  await expect(wontDo.locator(".detail-identity > .status-badge")).toHaveText("Won’t do");
+  await wontDo.getByRole("button", { name: `Choose a status for ${title}` }).click();
+  await expect(wontDo.getByRole("menuitem", { name: `Won’t Do ${title}` })).toHaveCount(0);
+  await wontDo.getByRole("menuitem", { name: `Promote ${title}` }).click();
+  await expect(page.locator(".toast")).toContainText("is Promoted");
+  await expect(card).toHaveCount(0);
+
+  await closeDetail(page);
+  await page.getByRole("button", { name: "Promoted", exact: true }).click();
+  await expect(card).toHaveCount(1);
+  const promoted = await selectWork(page, title);
+  await expect(promoted.locator(".detail-identity > .status-badge")).toHaveText("Promoted");
+  await promoted.getByRole("button", { name: `Choose a status for ${title}` }).click();
+  await expect(promoted.getByRole("menuitem", { name: `Promote ${title}` })).toHaveCount(0);
+  await promoted.getByRole("menuitem", { name: `Done ${title}` }).click();
+  await expect(page.locator(".toast")).toContainText("is Done");
+  await expect(card).toHaveCount(0);
+
+  await closeDetail(page);
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(card).toHaveCount(1);
+  const done = await selectWork(page, title);
+  await expect(done.locator(".detail-identity > .status-badge")).toHaveText("Done");
+  await done.getByRole("tab", { name: "Activity" }).click();
+  await expect(done.getByText(
+    "Explicit human decision: completed work with an immutable completion checkpoint."
+  )).toBeVisible();
+
   const verification = await request.newContext({
     baseURL: apiURL,
     extraHTTPHeaders: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" }
@@ -190,7 +279,39 @@ test("a human can defer a pending card and return it to the queue", async ({ pag
       `/api/v1/projects/${state.projectId}/work-items/${workItemId}`
     );
     expect(response.ok()).toBeTruthy();
-    expect((await response.json() as { work_item: { status: string } }).work_item.status).toBe("pending");
+    expect((await response.json() as { work_item: { status: string } }).work_item.status).toBe("done");
+    const checkpointsResponse = await verification.get(
+      `/api/v1/projects/${state.projectId}/work-items/${workItemId}/checkpoints?order=newest&limit=20&offset=0`
+    );
+    expect(checkpointsResponse.ok()).toBeTruthy();
+    const checkpoints = await checkpointsResponse.json() as {
+      items: Array<{
+        kind: string;
+        source_client: string;
+        source_metadata: Record<string, unknown>;
+      }>;
+    };
+    const completionCheckpoint = checkpoints.items.find((item) => item.kind === "completion");
+    expect(completionCheckpoint).toMatchObject({
+      source_client: "dashboard",
+      source_metadata: {
+        decision: "explicit-human",
+        action: "manual-status-change"
+      }
+    });
+
+    const eventsResponse = await verification.get(
+      `/api/v1/projects/${state.projectId}/work-items/${workItemId}/events?event_type=work_completed&order=newest&limit=20&offset=0`
+    );
+    expect(eventsResponse.ok()).toBeTruthy();
+    const events = await eventsResponse.json() as {
+      items: Array<{ actor_client: string; actor_model: string | null }>;
+    };
+    expect(events.items).toHaveLength(1);
+    expect(events.items[0]).toMatchObject({
+      actor_client: "dashboard",
+      actor_model: null
+    });
   } finally {
     await verification.dispose();
   }

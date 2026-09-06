@@ -100,7 +100,7 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Phase 12 activity and completion reports cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.8.0`, plugin `0.11.0`,
+The current coordinated boundary is API/MCP/dashboard `0.9.0`, plugin `0.11.0`,
 and Alembic `0021_job_completion_reports`. Inventory exactly 32 MCP tools,
 11 protected MCP writes, 15 REST receipt kinds, 13 protected browser mutations,
 and 17 work-event types. Keep older writers stopped: fresh closeouts now require
@@ -754,9 +754,14 @@ only through a reviewed compatibility change.
 Lease tokens are capabilities inside the shared bearer-key trust boundary. They
 belong only in claim/renew responses and JSON mutation bodies. Never copy them
 into checkpoints, events, URLs, chat, tickets, metrics, logs, or screenshots.
-The browser cannot claim, renew, release, receive, or forward a token. Expired
-lease rows are deliberately retained until a later acquisition replaces them;
-TTL expiry is abandoned-session recovery, not an operator force-release task.
+The browser never calls a token-bearing claim, renewal, or release and never
+receives or forwards a token. Its manual Active action creates a dashboard-owned
+lease but returns only the five-field public projection. Its Pending action can
+clear only the exact active public lease the person reviewed, or an observed
+Dropped row; a replacement lease produces `lease_state_changed`. Both actions
+emit actor-attributed work events. Expired lease rows are deliberately retained
+until a later acquisition replaces them; TTL expiry is abandoned-session
+recovery, not an operator force-release task.
 
 ### Immutable work events
 
@@ -866,8 +871,14 @@ should validate their types and nullability rather than rederive them.
 
 `deferred` is a persisted human hold, distinct from waiting and blocking. It is
 absent from ready discovery and must not be returned to Pending unless the
-current human instruction explicitly selects it. Resolving a gate does not
-undefer a work item; it only removes the gate's independent readiness fact.
+current human instruction explicitly selects it. The detail pane keeps Defer as
+the split button’s default action and offers Pending, Active, Done, Won’t Do,
+and Promote in its menu, excluding the current state. A manual terminal choice
+uses the normal closeout rules; Done creates an immutable decision-only
+completion checkpoint, and every terminal choice creates a narrowly truthful
+human-decision report. Activity renders the dashboard-authored lifecycle or
+lease event as an explicit human decision. Resolving a gate does not undefer a
+work item; it only removes the gate's independent readiness fact.
 
 Attention pages use opaque `next_cursor` values. Pass the returned value back as
 `cursor`. Sequence allocation precedes transaction commit, so a forward walk
@@ -889,7 +900,7 @@ or weaken hierarchy constraints.
 At current head 0021, run `scripts/audit_project_activity.py` using the private
 `DATABASE_URL` environment variable. It composes the historical domain checks
 with Phase 12 activity/report checks. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.8.0` clients and plugin `0.11.0` together.
+failure, and inventory deployed `0.9.0` clients and plugin `0.11.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 For the historical Phase 11 boundary, run `scripts/audit_duplicate_handling.py` with

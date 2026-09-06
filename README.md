@@ -110,7 +110,7 @@ Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemon
 reachable remotely.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current application/API/MCP release is `0.8.0`, with plugin version `0.11.0` and database head `0021_job_completion_reports`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
+not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current application/API/MCP release is `0.9.0`, with plugin version `0.11.0` and database head `0021_job_completion_reports`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
 
 - **`mnemonic-save`** searches for existing work, explicitly compares a stable
   draft with grouped duplicate candidates while preserving Create anyway,
@@ -183,9 +183,13 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   edits and completions are detected rather than silently overwriting changes;
   independent checkpoint appenders can both succeed.
 - Keeps `deferred`, `done`, `wont-do`, and `promoted` work out of the default
-  pending view while retaining them under explicit filters. Deferral is an
-  explicit human hold. Deleted work and its checkpoints are hidden from
-  ordinary reads but retained for recovery.
+  pending view while retaining them under explicit filters. The work-detail
+  Defer button is a split control whose menu offers Pending, Active, Done,
+  Won’t Do, and Promote while omitting the current state. Every selection is
+  recorded with dashboard human provenance; manual Done also creates a
+  decision-only completion checkpoint and a truthful closeout report without
+  inventing implementation or verification evidence. Deleted work and its
+  checkpoints are hidden from ordinary reads but retained for recovery.
 - Lets one cooperative agent session claim a pending work item through an atomic,
   server-timed lease. A client request ID recovers an active claim receipt after
   an unknown response, renewal extends responsibility, release hands unfinished

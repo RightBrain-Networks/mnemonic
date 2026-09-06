@@ -1102,7 +1102,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.8.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.9.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         endpoint_refs = {
             "/api/v1/projects/{project_id}/work-items": "#/components/schemas/WorkItemCreate",
@@ -1111,6 +1111,12 @@ def validate_rest_contract(document: Any) -> None:
             ),
             "/api/v1/projects/{project_id}/work-items/{work_item_id}/complete": (
                 "#/components/schemas/WorkCompletionCreate"
+            ),
+            "/api/v1/projects/{project_id}/work-items/{work_item_id}/activate": (
+                "#/components/schemas/DashboardWorkActivationCreate"
+            ),
+            "/api/v1/projects/{project_id}/work-items/{work_item_id}/return-to-pending": (
+                "#/components/schemas/DashboardWorkPendingCreate"
             ),
         }
         for path, expected_ref in endpoint_refs.items():
@@ -1133,6 +1139,14 @@ def validate_rest_contract(document: Any) -> None:
                 "/api/v1/projects/{project_id}/work-items/{work_item_id}/complete",
                 "200",
             ): "#/components/schemas/WorkCompletionRead",
+            (
+                "/api/v1/projects/{project_id}/work-items/{work_item_id}/activate",
+                "200",
+            ): "#/components/schemas/LeasePublic",
+            (
+                "/api/v1/projects/{project_id}/work-items/{work_item_id}/return-to-pending",
+                "200",
+            ): "#/components/schemas/ReleaseResult",
         }
         for (path, status), expected_ref in response_refs.items():
             response_schema = document["paths"][path]["post"]["responses"][status][
@@ -1142,6 +1156,24 @@ def validate_rest_contract(document: Any) -> None:
                 response_schema == {"$ref": expected_ref},
                 f"REST {path} does not expose the expected Phase 12 response.",
             )
+        lease_public = schemas["LeasePublic"]
+        lease_public_fields = {
+            "holder_client",
+            "holder_session_id",
+            "acquired_at",
+            "renewed_at",
+            "expires_at",
+        }
+        require(
+            lease_public.get("additionalProperties") is False
+            and set(lease_public["properties"]) == lease_public_fields
+            and set(lease_public["required"]) == lease_public_fields,
+            "REST manual activation does not return the exact token-free lease projection.",
+        )
+        require(
+            "lease_token" not in schemas["DashboardWorkPendingCreate"]["properties"],
+            "REST manual Pending unexpectedly accepts a lease token.",
+        )
         require(
             schemas["WorkItemCreate"]["properties"]["initial_checkpoint"]
             == {"$ref": "#/components/schemas/InitialCheckpointCreate"},
@@ -1513,14 +1545,14 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.8.0",
+                    and initialized.serverInfo.version == "0.9.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.8.0 structured-completion-evidence contract, real MCP "
+                    "PASS: REST 0.9.0 structured-completion-evidence contract, real MCP "
                     "initialization, 32-tool catalog, exact eleven protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )
