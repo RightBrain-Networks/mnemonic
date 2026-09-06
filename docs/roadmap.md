@@ -26,7 +26,7 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 Phases 1–12, identity-preserving work moves, cross-project relationships,
 and first-class code reviews are implemented in the repository. The current
-release is application/API/MCP/dashboard `0.18.0`, plugin `0.16.0`, and migration
+release is application/API/MCP/dashboard `0.18.1`, plugin `0.16.0`, and migration
 `0025_cross_project_relationships`. Reviews add project thresholds, durable
 optional questions, cold/warm review leases and one remediation with a hard
 ancestry ceiling; see [code reviews](code-reviews.md). Production-target

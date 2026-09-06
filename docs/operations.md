@@ -106,7 +106,7 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.18.0`, plugin `0.16.0`,
+The current coordinated boundary is API/MCP/dashboard `0.18.1`, plugin `0.16.0`,
 and Alembic `0025_cross_project_relationships`. Inventory exactly 38 MCP tools,
 13 protected MCP writes, 18 REST receipt kinds, 15 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
@@ -943,7 +943,7 @@ At current head 0025, run `scripts/audit_project_activity.py` using the private
 with activity/report, external-reference, move and review checks plus the exact
 supported guard catalog. `scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.18.0` clients and plugin `0.16.0` together.
+failure, and inventory deployed `0.18.1` clients and plugin `0.16.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 For the historical Phase 11 boundary, run `scripts/audit_duplicate_handling.py` with
