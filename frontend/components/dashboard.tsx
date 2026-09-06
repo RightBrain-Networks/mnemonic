@@ -1966,8 +1966,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           <DashboardViewChrome
             title="Work library"
             subject={project?.name}
-            subjectSlug={project?.slug}
-            description={project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}
+            subjectDescription={project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}
             liveSyncStatus={liveSyncStatus}
             onRefresh={() => {
               setProjectsRefresh((value) => value + 1);

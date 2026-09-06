@@ -540,16 +540,21 @@ test("the library hero names the selected project in the vendored italic face", 
   const heading = page.getByRole("heading", { name: /^Work library[.:]/ });
   await expect(heading).toBeVisible();
   await page.locator("#project-select").selectOption(state.projectId);
-  await expect(heading).toHaveText(`Work library: ${state.projectName}—${state.projectSlug}`);
+  await expect(heading).toHaveText(
+    `Work library: ${state.projectName}—${state.projectDescription}`
+  );
 
   // The colon inherits the accent the period carried; the project name must not.
   const mark = heading.locator(".heading-mark");
   const subject = heading.locator(".heading-subject-name");
-  const slug = heading.locator(".heading-subject-slug");
+  const description = heading.locator(".heading-subject-description");
   await expect(mark).toHaveText(":");
   await expect(subject).toHaveText(state.projectName);
-  await expect(slug).toHaveText(state.projectSlug);
-  await expect(slug).toHaveCSS("opacity", "0.5");
+  await expect(description).toHaveText(state.projectDescription);
+  await expect(description).toHaveCSS("opacity", "0.5");
+  await expect(page.locator(".page-heading p")).toHaveCount(0);
+  expect(await description.evaluate((node) => getComputedStyle(node).fontSize))
+    .toBe(await subject.evaluate((node) => getComputedStyle(node).fontSize));
   const color = (locator: Locator) => locator.evaluate((node) => getComputedStyle(node).color);
   expect(await color(mark)).toBe(await color(page.locator(".topbar .small-mark")));
   expect(await color(subject)).toBe(await color(heading));

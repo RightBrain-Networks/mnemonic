@@ -11,7 +11,7 @@ export default function DashboardViewChrome({
   eyebrow,
   title,
   subject,
-  subjectSlug,
+  subjectDescription,
   description,
   liveSyncStatus,
   onRefresh,
@@ -20,8 +20,8 @@ export default function DashboardViewChrome({
   eyebrow?: string;
   title: string;
   subject?: string;
-  subjectSlug?: string;
-  description: string;
+  subjectDescription?: string;
+  description?: string;
   liveSyncStatus: LiveSyncStatus;
   onRefresh: () => void;
   actions?: ReactNode;
@@ -33,13 +33,13 @@ export default function DashboardViewChrome({
         {title}<span className="heading-mark">{subject ? ":" : "."}</span>
         {subject && <>{" "}<span className="heading-subject">
           <span className="heading-subject-name">{subject}</span>
-          {subjectSlug && <>
+          {subjectDescription && <>
             <span className="heading-subject-separator">—</span>
-            <span className="heading-subject-slug">{subjectSlug}</span>
+            <span className="heading-subject-description">{subjectDescription}</span>
           </>}
         </span></>}
       </h1>
-      <p>{description}</p>
+      {description && <p>{description}</p>}
     </div>
     <div className="heading-actions">
       <button className="button button-secondary" type="button" onClick={onRefresh}>Refresh</button>
