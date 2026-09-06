@@ -386,7 +386,6 @@ def duplicate_merge_eligibility(
         database.execute(
             select(WorkRelationship.relationship_type, func.count())
             .where(
-                WorkRelationship.project_id == project_id,
                 WorkRelationship.relationship_type.in_(("blocks", "parent-child")),
                 or_(
                     WorkRelationship.source_work_item_id == work_item_id,

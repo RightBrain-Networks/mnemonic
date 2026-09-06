@@ -334,3 +334,137 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await client.dispose();
   }
 });
+
+test("the relationship editor links work across projects and opens the target project", async ({
+  page
+}, testInfo) => {
+  const apiURL = process.env.MNEMONIC_E2E_API_URL;
+  const apiKey = process.env.MNEMONIC_E2E_API_KEY;
+  if (!apiURL || !apiKey) throw new Error("Run this test through the disposable E2E stack.");
+
+  const suffix = `${testInfo.project.name}-${state.runId.slice(0, 8)}-r${testInfo.retry}`;
+  const sourceProjectName = `Relationship source ${suffix}`;
+  const targetProjectName = `Relationship target ${suffix}`;
+  const sourceProjectSlug = `relationship-source-${suffix}`;
+  const targetProjectSlug = `relationship-target-${suffix}`;
+  const sourceTitle = `Cross-project source ${suffix}`;
+  const targetTitle = `Cross-project target ${suffix}`;
+  const client = await request.newContext({
+    baseURL: apiURL,
+    extraHTTPHeaders: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" }
+  });
+  let sendSync: ((message: string) => void) | undefined;
+  await page.routeWebSocket("**/api/mnemonic/sync", (socket) => {
+    sendSync = (message) => socket.send(message);
+  });
+  let releaseTargetProbe = () => {};
+
+  async function createProject(name: string, slug: string) {
+    const response = await client.post("/api/v1/projects", { data: { name, slug } });
+    expect(response.status(), `${name}: ${await response.text()}`).toBe(201);
+    return await response.json() as { id: string; name: string; slug: string };
+  }
+
+  async function createWork(projectId: string, title: string) {
+    const response = await client.post(`/api/v1/projects/${projectId}/work-items`, {
+      data: {
+        title,
+        summary: `Cross-project relationship fixture for ${title}.`,
+        status: "pending",
+        priority: 31,
+        initial_checkpoint: {
+          prompt: `Immutable starting context for ${title}.`,
+          source_client: "playwright-api",
+          source_session_id: `phase3-cross-project-${suffix}`,
+          tags: ["phase-3", "cross-project-relationship"],
+          source_metadata: {}
+        }
+      }
+    });
+    expect(response.status(), `${title}: ${await response.text()}`).toBe(201);
+    return (await response.json() as { work_item: { id: string } }).work_item;
+  }
+
+  try {
+    const sourceProject = await createProject(sourceProjectName, sourceProjectSlug);
+    const targetProject = await createProject(targetProjectName, targetProjectSlug);
+    const sourceWork = await createWork(sourceProject.id, sourceTitle);
+    const targetWork = await createWork(targetProject.id, targetTitle);
+    let markTargetProbeStarted = () => {};
+    const targetProbeStarted = new Promise<void>((resolve) => {
+      markTargetProbeStarted = resolve;
+    });
+    const targetProbeReleased = new Promise<void>((resolve) => {
+      releaseTargetProbe = resolve;
+    });
+    await page.route((url) => url.pathname === (
+      `/api/mnemonic/projects/${targetProject.id}/work-items/${targetWork.id}`
+    ), async (route) => {
+      markTargetProbeStarted();
+      await targetProbeReleased;
+      await route.continue();
+    });
+
+    await page.goto("/");
+    await expect.poll(() => Boolean(sendSync)).toBe(true);
+    await page.locator("#project-select").selectOption(sourceProject.id);
+    await page.getByLabel("Search work items").fill(sourceTitle);
+    await expect(workCard(page, sourceTitle)).toHaveCount(1);
+    const pane = await selectWork(page, sourceTitle);
+    await expect(page).toHaveURL(new RegExp(`[?&]work=${sourceWork.id}(?:&|$)`));
+    const graph = await openTab(pane, "Graph");
+
+    await graph.getByText("Add a relationship", { exact: true }).click();
+    await graph.getByLabel("Project to search").selectOption(targetProject.id);
+    await graph.getByLabel("Find another work item").fill(targetTitle);
+    await graph.getByRole("option", { name: new RegExp(targetTitle) }).click();
+    const addRelationship = graph.getByRole("button", { name: "Add relationship" });
+    await expect(addRelationship).toBeEnabled();
+    await addRelationship.click();
+    await expect(graph.getByText("Relationship added.", { exact: true })).toBeVisible();
+
+    const targetRow = graph.locator(".relationship-row").filter({ hasText: targetTitle });
+    await expect(targetRow).toHaveCount(1);
+    await expect(targetRow.locator(".relationship-project")).toHaveText(
+      `Cross-project · ${targetProject.name} (${targetProject.slug})`
+    );
+    await targetRow.getByRole("button", {
+      name: `Open ${targetTitle} in ${targetProject.name} (${targetProject.slug})`,
+      exact: true
+    }).click();
+    await targetProbeStarted;
+
+    // Reproduce the live-refresh race that used to cancel this explicit navigation: hold
+    // the placement probe open until refreshing the still-visible source context has begun.
+    const sourceRefreshStarted = page.waitForRequest((request) => (
+      request.method() === "GET"
+      && new URL(request.url()).pathname === (
+        `/api/mnemonic/projects/${sourceProject.id}/work-items/${sourceWork.id}/context`
+      )
+    ));
+    sendSync!(JSON.stringify({
+      type: "invalidate",
+      revision: 1,
+      scope: "work-items"
+    }));
+    await sourceRefreshStarted;
+    releaseTargetProbe();
+
+    await expect(page.locator("#project-select")).toHaveValue(targetProject.id);
+    await expect(page).toHaveURL(new RegExp(`[?&]work=${targetWork.id}(?:&|$)`));
+    await expect(pane.locator(".detail-title")).toHaveText(targetTitle);
+    const targetGraph = await openTab(pane, "Graph");
+    const sourceRow = targetGraph.locator(".relationship-row").filter({ hasText: sourceTitle });
+    await expect(sourceRow).toHaveCount(1);
+    await expect(sourceRow.locator(".relationship-project")).toHaveText(
+      `Cross-project · ${sourceProject.name} (${sourceProject.slug})`
+    );
+    await expect(sourceRow.getByRole("button", {
+      name: `Open ${sourceTitle} in ${sourceProject.name} (${sourceProject.slug})`,
+      exact: true
+    })).toBeVisible();
+  } finally {
+    releaseTargetProbe();
+    await client.dispose();
+  }
+});

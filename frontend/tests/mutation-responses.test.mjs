@@ -997,6 +997,14 @@ test("new relationship responses must preserve request provenance and context", 
     context_checkpoint_id: context
   });
   assert.equal((await classify(spec, 200, {
+    relationship: { ...valid, project_id: targetProject },
+    created: false
+  })).type, "success");
+  assert.equal((await classify(spec, 200, {
+    relationship: { ...valid, project_id: targetProject },
+    created: true
+  })).type, "unresolved");
+  assert.equal((await classify(spec, 200, {
     relationship: { ...valid, created_by_session_id: "wrong-session" },
     created: true
   })).type, "unresolved");
@@ -1095,7 +1103,6 @@ test("finite error envelopes distinguish rejection, safety conflict, and unknown
   for (const code of [
     "work_move_same_project",
     "work_move_active_lease",
-    "work_move_relationships",
     "work_move_duplicate_membership"
   ]) {
     const moveRejection = await classify(spec, 409, {

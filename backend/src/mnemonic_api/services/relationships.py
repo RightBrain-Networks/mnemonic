@@ -8,7 +8,12 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from mnemonic_api.database import begin_coherent_read
-from mnemonic_api.errors import conflict, duplicate_merge_required, not_found
+from mnemonic_api.errors import (
+    client_operation_unavailable,
+    conflict,
+    duplicate_merge_required,
+    not_found,
+)
 from mnemonic_api.external_references import ExternalReference
 from mnemonic_api.models import (
     Checkpoint,
@@ -33,6 +38,16 @@ from mnemonic_api.services.readiness import (
 from mnemonic_api.services.work_events import database_now, source_actor, stage_relationship_events
 
 CYCLE_TYPES = frozenset({"blocks", "parent-child"})
+
+
+def lock_relationship_graph(database: Session) -> None:
+    """Serialize topology additions across the schema before endpoint rows are locked."""
+    database.execute(
+        text(
+            "SELECT pg_advisory_xact_lock("
+            "pg_catalog.hashtext(current_schema()), 1919251312)"
+        )
+    )
 
 
 def lock_project_graph(database: Session, project_id: UUID) -> Project:
@@ -68,6 +83,70 @@ def lock_endpoint_work_items(
     return {work_item.id: work_item for work_item in work_items}
 
 
+def relationship_endpoint_project_ids(
+    database: Session, work_item_ids: Iterable[UUID]
+) -> tuple[UUID, ...]:
+    """Return current nondeleted endpoint placements for predeclared mutation locking."""
+    ids = sorted(set(work_item_ids))
+    if not ids:
+        return ()
+    rows = list(
+        database.execute(
+            select(WorkItem.id, WorkItem.project_id).where(
+                WorkItem.id.in_(ids),
+                WorkItem.deleted_at.is_(None),
+            )
+        )
+    )
+    if len(rows) != len(ids):
+        raise not_found("work_item_not_found", "Work item not found.")
+    return tuple(sorted({project_id for _, project_id in rows}, key=str))
+
+
+def require_relationship_endpoint_project_scope(
+    database: Session,
+    work_item_ids: Iterable[UUID],
+    expected_project_ids: Iterable[UUID],
+) -> None:
+    """Fail retryably when endpoint placement changed before project locks were acquired."""
+    ids = sorted(set(work_item_ids))
+    rows = list(
+        database.execute(
+            select(WorkItem.id, WorkItem.project_id).where(
+                WorkItem.id.in_(ids),
+                WorkItem.deleted_at.is_(None),
+            )
+        )
+    )
+    current_project_ids = tuple(sorted({project_id for _, project_id in rows}, key=str))
+    expected = tuple(sorted(set(expected_project_ids), key=str))
+    if len(rows) != len(ids) or current_project_ids != expected:
+        raise client_operation_unavailable()
+
+
+def lock_global_endpoint_work_items(
+    database: Session, work_item_ids: Iterable[UUID]
+) -> dict[UUID, WorkItem]:
+    """Lock globally identified, nondeleted endpoints in deterministic UUID order."""
+    ids = sorted(set(work_item_ids))
+    if not ids:
+        return {}
+    work_items = list(
+        database.scalars(
+            select(WorkItem)
+            .where(
+                WorkItem.id.in_(ids),
+                WorkItem.deleted_at.is_(None),
+            )
+            .order_by(WorkItem.id)
+            .with_for_update()
+        )
+    )
+    if len(work_items) != len(ids):
+        raise not_found("work_item_not_found", "Work item not found.")
+    return {work_item.id: work_item for work_item in work_items}
+
+
 def normalize_endpoints(
     relationship_type: str, source_work_item_id: UUID, target_work_item_id: UUID
 ) -> tuple[UUID, UUID]:
@@ -85,13 +164,12 @@ def relationship_edge(relationship: WorkRelationship) -> RelationshipEdgeRead:
     return RelationshipEdgeRead.model_validate(relationship)
 
 
-def require_no_relationships(database: Session, project_id: UUID, work_item_id: UUID) -> None:
+def require_no_relationships(database: Session, work_item_id: UUID) -> None:
     from mnemonic_api.models import CodeReviewRemediation
 
     exists = database.scalar(
         select(WorkRelationship.id)
         .where(
-            WorkRelationship.project_id == project_id,
             WorkRelationship.id.not_in(select(CodeReviewRemediation.relationship_id)),
             or_(
                 WorkRelationship.source_work_item_id == work_item_id,
@@ -104,27 +182,6 @@ def require_no_relationships(database: Session, project_id: UUID, work_item_id: 
         raise conflict(
             "active_relationships",
             "Remove this work item's relationships before deleting it.",
-        )
-
-
-def require_no_relationships_for_move(
-    database: Session, project_id: UUID, work_item_id: UUID
-) -> None:
-    exists = database.scalar(
-        select(WorkRelationship.id)
-        .where(
-            WorkRelationship.project_id == project_id,
-            or_(
-                WorkRelationship.source_work_item_id == work_item_id,
-                WorkRelationship.target_work_item_id == work_item_id,
-            ),
-        )
-        .limit(1)
-    )
-    if exists is not None:
-        raise conflict(
-            "work_move_relationships",
-            "Remove this work item's relationships before moving it.",
         )
 
 
@@ -152,7 +209,6 @@ def _context_owner(
 
 def _would_create_cycle(
     database: Session,
-    project_id: UUID,
     relationship_type: str,
     source_work_item_id: UUID,
     target_work_item_id: UUID,
@@ -166,16 +222,14 @@ def _would_create_cycle(
                 WITH RECURSIVE reachable(work_item_id) AS (
                     SELECT target_work_item_id
                     FROM work_relationships
-                    WHERE project_id = :project_id
-                      AND relationship_type = :relationship_type
+                    WHERE relationship_type = :relationship_type
                       AND source_work_item_id = :target_work_item_id
                     UNION
                     SELECT edge.target_work_item_id
                     FROM work_relationships AS edge
                     JOIN reachable
                       ON reachable.work_item_id = edge.source_work_item_id
-                    WHERE edge.project_id = :project_id
-                      AND edge.relationship_type = :relationship_type
+                    WHERE edge.relationship_type = :relationship_type
                 )
                 SELECT EXISTS (
                     SELECT 1
@@ -185,7 +239,6 @@ def _would_create_cycle(
                 """
             ),
             {
-                "project_id": project_id,
                 "relationship_type": relationship_type,
                 "source_work_item_id": source_work_item_id,
                 "target_work_item_id": target_work_item_id,
@@ -223,7 +276,6 @@ def stage_relationship_locked(
 
     existing = database.scalar(
         select(WorkRelationship).where(
-            WorkRelationship.project_id == project_id,
             WorkRelationship.relationship_type == relationship_type,
             WorkRelationship.source_work_item_id == source_work_item_id,
             WorkRelationship.target_work_item_id == target_work_item_id,
@@ -235,7 +287,6 @@ def stage_relationship_locked(
     if relationship_type == "parent-child":
         current_parent = database.scalar(
             select(WorkRelationship.id).where(
-                WorkRelationship.project_id == project_id,
                 WorkRelationship.relationship_type == "parent-child",
                 WorkRelationship.target_work_item_id == target_work_item_id,
             )
@@ -266,7 +317,6 @@ def stage_relationship_locked(
 
     if _would_create_cycle(
         database,
-        project_id,
         relationship_type,
         source_work_item_id,
         target_work_item_id,
@@ -346,12 +396,15 @@ def add_relationship_record(
     payload: RelationshipCreate,
 ) -> RelationshipCreationResult:
     lock_project_graph(database, project_id)
+    lock_relationship_graph(database)
     source_id, target_id = normalize_endpoints(
         payload.relationship_type,
         payload.source_work_item_id,
         payload.target_work_item_id,
     )
-    locked = lock_endpoint_work_items(database, project_id, [source_id, target_id])
+    locked = lock_global_endpoint_work_items(database, [source_id, target_id])
+    if project_id not in {work_item.project_id for work_item in locked.values()}:
+        raise not_found("work_item_not_found", "Work item not found.")
     relationship, created = stage_relationship_locked(
         database,
         project_id=project_id,
@@ -417,9 +470,8 @@ def remove_relationship_record(
             relationship_id=relationship_id,
             removed=False,
         )
-    lock_endpoint_work_items(
+    lock_global_endpoint_work_items(
         database,
-        project_id,
         [relationship.source_work_item_id, relationship.target_work_item_id],
     )
     from mnemonic_api.services.duplicates import is_duplicate_work_item
@@ -494,6 +546,7 @@ def _work_pointers(
     ) = readiness_inputs(database, work_item_ids, as_of=as_of)
     return {
         work_item.id: WorkPointer(
+            project_id=work_item.project_id,
             id=work_item.id,
             title=work_item.title,
             external_references=[ExternalReference.model_validate(item)
@@ -569,7 +622,7 @@ def list_adjacent_relationships(
                 WorkRelationship.target_work_item_id == work_item_id,
             ),
         )
-    conditions = [WorkRelationship.project_id == project_id, *adjacency]
+    conditions = [*adjacency]
     if filters.type is not None:
         conditions.append(WorkRelationship.relationship_type == filters.type)
     total = (

@@ -24,11 +24,20 @@ from .test_phase12_database_postgres import _close, _project, _work
 pytestmark = pytest.mark.postgres
 
 
-def _audit(engine: Engine):
+def _audit(engine: Engine, expected_head: str | None = None):
     audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
     with engine.connect() as connection:
         connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
-        return audit["audit_snapshot"](connection)
+        if expected_head is None:
+            return audit["audit_snapshot"](connection)
+        return audit["audit_snapshot"](connection, expected_head)
+
+
+def _review_audit(engine: Engine):
+    audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_code_reviews.py"))
+    with engine.connect() as connection:
+        connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+        return audit["audit"](connection)
 
 
 def _pre_review_completion(engine: Engine, project: dict, work: dict) -> dict:
@@ -84,7 +93,28 @@ def test_project_activity_audit_accepts_review_events_and_checks_review_facts(
     close_work(api, project, question_work, checkpoint_fields, review=False)
     report = _audit(postgres_engine)
     assert report["result"] == "pass", report
-    assert report["expected_head"] == "0024_code_reviews"
+    assert report["expected_head"] == "0025_cross_project_relationships"
+
+
+def test_project_and_review_audits_keep_supported_0024_boundary(postgres_engine: Engine):
+    reset_disposable_schema(postgres_engine)
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    try:
+        with postgres_engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.downgrade(config, "0024_code_reviews")
+
+        aggregate = _audit(postgres_engine, "0024_code_reviews")
+        review = _review_audit(postgres_engine)
+
+        assert aggregate["result"] == "pass", aggregate
+        assert aggregate["expected_head"] == "0024_code_reviews"
+        assert review["ok"], review
+        assert review["schema_head"] == "0024_code_reviews"
+    finally:
+        with postgres_engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "head")
 
 
 def test_project_activity_audit_detects_count_and_guard_tampering(postgres_engine: Engine):
@@ -412,6 +442,69 @@ def test_project_activity_audit_accepts_valid_move_history(
     assert moved["work_item"]["project_id"] == target["id"]
 
 
+def test_project_activity_audit_tracks_cross_project_relationship_authority(
+    api, project, work_payload, postgres_engine
+):
+    target_project = _create_api_project(api, "Audit relationship counterpart")
+    moved_project = _create_api_project(api, "Audit relationship moved endpoint")
+
+    source_response = api.post(
+        f"/api/v1/projects/{project['id']}/work-items",
+        json={**work_payload, "title": "Cross-project audit source"},
+    )
+    assert source_response.status_code == 201, source_response.text
+    source = source_response.json()["work_item"]
+    target_response = api.post(
+        f"/api/v1/projects/{target_project['id']}/work-items",
+        json={**work_payload, "title": "Cross-project audit target"},
+    )
+    assert target_response.status_code == 201, target_response.text
+    target = target_response.json()["work_item"]
+
+    relationship_response = api.post(
+        f"/api/v1/projects/{project['id']}/relationships",
+        json={
+            "relationship_type": "related",
+            "source_work_item_id": source["id"],
+            "target_work_item_id": target["id"],
+            "created_by_client": "pytest",
+            "created_by_session_id": "cross-project-audit",
+        },
+    )
+    assert relationship_response.status_code == 200, relationship_response.text
+    relationship = relationship_response.json()["relationship"]
+    moved_response = api.post(
+        f"/api/v1/projects/{project['id']}/work-items/{source['id']}/move",
+        json={
+            "target_project_id": moved_project["id"],
+            "expected_version": source["version"],
+        },
+    )
+    assert moved_response.status_code == 200, moved_response.text
+
+    report = _audit(postgres_engine)
+
+    assert report["result"] == "pass", report
+    assert report["inventory"]["relationships"] == 1
+    assert report["inventory"]["cross_project_relationships"] == 1
+    assert report["prior_phase_counts"]["relationship_scope_violations"] == 0
+    assert report["prior_phase_counts"]["event_owner_violations"] == 0
+
+    unrelated = _create_api_project(api, "Invalid relationship authority")
+    with postgres_engine.begin() as connection:
+        connection.execute(text("ALTER TABLE work_relationships DISABLE TRIGGER USER"))
+        connection.execute(
+            text("UPDATE work_relationships SET project_id=:project_id WHERE id=:id"),
+            {"project_id": unrelated["id"], "id": relationship["id"]},
+        )
+        connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+        connection.execute(text("ALTER TABLE work_relationships ENABLE TRIGGER USER"))
+
+    corrupted = _audit(postgres_engine)
+    assert corrupted["result"] == "blocked", corrupted
+    assert corrupted["blocking_findings"]["invalid_retained_relationship_facts"] == 1
+
+
 def test_project_activity_audit_accepts_origin_receipts_after_move(
     api, project, work_payload, checkpoint_fields, postgres_engine
 ):
@@ -694,6 +787,8 @@ def test_project_activity_audit_rejects_later_relationship_endpoint(
     corrupted = _audit(postgres_engine)
     assert corrupted["result"] == "blocked", corrupted
     assert corrupted["prior_phase_counts"]["event_owner_violations"] == 1
+    assert corrupted["blocking_findings"]["invalid_retained_relationship_facts"] == 1
+    assert corrupted["blocking_findings"]["invalid_relationship_event_pairs"] == 1
 
 
 @pytest.mark.parametrize(

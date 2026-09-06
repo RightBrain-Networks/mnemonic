@@ -853,3 +853,212 @@ def test_0023_populated_upgrade_preserves_facts_and_guards_move_history() -> Non
         with admin.begin() as connection:
             connection.execute(DropSchema(schema, cascade=True))
         admin.dispose()
+
+
+def test_0025_populated_upgrade_retains_relationship_and_allows_move() -> None:
+    raw_url = os.environ.get("TEST_DATABASE_URL")
+    if not raw_url:
+        pytest.skip("Set TEST_DATABASE_URL to run real PostgreSQL integration tests")
+    url = make_url(raw_url)
+    admin = create_engine(url, hide_parameters=True, connect_args={"connect_timeout": 5})
+    schema = "mnemonic_relationship_0025_" + uuid4().hex
+    with admin.begin() as connection:
+        connection.execute(CreateSchema(schema))
+    engine = create_engine(
+        url.update_query_dict({"options": f"-c search_path={schema} -c timezone=UTC"}),
+        hide_parameters=True,
+        connect_args={"connect_timeout": 5},
+    )
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+
+    try:
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "0024_code_reviews")
+            connection.execute(text("SET CONSTRAINTS ALL DEFERRED"))
+            source_project_id, work = _create_project_with_work(connection, work_count=2)
+            target_project_id, _ = _create_project_with_work(connection, work_count=0)
+            moving_work_item_id = work[0][0]
+            counterpart_work_item_id = work[1][0]
+            relationship_source_id, relationship_target_id = sorted(
+                (moving_work_item_id, counterpart_work_item_id)
+            )
+            relationship_id = uuid4()
+            relationship_created_at = connection.scalar(text("SELECT clock_timestamp()"))
+            assert isinstance(relationship_created_at, datetime)
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO work_relationships (
+                        id, project_id, relationship_type, source_work_item_id,
+                        target_work_item_id, created_by_client,
+                        created_by_session_id, created_at
+                    ) VALUES (
+                        :id, :project_id, 'related', :source_id, :target_id,
+                        'migration-test', 'relationship-retention', :created_at
+                    )
+                    """
+                ),
+                {
+                    "id": relationship_id,
+                    "project_id": source_project_id,
+                    "source_id": relationship_source_id,
+                    "target_id": relationship_target_id,
+                    "created_at": relationship_created_at,
+                },
+            )
+            for endpoint_id in (relationship_source_id, relationship_target_id):
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO work_events (
+                            project_id, work_item_id, event_type, actor_kind,
+                            actor_client, actor_session_id, relationship_id,
+                            relationship_source_work_item_id,
+                            relationship_target_work_item_id, metadata, origin,
+                            created_at
+                        ) VALUES (
+                            :project_id, :endpoint_id, 'relationship_added', 'client',
+                            'migration-test', 'relationship-retention', :relationship_id,
+                            :source_id, :target_id,
+                            '{"relationship_type":"related"}'::jsonb, 'live',
+                            :created_at
+                        )
+                        """
+                    ),
+                    {
+                        "project_id": source_project_id,
+                        "endpoint_id": endpoint_id,
+                        "relationship_id": relationship_id,
+                        "source_id": relationship_source_id,
+                        "target_id": relationship_target_id,
+                        "created_at": relationship_created_at,
+                    },
+                )
+            connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+
+        with pytest.raises(DBAPIError, match="related or duplicate work cannot be moved"):
+            with engine.begin() as connection:
+                _move(
+                    connection,
+                    work_item_id=moving_work_item_id,
+                    source_project_id=source_project_id,
+                    target_project_id=target_project_id,
+                )
+
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "0025_cross_project_relationships")
+
+        with engine.begin() as connection:
+            move_id = _move(
+                connection,
+                work_item_id=moving_work_item_id,
+                source_project_id=source_project_id,
+                target_project_id=target_project_id,
+            )
+
+        with engine.connect() as connection:
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+                "0025_cross_project_relationships"
+            )
+            assert connection.execute(
+                text(
+                    "SELECT project_id,source_work_item_id,target_work_item_id "
+                    "FROM work_relationships WHERE id=:relationship_id"
+                ),
+                {"relationship_id": relationship_id},
+            ).one() == (
+                source_project_id,
+                relationship_source_id,
+                relationship_target_id,
+            )
+            assert connection.execute(
+                text("SELECT project_id,status,version FROM work_items WHERE id=:id"),
+                {"id": moving_work_item_id},
+            ).one() == (target_project_id, "pending", 2)
+            assert connection.scalar(
+                text("SELECT count(*) FROM work_events WHERE work_move_id=:move_id"),
+                {"move_id": move_id},
+            ) == 2
+            assert _foreign_key_columns(
+                connection, "fk_work_relationships_source_work_item"
+            ) == (["source_work_item_id"], ["id"])
+            assert _foreign_key_columns(
+                connection, "fk_work_relationships_target_work_item"
+            ) == (["target_work_item_id"], ["id"])
+
+        with engine.begin() as connection:
+            removed_at = connection.scalar(text("SELECT clock_timestamp()"))
+            assert isinstance(removed_at, datetime)
+            endpoint_projects = sorted(
+                (
+                    (moving_work_item_id, target_project_id),
+                    (counterpart_work_item_id, source_project_id),
+                ),
+                key=lambda placement: placement[1],
+            )
+            for endpoint_id, event_project_id in endpoint_projects:
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO work_events (
+                            project_id, work_item_id, event_type, actor_kind,
+                            actor_client, actor_session_id, relationship_id,
+                            relationship_source_work_item_id,
+                            relationship_target_work_item_id, metadata, origin,
+                            created_at
+                        ) VALUES (
+                            :project_id, :endpoint_id, 'relationship_removed', 'client',
+                            'migration-test', 'relationship-removal', :relationship_id,
+                            :source_id, :target_id,
+                            '{"relationship_type":"related"}'::jsonb, 'live',
+                            :created_at
+                        )
+                        """
+                    ),
+                    {
+                        "project_id": event_project_id,
+                        "endpoint_id": endpoint_id,
+                        "relationship_id": relationship_id,
+                        "source_id": relationship_source_id,
+                        "target_id": relationship_target_id,
+                        "created_at": removed_at,
+                    },
+                )
+            connection.execute(
+                text("DELETE FROM work_relationships WHERE id=:relationship_id"),
+                {"relationship_id": relationship_id},
+            )
+            connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+
+        with engine.connect() as connection:
+            assert connection.scalar(
+                text("SELECT count(*) FROM work_relationships WHERE id=:id"),
+                {"id": relationship_id},
+            ) == 0
+            assert connection.scalar(
+                text(
+                    "SELECT count(DISTINCT project_id) FROM work_events "
+                    "WHERE relationship_id=:id"
+                ),
+                {"id": relationship_id},
+            ) == 2
+
+        with pytest.raises(RuntimeError, match="event history"):
+            with engine.begin() as connection:
+                config.attributes["connection"] = connection
+                command.downgrade(config, "0024_code_reviews")
+
+        with engine.connect() as connection:
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+                "0025_cross_project_relationships"
+            )
+            assert _foreign_key_columns(
+                connection, "fk_work_relationships_source_work_item"
+            ) == (["source_work_item_id"], ["id"])
+    finally:
+        engine.dispose()
+        with admin.begin() as connection:
+            connection.execute(DropSchema(schema, cascade=True))
+        admin.dispose()

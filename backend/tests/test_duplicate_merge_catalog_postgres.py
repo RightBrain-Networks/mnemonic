@@ -90,13 +90,13 @@ EXPECTED_FUNCTION_HASHES = {
         "2c6b0e84d7e8aaa4871c07452c127375909a6f6fb5c3ec3efc0f74969b014300"
     ),
     "mnemonic_duplicate_merge_is_complete": (
-        "d88bf3afbffb4317f8293219dae4625b49fbadea737dd6fb7545710077a63448"
+        "cc23396ca93869246bf00654b13cbe21926febd36fed4c7e8e8fa50e659afc8d"
     ),
     "mnemonic_guard_duplicate_merge_insert": (
-        "74cf2231b51f8c5ccf6a2d8ed9184661a06b4b131b3c3af3863fbda2350846a1"
+        "de50dcc3f22c7ab09129059e4a4aa4530859e2f74884649737f6f400b9f15c7b"
     ),
     "mnemonic_guard_duplicate_relationship_mutation": (
-        "bdc6bc7f37a34b95efa7a424879f5bcf6f8f3a42d36e4677cb1dd2f2467b8db1"
+        "b3775c38f3c330b1c2c381c1d13c5798645153b4fb2ed077b661f6479f522fcd"
     ),
     "mnemonic_guard_duplicate_work_event": (
         "54b7d67967e7fa7586f3cca083085f1c048ed481fa64c64501a018763ae4fda7"

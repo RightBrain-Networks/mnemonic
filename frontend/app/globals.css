@@ -1004,7 +1004,10 @@ html[data-theme="dark"] :is(.evidence-outcome.is-inconclusive, .evidence-outcome
 .relationship-counterpart > div { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .relationship-counterpart strong { overflow-wrap: anywhere; }
 .relationship-counterpart > span { color: var(--muted); font-size: 9px; }
+.relationship-counterpart > .relationship-project { color: var(--violet); font-weight: 650; }
 .relationship-counterpart > .mono { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; }
+.relationship-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+.relationship-actions .button { padding: 6px 9px; font-size: 10px; }
 .relationship-remove { flex-shrink: 0; padding: 6px 9px; font-size: 10px; }
 .relationship-editor { border: 1px solid #d7c5f7; border-radius: 8px; background: #faf7ff; }
 .relationship-editor > summary { padding: 13px 15px; color: #6d35d7; font-weight: 700; cursor: pointer; }
@@ -1018,6 +1021,7 @@ html[data-theme="dark"] :is(.evidence-outcome.is-inconclusive, .evidence-outcome
 .counterpart-results > button > span:first-child { display: grid; gap: 3px; min-width: 0; }
 .counterpart-results > button strong, .counterpart-results > button span span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .counterpart-results > button span span { color: var(--muted); font-size: 9px; }
+.counterpart-results .counterpart-project { overflow: hidden; color: var(--violet); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .relationship-fields { display: grid; gap: 14px; padding-top: 4px; }
 .relationship-direction { display: flex; flex-wrap: wrap; gap: 8px 17px; margin: 0; padding: 12px; border: 1px solid #ddcfb8; border-radius: 7px; }
 .relationship-direction legend { padding: 0 5px; color: #42372b; font-size: 11px; font-weight: 650; }
@@ -1034,7 +1038,7 @@ html[data-theme="dark"] :is(.evidence-outcome.is-inconclusive, .evidence-outcome
   .hierarchy-toggle, .hierarchy-toggle-spacer { flex-basis: 24px; width: 24px; }
   .hierarchy-children { margin-left: 9px; padding-left: 12px; }
   .relationship-row { align-items: stretch; flex-direction: column; }
-  .relationship-remove { align-self: flex-end; }
+  .relationship-actions { align-self: flex-end; }
   .counterpart-results > button { align-items: flex-start; }
   .add-relationship-button { justify-self: stretch; }
 }

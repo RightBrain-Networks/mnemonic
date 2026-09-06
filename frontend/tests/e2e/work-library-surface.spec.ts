@@ -30,6 +30,26 @@ type WorkItem = {
 
 type Project = { id: string; name: string; slug: string };
 
+type RelationshipEdge = {
+  id: string;
+  project_id: string;
+  relationship_type: string;
+  source_work_item_id: string;
+  target_work_item_id: string;
+  context_checkpoint_work_item_id: string | null;
+  context_checkpoint_id: string | null;
+  created_by_client: string;
+  created_by_session_id: string;
+  created_by_model: string | null;
+  created_at: string;
+};
+
+type AdjacentRelationship = {
+  relationship: RelationshipEdge;
+  direction: string;
+  counterpart: { id: string; project_id: string; title: string };
+};
+
 type MergeRevision = {
   work_version: number;
   context_checkpoint_id: string;
@@ -50,6 +70,10 @@ type WorkContext = {
     body: string;
     metadata: Record<string, unknown>;
   }>;
+  incoming_relationships: AdjacentRelationship[];
+  outgoing_relationships: AdjacentRelationship[];
+  undirected_relationships: AdjacentRelationship[];
+  relationship_counts: { incoming: number; outgoing: number; undirected: number; total: number };
 };
 
 type SeedInput = {
@@ -618,11 +642,12 @@ test("merge as duplicate runs inside the Graph tab and lands on the source audit
   }
 });
 
-test("the Defer menu moves deferred work to another project without changing identity", async ({ page }, testInfo) => {
+test("the Defer menu moves linked deferred work without severing its relationship", async ({ page }, testInfo) => {
   const token = searchToken("surfacemove", testInfo);
   const key = testKey(testInfo);
   const projectName = `Move project ${key}`;
   const title = `Movable item ${token}`;
+  const linkedTitle = `Source-linked item ${key}`;
   const client = await apiClient();
   try {
     const sourceProject = await createProject(client, projectName, `move-source-${token}`);
@@ -632,6 +657,31 @@ test("the Defer menu moves deferred work to another project without changing ide
       title,
       sessionId: `surface-move-${key}`
     }, sourceProject.id);
+
+    const linkedWork = await createWork(client, {
+      title: linkedTitle,
+      sessionId: `surface-move-linked-${key}`
+    }, sourceProject.id);
+    const relationshipResponse = await client.post(
+      `/api/v1/projects/${sourceProject.id}/relationships`,
+      {
+        data: {
+          relationship_type: "related",
+          source_work_item_id: work.id,
+          target_work_item_id: linkedWork.id,
+          created_by_client: "playwright-api",
+          created_by_session_id: `surface-move-${key}`,
+          created_by_model: null,
+          context_checkpoint_id: null
+        }
+      }
+    );
+    expect(relationshipResponse.ok(), await relationshipResponse.text()).toBe(true);
+    const relationshipResult = await relationshipResponse.json() as {
+      relationship: RelationshipEdge;
+      created: boolean;
+    };
+    expect(relationshipResult.created).toBe(true);
 
     await openDashboard(page, sourceProject.id);
     await searchFor(page, token, 1);
@@ -795,6 +845,48 @@ test("the Defer menu moves deferred work to another project without changing ide
       project_id: targetProject.id,
       status: "deferred"
     });
+    expect(moved.relationship_counts.total).toBe(1);
+    const movedAdjacent = moved.undirected_relationships[0];
+    expect(movedAdjacent).toMatchObject({
+      relationship: relationshipResult.relationship,
+      direction: "undirected",
+      counterpart: { id: linkedWork.id, project_id: sourceProject.id, title: linkedTitle }
+    });
+
+    const linkedContext = await getContext(client, linkedWork.id, sourceProject.id);
+    expect(linkedContext.relationship_counts.total).toBe(1);
+    expect(linkedContext.undirected_relationships[0]).toMatchObject({
+      relationship: relationshipResult.relationship,
+      direction: "undirected",
+      counterpart: { id: work.id, project_id: targetProject.id, title }
+    });
+
+    const graph = await openTab(pane, "Graph");
+    const relatedRow = graph.locator(".relationship-row").filter({ hasText: linkedTitle });
+    await expect(relatedRow).toContainText(
+      `Cross-project · ${sourceProject.name} (${sourceProject.slug})`
+    );
+
+    const removalRequests: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "DELETE"
+        && request.url().includes(
+          `/api/mnemonic/projects/${sourceProject.id}/relationships/${relationshipResult.relationship.id}`
+        )
+      ) removalRequests.push(request.url());
+    });
+    await relatedRow.getByRole("button", {
+      name: `Remove Related relationship with ${linkedTitle}`,
+      exact: true
+    }).click();
+    await expect(graph.getByText("Relationship removed.", { exact: true })).toBeVisible();
+    await expect.poll(() => removalRequests.length).toBe(1);
+    const movedAfterRemoval = await getContext(client, work.id, targetProject.id);
+    const linkedAfterRemoval = await getContext(client, linkedWork.id, sourceProject.id);
+    expect(movedAfterRemoval.relationship_counts.total).toBe(0);
+    expect(linkedAfterRemoval.relationship_counts.total).toBe(0);
+
     const formerSource = await client.get(
       `/api/v1/projects/${sourceProject.id}/work-items/${work.id}/context`
     );

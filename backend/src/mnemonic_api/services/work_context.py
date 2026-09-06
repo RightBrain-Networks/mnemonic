@@ -298,8 +298,7 @@ def assemble_work_context(
                     END AS counterpart_id
                 FROM chosen AS w
                 JOIN work_relationships AS relationship
-                  ON relationship.project_id = w.project_id
-                 AND (
+                  ON (
                     relationship.source_work_item_id = w.id
                     OR relationship.target_work_item_id = w.id
                  )
@@ -320,6 +319,7 @@ def assemble_work_context(
             adjacent_rows AS (
                 SELECT
                     relationship.*,
+                    counterpart.project_id AS counterpart_project_id,
                     counterpart.title AS counterpart_title,
                     counterpart.external_references AS counterpart_external_references,
                     counterpart.status AS counterpart_status,
@@ -375,6 +375,7 @@ def assemble_work_context(
                         'direction', adjacent.relative_direction,
                         'counterpart', jsonb_build_object(
                             'id', adjacent.counterpart_id,
+                            'project_id', adjacent.counterpart_project_id,
                             'title', adjacent.counterpart_title,
                             'external_references', adjacent.counterpart_external_references,
                             'status', adjacent.counterpart_status,

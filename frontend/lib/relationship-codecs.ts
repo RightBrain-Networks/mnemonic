@@ -84,7 +84,7 @@ export function relationshipIdentity(
 
 export function decodeRelationship(
   value: unknown,
-  projectId: string,
+  projectId: string | undefined,
   input?: JsonObject,
   newWorkItemId?: string,
   requestDetailsMustMatch = true
@@ -94,7 +94,8 @@ export function decodeRelationship(
     !relationship
     || !exactKeys(relationship, RELATIONSHIP_RESPONSE_FIELDS)
     || !validUuid(relationship.id)
-    || !sameUuid(relationship.project_id, projectId)
+    || !validUuid(relationship.project_id)
+    || projectId !== undefined && !sameUuid(relationship.project_id, projectId)
     || typeof relationship.relationship_type !== "string"
     || !RELATIONSHIP_TYPES.has(relationship.relationship_type)
     || !validUuid(relationship.source_work_item_id)

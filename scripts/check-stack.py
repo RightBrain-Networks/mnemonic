@@ -1105,7 +1105,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.15.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.16.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         require(
             {"ExternalReference", "ExternalReferencesChange", "ExternalDuplicateCandidate",
@@ -1113,6 +1113,7 @@ def validate_rest_contract(document: Any) -> None:
             and "external_references" in schemas["WorkItemRead"]["properties"]
             and "external_references" in schemas["WorkItemCreate"]["properties"]
             and "external_candidates" in schemas["DuplicateSuggestionRequest"]["properties"]
+            and "project_id" in schemas["WorkPointer"]["required"]
             and {"external_items", "external_candidate_count", "external_scope"}.issubset(
                 schemas["DuplicateSuggestionPage"]["properties"]
             ),
@@ -1568,15 +1569,16 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.15.0",
+                    and initialized.serverInfo.version == "0.16.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.15.0 work-move and code-review contract, real MCP "
-                    "initialization, 38-tool catalog, exact thirteen protected mutation "
+                    "PASS: REST 0.16.0 cross-project relationship contract shape, work-move, "
+                    "code-review contract, real MCP initialization, 38-tool catalog, "
+                    "exact thirteen protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )
                 if not args.project_id:

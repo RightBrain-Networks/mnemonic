@@ -181,12 +181,13 @@ async def test_checkpoint_history_binds_work_identity(settings, pages):
 
 
 @pytest.mark.parametrize(
-    "corruption", ("project", "relative_work", "direction", "counterpart", "endpoints"),
+    "corruption",
+    ("counterpart_project", "relative_work", "direction", "counterpart", "endpoints"),
 )
 async def test_relationship_adjacency_binds_scope_and_projection(settings, pages, corruption):
     row = pages["list_relationships"]["items"][0]
-    if corruption == "project":
-        row["relationship"]["project_id"] = OTHER_CHECKPOINT_ID
+    if corruption == "counterpart_project":
+        row["counterpart"].pop("project_id")
     elif corruption == "relative_work":
         row.update(relative_to_work_item_id=OTHER_WORK_ID, direction="outgoing")
         row["counterpart"]["id"] = WORK_ID

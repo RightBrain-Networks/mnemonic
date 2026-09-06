@@ -1,7 +1,7 @@
 """Phase 3 typed relationship, graph concurrency, readiness, and hierarchy tests."""
 
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from threading import Barrier, Event
 from uuid import UUID, uuid4
 
 import pytest
@@ -206,7 +206,7 @@ def test_all_relationship_types_round_trip_normalize_and_delete_guard(
     ).status_code == 200
 
 
-def test_relationship_validation_project_locality_and_database_constraints(
+def test_relationship_validation_cross_project_links_and_database_constraints(
     api, project, work_payload, postgres_engine
 ):
     first = create_work(api, project, work_payload, "First endpoint")
@@ -243,7 +243,66 @@ def test_relationship_validation_project_locality_and_database_constraints(
         relationship_collection(project),
         json=relationship_payload(first_work, cross, "blocks"),
     )
-    assert cross_project.status_code == 404
+    assert cross_project.status_code == 200, cross_project.text
+    cross_edge = cross_project.json()["relationship"]
+    assert cross_edge["project_id"] == project["id"]
+
+    source_adjacency = api.get(
+        f"{work_path(project, first_work)}/relationships"
+    ).json()
+    target_adjacency = api.get(
+        f"{work_path(other_project, cross)}/relationships"
+    ).json()
+    assert source_adjacency["items"][0]["counterpart"]["project_id"] == other_project["id"]
+    assert target_adjacency["items"][0]["counterpart"]["project_id"] == project["id"]
+    assert target_adjacency["items"][0]["relationship"] == cross_edge
+    assert api.get(f"{work_path(other_project, cross)}/context").json()["readiness"][
+        "is_blocked"
+    ] is True
+    denied_cross_project_claim = api.post(
+        f"{work_path(other_project, cross)}/claim",
+        json=claim_payload("cross-project-blocker"),
+    )
+    assert denied_cross_project_claim.status_code == 409
+    assert denied_cross_project_claim.json()["detail"]["code"] == "work_blocked"
+
+    cross_project_retry = api.post(
+        relationship_collection(other_project),
+        json=relationship_payload(first_work, cross, "blocks"),
+    )
+    assert cross_project_retry.status_code == 200, cross_project_retry.text
+    assert cross_project_retry.json() == {"relationship": cross_edge, "created": False}
+
+    initial_cross = create_work(
+        api,
+        project,
+        work_payload,
+        "Initial cross-project relationship",
+        initial_relationships=[
+            {
+                "type": "related",
+                "direction": "outgoing",
+                "other_work_item_id": cross["id"],
+            }
+        ],
+    )
+    assert initial_cross["initial_relationships"][0]["project_id"] == project["id"]
+    initial_context = api.get(
+        f"{work_path(project, initial_cross['work_item'])}/context"
+    ).json()
+    assert initial_context["undirected_relationships"][0]["counterpart"]["project_id"] == (
+        other_project["id"]
+    )
+
+    unrelated_authority = api.post(
+        "/api/v1/projects", json={"name": "Unrelated graph authority"}
+    ).json()
+    hidden = api.post(
+        relationship_collection(unrelated_authority),
+        json=relationship_payload(first_work, cross, "related"),
+    )
+    assert hidden.status_code == 404
+    assert hidden.json()["detail"]["code"] == "work_item_not_found"
 
     base_values = {
         "id": uuid4(),
@@ -319,9 +378,200 @@ def test_relationship_validation_project_locality_and_database_constraints(
                 {
                     **base_values,
                     "id": uuid4(),
-                    "target": cross["id"],
+                    "target": uuid4(),
                 },
             )
+
+    cross_endpoint_ids = sorted([UUID(first_work["id"]), UUID(cross["id"])])
+    with pytest.raises(DBAPIError):
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO work_relationships (
+                        id, project_id, relationship_type,
+                        source_work_item_id, target_work_item_id,
+                        created_by_client, created_by_session_id
+                    ) VALUES (
+                        :id, :project_id, 'related', :source, :target, :client, :session
+                    )
+                    """
+                ),
+                {
+                    **base_values,
+                    "id": uuid4(),
+                    "project_id": unrelated_authority["id"],
+                    "source": cross_endpoint_ids[0],
+                    "target": cross_endpoint_ids[1],
+                },
+            )
+
+
+def test_relationship_endpoint_move_during_scope_prefetch_fails_retryably(
+    api, project, work_payload, monkeypatch
+):
+    from mnemonic_api.application.routes import relationships as relationship_routes
+
+    target_project = api.post(
+        "/api/v1/projects", json={"name": "Relationship drift target"}
+    ).json()
+    moving = create_work(api, project, work_payload, "Moving endpoint")["work_item"]
+    local = create_work(api, project, work_payload, "Local endpoint")["work_item"]
+    endpoint_ids = {UUID(moving["id"]), UUID(local["id"])}
+    prefetch_complete = Event()
+    continue_request = Event()
+    original = relationship_routes.relationship_endpoint_project_ids
+
+    def pause_after_prefetch(database, work_item_ids):
+        result = original(database, work_item_ids)
+        if set(work_item_ids) == endpoint_ids and not prefetch_complete.is_set():
+            prefetch_complete.set()
+            if not continue_request.wait(timeout=3):
+                raise TimeoutError("Timed out waiting for the concurrent endpoint move")
+        return result
+
+    monkeypatch.setattr(
+        relationship_routes,
+        "relationship_endpoint_project_ids",
+        pause_after_prefetch,
+    )
+    payload = relationship_payload(moving, local, "related")
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(
+            api.post,
+            relationship_collection(project),
+            json=payload,
+        )
+        assert prefetch_complete.wait(timeout=2)
+        try:
+            moved = api.post(
+                f"{work_path(project, moving)}/move",
+                json={
+                    "target_project_id": target_project["id"],
+                    "expected_version": 1,
+                    "actor": {
+                        "actor_client": "pytest",
+                        "actor_session_id": "relationship-scope-drift",
+                    },
+                    "client_operation_id": str(uuid4()),
+                },
+            )
+            assert moved.status_code == 200, moved.text
+        finally:
+            continue_request.set()
+        drifted = future.result(timeout=3)
+
+    assert drifted.status_code == 503
+    assert drifted.json()["detail"]["code"] == "client_operation_unavailable"
+    retry = api.post(relationship_collection(project), json=payload)
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["created"] is True
+    assert retry.json()["relationship"]["project_id"] == project["id"]
+
+
+def test_relationship_removed_after_scope_prefetch_returns_natural_noop(
+    api, project, work_payload, monkeypatch
+):
+    from mnemonic_api.application.routes import relationships as relationship_routes
+
+    left = create_work(api, project, work_payload, "Removal race left")["work_item"]
+    right = create_work(api, project, work_payload, "Removal race right")["work_item"]
+    edge = add_relationship(
+        api, project, relationship_payload(left, right, "related")
+    )["relationship"]
+    endpoint_ids = {UUID(left["id"]), UUID(right["id"])}
+    prefetch_complete = Event()
+    continue_request = Event()
+    original = relationship_routes.relationship_endpoint_project_ids
+
+    def pause_after_prefetch(database, work_item_ids):
+        result = original(database, work_item_ids)
+        if set(work_item_ids) == endpoint_ids and not prefetch_complete.is_set():
+            prefetch_complete.set()
+            if not continue_request.wait(timeout=3):
+                raise TimeoutError("Timed out waiting for the concurrent relationship removal")
+        return result
+
+    monkeypatch.setattr(
+        relationship_routes,
+        "relationship_endpoint_project_ids",
+        pause_after_prefetch,
+    )
+    path = f"{relationship_collection(project)}/{edge['id']}"
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(api.delete, path)
+        assert prefetch_complete.wait(timeout=2)
+        try:
+            winner = api.delete(path)
+            assert winner.status_code == 200, winner.text
+            assert winner.json()["removed"] is True
+        finally:
+            continue_request.set()
+        stale = future.result(timeout=3)
+
+    assert stale.status_code == 200, stale.text
+    assert stale.json()["removed"] is False
+
+
+def test_relationship_scope_lookup_runs_after_completed_add_and_create_replay(
+    api, project, work_payload
+):
+    add_left = create_work(api, project, work_payload, "Replay add left")["work_item"]
+    add_right = create_work(api, project, work_payload, "Replay add right")["work_item"]
+    add_payload = {
+        **relationship_payload(add_left, add_right, "related"),
+        "client_operation_id": str(uuid4()),
+    }
+    added = api.post(relationship_collection(project), json=add_payload)
+    assert added.status_code == 200, added.text
+    removed = api.delete(
+        f"{relationship_collection(project)}/{added.json()['relationship']['id']}"
+    )
+    assert removed.status_code == 200, removed.text
+    deleted = api.post(
+        f"{work_path(project, add_right)}/delete",
+        json={"expected_version": 1},
+    )
+    assert deleted.status_code == 200, deleted.text
+    add_replay = api.post(relationship_collection(project), json=add_payload)
+    assert add_replay.status_code == 200, add_replay.text
+    assert add_replay.json() == added.json()
+
+    create_counterpart = create_work(
+        api, project, work_payload, "Replay create counterpart"
+    )["work_item"]
+    create_payload = {
+        **work_payload,
+        "title": "Replay linked creation",
+        "summary": "A completed linked creation replays without live endpoints.",
+        "initial_checkpoint": {
+            **work_payload["initial_checkpoint"],
+            "source_session_id": "linked-creation-replay",
+        },
+        "initial_relationships": [
+            {
+                "type": "related",
+                "direction": "outgoing",
+                "other_work_item_id": create_counterpart["id"],
+            }
+        ],
+        "client_operation_id": str(uuid4()),
+    }
+    created = api.post(work_collection(project), json=create_payload)
+    assert created.status_code == 201, created.text
+    created_edge_id = created.json()["initial_relationships"][0]["id"]
+    removed_created_edge = api.delete(
+        f"{relationship_collection(project)}/{created_edge_id}"
+    )
+    assert removed_created_edge.status_code == 200, removed_created_edge.text
+    deleted_counterpart = api.post(
+        f"{work_path(project, create_counterpart)}/delete",
+        json={"expected_version": 1},
+    )
+    assert deleted_counterpart.status_code == 200, deleted_counterpart.text
+    create_replay = api.post(work_collection(project), json=create_payload)
+    assert create_replay.status_code == 201, create_replay.text
+    assert create_replay.json() == created.json()
 
 
 @pytest.mark.parametrize("relationship_type", ["blocks", "parent-child"])
@@ -345,6 +595,21 @@ def test_direct_transitive_and_concurrent_cycles_are_rejected(
     )
     assert transitive.status_code == 409
     assert transitive.json()["detail"]["code"] == "relationship_cycle"
+
+    remote_project = api.post(
+        "/api/v1/projects",
+        json={"name": f"Remote {relationship_type} cycle project"},
+    ).json()
+    remote = create_work(
+        api, remote_project, work_payload, f"Remote {relationship_type} D"
+    )["work_item"]
+    add_relationship(api, project, relationship_payload(third, remote, relationship_type))
+    cross_project_cycle = api.post(
+        relationship_collection(remote_project),
+        json=relationship_payload(remote, first, relationship_type),
+    )
+    assert cross_project_cycle.status_code == 409
+    assert cross_project_cycle.json()["detail"]["code"] == "relationship_cycle"
 
     left = create_work(api, project, work_payload, f"Concurrent {relationship_type} left")[
         "work_item"
@@ -641,6 +906,71 @@ def test_atomic_linked_creation_hierarchy_filters_and_search_ancestry(
     assert before_total == after_total == 0
 
 
+def test_cross_project_parent_remains_adjacency_but_not_local_hierarchy(
+    api, project, work_payload
+):
+    parent_created = create_work(api, project, work_payload, "Movable parent")
+    parent = parent_created["work_item"]
+    child = create_work(
+        api,
+        project,
+        work_payload,
+        "Locally rooted child",
+        initial_relationships=[
+            {
+                "type": "parent-child",
+                "direction": "incoming",
+                "other_work_item_id": parent["id"],
+            },
+            {
+                "type": "discovered-from",
+                "direction": "outgoing",
+                "other_work_item_id": parent["id"],
+                "context_checkpoint_id": parent_created["initial_checkpoint"]["id"],
+            },
+        ],
+    )["work_item"]
+    local_children = api.get(
+        f"{work_path(project, parent)}/children", params={"status": "all"}
+    ).json()
+    assert local_children["total"] == 1
+    assert local_children["items"][0]["presentation"]["discovered_from_parent"] is True
+
+    target_project = api.post(
+        "/api/v1/projects", json={"name": "Moved parent project"}
+    ).json()
+    moved = api.post(
+        f"{work_path(project, parent)}/move",
+        json={
+            "target_project_id": target_project["id"],
+            "expected_version": 1,
+            "actor": {
+                "actor_client": "pytest",
+                "actor_session_id": "move-hierarchy-parent",
+            },
+            "client_operation_id": str(uuid4()),
+        },
+    )
+    assert moved.status_code == 200, moved.text
+
+    source_roots = api.get(
+        work_collection(project), params={"view": "roots", "status": "all"}
+    ).json()
+    assert source_roots["total"] == 1
+    child_root = source_roots["items"][0]
+    assert child_root["summary"]["work_item"]["id"] == child["id"]
+    assert child_root["presentation"]["discovered_from_parent"] is False
+    remote_children = api.get(
+        f"{work_path(target_project, parent)}/children", params={"status": "all"}
+    ).json()
+    assert remote_children["total"] == 0
+    adjacency = api.get(f"{work_path(project, child)}/relationships").json()
+    assert adjacency["total"] == 2
+    assert {
+        item["counterpart"]["project_id"] for item in adjacency["items"]
+    } == {target_project["id"]}
+
+
 def test_nonblocking_relationship_types_preserve_readiness(api, project, work_payload):
     origin_created = create_work(api, project, work_payload, "Nonblocking origin")
     dependent_created = create_work(api, project, work_payload, "Nonblocking dependent")
@@ -754,6 +1084,7 @@ def test_relationship_model_parity_and_indexes(postgres_engine):
         assert {
             "pk_work_relationships",
             "uq_work_relationships_identity",
+            "fk_work_relationships_project",
             "fk_work_relationships_source_work_item",
             "fk_work_relationships_target_work_item",
             "fk_work_relationships_context_checkpoint",

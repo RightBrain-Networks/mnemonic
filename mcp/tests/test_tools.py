@@ -499,6 +499,34 @@ def test_recall_model_rejects_an_unresolved_gate_from_a_previous_project(
         WorkContext.model_validate(payload)
 
 
+def test_recall_model_accepts_cross_project_relationships(
+    work_context, adjacent_relationship
+):
+    cross_project = json.loads(json.dumps(adjacent_relationship))
+    cross_project["relationship"]["project_id"] = OTHER_CHECKPOINT_ID
+    cross_project["counterpart"]["project_id"] = OTHER_CHECKPOINT_ID
+    payload = {
+        **work_context,
+        "incoming_relationships": [cross_project],
+        "relationship_counts": {
+            "incoming": 1, "outgoing": 0, "undirected": 0, "total": 1,
+        },
+        "duplicate_merge_eligibility": {
+            **work_context["duplicate_merge_eligibility"],
+            "incident_blocks_count": 1,
+        },
+    }
+
+    recalled = WorkContext.model_validate(payload)
+
+    assert recalled.incoming_relationships[0].relationship.project_id != (
+        recalled.work_item.project_id
+    )
+    assert str(recalled.incoming_relationships[0].counterpart.project_id) == (
+        OTHER_CHECKPOINT_ID
+    )
+
+
 def test_recall_model_rejects_misordered_relationships_and_false_eligibility(
     work_context, adjacent_relationship
 ):
@@ -1461,8 +1489,13 @@ async def test_relationship_tools_use_exact_rest_contract_and_pointer_only_count
 ):
     upstream_adjacency = {
         **adjacent_relationship,
+        "relationship": {
+            **adjacent_relationship["relationship"],
+            "project_id": OTHER_CHECKPOINT_ID,
+        },
         "counterpart": {
             **adjacent_relationship["counterpart"],
+            "project_id": OTHER_CHECKPOINT_ID,
             "prompt": "must not cross the pointer boundary",
             "summary": "must not cross the pointer boundary",
             "source_metadata": {"private": True},
@@ -1579,7 +1612,8 @@ async def test_relationship_tools_use_exact_rest_contract_and_pointer_only_count
     assert listed["total"] == 3
     counterpart = listed["items"][0]["counterpart"]
     assert counterpart["id"] == OTHER_WORK_ID
-    assert set(counterpart) == {"id", "title", "status", "readiness"}
+    assert counterpart["project_id"] == OTHER_CHECKPOINT_ID
+    assert set(counterpart) == {"project_id", "id", "title", "status", "readiness"}
     recalled = structured(
         await server.call_tool(
             "recall_work", {"project_id": PROJECT_ID, "work_item_id": WORK_ID}
@@ -1587,6 +1621,7 @@ async def test_relationship_tools_use_exact_rest_contract_and_pointer_only_count
     )
     assert recalled["relationship_counts"]["incoming"] == 1
     assert set(recalled["incoming_relationships"][0]["counterpart"]) == {
+        "project_id",
         "id",
         "title",
         "status",
@@ -4385,6 +4420,7 @@ async def test_reverse_related_no_op_accepts_original_edge_provenance(
     }
     original = {
         **relationship,
+        "project_id": OTHER_CHECKPOINT_ID,
         "relationship_type": "related",
         "source_work_item_id": OTHER_WORK_ID,
         "target_work_item_id": WORK_ID,

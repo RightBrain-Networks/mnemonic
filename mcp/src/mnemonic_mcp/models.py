@@ -2114,6 +2114,7 @@ class WorkPointer(CanonicalResponse):
         default_factory=list, exclude_if=lambda value: not value,
     )
 
+    project_id: UUID
     id: UUID
     title: str
     status: Status
@@ -3071,7 +3072,6 @@ class WorkContext(CanonicalResponse):
                 edge = adjacent.relationship
                 if (
                     edge.id in seen_relationship_ids
-                    or edge.project_id != self.work_item.project_id
                     or adjacent.relative_to_work_item_id != self.work_item.id
                     or adjacent.direction != direction
                 ):

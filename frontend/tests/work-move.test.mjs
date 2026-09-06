@@ -66,16 +66,16 @@ test("move presentation retains the derived Dropped state", () => {
   );
 });
 
-test("move eligibility blocks every server guard, including canonical duplicate members", () => {
+test("move eligibility permits relationships while blocking the remaining server guards", () => {
   assert.match(workMoveDisabledReason(null, false), /current work context/);
   assert.match(workMoveDisabledReason(context(), true), /pending mutation/);
   assert.match(workMoveDisabledReason(context({
     readiness: { has_active_lease: true, has_dropped_lease: false, is_gated: false }
   }), false), /active lease/);
   assert.match(workMoveDisabledReason(context({ duplicate_member_total: 1 }), false), /duplicate group/);
-  assert.match(workMoveDisabledReason(context({
+  assert.equal(workMoveDisabledReason(context({
     relationship_counts: { total: 1 }
-  }), false), /relationships/);
+  }), false), null);
   assert.match(workMoveDisabledReason(context({
     readiness: { has_active_lease: false, has_dropped_lease: false, is_gated: true }
   }), false), /human question/);

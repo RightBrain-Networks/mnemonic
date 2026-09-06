@@ -2525,6 +2525,7 @@ class RelationshipEdgeRead(APIModel):
 
 
 class WorkPointer(APIModel):
+    project_id: UUID
     external_references: ExternalReferences = Field(
         default_factory=list, exclude_if=lambda value: not value,
     )

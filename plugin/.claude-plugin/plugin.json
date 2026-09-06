@@ -2,7 +2,7 @@
   "name": "mnemonic",
   "displayName": "Mnemonic",
   "description": "Save and retrieve durable work, record caller-reported completion evidence, assess declared repository scope without semantic claims, compare drafts with possible existing work, review permanent duplicate merges, coordinate human questions, and preserve truthful audit history, retrieve durable project activity, and author concise human-facing closeout reports. Includes exact external tracker references and bounded explicit external comparison.",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "author": {
     "name": "Jamie Begin"
   }

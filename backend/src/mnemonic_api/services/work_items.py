@@ -29,10 +29,10 @@ from mnemonic_api.services.leases import (
 )
 from mnemonic_api.services.readiness import require_no_unresolved_gates, require_unblocked
 from mnemonic_api.services.relationships import (
-    lock_endpoint_work_items,
+    lock_global_endpoint_work_items,
     lock_project_graph,
+    lock_relationship_graph,
     require_no_relationships,
-    require_no_relationships_for_move,
     stage_relationship_locked,
 )
 from mnemonic_api.services.work_events import (
@@ -115,9 +115,9 @@ def create_work_records(
         raise ApplicationError(422, "initial_status_must_be_pending", "New work must be pending.")
     if payload.initial_relationships:
         lock_project_graph(database, project_id)
-        locked_work_items = lock_endpoint_work_items(
+        lock_relationship_graph(database)
+        locked_work_items = lock_global_endpoint_work_items(
             database,
-            project_id,
             [item.other_work_item_id for item in payload.initial_relationships],
         )
     else:
@@ -473,7 +473,7 @@ def delete_work_record(
     require_canonical_work_item(database, work_item)
     require_version(work_item, expected_version)
     require_no_review_obligation(database, work_item.id)
-    require_no_relationships(database, work_item.project_id, work_item.id)
+    require_no_relationships(database, work_item.id)
     require_no_unresolved_gates(database, work_item.id)
     consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
     mutation_time = database_now(database)
@@ -510,7 +510,6 @@ def move_work_record(
     require_sealed_closeout_report(database, work_item)
     require_no_review_history_for_move(database, work_item)
     require_no_duplicate_membership(database, work_item)
-    require_no_relationships_for_move(database, source_project_id, work_item.id)
     require_no_unresolved_gates(database, work_item.id)
     require_no_active_lease_for_move(database, work_item.id)
 

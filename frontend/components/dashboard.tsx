@@ -693,7 +693,10 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
     ])) return;
     lastContextRefresh.current = contextRefresh;
-    void loadContext(opened, ++recordRequest.current, false, true);
+    // This refresh preserves the selected record, so it must not advance the selection
+    // generation. Doing so can cancel an explicit linked-work navigation whose placement
+    // probe is in flight while live sync refreshes the source context.
+    void loadContext(opened, recordRequest.current, false, true);
   }, [contextLoading, contextRefresh, mode, opened, mutationIntents, mutationRegistry]);
 
   useEffect(() => {

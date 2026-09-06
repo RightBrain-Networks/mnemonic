@@ -44,7 +44,11 @@ from mnemonic_api.services.duplicates import work_item_detail
 from mnemonic_api.services.hierarchy import hierarchy_page
 from mnemonic_api.services.job_completion_reports import closeout_report
 from mnemonic_api.services.readiness import ready_work_page
-from mnemonic_api.services.relationships import relationship_edge
+from mnemonic_api.services.relationships import (
+    relationship_edge,
+    relationship_endpoint_project_ids,
+    require_relationship_endpoint_project_scope,
+)
 from mnemonic_api.services.work_context import assemble_work_context, checkpoint_read
 from mnemonic_api.services.work_items import (
     complete_work_record,
@@ -67,7 +71,18 @@ def create_work(
     database: Database,
 ) -> JSONResponse:
     # The item, its first checkpoint, and any initial edges share one transaction.
+    endpoint_ids = [item.other_work_item_id for item in payload.initial_relationships]
+    endpoint_projects: tuple[UUID, ...] = ()
+
+    def mutation_scope() -> tuple[UUID, ...]:
+        nonlocal endpoint_projects
+        endpoint_projects = relationship_endpoint_project_ids(database, endpoint_ids)
+        return endpoint_projects
+
     def execute(domain_payload: WorkItemCreate) -> WorkCreation:
+        require_relationship_endpoint_project_scope(
+            database, endpoint_ids, endpoint_projects
+        )
         work_item, checkpoint, relationships = create_work_records(
             database, project_id, domain_payload
         )
@@ -86,6 +101,7 @@ def create_work(
         request=request,
         database=database,
         project_id=project_id,
+        additional_project_ids=mutation_scope,
         target={},
         payload=payload,
         execute=execute,

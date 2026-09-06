@@ -1,7 +1,8 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.14.0`, Claude plugin `0.14.0`,
-and Alembic head `0024_code_reviews`. [Code reviews](code-reviews.md) adds
+This architecture describes application/API/MCP `0.16.0`, Claude plugin `0.16.0`,
+and Alembic head `0025_cross_project_relationships`.
+[Code reviews](code-reviews.md) adds
 immutable completion policies, durable typed follow-ups, review scope/handoff,
 purpose-bound leases, results and bounded remediation ancestry. The longer-term
 direction and later-phase boundaries are in [`roadmap.md`](roadmap.md).
@@ -19,9 +20,22 @@ authorization happens before per-work history is read by stable UUID.
 Move execution reserves or replays its source-scoped receipt first, then locks
 both project rows in UUID order under one bounded domain budget. This makes an
 exact retry valid after the source route stops seeing the moved item and avoids
-opposite-direction lock inversion. Current graph edges, unresolved gates, and
-active leases must be resolved before movement; expired retained leases remain
-attached so the derived Dropped state does not change.
+opposite-direction lock inversion. Unresolved gates and active leases must be
+resolved before movement. Graph edges remain attached to the stable work UUID
+and may become cross-project; expired retained leases also remain attached so the
+derived Dropped state does not change.
+
+Migration `0025_cross_project_relationships` replaces project-composite endpoint
+ownership and per-project natural identity with global endpoint foreign keys and
+a global edge key. `WorkRelationship.project_id` remains immutable creation and
+route authority. Upgrade requires a quiescent coordinated 0.16.0 deployment
+because relationship, move, event, and duplicate guards change together.
+Downgrade to 0024 is guarded before DDL and succeeds only when both current
+endpoints of every retained edge remain in the immutable authority project of
+that edge and no immutable relationship/dependency event history for an edge
+spans projects. Removing a cross-project edge does not erase that history or
+restore eligibility. Otherwise, fix forward or restore the full pre-0025
+backup.
 
 ## Phase 12 integration
 
@@ -141,11 +155,13 @@ that locks and revalidates before already-authorized execution.
 - New work and its initial `context` checkpoint commit in one transaction.
 - Up to ten initial relationships may commit in that same transaction. A
   failed edge leaves neither partial work nor partial graph state.
-- Relationship endpoints are project-local and use `source --type--> target`.
-  `related` endpoints are normalized; `blocks` and `parent-child` cycles are
-  rejected, and each child has at most one parent.
-- Graph mutations serialize on the project row and then lock endpoint work in
-  UUID order so concurrent cycle checks cannot both commit reciprocal edges.
+- Relationship endpoints are globally identified and may have different current
+  project placements. Each edge retains an immutable recording/authority
+  `project_id`, while its natural identity, one-parent rule, and cycle checks are
+  global. `related` endpoints are normalized and every directed edge uses
+  `source --type--> target`.
+- Graph additions serialize across the schema and lock endpoint work in UUID
+  order so concurrent global cycle checks cannot both commit reciprocal edges.
 - Authoritative duplicate merges form a project-local immutable forest. Each
   source has at most one outgoing merge, endpoints are current distinct roots,
   cycles and a 51st edge fail closed, and several alias branches may converge.
@@ -161,10 +177,11 @@ that locks and revalidates before already-authorized execution.
   lifecycle, lease, and relationship mutations fail without redirect; every
   source-incident relationship is frozen. Raw exact history remains readable
   and the canonical continuation is an explicit, separate projection.
-- Only unresolved incoming `blocks` edges, unresolved human gates, and an
-  authoritative outgoing merge affect readiness and fresh/replacement
-  claimability. Existing leases survive a later blocker or gate; a merge
-  consumes the source lease before making that source an alias.
+- Only unresolved incoming `blocks` edges, including blockers in another
+  project, unresolved human gates, and an authoritative outgoing merge affect
+  readiness and fresh/replacement claimability. Existing leases survive a later
+  blocker or gate; a merge consumes the source lease before making that source
+  an alias.
 - A gate request freezes the work version, newest context-checkpoint ID, and
   relationship-event count as a nested `requested_context_revision`; the gate and exact `human_attention_requested` event
   commit atomically. Resolution is one immutable transition with an exact
@@ -178,7 +195,10 @@ that locks and revalidates before already-authorized execution.
   both the service and PostgreSQL layers. Identity edits, deferral/Pending
   restoration, checkpoints, progress, and relationship changes remain possible.
 - A work mutation and every authoritative event it proves share one transaction.
-  Claim/relationship replay, absent removal/release, and renewal emit nothing.
+  A relationship add or removal emits one event for each endpoint in the current
+  project of that endpoint, so a cross-project fact appears in both project
+  activity streams. Claim/relationship replay, absent removal/release, and
+  renewal emit nothing.
 - A protected mutation's project-scoped receipt, domain changes, and events
   share that transaction. A committed receipt is immutable and replays its
   validated original status/body before current resource visibility or lifecycle
@@ -214,10 +234,12 @@ that locks and revalidates before already-authorized execution.
   fields. Public progress rejects request-known credential/capability echoes,
   but accepted opaque text may still contain sensitive material the service
   cannot recognize and returns exactly to authorized history readers.
-- Work with any relationship cannot be soft-deleted until its edges are
-  removed, and work with any unresolved gate cannot be soft-deleted or moved
-  terminal. Relationship context is supporting historical evidence; it never
-  grants authority to follow or execute the linked work.
+- Work with any relationship, including a cross-project edge, cannot be
+  soft-deleted until its edges are removed. Relationships do not block project
+  moves and remain attached afterward. Work with any unresolved gate cannot be
+  soft-deleted, moved, or made terminal. Relationship context is supporting
+  historical evidence; it never grants authority to follow or execute linked
+  work.
 - Checkpoint text and provenance never change. The database rejects direct
   checkpoint `UPDATE` and `DELETE` statements as well as the API exposing no
   such routes. Corrections are new `context` checkpoints.
@@ -383,7 +405,10 @@ Database checks enforce different endpoints, paired context fields,
 endpoint-owned context, required target context for `discovered-from`, and UUID
 ordering for `related`. The service adds serialized cycle checks and
 transactional initial-link creation; the migration does not infer graph facts
-from checkpoint prose.
+from checkpoint prose. Migration `0025_cross_project_relationships` replaces
+composite endpoint ownership with global endpoint identity, makes the natural
+key and graph invariants global, and retains `project_id` as immutable edge
+authority.
 
 Phase 4 migration `0009_ready_work_indexes` adds the partial
 `ix_work_items_ready_order` index and an immutable normalized-tag SQL function
@@ -749,8 +774,11 @@ the ordinary creation path.
 
 ## Hierarchical human presentation
 
-Root and child hierarchy pages are a human presentation over the parent-child
-graph. The dashboard collapses descendants by default and lazily
+Root and child hierarchy pages are a project-local human presentation over the
+parent-child graph. A parent-child edge participates in that presentation only
+while both endpoints are currently in the requested project; a cross-project
+edge remains visible in adjacency but does not hide either endpoint as a local
+root. The dashboard collapses descendants by default and lazily
 loads direct children, while each `HierarchySummary` carries one-statement
 branch aggregates: direct children; strict descendants; blocked, active,
 completed, and discovered descendants; inclusive unresolved human gates;

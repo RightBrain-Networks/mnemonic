@@ -984,7 +984,7 @@ def _add_relationship_matches(
         result.relationship.target_work_item_id,
     )
     return (
-        result.relationship.project_id == project_id
+        (not result.created or result.relationship.project_id == project_id)
         and actual == expected
         and (
             not result.created

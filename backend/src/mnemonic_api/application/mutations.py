@@ -91,7 +91,7 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
     target: Mapping[str, UUID],
     payload: Payload,
     execute: Callable[[Payload], Result],
-    additional_project_ids: Iterable[UUID] = (),
+    additional_project_ids: Iterable[UUID] | Callable[[], Iterable[UUID]] = (),
     before_commit: Callable[[], None] | None = None,
 ) -> JSONResponse:
     """Run ``execute`` under the lifecycle described in the module docstring.
@@ -111,10 +111,15 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
     database.info["client_operation_keyed"] = (
         getattr(payload, "client_operation_id", None) is not None
     )
+    if callable(additional_project_ids):
+        scope_factory = cast(Callable[[], Iterable[UUID]], additional_project_ids)
+        mutation_project_ids = scope_factory()
+    else:
+        mutation_project_ids = cast(Iterable[UUID], additional_project_ids)
     with project_mutation(
         database,
         project_id,
-        additional_project_ids=additional_project_ids,
+        additional_project_ids=mutation_project_ids,
         protected=True,
     ):
         result = execute(cast(Payload, operation.domain_payload))

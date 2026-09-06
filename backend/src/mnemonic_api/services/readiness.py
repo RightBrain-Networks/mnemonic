@@ -91,20 +91,8 @@ def unresolved_blocker_counts(database: Session, work_item_ids: Sequence[UUID]) 
     target = WorkItem.__table__.alias("blocked_target")
     rows = database.execute(
         select(WorkRelationship.target_work_item_id, func.count())
-        .join(
-            source,
-            and_(
-                source.c.id == WorkRelationship.source_work_item_id,
-                source.c.project_id == WorkRelationship.project_id,
-            ),
-        )
-        .join(
-            target,
-            and_(
-                target.c.id == WorkRelationship.target_work_item_id,
-                target.c.project_id == WorkRelationship.project_id,
-            ),
-        )
+        .join(source, source.c.id == WorkRelationship.source_work_item_id)
+        .join(target, target.c.id == WorkRelationship.target_work_item_id)
         .where(
             WorkRelationship.relationship_type == "blocks",
             target.c.id.in_(work_item_ids),
@@ -178,7 +166,7 @@ def require_unblocked(database: Session, work_item_id: UUID) -> None:
 
 def unresolved_blocker_count_clause(
     work_item_id: ColumnElement[UUID],
-    work_item_project_id: ColumnElement[UUID],
+    _work_item_project_id: ColumnElement[UUID],
     *,
     correlate_from=None,
 ) -> ColumnElement[int]:
@@ -190,14 +178,10 @@ def unresolved_blocker_count_clause(
         .select_from(
             blocker_edge.join(
                 blocker_source,
-                and_(
-                    blocker_source.c.project_id == blocker_edge.c.project_id,
-                    blocker_source.c.id == blocker_edge.c.source_work_item_id,
-                ),
+                blocker_source.c.id == blocker_edge.c.source_work_item_id,
             )
         )
         .where(
-            blocker_edge.c.project_id == work_item_project_id,
             blocker_edge.c.relationship_type == "blocks",
             blocker_edge.c.target_work_item_id == work_item_id,
             blocker_source.c.status != "done",
@@ -383,8 +367,7 @@ def ready_work_page(
                   AND COALESCE((
                       SELECT parent_edge.source_work_item_id = :parent_work_item_id
                       FROM work_relationships AS parent_edge
-                      WHERE parent_edge.project_id = work_item.project_id
-                        AND parent_edge.relationship_type = 'parent-child'
+                      WHERE parent_edge.relationship_type = 'parent-child'
                         AND parent_edge.target_work_item_id = work_item.id
                       LIMIT 1
                   ), false)

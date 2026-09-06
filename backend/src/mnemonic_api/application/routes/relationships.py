@@ -12,9 +12,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 
 from mnemonic_api.application.mutations import run_registered_mutation
 from mnemonic_api.database import Database
+from mnemonic_api.models import WorkRelationship
 from mnemonic_api.schemas import (
     AdjacentRelationshipRead,
     Page,
@@ -29,8 +31,10 @@ from mnemonic_api.services.relationships import (
     add_relationship_record,
     list_adjacent_relationships,
     relationship_edge,
+    relationship_endpoint_project_ids,
     remove_relationship_record,
     require_relationship,
+    require_relationship_endpoint_project_scope,
 )
 
 router = APIRouter()
@@ -43,7 +47,18 @@ def add_relationship(
     request: Request,
     database: Database,
 ) -> JSONResponse:
+    endpoint_ids = [payload.source_work_item_id, payload.target_work_item_id]
+    endpoint_projects: tuple[UUID, ...] = ()
+
+    def mutation_scope() -> tuple[UUID, ...]:
+        nonlocal endpoint_projects
+        endpoint_projects = relationship_endpoint_project_ids(database, endpoint_ids)
+        return endpoint_projects
+
     def execute(domain_payload: RelationshipCreate) -> RelationshipCreationResult:
+        require_relationship_endpoint_project_scope(
+            database, endpoint_ids, endpoint_projects
+        )
         return add_relationship_record(database, project_id, domain_payload)
 
     return run_registered_mutation(
@@ -51,6 +66,7 @@ def add_relationship(
         request=request,
         database=database,
         project_id=project_id,
+        additional_project_ids=mutation_scope,
         target={},
         payload=payload,
         execute=execute,
@@ -80,8 +96,38 @@ def remove_relationship(
     database: Database,
     payload: RelationshipRemovalCreate | None = None,
 ) -> JSONResponse:
+    endpoint_projects: tuple[UUID, ...] = ()
+
+    def mutation_scope() -> tuple[UUID, ...]:
+        nonlocal endpoint_projects
+        relationship = database.scalar(
+            select(WorkRelationship).where(
+                WorkRelationship.id == relationship_id,
+                WorkRelationship.project_id == project_id,
+            )
+        )
+        endpoint_ids = (
+            []
+            if relationship is None
+            else [relationship.source_work_item_id, relationship.target_work_item_id]
+        )
+        endpoint_projects = relationship_endpoint_project_ids(database, endpoint_ids)
+        return endpoint_projects
+
     # The body is optional: it carries only an actor and an operation ID.
     def execute(domain_payload: RelationshipRemovalCreate) -> RelationshipRemovalResult:
+        current = database.scalar(
+            select(WorkRelationship).where(
+                WorkRelationship.id == relationship_id,
+                WorkRelationship.project_id == project_id,
+            )
+        )
+        if current is not None:
+            require_relationship_endpoint_project_scope(
+                database,
+                [current.source_work_item_id, current.target_work_item_id],
+                endpoint_projects,
+            )
         return remove_relationship_record(
             database, project_id, relationship_id, domain_payload.actor
         )
@@ -91,6 +137,7 @@ def remove_relationship(
         request=request,
         database=database,
         project_id=project_id,
+        additional_project_ids=mutation_scope,
         target={"relationship_id": relationship_id},
         payload=payload or RelationshipRemovalCreate(),
         execute=execute,

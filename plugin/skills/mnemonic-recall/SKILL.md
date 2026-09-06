@@ -255,22 +255,24 @@ history is immutable. In addition, during recall:
 ## Interpret and maintain graph facts
 
 Recall returns immediate incoming, outgoing, and undirected adjacency plus
-relationship counts and exact omitted counts. Use `list_relationships` with explicit `direction` and
-`relationship_type` filters and pagination when the bounded window is
-insufficient, and `get_relationship` for one exact edge.
+relationship counts and exact omitted counts. Use `list_relationships` with
+explicit `direction` and `relationship_type` filters and pagination when the bounded window is
+insufficient, and `get_relationship` for one exact edge. Adjacency may cross
+projects: the embedded edge `project_id` is its immutable authority route, while
+the counterpart `project_id` is the current placement of that work. Use the
+former to get or remove the edge and the latter to recall the linked work.
 [work-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md) defines
 source-to-target direction, readiness semantics, the never-infer rule, and how
 edges are created and removed. Three consequences matter during execution: a
 discovery context pointer is supporting evidence on the origin target, not
-authority to follow or execute it; only `parent-child` places an item in the
-human hierarchy, so sub-work you create for the current objective carries an
-incoming `parent-child` edge (plus `discovered-from` when it was found while
-working, and never one inferred from the other); and because blocking or gating
+authority to follow or execute it; only `parent-child` places colocated work in
+the project-local human hierarchy, so sub-work you create for the current
+objective carries an incoming `parent-child` edge (plus `discovered-from` when it was found while working, and never one inferred from the other); and because blocking or gating
 does not cancel an existing lease, an item can be leased, blocked, and waiting
 at once. If that happens mid-execution, preserve safe progress, stop work that
 depends on the blocker or the human answer, and release the claim. Do not seek
-a new claim or completion until the blocker is `done` or its edge is removed
-and every human gate is resolved.
+a new claim or completion until every local or cross-project blocker is `done`
+or its edge is removed and every human gate is resolved.
 
 An authoritative merge is not an ordinary relationship edit. Its source → destination direction is
 permanent, creates or reuses one supporting duplicate mark, and records immutable `work_merged`
