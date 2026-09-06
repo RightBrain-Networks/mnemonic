@@ -183,7 +183,7 @@ button { touch-action: manipulation; }
 .page-heading h1 > .heading-subject { font-size: .6em; letter-spacing: -.045em; font-style: italic; font-synthesis-style: none; overflow-wrap: anywhere; }
 .heading-subject-name { opacity: .8; }
 .heading-subject-separator { margin-inline: .45em; opacity: .5; }
-.heading-subject-description { opacity: .5; }
+.heading-subject-description { font-family: var(--font); font-size: 13px; font-style: normal; font-weight: 400; letter-spacing: normal; line-height: 1.7; opacity: .5; }
 .page-heading p { margin: 0; font-size: 13px; color: var(--muted); max-width: 620px; line-height: 1.7; overflow-wrap: anywhere; }
 
 .settings-card { max-width: 940px; padding: clamp(24px, 4vw, 42px); border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 5px 24px #2511300a; }
@@ -488,7 +488,7 @@ html[data-pane-crossfade]::view-transition-new(root) {
   .page-heading { gap: 14px; align-items: flex-start; }
   .page-heading h1 { font-size: 33px; letter-spacing: -1.2px; }
   .page-heading .eyebrow { font-size: 7px; letter-spacing: 1px; }
-  .page-heading p { font-size: 12px; }
+  .page-heading p, .heading-subject-description { font-size: 12px; }
   .search-field { height: 49px; padding: 0 13px; gap: 10px; }
   .search-field input { font-size: 12px; }
   .search-field kbd { display: none; }

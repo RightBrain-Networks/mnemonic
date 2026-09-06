@@ -111,12 +111,17 @@ test("the project name is italic at 80% opacity and never a synthesized slant", 
   assert.equal(declaration(".page-heading h1 > .heading-subject", "overflow-wrap"), "anywhere");
 });
 
-test("the project description shares the name size and is painted at 50% opacity", () => {
+test("the project description keeps the original summary typography at 50% opacity", () => {
   assert.equal(declaration(".heading-subject-separator", "margin-inline"), ".45em");
+  assert.equal(declaration(".heading-subject-description", "font-family"), "var(--font)");
+  assert.equal(declaration(".heading-subject-description", "font-size"), "13px");
+  assert.equal(declaration(".heading-subject-description", "font-style"), "normal");
+  assert.equal(declaration(".heading-subject-description", "font-weight"), "400");
+  assert.equal(declaration(".heading-subject-description", "letter-spacing"), "normal");
+  assert.equal(declaration(".heading-subject-description", "line-height"), "1.7");
   assert.equal(declaration(".heading-subject-description", "opacity"), ".5");
-  for (const body of ruleBodies(".heading-subject-description")) {
-    assert.ok(!/font-size:/.test(body), "the description should inherit the project name size");
-  }
+  assert.match(css,
+    /\.page-heading p, \.heading-subject-description \{ font-size: 12px; \}/);
 });
 
 test("the heading font ships a real italic covering the same subsets as its roman", () => {
