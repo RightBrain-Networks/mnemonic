@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from .code_review_database_fixtures import close_work, create_work, finish_review, policy
 from .conftest import BACKEND_DIR, reset_disposable_schema
+from .historical_review_audit_fixtures import seal_historical_receipt
 from .test_completion_evidence_postgres import (
     _insert_direct_artifact,
     _insert_direct_completion_checkpoint,
@@ -44,9 +45,18 @@ def _pre_review_completion(engine: Engine, project: dict, work: dict) -> dict:
         _insert_direct_completion_event(
             connection, project["id"], work["id"], checkpoint, version, seal_review_policy=False
         )
+        receipt_id = seal_historical_receipt(connection, work["id"], checkpoint["id"])
+        receipt_before = connection.scalar(
+            text("SELECT response_body::text FROM client_operations WHERE id=:id"),
+            {"id": receipt_id},
+        )
     with engine.begin() as connection:
         config.attributes["connection"] = connection
         command.upgrade(config, "head")
+        assert connection.scalar(
+            text("SELECT response_body::text FROM client_operations WHERE id=:id"),
+            {"id": receipt_id},
+        ) == receipt_before
         assert connection.scalar(text("SELECT count(*) FROM work_completion_review_policies")) == 0
     return {**work, "version": version, "status": "done"}
 
@@ -824,9 +834,9 @@ def test_project_activity_audit_accepts_moved_report_follow_up(
     )
     assert followed.status_code == 201, followed.text
     follow_up_work = followed.json()["work_item"]
-    follow_up_closed, _ = close(api, project, follow_up_work, checkpoint_fields)
+    follow_up_closed, _ = close(api, project, follow_up_work, checkpoint_fields, "wont-do")
     assert follow_up_closed.status_code == 200, follow_up_closed.text
-    follow_up_work = follow_up_closed.json()["work_item"]
+    follow_up_work = follow_up_closed.json()
     second_report_id = follow_up_closed.json()["job_completion_report"]["id"]
     chained_checkpoint = {
         **checkpoint_fields,

@@ -200,6 +200,13 @@ function FollowUp({
   useEffect(() => {
     setSession(dashboardSessionId());
   }, []);
+  useEffect(() => {
+    if (question.state === "pending") return;
+    setRecommend("");
+    setRationale("");
+    setHandoff(emptyReviewHandoff());
+    setError("");
+  }, [question.id, question.state]);
   const owner =
     question.origin_client === "dashboard" &&
     question.origin_session_id === session;
@@ -379,6 +386,7 @@ export default function CodeReviewPanel({
   const reviewSelection = useRef(0);
   const questionSelection = useRef(0);
   const base = `/projects/${projectId}/work-items/${workId}`;
+  const detailIdentity = useRef(base);
   async function showReview(id: string) {
     const request = generation.current;
     const selection = ++reviewSelection.current;
@@ -424,9 +432,15 @@ export default function CodeReviewPanel({
   useEffect(() => {
     const request = ++generation.current;
     const controller = new AbortController();
-    setReview(null);
-    setFollow(null);
-    setPages({ reviews: null, questions: null });
+    // A background refresh must not unmount the same question's unsent editor.
+    // A new question ID still remounts FollowUp through its React key, while an
+    // answered/superseded detail replaces the form with the durable outcome.
+    if (detailIdentity.current !== base) {
+      detailIdentity.current = base;
+      setReview(null);
+      setFollow(null);
+      setPages({ reviews: null, questions: null });
+    }
     setLoading(true);
     setError("");
     Promise.all([
@@ -454,6 +468,8 @@ export default function CodeReviewPanel({
         const questionId =
           context.code_review_context?.pending_follow_up?.id ??
           questionPage.items[0]?.id;
+        if (!reviewId) setReview(null);
+        if (!questionId) setFollow(null);
         await Promise.all([
           reviewId ? showReview(reviewId) : undefined,
           questionId ? showQuestion(questionId) : undefined,
@@ -553,8 +569,9 @@ export default function CodeReviewPanel({
       {review && <ReviewResult detail={review} onOpen={onOpen} />}
       {!loading && !error && !review && !follow && (
         <p>
-          No code review has been requested for this work item. Future Done
-          closeouts follow project review settings.
+          No code review has been requested for this work item.
+          {origin?.depth !== 2 &&
+            " Future Done closeouts follow project review settings."}
         </p>
       )}
       {(

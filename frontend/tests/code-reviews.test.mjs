@@ -225,11 +225,37 @@ test("cold prompt allowlist excludes every contextual canary and fixes adversari
 });
 
 test("durable negative answers survive source deletion and review detail never guesses cross-linked entities", () => {
-  for (const title of ["Existing work\nwith a retained second line", "Existing work\twith a retained tab"]) {
+  for (const title of [
+    "Existing work\nwith a retained second line",
+    "Existing work\twith a retained tab",
+  ]) {
     const source = { ...r.source, title };
-    assert.equal(decodeCodeReviewDetail({ ...r.reviewDetail, source_work_state: source }, f.project, f.work, r.reviewId).source_work_state.title, title);
-    assert.equal(decodeWorkFollowUpDetail({ ...r.negativeDetail, source_work_state: source }, f.project, f.work, r.followId).source_work_state.title, title);
-    assert.equal(decodeReviewQueuePage({ ...r.queuePage, items: [{ ...r.queueRow, title }] }, f.project, "reviews").items[0].title, title);
+    assert.equal(
+      decodeCodeReviewDetail(
+        { ...r.reviewDetail, source_work_state: source },
+        f.project,
+        f.work,
+        r.reviewId,
+      ).source_work_state.title,
+      title,
+    );
+    assert.equal(
+      decodeWorkFollowUpDetail(
+        { ...r.negativeDetail, source_work_state: source },
+        f.project,
+        f.work,
+        r.followId,
+      ).source_work_state.title,
+      title,
+    );
+    assert.equal(
+      decodeReviewQueuePage(
+        { ...r.queuePage, items: [{ ...r.queueRow, title }] },
+        f.project,
+        "reviews",
+      ).items[0].title,
+      title,
+    );
   }
   assert.deepEqual(
     decodeCodeReviewDetail(r.reviewDetail, f.project, f.work, r.reviewId),
@@ -240,14 +266,29 @@ test("durable negative answers survive source deletion and review detail never g
     { created_sequence: "9999999999999999999" },
     { created_event_id: "01" },
     { created_sequence: "0" },
-  ]) assert.throws(() => decodeCodeReviewDetail(
-    { ...r.reviewDetail, review: { ...r.review, ...bad } },
-    f.project, f.work, r.reviewId,
-  ));
-  assert.throws(() => decodeWorkFollowUpDetail(
-    { ...r.negativeDetail, follow_up: { ...r.negativeDetail.follow_up, required_answer_fields: [] } },
-    f.project, f.work, r.followId,
-  ));
+  ])
+    assert.throws(() =>
+      decodeCodeReviewDetail(
+        { ...r.reviewDetail, review: { ...r.review, ...bad } },
+        f.project,
+        f.work,
+        r.reviewId,
+      ),
+    );
+  assert.throws(() =>
+    decodeWorkFollowUpDetail(
+      {
+        ...r.negativeDetail,
+        follow_up: {
+          ...r.negativeDetail.follow_up,
+          required_answer_fields: [],
+        },
+      },
+      f.project,
+      f.work,
+      r.followId,
+    ),
+  );
   assert.equal(
     decodeWorkFollowUpDetail(
       {

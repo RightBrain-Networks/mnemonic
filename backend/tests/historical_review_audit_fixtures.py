@@ -2,6 +2,7 @@
 
 import json
 import secrets
+from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection, text
@@ -22,6 +23,14 @@ def _row(connection: Connection, table: str, record_id: object) -> dict:
     )
 
 
+def _wire_evidence(row: dict) -> dict:
+    body = {k: v for k, v in row.items() if k != "project_id" and v is not None}
+    for field in ("created_at", "observed_at"):
+        if field in body:
+            body[field] = datetime.fromisoformat(body[field]).isoformat().replace("+00:00", "Z")
+    return body
+
+
 def seal_historical_receipt(connection: Connection, work_id: object, checkpoint_id: object) -> int:
     work = _row(connection, "work_items", work_id)
     checkpoint = _row(connection, "checkpoints", checkpoint_id)
@@ -32,9 +41,11 @@ def seal_historical_receipt(connection: Connection, work_id: object, checkpoint_
         ),
         {"id": checkpoint_id},
     )
+    report["prompt_revision"] = str(report["prompt_revision"])
+    report["closeout_event_id"] = str(report["closeout_event_id"])
     evidence = {
         name: [
-            {k: v for k, v in row.items() if k != "project_id" and v is not None}
+            _wire_evidence(row)
             for row in connection.scalars(
                 text(
                     f"SELECT to_jsonb(row) FROM {table} row "
@@ -120,7 +131,8 @@ def seal_historical_receipt(connection: Connection, work_id: object, checkpoint_
     connection.execute(
         text(
             "UPDATE client_operations SET state='completed',response_status=200,"
-            "response_body=CAST(:body AS jsonb),mutation_applied=true,completed_at=clock_timestamp() "
+            "response_body=CAST(:body AS jsonb),mutation_applied=true,"
+            "completed_at=clock_timestamp() "
             "WHERE id=:id"
         ),
         {"id": receipt_id, "body": json.dumps(response, ensure_ascii=False, separators=(",", ":"))},

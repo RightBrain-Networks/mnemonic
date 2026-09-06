@@ -15,22 +15,33 @@ import type {
 import { reportForFixture, fillFixtureReport } from "./job-report-fixture";
 import { openTab, selectWork, workPane, closeDetail } from "./surface";
 
-async function captureReviewScreen(page: Page, path: string) {
+async function captureReviewScreen(page: Page, path: string, focus?: Locator) {
   const viewport = page.viewportSize();
-  if (!viewport) throw new Error("A viewport is required for review screenshots.");
-  const scroll = await page.locator(".page-content, .detail-scroll, .dialog-content").evaluateAll(
-    (elements) => elements.map((element) => element.scrollTop),
-  );
+  if (!viewport)
+    throw new Error("A viewport is required for review screenshots.");
+  const scroll = await page
+    .locator(".page-content, .detail-scroll, .dialog-content")
+    .evaluateAll((elements) => elements.map((element) => element.scrollTop));
   await page.setViewportSize({ ...viewport, height: 1400 });
-  await page.locator(".page-content, .detail-scroll, .dialog-content").evaluateAll(
-    (elements) => elements.forEach((element) => { element.scrollTop = 0; }),
-  );
+  await page
+    .locator(".page-content, .detail-scroll, .dialog-content")
+    .evaluateAll((elements) =>
+      elements.forEach((element) => {
+        element.scrollTop = 0;
+      }),
+    );
+  if (focus) await focus.scrollIntoViewIfNeeded();
   await page.screenshot({ path, fullPage: true });
   await page.setViewportSize(viewport);
-  await page.locator(".page-content, .detail-scroll, .dialog-content").evaluateAll(
-    (elements, positions) => elements.forEach((element, index) => { element.scrollTop = positions[index] ?? 0; }),
-    scroll,
-  );
+  await page
+    .locator(".page-content, .detail-scroll, .dialog-content")
+    .evaluateAll(
+      (elements, positions) =>
+        elements.forEach((element, index) => {
+          element.scrollTop = positions[index] ?? 0;
+        }),
+      scroll,
+    );
 }
 
 const handoff: CodeReviewHandoff = {
@@ -241,11 +252,9 @@ test("code review settings expose independent accessible sliders, endpoints and 
     const p = await project(api);
     await page.goto("/settings");
     await page.locator("#project-select").selectOption(p.id);
-    const card = page
-      .locator(".settings-card")
-      .filter({
-        has: page.getByRole("heading", { name: "Code reviews", exact: true }),
-      });
+    const card = page.locator(".settings-card").filter({
+      has: page.getByRole("heading", { name: "Code reviews", exact: true }),
+    });
     const mandatory = card.getByRole("slider", { name: /Mandatory review/ });
     const optional = card.getByRole("slider", { name: /Agent may/ });
     await expect(mandatory).toHaveValue("100");
@@ -258,7 +267,10 @@ test("code review settings expose independent accessible sliders, endpoints and 
     await expect(
       card.getByRole("button", { name: "Save code review policy" }),
     ).toBeDisabled();
-    await captureReviewScreen(page, testInfo.outputPath("code-review-settings.png"));
+    await captureReviewScreen(
+      page,
+      testInfo.outputPath("code-review-settings.png"),
+    );
     await optional.fill("40");
     await configure(api, p.id, {
       recall_pointer_template: "Independent recall edit.",
@@ -324,7 +336,10 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
     await expect(
       dialog.getByRole("textbox", { name: "Change summary", exact: true }),
     ).toHaveValue(handoff.handoff.change_summary);
-    await captureReviewScreen(page, testInfo.outputPath("mandatory-review-composer.png"));
+    await captureReviewScreen(
+      page,
+      testInfo.outputPath("mandatory-review-composer.png"),
+    );
     await dialog
       .getByRole("button", { name: "Complete and request review" })
       .click();
@@ -335,10 +350,19 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
     await expect(
       pane.getByRole("button", { name: "Copy cold review prompt" }),
     ).toBeVisible();
-    await expect(pane.getByRole("button", { name: "Copy cold review prompt" })).toHaveCSS("background-color", "rgb(61, 120, 80)");
-    await expect(pane.getByRole("button", { name: `Move ${first.title} to another project`, exact: true })).toBeDisabled();
+    await expect(
+      pane.getByRole("button", { name: "Copy cold review prompt" }),
+    ).toHaveCSS("background-color", "rgb(61, 120, 80)");
+    await expect(
+      pane.getByRole("button", {
+        name: `Move ${first.title} to another project`,
+        exact: true,
+      }),
+    ).toBeDisabled();
     await pane.getByRole("button", { name: "Copy cold review prompt" }).click();
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("COLD, ADVERSARIAL");
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toContain("COLD, ADVERSARIAL");
     const cold = await page.evaluate(() => navigator.clipboard.readText());
     expect(cold).toContain("COLD, ADVERSARIAL");
     for (const secret of [
@@ -349,7 +373,9 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
     ])
       expect(cold).not.toContain(secret);
     await pane.getByRole("button", { name: "Copy recall pointer" }).click();
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("WARM, ADVERSARIAL");
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toContain("WARM, ADVERSARIAL");
     const warm = await page.evaluate(() => navigator.clipboard.readText());
     expect(warm).toContain("Custom recall");
     expect(warm).toContain("WARM, ADVERSARIAL");
@@ -367,7 +393,11 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
     await expect(
       pane.getByRole("button", { name: "Open remediation · all findings" }),
     ).toHaveCount(1);
-    await captureReviewScreen(page, testInfo.outputPath("review-findings-remediation.png"));
+    await captureReviewScreen(
+      page,
+      testInfo.outputPath("review-findings-remediation.png"),
+      pane.locator(".review-findings"),
+    );
     pane = await selectWork(page, second.title);
     await manualDone(pane, second.title);
     dialog = page.getByRole("dialog", {
@@ -507,67 +537,224 @@ test("single remediation provenance follows the opt-in first generation and stru
     await expect(
       pane.getByRole("button", { name: "Copy cold review prompt" }),
     ).toHaveCount(0);
-    await expect(pane.getByRole("button", { name: /Move .+ to another project/ })).toBeDisabled();
-    await captureReviewScreen(page, testInfo.outputPath("remediation-depth-limit.png"));
+    await expect(
+      pane.getByRole("button", { name: /Move .+ to another project/ }),
+    ).toBeDisabled();
+    await captureReviewScreen(
+      page,
+      testInfo.outputPath("remediation-depth-limit.png"),
+    );
   } finally {
     await api.dispose();
   }
 });
 
-test("optional recommendation respects originating sessions, explicit supersession and affirmative handoff", async ({page}, testInfo) => {
+test("optional recommendation respects originating sessions, explicit supersession and affirmative handoff", async ({
+  page,
+}, testInfo) => {
   test.setTimeout(60000);
   const api = await client();
   try {
     const p = await project(api);
-    await configure(api, p.id, {code_review_optional_min_priority: 0});
-    const work = await create(api, p.id, "Resume the originating review recommendation");
+    await configure(api, p.id, { code_review_optional_min_priority: 0 });
+    const work = await create(
+      api,
+      p.id,
+      "Resume the originating review recommendation",
+    );
     await completeApi(api, p.id, work, false);
     const pane = await open(page, p.id, work.title, "Done");
     await openTab(pane, "Code review");
-    await expect(pane.getByText("The originating session must answer this question.", {exact:false})).toBeVisible();
+    await expect(
+      pane.getByText("The originating session must answer this question.", {
+        exact: false,
+      }),
+    ).toBeVisible();
     await expect(pane.getByLabel("Do you recommend a review?")).toHaveCount(0);
-    await pane.getByRole("button", {name:"Reopen work…",exact:true}).click();
-    const dialog = page.getByRole("dialog", {name:"Reopen work and supersede its review?"});
-    await dialog.getByRole("button", {name:"Reopen and supersede",exact:true}).click();
+    await pane
+      .getByRole("button", { name: "Reopen work…", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", {
+      name: "Reopen work and supersede its review?",
+    });
+    await dialog
+      .getByRole("button", { name: "Reopen and supersede", exact: true })
+      .click();
     await expect(dialog).toBeHidden();
-    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Pending");
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText(
+      "Pending",
+    );
     await manualDone(pane, work.title);
     await expect(pane.getByLabel("Do you recommend a review?")).toBeVisible();
     await pane.getByLabel("Do you recommend a review?").selectOption("yes");
-    await pane.getByLabel("Reason", {exact:true}).fill("The changes are complex and affect concurrent cache readers.");
+    await pane
+      .getByLabel("Reason", { exact: true })
+      .fill("The changes are complex and affect concurrent cache readers.");
     await fillHandoff(pane);
-    await captureReviewScreen(page, testInfo.outputPath("affirmative-recommendation.png"));
-    await pane.getByRole("button", {name:"Record recommendation",exact:true}).click();
-    await expect(pane.getByRole("button", {name:"Copy cold review prompt"})).toBeVisible();
-    await expect(pane.getByText("Review recommended",{exact:true})).toBeVisible();
-    await captureReviewScreen(page, testInfo.outputPath("requested-review-work.png"));
-  } finally { await api.dispose(); }
+    await captureReviewScreen(
+      page,
+      testInfo.outputPath("affirmative-recommendation.png"),
+    );
+    await pane
+      .getByRole("button", { name: "Record recommendation", exact: true })
+      .click();
+    await expect(
+      pane.getByRole("button", { name: "Copy cold review prompt" }),
+    ).toBeVisible();
+    await expect(
+      pane.getByText("Review recommended", { exact: true }),
+    ).toBeVisible();
+    await captureReviewScreen(
+      page,
+      testInfo.outputPath("requested-review-work.png"),
+    );
+  } finally {
+    await api.dispose();
+  }
 });
 
-test("retained default-never review policy rejects cross-project moves without losing placement or creating unknown recovery", async ({ page }) => {
+test("retained default-never review policy rejects cross-project moves without losing placement or creating unknown recovery", async ({
+  page,
+}) => {
   const api = await client();
   try {
     const source = await project(api);
     const target = await project(api);
-    const work = await create(api, source.id, "Retain completion review policy in its original project");
+    const work = await create(
+      api,
+      source.id,
+      "Retain completion review policy in its original project",
+    );
     await completeApi(api, source.id, work, false);
     const pane = await open(page, source.id, work.title, "Done");
-    const move = pane.getByRole("button", { name: `Move ${work.title} to another project`, exact: true });
+    const move = pane.getByRole("button", {
+      name: `Move ${work.title} to another project`,
+      exact: true,
+    });
     // Empty current review context is not a claim that historical policy is absent.
     await expect(move).toBeEnabled();
     await move.click();
-    const menu = pane.getByRole("menu", { name: `Move ${work.title} to project`, exact: true });
-    const response = page.waitForResponse((value) => value.request().method() === "POST"
-      && value.url().endsWith(`/work-items/${work.id}/move`));
-    await menu.getByRole("menuitem", { name: new RegExp(`^${target.name} \\(`) }).click();
+    const menu = pane.getByRole("menu", {
+      name: `Move ${work.title} to project`,
+      exact: true,
+    });
+    const response = page.waitForResponse(
+      (value) =>
+        value.request().method() === "POST" &&
+        value.url().endsWith(`/work-items/${work.id}/move`),
+    );
+    await menu
+      .getByRole("menuitem", { name: new RegExp(`^${target.name} \\(`) })
+      .click();
     expect((await response).status()).toBe(409);
-    await expect(page.locator(".toast")).toContainText("must remain in its original project");
+    await expect(page.locator(".toast")).toContainText(
+      "must remain in its original project",
+    );
     await expect(page.locator("#project-select")).toHaveValue(source.id);
     await expect(pane.locator(".detail-id code")).toHaveText(work.id);
-    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Done");
-    await expect(page.getByRole("button", { name: "Retry exact request", exact: true })).toHaveCount(0);
-    expect((await api.get(`/api/v1/projects/${source.id}/work-items/${work.id}/context`)).status()).toBe(200);
-    expect((await api.get(`/api/v1/projects/${target.id}/work-items/${work.id}/context`)).status()).toBe(404);
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText(
+      "Done",
+    );
+    await expect(
+      page.getByRole("button", { name: "Retry exact request", exact: true }),
+    ).toHaveCount(0);
+    expect(
+      (
+        await api.get(
+          `/api/v1/projects/${source.id}/work-items/${work.id}/context`,
+        )
+      ).status(),
+    ).toBe(200);
+    expect(
+      (
+        await api.get(
+          `/api/v1/projects/${target.id}/work-items/${work.id}/context`,
+        )
+      ).status(),
+    ).toBe(404);
+  } finally {
+    await api.dispose();
+  }
+});
+
+test("an unsent affirmative recommendation preserves every draft field across unrelated activity and refresh", async ({
+  page,
+}) => {
+  const api = await client();
+  try {
+    const p = await project(api);
+    await configure(api, p.id, { code_review_optional_min_priority: 0 });
+    const work = await create(
+      api,
+      p.id,
+      "Keep the author's unsent review handoff",
+    );
+    const pane = await open(page, p.id, work.title);
+    await manualDone(pane, work.title);
+    await expect(pane.getByLabel("Do you recommend a review?")).toBeVisible();
+    await pane.getByLabel("Do you recommend a review?").selectOption("yes");
+    const rationale =
+      "Concurrent cache readers make independent review worthwhile.";
+    await pane.getByLabel("Reason", { exact: true }).fill(rationale);
+    await fillHandoff(pane);
+    await pane.getByRole("button", { name: "Add areas of concern note" }).click();
+    await pane.getByLabel("Areas of concern · 1").fill(handoff.handoff.focus_areas[0]);
+    await pane.getByRole("button", { name: "Add implementation and testing traps note" }).click();
+    await pane.getByLabel("Implementation and testing traps · 1").fill(handoff.handoff.traps[0]);
+    let detailReads = 0;
+    page.on("response", (response) => {
+      if (
+        response.request().method() === "GET" &&
+        response.status() === 200 &&
+        response.url().includes(`/work-items/${work.id}/agent-follow-ups/`)
+      )
+        detailReads += 1;
+    });
+    const other = await create(
+      api,
+      p.id,
+      "Unrelated activity must not reset a recommendation",
+    );
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect.poll(() => detailReads, { timeout: 15000 }).toBeGreaterThan(0);
+    await expect(pane.getByLabel("Do you recommend a review?")).toHaveValue(
+      "yes",
+    );
+    await expect(
+      pane.getByRole("textbox", { name: "Reason", exact: true }),
+    ).toHaveValue(rationale);
+    await expect(
+      pane.getByRole("textbox", { name: "Change summary", exact: true }),
+    ).toHaveValue(handoff.handoff.change_summary);
+    await expect(
+      pane.getByRole("textbox", { name: /^Validation and limitations/ }),
+    ).toHaveValue(handoff.handoff.validation_summary);
+    const submitted = page.waitForRequest(
+      (request) =>
+        request.method() === "POST" &&
+        request.url().includes(`/work-items/${work.id}/agent-follow-ups/`),
+    );
+    await pane
+      .getByRole("button", { name: "Record recommendation", exact: true })
+      .click();
+    expect((await submitted).postDataJSON().answer).toEqual({
+      kind: "code_review_recommendation",
+      recommend_review: true,
+      rationale,
+      code_review_handoff: handoff,
+    });
+    await expect(
+      pane.getByText("Review recommended", { exact: true }),
+    ).toBeVisible();
+    await expect(pane.getByLabel("Do you recommend a review?")).toHaveCount(0);
+    const otherPane = await open(page, p.id, other.title);
+    await manualDone(otherPane, other.title);
+    await expect(
+      otherPane.getByLabel("Do you recommend a review?"),
+    ).toHaveValue("");
+    await expect(otherPane.getByLabel("Reason", { exact: true })).toHaveValue(
+      "",
+    );
   } finally {
     await api.dispose();
   }

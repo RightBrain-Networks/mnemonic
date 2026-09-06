@@ -56,16 +56,20 @@ review aggregates.
 
 ## Regression and browser evidence
 
-- Full MCP suite: 979 passed, including strict wire/contracts, actual stdio/HTTP
+- Full backend suite with PostgreSQL: 1,550 passed (no database-suite skips).
+- Full MCP suite: 982 passed, including strict wire/contracts, actual stdio/HTTP
   transport and authentic isolated offline Claude plugin fresh/update checks.
 - Frontend units: 352 passed; Node 24 typecheck and production build passed.
-- Focused review Playwright acceptance: all 10 cases passed across desktop and
+- Focused review Playwright acceptance: all 14 cases passed across desktop and
   narrow layouts. These cover both mandatory Done paths, cold canary exclusion,
   fixed warm adversarial guidance, single remediation, optional yes/no and
   unknown-outcome exact retries, history recovery, originating-session checks,
-  explicit supersession and the hard depth-two stop.
-- Backend full-suite and full browser regression results remain pending until
-  the integration corrections and final cold-review fixes are validated.
+  explicit supersession, blocked moves with retained policy, unsent-draft
+  preservation/reset and the hard depth-two stop.
+- Full Playwright regression: 153 passed, four intentionally viewport-specific
+  skips. After that full run, the draft-preservation correction was validated in
+  a fresh production build with all 14 review cases, plus unit/type checks.
+- Backend/MCP Ruff and ty, OpenAPI snapshot and the required secret scan pass.
 
 PostgreSQL-marked suites run with `TEST_DATABASE_URL`; skips do not count as
 database validation. Authentic plugin checks use isolated offline Claude CLI
@@ -100,8 +104,24 @@ two defects; neither was waived:
 | Review projections rejected multiline/tab-containing titles accepted by existing work mutations. | Preserve the stored work-title grammar in API, MCP and browser read projections, without relaxing newly authored finding titles. Test actual post-Done title edits, both queue pages and exact details. |
 
 The focused fix verification passed 49 MCP tests and two PostgreSQL/HTTP
-regressions. Further cold reviews and the first reviewer's delta recheck remain
-required before PR creation.
+regressions. The first reviewer rechecked `22bc2a5..8271329`, confirmed both
+findings resolved, and established no additional actionable defect in the
+audit/catalog delta. Its recheck included nine focused frontend tests and
+in-memory contract reproductions, not a repeated PostgreSQL restore.
+
+A second independent cold reviewer examined the full client diff at
+`c71a0cb..8271329`, including frontend components, proxy/decoder/recovery state,
+MCP models/tools/transport, packaged plugin behavior and relevant backend
+contracts. It froze one P2 finding: ordinary project activity clears the loaded
+question, unmounting the editor and erasing its unsent recommendation/rationale/
+handoff. Dispatched unknown-outcome retry tests did not cover that pre-submit
+case. The browser regression reproduced Yes changing to an empty choice before
+the fix. The corrected panel retains the same question/editor during refresh,
+while true identity changes and terminal/new questions clear the draft. All 14
+review cases then passed on a rebuilt desktop/narrow stack, including exact
+preserved rationale and handoff payloads. No other concrete client finding was
+established. The client's delta recheck and a third fresh persistence-focused
+cold review are still in progress.
 
 ## Deployment boundary
 

@@ -133,7 +133,7 @@ export default function CodeReviewInbox({
               className="review-queue-link"
               onClick={() => onOpen(row.work_item_id)}
             >
-              <span>{row.title}</span>
+              <bdi>{row.title}</bdi>
               <span className="review-state">
                 {kind === "follow-ups"
                   ? "Awaiting author"
