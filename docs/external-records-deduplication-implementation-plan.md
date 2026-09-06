@@ -9,7 +9,6 @@ The input is the local evaluation `.untracked/EXT_RECORDS_DEDUPE.md`, including
 its owner decisions in §10. This document is self-contained: that untracked
 evaluation is historical evidence, not a required runtime or implementation
 dependency. Its September 3 incident measurements have not been rerun here.
-The older uncommitted planning document in another worktree is preserved.
 
 ## 1. Outcome, scope, and baseline
 
@@ -237,10 +236,15 @@ fail at insertion. Migration work must include:
 3. Extend the live creation source-fact check in the existing event insertion
    guard to compare the optional snapshot list with the row list, treating
    absence as empty. A supplied nonempty snapshot must match exactly.
-4. Verify direct SQL cannot insert malformed arrays or fake reference changes,
-   bypass frozen aliases, or lose the existing event/closeout constraints.
-   Existing source correspondence guarantees must not be weakened; do not claim
-   that schema validation alone proves a caller's external observation true.
+4. Verify direct SQL rejects malformed reference arrays/diffs, incorrect
+   creation snapshots, alias writes, and violations of existing closeout
+   constraints. Preserve the existing enforcement boundary: the transactional
+   mutation service captures truthful before/after update values; the database
+   validates their shape but does not independently authenticate an ordinary
+   update diff against an actual row transition. Do not claim that a CHECK
+   proves either that transition's history or the external observation true.
+   Transition-authenticated update events would be separate ledger work and
+   are not added here.
 
 The higher cap is deliberate: two maximum reference arrays plus escaped
 title/summary diffs and JSONB formatting can exceed 16 KiB and even 64 KiB.
@@ -248,11 +252,18 @@ Calculate and test the maximum accepted payload with all editable fields,
 multibyte labels, and escaped text. Keep this bounded system-event extension
 consistent in SQL, Python, MCP, browser, and response-size checks.
 
+Specifically, `frontend/lib/work-events.ts:validEventMetadata` currently uses
+the generic 16 KiB helper for every event. Pass the conditional event-specific
+limit there. MCP's generic 16 KiB helpers apply to progress/checkpoint metadata;
+keep those limits and add the appropriate explicit bound to typed system-event
+validation. Do not globally enlarge an unrelated metadata helper.
+
 No new event or activity kind is added. Existing `work_events` insertion feeds
 Phase 12 activity; a changed reference produces the ordinary update activity
 pointer. Do not add a second activity write or copy URLs into activity rows or
-WebSocket invalidations. No-op behavior remains the current work update
-behavior and must be pinned by tests before changing serialization.
+WebSocket invalidations. An identical-list replacement retains current PATCH
+behavior: it increments version and records the requested before/after values
+in an event. It is not collapsed into a read or silently discarded.
 
 ### 3.3 Preservation and downgrade policy
 
@@ -332,8 +343,17 @@ snapshot, including its original absence/presence of references, even after
 later edits, a merge, deletion, or a new closeout. Do not enrich the receipt
 from today's work row, rewrite its salt/hash/body, or mutate history to satisfy
 the new model. Test all registered response envelopes that transitively carry
-work data, not just create/update; examples include completion,
-claim-and-recall contexts where applicable, and report follow-up creation.
+work data, not just create/update: completion, defer, merge, and report
+follow-up creation also carry work snapshots. Recall and claim-and-recall are
+ordinary context reads/lease operations, not registered permanent receipts;
+test their propagation separately.
+
+Retain the existing 1,048,576-byte receipt response bound. Create, update,
+defer, completion, and report follow-up receipts have one work reference list;
+merge has two. Merge receipts contain bounded merge/relationship events, not
+recent reference-update histories. Verify maximum accepted checkpoint,
+evidence/report, and reference combinations against both compact HTTP bytes
+and PostgreSQL `response_body::text`; no receipt limit increase is planned.
 
 Reference-only edits require no report. A qualifying Won't do or Promoted
 transition in the same `update_work` request requires the existing nested
@@ -379,6 +399,17 @@ Audit manual constructors in `services/work_context.py`, `services/readiness.py`
 code; adding a Pydantic field does not make a hand-built pointer populate it.
 Use the existing coherent read transaction for composite reads and snapshot
 the list by value before ranking outside it. No per-reference joins or fetches.
+
+Measure high-fanout context responses separately from receipts: context can
+include up to 100 counterparts in each of three directions and 20 recent
+events. At the conservative list/event bounds this permits roughly 9.375 MiB
+of counterpart references plus 2.5 MiB of event metadata, before existing
+checkpoint text. The current context path has no corresponding 1 MiB response
+cap. Record actual serialized sizes, database time, decoding/rendering time,
+and ordinary-client usability with representative and maximum fixtures before
+release. Do not introduce silent truncation, reference projection, or a global
+1 MiB cap as a presumed consequence of the receipt limit. If measured supported
+clients cannot consume the chosen bounds, revise this contract before shipping.
 
 Reference content is not added to work full-text vectors, duplicate embedding
 composition, or checkpoint search. Exact URL lookup is explicit. Updating a
@@ -450,6 +481,11 @@ Extend `DuplicateSuggestionRequest` and the existing tool/POST with optional
   including draft, candidates, and JSON escaping. Individual maxima do not
   guarantee that 64 maximum Unicode bodies fit. Reject oversize with the
   existing body-size error; the server never silently truncates input.
+- MCP has a separate stricter transport limit: 1,048,576 bytes for the entire
+  serialized JSON-RPC request/frame, including tool name, IDs, arguments, and
+  envelope/escaping overhead, for both HTTP and stdio. Preserve this cap.
+  REST/browser-valid requests above it are not necessarily MCP-transportable.
+  Client gathering must fit its actual transport, not just candidate fields.
 - Omitted and explicit empty candidate lists both mean no external comparison;
   omit all external response fields. Explicit null and unknown fields fail
   normal validation. A supplied nonempty list exists only within that request:
@@ -534,10 +570,15 @@ do not build a generalized provider framework or external pseudo-work items.
    `VALUES`/array input. Its actual SQL collation/whitespace behavior, not the
    evaluation's abbreviated description, defines equality. Include existing
    Unicode/title-key regression fixtures.
-2. **Lexical:** English `plainto_tsquery` with `_draft_text`'s current draft
-   composition; candidate title A plus first 1,500 body characters C;
-   `ts_rank_cd` normalization 32 and positive query matches only. URLs, state,
-   kind, and labels contribute no rank evidence.
+2. **Lexical:** reuse the shipped OR-of-normalized-lexemes construction for
+   `_draft_text`: English `to_tsvector`, `tsvector_to_array`, quote each lexeme,
+   join deterministically with ` | `, and cast to `tsquery`. Do not replace it
+   with `plainto_tsquery`'s all-term AND requirement. An empty lexeme set yields
+   no lexical matches while exact-title reservation remains available.
+   Candidate title is A, first 1,500 body characters C; use `ts_rank_cd`
+   normalization 32 and positive matches only. URLs, state, kind, and labels
+   contribute no rank evidence. Pin partial-title overlap with disjoint
+   summary/prompt/tags under unavailable inference as an external regression.
 3. **Semantic:** reuse the same valid draft query vector and current local
    BGE embedder. Candidate document is `title + newline + body[:1500]`.
    Embed all supplied candidates in batches of at most the current 16, without
@@ -663,6 +704,10 @@ Update `mcp/src/mnemonic_mcp/models.py` and `server.py` together:
 - Update canonical model/OpenAPI correspondence and exact tool input schemas.
   An old adapter is unsupported against the new server; restart aligned
   components together.
+- Cover the existing complete-frame limit in `mcp/src/mnemonic_mcp/transport.py`
+  for both HTTP and stdio with candidate-bearing requests. Keep transport
+  rejection behavior and cap unchanged; guidance must not advertise REST's
+  larger body budget as an MCP allowance.
 
 ### 8.2 Browser contract and proxy
 
@@ -801,9 +846,13 @@ Document a concrete initial client collection policy:
   without PRs allocate only from their available record classes.
 - Strip authentication material before building requests. Explicitly bound
   overlong bodies on the client and disclose truncation; never truncate a
-  title/URL into a different identity. Reduce bodies/count to fit the entire
-  UTF-8 request cap while preserving priority. Only the first 1,500 body
-  characters affect comparison, even if more are supplied.
+  title/URL into a different identity. First reduce bodies to the useful
+  1,500-character comparison prefix, then reduce count if needed. Calculate
+  the complete serialized frame/body, including draft, JSON escaping and
+  envelope; preserve priority and respect §6.1's selected transport limit.
+  In particular the plugin must fit the 1 MiB MCP frame, not just the 2 MiB
+  REST body. Disclose reductions. Example collection fixtures must prove their
+  actual final HTTP MCP and stdio frames fit, including multibyte/escaped text.
 - Disclose submitted count, skipped/failed buckets, truncation, and window.
   Missing candidates cannot be found; failed reads are not zero-result proof.
   Respect rate limits and the total budget instead of retrying indefinitely.
@@ -839,12 +888,23 @@ from current remote main and the repository's PR/required-check workflow.
 | Package | Concrete work | Exit evidence |
 | --- | --- | --- |
 | A — Contract fixtures | URL/text/time corpus, list bounds, PATCH clear vs omission, ordered equality, external presence/scope, maximum event sizing, OpenAPI consumers. | Reviewed fixtures with no unresolved semantic choice. |
-| B — Storage/ledger | `0022`, ORM, active event validators/source checks, conditional metadata caps, GIN, history-aware downgrade guard. | Fresh/populated upgrades, direct SQL tests, schema parity, content/receipt preservation. |
+| B — Storage/ledger | `0022`, ORM, active event validators/source checks, conditional metadata caps, GIN, history-aware downgrade guard, explicit audit head/catalog support. | Fresh/populated upgrades, direct SQL tests, schema parity, content/receipt preservation, pre/post/restored audits. |
 | C — D1 backend | Work/schema/event/receipt services, explicit readiness/context/relationship/hierarchy projections, duplicate snapshots, full-view exact search. | Lifecycle, replay, concurrent writers, read/search matrix and snapshot tests. |
 | D — D1 clients | MCP models/signatures, proxy/guards, response correspondence, frozen mutation intents, editor/presentation/events. | Contract tests and edit/clear/conflict/unknown-outcome acceptance. |
 | E — D2 backend/resources | Focused comparator, existing route/service orchestration, detached internal result/vector, owned workers/deadlines/retention. | Ranking, failure isolation/cancellation/contention tests and real-host measurements. |
 | F — D2 clients | Candidate inputs, request-bound guards, manual compare rows, separate results/staleness. | External-only/empty/unavailable/forged cases and Create-anyway acceptance. |
 | G — Workflow/release docs | Three skills/shared references, examples, contracts/operations, OpenAPI and versions. | Packaged plugin tests, aligned catalog and release checklist. |
+
+Package B must extend `scripts/audit_project_activity.py`,
+`tests/fixtures/project-activity-catalog-v1.json`, and
+`backend/tests/test_project_activity_audit_postgres.py` for explicit
+`0022_external_references` support. Preserve the frozen `0021` catalog as the
+pre-upgrade target; do not overwrite it. Keep report/activity checks enabled
+for both `0021` and `0022`, rather than blindly changing `HEAD` in existing
+`expected_head == HEAD` branches. Add reference column/index/validator/cap and
+data-invariant checks, freeze supported migrated/restored `0022` catalog forms,
+and add negative guard-drift fixtures. Findings remain aggregate and free of
+content/credentials. Package G publishes the exact pre/post-upgrade commands.
 
 A precedes B/C/E. Establish D1 through B/C/D before declaring D2 deliverable.
 D can proceed beside E after contract stabilization; F follows D2 contract
@@ -873,19 +933,20 @@ benchmarks, migration rehearsals, or rollout steps below.
 | Area | Required cases |
 | --- | --- |
 | Validation | 0/10/11 refs, 64/65 candidates, unknown keys/null/coercion, duplicate URLs, case/query/fragment/percent grammar, credentials/controls/backslash, Unicode labels, UTC normalization, omitted observation, JSON/UTF-8 limits. |
-| Ledger | Direct SQL parity, all four expanded event shapes/caps, incorrect creation snapshot, explicit empty diffs, unchanged progress cap, JSONB escaping, alias immutability. |
+| Ledger | Direct SQL shape/cap/creation correspondence, application-authored before/after correctness, all four expanded events, explicit empty diffs, unchanged progress cap, JSONB escaping, alias immutability; no unsupported SQL transition-authenticity claim. |
 | Writes | Create/replace/edit/reorder/clear, omitted preservation, identical-list update retains existing version/event behavior, stale/concurrent writers, absent/valid/invalid token, atomic rollback. |
 | Closeouts | Ref-only pending/terminal edits; refs plus Promoted/Won't do require report/UUID; failed report rollback; reopen with refs; unchanged Done/evidence/report/gate/lease guards. |
 | Receipts | Assess all 15 kinds; historical fingerprints/bodies unchanged; create empty equals omission, PATCH empty differs; ordered intent; replay after edit/merge/deletion/closeout/restore; no hydration from current rows. |
 | Discovery | Ready before selection; full search/detail/recall/claim contexts, counterparts, hierarchy/attention, canonical suggestions, MCP resources/prompts; no alias inheritance. |
 | Snapshot | Concurrent ref edit during inference retains captured refs; refs absent from embedding composition/digest; same snapshot/capacity yields unchanged internal ranking. |
 | Search | Shared URL across items/projects, soft deletion, duplicate/status scopes, q/semantic AND, paging/totals, encoded punctuation, roots rejection, realistic index and route plans. |
-| Ranking | SQL title-key parity, exact-prefix overflow, URL ties/permutation, lexical nonmatches omitted, RRF order, 1/16/64 candidates, state not rank input. |
+| Ranking | SQL title-key parity, exact-prefix overflow, URL ties/permutation, partial-title overlap surviving disjoint draft fields with no inference, stopword-only and unrelated controls, RRF order, 1/16/64 candidates, state not rank input. |
 | External response | Omitted/empty request omits extension; either lane independently empty/populated; count/identity/presence; no body echo; malformed responses fail; external scope independent of internal mode. |
 | Resources | Slow SQL/pool/model, invalid vectors, external expiry, shared search, late results/disconnect before/after baseline; permits released once after actual completion, internal page preserved. |
 | Safe read | No durable external rows/cache/receipt/event/activity, no provider network, no sensitive logs, create available, effect/catalog counts unchanged. |
+| Transport/size | REST/browser 2 MiB vs complete HTTP MCP/stdio 1 MiB boundaries, JSON/envelope overhead, client reduction fixtures, maximum 1 MiB receipts, conditional browser/MCP event bounds, high-fanout context sizes/usability. |
 | Browser | Add/edit/remove/reorder/clear, frozen retry/conflict, safe links/keyboard, state/time accessibility, external-only/stale/project-switch behavior, Create anyway. |
-| Upgrade/recovery | Fresh and populated/restored `0021` upgrades, content digests, historical/new replay, post-migration backup/restore, downgrade refusal even after clearing links, activity stream rotation. |
+| Upgrade/recovery | Fresh/populated/restored upgrades, preserved digests/replay, final quiescent recovery backup, last-minute committed mutation/receipt survives failed-upgrade restoration, pre-0021/post-0022/restored-0022 audits, negative guard drift, downgrade refusal after clear, activity stream rotation. |
 
 ### 11.2 Test locations and evidence
 
@@ -896,6 +957,8 @@ Extend backend work-item/event/receipt suites, including
 `test_duplicate_suggestions_postgres.py`, `test_schema_parity_postgres.py`,
 and Phase 11/12 regressions. Add focused external reference/comparison and
 populated `0022` tests rather than burying every case in unrelated fixtures.
+Include `test_project_activity_audit_postgres.py` and lint the changed audit
+script under the existing operational-script checks.
 
 MCP: `test_tools.py`, `test_duplicate_suggestions.py`,
 `test_response_validation.py`, `test_openapi_contract.py`, `test_plugin.py`.
@@ -990,20 +1053,31 @@ For the later authorized release:
 3. Merge through GitHub's allowed squash/rebase path. Confirm clean worktree
    before cleanup, then fast-forward primary main to the already-merged
    remote main. No implementation commit goes directly to main.
-4. Before separately authorized production cutover, create and restore-test a
-   complete backup. Record versions/head, schema/catalog, counts/digests, and
-   rehearsal lock/runtime. Keep private evidence outside tracked files.
-5. Stop old API/MCP/dashboard processes and quiesce writes, migrate, then start
-   the aligned release. Older processes must not use the new schema even
-   before refs are populated. Verify health and actual versions/catalog.
+4. Complete advance migration/restore rehearsal and pin coordinated artifacts.
+   At the separately authorized live cutover, close ingress and stop/drain
+   every application and direct writer, then run the pre-upgrade audit with
+   `--expected-head 0021_job_completion_reports` and take the final named
+   custom-format recovery backup. Validate the archive, copy it off-machine,
+   and restore-test it on isolated PostgreSQL 17. Record versions/head,
+   catalog, counts/digests and permanent receipts at this final quiescence
+   point. An earlier rehearsal backup is not the live recovery point.
+5. Keep writers stopped, migrate, and start the aligned processes behind
+   closed ingress for checks. Older processes must not use the new schema
+   even before refs are populated. Verify health and actual versions/catalog.
 6. Verify old data/replay; run controlled create/update/clear/read/search/
    comparison smoke tests in staging or an approved disposable project.
-   Verify existing Phase 12 integrity/activity continuity. The historical
-   Phase 11 preflight is not a `0022` preflight; use the preservation checks
-   defined here rather than reusing its predecessor assumptions.
+   Run the updated audit with `--expected-head 0022_external_references` and
+   verify activity/report integrity. Validate a post-upgrade backup/restore
+   while public writes remain closed; reopen ingress only after these gates
+   pass. The historical Phase 11 preflight is not a `0022` preflight.
 7. On failure, keep writers stopped and use forward repair or restore the
    complete verified backup, honoring downgrade refusal and activity stream
    rotation. Never erase references or rewrite receipts to start old clients.
+   Once traffic has reopened, restoring the cutover backup can discard later
+   accepted writes: it is not lossless rollback. That situation requires a
+   separately decided recovery approach preserving those writes or an explicit
+   owner decision about loss; do not execute the pre-open restore procedure
+   under an assumption that later data will survive.
 
 D1/D2 need no new environment variable, project source setting, browser
 secret, provider credential, or external network permission. Their impact is
@@ -1041,15 +1115,18 @@ implementation contract, and D1/D2 add no server provider infrastructure.
 
 ## 14. Independent cold review and resolution record
 
-After this full document is saved, an adversarial subagent will read it cold,
-with the proposal/current source available but without drafting discussion or
-reconnaissance notes. It should find contradictions, missing decisions,
-migration/replay risks, scope creep, and unverifiable guarantees.
+The completed initial draft (Git blob
+`10f68c32ec1d3e7cef2e5852c932393fe914e8e8`) received an independent cold critique
+on 2026-09-05. The reviewer had the proposal/current source, without drafting
+discussion or reconnaissance notes. It found five material corrections:
+quiescent final backup ordering, OR lexical matching, MCP frame sizing,
+the SQL update-diff enforcement boundary, and new-head integrity audit support.
 
-Record the critique in
-`docs/external-records-deduplication-plan-adversarial-review.md`. Resolve
-material findings in this plan and append dispositions to the review record.
-Leave owner-gated work explicitly deferred. Review completion and a docs PR
-do not authorize application code or migration execution.
+All five corrections are incorporated above. The original findings and their
+dispositions are preserved in the
+[adversarial review](external-records-deduplication-plan-adversarial-review.md).
+Additional source checks made event-size/client boundaries and nonreceipt
+context fanout explicit. A targeted reviewer recheck is recorded there.
 
-Review status: awaiting cold critique after this initial full document is saved.
+Owner-gated work remains deferred. Review completion and a documentation PR
+do not authorize application code, migration execution, or live cutover.
