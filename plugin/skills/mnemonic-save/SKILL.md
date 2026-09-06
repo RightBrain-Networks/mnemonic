@@ -38,6 +38,15 @@ claim durability from a draft or bypass the MCP connection.
    not merge authority. Never create a fresh generic `duplicate-of` relationship from search;
    authoritative deduplication uses the separately reviewed `merge_work` workflow below.
 
+## Assign a deliberate priority
+
+Before creating work or changing its priority, read
+[priority.md](${CLAUDE_PLUGIN_ROOT}/reference/priority.md). Choose a consequence
+band and its anchor, refine using concrete impact, reach, workaround, and urgency,
+and record a brief rationale in the checkpoint. Honor an explicit user score;
+otherwise assign one deliberately across 0–100, including below 10 for cosmetic
+nits and above 90 for confirmed applicable security vulnerabilities.
+
 ## Compare a complete draft before creating
 
 Once a proposed new item's title, summary, initial prompt, and tags are stable,
@@ -280,7 +289,7 @@ stored and returned exactly to authorized history readers.
 ## Persist and report
 
 For distinct work, freeze a complete `create_work` intent with its
-`client_operation_id`, `project_id`, `title`, `summary`, an
+`client_operation_id`, `project_id`, `title`, `summary`, the chosen `priority`, an
 `initial_checkpoint` carrying the complete prompt and provenance, a few useful
 tags, and `initial_relationships` only when the explicit links must be created
 atomically. Fresh proposals must start `pending`; terminal creation is refused. Deferred is a human-only
@@ -296,7 +305,7 @@ the intended changes. On a definite version conflict, recall and compare, then
 use a new UUID for changed arguments. On an uncertain outcome, replay the
 retained call; search cannot substitute for it.
 
-Report the saved title, project, work-item ID, resulting version and status,
+Report the saved title, project, work-item ID, priority, resulting version and status,
 and any gate you recorded, only after a successful tool result. Saving ends
 capture: it does not execute the proposal, create an issue, complete work, or
 promote it without owner direction.
