@@ -106,7 +106,7 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.13.0`, plugin `0.14.0`,
+The current coordinated boundary is API/MCP/dashboard `0.14.0`, plugin `0.14.0`,
 and Alembic `0024_code_reviews`. Inventory exactly 38 MCP tools,
 13 protected MCP writes, 18 REST receipt kinds, 15 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts now require

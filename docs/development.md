@@ -791,7 +791,7 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.13.0`, plugin is `0.14.0`,
+Current application/API/MCP/dashboard versions are `0.14.0`, plugin is `0.14.0`,
 and Alembic head is `0024_code_reviews`. Validate all surfaces together
 with the existing regression suites. Historical Phase 11 downgrade/catalog tests
 must seed valid historical shapes with offline SQL at 0019; never run current
@@ -801,8 +801,9 @@ Move coverage must prove same-UUID/status relocation for every stored lifecycle,
 Dropped lease retention, active lease/relationship/gate/duplicate rejection,
 dual-project lock ordering, paired activity witnesses, permanent retry replay,
 and current-project authorization of cross-project history. Browser coverage must
-exercise the accessible Delete/Move split menu, all-project ordering, successful
-target navigation, strict proxy body validation, and exact ambiguous retry.
+exercise standalone Delete plus the accessible Move submenu in the Defer split
+menu, target-project ordering, hover and keyboard traversal, successful target
+navigation, strict proxy body validation, and exact ambiguous retry.
 
 Backend checks cover fresh and populated upgrades through 0020/0021, typed
 activity coverage, per-project ordering and stream changes, all three closeout

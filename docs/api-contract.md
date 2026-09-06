@@ -1,6 +1,6 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.13.0`, plugin `0.14.0`, and migration
+This is application/API/MCP/dashboard `0.14.0`, plugin `0.14.0`, and migration
 `0024_code_reviews`. The catalog has exactly 38 MCP tools, 13 protected
 MCP writes, 18 REST receipt kinds, 15 protected browser mutations and 24 work-event types.
 [Code reviews](code-reviews.md) documents durable post-Done follow-ups,
@@ -1372,10 +1372,10 @@ retry of the retained body.
 
 Move similarly freezes one intent under the work key in both its source and
 target projects. Its exact allowlisted body is `target_project_id`,
-`expected_version`, dashboard `actor`, and `client_operation_id`. The Delete/Move
-split control lists every current project, marks the source as current, and
-navigates to the same work UUID in the selected target only after a coherent
-receipt-protected success. An ambiguous outcome retains only exact retry.
+`expected_version`, dashboard `actor`, and `client_operation_id`. Delete remains a standalone action. The existing Defer split menu exposes Move
+as a nested action; hovering or focusing Move reveals the deterministically
+ordered eligible target projects while omitting the source. Selecting a target
+navigates to the same work UUID only after a coherent receipt-protected success. An ambiguous outcome retains only exact retry.
 
 ## Live invalidation
 

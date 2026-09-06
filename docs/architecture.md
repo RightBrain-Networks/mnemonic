@@ -1,6 +1,6 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.13.0`, Claude plugin `0.14.0`,
+This architecture describes application/API/MCP `0.14.0`, Claude plugin `0.14.0`,
 and Alembic head `0024_code_reviews`. [Code reviews](code-reviews.md) adds
 immutable completion policies, durable typed follow-ups, review scope/handoff,
 purpose-bound leases, results and bounded remediation ancestry. The longer-term

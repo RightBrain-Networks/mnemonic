@@ -144,7 +144,7 @@ async function fillHandoff(form: Locator) {
 }
 async function manualDone(pane: Locator, title: string) {
   await pane
-    .getByRole("button", { name: `Choose a status for ${title}` })
+    .getByRole("button", { name: `Choose an action for ${title}` })
     .click();
   await pane
     .getByRole("menuitem", { name: `Done ${title}`, exact: true })
@@ -353,12 +353,17 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
     await expect(
       pane.getByRole("button", { name: "Copy cold review prompt" }),
     ).toHaveCSS("background-color", "rgb(61, 120, 80)");
+    const actionChooser = pane.getByRole("button", {
+      name: `Choose an action for ${first.title}`,
+      exact: true,
+    });
+    await expect(actionChooser).toBeDisabled();
     await expect(
-      pane.getByRole("button", {
-        name: `Move ${first.title} to another project`,
-        exact: true,
-      }),
-    ).toBeDisabled();
+      pane.getByText(
+        "Work with code review or remediation history must remain in its original project.",
+        { exact: true },
+      ),
+    ).toBeVisible();
     await pane.getByRole("button", { name: "Copy cold review prompt" }).click();
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
@@ -537,9 +542,32 @@ test("single remediation provenance follows the opt-in first generation and stru
     await expect(
       pane.getByRole("button", { name: "Copy cold review prompt" }),
     ).toHaveCount(0);
-    await expect(
-      pane.getByRole("button", { name: /Move .+ to another project/ }),
-    ).toBeDisabled();
+    const actionChooser = pane.getByRole("button", {
+      name: `Choose an action for ${secondWork.title}`,
+      exact: true,
+    });
+    await actionChooser.click();
+    const actionMenu = pane.getByRole("menu", {
+      name: `Actions for ${secondWork.title}`,
+    });
+    const move = actionMenu.getByRole("menuitem", {
+      name: `Move ${secondWork.title} to another project`,
+      exact: true,
+    });
+    await expect(move).toBeDisabled();
+    const moveReason = pane.getByText(
+      "Work with code review or remediation history must remain in its original project.",
+      { exact: true },
+    );
+    await expect(moveReason).toBeVisible();
+    await expect(move).toHaveAttribute(
+      "aria-describedby",
+      await moveReason.getAttribute("id") ?? "",
+    );
+    await move.hover();
+    await expect(page.getByRole("menu", {
+      name: `Move ${secondWork.title} to project`,
+    })).toHaveCount(0);
     await captureReviewScreen(
       page,
       testInfo.outputPath("remediation-depth-limit.png"),
@@ -627,17 +655,26 @@ test("retained default-never review policy rejects cross-project moves without l
     );
     await completeApi(api, source.id, work, false);
     const pane = await open(page, source.id, work.title, "Done");
-    const move = pane.getByRole("button", {
+    const actionChooser = pane.getByRole("button", {
+      name: `Choose an action for ${work.title}`,
+      exact: true,
+    });
+    await actionChooser.click();
+    const actionMenu = pane.getByRole("menu", {
+      name: `Actions for ${work.title}`,
+    });
+    const move = actionMenu.getByRole("menuitem", {
       name: `Move ${work.title} to another project`,
       exact: true,
     });
     // Empty current review context is not a claim that historical policy is absent.
     await expect(move).toBeEnabled();
-    await move.click();
-    const menu = pane.getByRole("menu", {
+    await move.focus();
+    const menu = page.getByRole("menu", {
       name: `Move ${work.title} to project`,
       exact: true,
     });
+    await expect(menu).toBeVisible();
     const response = page.waitForResponse(
       (value) =>
         value.request().method() === "POST" &&
