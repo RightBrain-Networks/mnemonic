@@ -80,10 +80,9 @@ ModelName = Annotated[
     StringConstraints(strict=True, min_length=1, max_length=120),
     AfterValidator(report_text),
 ]
-ReviewTitle = Annotated[
+StoredWorkTitle = Annotated[
     str,
     StringConstraints(strict=True, min_length=1, max_length=200),
-    AfterValidator(report_text),
 ]
 
 
@@ -503,7 +502,7 @@ class CodeReviewContext(ReviewModel):
 
 class ReviewSourceState(ReviewModel):
     work_item_id: UUID
-    title: ReviewTitle
+    title: StoredWorkTitle
     status: Literal["pending", "deferred", "done", "wont-do", "promoted"]
     deleted: StrictBool
 
@@ -529,7 +528,7 @@ class ReviewQueueRow(ReviewTimestamp):
     id: UUID
     project_id: UUID
     work_item_id: UUID
-    title: ReviewTitle
+    title: StoredWorkTitle
     work_status: Literal["pending", "deferred", "done", "wont-do", "promoted"]
     state: Literal["pending", "answered", "requested", "completed", "superseded"]
     version: ReviewVersion

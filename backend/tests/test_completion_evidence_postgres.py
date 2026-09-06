@@ -415,6 +415,7 @@ def _insert_direct_completion_event(
     *,
     event_id: int | None = None,
     seal_report: bool = True,
+    seal_review_policy: bool = True,
 ) -> int:
     columns = ""
     values = ""
@@ -477,6 +478,8 @@ def _insert_direct_completion_event(
             ),
             {**parameters, "event_id": inserted},
         )
+        if not seal_review_policy:
+            return inserted
         connection.execute(
             text(
                 """

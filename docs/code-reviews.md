@@ -195,7 +195,9 @@ schema. Existing projects retain Never/Never/off; old receipts and history are
 not rewritten. Downgrade is refused after any review fact or policy change,
 even if the settings were later reset. Use a forward fix or explicitly approved
 complete backup restore after feature writes. Run the read-only
-`scripts/audit_code_reviews.py` from a private database environment; it reports
+`scripts/audit_project_activity.py` and `scripts/audit_code_reviews.py` from a
+private database environment. The aggregate audit verifies the exact supported
+guard catalog and earlier lifecycle invariants; the review audit reports
 aggregate integrity facts, never handoff/findings/tokens, and performs no repair.
 
 See the [implementation contract](code-reviews-implementation-plan.md) for

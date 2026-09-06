@@ -81,6 +81,9 @@ MNEMONIC_E2E_API_KEY=$(openssl rand -hex 32)
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
+  if (( status != 0 )); then
+    docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" logs --no-color --tail 200 api web || true
+  fi
   docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" down -v --remove-orphans >/dev/null 2>&1 || true
   exit "$status"
 }

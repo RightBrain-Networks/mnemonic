@@ -425,8 +425,9 @@ Application/API/MCP/dashboard 0.13.0, plugin 0.14.0 and Alembic
 18 REST receipt kinds, 15 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
 do not infer historical review requests. Quiesce old writers and back up before
-migration. Use the read-only `scripts/audit_code_reviews.py` at 0024; the older
-activity audit remains a historical-head preflight, not a 0024 audit. After any
+migration. Run both read-only `scripts/audit_project_activity.py` and
+`scripts/audit_code_reviews.py` at 0024; the activity audit also supports its
+explicit historical-head preflights. After any
 review policy change or fact, downgrade is forbidden even after resetting the
 settings. See [code reviews](docs/code-reviews.md) for deployment and recovery.
 

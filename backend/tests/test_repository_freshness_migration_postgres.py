@@ -14,6 +14,7 @@ from sqlalchemy import Connection, create_engine, event, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, defer
+from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from mnemonic_api.config import Settings
@@ -22,6 +23,7 @@ from mnemonic_api.schemas import (
     CheckpointCreate,
     CheckpointRead,
     WorkCompletionCreate,
+    WorkEventRead,
     WorkItemCreate,
     WorkItemRead,
     WorkMergeResult,
@@ -51,12 +53,9 @@ from .test_phase78_migration_postgres import _insert_gate, _insert_lease
 pytestmark = pytest.mark.postgres
 
 _SCOPE_CORPUS = json.loads(
-    (
-        BACKEND_DIR.parent
-        / "tests"
-        / "fixtures"
-        / "repository-freshness-scope-v1.json"
-    ).read_text(encoding="utf-8")
+    (BACKEND_DIR.parent / "tests" / "fixtures" / "repository-freshness-scope-v1.json").read_text(
+        encoding="utf-8"
+    )
 )
 _RECEIPT_KINDS = (
     "create_work",
@@ -114,19 +113,11 @@ def _generated_scope(case: dict[str, object]) -> list[str]:
 
 _VALID_SCOPE_CASES = [
     *([path] for path in _SCOPE_CORPUS["valid_paths"]),
-    *(
-        _generated_scope(case)
-        for case in _SCOPE_CORPUS["generated_scopes"]
-        if case["valid"]
-    ),
+    *(_generated_scope(case) for case in _SCOPE_CORPUS["generated_scopes"] if case["valid"]),
 ]
 _INVALID_SCOPE_CASES = [
     *([path] for path in _SCOPE_CORPUS["invalid_paths"]),
-    *(
-        _generated_scope(case)
-        for case in _SCOPE_CORPUS["generated_scopes"]
-        if not case["valid"]
-    ),
+    *(_generated_scope(case) for case in _SCOPE_CORPUS["generated_scopes"] if not case["valid"]),
     *(case["paths"] for case in _SCOPE_CORPUS["literal_scopes"]),
 ]
 
@@ -392,6 +383,17 @@ def _insert_related_relationship(
     return relationship_id
 
 
+def _historical_event_read(event: WorkEvent) -> WorkEventRead:
+    for name in (
+        "code_review_id",
+        "work_follow_up_id",
+        "work_follow_up_answer_id",
+        "code_review_result_id",
+    ):
+        set_committed_value(event, name, None)
+    return work_event_read(event)
+
+
 def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any]:
     with Session(bind=connection) as database:
         merge = database.get(WorkDuplicateMerge, merge_id)
@@ -403,6 +405,10 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
                 defer(WorkItem.completion_generation),
                 defer(WorkItem.last_reportable_closeout_version),
                 defer(WorkItem.external_references),
+                defer(WorkItem.remediation_depth),
+                defer(WorkItem.remediation_id),
+                defer(WorkItem.completion_review_checkpoint_id),
+                defer(WorkItem.completion_review_policy_snapshot),
             ),
         )
         destination = database.get(
@@ -412,6 +418,10 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
                 defer(WorkItem.completion_generation),
                 defer(WorkItem.last_reportable_closeout_version),
                 defer(WorkItem.external_references),
+                defer(WorkItem.remediation_depth),
+                defer(WorkItem.remediation_id),
+                defer(WorkItem.completion_review_checkpoint_id),
+                defer(WorkItem.completion_review_policy_snapshot),
             ),
         )
         relationship = database.get(WorkRelationship, merge.duplicate_relationship_id)
@@ -424,6 +434,10 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
                 defer(WorkEvent.reopen_generation),
                 defer(WorkEvent.job_completion_report_id),
                 defer(WorkEvent.work_move_id),
+                defer(WorkEvent.code_review_id),
+                defer(WorkEvent.work_follow_up_id),
+                defer(WorkEvent.work_follow_up_answer_id),
+                defer(WorkEvent.code_review_result_id),
             )
             .where(WorkEvent.created_for_duplicate_merge_id == merge_id)
             .order_by(WorkEvent.id)
@@ -434,6 +448,10 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
                 defer(WorkEvent.reopen_generation),
                 defer(WorkEvent.job_completion_report_id),
                 defer(WorkEvent.work_move_id),
+                defer(WorkEvent.code_review_id),
+                defer(WorkEvent.work_follow_up_id),
+                defer(WorkEvent.work_follow_up_answer_id),
+                defer(WorkEvent.code_review_result_id),
             )
             .where(WorkEvent.work_duplicate_merge_id == merge_id)
             .order_by(WorkEvent.id)
@@ -451,8 +469,8 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
             canonical_work_item=pointer,
             supporting_relationship_created=True,
             supporting_relationship=relationship_edge(relationship),
-            relationship_events=[work_event_read(item) for item in relationship_events],
-            merge_events=[work_event_read(item) for item in merge_events],
+            relationship_events=[_historical_event_read(item) for item in relationship_events],
+            merge_events=[_historical_event_read(item) for item in merge_events],
         )
     body = result.model_dump(mode="json")
     _typed, canonical, _response = _render_registered_response(
@@ -462,12 +480,11 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
     return body
 
 
-def _historical_checkpoint_body(
-    connection: Connection, checkpoint_id: UUID
-) -> dict[str, Any]:
-    row = connection.execute(
-        text(
-            """
+def _historical_checkpoint_body(connection: Connection, checkpoint_id: UUID) -> dict[str, Any]:
+    row = (
+        connection.execute(
+            text(
+                """
             SELECT id, work_item_id, kind, prompt, source_client,
                    source_session_id, source_model, source_session_url,
                    repository_branch, verified_against, tags, source_metadata,
@@ -475,32 +492,36 @@ def _historical_checkpoint_body(
             FROM checkpoints
             WHERE id = :checkpoint_id
             """
-        ),
-        {"checkpoint_id": checkpoint_id},
-    ).mappings().one()
+            ),
+            {"checkpoint_id": checkpoint_id},
+        )
+        .mappings()
+        .one()
+    )
     return CheckpointRead.model_validate(dict(row)).model_dump(mode="json")
 
 
 def _historical_work_body(connection: Connection, work_item_id: UUID) -> dict[str, Any]:
-    row = connection.execute(
-        text(
-            """
+    row = (
+        connection.execute(
+            text(
+                """
             SELECT id, project_id, title, summary, status, priority,
                    initial_checkpoint_id, version, created_at, updated_at
             FROM work_items
             WHERE id = :work_item_id
             """
-        ),
-        {"work_item_id": work_item_id},
-    ).mappings().one()
+            ),
+            {"work_item_id": work_item_id},
+        )
+        .mappings()
+        .one()
+    )
     return WorkItemRead.model_validate(dict(row)).model_dump(mode="json")
 
 
 def _checkpoint_request_body(checkpoint: dict[str, Any]) -> dict[str, Any]:
-    return {
-        name: checkpoint[name]
-        for name in _CHECKPOINT_REQUEST_FIELDS
-    }
+    return {name: checkpoint[name] for name in _CHECKPOINT_REQUEST_FIELDS}
 
 
 def _coherent_historical_checkpoint_receipts(
@@ -512,9 +533,7 @@ def _coherent_historical_checkpoint_receipts(
 ) -> tuple[dict[str, dict[str, Any]], dict[str, PreparedOperation]]:
     create_work_id, create_checkpoint_id = work[3]
     create_work_body = _historical_work_body(connection, create_work_id)
-    create_checkpoint_body = _historical_checkpoint_body(
-        connection, create_checkpoint_id
-    )
+    create_checkpoint_body = _historical_checkpoint_body(connection, create_checkpoint_id)
     create_operation_id = uuid4()
     create_payload = WorkItemCreate.model_validate(
         {
@@ -522,9 +541,7 @@ def _coherent_historical_checkpoint_receipts(
             "summary": create_work_body["summary"],
             "status": create_work_body["status"],
             "priority": create_work_body["priority"],
-            "initial_checkpoint": _checkpoint_request_body(
-                create_checkpoint_body
-            ),
+            "initial_checkpoint": _checkpoint_request_body(create_checkpoint_body),
             "client_operation_id": create_operation_id,
         }
     )
@@ -546,19 +563,13 @@ def _coherent_historical_checkpoint_receipts(
     )
 
     completion_work_item_id = work[6][0]
-    completion_work_body = _historical_work_body(
-        connection, completion_work_item_id
-    )
-    completion_checkpoint_body = _historical_checkpoint_body(
-        connection, completion_id
-    )
+    completion_work_body = _historical_work_body(connection, completion_work_item_id)
+    completion_checkpoint_body = _historical_checkpoint_body(connection, completion_id)
     completion_operation_id = uuid4()
     completion_payload = WorkCompletionCreate.model_validate(
         {
             "expected_version": completion_work_body["version"] - 1,
-            "checkpoint": _checkpoint_request_body(
-                completion_checkpoint_body
-            ),
+            "checkpoint": _checkpoint_request_body(completion_checkpoint_body),
             "client_operation_id": completion_operation_id,
         }
     )
@@ -589,9 +600,7 @@ def _coherent_historical_checkpoint_receipts(
         spec = operation_spec(kind)
         _typed, body, _response = _render_registered_response(spec, sources[kind])
         bodies[kind] = body
-        prepared[kind] = prepare_client_operation(
-            kind, project_id, target, payload
-        )
+        prepared[kind] = prepare_client_operation(kind, project_id, target, payload)
     return bodies, prepared
 
 
@@ -623,14 +632,10 @@ def _insert_receipt_corpus(
     for position, kind in enumerate(_RECEIPT_KINDS, start=1):
         spec = operation_spec(kind)
         body = bodies[kind]
-        _typed, canonical, _response = _render_registered_response(
-            spec, body, stored_snapshot=True
-        )
+        _typed, canonical, _response = _render_registered_response(spec, body, stored_snapshot=True)
         assert canonical == body
         mutation_applied = (
-            True
-            if spec.mutation_applied_field is None
-            else body[spec.mutation_applied_field]
+            True if spec.mutation_applied_field is None else body[spec.mutation_applied_field]
         )
         salt = bytes([position]) * 32
         prepared_operation = prepared.get(kind)
@@ -641,9 +646,7 @@ def _insert_receipt_corpus(
             assert prepared_operation.identity is not None
             assert prepared_operation.canonical_bytes is not None
             operation_id = prepared_operation.identity.client_operation_id
-            fingerprint = request_fingerprint(
-                salt, prepared_operation.canonical_bytes
-            )
+            fingerprint = request_fingerprint(salt, prepared_operation.canonical_bytes)
         receipt_id = connection.scalar(
             text(
                 """
@@ -694,9 +697,10 @@ def _assert_populated_fixture(
     *,
     merge_id: UUID,
 ) -> None:
-    counts = connection.execute(
-        text(
-            """
+    counts = (
+        connection.execute(
+            text(
+                """
             SELECT
                 (SELECT count(*) FROM project_settings) AS settings,
                 (SELECT count(*) FROM work_items) AS work_items,
@@ -717,8 +721,11 @@ def _assert_populated_fixture(
                 (SELECT count(*) FROM checkpoints WHERE migration_origin IS NULL)
                     AS native_checkpoints
             """
+            )
         )
-    ).mappings().one()
+        .mappings()
+        .one()
+    )
     assert dict(counts) == {
         "settings": 1,
         "work_items": 7,
@@ -741,26 +748,32 @@ def _assert_populated_fixture(
         ).all()
     )
     assert checkpoint_kinds == {"completion": 1, "context": 7, "progress": 2}
-    assert connection.scalar(
-        text(
-            """
+    assert (
+        connection.scalar(
+            text(
+                """
             SELECT count(*)
             FROM work_events
             WHERE created_for_duplicate_merge_id = :merge_id
             """
-        ),
-        {"merge_id": merge_id},
-    ) == 2
-    assert connection.scalar(
-        text(
-            """
+            ),
+            {"merge_id": merge_id},
+        )
+        == 2
+    )
+    assert (
+        connection.scalar(
+            text(
+                """
             SELECT count(*)
             FROM work_events
             WHERE work_duplicate_merge_id = :merge_id
             """
-        ),
-        {"merge_id": merge_id},
-    ) == 2
+            ),
+            {"merge_id": merge_id},
+        )
+        == 2
+    )
     assert connection.scalar(
         text(
             """
@@ -801,8 +814,7 @@ def _assert_receipts_replay(
             assert "affected_paths" not in body["checkpoint"]
 
     before_replay = {
-        table: _row_digest(connection, table)
-        for table in (*_UNCHANGED_TABLES, "checkpoints")
+        table: _row_digest(connection, table) for table in (*_UNCHANGED_TABLES, "checkpoints")
     }
     with Session(
         bind=connection,
@@ -816,8 +828,7 @@ def _assert_receipts_replay(
             assert json.loads(replay.response.body) == bodies_by_kind[kind]
         database.commit()
     assert {
-        table: _row_digest(connection, table)
-        for table in (*_UNCHANGED_TABLES, "checkpoints")
+        table: _row_digest(connection, table) for table in (*_UNCHANGED_TABLES, "checkpoints")
     } == before_replay
 
 
@@ -914,20 +925,15 @@ def test_0018_upgrade_binds_commit_guard_to_pg_catalog_builtins():
                     """
                 )
             )
-            connection.exec_driver_sql(
-                f'SET LOCAL search_path = "{schema}", pg_catalog'
-            )
+            connection.exec_driver_sql(f'SET LOCAL search_path = "{schema}", pg_catalog')
             assert connection.execute(
                 text(
-                    "SELECT cardinality(ARRAY['src/**']::varchar[]), "
-                    "1 = 0, 1 > 0, current_schema()"
+                    "SELECT cardinality(ARRAY['src/**']::varchar[]), 1 = 0, 1 > 0, current_schema()"
                 )
             ).one() == (0, True, False, "pg_catalog")
 
         with engine.begin() as connection:
-            connection.exec_driver_sql(
-                f'SET LOCAL search_path = "{schema}", pg_catalog'
-            )
+            connection.exec_driver_sql(f'SET LOCAL search_path = "{schema}", pg_catalog')
             config.attributes["connection"] = connection
             command.upgrade(config, "0018_repository_freshness")
 
@@ -958,9 +964,7 @@ def test_0018_upgrade_binds_commit_guard_to_pg_catalog_builtins():
 
         with pytest.raises(DBAPIError) as captured:
             with engine.begin() as connection:
-                connection.exec_driver_sql(
-                    f'SET LOCAL search_path = "{schema}", pg_catalog'
-                )
+                connection.exec_driver_sql(f'SET LOCAL search_path = "{schema}", pg_catalog')
                 connection.execute(
                     text(
                         """
@@ -1065,9 +1069,7 @@ def test_0018_populated_upgrade_preserves_all_prior_facts_and_receipts():
             connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
             _assert_populated_fixture(connection, merge_id=merge_id)
             _assert_receipts_replay(connection, prepared_checkpoint_receipts)
-            before = {
-                table: _row_digest(connection, table) for table in _UNCHANGED_TABLES
-            }
+            before = {table: _row_digest(connection, table) for table in _UNCHANGED_TABLES}
             checkpoint_before = _row_digest(connection, "checkpoints", omit_scope=True)
             catalog_before = _prior_catalog_digests(connection)
             receipts_before = connection.execute(
@@ -1089,17 +1091,19 @@ def test_0018_populated_upgrade_preserves_all_prior_facts_and_receipts():
             assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
                 "0018_repository_freshness"
             )
-            assert {
-                table: _row_digest(connection, table) for table in _UNCHANGED_TABLES
-            } == before
+            assert {table: _row_digest(connection, table) for table in _UNCHANGED_TABLES} == before
             assert _row_digest(connection, "checkpoints", omit_scope=True) == checkpoint_before
             assert _prior_catalog_digests(connection) == catalog_before
-            assert connection.scalar(
-                text("SELECT count(*) FROM checkpoints WHERE affected_paths <> '{}'")
-            ) == 0
-            assert connection.execute(
-                text(
-                    """
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM checkpoints WHERE affected_paths <> '{}'")
+                )
+                == 0
+            )
+            assert (
+                connection.execute(
+                    text(
+                        """
                     SELECT operation_kind, request_fingerprint_version,
                            request_fingerprint_salt, request_fingerprint,
                            response_contract_version, state, response_status,
@@ -1107,13 +1111,16 @@ def test_0018_populated_upgrade_preserves_all_prior_facts_and_receipts():
                     FROM client_operations
                     ORDER BY operation_kind
                     """
-                )
-            ).all() == receipts_before
+                    )
+                ).all()
+                == receipts_before
+            )
             _assert_populated_fixture(connection, merge_id=merge_id)
             _assert_receipts_replay(connection, prepared_checkpoint_receipts)
-            function = connection.execute(
-                text(
-                    """
+            function = (
+                connection.execute(
+                    text(
+                        """
                     SELECT procedure.provolatile, procedure.proisstrict,
                            procedure.proparallel, procedure.proconfig,
                            pg_get_functiondef(procedure.oid) AS definition
@@ -1123,16 +1130,20 @@ def test_0018_populated_upgrade_preserves_all_prior_facts_and_receipts():
                     WHERE namespace.nspname = current_schema()
                       AND procedure.proname = 'mnemonic_affected_paths_valid_v1'
                     """
+                    )
                 )
-            ).mappings().one()
+                .mappings()
+                .one()
+            )
             assert function["provolatile"] == "i"
             assert function["proisstrict"] is True
             assert function["proparallel"] == "s"
             assert function["proconfig"] == ["search_path=pg_catalog"]
             assert "CREATE OR REPLACE FUNCTION" in function["definition"]
-            assert connection.scalar(
-                text(
-                    """
+            assert (
+                connection.scalar(
+                    text(
+                        """
                     WITH scoped_indexes AS MATERIALIZED (
                         SELECT indexrelid
                         FROM pg_index
@@ -1143,8 +1154,10 @@ def test_0018_populated_upgrade_preserves_all_prior_facts_and_receipts():
                     SELECT count(*) FROM scoped_indexes
                     WHERE pg_get_indexdef(indexrelid) ILIKE '%affected_paths%'
                     """
+                    )
                 )
-            ) == 0
+                == 0
+            )
 
         _assert_prior_immutable_guards(
             engine,
@@ -1158,14 +1171,13 @@ def test_0018_populated_upgrade_preserves_all_prior_facts_and_receipts():
             assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
                 "0017_duplicate_suggestion_title_key"
             )
-            assert {
-                table: _row_digest(connection, table) for table in _UNCHANGED_TABLES
-            } == before
+            assert {table: _row_digest(connection, table) for table in _UNCHANGED_TABLES} == before
             assert _row_digest(connection, "checkpoints") == checkpoint_before
             assert _prior_catalog_digests(connection) == catalog_before
-            assert connection.execute(
-                text(
-                    """
+            assert (
+                connection.execute(
+                    text(
+                        """
                     SELECT operation_kind, request_fingerprint_version,
                            request_fingerprint_salt, request_fingerprint,
                            response_contract_version, state, response_status,
@@ -1173,13 +1185,18 @@ def test_0018_populated_upgrade_preserves_all_prior_facts_and_receipts():
                     FROM client_operations
                     ORDER BY operation_kind
                     """
-                )
-            ).all() == receipts_before
+                    )
+                ).all()
+                == receipts_before
+            )
             _assert_populated_fixture(connection, merge_id=merge_id)
             _assert_receipts_replay(connection, prepared_checkpoint_receipts)
-            assert connection.scalar(
-                text("SELECT to_regprocedure('mnemonic_affected_paths_valid_v1(varchar[])')")
-            ) is None
+            assert (
+                connection.scalar(
+                    text("SELECT to_regprocedure('mnemonic_affected_paths_valid_v1(varchar[])')")
+                )
+                is None
+            )
 
         with engine.begin() as connection:
             config.attributes["connection"] = connection
@@ -1187,17 +1204,19 @@ def test_0018_populated_upgrade_preserves_all_prior_facts_and_receipts():
             assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
                 "0018_repository_freshness"
             )
-            assert {
-                table: _row_digest(connection, table) for table in _UNCHANGED_TABLES
-            } == before
+            assert {table: _row_digest(connection, table) for table in _UNCHANGED_TABLES} == before
             assert _row_digest(connection, "checkpoints", omit_scope=True) == checkpoint_before
             assert _prior_catalog_digests(connection) == catalog_before
-            assert connection.scalar(
-                text("SELECT count(*) FROM checkpoints WHERE affected_paths <> '{}'")
-            ) == 0
-            assert connection.execute(
-                text(
-                    """
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM checkpoints WHERE affected_paths <> '{}'")
+                )
+                == 0
+            )
+            assert (
+                connection.execute(
+                    text(
+                        """
                     SELECT operation_kind, request_fingerprint_version,
                            request_fingerprint_salt, request_fingerprint,
                            response_contract_version, state, response_status,
@@ -1205,13 +1224,18 @@ def test_0018_populated_upgrade_preserves_all_prior_facts_and_receipts():
                     FROM client_operations
                     ORDER BY operation_kind
                     """
-                )
-            ).all() == receipts_before
+                    )
+                ).all()
+                == receipts_before
+            )
             _assert_populated_fixture(connection, merge_id=merge_id)
             _assert_receipts_replay(connection, prepared_checkpoint_receipts)
-            assert connection.scalar(
-                text("SELECT to_regprocedure('mnemonic_affected_paths_valid_v1(varchar[])')")
-            ) is not None
+            assert (
+                connection.scalar(
+                    text("SELECT to_regprocedure('mnemonic_affected_paths_valid_v1(varchar[])')")
+                )
+                is not None
+            )
     finally:
         engine.dispose()
         with admin.begin() as connection:
@@ -1223,34 +1247,30 @@ def test_0018_populated_upgrade_preserves_all_prior_facts_and_receipts():
     "paths",
     _VALID_SCOPE_CASES,
 )
-def test_affected_path_sql_validator_accepts_exact_public_corpus(
-    postgres_engine, paths
-):
+def test_affected_path_sql_validator_accepts_exact_public_corpus(postgres_engine, paths):
     with postgres_engine.connect() as connection:
-        assert connection.scalar(
-            text(
-                "SELECT mnemonic_affected_paths_valid_v1("
-                "CAST(:paths AS varchar[]))"
-            ),
-            {"paths": paths},
-        ) is True
+        assert (
+            connection.scalar(
+                text("SELECT mnemonic_affected_paths_valid_v1(CAST(:paths AS varchar[]))"),
+                {"paths": paths},
+            )
+            is True
+        )
 
 
 @pytest.mark.parametrize(
     "paths",
     _INVALID_SCOPE_CASES,
 )
-def test_affected_path_sql_validator_rejects_exact_invalid_corpus(
-    postgres_engine, paths
-):
+def test_affected_path_sql_validator_rejects_exact_invalid_corpus(postgres_engine, paths):
     with postgres_engine.connect() as connection:
-        assert connection.scalar(
-            text(
-                "SELECT mnemonic_affected_paths_valid_v1("
-                "CAST(:paths AS varchar[]))"
-            ),
-            {"paths": paths},
-        ) is False
+        assert (
+            connection.scalar(
+                text("SELECT mnemonic_affected_paths_valid_v1(CAST(:paths AS varchar[]))"),
+                {"paths": paths},
+            )
+            is False
+        )
 
 
 @pytest.mark.parametrize(
@@ -1270,17 +1290,16 @@ def test_affected_path_sql_validator_rejects_null_multidimensional_and_lower_bou
         "'[0:0]={src/**}'::varchar[]",
     }
     with postgres_engine.connect() as connection:
-        assert connection.scalar(
-            text(f"SELECT mnemonic_affected_paths_valid_v1({array_expression})")
-        ) is False
+        assert (
+            connection.scalar(text(f"SELECT mnemonic_affected_paths_valid_v1({array_expression})"))
+            is False
+        )
 
 
 def test_database_constraints_and_immutability_protect_affected_paths(
     api, project, work_payload, postgres_engine
 ):
-    created = api.post(
-        f"/api/v1/projects/{project['id']}/work-items", json=work_payload
-    )
+    created = api.post(f"/api/v1/projects/{project['id']}/work-items", json=work_payload)
     assert created.status_code == 201, created.text
     work_item_id = created.json()["work_item"]["id"]
 
@@ -1382,9 +1401,7 @@ def test_0018_downgrade_refuses_to_erase_nonempty_scope():
 
         with pytest.raises(RuntimeError, match="Cannot downgrade repository freshness"):
             with engine.begin() as connection:
-                connection.exec_driver_sql(
-                    f'SET LOCAL search_path = "{schema}", pg_catalog'
-                )
+                connection.exec_driver_sql(f'SET LOCAL search_path = "{schema}", pg_catalog')
                 assert connection.scalar(text("SELECT 1 > 0")) is False
                 config.attributes["connection"] = connection
                 command.downgrade(config, "0017_duplicate_suggestion_title_key")
@@ -1397,9 +1414,12 @@ def test_0018_downgrade_refuses_to_erase_nonempty_scope():
                 text("SELECT affected_paths FROM checkpoints WHERE id = :id"),
                 {"id": scoped_id},
             ) == ["src/**"]
-            assert connection.scalar(
-                text("SELECT to_regprocedure('mnemonic_affected_paths_valid_v1(varchar[])')")
-            ) is not None
+            assert (
+                connection.scalar(
+                    text("SELECT to_regprocedure('mnemonic_affected_paths_valid_v1(varchar[])')")
+                )
+                is not None
+            )
     finally:
         engine.dispose()
         with admin.begin() as connection:
@@ -1424,19 +1444,16 @@ def test_0018_downgrade_rejects_repeatable_read_before_destructive_work():
                 )
             )
 
-        with engine.connect().execution_options(
-            isolation_level="REPEATABLE READ"
-        ) as connection:
+        with engine.connect().execution_options(isolation_level="REPEATABLE READ") as connection:
             with connection.begin():
-                connection.exec_driver_sql(
-                    f'SET LOCAL search_path = "{schema}", pg_catalog'
-                )
+                connection.exec_driver_sql(f'SET LOCAL search_path = "{schema}", pg_catalog')
                 assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
                     "0018_repository_freshness"
                 )
-                assert connection.scalar(
-                    text("SELECT current_setting('transaction_isolation')")
-                ) == "read committed"
+                assert (
+                    connection.scalar(text("SELECT current_setting('transaction_isolation')"))
+                    == "read committed"
+                )
                 config.attributes["connection"] = connection
                 with pytest.raises(RuntimeError, match="requires READ COMMITTED isolation"):
                     command.downgrade(config, "0017_duplicate_suggestion_title_key")
@@ -1445,20 +1462,26 @@ def test_0018_downgrade_rejects_repeatable_read_before_destructive_work():
             assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
                 "0018_repository_freshness"
             )
-            assert connection.scalar(
-                text(
-                    """
+            assert (
+                connection.scalar(
+                    text(
+                        """
                     SELECT count(*)
                     FROM information_schema.columns
                     WHERE table_schema = current_schema()
                       AND table_name = 'checkpoints'
                       AND column_name = 'affected_paths'
                     """
+                    )
                 )
-            ) == 1
-            assert connection.scalar(
-                text("SELECT to_regprocedure('mnemonic_affected_paths_valid_v1(varchar[])')")
-            ) is not None
+                == 1
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT to_regprocedure('mnemonic_affected_paths_valid_v1(varchar[])')")
+                )
+                is not None
+            )
     finally:
         engine.dispose()
         with admin.begin() as connection:
@@ -1511,9 +1534,7 @@ def test_0018_downgrade_sees_scope_committed_while_waiting_for_table_lock():
                 downgrade_pid.append(connection.scalar(text("SELECT pg_backend_pid()")))
                 downgrade_pid_ready.set()
                 downgrade_config.attributes["connection"] = connection
-                command.downgrade(
-                    downgrade_config, "0017_duplicate_suggestion_title_key"
-                )
+                command.downgrade(downgrade_config, "0017_duplicate_suggestion_title_key")
 
         with ThreadPoolExecutor(max_workers=1) as executor:
             downgrade_future = executor.submit(downgrade)
@@ -1537,9 +1558,12 @@ def test_0018_downgrade_sees_scope_committed_while_waiting_for_table_lock():
                 text("SELECT affected_paths FROM checkpoints WHERE id = :id"),
                 {"id": scoped_id},
             ) == ["src/**"]
-            assert connection.scalar(
-                text("SELECT to_regprocedure('mnemonic_affected_paths_valid_v1(varchar[])')")
-            ) is not None
+            assert (
+                connection.scalar(
+                    text("SELECT to_regprocedure('mnemonic_affected_paths_valid_v1(varchar[])')")
+                )
+                is not None
+            )
     finally:
         if writer_transaction is not None and writer_transaction.is_active:
             writer_transaction.rollback()
@@ -1598,9 +1622,7 @@ def test_0018_downgrade_lock_prevents_scope_insert_after_empty_check():
                 downgrade_pid.append(connection.scalar(text("SELECT pg_backend_pid()")))
                 downgrade_pid_ready.set()
                 downgrade_config.attributes["connection"] = connection
-                command.downgrade(
-                    downgrade_config, "0017_duplicate_suggestion_title_key"
-                )
+                command.downgrade(downgrade_config, "0017_duplicate_suggestion_title_key")
 
         def insert_scope() -> None:
             with engine.begin() as connection:
@@ -1655,17 +1677,20 @@ def test_0018_downgrade_lock_prevents_scope_insert_after_empty_check():
             assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
                 "0017_duplicate_suggestion_title_key"
             )
-            assert connection.scalar(
-                text(
-                    """
+            assert (
+                connection.scalar(
+                    text(
+                        """
                     SELECT count(*)
                     FROM information_schema.columns
                     WHERE table_schema = current_schema()
                       AND table_name = 'checkpoints'
                       AND column_name = 'affected_paths'
                     """
+                    )
                 )
-            ) == 0
+                == 0
+            )
     finally:
         allow_downgrade.set()
         engine.dispose()

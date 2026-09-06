@@ -79,8 +79,10 @@ test("project details can be edited above recall pointer content", async ({ page
   await page.locator("#project-select").selectOption(state.projectId);
 
   const cards = page.locator(".settings-card");
-  await expect(cards.nth(0).getByRole("heading", { name: "Project details" })).toBeVisible();
-  await expect(cards.nth(1).getByRole("heading", {
+  await expect(cards.nth(0).getByRole("heading", { name: "Code reviews", exact: true })).toBeVisible();
+  const details = cards.filter({ has: page.getByRole("heading", { name: "Project details", exact: true }) });
+  await expect(cards.nth(1).getByRole("heading", { name: "Project details" })).toBeVisible();
+  await expect(cards.nth(2).getByRole("heading", {
     name: "Recall pointer content",
     exact: true
   })).toBeVisible();
@@ -98,7 +100,7 @@ test("project details can be edited above recall pointer content", async ({ page
   await slug.fill(updatedSlug);
   await description.fill(updatedDescription);
   await repositoryUrl.fill(updatedRepositoryUrl);
-  await cards.nth(0).getByRole("button", { name: "Save project details" }).click();
+  await details.getByRole("button", { name: "Save project details" }).click();
 
   await expect.poll(() => patchBody).toEqual({
     name: updatedName,
@@ -110,7 +112,7 @@ test("project details can be edited above recall pointer content", async ({ page
   await expect(page.locator(".toast[role=status]")).toContainText(
     `Project details saved for “${updatedName}”.`
   );
-  await expect(cards.nth(0).getByRole("button", {
+  await expect(details.getByRole("button", {
     name: "Save project details"
   })).toBeDisabled();
 });

@@ -19,11 +19,13 @@ from typing import Any
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0023_work_item_moves"
+HEAD = "0024_code_reviews"
+MOVE_HEAD = "0023_work_item_moves"
+MOVE_HEADS = (MOVE_HEAD, HEAD)
 REFERENCE_HEAD = "0022_external_references"
 REPORT_HEAD = "0021_job_completion_reports"
-REPORT_HEADS = (REPORT_HEAD, REFERENCE_HEAD, HEAD)
-REFERENCE_HEADS = (REFERENCE_HEAD, HEAD)
+REPORT_HEADS = (REPORT_HEAD, REFERENCE_HEAD, *MOVE_HEADS)
+REFERENCE_HEADS = (REFERENCE_HEAD, *MOVE_HEADS)
 ACTIVITY_HEAD = "0020_project_activity"
 PREVIOUS_HEAD = "0019_structured_completion_evidence"
 CATALOG_PATH = (
@@ -40,6 +42,16 @@ def _legacy():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _review_checks() -> dict[str, str]:
+    path = Path(__file__).with_name("audit_code_reviews.py")
+    spec = importlib.util.spec_from_file_location("mnemonic_review_audit", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Code-review audit is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return {f"code_review_{name}": sql for name, sql in module.CHECKS.items()}
 
 
 def _digest(value: str, schema: str) -> str:
@@ -661,8 +673,10 @@ def _head_findings(
         checks.update(_REPORT_FINDINGS)
     if expected_head in REFERENCE_HEADS:
         checks.update(_REFERENCE_FINDINGS)
-    if expected_head == HEAD:
+    if expected_head in MOVE_HEADS:
         checks.update(_MOVE_FINDINGS)
+    if expected_head == HEAD:
+        checks.update(_review_checks())
     findings.update(
         {key: connection.scalar(text(sql)) for key, sql in checks.items()}
     )
@@ -688,7 +702,7 @@ def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[st
     counts.update(previous._core_counts(connection))
     counts.update(previous._repository_freshness_counts(connection))
     counts.update(previous._completion_evidence_counts(connection, schema))
-    if expected_head == HEAD:
+    if expected_head in MOVE_HEADS:
         _move_aware_prior_counts(connection, counts, previous)
     findings = previous._blocking_counts(counts)
     findings.update(_head_findings(connection, expected_head, previous))
@@ -705,7 +719,7 @@ def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[st
         inventory["follow_ups"] = connection.scalar(
             text("SELECT count(*) FROM job_completion_report_follow_ups")
         )
-    if expected_head == HEAD:
+    if expected_head in MOVE_HEADS:
         inventory["moves"] = connection.scalar(text("SELECT count(*) FROM work_item_moves"))
         inventory["work_provenance_heads"] = connection.scalar(
             text("SELECT count(*) FROM work_report_provenance_heads")
@@ -725,7 +739,7 @@ def main() -> int:
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     parser.add_argument(
         "--expected-head",
-        choices=(PREVIOUS_HEAD, ACTIVITY_HEAD, REPORT_HEAD, REFERENCE_HEAD, HEAD),
+        choices=(PREVIOUS_HEAD, ACTIVITY_HEAD, REPORT_HEAD, REFERENCE_HEAD, *MOVE_HEADS),
         default=HEAD,
     )
     args = parser.parse_args()

@@ -17,7 +17,7 @@ Backend code, migrations, and tests live under `backend/`; the MCP adapter and t
 - `cd frontend && npm run test:e2e:stack`: provision and run the isolated Playwright acceptance stack.
 - `uv run --project backend python scripts/audit_duplicate_handling.py --backup-directory ./backups`: run the read-only Phase 11 preflight before migrating from 0019.
 - `uv run --project backend python scripts/audit_project_activity.py`: run the aggregate Phase 12 integrity audit from a private environment with database access.
-- `uv run --project backend python scripts/audit_code_reviews.py`: run the read-only current-head review integrity audit; the Phase 12 audit remains for its explicitly supported historical heads.
+- `uv run --project backend python scripts/audit_code_reviews.py`: run the read-only current-head review integrity audit alongside the aggregate project-activity/catalog audit.
 
 Use Python 3.14, `uv`, and Node 24. Keep the backend and MCP virtual environments separate.
 

@@ -2,6 +2,7 @@
 
 import itertools
 import json
+from pathlib import Path
 from uuid import UUID
 
 import httpx
@@ -351,7 +352,15 @@ async def test_bounded_discovery_preserves_filters_and_opaque_cursor(settings, i
     actual, requests = await call(settings, tool, args, queue_page(is_review))
     assert actual == queue_page(is_review)
     assert len(requests) == 1 and requests[0].method == "GET"
-    assert dict(requests[0].url.params)["cursor"] == args["cursor"]
+    sent = dict(requests[0].url.params)
+    assert sent["after"] == args["cursor"] and "cursor" not in sent
+    document = json.loads((Path(__file__).resolve().parents[2] / "docs/openapi.json").read_text())
+    route = "/api/v1/projects/{project_id}/" + (
+        "code-reviews" if is_review else "work-agent-follow-ups"
+    )
+    allowed = {row["name"] for row in document["paths"][route]["get"]["parameters"]
+               if row["in"] == "query"}
+    assert set(sent) <= allowed
 
 
 async def test_warm_detail_returns_exact_handoff_and_scope(settings):
@@ -359,6 +368,20 @@ async def test_warm_detail_returns_exact_handoff_and_scope(settings):
         "project_id": PROJECT_ID, "work_item_id": WORK_ID, "review_id": REVIEW_ID,
     }, review_detail())
     assert actual == review_detail() and len(requests) == 1
+
+
+@pytest.mark.parametrize("title", ["Repair\ncache", "Repair\tcache", "Repair\u2028cache"])
+async def test_stored_work_titles_keep_the_existing_read_contract(settings, title):
+    detail = review_detail()
+    detail["source_work_state"]["title"] = title
+    actual, _ = await call(settings, "get_code_review", {
+        "project_id": PROJECT_ID, "work_item_id": WORK_ID, "review_id": REVIEW_ID,
+    }, detail)
+    assert actual["source_work_state"]["title"] == title
+    page = queue_page()
+    page["items"][0]["title"] = title
+    actual, _ = await call(settings, "list_code_reviews", {"project_id": PROJECT_ID}, page)
+    assert actual["items"][0]["title"] == title
 
 
 @pytest.mark.parametrize("change", [

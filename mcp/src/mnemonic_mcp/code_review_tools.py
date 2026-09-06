@@ -133,7 +133,7 @@ def _register_review_reads(server: FastMCP, api: MnemonicAPI) -> None:
         if work_item_id is not None:
             params["work_item_id"] = str(work_item_id)
         if cursor is not None:
-            params["cursor"] = cursor
+            params["after"] = cursor
         return cast(ReviewQueuePage, await api.request(
             "GET", f"projects/{project_id}/code-reviews", params=params,
             response_model=ReviewQueuePage, effect=TransportEffect.SAFE_READ,
@@ -171,7 +171,7 @@ def _register_question_reads(server: FastMCP, api: MnemonicAPI) -> None:
         if work_item_id is not None:
             params["work_item_id"] = str(work_item_id)
         if cursor is not None:
-            params["cursor"] = cursor
+            params["after"] = cursor
         return cast(ReviewQueuePage, await api.request(
             "GET", f"projects/{project_id}/work-agent-follow-ups", params=params,
             response_model=ReviewQueuePage, effect=TransportEffect.SAFE_READ,

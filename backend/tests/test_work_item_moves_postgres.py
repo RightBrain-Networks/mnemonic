@@ -478,23 +478,21 @@ def test_provenance_allocator_serializes_overlapping_origin_projects(
     source = _work(api, project, work_payload, "Cross-origin provenance source")[
         "work_item"
     ]
-    first_completion = api.post(
-        _path(project, source) + "/complete",
+    first_completion = api.patch(
+        _path(project, source),
         json=reported(
             {
                 "expected_version": 1,
-                "checkpoint": {
-                    **checkpoint_fields,
-                    "source_session_id": "first-provenance-origin",
-                },
-            }
+                "status": "wont-do",
+            },
+            retirement=True,
         ),
     )
     assert first_completion.status_code == 200, first_completion.text
     first_report = first_completion.json()["job_completion_report"]
     moved = api.post(
         _path(project, source) + "/move",
-        json=_move_payload(target, first_completion.json()["work_item"]["version"]),
+        json=_move_payload(target, first_completion.json()["version"]),
     )
     assert moved.status_code == 200, moved.text
     reopened = api.patch(
@@ -875,6 +873,7 @@ def test_move_surfaces_unsealed_closeout_slot_as_stable_conflict(
             ),
             {"work_item_id": work["id"]},
         )
+        connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
         for trigger in ("job_report_transition_guard", "job_report_transition_sealed"):
             connection.execute(
                 text(f"ALTER TABLE work_items ENABLE TRIGGER {trigger}")

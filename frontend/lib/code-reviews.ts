@@ -1,4 +1,5 @@
 import type { LeasePublic, MutationActor, WorkStatus } from "./types.ts";
+import { decimalString } from "./activity-cursors.ts";
 import {
   codeReviewDecision,
   validReviewThreshold,
@@ -237,7 +238,7 @@ const singleLine = /[\r\n\t\u2028\u2029]/u;
 const hash = (value: unknown): value is string =>
   typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const sequence = (value: unknown): value is string =>
-  typeof value === "string" && /^[1-9][0-9]{0,18}$/.test(value);
+  decimalString(value, true);
 const version = (value: unknown) => finiteInteger(value, 1, 2147483647);
 const nullableId = (value: unknown) => value === null || validUuid(value);
 const nullableSequence = (value: unknown) => value === null || sequence(value);
@@ -594,6 +595,7 @@ export function decodeWorkFollowUp(
     !reviewText(row.question, 4000, 8192) ||
     JSON.stringify(row.allowed_answers) !== '["yes","no"]' ||
     !stringList(row.required_answer_fields, 10, 80) ||
+    row.required_answer_fields.length === 0 ||
     !["pending", "answered", "superseded"].includes(String(row.state)) ||
     !nullableId(row.answer_id) ||
     !nullableSequence(row.superseded_by_event_id) ||
@@ -723,7 +725,7 @@ function decodeSource(value: unknown, workId: string): ReviewSourceState {
   const row = model(value, ["work_item_id", "title", "status", "deleted"]);
   if (
     !sameUuid(row.work_item_id, workId) ||
-    !reviewText(row.title, 200, 800, false) ||
+    !boundedText(row.title, 200) ||
     !status(row.status) ||
     typeof row.deleted !== "boolean"
   )
@@ -1058,7 +1060,7 @@ export function decodeReviewQueuePage(
     ]);
     identity(row, projectId);
     if (
-      !reviewText(row.title, 200, 800, false) ||
+      !boundedText(row.title, 200) ||
       !status(row.work_status) ||
       !version(row.version) ||
       !sequence(row.created_sequence) ||
