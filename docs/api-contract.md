@@ -1,6 +1,6 @@
 # Phase 12 API contract
 
-This is application/API/MCP/dashboard `0.9.0`, plugin `0.12.0`, and migration
+This is application/API/MCP/dashboard `0.10.0`, plugin `0.12.0`, and migration
 `0022_external_references`. The catalog has exactly 32 MCP tools, 11 protected
 MCP writes, 15 REST receipt kinds, and 13 protected browser mutations.
 [Project activity and human reports](project-activity-and-reports.md) documents
@@ -1176,7 +1176,7 @@ An invalid stdio record terminates that transport without a competing response
 writer. The locked SDK's complete evidence success—including JSON text,
 `structuredContent`, the maximum ID, and the stdio newline—continues to fit the
 12,582,912-byte evidence envelope proof. The general stdio result ceiling is
-67,108,864 bytes (64 MiB) as of 0.9.0: full reference-bearing contexts with maximum
+67,108,864 bytes (64 MiB) as of 0.10.0: full reference-bearing contexts with maximum
 checkpoint history exceed the former 12 MiB ceiling because the SDK emits both
 representations. Request ingress remains 1 MiB and permanent receipts remain
 1 MiB. No reference, checkpoint or event is truncated to fit a response.
@@ -1567,7 +1567,7 @@ creation-event origin and remains correct when no backfilled event is present
 in the materialized slice. A referenced checkpoint body is never materialized
 again inside an event.
 
-## External references and caller-supplied comparison (0.9.0)
+## External references and caller-supplied comparison (0.10.0)
 
 `external_references` is an ordered work-owned list of zero to ten entries. The
 full shape is `{url, kind, state, label?, state_observed_at?}`. `kind` is

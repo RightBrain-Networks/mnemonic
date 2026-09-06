@@ -100,7 +100,7 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Phase 12 activity and completion reports cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.9.0`, plugin `0.12.0`,
+The current coordinated boundary is API/MCP/dashboard `0.10.0`, plugin `0.12.0`,
 and Alembic `0022_external_references`. Inventory exactly 32 MCP tools,
 11 protected MCP writes, 15 REST receipt kinds, 13 protected browser mutations,
 and 17 work-event types. Keep older writers stopped: fresh closeouts now require
@@ -746,7 +746,7 @@ read incident and never evidence that history is empty. The supplied nginx
 snippet must remain installed so the same-origin path disables compression,
 transformation, buffering, and caching. MCP ingress is separately 1 MiB and its
 complete SDK-emitted evidence response retains its 12 MiB size proof. The
-0.9.0 general stdio result ceiling is 64 MiB to carry full contexts (including
+0.10.0 general stdio result ceiling is 64 MiB to carry full contexts (including
 the SDK's text and structured copies); supported maximum-context measurements
 exceed 48 MiB. Do not raise limits or truncate data during an incident. Reduce future unreleased input/page maxima
 only through a reviewed compatibility change.
@@ -899,10 +899,10 @@ or weaken hierarchy constraints.
 
 ### Identifier-free aggregate monitoring
 
-At current head 0021, run `scripts/audit_project_activity.py` using the private
+At current head 0022, run `scripts/audit_project_activity.py` using the private
 `DATABASE_URL` environment variable. It composes the historical domain checks
-with Phase 12 activity/report checks. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.9.0` clients and plugin `0.11.0` together.
+with Phase 12 activity/report and external-reference checks. Alert on any blocking finding or runtime
+failure, and inventory deployed `0.10.0` clients and plugin `0.12.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 For the historical Phase 11 boundary, run `scripts/audit_duplicate_handling.py` with
@@ -1274,7 +1274,7 @@ provision a public MCP endpoint. Those are later integration work.
 
 ## External records release: 0021 to 0022
 
-The coordinated application/API/MCP/dashboard is 0.9.0, plugin 0.12.0, Alembic
+The coordinated application/API/MCP/dashboard is 0.10.0, plugin 0.12.0, Alembic
 `0022_external_references`. Counts remain 32 MCP tools, 11 protected MCP writes,
 15 REST receipt kinds, 13 browser mutations, 17 event types and three skills.
 Restart aligned components together; older processes must not use this schema.

@@ -788,7 +788,7 @@ remain server-only.
 
 ## Phase 12 acceptance additions
 
-Current application/API/MCP/dashboard versions are `0.9.0`, plugin is `0.12.0`,
+Current application/API/MCP/dashboard versions are `0.10.0`, plugin is `0.12.0`,
 and Alembic head is `0022_external_references`. Validate all surfaces together
 with the existing regression suites. Historical Phase 11 downgrade/catalog tests
 must seed valid historical shapes with offline SQL at 0019; never run current

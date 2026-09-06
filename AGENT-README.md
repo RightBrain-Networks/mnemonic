@@ -420,7 +420,7 @@ item separately:
 
 ## External records release boundary
 
-Current application/API/MCP/dashboard 0.9.0, plugin 0.12.0 and Alembic
+Current application/API/MCP/dashboard 0.10.0, plugin 0.12.0 and Alembic
 `0022_external_references` ship together. The catalog remains exactly 32 MCP tools,
 11 receipt-protected MCP writes, 15 REST receipt kinds, 13 browser mutations,
 17 event types and three plugin skills. Do not start old processes against this
