@@ -1,6 +1,6 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.16.0`, plugin `0.16.0`, and migration
+This is application/API/MCP/dashboard `0.17.0`, plugin `0.16.0`, and migration
 `0025_cross_project_relationships`. The catalog has exactly 38 MCP tools, 13
 protected MCP writes, 18 REST receipt kinds, 15 protected browser mutations and
 24 work-event types. Relationship identity and graph invariants are global;

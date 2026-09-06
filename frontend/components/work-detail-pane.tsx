@@ -323,7 +323,7 @@ function TabBody({ context, isDuplicate, props }: { context: WorkContext; isDupl
   }
 }
 
-function StatusActionButton({
+export function StatusActionButton({
   summary,
   projects,
   disabled,
@@ -334,7 +334,8 @@ function StatusActionButton({
   moveTitle,
   moveExplanationId,
   onAction,
-  onMove
+  onMove,
+  compact = false
 }: {
   summary: WorkSummary;
   projects: readonly Project[];
@@ -347,6 +348,7 @@ function StatusActionButton({
   moveExplanationId?: string;
   onAction: (action: ManualStatusAction, summary: WorkSummary) => void;
   onMove: (targetProjectId: string) => void;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -355,6 +357,14 @@ function StatusActionButton({
     top: 0,
     left: 0,
     right: "auto",
+    visibility: "hidden"
+  });
+  const [compactMenuStyle, setCompactMenuStyle] = useState<CSSProperties>({
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: "auto",
+    bottom: "auto",
     visibility: "hidden"
   });
   const rootRef = useRef<HTMLDivElement>(null);
@@ -449,6 +459,79 @@ function StatusActionButton({
       window.removeEventListener("blur", closeCascade);
     };
   }, [open]);
+  useLayoutEffect(() => {
+    if (!open || !compact) return;
+    const trigger = rootRef.current;
+    const menu = menuRef.current;
+    if (!trigger || !menu) return;
+    const positionMenu = (event?: Event) => {
+      if (event?.target instanceof Node && menu.contains(event.target)) return;
+      const triggerRect = trigger.getBoundingClientRect();
+      const scrollPane = trigger.closest<HTMLElement>(".work-queue-list");
+      const paneRect = scrollPane?.getBoundingClientRect();
+      const visibleTop = Math.max(0, paneRect?.top ?? 0);
+      const visibleRight = Math.min(window.innerWidth, paneRect?.right ?? window.innerWidth);
+      const visibleBottom = Math.min(window.innerHeight, paneRect?.bottom ?? window.innerHeight);
+      const visibleLeft = Math.max(0, paneRect?.left ?? 0);
+      if (
+        triggerRect.bottom <= visibleTop
+        || triggerRect.left >= visibleRight
+        || triggerRect.top >= visibleBottom
+        || triggerRect.right <= visibleLeft
+      ) {
+        setOpen(false);
+        return;
+      }
+      const viewportMargin = 16;
+      const menuGap = 6;
+      const availableWidth = Math.max(155, window.innerWidth - viewportMargin * 2);
+      const width = Math.min(Math.max(155, menu.scrollWidth), availableWidth);
+      const maxHeight = Math.min(320, Math.max(80, window.innerHeight - viewportMargin * 2));
+      const height = Math.min(menu.scrollHeight, maxHeight);
+      const roomBelow = window.innerHeight - triggerRect.bottom - viewportMargin - menuGap;
+      const roomAbove = triggerRect.top - viewportMargin - menuGap;
+      const opensDown = roomBelow >= height || roomBelow >= roomAbove;
+      const top = opensDown
+        ? Math.min(triggerRect.bottom + menuGap, window.innerHeight - height - viewportMargin)
+        : Math.max(viewportMargin, triggerRect.top - height - menuGap);
+      const left = Math.min(
+        Math.max(viewportMargin, triggerRect.left),
+        Math.max(viewportMargin, window.innerWidth - width - viewportMargin)
+      );
+      setCompactMenuStyle((current) => (
+        current.top === top
+        && current.left === left
+        && current.width === width
+        && current.maxHeight === maxHeight
+        && current.visibility === "visible"
+          ? current
+          : {
+            position: "fixed",
+            top,
+            left,
+            right: "auto",
+            bottom: "auto",
+            width,
+            maxHeight,
+            overflowY: "auto",
+            visibility: "visible"
+          }
+      ));
+    };
+    positionMenu();
+    window.addEventListener("resize", positionMenu);
+    document.addEventListener("scroll", positionMenu, true);
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => positionMenu());
+    resizeObserver?.observe(trigger);
+    resizeObserver?.observe(menu);
+    return () => {
+      window.removeEventListener("resize", positionMenu);
+      document.removeEventListener("scroll", positionMenu, true);
+      resizeObserver?.disconnect();
+    };
+  }, [compact, moveLayoutKey, open]);
   useEffect(() => () => {
     cancelMoveClose();
     cancelMoveBlur();
@@ -478,7 +561,11 @@ function StatusActionButton({
         return;
       }
       const availableWidth = Math.max(160, window.innerWidth - 32);
-      const width = Math.min(320, Math.max(210, submenu.scrollWidth), availableWidth);
+      // Keep the flyout width independent from its currently rendered width.
+      // Measuring scrollWidth while also observing the submenu creates a resize
+      // feedback loop on narrow viewports, which makes the menu move under the
+      // pointer and can close it before a project is selected.
+      const width = Math.min(320, availableWidth);
       const maxHeight = Math.min(320, Math.max(120, window.innerHeight - 32));
       const height = Math.min(submenu.scrollHeight, maxHeight);
       const opensRight = window.innerWidth - triggerRect.right - 16 >= width;
@@ -515,7 +602,6 @@ function StatusActionButton({
       : new ResizeObserver(() => positionMenu());
     if (resizeObserver) {
       resizeObserver.observe(trigger);
-      resizeObserver.observe(submenu);
       if (menuRef.current) resizeObserver.observe(menuRef.current);
     }
     return () => {
@@ -683,7 +769,11 @@ function StatusActionButton({
     }
   }
 
-  return <div className="status-split-button" ref={rootRef}>
+  return <div
+    className={`status-split-button ${compact ? "queue-status-split-button" : ""}`}
+    ref={rootRef}
+    onClick={(event) => event.stopPropagation()}
+  >
     <button
       className="button defer-button status-split-primary"
       type="button"
@@ -719,6 +809,7 @@ function StatusActionButton({
     {open && <div
       ref={menuRef}
       className="status-action-menu"
+      style={compact ? compactMenuStyle : undefined}
       id={menuId}
       role="menu"
       aria-label={`Actions for ${work.title}`}

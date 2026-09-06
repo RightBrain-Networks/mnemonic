@@ -14,14 +14,23 @@ import {
   clientLabel,
   formatDateTime
 } from "@/components/work-item-card";
+import { StatusActionButton } from "@/components/work-detail-pane";
 import { discoveryLabel, hierarchyBranchTotals } from "@/lib/hierarchy-presentation";
-import type { HierarchyPresentation, WorkSummary } from "@/lib/types";
+import type { HierarchyPresentation, Project, WorkSummary } from "@/lib/types";
+import type { ManualStatusAction } from "@/lib/work-status-actions";
 
 export type QueueOptions = {
   selectedId: string | null;
   copiedKey: string | null;
+  projects: readonly Project[];
+  statusChangingId: string | null;
+  movingId: string | null;
+  reportSettingsProjectId: string | null;
+  isMutationBlocked: (summary: WorkSummary) => boolean;
   onSelect: (summary: WorkSummary) => void;
   onCopyPointer: (summary: WorkSummary) => void;
+  onStatusAction: (action: ManualStatusAction, summary: WorkSummary) => void;
+  onMove: (summary: WorkSummary, targetProjectId: string) => void;
   register: (id: string, summary: WorkSummary) => void;
   unregister: (id: string) => void;
 };
@@ -55,7 +64,21 @@ type Props = {
 };
 
 export default function WorkQueueCard({ summary, presentation, depth = 0 }: Props) {
-  const { selectedId, copiedKey, onSelect, onCopyPointer, register, unregister } = useQueueOptions();
+  const {
+    selectedId,
+    copiedKey,
+    projects,
+    statusChangingId,
+    movingId,
+    reportSettingsProjectId,
+    isMutationBlocked,
+    onSelect,
+    onCopyPointer,
+    onStatusAction,
+    onMove,
+    register,
+    unregister
+  } = useQueueOptions();
   const work = summary.work_item;
   const context = summary.current_context;
   const id = work.id;
@@ -63,6 +86,20 @@ export default function WorkQueueCard({ summary, presentation, depth = 0 }: Prop
   const selected = selectedId === id;
   const copied = copiedKey === `${id}:pointer`;
   const descendants = presentation?.descendant_count ?? 0;
+  const mutationBlocked = isMutationBlocked(summary);
+  const reviewLocked = summary.readiness.active_lease?.purpose === "code_review";
+  const actionsDisabled = mutationBlocked || summary.readiness.is_duplicate || reviewLocked;
+  const moveDisabledReason = mutationBlocked
+    ? "Resolve the pending mutation before moving this work item."
+    : reviewLocked
+      ? "Work under code review must remain in its original project."
+      : summary.readiness.has_active_lease
+        ? "Release the active lease before moving this work item."
+        : summary.readiness.is_duplicate
+          ? "Duplicate audit records cannot be moved."
+          : summary.readiness.is_gated
+            ? "Resolve every human question before moving this work item."
+            : null;
   const attention = presentation?.branch_unresolved_human_gate_count ?? 0;
 
   useEffect(() => {
@@ -109,13 +146,31 @@ export default function WorkQueueCard({ summary, presentation, depth = 0 }: Prop
       {presentation && descendants > 0 && <span className="queue-chip" title={descendantChipTitle(presentation, depth)}>{descendants} descendant{descendants === 1 ? "" : "s"}</span>}
       {attention > 0 && <span className="queue-chip queue-chip-attention">{attention} needs attention</span>}
       <span className="queue-card-arrow" aria-hidden="true">→</span>
-      <button
-        type="button"
-        className={`button queue-copy-button ${copied ? "is-copied" : ""}`}
-        aria-label={`Copy recall pointer for ${work.title}`}
-        onClick={copyPointer}
-        onKeyDown={(event) => { if (isActivationKey(event)) event.stopPropagation(); }}
-      ><CopyIcon />{copied ? "Copied" : "Copy recall pointer"}</button>
+      <div className="queue-card-actions">
+        <StatusActionButton
+          summary={summary}
+          projects={projects}
+          disabled={actionsDisabled || Boolean(
+            statusChangingId && statusChangingId !== id
+            || movingId && movingId !== id
+          )}
+          busy={statusChangingId === id}
+          reportSettingsReady={reportSettingsProjectId === work.project_id}
+          moveDisabled={Boolean(moveDisabledReason)}
+          moving={movingId === id}
+          moveTitle={moveDisabledReason ?? "Move this work item to another project"}
+          onAction={onStatusAction}
+          onMove={(targetProjectId) => onMove(summary, targetProjectId)}
+          compact
+        />
+        <button
+          type="button"
+          className={`button queue-copy-button ${copied ? "is-copied" : ""}`}
+          aria-label={`Copy recall pointer for ${work.title}`}
+          onClick={copyPointer}
+          onKeyDown={(event) => { if (isActivationKey(event)) event.stopPropagation(); }}
+        ><CopyIcon />{copied ? "Copied" : "Copy recall pointer"}</button>
+      </div>
     </div>
   </article>;
 }

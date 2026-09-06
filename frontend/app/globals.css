@@ -1376,7 +1376,10 @@ html[data-theme="dark"] :is(.evidence-outcome.is-inconclusive, .evidence-outcome
 .queue-chip-attention { color: #8f1d14; border-color: #f2b8af; background: var(--danger-soft); font-weight: 700; }
 .queue-card-arrow { color: var(--accent); opacity: 0; transform: translateX(-3px); transition: opacity .15s, transform .15s; }
 .queue-card.is-selected .queue-card-arrow { opacity: 1; transform: none; }
-.queue-copy-button { gap: 6px; min-width: 0; margin-left: auto; padding: 5px 9px; border: 1px solid #d5c4fa; border-radius: 6px; color: #6d35d7; background: #f7f2ff; font-size: 10px; line-height: 1.4; font-weight: 600; }
+.queue-card-actions { display: inline-flex; align-items: stretch; flex: none; gap: 8px; margin-left: auto; }
+.queue-status-split-button .defer-button { padding: 5px 8px; font-size: 10px; line-height: 1.4; }
+.queue-status-split-button .status-split-toggle { width: 24px; padding: 4px 0; }
+.queue-copy-button { gap: 6px; min-width: 0; padding: 5px 9px; border: 1px solid #d5c4fa; border-radius: 6px; color: #6d35d7; background: #f7f2ff; font-size: 10px; line-height: 1.4; font-weight: 600; }
 .queue-copy-button:hover:not(:disabled), .queue-copy-button.is-copied { color: #5123a9; background: var(--violet-soft); border-color: var(--violet); }
 
 .work-detail-pane { position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; border: 1px solid #e4d8c4; border-radius: 11px; background: var(--surface); box-shadow: 0 2px 2px #25113005; }

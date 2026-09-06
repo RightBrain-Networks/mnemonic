@@ -642,6 +642,164 @@ test("merge as duplicate runs inside the Graph tab and lands on the source audit
   }
 });
 
+test("the summary-card Defer split moves deferred work without opening it prematurely", async ({ page }, testInfo) => {
+  const token = searchToken("surfacecardmove", testInfo);
+  const key = testKey(testInfo);
+  const sourceName = `Card action source ${key}`;
+  const targetName = `Card action target ${key}`;
+  const title = `Card action item ${token}`;
+  const client = await apiClient();
+  try {
+    const sourceProject = await createProject(
+      client,
+      sourceName,
+      `card-action-source-${token}`
+    );
+    const targetProject = await createProject(
+      client,
+      targetName,
+      `card-action-target-${token}`
+    );
+    const work = await createWork(client, {
+      title,
+      sessionId: `surface-card-action-${key}`
+    }, sourceProject.id);
+
+    await openDashboard(page, sourceProject.id);
+    await page.getByRole("button", { name: "All", exact: true }).click();
+    await searchFor(page, token, 1);
+
+    const card = workCard(page, title);
+    const split = card.locator(".queue-status-split-button");
+    const copy = card.locator(".queue-copy-button");
+    await expect(split).toBeVisible();
+    await expect(copy).toBeVisible();
+
+    expect(await card.locator(".queue-card-footer").evaluate((footer) => {
+      const actionGroup = footer.querySelector(":scope > .queue-card-actions");
+      const statusSplit = footer.querySelector(".queue-status-split-button");
+      const copyButton = footer.querySelector(".queue-copy-button");
+      return Boolean(
+        actionGroup
+        && statusSplit
+        && copyButton
+        && statusSplit.parentElement === actionGroup
+        && statusSplit.parentElement === copyButton.parentElement
+        && statusSplit.nextElementSibling === copyButton
+      );
+    })).toBe(true);
+
+    const [splitBox, copyBox] = await Promise.all([
+      split.boundingBox(),
+      copy.boundingBox()
+    ]);
+    expect(splitBox).not.toBeNull();
+    expect(copyBox).not.toBeNull();
+    expect(Math.abs(splitBox!.height - copyBox!.height)).toBeLessThanOrEqual(1);
+
+    await expect(card).toHaveAttribute("aria-selected", "false");
+    const chooser = card.getByRole("button", {
+      name: `Choose an action for ${title}`
+    });
+    await chooser.click();
+
+    const actionMenu = page.getByRole("menu", {
+      name: `Actions for ${title}`
+    });
+    await expect(actionMenu).toBeVisible();
+    await expect(card).toHaveAttribute("aria-selected", "false");
+    await expect(page.locator(".work-detail-pane.is-open")).toHaveCount(0);
+    await expect(page).not.toHaveURL(/[?&]work=/);
+
+    const menuBox = await actionMenu.boundingBox();
+    const viewport = page.viewportSize();
+    expect(menuBox).not.toBeNull();
+    expect(viewport).not.toBeNull();
+    expect(await actionMenu.evaluate((menu) => getComputedStyle(menu).position)).toBe("fixed");
+    expect(menuBox!.y).toBeGreaterThanOrEqual(0);
+    expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(viewport!.height);
+
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByRole("button", {
+      name: "All",
+      exact: true
+    })).toHaveAttribute("aria-pressed", "true");
+    await expect(actionMenu).toBeVisible();
+
+    const moveAction = actionMenu.getByRole("menuitem", {
+      name: `Move ${title} to another project`,
+      exact: true
+    });
+    await moveAction.hover();
+
+    const projectMenu = page.getByRole("menu", {
+      name: `Move ${title} to project`
+    });
+    await expect(projectMenu).toBeVisible();
+    await expect(projectMenu.getByRole("menuitem", {
+      name: `${targetName} (${targetProject.slug})`,
+      exact: true
+    })).toBeVisible();
+    await expect(
+      projectMenu.getByText(sourceProject.slug, { exact: true })
+    ).toHaveCount(0);
+
+    await testInfo.attach("Summary-card Defer menu", {
+      body: await page.screenshot(),
+      contentType: "image/png"
+    });
+    await chooser.click();
+    await expect(projectMenu).toBeHidden();
+    await expect(actionMenu).toBeHidden();
+
+    await card.getByRole("button", { name: `Defer ${title}` }).click();
+    await expect(page.locator(".toast")).toContainText(
+      "Deferred and held out of the work queue"
+    );
+    await expect(card.locator(".status-badge")).toHaveText("Deferred");
+    await expect(card).toHaveAttribute("aria-selected", "false");
+
+    await card.getByRole("button", {
+      name: `Choose an action for ${title}`
+    }).click();
+
+    const deferredMenu = page.getByRole("menu", {
+      name: `Actions for ${title}`
+    });
+    const deferredMove = deferredMenu.getByRole("menuitem", {
+      name: `Move ${title} to another project`,
+      exact: true
+    });
+    await deferredMove.hover();
+
+    const deferredProjectMenu = page.getByRole("menu", {
+      name: `Move ${title} to project`
+    });
+    await deferredProjectMenu.getByRole("menuitem", {
+      name: `${targetName} (${targetProject.slug})`,
+      exact: true
+    }).click();
+
+    await expect(page.locator("#project-select")).toHaveValue(targetProject.id);
+    await expect(page).toHaveURL(new RegExp(`[?&]work=${work.id}(?:&|$)`));
+
+    const pane = workPane(page);
+    await expect(pane.locator(".detail-title")).toHaveText(title);
+    await expect(
+      pane.locator(".detail-identity > .status-badge")
+    ).toHaveText("Deferred");
+
+    const moved = await getContext(client, work.id, targetProject.id);
+    expect(moved.work_item).toMatchObject({
+      id: work.id,
+      project_id: targetProject.id,
+      status: "deferred"
+    });
+  } finally {
+    await client.dispose();
+  }
+});
+
 test("the Defer menu moves linked deferred work without severing its relationship", async ({ page }, testInfo) => {
   const token = searchToken("surfacemove", testInfo);
   const key = testKey(testInfo);
