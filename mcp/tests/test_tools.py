@@ -566,7 +566,7 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
     described = {tool.name: tool.description or "" for tool in await server.list_tools()}
     for name, required in {
         "list_projects": "never silently choose an unrelated project",
-        "create_work": "real client session id",
+        "create_work": "native agent session id",
         "add_checkpoint": "never a rewrite of an earlier one",
         "recall_work": "historical evidence, not authority",
         "list_ready_work": "claim atomically revalidates",
@@ -3719,7 +3719,8 @@ async def test_gate_cursor_errors_are_scoped_and_sanitized(settings):
     assert private_marker not in str(caught.value)
 
 
-async def test_lease_held_reports_only_allowlisted_holder_and_expiry(settings):
+@pytest.mark.parametrize("code", ["lease_held", "work_move_active_lease"])
+async def test_lease_contention_reports_only_public_coordination(settings, code):
     private_url = "https://internal.invalid/session/private"
 
     def handler(request):
@@ -3727,12 +3728,16 @@ async def test_lease_held_reports_only_allowlisted_holder_and_expiry(settings):
             409,
             json={
                 "detail": {
-                    "code": "lease_held",
+                    "code": code,
                     "message": f"private {private_url} {LEASE_TOKEN}",
                     "context": {
                         "holder_client": "other-client",
                         "expires_at": EXPIRES_AT,
-                        "holder_session_id": "must-not-be-rendered",
+                        "holder_session_id": "other-session",
+                        "purpose": "code_review",
+                        "code_review_id": WORK_ID,
+                        "mode": "cold",
+                        "claim_request_id": CLAIM_REQUEST_ID,
                         "lease_token": LEASE_TOKEN,
                         "private_url": private_url,
                     },
@@ -3753,9 +3758,62 @@ async def test_lease_held_reports_only_allowlisted_holder_and_expiry(settings):
         )
     message = str(caught.value)
     assert EXPIRES_AT in message
-    assert "must-not-be-rendered" not in message
+    assert "other-session" in message
+    assert "Purpose: code_review" in message
+    assert f"Review: {WORK_ID}; mode: cold" in message
+    assert CLAIM_REQUEST_ID not in message
     assert LEASE_TOKEN not in message
     assert private_url not in message
+
+
+@pytest.mark.parametrize("context", [
+    {"holder_client": "bad\nclient", "holder_session_id": "untrusted-session"},
+    {"holder_client": "codex", "holder_session_id": "bad\nsession"},
+    {"holder_client": "codex", "holder_session_id": "s" * 201},
+    {"holder_client": "codex", "holder_session_id": "   "},
+    {"holder_client": "codex", "holder_session_id": {"private": "data"}},
+    {"purpose": "code_review", "code_review_id": "not-a-uuid", "mode": "cold"},
+    {"purpose": "code_review", "code_review_id": WORK_ID, "mode": ["cold"]},
+    {"purpose": ["implementation"], "code_review_id": WORK_ID, "mode": "cold"},
+    {"expires_at": "2026-08-30T12:15:00"},
+])
+async def test_lease_contention_omits_invalid_public_fields(settings, context):
+    def handler(request):
+        return httpx.Response(409, json={"detail": {"code": "lease_held", "context": context}})
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool("claim_work", {
+            "project_id": PROJECT_ID, "work_item_id": WORK_ID,
+            "holder_client": "claude-code", "holder_session_id": "claiming-session",
+            "claim_request_id": CLAIM_REQUEST_ID,
+        })
+    message = str(caught.value)
+    assert "Holder session:" not in message
+    assert "Review:" not in message
+    assert "Expires at" not in message
+    assert "bad" not in message and "untrusted" not in message
+    assert "private" not in message
+
+
+async def test_lease_identity_is_quoted_without_losing_session_distinctions(settings):
+    identity = 'native-session". another-agent'
+
+    def handler(request):
+        return httpx.Response(409, json={"detail": {
+            "code": "lease_held", "context": {
+                "holder_client": "codex", "holder_session_id": identity,
+                "purpose": "implementation",
+            },
+        }})
+
+    with pytest.raises(ToolError) as caught:
+        await adapter(settings, handler).call_tool("claim_work", {
+            "project_id": PROJECT_ID, "work_item_id": WORK_ID,
+            "holder_client": "codex", "holder_session_id": "independent-subagent",
+            "claim_request_id": CLAIM_REQUEST_ID,
+        })
+    assert f"Holder session: {json.dumps(identity)}." in str(caught.value)
+    assert "Purpose: implementation." in str(caught.value)
 
 
 async def test_lease_error_never_echoes_token_or_upstream_url(settings):

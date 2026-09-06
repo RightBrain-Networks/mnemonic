@@ -104,6 +104,7 @@ _APPLICATION_ERRORS = {
         "control data appeared in durable content. Remove it and create a genuinely corrected intent."
     ),
     "lease_held": "This work item has an active claim.",
+    "work_move_active_lease": "Active work cannot move until its claim is released or expires.",
     "lease_expired": "This work claim has expired. Reconcile only after resolving any unknown outcome. Cold review permits a minimal same-scope claim, never a contextual reread.",
     "lease_token_mismatch": "The work claim does not match the current active claim.",
     "claim_request_expired": (
@@ -306,7 +307,7 @@ def _application_error(response: httpx.Response) -> tuple[str, dict[str, object]
 
 
 def _safe_context_text(value: object, *, max_length: int) -> str | None:
-    if not isinstance(value, str) or not 1 <= len(value) <= max_length:
+    if not isinstance(value, str) or not 1 <= len(value) <= max_length or not value.strip():
         return None
     return value if all(character.isprintable() for character in value) else None
 
@@ -343,18 +344,38 @@ def _application_error_message(code: str, context: dict[str, object]) -> str | N
                 + f" Its canonical work item is {canonical_id}."
             )
         return _APPLICATION_ERRORS[code]
-    if code != "lease_held":
-        return _APPLICATION_ERRORS.get(code)
+    if code in {"lease_held", "work_move_active_lease"}:
+        return _lease_contention_message(code, context)
+    return _APPLICATION_ERRORS.get(code)
 
+
+def _lease_contention_message(code: str, context: dict[str, object]) -> str:
+    """Render bounded public coordination facts, never arbitrary upstream diagnostics."""
     holder_client = _safe_context_text(context.get("holder_client"), max_length=80)
+    holder_session = _safe_context_text(context.get("holder_session_id"), max_length=200)
     expires_at = _safe_expiry(context.get("expires_at"))
-    if holder_client is not None and expires_at is not None:
-        return f"This work item has an active claim held by {holder_client} until {expires_at}."
+    message = _APPLICATION_ERRORS[code]
     if holder_client is not None:
-        return f"This work item has an active claim held by {holder_client}."
+        message += f" Holder client: {json.dumps(holder_client, ensure_ascii=True)}."
+        if holder_session is not None:
+            message += f" Holder session: {json.dumps(holder_session, ensure_ascii=True)}."
     if expires_at is not None:
-        return f"This work item has an active claim until {expires_at}."
-    return _APPLICATION_ERRORS[code]
+        message += f" Expires at {expires_at}."
+    return message + _lease_purpose_message(context)
+
+
+def _lease_purpose_message(context: dict[str, object]) -> str:
+    purpose = context.get("purpose")
+    if purpose == "implementation":
+        return " Purpose: implementation."
+    if purpose != "code_review":
+        return ""
+    message = " Purpose: code_review."
+    review_id = _safe_uuid(context.get("code_review_id"))
+    mode = context.get("mode")
+    if review_id is not None and mode in ("cold", "warm"):
+        message += f" Review: {review_id}; mode: {mode}."
+    return message
 
 
 def _raise_request_error(method: str, *, effect: TransportEffect | None) -> NoReturn:

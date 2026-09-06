@@ -47,6 +47,20 @@ def _utc(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def _contention_context(lease: WorkLease) -> dict[str, str]:
+    """Identify the other agent and its work without exposing a capability or context."""
+    context = {
+        "holder_client": lease.holder_client,
+        "holder_session_id": lease.holder_session_id,
+        "expires_at": _utc(lease.expires_at),
+        "purpose": lease.purpose,
+    }
+    if lease.purpose == "code_review":
+        assert lease.code_review_id is not None and lease.mode is not None
+        context.update(code_review_id=str(lease.code_review_id), mode=lease.mode)
+    return context
+
+
 def _token_mismatch() -> NoReturn:
     raise conflict(
         "lease_token_mismatch",
@@ -155,10 +169,7 @@ def claim_lease_record(
         raise conflict(
             "lease_held",
             "This work item has an active lease.",
-            context={
-                "holder_client": lease.holder_client,
-                "expires_at": _utc(lease.expires_at),
-            },
+            context=_contention_context(lease),
         )
 
     if lease.claim_request_id == payload.claim_request_id:
@@ -374,10 +385,7 @@ def require_no_active_lease(database: Session, work_item_id: UUID) -> None:
         raise conflict(
             "lease_held",
             "Active work cannot be deferred until its lease is released or expires.",
-            context={
-                "holder_client": lease.holder_client,
-                "expires_at": _utc(lease.expires_at),
-            },
+            context=_contention_context(lease),
         )
     database.delete(lease)
     database.flush()
@@ -393,10 +401,7 @@ def require_no_active_lease_for_move(database: Session, work_item_id: UUID) -> N
         raise conflict(
             "work_move_active_lease",
             "Active work cannot move until its lease is released or expires.",
-            context={
-                "holder_client": lease.holder_client,
-                "expires_at": _utc(lease.expires_at),
-            },
+            context=_contention_context(lease),
         )
 
 

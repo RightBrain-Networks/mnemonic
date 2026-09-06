@@ -330,8 +330,19 @@ def test_simultaneous_distinct_and_identical_claims_are_serialized(
     assert conflict.json()["detail"]["code"] == "lease_held"
     assert set(conflict.json()["detail"]["context"]) == {
         "holder_client",
+        "holder_session_id",
+        "purpose",
         "expires_at",
     }
+    winning_claim = next(response.json() for response in responses if response.status_code == 200)
+    assert conflict.json()["detail"]["context"] == {
+        "holder_client": winning_claim["holder_client"],
+        "holder_session_id": winning_claim["holder_session_id"],
+        "purpose": "implementation",
+        "expires_at": winning_claim["expires_at"],
+    }
+    assert winning_claim["lease_token"] not in conflict.text
+    assert winning_claim["claim_request_id"] not in conflict.text
 
     identical_work = create_work(
         api,

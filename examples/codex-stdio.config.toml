@@ -1,0 +1,9 @@
+# Alternative to the HTTP table; use only one mnemonic server definition.
+# Replace the checkout path and API port with this host's actual values.
+[mcp_servers.mnemonic]
+command = "uv"
+args = ["run", "--project", "/absolute/path/to/mnemonic/mcp", "mnemonic-mcp", "--transport", "stdio"]
+env_vars = ["MNEMONIC_API_KEY"]
+
+[mcp_servers.mnemonic.env]
+MNEMONIC_API_URL = "http://127.0.0.1:8000"

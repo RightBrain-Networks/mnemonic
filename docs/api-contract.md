@@ -1,6 +1,6 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.19.0`, plugin `0.16.0`, and migration
+This is application/API/MCP/dashboard `0.20.0`, plugin `0.17.0`, and migration
 `0025_cross_project_relationships`. The catalog has exactly 38 MCP tools, 13
 protected MCP writes, 18 REST receipt kinds, 15 protected browser mutations and
 24 work-event types. Relationship identity and graph invariants are global;
@@ -43,8 +43,11 @@ checkpoint text, metadata, credentials, or request bodies.
 
 Lease conflicts use stable codes: `work_not_pending`, `lease_held`,
 `lease_expired`, `lease_token_mismatch`, `claim_request_expired`, and
-`lease_state_changed`. `lease_held` may expose only safe holder and expiry
-context. No error contains a lease token or claim request ID.
+`lease_state_changed`. `lease_held` and `work_move_active_lease` expose public
+coordination fields only: `holder_client`, `holder_session_id`, `expires_at`,
+and `purpose`; review leases additionally include `code_review_id` and `mode`.
+These are asserted provenance, not authentication. No error contains a lease token,
+claim request ID, checkpoint body, or review handoff.
 
 Lifecycle and graph conflicts use stable codes including
 `invalid_status_transition`, `work_blocked`, `completion_episode_unsealed`,

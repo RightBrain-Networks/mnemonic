@@ -1153,6 +1153,12 @@ def test_move_preserves_relationships_and_rejects_other_conflicts(
     )
     assert held.status_code == 409
     assert held.json()["detail"]["code"] == "work_move_active_lease"
+    assert held.json()["detail"]["context"] == {
+        "holder_client": "pytest", "holder_session_id": "move-active-lease",
+        "purpose": "implementation", "expires_at": claim.json()["expires_at"],
+    }
+    assert claim.json()["lease_token"] not in held.text
+    assert "move-active-lease-request" not in held.text
     with postgres_engine.begin() as connection:
         connection.execute(
             text(

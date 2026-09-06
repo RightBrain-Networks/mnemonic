@@ -697,7 +697,8 @@ def test_project_activity_audit_rejects_unresolved_gate_in_historical_project(
         },
     )
     assert moved.status_code == 200, moved.text
-    assert _audit(postgres_engine)["result"] == "pass"
+    initial_report = _audit(postgres_engine)
+    assert initial_report["result"] == "pass", initial_report
 
     with postgres_engine.begin() as connection:
         connection.execute(text("ALTER TABLE work_gates DISABLE TRIGGER USER"))
@@ -759,7 +760,8 @@ def test_project_activity_audit_rejects_later_relationship_endpoint(
     )
     assert relationship.status_code == 200, relationship.text
     later_work = create("Work created after the relationship event")
-    assert _audit(postgres_engine)["result"] == "pass"
+    initial_report = _audit(postgres_engine)
+    assert initial_report["result"] == "pass", initial_report
 
     with postgres_engine.begin() as connection:
         event_id = connection.scalar(

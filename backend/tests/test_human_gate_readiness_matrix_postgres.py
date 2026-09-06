@@ -728,6 +728,8 @@ def test_overlapping_gate_blocker_and_active_lease_errors_have_stable_precedence
         message="Active work cannot be deferred until its lease is released or expires.",
         context={
             "holder_client": receipt["holder_client"],
+            "holder_session_id": receipt["holder_session_id"],
+            "purpose": "implementation",
             "expires_at": receipt["expires_at"],
         },
     )

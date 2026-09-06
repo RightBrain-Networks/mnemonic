@@ -109,13 +109,32 @@ from bounded recall slices as absence.
 
 ## Provenance must be truthful
 
-`source_session_id` must be the real session identifier the client exposes, or
-one the user supplied. A literal placeholder, blank string, freshly generated
-UUID, process ID, git SHA, transport identity, or Mnemonic work/checkpoint ID is
-**not** a source session ID. If none is available, finish the draft and ask for
-it before writing.
+Use one stable identity for the agent actually making the call. For
+`source_session_id`, prefer a distinct session identifier exposed by its host,
+or one supplied for this agent by the user. If none is available, generate one
+UUID once and use `mnemonic-<UUID>` as this agent's explicitly local Mnemonic
+coordination session. Retain the client/session pair in session context or
+private orchestration notes, including compacted/restored context. Reuse it for
+this agent's calls, claim renewals, exact retries, and originating-session
+follow-ups. Never generate a new identity per tool call or claim.
 
-Set `source_client` to the actual client. Set `source_model` and
+Each independently acting subagent or reviewer needs its own identity, even if
+the host exposes only the parent's conversation ID. Use a distinct native
+agent/session ID when available, otherwise its own retained `mnemonic-<UUID>`.
+Never copy the parent, checkpoint author, current lease holder, or another
+client's identity. A new agent continuing saved work identifies itself; only a
+restore of the same originating agent may resume its privately retained pair.
+If that identity is lost, do not reconstruct it from stored author or holder
+fields to answer their follow-ups. A fresh session does not inherit their
+originating-session privileges or unknown-outcome mutation intents.
+
+A literal placeholder, blank string, process ID, git SHA, transport identity,
+or Mnemonic work/checkpoint ID is not a source session ID. A local coordination
+ID is not a claimed native conversation ID and must not fabricate a session URL.
+
+Set `source_client` to the actual client, such as `claude-code`, `codex`, or
+`opencode`, preserving that spelling for the session. The client is the host
+application, not the model provider. Set `source_model` and
 `source_session_url` only from reliable session metadata; omit them when
 unknown. Record `repository_branch` when known. Set `verified_against` only to a
 commit whose cited state this session actually checked; reading HEAD alone is

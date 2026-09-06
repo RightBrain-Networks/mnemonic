@@ -120,8 +120,11 @@ or automatically copy filenames into a checkpoint or event.
 Before beginning execution the user has already authorized, generate a fresh
 opaque `claim_request_id` for this attempt and call
 `claim_and_recall(project_id, work_item_id, holder_client, holder_session_id,
-claim_request_id)` with the actual current client and conversation IDs. A
-successful claim is temporary exclusive responsibility; it adds no authorization
+claim_request_id)` with this agent's established client/session pair. Prefer a
+distinct host-exposed session ID; otherwise generate and privately retain one
+`mnemonic-<UUID>` for this independent agent, as described in
+[authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
+A successful claim is temporary exclusive responsibility; it adds no authorization
 beyond the user's request. Keep the returned `lease_token` only in private
 active-session state: never in checkpoint text, metadata, URLs, logs, chat
 output, shell history, or copied pointers, and treat MCP client traces as

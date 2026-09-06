@@ -315,10 +315,13 @@ If the marketplace or plugin already exists, inspect the installed entry before 
 plugin is copied into Claude's cache, so a repository update does not update an installed plugin;
 follow the update commands in [`README.md`](README.md) after a new Mnemonic release.
 
+For Codex, merge [`examples/codex.config.toml`](examples/codex.config.toml) into the chosen
+Codex configuration; its `bearer_token_env_var` names the environment variable containing the key.
 For OpenCode, adapt [`examples/opencode.json`](examples/opencode.json) in the user's untracked or
-user-level configuration. For another MCP client, adapt
-[`examples/claude-code.mcp.json`](examples/claude-code.mcp.json) to that client's documented
-Streamable HTTP schema. Client environment-variable interpolation syntax is client-specific and
+user-level configuration. Both also have stdio examples. Install the complete portable skills
+using the export procedure in [multi-client setup](docs/mcp-clients.md). For another MCP client,
+use that client's documented Streamable HTTP or stdio schema.
+Client environment-variable interpolation syntax is client-specific and
 MUST be verified; `${MNEMONIC_API_KEY}` is not universally expanded. The effective request MUST
 send the bearer header, but the raw key MUST remain in a private user-level configuration,
 environment, or secret store.
@@ -420,7 +423,7 @@ item separately:
 
 ## Current cross-project relationship release boundary
 
-Application/API/MCP/dashboard 0.19.0, plugin 0.16.0 and Alembic
+Application/API/MCP/dashboard 0.20.0, plugin 0.17.0 and Alembic
 `0025_cross_project_relationships` ship together: 38 MCP tools, 13
 receipt-protected MCP writes,
 18 REST receipt kinds, 15 protected browser mutations, 24 event types and three
