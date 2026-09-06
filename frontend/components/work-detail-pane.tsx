@@ -6,6 +6,7 @@ import WorkReportProvenance from "@/components/work-report-provenance";
 import JobReportEditor from "@/components/job-report-editor";
 import type { JobReportDraft } from "@/lib/job-completion-reports";
 
+import { createPortal } from "react-dom";
 import {
   useEffect,
   useId,
@@ -319,181 +320,315 @@ function TabBody({ context, isDuplicate, props }: { context: WorkContext; isDupl
 
 function StatusActionButton({
   summary,
+  projects,
   disabled,
   busy,
   reportSettingsReady,
-  onAction
+  moveDisabled,
+  moving,
+  moveTitle,
+  moveExplanationId,
+  onAction,
+  onMove
 }: {
   summary: WorkSummary;
+  projects: readonly Project[];
   disabled: boolean;
   busy: boolean;
   reportSettingsReady: boolean;
-  onAction: (action: ManualStatusAction, summary: WorkSummary) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const toggleRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const menuId = useId();
-  const { work_item: work, readiness } = summary;
-  const actions = availableStatusActions(work.status, readiness);
-  const primaryDisabled = disabled || busy || work.status === "deferred";
-
-  useEffect(() => setOpen(false), [work.id]);
-  useEffect(() => {
-    if (!open) return;
-    const closeOutside = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOutside);
-    menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
-    return () => document.removeEventListener("pointerdown", closeOutside);
-  }, [open]);
-
-  function closeAndFocus(): void {
-    setOpen(false);
-    toggleRef.current?.focus();
-  }
-
-  function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>): void {
-    const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>(
-      "button:not(:disabled)"
-    ) ?? [])];
-    if (!items.length) return;
-    const current = items.indexOf(document.activeElement as HTMLButtonElement);
-    let next: number | null = null;
-    if (event.key === "ArrowDown") next = current < items.length - 1 ? current + 1 : 0;
-    if (event.key === "ArrowUp") next = current > 0 ? current - 1 : items.length - 1;
-    if (event.key === "Home") next = 0;
-    if (event.key === "End") next = items.length - 1;
-    if (next !== null) {
-      event.preventDefault();
-      event.stopPropagation();
-      items[next]?.focus();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      closeAndFocus();
-    }
-  }
-
-  return <div className="status-split-button" ref={rootRef}>
-    <button
-      className="button defer-button status-split-primary"
-      type="button"
-      disabled={primaryDisabled}
-      aria-label={`Defer ${work.title}`}
-      title={work.status === "deferred"
-        ? "This work item is already Deferred. Choose another status from the menu."
-        : "Explicitly hold this work item out of the work queue"}
-      onClick={() => onAction("defer", summary)}
-    >{busy ? "Saving…" : "Defer"}</button>
-    <button
-      ref={toggleRef}
-      className="button defer-button status-split-toggle"
-      type="button"
-      disabled={disabled || busy}
-      aria-label={`Choose a status for ${work.title}`}
-      aria-haspopup="menu"
-      aria-expanded={open}
-      aria-controls={menuId}
-      onClick={() => setOpen((value) => !value)}
-      onKeyDown={(event) => {
-        if (event.key === "ArrowDown") {
-          event.preventDefault();
-          event.stopPropagation();
-          setOpen(true);
-        }
-      }}
-    ><span aria-hidden="true">⌄</span></button>
-    {open && <div
-      ref={menuRef}
-      className="status-action-menu"
-      id={menuId}
-      role="menu"
-      aria-label={`Manual status actions for ${work.title}`}
-      onKeyDown={moveMenuFocus}
-    >{actions.map((action) => {
-      const reason = statusActionDisabledReason(
-        action.value,
-        readiness,
-        reportSettingsReady
-      );
-      return <button
-        type="button"
-        role="menuitem"
-        key={action.value}
-        disabled={Boolean(reason)}
-        title={reason ?? `Explicitly mark this work item ${action.label}`}
-        aria-label={`${action.label} ${work.title}`}
-        onClick={() => {
-          setOpen(false);
-          onAction(action.value, summary);
-        }}
-      >{action.label}</button>;
-    })}</div>}
-  </div>;
-}
-
-function DeleteMoveButton({
-  work,
-  projects,
-  deleteDisabled,
-  moveDisabled,
-  moving,
-  deleteTitle,
-  moveTitle,
-  deleteExplanationId,
-  moveExplanationId,
-  onDelete,
-  onMove
-}: {
-  work: WorkItem;
-  projects: readonly Project[];
-  deleteDisabled: boolean;
   moveDisabled: boolean;
   moving: boolean;
-  deleteTitle: string;
   moveTitle: string;
-  deleteExplanationId?: string;
   moveExplanationId?: string;
-  onDelete: () => void;
+  onAction: (action: ManualStatusAction, summary: WorkSummary) => void;
   onMove: (targetProjectId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveMenuStyle, setMoveMenuStyle] = useState<CSSProperties>({
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: "auto",
+    visibility: "hidden"
+  });
   const rootRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const menuId = useId();
+  const moveRootRef = useRef<HTMLDivElement>(null);
+  const moveItemRef = useRef<HTMLButtonElement>(null);
+  const moveMenuRef = useRef<HTMLDivElement>(null);
+  const moveCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const moveBlurFrame = useRef<number | null>(null);
+  const restoreMoveFocusFrame = useRef<number | null>(null);
+  const pointerWithinMove = useRef(false);
+  const suppressMoveFocusOpen = useRef(false);
+  const moveTargetFocused = useRef(false);
   const openingFocus = useRef<"first" | "last">("first");
-  const hasTarget = projects.some((project) => project.id !== work.project_id);
-  const toggleDisabled = moveDisabled || moving || !hasTarget;
+  const menuId = useId();
+  const moveItemId = useId();
+  const moveMenuId = useId();
+  const { work_item: work, readiness } = summary;
+  const actions = availableStatusActions(work.status, readiness);
+  const targetProjects = projects.filter((project) => project.id !== work.project_id);
+  const targetProjectKey = targetProjects.map((project) => project.id).join(":");
+  const moveLayoutKey = JSON.stringify({
+    actions: actions.map((action) => action.value),
+    projects: targetProjects.map((project) => [project.id, project.name, project.slug])
+  });
+  const moveUnavailable = moveDisabled || moving || targetProjects.length === 0;
+  const controlsBusy = busy || moving;
+  const primaryDisabled = disabled || controlsBusy || work.status === "deferred";
 
-  useEffect(() => setOpen(false), [work.id, work.project_id]);
   useEffect(() => {
-    if (toggleDisabled) setOpen(false);
-  }, [toggleDisabled]);
+    setOpen(false);
+    closeMoveMenu();
+    cancelRestoreMoveFocus();
+    suppressMoveFocusOpen.current = false;
+  }, [work.id, work.project_id]);
   useEffect(() => {
-    if (!open) return;
+    if (disabled || controlsBusy) {
+      setOpen(false);
+      closeMoveMenu();
+      cancelRestoreMoveFocus();
+      suppressMoveFocusOpen.current = false;
+    }
+  }, [controlsBusy, disabled]);
+  useEffect(() => {
+    const restoreMoveFocus = moveTargetFocused.current;
+    if (!moveUnavailable && !restoreMoveFocus) return;
+    closeMoveMenu();
+    cancelRestoreMoveFocus();
+    if (restoreMoveFocus) {
+      const trigger = moveItemRef.current;
+      restoreMoveFocusFrame.current = requestAnimationFrame(() => {
+        restoreMoveFocusFrame.current = null;
+        if (!trigger?.isConnected || moveItemRef.current !== trigger) {
+          suppressMoveFocusOpen.current = false;
+          return;
+        }
+        suppressMoveFocusOpen.current = true;
+        trigger.focus();
+        suppressMoveFocusOpen.current = false;
+      });
+    }
+    return cancelRestoreMoveFocus;
+  }, [moveUnavailable, targetProjectKey]);
+  useEffect(() => {
+    if (!open) {
+      closeMoveMenu();
+      cancelRestoreMoveFocus();
+      suppressMoveFocusOpen.current = false;
+      return;
+    }
+    const closeCascade = () => {
+      setOpen(false);
+      closeMoveMenu();
+      cancelRestoreMoveFocus();
+      suppressMoveFocusOpen.current = false;
+    };
     const closeOutside = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (
+        !rootRef.current?.contains(target)
+        && !moveMenuRef.current?.contains(target)
+      ) closeCascade();
     };
     document.addEventListener("pointerdown", closeOutside);
-    const items = menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
-    const target = openingFocus.current === "last" ? items?.item(items.length - 1) : items?.item(0);
+    window.addEventListener("blur", closeCascade);
+    const items = mainMenuItems();
+    const target = openingFocus.current === "last" ? items.at(-1) : items[0];
     target?.focus();
-    return () => document.removeEventListener("pointerdown", closeOutside);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      window.removeEventListener("blur", closeCascade);
+    };
   }, [open]);
+  useEffect(() => () => {
+    cancelMoveClose();
+    cancelMoveBlur();
+    cancelRestoreMoveFocus();
+  }, []);
+  useLayoutEffect(() => {
+    if (!moveOpen) return;
+    const trigger = moveItemRef.current;
+    const submenu = moveMenuRef.current;
+    if (!trigger || !submenu) return;
+    const positionMenu = (event?: Event) => {
+      if (event?.target instanceof Node && submenu.contains(event.target)) return;
+      const triggerRect = trigger.getBoundingClientRect();
+      const scrollPane = trigger.closest<HTMLElement>(".detail-scroll");
+      const paneRect = scrollPane?.getBoundingClientRect();
+      const visibleTop = Math.max(0, paneRect?.top ?? 0);
+      const visibleRight = Math.min(window.innerWidth, paneRect?.right ?? window.innerWidth);
+      const visibleBottom = Math.min(window.innerHeight, paneRect?.bottom ?? window.innerHeight);
+      const visibleLeft = Math.max(0, paneRect?.left ?? 0);
+      if (
+        triggerRect.bottom <= visibleTop
+        || triggerRect.left >= visibleRight
+        || triggerRect.top >= visibleBottom
+        || triggerRect.right <= visibleLeft
+      ) {
+        closeMoveMenu();
+        return;
+      }
+      const availableWidth = Math.max(160, window.innerWidth - 32);
+      const width = Math.min(320, Math.max(210, submenu.scrollWidth), availableWidth);
+      const maxHeight = Math.min(320, Math.max(120, window.innerHeight - 32));
+      const height = Math.min(submenu.scrollHeight, maxHeight);
+      const opensRight = window.innerWidth - triggerRect.right - 16 >= width;
+      const left = opensRight
+        ? triggerRect.right - 1
+        : Math.max(16, triggerRect.left - width + 1);
+      const top = Math.min(
+        Math.max(16, triggerRect.top - 5),
+        Math.max(16, window.innerHeight - height - 16)
+      );
+      setMoveMenuStyle((current) => (
+        current.top === top
+        && current.left === left
+        && current.width === width
+        && current.maxHeight === maxHeight
+        && current.visibility === "visible"
+          ? current
+          : {
+            position: "fixed",
+            top,
+            left,
+            right: "auto",
+            width,
+            maxHeight,
+            visibility: "visible"
+          }
+      ));
+    };
+    positionMenu();
+    window.addEventListener("resize", positionMenu);
+    document.addEventListener("scroll", positionMenu, true);
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => positionMenu());
+    if (resizeObserver) {
+      resizeObserver.observe(trigger);
+      resizeObserver.observe(submenu);
+      if (menuRef.current) resizeObserver.observe(menuRef.current);
+    }
+    return () => {
+      window.removeEventListener("resize", positionMenu);
+      document.removeEventListener("scroll", positionMenu, true);
+      resizeObserver?.disconnect();
+    };
+  }, [moveLayoutKey, moveOpen]);
+
+  function mainMenuItems(): HTMLButtonElement[] {
+    return [...(menuRef.current?.querySelectorAll<HTMLButtonElement>(
+      `[data-status-menu-item="true"]`
+    ) ?? [])].filter((item) => !item.disabled);
+  }
+
+  function moveMenuItems(): HTMLButtonElement[] {
+    return [...(moveMenuRef.current?.querySelectorAll<HTMLButtonElement>(
+      ":scope > button:not(:disabled)"
+    ) ?? [])];
+  }
+
+  function cancelMoveClose(): void {
+    if (moveCloseTimer.current !== null) {
+      clearTimeout(moveCloseTimer.current);
+      moveCloseTimer.current = null;
+    }
+  }
+
+  function cancelMoveBlur(): void {
+    if (moveBlurFrame.current !== null) {
+      cancelAnimationFrame(moveBlurFrame.current);
+      moveBlurFrame.current = null;
+    }
+  }
+
+  function cancelRestoreMoveFocus(): void {
+    if (restoreMoveFocusFrame.current !== null) {
+      cancelAnimationFrame(restoreMoveFocusFrame.current);
+      restoreMoveFocusFrame.current = null;
+    }
+  }
+
+  function closeMoveMenu(): void {
+    cancelMoveClose();
+    cancelMoveBlur();
+    pointerWithinMove.current = false;
+    moveTargetFocused.current = false;
+    setMoveOpen(false);
+  }
+
+  function checkMoveBlur(): void {
+    cancelMoveBlur();
+    moveBlurFrame.current = requestAnimationFrame(() => {
+      moveBlurFrame.current = null;
+      const active = document.activeElement;
+      const focusInRoot = moveRootRef.current?.contains(active) ?? false;
+      const focusInMenu = moveMenuRef.current?.contains(active) ?? false;
+      moveTargetFocused.current = focusInMenu;
+      if (
+        !focusInRoot
+        && !focusInMenu
+        && !pointerWithinMove.current
+      ) closeMoveMenu();
+    });
+  }
+
+  function scheduleMoveClose(): void {
+    cancelMoveClose();
+    moveCloseTimer.current = setTimeout(() => {
+      moveCloseTimer.current = null;
+      const active = document.activeElement;
+      if (
+        !moveRootRef.current?.contains(active)
+        && !moveMenuRef.current?.contains(active)
+      ) closeMoveMenu();
+    }, 180);
+  }
+
+  function openMoveAndFocus(position: "first" | "last" = "first"): void {
+    if (moveUnavailable) return;
+    cancelMoveClose();
+    setMoveOpen(true);
+    requestAnimationFrame(() => {
+      const items = moveMenuItems();
+      (position === "last" ? items.at(-1) : items[0])?.focus();
+    });
+  }
 
   function closeAndFocus(): void {
     setOpen(false);
+    closeMoveMenu();
     toggleRef.current?.focus();
   }
 
+  function leaveCascadeWithTab(backwards: boolean): void {
+    const chooser = toggleRef.current;
+    const root = rootRef.current;
+    if (!chooser || !root) {
+      setOpen(false);
+      closeMoveMenu();
+      return;
+    }
+    const focusable = [...document.querySelectorAll<HTMLElement>(
+      "button:not(:disabled):not([tabindex=\"-1\"]), a[href], input:not(:disabled), "
+      + "select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex=\"-1\"])"
+    )].filter((element) => element.getClientRects().length > 0);
+    const chooserIndex = focusable.indexOf(chooser);
+    const destination = backwards
+      ? focusable.slice(0, chooserIndex).at(-1)
+      : focusable.slice(chooserIndex + 1).find((element) => !root.contains(element));
+    setOpen(false);
+    closeMoveMenu();
+    destination?.focus();
+  }
+
   function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>): void {
-    const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>(
-      "button:not(:disabled)"
-    ) ?? [])];
+    if (moveMenuRef.current?.contains(event.target as Node)) return;
+    const items = mainMenuItems();
     if (!items.length) return;
     const current = items.indexOf(document.activeElement as HTMLButtonElement);
     let next: number | null = null;
@@ -510,34 +645,59 @@ function DeleteMoveButton({
       event.stopPropagation();
       closeAndFocus();
     } else if (event.key === "Tab") {
-      setOpen(false);
+      event.preventDefault();
+      event.stopPropagation();
+      leaveCascadeWithTab(event.shiftKey);
     }
   }
 
-  return <div className="status-split-button delete-move-split" ref={rootRef}>
+  function moveProjectFocus(event: KeyboardEvent<HTMLDivElement>): void {
+    const items = moveMenuItems();
+    if (!items.length) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number | null = null;
+    if (event.key === "ArrowDown") next = current < items.length - 1 ? current + 1 : 0;
+    if (event.key === "ArrowUp") next = current > 0 ? current - 1 : items.length - 1;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = items.length - 1;
+    if (next !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      items[next]?.focus();
+    } else if (event.key === "ArrowLeft" || event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeMoveMenu();
+      suppressMoveFocusOpen.current = true;
+      moveItemRef.current?.focus();
+      suppressMoveFocusOpen.current = false;
+    } else if (event.key === "Tab") {
+      event.preventDefault();
+      event.stopPropagation();
+      leaveCascadeWithTab(event.shiftKey);
+    }
+  }
+
+  return <div className="status-split-button" ref={rootRef}>
     <button
+      className="button defer-button status-split-primary"
       type="button"
-      className="button detail-delete status-split-primary"
-      aria-label="Delete work item"
-      title={deleteTitle}
-      aria-describedby={deleteExplanationId}
-      disabled={deleteDisabled || moving}
-      onClick={() => {
-        setOpen(false);
-        onDelete();
-      }}
-    >Delete</button>
+      disabled={primaryDisabled}
+      aria-label={`Defer ${work.title}`}
+      title={work.status === "deferred"
+        ? "This work item is already Deferred. Choose another status from the menu."
+        : "Explicitly hold this work item out of the work queue"}
+      onClick={() => onAction("defer", summary)}
+    >{moving ? "Moving…" : busy ? "Saving…" : "Defer"}</button>
     <button
       ref={toggleRef}
+      className="button defer-button status-split-toggle"
       type="button"
-      className="button button-secondary status-split-toggle delete-move-toggle"
-      disabled={toggleDisabled}
-      aria-label={`Move ${work.title} to another project`}
+      disabled={disabled || controlsBusy}
+      aria-label={`Choose an action for ${work.title}`}
       aria-haspopup="menu"
       aria-expanded={open}
       aria-controls={menuId}
-      aria-describedby={moveExplanationId}
-      title={hasTarget ? moveTitle : "No other projects are available"}
       onClick={() => {
         openingFocus.current = "first";
         setOpen((value) => !value);
@@ -550,33 +710,129 @@ function DeleteMoveButton({
           setOpen(true);
         }
       }}
-    >{moving ? "Moving…" : "Move"}<span aria-hidden="true">⌄</span></button>
+    ><span aria-hidden="true">⌄</span></button>
     {open && <div
       ref={menuRef}
-      className="status-action-menu move-project-menu"
+      className="status-action-menu"
       id={menuId}
       role="menu"
-      aria-label={`Move ${work.title} to project`}
+      aria-label={`Actions for ${work.title}`}
+      aria-owns={moveOpen ? moveMenuId : undefined}
       onKeyDown={moveMenuFocus}
+    >{actions.map((action) => {
+      const reason = statusActionDisabledReason(
+        action.value,
+        readiness,
+        reportSettingsReady
+      );
+      return <button
+        type="button"
+        role="menuitem"
+        tabIndex={-1}
+        key={action.value}
+        data-status-menu-item="true"
+        disabled={Boolean(reason)}
+        title={reason ?? `Explicitly mark this work item ${action.label}`}
+        aria-label={`${action.label} ${work.title}`}
+        onFocus={closeMoveMenu}
+        onClick={() => {
+          setOpen(false);
+          closeMoveMenu();
+          onAction(action.value, summary);
+        }}
+      >{action.label}</button>;
+    })}
+    <div role="separator" className="status-action-separator" />
+    <div
+      ref={moveRootRef}
+      className="status-move-menu-item"
+      role="none"
+      onPointerEnter={() => {
+        pointerWithinMove.current = true;
+        cancelMoveClose();
+        if (!moveUnavailable) setMoveOpen(true);
+      }}
+      onPointerLeave={() => {
+        pointerWithinMove.current = false;
+        scheduleMoveClose();
+      }}
+      onBlur={checkMoveBlur}
     >
-      <span className="move-project-menu-label" role="presentation">Move to project</span>
-      {projects.map((project) => {
-        const current = project.id === work.project_id;
-        return <button
-          type="button"
-          role="menuitem"
-          key={project.id}
-          disabled={current || toggleDisabled}
-          aria-label={current
-            ? `${project.name} (${project.slug}), current project`
-            : `${project.name} (${project.slug})`}
-          onClick={() => {
-            setOpen(false);
-            onMove(project.id);
-          }}
-        ><span className="move-project-identity"><bdi dir="auto">{project.name}</bdi>
-            <small>{project.slug}</small></span>{current && <span>Current</span>}</button>;
-      })}
+      <button
+        ref={moveItemRef}
+        id={moveItemId}
+        type="button"
+        role="menuitem"
+        tabIndex={-1}
+        data-status-menu-item="true"
+        aria-label={`Move ${work.title} to another project`}
+        aria-haspopup="menu"
+        aria-expanded={moveOpen}
+        aria-controls={moveMenuId}
+        aria-disabled={moveUnavailable}
+        aria-describedby={moveExplanationId}
+        title={moveTitle}
+        onFocus={() => {
+          cancelMoveClose();
+          if (suppressMoveFocusOpen.current) {
+            suppressMoveFocusOpen.current = false;
+          } else if (!moveUnavailable) {
+            setMoveOpen(true);
+          }
+        }}
+        onClick={(event) => {
+          if (moveUnavailable) {
+            event.preventDefault();
+            return;
+          }
+          openMoveAndFocus();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+            openMoveAndFocus();
+          }
+        }}
+      ><span>{moving ? "Moving…" : "Move"}</span><span aria-hidden="true">›</span></button>
+      {moveOpen && createPortal(<div
+        ref={moveMenuRef}
+        style={moveMenuStyle}
+        className="status-action-menu status-action-submenu move-project-menu"
+        id={moveMenuId}
+        role="menu"
+        aria-label={`Move ${work.title} to project`}
+        onPointerDownCapture={() => {
+          pointerWithinMove.current = true;
+        }}
+        onPointerEnter={() => {
+          pointerWithinMove.current = true;
+          cancelMoveClose();
+        }}
+        onPointerLeave={() => {
+          pointerWithinMove.current = false;
+          scheduleMoveClose();
+        }}
+        onKeyDown={moveProjectFocus}
+      >{targetProjects.map((project) => <button
+        type="button"
+        role="menuitem"
+        tabIndex={-1}
+        key={project.id}
+        aria-label={`${project.name} (${project.slug})`}
+        onFocus={() => {
+          moveTargetFocused.current = true;
+        }}
+        onBlur={checkMoveBlur}
+        onClick={() => {
+          if (moveUnavailable) return;
+          closeMoveMenu();
+          setOpen(false);
+          onMove(project.id);
+        }}
+      ><span className="move-project-identity"><bdi dir="auto">{project.name}</bdi>
+          <small>{project.slug}</small></span></button>)}</div>, document.body)}
+    </div>
     </div>}
   </div>;
 }
@@ -658,25 +914,27 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
         {!isDuplicate && <button type="button" className="button button-secondary" title={mergeLeaseExplanation || undefined} aria-describedby={mergeLeaseExplanation ? mergeLeaseExplanationId : undefined} disabled={actionsLocked || Boolean(mergeLeaseExplanation)} onClick={props.onOpenMerge}>Merge as duplicate…</button>}
         {!isDuplicate && <StatusActionButton
           summary={pointerSummary}
+          projects={props.projects}
           disabled={actionsLocked || reviewObligation}
           busy={props.statusChanging}
           reportSettingsReady={props.reportSettingsReady}
-          onAction={props.onStatusAction}
-        />}
-        {!isDuplicate && context && context.duplicate_member_total > 0 && <button type="button" className={`button button-secondary ${props.copiedKey === canonicalKey ? "is-copied" : ""}`} onClick={() => props.onCopy(work.id, canonicalKey, "Canonical work ID copied.")}><Icon name="copy" size={16} />Copy canonical ID</button>}
-        {!isDuplicate && <DeleteMoveButton
-          work={work}
-          projects={props.projects}
-          deleteDisabled={!context || reviewObligation || terminalActionDisabled(readiness, props.mutationBlocked)}
           moveDisabled={Boolean(moveDisabledReason)}
           moving={props.moving}
-          deleteTitle={deleteExplanation || "Delete work item"}
-          moveTitle={moveDisabledReason ?? "Move this work item to another project"}
-          deleteExplanationId={deleteExplanation ? deleteExplanationId : undefined}
+          moveTitle={moveExplanation ?? "Move this work item to another project"}
           moveExplanationId={moveExplanation ? moveExplanationId : undefined}
-          onDelete={props.onDelete}
+          onAction={props.onStatusAction}
           onMove={props.onMove}
         />}
+        {!isDuplicate && context && context.duplicate_member_total > 0 && <button type="button" className={`button button-secondary ${props.copiedKey === canonicalKey ? "is-copied" : ""}`} onClick={() => props.onCopy(work.id, canonicalKey, "Canonical work ID copied.")}><Icon name="copy" size={16} />Copy canonical ID</button>}
+        {!isDuplicate && <button
+          type="button"
+          className="button detail-delete"
+          aria-label="Delete work item"
+          title={deleteExplanation || "Delete work item"}
+          aria-describedby={deleteExplanation ? deleteExplanationId : undefined}
+          disabled={!context || reviewObligation || props.moving || terminalActionDisabled(readiness, props.mutationBlocked)}
+          onClick={props.onDelete}
+        >Delete</button>}
         {!isDuplicate && deleteExplanation && <p className="terminal-action-note" id={deleteExplanationId}>
           {deleteExplanation}
         </p>}

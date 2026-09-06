@@ -618,7 +618,7 @@ test("merge as duplicate runs inside the Graph tab and lands on the source audit
   }
 });
 
-test("the Delete segment moves deferred work to another project without changing identity", async ({ page }, testInfo) => {
+test("the Defer menu moves deferred work to another project without changing identity", async ({ page }, testInfo) => {
   const token = searchToken("surfacemove", testInfo);
   const key = testKey(testInfo);
   const projectName = `Move project ${key}`;
@@ -627,6 +627,7 @@ test("the Delete segment moves deferred work to another project without changing
   try {
     const sourceProject = await createProject(client, projectName, `move-source-${token}`);
     const targetProject = await createProject(client, projectName, `move-target-${token}`);
+    await createProject(client, `Alternate ${projectName}`, `move-alternate-${token}`);
     const work = await createWork(client, {
       title,
       sessionId: `surface-move-${key}`
@@ -639,56 +640,140 @@ test("the Delete segment moves deferred work to another project without changing
     await expect(page.locator(".toast")).toContainText("Deferred and held out of the work queue");
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Deferred");
 
-    const split = pane.locator(".delete-move-split");
     const deleteAction = pane.getByRole("button", { name: "Delete work item", exact: true });
-    await expect(split.locator(":scope > button").first()).toHaveAttribute(
-      "aria-label",
-      "Delete work item"
-    );
-    await expect(deleteAction).toHaveClass(/status-split-primary/);
+    await expect(pane.locator(".delete-move-split")).toHaveCount(0);
+    await expect(deleteAction).not.toHaveClass(/status-split-primary/);
     await expect(deleteAction).toBeEnabled();
 
-    const moveAction = pane.getByRole("button", {
-      name: `Move ${title} to another project`
+    const statusChooser = pane.getByRole("button", { name: `Choose an action for ${title}` });
+    const statusMenu = pane.getByRole("menu", { name: `Actions for ${title}` });
+    await statusChooser.click();
+    const parentItems = statusMenu.locator('[data-status-menu-item="true"]');
+    await expect(parentItems).toHaveText([
+      "Pending",
+      "Active",
+      "Done",
+      "Won’t Do",
+      "Promote",
+      /^Move›$/
+    ]);
+    const moveAction = statusMenu.getByRole("menuitem", {
+      name: `Move ${title} to another project`,
+      exact: true
     });
     await expect(moveAction).toBeEnabled();
-    const menu = pane.getByRole("menu", { name: `Move ${title} to project` });
-    await moveAction.click();
+    await expect(moveAction).toHaveAttribute("aria-haspopup", "menu");
+    await expect(parentItems.last()).toHaveAttribute(
+      "aria-label",
+      `Move ${title} to another project`
+    );
+    const menu = page.getByRole("menu", { name: `Move ${title} to project` });
+    await moveAction.hover();
     await expect(menu).toBeVisible();
+    await expect(menu).toHaveAttribute("id", /.+/);
+    await expect(statusMenu).toHaveAttribute(
+      "aria-owns",
+      await menu.getAttribute("id") ?? ""
+    );
+    const target = menu.getByRole("menuitem", {
+      name: `${projectName} (${targetProject.slug})`,
+      exact: true
+    });
+    await target.hover();
+    await expect(menu).toBeVisible();
+    await expect(menu.getByText(sourceProject.slug, { exact: true })).toHaveCount(0);
+
+    const detailScroll = pane.locator(".detail-scroll");
+    await detailScroll.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await expect(moveAction).not.toBeInViewport();
+    await expect(menu).toBeHidden();
+    await detailScroll.evaluate((element) => { element.scrollTop = 0; });
+    await expect(moveAction).toBeInViewport();
+    await moveAction.hover();
+    await expect(menu).toBeVisible();
+
     await deleteAction.click();
+    await expect(statusMenu).toBeHidden();
     await expect(menu).toBeHidden();
     const deleteDialog = page.getByRole("dialog", { name: "Delete this work item?" });
     await expect(deleteDialog).toBeVisible();
     await deleteDialog.getByRole("button", { name: "Keep work item" }).click();
-    await moveAction.focus();
-    await page.keyboard.press("ArrowUp");
+
+    await statusChooser.focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(parentItems.first()).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(moveAction).toBeFocused();
     await expect(menu).toBeVisible();
-    await expect(menu.locator('[role="menuitem"]:not(:disabled)').last()).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    const targets = menu.locator(":scope > [role=menuitem]:not(:disabled)");
+    await expect(targets.first()).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await expect(targets.last()).toBeFocused();
+    await page.keyboard.press("Home");
+    await expect(targets.first()).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(targets.last()).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(targets.first()).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await expect(menu).toBeHidden();
+    await expect(moveAction).toBeFocused();
+    await expect(statusMenu).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await expect(menu).toBeVisible();
+    await expect(targets.first()).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(menu).toBeHidden();
     await expect(moveAction).toBeFocused();
-    await page.keyboard.press("ArrowDown");
-    await expect(menu).toBeVisible();
-    await expect(menu.locator('[role="menuitem"]:not(:disabled)').first()).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(menu).toBeHidden();
+    await expect(statusMenu).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(statusMenu).toBeHidden();
+    await expect(statusChooser).toBeFocused();
 
-    await moveAction.click();
+    await statusChooser.click();
+    await moveAction.focus();
     await expect(menu).toBeVisible();
-    await testInfo.attach("Segmented Delete and Move project menu", {
-      body: await pane.screenshot(),
+    await page.keyboard.press("Tab");
+    await expect(statusMenu).toBeHidden();
+    await expect(menu).toBeHidden();
+    await expect(deleteAction).toBeFocused();
+
+    const previousAction = pane.getByRole("button", { name: /Merge as duplicate/ });
+    await statusChooser.click();
+    await moveAction.focus();
+    await expect(menu).toBeVisible();
+    await page.keyboard.press("Shift+Tab");
+    await expect(statusMenu).toBeHidden();
+    await expect(menu).toBeHidden();
+    await expect(previousAction).toBeFocused();
+
+    await statusChooser.click();
+    await moveAction.focus();
+    await expect(menu).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await expect(targets.first()).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(statusMenu).toBeHidden();
+    await expect(menu).toBeHidden();
+    await expect(deleteAction).toBeFocused();
+
+    await statusChooser.click();
+    await moveAction.focus();
+    await expect(menu).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await expect(targets.first()).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(statusMenu).toBeHidden();
+    await expect(menu).toBeHidden();
+    await expect(previousAction).toBeFocused();
+
+    await statusChooser.click();
+    await moveAction.focus();
+    await expect(menu).toBeVisible();
+    await testInfo.attach("Defer menu Move project submenu", {
+      body: await page.screenshot(),
       contentType: "image/png"
-    });
-    const current = menu.getByRole("menuitem", {
-      name: `${projectName} (${sourceProject.slug}), current project`,
-      exact: true
-    });
-    await expect(current).toBeDisabled();
-    await expect(current).toContainText("Current");
-    await expect(current.locator("small")).toHaveText(sourceProject.slug);
-    const target = menu.getByRole("menuitem", {
-      name: `${projectName} (${targetProject.slug})`,
-      exact: true
     });
     await expect(target).toBeEnabled();
     await expect(target.locator("small")).toHaveText(targetProject.slug);
@@ -957,10 +1042,19 @@ test("Move retries keep every draft and follow an item that moves again", async 
         }
       });
     });
-    await pane.getByRole("button", { name: `Move ${title} to another project` }).click();
+    const actionChooser = pane.getByRole("button", { name: `Choose an action for ${title}` });
+    await actionChooser.click();
+    const actionMenu = pane.getByRole("menu", { name: `Actions for ${title}` });
+    const moveAction = actionMenu.getByRole("menuitem", {
+      name: `Move ${title} to another project`,
+      exact: true
+    });
+    await moveAction.focus();
+    const projectMenu = page.getByRole("menu", { name: `Move ${title} to project` });
+    await expect(projectMenu).toBeVisible();
     await Promise.all([
       moveConfirmed,
-      pane.getByRole("menuitem", {
+      projectMenu.getByRole("menuitem", {
         name: `${targetProject} (${target.slug})`,
         exact: true
       }).click()

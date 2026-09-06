@@ -78,22 +78,36 @@ test("an active lease is visible without exposing its capability and refreshes a
     "title",
     "Explicitly hold this work item out of the work queue"
   );
-  const move = pane.getByRole("button", { name: `Move ${title} to another project` });
   const moveReason = pane.getByText(
     "Release the active lease before moving this work item.",
     { exact: true }
   );
-  await expect(move).toBeDisabled();
   await expect(moveReason).toBeVisible();
-  await expect(move).toHaveAttribute("aria-describedby", await moveReason.getAttribute("id") ?? "");
-  const statusChooser = pane.getByRole("button", { name: `Choose a status for ${title}` });
+  const statusChooser = pane.getByRole("button", { name: `Choose an action for ${title}` });
   await statusChooser.click();
-  await expect(pane.getByRole("menuitem")).toHaveText([
+  const statusMenu = pane.getByRole("menu", { name: `Actions for ${title}` });
+  const parentItems = statusMenu.locator('[data-status-menu-item="true"]');
+  await expect(parentItems).toHaveText([
     "Pending",
     "Done",
     "Won’t Do",
-    "Promote"
+    "Promote",
+    /^Move›$/
   ]);
+  const move = statusMenu.getByRole("menuitem", {
+    name: `Move ${title} to another project`,
+    exact: true
+  });
+  await expect(move).toBeDisabled();
+  await expect(move).toHaveAttribute(
+    "aria-describedby",
+    await moveReason.getAttribute("id") ?? ""
+  );
+  await expect(move).toHaveAttribute("aria-haspopup", "menu");
+  await move.hover();
+  await expect(page.getByRole("menu", {
+    name: `Move ${title} to project`
+  })).toHaveCount(0);
   await expect(pane.getByRole("menuitem", { name: `Active ${title}` })).toHaveCount(0);
   await pane.screenshot({ path: testInfo.outputPath("manual-status-menu.png") });
   await page.keyboard.press("Escape");
@@ -137,7 +151,7 @@ test("an active lease is visible without exposing its capability and refreshes a
   const dropped = await selectWork(page, title);
   await expect(dropped.locator(".detail-identity > .status-badge")).toHaveText(/Dropped/);
   await expect(dropped.getByLabel("Active work lease")).toHaveCount(0);
-  await dropped.getByRole("button", { name: `Choose a status for ${title}` }).click();
+  await dropped.getByRole("button", { name: `Choose an action for ${title}` }).click();
   await dropped.getByRole("menuitem", { name: `Pending ${title}` }).click();
   await expect(page.locator(".toast")).toContainText("Explicit human decision recorded");
   await expect(card).toHaveCount(0);
@@ -195,7 +209,7 @@ test("a human can move work through every manual status", async ({ page }, testI
   await expect(card.locator(".status-badge")).toHaveText("Deferred");
   const deferred = await selectWork(page, title);
   await expect(deferred.locator(".detail-identity > .status-badge")).toHaveText("Deferred");
-  await deferred.getByRole("button", { name: `Choose a status for ${title}` }).click();
+  await deferred.getByRole("button", { name: `Choose an action for ${title}` }).click();
   await deferred.getByRole("menuitem", { name: `Pending ${title}` }).click();
   await expect(page.locator(".toast")).toContainText("Pending and available in the work queue");
   await expect(card).toHaveCount(0);
@@ -209,14 +223,15 @@ test("a human can move work through every manual status", async ({ page }, testI
   await expect(returned.getByRole("button", { name: `Defer ${title}` })).toBeEnabled();
 
   const pendingChooser = returned.getByRole("button", {
-    name: `Choose a status for ${title}`
+    name: `Choose an action for ${title}`
   });
   await pendingChooser.click();
   await expect(returned.getByRole("menuitem")).toHaveText([
     "Active",
     "Done",
     "Won’t Do",
-    "Promote"
+    "Promote",
+    /^Move›$/
   ]);
   await expect(returned.getByRole("menuitem", { name: `Pending ${title}` })).toHaveCount(0);
   await returned.getByRole("menuitem", { name: `Active ${title}` }).click();
@@ -229,7 +244,7 @@ test("a human can move work through every manual status", async ({ page }, testI
   await expect(card).toHaveCount(1);
   const active = await selectWork(page, title);
   await expect(active.locator(".detail-identity > .status-badge")).toHaveText("Active");
-  await active.getByRole("button", { name: `Choose a status for ${title}` }).click();
+  await active.getByRole("button", { name: `Choose an action for ${title}` }).click();
   await expect(active.getByRole("menuitem", { name: `Active ${title}` })).toHaveCount(0);
   await active.getByRole("menuitem", { name: `Pending ${title}` }).click();
   await expect(page.locator(".toast")).toContainText("Explicit human decision recorded");
@@ -241,7 +256,7 @@ test("a human can move work through every manual status", async ({ page }, testI
   await expect(card).toHaveCount(1);
 
   const pendingAgain = await selectWork(page, title);
-  await pendingAgain.getByRole("button", { name: `Choose a status for ${title}` }).click();
+  await pendingAgain.getByRole("button", { name: `Choose an action for ${title}` }).click();
   await pendingAgain.getByRole("menuitem", { name: `Won’t Do ${title}` }).click();
   await expect(page.locator(".toast")).toContainText("is Won’t Do");
   await expect(card).toHaveCount(0);
@@ -251,7 +266,7 @@ test("a human can move work through every manual status", async ({ page }, testI
   await expect(card).toHaveCount(1);
   const wontDo = await selectWork(page, title);
   await expect(wontDo.locator(".detail-identity > .status-badge")).toHaveText("Won’t do");
-  await wontDo.getByRole("button", { name: `Choose a status for ${title}` }).click();
+  await wontDo.getByRole("button", { name: `Choose an action for ${title}` }).click();
   await expect(wontDo.getByRole("menuitem", { name: `Won’t Do ${title}` })).toHaveCount(0);
   await wontDo.getByRole("menuitem", { name: `Promote ${title}` }).click();
   await expect(page.locator(".toast")).toContainText("is Promoted");
@@ -262,7 +277,7 @@ test("a human can move work through every manual status", async ({ page }, testI
   await expect(card).toHaveCount(1);
   const promoted = await selectWork(page, title);
   await expect(promoted.locator(".detail-identity > .status-badge")).toHaveText("Promoted");
-  await promoted.getByRole("button", { name: `Choose a status for ${title}` }).click();
+  await promoted.getByRole("button", { name: `Choose an action for ${title}` }).click();
   await expect(promoted.getByRole("menuitem", { name: `Promote ${title}` })).toHaveCount(0);
   await promoted.getByRole("menuitem", { name: `Done ${title}` }).click();
   await expect(page.locator(".toast")).toContainText("is Done");

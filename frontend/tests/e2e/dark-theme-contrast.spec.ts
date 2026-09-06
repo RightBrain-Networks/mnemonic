@@ -221,6 +221,13 @@ const contrastFixture = `
                   <button role="menuitem" disabled>Done</button>
                   <button role="menuitem">Won’t Do</button>
                   <button role="menuitem">Promote</button>
+                  <div role="separator" class="status-action-separator"></div>
+                  <div class="status-move-menu-item" role="none">
+                    <button id="status-move-item" role="menuitem" aria-haspopup="menu" aria-expanded="true"><span>Move</span><span>›</span></button>
+                    <div class="status-action-menu status-action-submenu move-project-menu" role="menu">
+                      <button id="move-project-item" role="menuitem"><span class="move-project-identity"><bdi>Target project</bdi><small>target-project</small></span></button>
+                    </div>
+                  </div>
                 </div>
               </div>
               <button class="button button-secondary is-copied">Copy canonical ID</button>

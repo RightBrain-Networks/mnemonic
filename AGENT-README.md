@@ -420,7 +420,7 @@ item separately:
 
 ## Current code reviews release boundary
 
-Application/API/MCP/dashboard 0.13.0, plugin 0.14.0 and Alembic
+Application/API/MCP/dashboard 0.14.0, plugin 0.14.0 and Alembic
 `0024_code_reviews` ship together: 38 MCP tools, 13 receipt-protected MCP writes,
 18 REST receipt kinds, 15 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
