@@ -76,6 +76,11 @@ redirect, relationship, or hidden creation veto.
 
 ## Discover actionable candidates
 
+When explaining priority or choosing a priority threshold, read
+[priority.md](${CLAUDE_PLUGIN_ROOT}/reference/priority.md). Historical scores may
+predate the rubric; do not silently rescore them or treat a low score as proof
+of low impact. Keep discovery read-only.
+
 6. Call `list_ready_work` with only the needed `min_priority`, exact normalized
    `tag`, or direct `parent_work_item_id` filter (a `parent-child` parent).
    Results are ordered by priority descending, creation time ascending, then
