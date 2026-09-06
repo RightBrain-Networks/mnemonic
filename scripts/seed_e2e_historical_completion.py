@@ -113,6 +113,7 @@ def seed_historical_completion(connection: Connection, run_id: UUID) -> dict[str
         uuid4() for _ in range(5)
     ]
     project_name = f"E2E Phase 1 {run_id}"
+    project_description = "Disposable historical completion acceptance fixture."
     title = f"Phase 11 migrated 0018 completion {str(run_id)[:8]}"
     summary = (
         "A receipt-backed evidence-free completion carried through migration 0019."
@@ -127,7 +128,7 @@ def seed_historical_completion(connection: Connection, run_id: UUID) -> dict[str
             "id": project_id,
             "name": project_name,
             "slug": "e2e-" + str(run_id),
-            "description": "Disposable historical completion acceptance fixture.",
+            "description": project_description,
         },
     )
     connection.execute(
@@ -250,7 +251,7 @@ def seed_historical_completion(connection: Connection, run_id: UUID) -> dict[str
     return {
         "projectId": str(project_id),
         "projectName": project_name,
-        "projectSlug": "e2e-" + str(run_id),
+        "projectDescription": project_description,
         "runId": str(run_id),
         "historicalCompletion": {
             "title": title,

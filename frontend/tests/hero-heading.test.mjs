@@ -46,29 +46,37 @@ const plex = fontFaces("IBM Plex Sans");
 const roman = plex.filter((face) => face["font-style"] === "normal");
 const italic = plex.filter((face) => face["font-style"] === "italic");
 
-test("the library hero names the selected project and its slug without an eyebrow", () => {
+test("the library hero names the selected project and moves its description inline", () => {
   // Only the library passes a subject, so "Project settings." and "Needs Attention."
   // are unchanged by this heading.
   const subjects = [...dashboard.matchAll(/^\s*subject=\{([^}]*)\}$/gm)].map(([, value]) => value);
   assert.deepEqual(subjects, ["project?.name"]);
-  assert.match(dashboard,
-    /title="Work library"\n\s*subject=\{project\?\.name\}\n\s*subjectSlug=\{project\?\.slug\}/);
+  const libraryChrome = dashboard.match(
+    /<DashboardViewChrome\n\s*title="Work library"[\s\S]*?\n\s*\/>/
+  )?.[0] ?? "";
+  assert.match(libraryChrome,
+    /subject=\{project\?\.name\}\n\s*subjectDescription=\{project\?\.description \|\|/);
+  assert.doesNotMatch(libraryChrome, /\n\s*description=/);
   assert.doesNotMatch(dashboard, /eyebrow="DURABLE WORK FOR TEMPORARY SESSIONS"/);
   assert.equal((chrome.match(/subject\?: string;/g) ?? []).length, 1);
-  assert.equal((chrome.match(/subjectSlug\?: string;/g) ?? []).length, 1);
+  assert.equal((chrome.match(/subjectDescription\?: string;/g) ?? []).length, 1);
+  assert.equal((chrome.match(/description\?: string;/g) ?? []).length, 1);
+  assert.match(chrome, /\{description && <p>\{description\}<\/p>\}/);
 });
 
-test("the colon replaces the period and the slug follows the name after an em dash", () => {
+test("the description follows the project name after an em dash", () => {
   assert.match(heading,
     /\{title\}<span className="heading-mark">\{subject \? ":" : "\."\}<\/span>/);
   const nameIndex = heading.indexOf('<span className="heading-subject-name">{subject}</span>');
   const separatorIndex = heading.indexOf(
     '<span className="heading-subject-separator">—</span>'
   );
-  const slugIndex = heading.indexOf(
-    '<span className="heading-subject-slug">{subjectSlug}</span>'
+  const descriptionIndex = heading.indexOf(
+    '<span className="heading-subject-description">{subjectDescription}</span>'
   );
-  assert.ok(nameIndex >= 0 && nameIndex < separatorIndex && separatorIndex < slugIndex);
+  assert.ok(
+    nameIndex >= 0 && nameIndex < separatorIndex && separatorIndex < descriptionIndex
+  );
 });
 
 test("the colon keeps the period's accent and the project name does not take it", () => {
@@ -103,9 +111,12 @@ test("the project name is italic at 80% opacity and never a synthesized slant", 
   assert.equal(declaration(".page-heading h1 > .heading-subject", "overflow-wrap"), "anywhere");
 });
 
-test("the project slug is spaced by an em dash and painted at 50% opacity", () => {
+test("the project description shares the name size and is painted at 50% opacity", () => {
   assert.equal(declaration(".heading-subject-separator", "margin-inline"), ".45em");
-  assert.equal(declaration(".heading-subject-slug", "opacity"), ".5");
+  assert.equal(declaration(".heading-subject-description", "opacity"), ".5");
+  for (const body of ruleBodies(".heading-subject-description")) {
+    assert.ok(!/font-size:/.test(body), "the description should inherit the project name size");
+  }
 });
 
 test("the heading font ships a real italic covering the same subsets as its roman", () => {
