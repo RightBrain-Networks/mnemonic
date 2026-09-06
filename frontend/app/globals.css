@@ -831,6 +831,23 @@ html[data-theme="dark"] :is(.evidence-outcome.is-inconclusive, .evidence-outcome
 }
 .defer-button { min-width: auto; padding: 9px 10px; color: #735d05; background: #fff8d8; border-color: #e2c771; font-size: 11px; }
 .defer-button:hover:not(:disabled) { color: #574400; background: #fff0ae; border-color: #cda82b; }
+.status-split-button { position: relative; display: inline-flex; align-items: stretch; }
+.status-split-button .status-split-primary { border-radius: 7px 0 0 7px; }
+.status-split-button .status-split-toggle {
+  width: 30px; padding: 0; justify-content: center; margin-left: -1px; border-radius: 0 7px 7px 0;
+}
+.status-split-toggle > span { display: inline-block; font-size: 16px; line-height: 1; transform: translateY(-1px); }
+.status-action-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 6; display: grid; min-width: 155px;
+  padding: 5px; border: 1px solid #ddcfb8; border-radius: 8px; background: var(--surface);
+  box-shadow: 0 12px 32px #25113026;
+}
+.status-action-menu button {
+  padding: 8px 10px; border: 0; border-radius: 5px; color: var(--ink); background: transparent;
+  font-size: 11px; font-weight: 600; text-align: left; white-space: nowrap;
+}
+.status-action-menu button:hover:not(:disabled), .status-action-menu button:focus-visible { color: #5123a9; background: var(--violet-soft); }
+.status-action-menu button:disabled { color: var(--faint); cursor: not-allowed; }
 
 .empty-state { background: #faf5e9; border-color: #d8c8ae; }
 .empty-art { color: var(--accent); background: var(--accent-soft); }
@@ -1848,6 +1865,16 @@ html[data-theme="dark"] :is(.detail-reconciliation-status, .defer-button,
   color: var(--dark-warning-text);
   background: var(--dark-warning-bg);
   border-color: var(--dark-warning-line);
+}
+html[data-theme="dark"] .status-action-menu {
+  color: var(--dark-text);
+  background: var(--dark-raised);
+  border-color: var(--dark-border);
+}
+html[data-theme="dark"] .status-action-menu button { color: var(--dark-text); }
+html[data-theme="dark"] .status-action-menu button:hover:not(:disabled),
+html[data-theme="dark"] .status-action-menu button:focus-visible {
+  color: var(--dark-violet-text); background: var(--violet-soft);
 }
 html[data-theme="dark"] .mutation-recovery li { border-color: var(--dark-warning-line); }
 html[data-theme="dark"] .operational-badge.blocked,

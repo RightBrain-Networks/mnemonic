@@ -91,6 +91,11 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   );
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/complete`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/defer`, "POST"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/activate`, "POST"), []);
+  assert.deepEqual(
+    allowedQueryKeys(`projects/${project}/work-items/${work}/return-to-pending`, "POST"),
+    []
+  );
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/delete`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/merge`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/human-attention`, "GET"), ["work_item_id", "limit", "cursor"]);
@@ -646,6 +651,59 @@ test("all lease-capability routes are denied to the browser proxy", () => {
       assert.equal(allowedQueryKeys(path, method), null, `${method} ${operation}`);
     }
   }
+});
+
+test("browser-safe manual Active and Pending actions have exact token-free bodies", () => {
+  const actor = { actor_client: "dashboard", actor_session_id: "tab-1" };
+  const activationPath = `projects/${project}/work-items/${work}/activate`;
+  const pendingPath = `projects/${project}/work-items/${work}/return-to-pending`;
+  const activation = {
+    expected_version: 3,
+    actor,
+    claim_request_id: operation
+  };
+  const activeLease = {
+    holder_client: "dashboard",
+    holder_session_id: "tab-1",
+    acquired_at: "2026-09-01T12:00:00Z",
+    renewed_at: "2026-09-01T12:00:00Z",
+    expires_at: "2026-09-01T12:15:00Z"
+  };
+  const activePending = {
+    expected_version: 3,
+    expected_lease_state: "active",
+    expected_active_lease: activeLease,
+    actor
+  };
+  const droppedPending = {
+    expected_version: 3,
+    expected_lease_state: "dropped",
+    expected_active_lease: null,
+    actor
+  };
+
+  assert.equal(invalidMutationBody(activationPath, "POST", activation), null);
+  assert.equal(invalidMutationBody(pendingPath, "POST", activePending), null);
+  assert.equal(invalidMutationBody(pendingPath, "POST", droppedPending), null);
+  assert.equal(browserTransportEffect(activationPath, "POST"), "lease_claim");
+  assert.equal(browserTransportEffect(pendingPath, "POST"), "lease_claim");
+
+  for (const invalid of [
+    { ...activation, actor: { actor_client: "agent", actor_session_id: "tab-1" } },
+    { ...activation, actor: { ...actor, actor_model: "forged" } },
+    { ...activation, claim_request_id: "not-a-uuid" },
+    { ...activation, client_operation_id: operation },
+    { ...activation, lease_token: "browser-secret" }
+  ]) assert.ok(invalidMutationBody(activationPath, "POST", invalid));
+
+  for (const invalid of [
+    { ...activePending, expected_active_lease: null },
+    { ...droppedPending, expected_active_lease: activeLease },
+    { ...activePending, actor: { actor_client: "agent", actor_session_id: "tab-1" } },
+    { ...activePending, actor: { ...actor, actor_model: "forged" } },
+    { ...activePending, client_operation_id: operation },
+    { ...activePending, expected_active_lease: { ...activeLease, lease_token: "secret" } }
+  ]) assert.ok(invalidMutationBody(pendingPath, "POST", invalid));
 });
 
 test("mutation bodies reject capability tokens at any nesting level", () => {

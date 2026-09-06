@@ -651,6 +651,9 @@ export function relationshipEventDescription(event: WorkEventRead, counterpartTi
 
 export function workEventDescription(event: WorkEventRead, counterpartTitle?: string): string | null {
   const metadata = metadataOf(event);
+  const humanDecision = event.actor_kind === "client"
+    && event.actor_client === "dashboard"
+    && event.actor_model === null;
   switch (event.event_type) {
     case "work_created": {
       const initial = objectValue(metadata.initial);
@@ -664,16 +667,16 @@ export function workEventDescription(event: WorkEventRead, counterpartTitle?: st
       return fields.length ? `Changed ${fields.join(", ")}.` : "Updated work fields.";
     }
     case "work_status_changed":
-      return `Changed status from ${statusText(metadata.from_status)} to ${statusText(metadata.to_status)}.`;
+      return `${humanDecision ? "Explicit human decision: changed" : "Changed"} status from ${statusText(metadata.from_status)} to ${statusText(metadata.to_status)}.`;
     case "work_reopened":
-      return `Reopened work from ${statusText(metadata.from_status)}.`;
+      return `${humanDecision ? "Explicit human decision: reopened" : "Reopened"} work from ${statusText(metadata.from_status)}.`;
     case "work_claimed":
       return typeof metadata.expires_at === "string"
-        ? `Claimed until ${metadata.expires_at}.`
+        ? `${humanDecision ? "Explicit human decision: claimed" : "Claimed"} until ${metadata.expires_at}.`
         : "Reconstructed a lease retained at the Phase 5 cutover.";
     case "work_released":
       return metadata.lease_holder_kind === "client"
-        ? `Released the claim held by ${String(metadata.lease_holder_client)} · ${String(metadata.lease_holder_session_id)}.`
+        ? `${humanDecision ? "Explicit human decision: released" : "Released"} the claim held by ${String(metadata.lease_holder_client)} · ${String(metadata.lease_holder_session_id)}.`
         : "Released a claim whose earlier holder provenance was unavailable.";
     case "checkpoint_added":
       return `Referenced a ${String(metadata.checkpoint_kind)} checkpoint; its exact text remains in Checkpoints.`;
@@ -693,7 +696,9 @@ export function workEventDescription(event: WorkEventRead, counterpartTitle?: st
         ? `Made this work an immutable duplicate of ${String(metadata.destination_work_item_id)}.`
         : `Kept this work canonical when ${String(metadata.source_work_item_id)} was merged into it.`;
     case "work_completed":
-      return "Completed work with an immutable completion checkpoint.";
+      return humanDecision
+        ? "Explicit human decision: completed work with an immutable completion checkpoint."
+        : "Completed work with an immutable completion checkpoint.";
     case "work_deleted":
       return `Soft-deleted work in ${statusText(metadata.final_status)} status.`;
   }

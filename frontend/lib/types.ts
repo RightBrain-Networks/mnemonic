@@ -75,6 +75,24 @@ export interface LeasePublic {
   expires_at: string;
 }
 
+export interface DashboardWorkActivationInput {
+  expected_version: number;
+  actor: MutationActor;
+  claim_request_id: string;
+}
+
+export interface DashboardWorkPendingInput {
+  expected_version: number;
+  expected_lease_state: "active" | "dropped";
+  expected_active_lease: LeasePublic | null;
+  actor: MutationActor;
+}
+
+export interface LeaseReleaseResult {
+  work_item_id: string;
+  released: boolean;
+}
+
 export interface Readiness {
   lifecycle_status: WorkStatus;
   is_terminal: boolean;

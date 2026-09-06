@@ -48,6 +48,12 @@ function decodeLease(value: unknown): LeasePublic | null {
   return lease as unknown as LeasePublic;
 }
 
+export function decodeLeasePublic(value: unknown): LeasePublic {
+  const lease = decodeLease(value);
+  if (!lease) throw new Error("Mnemonic returned an invalid manual activation.");
+  return lease;
+}
+
 export function decodeReadiness(
   value: unknown,
   status: WorkStatus,

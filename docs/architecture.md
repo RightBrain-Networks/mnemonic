@@ -1,6 +1,6 @@
 # Mnemonic architecture through Phase 12
 
-This architecture describes application/API/MCP `0.8.0`, Claude plugin `0.11.0`,
+This architecture describes application/API/MCP `0.9.0`, Claude plugin `0.11.0`,
 and Alembic head `0021_job_completion_reports`. The longer-term
 direction and later-phase boundaries are in [`roadmap.md`](roadmap.md).
 
@@ -217,6 +217,10 @@ that locks and revalidates before already-authorized execution.
 - A lease token is a capability for renewal, release, and terminal lifecycle
   mutation while the lease is active. It appears only in lease receipts and
   JSON request bodies, never ordinary reads, errors, URLs, or browser data.
+- Manual dashboard activation constructs a dashboard-owned lease but returns
+  only `LeasePublic`. Manual Pending locks and removes only the exact public
+  active lease the person reviewed, or the observed Dropped row. Neither route
+  accepts or returns a token; both require dashboard human provenance.
 - Lease operations never change work version or activity time. Checkpoint
   append remains open because it records an observation rather than ownership.
 - Completion, retirement, promotion, and deletion require the matching token
@@ -294,13 +298,15 @@ history transport and pre-SDK HTTP/stdio frame guards prevent content coding,
 oversized bodies, or unbounded caller IDs from defeating the result envelope.
 The dashboard calls only an exact same-origin proxy
 allowlist, including attention/history reads, gate resolution, event
-list/progress append, and actor-bearing work or relationship writes. A dashboard-lifetime in-memory
-registry owns eleven frozen protected intents, including a two-work-key merge
-intent, and blocks overlapping conflicts while an
+list/progress append, and actor-bearing work or relationship writes. A
+dashboard-lifetime in-memory registry owns thirteen frozen protected intents,
+including a two-work-key merge intent, blocks overlapping conflicts while an
 outcome is unresolved, and never writes those bodies or UUIDs to browser
-storage. Its API key is server-only. Every lease-capability route
-is denied to the browser, event append rejects a browser lease token, and any
-browser mutation body containing `lease_token` is rejected rather than forwarded.
+storage. Its API key is server-only. Every token-bearing lease-capability route
+is denied to the browser. Two exact token-free lease routes support explicit
+human Active/Pending status decisions; event append still rejects a browser
+lease token, and any browser mutation body containing `lease_token` is
+rejected rather than forwarded.
 
 All published ports bind to loopback by default. The shared bearer key protects
 REST and MCP, while the dashboard remains a trusted-local single-user surface.

@@ -6,7 +6,8 @@ import {
   nullableBoundedText,
   objectValue as jsonObject,
   validBoundedMetadata,
-  validUuid
+  validUuid,
+  validUtcDateTime
 } from "./wire-guards.ts";
 import { decimalString, validJobReportInput, validReportPrompt } from "./job-completion-reports.ts";
 import { validAffectedPaths } from "./affected-paths.ts";
@@ -64,6 +65,14 @@ export const DEFINITIVE_PROXY_ERRORS = {
   invalidWorkItemDeferral: {
     status: 400,
     detail: "The work-item deferral does not match the dashboard allowlist."
+  },
+  invalidWorkActivation: {
+    status: 400,
+    detail: "The work-item activation does not match the dashboard allowlist."
+  },
+  invalidWorkPending: {
+    status: 400,
+    detail: "The work-item Pending action does not match the dashboard allowlist."
   },
   invalidProjectSettingsPatch: {
     status: 400,
@@ -155,6 +164,8 @@ const RELATIONSHIPS = new RegExp(`^projects/${UUID}/relationships$`);
 const RELATIONSHIP = new RegExp(`^projects/${UUID}/relationships/${UUID}$`);
 const WORK_COMPLETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/complete$`);
 const WORK_DEFER = new RegExp(`^projects/${UUID}/work-items/${UUID}/defer$`);
+const WORK_ACTIVATE = new RegExp(`^projects/${UUID}/work-items/${UUID}/activate$`);
+const WORK_PENDING = new RegExp(`^projects/${UUID}/work-items/${UUID}/return-to-pending$`);
 const WORK_DELETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/delete$`);
 const WORK_MERGE = new RegExp(`^projects/${UUID}/work-items/${UUID}/merge$`);
 const WORK_EVENTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/events$`);
@@ -265,6 +276,8 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   if (GATE_RESOLVE.test(path) && method === "POST") return [];
   if (WORK_COMPLETE.test(path) && method === "POST") return [];
   if (WORK_DEFER.test(path) && method === "POST") return [];
+  if (WORK_ACTIVATE.test(path) && method === "POST") return [];
+  if (WORK_PENDING.test(path) && method === "POST") return [];
   if (WORK_DELETE.test(path) && method === "POST") return [];
   if (WORK_MERGE.test(path) && method === "POST") return [];
   return null;
@@ -312,7 +325,21 @@ function validActor(value: unknown): boolean {
       || boundedText(actor.actor_model, 120));
 }
 
-
+function validExpectedActiveLease(value: unknown): boolean {
+  const lease = jsonObject(value);
+  return Boolean(
+    lease
+    && allowedKeys(lease, [
+      "holder_client", "holder_session_id", "acquired_at", "renewed_at", "expires_at"
+    ])
+    && Object.keys(lease).length === 5
+    && boundedText(lease.holder_client, 80)
+    && boundedText(lease.holder_session_id, 200)
+    && validUtcDateTime(lease.acquired_at)
+    && validUtcDateTime(lease.renewed_at)
+    && validUtcDateTime(lease.expires_at)
+  );
+}
 
 function validStringArray(value: unknown, maximumItems: number, maximumLength: number): boolean {
   return Array.isArray(value)
@@ -523,6 +550,36 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !validActor(body.actor)
     ) return DEFINITIVE_PROXY_ERRORS.invalidWorkItemDeferral.detail;
   }
+  if (WORK_ACTIVATE.test(path) && method === "POST") {
+    const actor = jsonObject(body.actor);
+    if (
+      !allowedKeys(body, ["expected_version", "actor", "claim_request_id"])
+      || Object.keys(body).length !== 3
+      || !finiteInteger(body.expected_version, 1)
+      || !validActor(body.actor)
+      || actor?.actor_client !== "dashboard"
+      || (actor.actor_model !== undefined && actor.actor_model !== null)
+      || !validUuid(body.claim_request_id)
+    ) return DEFINITIVE_PROXY_ERRORS.invalidWorkActivation.detail;
+  }
+  if (WORK_PENDING.test(path) && method === "POST") {
+    const actor = jsonObject(body.actor);
+    const active = body.expected_lease_state === "active";
+    if (
+      !allowedKeys(body, [
+        "expected_version", "expected_lease_state", "expected_active_lease", "actor"
+      ])
+      || Object.keys(body).length !== 4
+      || !finiteInteger(body.expected_version, 1)
+      || (body.expected_lease_state !== "active" && body.expected_lease_state !== "dropped")
+      || (active
+        ? !validExpectedActiveLease(body.expected_active_lease)
+        : body.expected_active_lease !== null)
+      || !validActor(body.actor)
+      || actor?.actor_client !== "dashboard"
+      || (actor.actor_model !== undefined && actor.actor_model !== null)
+    ) return DEFINITIVE_PROXY_ERRORS.invalidWorkPending.detail;
+  }
   if (PROJECT_SETTINGS.test(path) && method === "PATCH") {
     if (
       !allowedKeys(body, ["expected_revision", "recall_pointer_template", "job_completion_report_prompt"])
@@ -640,6 +697,9 @@ export function browserTransportEffect(
 ): BrowserTransportEffect | null {
   if (method === "POST" && DUPLICATE_SUGGESTIONS.test(path)) return "safe_read";
   if (LEASE_CAPABILITY.test(path)) return "lease_claim";
+  if (method === "POST" && (WORK_ACTIVATE.test(path) || WORK_PENDING.test(path))) {
+    return "lease_claim";
+  }
   if (method === "GET" && allowedQueryKeys(path, method) !== null) return "safe_read";
   if (coveredMutation(path, method)) return "receipt_protected_write";
   return null;

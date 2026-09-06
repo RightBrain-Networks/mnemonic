@@ -2187,10 +2187,51 @@ class LeasePublic(APIModel):
         return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+class DashboardLeaseObservation(APIModel):
+    """Exact safe active-lease projection reviewed in the dashboard."""
+
+    holder_client: ClientName
+    holder_session_id: SessionID
+    acquired_at: datetime
+    renewed_at: datetime
+    expires_at: datetime
+
+
 class ClaimReceipt(LeasePublic):
     work_item_id: UUID
     claim_request_id: str
     lease_token: str = Field(repr=False)
+
+
+class DashboardWorkActivationCreate(APIModel):
+    """Browser-only human decision to represent work as Active with a safe lease."""
+
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+    actor: MutationActor
+    claim_request_id: ClaimRequestID
+
+    @model_validator(mode="after")
+    def require_dashboard_human(self) -> Self:
+        if self.actor.actor_client != "dashboard" or self.actor.actor_model is not None:
+            raise ValueError("Manual activation requires dashboard human provenance")
+        return self
+
+
+class DashboardWorkPendingCreate(APIModel):
+    """Browser-only human decision to clear the exact observed lease state."""
+
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+    expected_lease_state: Literal["active", "dropped"]
+    expected_active_lease: DashboardLeaseObservation | None = None
+    actor: MutationActor
+
+    @model_validator(mode="after")
+    def require_observed_dashboard_state(self) -> Self:
+        if self.actor.actor_client != "dashboard" or self.actor.actor_model is not None:
+            raise ValueError("Manual Pending requires dashboard human provenance")
+        if (self.expected_lease_state == "active") != (self.expected_active_lease is not None):
+            raise ValueError("Active release requires the exact observed public lease")
+        return self
 
 
 class Readiness(APIModel):

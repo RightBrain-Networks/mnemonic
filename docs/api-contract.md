@@ -1,6 +1,6 @@
 # Phase 12 API contract
 
-This is application/API/MCP/dashboard `0.8.0`, plugin `0.11.0`, and migration
+This is application/API/MCP/dashboard `0.9.0`, plugin `0.11.0`, and migration
 `0021_job_completion_reports`. The catalog has exactly 32 MCP tools, 11 protected
 MCP writes, 15 REST receipt kinds, and 13 protected browser mutations.
 [Project activity and human reports](project-activity-and-reports.md) documents
@@ -31,9 +31,9 @@ FastAPI's structured list remains the validation-error format. Invalid input is
 checkpoint text, metadata, credentials, or request bodies.
 
 Lease conflicts use stable codes: `work_not_pending`, `lease_held`,
-`lease_expired`, `lease_token_mismatch`, and `claim_request_expired`.
-`lease_held` may expose only safe holder and expiry context. No error contains a
-lease token or claim request ID.
+`lease_expired`, `lease_token_mismatch`, `claim_request_expired`, and
+`lease_state_changed`. `lease_held` may expose only safe holder and expiry
+context. No error contains a lease token or claim request ID.
 
 Lifecycle and graph conflicts use stable codes including
 `invalid_status_transition`, `work_blocked`, `completion_episode_unsealed`,
@@ -144,8 +144,9 @@ do, or Promoted transition requires it and an authored report. `merge_work`,
 report dismissal, and report follow-up have no unkeyed form. Exactly eleven
 canonical MCP mutation tools require it. Human-only deferral, gate resolution,
 report dismissal, and follow-up creation have no MCP mutation tools. The
-dashboard generates it for thirteen protected actions; capability-bearing
-release and gate creation remain denied.
+dashboard generates it for thirteen protected actions. Token-bearing lease
+release and gate creation remain denied; the two token-free manual status lease
+routes described below are outside the receipt ledger.
 It freezes the entire request and retries only that exact in-memory intent.
 Project create/update, project settings, claim, claim-and-recall, and
 renew-claim remain outside this ledger. Claim recovery continues to use its
@@ -450,6 +451,29 @@ matching retained row even after expiry. An absent row returns
 `{work_item_id, released: false}`.
 A different active replacement returns `lease_token_mismatch`; a different
 expired row remains untouched and also returns `released: false`.
+
+Two dashboard-only, token-free status routes sit beside those capability routes:
+
+- `POST /projects/{project_id}/work-items/{work_item_id}/activate` accepts
+  `{expected_version, actor, claim_request_id}`. The actor must have
+  `actor_client: "dashboard"` and a null/omitted model. The browser supplies a
+  UUID request ID. Fresh eligibility and the exact work version are rechecked.
+  Success returns only `LeasePublic={holder_client, holder_session_id,
+  acquired_at, renewed_at, expires_at}`; it cannot return the work ID, request
+  ID, or token.
+- `POST /projects/{project_id}/work-items/{work_item_id}/return-to-pending`
+  accepts `{expected_version, expected_lease_state, expected_active_lease,
+  actor}`. Active requires the exact five-field public lease the person
+  reviewed; Dropped requires null. The row is locked before comparison, so a
+  renewed or replacement lease fails with `409 lease_state_changed` instead of
+  being cleared. Success returns `{work_item_id, released}`.
+
+These routes do not enter the durable receipt ledger. Activation uses the
+ordinary claim-request replay contract; returning an already-cleared item is a
+convergent `released: false` no-op. A real acquisition/release emits the normal
+`work_claimed`/`work_released` event with the asserted dashboard actor. This
+is human-decision provenance under the shared bearer boundary, not a signed
+identity.
 
 Lease acquisition, replay, renewal, and release do not change work version or
 `updated_at`. Only Pending work can be claimed. Deferred work stays outside
