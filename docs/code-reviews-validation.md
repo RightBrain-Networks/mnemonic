@@ -78,6 +78,12 @@ review aggregates.
   skips. After that full run, the draft-preservation correction was validated in
   a fresh production build with all 14 review cases, plus unit/type checks.
 - Backend/MCP Ruff and ty, OpenAPI snapshot and the required secret scan pass.
+- The separate repository-freshness plugin suite passed 71 tests with one
+  platform-specific skip on Linux (72 collected). PR CI also runs it on macOS
+  with authentic Bash 3.2. The initial PR run exposed stale plugin-version and
+  exact-reference-inventory assertions; both were corrected to match the
+  coordinated 0.14.0 package, without changing runtime code. An independent
+  release-contract sweep found no additional actionable mismatch.
 
 PostgreSQL-marked suites run with `TEST_DATABASE_URL`; skips do not count as
 database validation. Authentic plugin checks use isolated offline Claude CLI
