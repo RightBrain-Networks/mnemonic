@@ -1,7 +1,7 @@
 # External records implementation validation
 
 Validated on 2026-09-05 for application/API/MCP/dashboard `0.10.0`, plugin
-`0.12.0`, and Alembic `0022_external_references`, rebased onto `3438916`.
+`0.12.0`, and Alembic `0022_external_references`, rebased onto `20b3a5e`.
 This records implementation evidence for the
 [plan](external-records-deduplication-implementation-plan.md), together with
 the [performance evidence](external-records-performance-and-recovery-evidence.md).
@@ -79,14 +79,22 @@ test database were used. Database suites were enabled with no database skips.
 | --- | --- |
 | Backend full suite with PostgreSQL | 1,436 passed; seven framework deprecation/schema warnings |
 | MCP full suite, including real SDK maximum context | 929 passed |
-| Frontend unit/contract tests | 325 passed |
+| Frontend unit/contract tests after final main integration | 326 passed |
 | Isolated Playwright acceptance stack | 133 passed, four intentional viewport skips |
+| Focused acceptance after final main integration | 13 passed across desktop, narrow, and Firefox projects |
 | Standalone plugin verifier, authentic Bash 5.2.21 and Git 2.55.0 | 72 passed, no skips |
 | Backend/MCP frozen lockfiles, Ruff and whole-source type checks | Passed |
 | Frontend TypeScript and production build under Node 24 | Passed |
 | Generated OpenAPI snapshot and strict consumers | Passed in the full suites |
 | Populated migration, backup, supported restoration and aggregate audits | Passed, as detailed above |
 | Required gitleaks pre-commit check over all tracked files | Passed |
+
+The full suite matrix ran with `3438916` included. The subsequent main change
+`20b3a5e` only affected the library heading and its browser fixtures. After
+integrating it, the full frontend unit suite, TypeScript, and production build
+passed again; all 13 external-record/library-lifecycle acceptance cases passed
+on a freshly built isolated stack. Backend and MCP runtime changes were
+unaffected by that final rebase.
 
 The separate CI runtime check exercises macOS Bash 3.2. GitHub's aggregate
 required checks must also pass on the current up-to-date PR commit before merge.

@@ -1,5 +1,16 @@
 # Mnemonic validation record
 
+## External records implementation — 2026-09-05
+
+Application/API/MCP/dashboard `0.10.0`, plugin `0.12.0`, and migration
+`0022_external_references` add authored references and explicit caller-supplied
+comparison. The [implementation validation](external-records-implementation-validation.md)
+records the full suites, three independent adversarial code reviews and their
+fixes, and a populated supported backup/restore rehearsal. The
+[performance evidence](external-records-performance-and-recovery-evidence.md)
+records real-model fallback, context/transport sizes, and browser measurements.
+These used synthetic data in disposable environments; no live cutover was run.
+
 ## Legacy eventless completions accepted by 0019 — 2026-09-05
 
 This checkpoint records a production defect found and fixed on the deployed
