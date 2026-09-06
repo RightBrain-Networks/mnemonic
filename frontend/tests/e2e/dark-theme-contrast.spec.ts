@@ -45,9 +45,19 @@ const contrastFixture = `
       <a class="text-link">Text link</a>
     </div>
     <section class="library-controls">
-      <div class="search-field"><input aria-label="Search" placeholder="Search work items"><kbd>/</kbd>
-        <span class="search-mode-divider"></span>
-        <button class="semantic-toggle selected"><span class="semantic-switch"><span></span></span><span>Semantic</span></button></div>
+      <section class="library-tools is-open">
+        <button id="library-tools-toggle" class="library-tools-toggle" aria-expanded="true">
+          <span class="library-tools-title">Search and reviews</span>
+          <span class="library-tools-state">Hide<span class="library-tools-chevron">⌄</span></span>
+        </button>
+        <div class="library-tools-region"><div class="library-tools-clip"><div class="library-tools-content">
+          <details class="review-inbox-disclosure"><summary>Code review queue and unanswered recommendations</summary></details>
+          <div class="search-field"><input aria-label="Search" placeholder="Search work items"><kbd>/</kbd>
+            <span class="search-mode-divider"></span>
+            <button class="semantic-toggle selected"><span class="semantic-switch"><span></span></span><span>Semantic</span></button>
+          </div>
+        </div></div></div>
+      </section>
       <div class="filter-row">
         <div class="status-filters">
           <button class="filter-button selected"><span class="filter-dot"></span>Pending</button>
@@ -458,7 +468,7 @@ test("dark-theme text stays in the 7.21:1 to 9.5:1 contrast band", async ({ page
   // Hover states repaint text on a different tint; each one must stay in band too.
   for (const selector of [
     "#primary-button", "#secondary-button", "#danger-button", "#danger-icon",
-    "#relationship-summary", "#queue-copy-button", "#more-filters-toggle",
+    "#relationship-summary", "#queue-copy-button", "#library-tools-toggle", "#more-filters-toggle",
     "#detail-copy-id", "#detail-copy-context", "#detail-tab-graph", "#detail-delete",
     "#status-menu-item"
   ]) {

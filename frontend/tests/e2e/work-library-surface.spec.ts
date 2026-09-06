@@ -2071,6 +2071,8 @@ test("the queue and pane split is draggable, keyboard-adjustable, and remembered
     expect(initialQueue / surfaceWidth).toBeCloseTo(0.35, 1);
 
     // Dragging the divider widens the queue and stores the new share.
+    // The default-open library tools can put its midpoint below a short viewport.
+    await separator.scrollIntoViewIfNeeded();
     const handle = (await separator.boundingBox())!;
     const handleX = handle.x + handle.width / 2;
     const handleY = handle.y + handle.height / 2;
