@@ -1925,10 +1925,11 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
 
   async function showMovedWork(
     result: WorkMoveResult,
-    displayStatus: WorkMoveDisplayStatus = result.preserved_status
+    displayStatus: WorkMoveDisplayStatus = result.preserved_status,
+    previousSummary: WorkSummary | null = openedRef.current
   ): Promise<void> {
     const target = projects.find((item) => item.id === result.target_project_id);
-    const movedSummary = summaryAfterWorkMove(openedRef.current, result, displayStatus);
+    const movedSummary = summaryAfterWorkMove(previousSummary, result, displayStatus);
     const placementRequestId = ++workPlacementRequest.current;
     const requestId = ++recordRequest.current;
     const isCurrent = () =>
@@ -2020,41 +2021,96 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     }
   }
 
-  async function moveWork(targetProjectId: string): Promise<void> {
-    if (!context || movingId || targetProjectId === context.work_item.project_id) return;
+  async function moveWork(
+    targetProjectId: string,
+    requestedSummary?: WorkSummary
+  ): Promise<void> {
+    const selectedContext = context
+      && (!requestedSummary
+        || sameUuid(context.work_item.id, requestedSummary.work_item.id)
+          && sameUuid(context.work_item.project_id, requestedSummary.work_item.project_id))
+      ? context
+      : null;
+    const currentSummary = openedRef.current;
+    const sourceSummaryBase = requestedSummary
+      ?? (selectedContext && currentSummary
+        && sameUuid(currentSummary.work_item.id, selectedContext.work_item.id)
+        && sameUuid(currentSummary.work_item.project_id, selectedContext.work_item.project_id)
+        ? summaryWithContext(currentSummary, selectedContext)
+        : selectedContext ? summaryFromContext(selectedContext) : null);
+    if (!sourceSummaryBase) return;
+    const requestedWork = sourceSummaryBase.work_item;
+    const selectionRequestId = recordRequest.current;
+    const selectionPlacementRequestId = workPlacementRequest.current;
+    const startedWithoutSelection = selectedWorkItemId() === null;
+    const sourceWasOpened = Boolean(
+      currentSummary
+      && sameUuid(currentSummary.work_item.id, requestedWork.id)
+      && sameUuid(currentSummary.work_item.project_id, requestedWork.project_id)
+    );
+    const sourceIsStillOpened = () => Boolean(
+      sourceWasOpened
+      && recordRequest.current === selectionRequestId
+      && workPlacementRequest.current === selectionPlacementRequestId
+      && exactContextTarget.current === null
+      && openedRef.current
+      && sameUuid(openedRef.current.work_item.id, requestedWork.id)
+      && sameUuid(openedRef.current.work_item.project_id, requestedWork.project_id)
+    );
+    const canFollowMovedWork = () => sourceIsStillOpened() || Boolean(
+      startedWithoutSelection
+      && recordRequest.current === selectionRequestId
+      && workPlacementRequest.current === selectionPlacementRequestId
+      && openedRef.current === null
+      && exactContextTarget.current === null
+    );
+    if (movingId || targetProjectId === requestedWork.project_id) return;
     if (!projects.some((item) => item.id === targetProjectId)) {
       setNotice({ message: "That target project is no longer available. Refresh and try again.", error: true });
       return;
     }
-    const sourceContext = context;
-    const source = sourceContext.work_item;
     const conflictKeys = [
-      mutationWorkKey(source.project_id, source.id),
-      mutationWorkKey(targetProjectId, source.id)
+      mutationWorkKey(requestedWork.project_id, requestedWork.id),
+      mutationWorkKey(targetProjectId, requestedWork.id)
     ];
-    const disabledReason = workMoveDisabledReason(
-      sourceContext,
-      mutationRegistry.blocks(conflictKeys)
-    );
-    if (disabledReason) {
-      setNotice({ message: disabledReason, error: true });
+    if (mutationRegistry.blocks(conflictKeys)) {
+      setNotice({
+        message: "Resolve the pending mutation before moving this work item.",
+        error: true
+      });
       return;
     }
-    if (!leavingOpenedWorkAllowed()) return;
-    const displayStatus = preservedWorkMoveDisplayStatus(sourceContext);
-    const currentSummary = openedRef.current;
-    const sourceSummary = currentSummary
-      && sameUuid(currentSummary.work_item.id, source.id)
-      && sameUuid(currentSummary.work_item.project_id, source.project_id)
-      ? summaryWithContext(currentSummary, sourceContext)
-      : summaryFromContext(sourceContext);
-    const payload: WorkMoveInput = {
-      target_project_id: targetProjectId,
-      expected_version: source.version,
-      actor: dashboardMutationActor(dashboardSessionId())
-    };
-    setMovingId(source.id);
+    if (sourceWasOpened && !leavingOpenedWorkAllowed()) return;
+    let sourceSummary = sourceSummaryBase;
+    setMovingId(requestedWork.id);
     try {
+      let sourceContext = selectedContext;
+      if (!sourceContext) {
+        const value = await api<unknown>(
+          `${workItemPath(requestedWork.project_id, requestedWork.id)}/context?recent_limit=0&recent_event_limit=0`
+        );
+        sourceContext = decodeWorkContext(
+          value,
+          requestedWork.project_id,
+          requestedWork.id
+        );
+        sourceSummary = summaryWithContext(sourceSummary, sourceContext);
+      }
+      const disabledReason = workMoveDisabledReason(
+        sourceContext,
+        mutationRegistry.blocks(conflictKeys)
+      );
+      if (disabledReason) {
+        setNotice({ message: disabledReason, error: true });
+        return;
+      }
+      const source = sourceContext.work_item;
+      const displayStatus = preservedWorkMoveDisplayStatus(sourceContext);
+      const payload: WorkMoveInput = {
+        target_project_id: targetProjectId,
+        expected_version: source.version,
+        actor: dashboardMutationActor(dashboardSessionId())
+      };
       const result = await mutationRegistry.execute({
         kind: "move_work",
         slot: `move-work:${source.project_id}:${source.id}`,
@@ -2065,26 +2121,56 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         payload,
         expectedSourceWorkStatus: source.status
       });
-      await showMovedWork(result, displayStatus);
+      if (canFollowMovedWork()) {
+        await showMovedWork(result, displayStatus, sourceSummary);
+      } else {
+        const target = projects.find((item) => item.id === result.target_project_id);
+        setRefresh((value) => value + 1);
+        setAttentionRefresh((value) => value + 1);
+        setNotice({
+          message: `Work item moved to “${target?.name ?? "the target project"}” with its ${statusFilterLabels[displayStatus]} status preserved.`
+        });
+      }
     } catch (error) {
       if (error instanceof ApiError && error.code === "work_move_review_history_conflict") {
         setNotice({ message: "This work has retained code review policy, recommendation or remediation history and must remain in its original project. Reopening does not erase that history.", error: true });
       } else if (isDefinitiveWorkPlacementMiss(error)) {
-        const requestId = ++recordRequest.current;
-        exactContextTarget.current = null;
-        setContext(null);
-        setContextLoading(true);
-        setContextError("");
-        setContextReconciliationRequired(true);
-        await recoverCurrentWorkPlacement(sourceSummary, requestId, "move_action", true);
+        if (canFollowMovedWork()) {
+          const requestId = ++recordRequest.current;
+          exactContextTarget.current = null;
+          setContext(null);
+          setContextLoading(true);
+          setContextError("");
+          setContextReconciliationRequired(true);
+          await recoverCurrentWorkPlacement(
+            sourceSummary,
+            requestId,
+            "move_action",
+            sourceWasOpened
+          );
+        } else {
+          setRefresh((value) => value + 1);
+          setNotice({
+            message: "This work item is no longer in its listed source project. The work queue is refreshing.",
+            error: true
+          });
+        }
       } else if (isVersionConflict(error)) {
-        const reconciled = await reloadOpenContext();
-        setNotice({
-          message: reconciled
-            ? "This work item changed before it could be moved. Its current version is ready for review."
-            : "This work item changed before it could be moved, and its current state could not be reloaded. Use Refresh before continuing.",
-          error: true
-        });
+        if (!sourceIsStillOpened()) {
+          setRefresh((value) => value + 1);
+          setNotice({
+            message: "This work item changed before it could be moved. The work queue is refreshing.",
+            error: true
+          });
+        } else {
+          const reconciled = await reloadOpenContext();
+          setNotice({
+            message: reconciled
+              ? "This work item changed before it could be moved. Its current version is ready for review."
+              : "This work item changed before it could be moved, and its current state could not be reloaded. Use Refresh before continuing.",
+            error: true
+          });
+        }
       } else {
         setNotice({ message: errorMessage(error), error: true });
       }
@@ -2099,6 +2185,20 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     handoff?: CodeReviewHandoff
   ): Promise<void> {
     const work = summary.work_item;
+    const actionRecordRequestId = recordRequest.current;
+    const actionPlacementRequestId = workPlacementRequest.current;
+    const actionProjectId = activeIdRef.current;
+    const actionNavigationIsCurrent = () =>
+      recordRequest.current === actionRecordRequestId
+      && workPlacementRequest.current === actionPlacementRequestId
+      && activeIdRef.current === actionProjectId
+      && exactContextTarget.current === null;
+    const actionSourceIsStillOpened = () => {
+      const current = openedRef.current;
+      return Boolean(actionNavigationIsCurrent() && current
+        && sameUuid(current.work_item.id, work.id)
+        && sameUuid(current.work_item.project_id, work.project_id));
+    };
     let settings = projectSettings?.project_id === work.project_id
       ? projectSettings
       : null;
@@ -2237,10 +2337,25 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         });
         setReviewCloseout(null);
         if (completed.agent_follow_ups?.length || completed.code_review_request) {
-          await openExactWork(work.project_id, work.id);
-          setTab("reviews");
+          const currentOpen = openedRef.current;
+          if (actionNavigationIsCurrent() && (
+            actionSourceIsStillOpened()
+            || currentOpen === null
+              && sameUuid(activeIdRef.current, work.project_id)
+          )) {
+            // A successful terminal action owns these drafts only while its
+            // source is still selected. Clear them before openExactWork changes
+            // the request generation, including when that reload later fails.
+            if (actionSourceIsStillOpened()) {
+              setJobReportDraft(emptyJobReportDraft());
+              setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
+              setCompletionEvidenceIssues([]);
+            }
+            const openedReview = await openExactWork(work.project_id, work.id);
+            if (openedReview) setTab("reviews");
+          }
         }
-        setCheckpointOffset(0);
+        if (actionSourceIsStillOpened()) setCheckpointOffset(0);
         setCheckpointRefresh((value) => value + 1);
         setReportRefresh((value) => value + 1);
       } else if (action === "wont-do" || action === "promoted") {
@@ -2284,17 +2399,18 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       setNotice({
         message: `Explicit human decision recorded: “${work.title}” is ${decision}.`
       });
-      if (action === "done" || action === "wont-do" || action === "promoted") {
+      const sourceRemainsOpen = actionSourceIsStillOpened();
+      if (sourceRemainsOpen && (action === "done" || action === "wont-do" || action === "promoted")) {
         setJobReportDraft(emptyJobReportDraft());
       }
-      if (action === "done") {
+      if (sourceRemainsOpen && action === "done") {
         setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
         setCompletionEvidenceIssues([]);
       }
       setEventRefresh((value) => value + 1);
       setAttentionRefresh((value) => value + 1);
       setRefresh((value) => value + 1);
-      if (openedRef.current?.work_item.id === work.id) void reloadOpenContext();
+      if (sourceRemainsOpen) void reloadOpenContext();
     } catch (error) {
       if (isVersionConflict(error)) setRefresh((value) => value + 1);
       if (handoff) setReviewCloseoutError(errorMessage(error));
@@ -2757,6 +2873,13 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 viewKey={queue.viewKey}
                 selectedId={openedId}
                 copiedKey={copied}
+                projects={projects}
+                statusChangingId={statusChangingId}
+                movingId={movingId}
+                reportSettingsProjectId={projectSettings?.project_id ?? null}
+                isMutationBlocked={(item) => mutationRegistry.blocks([
+                  mutationWorkKey(item.work_item.project_id, item.work_item.id)
+                ])}
                 onQuery={setQuery}
                 onToggleSemantic={() => setSemantic((value) => !value)}
                 onDuplicateScope={(value) => {
@@ -2778,6 +2901,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 onDeselect={deselectWork}
                 onCopySelectedPointer={copyOpenedRecallPointer}
                 onCopyPointer={(item) => void copyRecallPointer(item)}
+                onStatusAction={(action, item) => void changeManualStatus(action, item)}
+                onMove={(item, targetProjectId) => void moveWork(targetProjectId, item)}
                 detail={<WorkDetailPane
                   paneRef={crossfade.detailRef}
                   opened={opened}

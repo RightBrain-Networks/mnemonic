@@ -3,7 +3,8 @@
 import { useEffect, useState, type ReactNode, type RefObject } from "react";
 import { useWorkSplit } from "@/components/use-work-split";
 import WorkQueue from "@/components/work-queue";
-import type { DuplicateScope, StatusFilter, WorkSort, WorkSummary } from "@/lib/types";
+import type { DuplicateScope, Project, StatusFilter, WorkSort, WorkSummary } from "@/lib/types";
+import type { ManualStatusAction } from "@/lib/work-status-actions";
 import {
   WORK_PAGE_SIZE,
   moreFiltersForced,
@@ -60,6 +61,11 @@ export type WorkItemListProps = {
   // Selection and clipboard state.
   selectedId: string | null;
   copiedKey: string | null;
+  projects: readonly Project[];
+  statusChangingId: string | null;
+  movingId: string | null;
+  reportSettingsProjectId: string | null;
+  isMutationBlocked: (summary: WorkSummary) => boolean;
   onQuery: (value: string) => void;
   onToggleSemantic: () => void;
   onDuplicateScope: (scope: DuplicateScope) => void;
@@ -79,6 +85,8 @@ export type WorkItemListProps = {
   onCopySelectedPointer: () => void;
   onCopyPointer: (summary: WorkSummary) => void;
   // The right column of the work surface (the detail pane).
+  onStatusAction: (action: ManualStatusAction, summary: WorkSummary) => void;
+  onMove: (summary: WorkSummary, targetProjectId: string) => void;
   detail: ReactNode;
 };
 
@@ -110,6 +118,11 @@ export default function WorkItemList({
   copiedKey,
   onQuery,
   onToggleSemantic,
+  projects,
+  statusChangingId,
+  movingId,
+  reportSettingsProjectId,
+  isMutationBlocked,
   onDuplicateScope,
   onClearDuplicateGroup,
   onStatus,
@@ -126,6 +139,8 @@ export default function WorkItemList({
   onDeselect,
   onCopySelectedPointer,
   onCopyPointer,
+  onStatusAction,
+  onMove,
   detail
 }: WorkItemListProps) {
   const [moreFilters, setMoreFilters] = useState(false);
@@ -219,11 +234,18 @@ export default function WorkItemList({
         onLoadMore={onLoadMore}
         onRetry={onRetry}
         onRetryAppend={onRetryAppend}
+        projects={projects}
+        statusChangingId={statusChangingId}
+        movingId={movingId}
+        reportSettingsProjectId={reportSettingsProjectId}
+        isMutationBlocked={isMutationBlocked}
         onSelect={onSelect}
         onStatus={onStatus}
         onDeselect={onDeselect}
         onCopySelectedPointer={onCopySelectedPointer}
         onCopyPointer={onCopyPointer}
+        onStatusAction={onStatusAction}
+        onMove={onMove}
         onFlatSearch={(item) => {
           if (semantic) onToggleSemantic();
           onStatus("all");

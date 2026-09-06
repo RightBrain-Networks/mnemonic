@@ -7,11 +7,13 @@ import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import { dialogOpen, typingTarget } from "@/lib/keyboard-shortcuts";
 import type {
   HierarchySummary,
+  Project,
   StatusFilter,
   WorkSearchHit,
   WorkSort,
   WorkSummary
 } from "@/lib/types";
+import type { ManualStatusAction } from "@/lib/work-status-actions";
 import {
   cycleStatusFilter,
   listScrollTopFor,
@@ -81,6 +83,11 @@ export type WorkQueueProps = {
   viewKey: string;
   selectedId: string | null;
   copiedKey: string | null;
+  projects: readonly Project[];
+  statusChangingId: string | null;
+  movingId: string | null;
+  reportSettingsProjectId: string | null;
+  isMutationBlocked: (summary: WorkSummary) => boolean;
   onLoadMore: () => void;
   onRetry: () => void;
   onRetryAppend: () => void;
@@ -89,6 +96,8 @@ export type WorkQueueProps = {
   onDeselect: () => void;
   onCopySelectedPointer: () => void;
   onCopyPointer: (summary: WorkSummary) => void;
+  onStatusAction: (action: ManualStatusAction, summary: WorkSummary) => void;
+  onMove: (summary: WorkSummary, targetProjectId: string) => void;
   onFlatSearch: (summary: WorkSummary) => void;
   onClearFilters: () => void;
   onCreate: () => void;
@@ -116,6 +125,11 @@ export default function WorkQueue({
   selectedId,
   copiedKey,
   onLoadMore,
+  projects,
+  statusChangingId,
+  movingId,
+  reportSettingsProjectId,
+  isMutationBlocked,
   onRetry,
   onRetryAppend,
   onSelect,
@@ -124,6 +138,8 @@ export default function WorkQueue({
   onCopySelectedPointer,
   onCopyPointer,
   onFlatSearch,
+  onStatusAction,
+  onMove,
   onClearFilters,
   onCreate
 }: WorkQueueProps) {
@@ -168,11 +184,32 @@ export default function WorkQueue({
   const options = useMemo<QueueOptions>(() => ({
     selectedId,
     copiedKey,
+    projects,
+    statusChangingId,
+    movingId,
+    reportSettingsProjectId,
+    isMutationBlocked,
     onSelect,
     onCopyPointer,
+    onStatusAction,
+    onMove,
     register,
     unregister
-  }), [copiedKey, onCopyPointer, onSelect, register, selectedId, unregister]);
+  }), [
+    copiedKey,
+    isMutationBlocked,
+    movingId,
+    onCopyPointer,
+    onMove,
+    onSelect,
+    onStatusAction,
+    projects,
+    register,
+    reportSettingsProjectId,
+    selectedId,
+    statusChangingId,
+    unregister
+  ]);
 
   useEffect(() => {
     const list = listRef.current;
@@ -245,6 +282,10 @@ export default function WorkQueue({
     function shortcut(event: KeyboardEvent) {
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       if (typingTarget(event.target) || dialogOpen()) return;
+      if (
+        event.target instanceof Element
+        && event.target.closest(".status-split-button, [role=\"menu\"]")
+      ) return;
       const state = shortcutStateRef.current;
       // Caps Lock reports an uppercase letter with no Shift held, so a letter key is
       // compared lowered while a real Shift is still refused above.
