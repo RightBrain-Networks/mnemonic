@@ -57,8 +57,10 @@ test("all closeout outcomes appear in Summaries and a human follow-up retains bo
     await openSummaries(page, project.id);
     const nav = page.getByRole("navigation", { name: "Workspace navigation" });
     const labels = await nav.getByRole("link").allTextContents();
-    expect(labels.findIndex((value) => value.includes("Summaries"))).toBe(labels.findIndex((value) => value.includes("Needs Attention")) + 1);
+    expect(labels.findIndex((value) => value.includes("Needs Attention"))).toBe(labels.findIndex((value) => value.includes("Summaries")) + 1);
     await expect(page.locator("article.job-report-card")).toHaveCount(3);
+    await expect(page.locator(".summary-nav-count")).toHaveText("3");
+    await expect(page.locator(".attention-nav-count")).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("summaries.png"), fullPage: true });
     const card = page.getByRole("article", { name: "Report for Dashboard font done", exact: true });
     await expect(card.locator(".human-report-fyis li")).toHaveCount(1);
@@ -85,7 +87,18 @@ test("all closeout outcomes appear in Summaries and a human follow-up retains bo
     await card.getByRole("button", { name: "Dismiss", exact: true }).click();
     await expect(card).toHaveCount(0);
     await page.reload();
-    await expect(page.locator("article.job-report-card")).toHaveCount(2);
+    const wontDoCard = page.getByRole("article", {
+      name: "Report for Dashboard font wont-do", exact: true
+    });
+    const promotedCard = page.getByRole("article", {
+      name: "Report for Dashboard font promoted", exact: true
+    });
+    await expect(page.locator(".summary-nav-count")).toHaveText("2");
+    await wontDoCard.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await expect(wontDoCard).toHaveCount(0);
+    await promotedCard.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await expect(promotedCard).toHaveCount(0);
+    await expect(page.locator(".summary-nav-count")).toHaveCount(0);
     const detail = await api.get(`/api/v1/projects/${project.id}/job-completion-reports/${done.reportId}`);
     expect(await detail.json()).toMatchObject({ human_dismissed: true, report: { id: done.reportId } });
   } finally { await api.dispose(); }
@@ -322,7 +335,7 @@ test("a failed attention list retries after its activity cursor advances and cou
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(list.getByRole("alert")).toContainText("Attention list temporarily unavailable.");
     await expect.poll(() => countReads).toBeGreaterThan(countsBefore);
-    await expect(page.locator(".attention-nav-count")).toHaveText("0");
+    await expect(page.locator(".attention-nav-count")).toHaveCount(0);
     const readsBeforeRecovery = listReads;
     // Only the dependent read remains dirty. Further activity pages contain no new events.
     failList = false;

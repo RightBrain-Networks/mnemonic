@@ -326,6 +326,7 @@ test("human questions stay visible and recover one exact durable resolution", as
 
     await page.getByRole("link", { name: /Needs Attention/ }).click();
     const attentionCard = page.locator("article.attention-card").filter({ hasText: title });
+    await expect(page.locator(".attention-nav-count")).toHaveText("1");
     await expect(attentionCard.getByText(question, { exact: true })).toBeVisible();
     expect(await page.evaluate(() => (globalThis as typeof globalThis & {
       phase78Pwned?: boolean;
@@ -371,7 +372,7 @@ test("human questions stay visible and recover one exact durable resolution", as
     expect(probe.responses[1]).toEqual(probe.responses[0]);
     await expect(page.locator(".mutation-recovery")).toHaveCount(0);
     await expect(page.getByText(question, { exact: true })).toHaveCount(0);
-    await expect(page.locator(".attention-nav-count")).toHaveText("0");
+    await expect(page.locator(".attention-nav-count")).toHaveCount(0);
 
     const historyResponse = await client.get(
       `/api/v1/projects/${state.projectId}/work-items/${workId}/gates?status=all&limit=30`
