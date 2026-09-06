@@ -634,7 +634,46 @@ def _phase11_batched_generation_violation_count(connection: Connection) -> int:
     return work_violations + checkpoint_violations
 
 
-def _phase11_batched_reopen_binding_violation_count(connection: Connection) -> int:
+def _phase11_batched_reopen_binding_violation_count(
+    connection: Connection,
+    *,
+    movable_work: bool = False,
+) -> int:
+    event_owner_violation = "event.project_id IS DISTINCT FROM work.project_id"
+    if movable_work:
+        event_owner_violation = """
+            (
+                NOT EXISTS (
+                    SELECT 1 FROM work_events AS creation
+                    WHERE creation.work_item_id = event.work_item_id
+                      AND creation.event_type = 'work_created'
+                      AND creation.id <= event.id
+                )
+                OR event.project_id IS DISTINCT FROM COALESCE(
+                    (
+                        SELECT move.target_project_id
+                        FROM work_item_moves AS move
+                        JOIN work_events AS source_event
+                          ON source_event.work_move_id = move.id
+                         AND source_event.event_type = 'work_moved'
+                         AND source_event.project_id = move.source_project_id
+                         AND source_event.metadata ->> 'role' = 'source'
+                        WHERE move.work_item_id = event.work_item_id
+                          AND source_event.id < event.id
+                        ORDER BY source_event.id DESC
+                        LIMIT 1
+                    ),
+                    (
+                        SELECT first_move.source_project_id
+                        FROM work_item_moves AS first_move
+                        WHERE first_move.work_item_id = event.work_item_id
+                        ORDER BY first_move.resulting_work_version, first_move.id
+                        LIMIT 1
+                    ),
+                    work.project_id
+                )
+            )
+        """
     event_violations = _phase11_batched_violation_count(
         connection,
         "work_events",
@@ -656,7 +695,7 @@ def _phase11_batched_reopen_binding_violation_count(connection: Connection) -> i
                   event.reopen_generation > 0
                   AND (
                       work.id IS NULL
-                      OR event.project_id IS DISTINCT FROM work.project_id
+                      OR __EVENT_OWNER_VIOLATION__
                       OR event.origin IS DISTINCT FROM 'live'
                       OR event.reopen_generation > work.completion_generation
                       OR pg_catalog.jsonb_typeof(event.metadata -> 'work_version')
@@ -674,7 +713,7 @@ def _phase11_batched_reopen_binding_violation_count(connection: Connection) -> i
                   )
               )
           )
-        """,
+        """.replace("__EVENT_OWNER_VIOLATION__", event_owner_violation),
         id_type="bigint",
     )
     prefix_violations = _phase11_batched_violation_count(
@@ -1432,6 +1471,23 @@ def _repository_freshness_counts(connection: Connection) -> dict[str, int]:
 def _repository_freshness_counts_on_safe_search_path(
     connection: Connection,
 ) -> dict[str, int]:
+    checkpoint_project_membership = """
+        EXISTS (
+            SELECT 1
+            FROM work_events AS event
+            WHERE event.work_item_id OPERATOR(pg_catalog.=) checkpoint.work_item_id
+              AND event.checkpoint_id OPERATOR(pg_catalog.=) checkpoint.id
+              AND event.project_id OPERATOR(pg_catalog.=) receipt.project_id
+              AND event.event_type OPERATOR(pg_catalog.=) CASE
+                  WHEN receipt.operation_kind OPERATOR(pg_catalog.=) 'create_work'
+                      THEN 'work_created'
+                  WHEN receipt.operation_kind OPERATOR(pg_catalog.=) 'add_checkpoint'
+                      THEN 'checkpoint_added'
+                  WHEN receipt.operation_kind OPERATOR(pg_catalog.=) 'complete_work'
+                      THEN 'work_completed'
+              END
+        )
+    """
     return {
         "invalid_affected_paths_count": _scalar(
             connection,
@@ -1540,6 +1596,7 @@ def _repository_freshness_counts_on_safe_search_path(
             receipt_checkpoints AS (
                 SELECT operation.operation_id,
                        operation.project_id,
+                       operation.operation_kind,
                        CASE
                            WHEN operation.operation_kind
                                OPERATOR(pg_catalog.=) 'create_work'
@@ -1565,7 +1622,7 @@ def _repository_freshness_counts_on_safe_search_path(
                      SELECT 1
                      FROM work_items AS work
                      WHERE work.id = checkpoint.work_item_id
-                       AND work.project_id = receipt.project_id
+                       AND (__CHECKPOINT_PROJECT_MEMBERSHIP__)
                  )
                 WHERE (
                        pg_catalog.jsonb_typeof(receipt.checkpoint_body)
@@ -1627,7 +1684,9 @@ def _repository_freshness_counts_on_safe_search_path(
                 SELECT operation_id
                 FROM checkpoint_scope_violations
             ) AS violating_operations
-            """,
+            """.replace(
+                "__CHECKPOINT_PROJECT_MEMBERSHIP__", checkpoint_project_membership
+            ),
         ),
     }
 

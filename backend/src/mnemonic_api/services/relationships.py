@@ -104,6 +104,27 @@ def require_no_relationships(database: Session, project_id: UUID, work_item_id: 
         )
 
 
+def require_no_relationships_for_move(
+    database: Session, project_id: UUID, work_item_id: UUID
+) -> None:
+    exists = database.scalar(
+        select(WorkRelationship.id)
+        .where(
+            WorkRelationship.project_id == project_id,
+            or_(
+                WorkRelationship.source_work_item_id == work_item_id,
+                WorkRelationship.target_work_item_id == work_item_id,
+            ),
+        )
+        .limit(1)
+    )
+    if exists is not None:
+        raise conflict(
+            "work_move_relationships",
+            "Remove this work item's relationships before moving it.",
+        )
+
+
 def _context_owner(
     database: Session,
     context_checkpoint_id: UUID | None,

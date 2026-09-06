@@ -98,15 +98,22 @@ in logs or metric labels. Suggestion cache rows are derived existing-work data
 and may be rebuilt; the draft and result are never persisted. Routine probes
 must verify only aggregate behavior and must not commit a merge.
 
-## Phase 12 activity and completion reports cutover
+## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.11.0`, plugin `0.12.0`,
-and Alembic `0022_external_references`. Inventory exactly 32 MCP tools,
-11 protected MCP writes, 15 REST receipt kinds, 13 protected browser mutations,
-and 17 work-event types. Keep older writers stopped: fresh closeouts now require
+The current coordinated boundary is API/MCP/dashboard `0.12.0`, plugin `0.13.0`,
+and Alembic `0023_work_item_moves`. Inventory exactly 32 MCP tools,
+11 protected MCP writes, 16 REST receipt kinds, 14 protected browser mutations,
+and 18 work-event types. Keep older writers stopped: fresh closeouts now require
 a report and operation UUID, fresh work starts Pending, and settings use revision
 checks. Permanent historical receipts remain recoverable with their exact old
 request; do not manufacture missing reports or evidence for historical work.
+
+Migration 0023 enables identity-preserving cross-project moves. Quiesce every
+writer before upgrading because historical work-owned foreign keys and event
+guards change together. After upgrade, verify that each move has one immutable
+move row, exactly one source and one target event, and one corresponding activity
+entry in each project. A move preserves the UUID, lifecycle/completion state, and
+expired retained lease; it never rewrites the project recorded on older facts.
 
 Before changing a production database, pin the coordinated artifacts, reserve a
 maintenance window, close ingress and quiesce every writer including direct
@@ -122,40 +129,39 @@ preflight at the prior head is:
 
 ```sh
 uv run --project backend python scripts/audit_project_activity.py \
-  --expected-head 0019_structured_completion_evidence
+  --expected-head 0022_external_references
 ```
 
 Any nonzero exit, blocking finding, unexpected head, or runtime failure stops
-the rollout. Apply `0020_project_activity` then `0021_job_completion_reports`
-with writers still stopped. The first migration imports existing work events
-in stable per-project order and records the explicit historical boundary. The
-second supplies existing projects with a nonblank default report prompt and
-empty report inboxes; it preserves existing work, checkpoints, settings values,
-and receipt bytes. No historical agent summary is inferred. Audit each head
-using the matching `--expected-head`; the final command is:
+the rollout. Apply `0023_work_item_moves` with writers still stopped. It creates
+the immutable move ledger, extends event and receipt catalogs, replaces the
+work-owned historical foreign keys and guards, and builds the stable-work
+provenance high water without rewriting existing report links. Audit the new
+head before starting any writer:
 
 ```sh
 uv run --project backend python scripts/audit_project_activity.py \
-  --expected-head 0021_job_completion_reports
+  --expected-head 0023_work_item_moves
 ```
 
-The aggregate audit checks prior-phase invariants together with journal
-coverage/prefixes, settings, every live qualifying closeout's report, immutable
-report/event/prompt bindings, review and undismissed counts, dual follow-up
-provenance, enabled guards, exact catalog definitions, and privileges. Keep its
-content-free output; do not put report prose, prompts, IDs, operation keys, or
-receipt bodies in ordinary telemetry. It accepts only explicitly frozen
-migration-built and supported dump/restore catalog representations.
+The aggregate audit checks all prior-phase invariants together with paired move
+events/activity, move chains and receipts, current versus historical ownership,
+stable-work provenance, enabled guards, exact catalog definitions, and
+privileges. Keep its content-free output; do not put report prose, prompts, IDs,
+operation keys, or receipt bodies in ordinary telemetry. It accepts only
+explicitly frozen migration-built and supported dump/restore catalog
+representations.
 
 Deploy the coordinated API, MCP, dashboard, and plugin while ingress remains
 closed. Confirm readiness, current catalog/schema versions, a default nonblank
-prompt, empty historical report inboxes, and historical receipt recovery. Run
-fresh-closeout, dismissal/retry, follow-up provenance, settings-conflict, and
-activity recovery probes against an isolated production-shaped clone. Take and
-restore a post-upgrade backup, rerun the aggregate audit, and only then reopen
-traffic. The supported restore script rotates restored activity incarnations
-inside the schema-replacement transaction; verify a cursor captured before
-restore returns `activity_stream_changed` after restoration.
+prompt, and historical receipt recovery. Run source-to-target move/replay,
+fresh-closeout, dismissal/retry, cross-project follow-up provenance,
+settings-conflict, and activity recovery probes against an isolated
+production-shaped clone. Take and restore a post-upgrade backup, rerun the
+aggregate audit, and only then reopen traffic. The supported restore script
+rotates restored activity incarnations inside the schema-replacement
+transaction; verify a cursor captured before restore returns
+`activity_stream_changed` after restoration.
 
 The dashboard polls at 15-second intervals while visible and treats live socket
 messages as hints. A lost socket hint is not a lost journal fact. Monitor
@@ -166,12 +172,11 @@ frozen-intent retry; unprotected `project_mutation_unavailable` does not grant
 retry safety. A failed audit is an integrity incident, not an invitation to
 edit append-only rows, reset counters, purge receipts, or synthesize reports.
 
-A lossless downgrade from 0021 is guarded before DDL and is only available
-before report/review/follow-up state, changed prompt revisions, or new report
-receipt state exists. Downgrade from 0020 additionally refuses live activity
-beyond the imported boundary. Once new state exists, fix forward or deliberately
-restore an entire chosen archive with matching binaries, accepting the loss of
-all later writes. Never trim history to make a guard pass.
+A lossless downgrade from 0023 is guarded before DDL and is available only while
+no move fact, `work_moved` event, or move receipt exists. Once the move feature
+has been used, fix forward or deliberately restore an entire chosen archive with
+matching binaries, accepting the loss of all later writes. Never trim history
+to make a guard pass.
 
 ## Upgrading the single-host Compose stack
 
@@ -899,10 +904,10 @@ or weaken hierarchy constraints.
 
 ### Identifier-free aggregate monitoring
 
-At current head 0022, run `scripts/audit_project_activity.py` using the private
+At current head 0023, run `scripts/audit_project_activity.py` using the private
 `DATABASE_URL` environment variable. It composes the historical domain checks
 with Phase 12 activity/report and external-reference checks. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.11.0` clients and plugin `0.12.0` together.
+failure, and inventory deployed `0.12.0` clients and plugin `0.13.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 For the historical Phase 11 boundary, run `scripts/audit_duplicate_handling.py` with

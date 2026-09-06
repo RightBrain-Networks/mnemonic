@@ -21,13 +21,14 @@ export interface ReportsCursor {
   upper: string; last: string;
 }
 export interface ProvenanceCursor {
-  v: 1; kind: "report_follow_ups" | "work_report_follow_ups"; project_id: string; stream_id: string;
-  report_id?: string; work_item_id?: string; direction?: "origin" | "created";
+  v: 1; kind: "report_follow_ups"; project_id: string; stream_id: string;
+  report_id: string;
   upper: string; last: string;
 }
 export type Phase12Cursor = ActivityCursor | ReportsCursor | ProvenanceCursor;
 export function decodePhase12Cursor(value: unknown, projectId: string, kind: Phase12Cursor["kind"]): Phase12Cursor {
   const invalid = () => new Error("Mnemonic returned an invalid feed cursor.");
+  if (!["activity", "reports", "report_follow_ups"].includes(kind)) throw invalid();
   if (!validOpaqueCursor(value)) throw invalid();
   let decoded: unknown;
   let text: string;
@@ -40,8 +41,7 @@ export function decodePhase12Cursor(value: unknown, projectId: string, kind: Pha
   const common = ["v", "kind", "project_id", "stream_id"];
   const fields = kind === "activity" ? ["after"] : kind === "reports"
     ? ["dismissal", "work_item_id", "upper", "last"]
-    : kind === "report_follow_ups" ? ["report_id", "upper", "last"]
-      : ["work_item_id", "direction", "upper", "last"];
+    : ["report_id", "upper", "last"];
   if (!cursor || !exactKeys(cursor, [...common, ...fields]) || cursor.v !== 1 || cursor.kind !== kind
     || !sameUuid(cursor.project_id, projectId) || !validUuid(cursor.stream_id)
     || cursor.project_id !== String(cursor.project_id).toLowerCase() || cursor.stream_id !== String(cursor.stream_id).toLowerCase()
@@ -54,8 +54,6 @@ export function decodePhase12Cursor(value: unknown, projectId: string, kind: Pha
     if (kind === "reports" && (!["undismissed", "dismissed", "all"].includes(String(cursor.dismissal))
       || !(cursor.work_item_id === null || validUuid(cursor.work_item_id)))) throw invalid();
     if (kind === "report_follow_ups" && !validUuid(cursor.report_id)) throw invalid();
-    if (kind === "work_report_follow_ups" && (!validUuid(cursor.work_item_id)
-      || !["origin", "created"].includes(String(cursor.direction)))) throw invalid();
   }
   return cursor as unknown as Phase12Cursor;
 }

@@ -28,6 +28,8 @@ type WorkItem = {
   updated_at: string;
 };
 
+type Project = { id: string; name: string; slug: string };
+
 type MergeRevision = {
   work_version: number;
   context_checkpoint_id: string;
@@ -101,8 +103,24 @@ async function apiClient(): Promise<APIRequestContext> {
   });
 }
 
-async function createWork(client: APIRequestContext, input: SeedInput): Promise<WorkItem> {
-  const response = await client.post(`/api/v1/projects/${state.projectId}/work-items`, {
+async function createProject(
+  client: APIRequestContext,
+  name: string,
+  slug?: string
+): Promise<Project> {
+  const response = await client.post("/api/v1/projects", {
+    data: { name, ...(slug ? { slug } : {}) }
+  });
+  expect(response.status(), `${name}: ${await response.text()}`).toBe(201);
+  return await response.json() as Project;
+}
+
+async function createWork(
+  client: APIRequestContext,
+  input: SeedInput,
+  projectId = state.projectId
+): Promise<WorkItem> {
+  const response = await client.post(`/api/v1/projects/${projectId}/work-items`, {
     data: {
       title: input.title,
       summary: input.summary ?? `Work surface fixture for ${input.title}.`,
@@ -121,9 +139,13 @@ async function createWork(client: APIRequestContext, input: SeedInput): Promise<
   return (await response.json() as { work_item: WorkItem }).work_item;
 }
 
-async function getContext(client: APIRequestContext, workItemId: string): Promise<WorkContext> {
+async function getContext(
+  client: APIRequestContext,
+  workItemId: string,
+  projectId = state.projectId
+): Promise<WorkContext> {
   const response = await client.get(
-    `/api/v1/projects/${state.projectId}/work-items/${workItemId}/context`
+    `/api/v1/projects/${projectId}/work-items/${workItemId}/context`
       + "?recent_limit=5&recent_event_limit=10"
   );
   expect(response.ok(), await response.text()).toBe(true);
@@ -161,9 +183,9 @@ async function mergeDirect(
   expect(response.status(), await response.text()).toBe(201);
 }
 
-async function openDashboard(page: Page): Promise<void> {
+async function openDashboard(page: Page, projectId = state.projectId): Promise<void> {
   await page.goto("/");
-  await page.locator("#project-select").selectOption(state.projectId);
+  await page.locator("#project-select").selectOption(projectId);
   await expect(page.locator(".sync-status")).toHaveText("Live updates");
 }
 
@@ -586,6 +608,417 @@ test("merge as duplicate runs inside the Graph tab and lands on the source audit
     await expect(pane.locator(".detail-title")).toHaveText(destinationTitle);
     await expect(pane.locator(".duplicate-audit-panel")).toHaveCount(0);
     await expect(pane.getByRole("button", { name: /Merge as duplicate/ })).toBeVisible();
+  } finally {
+    await client.dispose();
+  }
+});
+
+test("the Delete segment moves deferred work to another project without changing identity", async ({ page }, testInfo) => {
+  const token = searchToken("surfacemove", testInfo);
+  const key = testKey(testInfo);
+  const projectName = `Move project ${key}`;
+  const title = `Movable item ${token}`;
+  const client = await apiClient();
+  try {
+    const sourceProject = await createProject(client, projectName, `move-source-${token}`);
+    const targetProject = await createProject(client, projectName, `move-target-${token}`);
+    const work = await createWork(client, {
+      title,
+      sessionId: `surface-move-${key}`
+    }, sourceProject.id);
+
+    await openDashboard(page, sourceProject.id);
+    await searchFor(page, token, 1);
+    const pane = await selectWork(page, title);
+    await pane.getByRole("button", { name: `Defer ${title}` }).click();
+    await expect(page.locator(".toast")).toContainText("Deferred and held out of the work queue");
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Deferred");
+
+    const split = pane.locator(".delete-move-split");
+    const deleteAction = pane.getByRole("button", { name: "Delete work item", exact: true });
+    await expect(split.locator(":scope > button").first()).toHaveAttribute(
+      "aria-label",
+      "Delete work item"
+    );
+    await expect(deleteAction).toHaveClass(/status-split-primary/);
+    await expect(deleteAction).toBeEnabled();
+
+    const moveAction = pane.getByRole("button", {
+      name: `Move ${title} to another project`
+    });
+    await expect(moveAction).toBeEnabled();
+    const menu = pane.getByRole("menu", { name: `Move ${title} to project` });
+    await moveAction.click();
+    await expect(menu).toBeVisible();
+    await deleteAction.click();
+    await expect(menu).toBeHidden();
+    const deleteDialog = page.getByRole("dialog", { name: "Delete this work item?" });
+    await expect(deleteDialog).toBeVisible();
+    await deleteDialog.getByRole("button", { name: "Keep work item" }).click();
+    await moveAction.focus();
+    await page.keyboard.press("ArrowUp");
+    await expect(menu).toBeVisible();
+    await expect(menu.locator('[role="menuitem"]:not(:disabled)').last()).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(moveAction).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(menu).toBeVisible();
+    await expect(menu.locator('[role="menuitem"]:not(:disabled)').first()).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(menu).toBeHidden();
+
+    await moveAction.click();
+    await expect(menu).toBeVisible();
+    await testInfo.attach("Segmented Delete and Move project menu", {
+      body: await pane.screenshot(),
+      contentType: "image/png"
+    });
+    const current = menu.getByRole("menuitem", {
+      name: `${projectName} (${sourceProject.slug}), current project`,
+      exact: true
+    });
+    await expect(current).toBeDisabled();
+    await expect(current).toContainText("Current");
+    await expect(current.locator("small")).toHaveText(sourceProject.slug);
+    const target = menu.getByRole("menuitem", {
+      name: `${projectName} (${targetProject.slug})`,
+      exact: true
+    });
+    await expect(target).toBeEnabled();
+    await expect(target.locator("small")).toHaveText(targetProject.slug);
+    await target.click();
+
+    await expect(page.locator("#project-select")).toHaveValue(targetProject.id);
+    await expect(page).toHaveURL(new RegExp(`[?&]work=${work.id}(?:&|$)`));
+    await expect(pane).toHaveClass(/is-open/);
+    await expect(pane.locator(".detail-id code")).toHaveText(work.id);
+    await expect(pane.locator(".detail-title")).toHaveText(title);
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Deferred");
+    await expect(page.getByRole("button", { name: "Deferred", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    const moved = await getContext(client, work.id, targetProject.id);
+    expect(moved.work_item).toMatchObject({
+      id: work.id,
+      project_id: targetProject.id,
+      status: "deferred"
+    });
+    const formerSource = await client.get(
+      `/api/v1/projects/${sourceProject.id}/work-items/${work.id}/context`
+    );
+    expect(formerSource.status()).toBe(404);
+  } finally {
+    await client.dispose();
+  }
+});
+
+test("an externally moved open item follows its verified project without losing drafts", async ({ page }, testInfo) => {
+  test.slow();
+  const token = searchToken("surfaceexternalmove", testInfo);
+  const key = testKey(testInfo);
+  const sourceProjectName = `External move source ${key}`;
+  const targetProjectName = `External move target ${key}`;
+  const title = `Externally moved item ${token}`;
+  const checkpointDraft = `Unsaved checkpoint retained across external move ${key}.`;
+  const reportDraft = `Unsaved human report retained across external move ${key}.`;
+  const fyiDraft = `Unsaved FYI retained across external move ${key}.`;
+  const evidenceDraft = `Unsaved verification retained across external move ${key}`;
+  const client = await apiClient();
+  try {
+    const sourceProject = await createProject(
+      client,
+      sourceProjectName,
+      `external-move-source-${token}`
+    );
+    const targetProject = await createProject(
+      client,
+      targetProjectName,
+      `external-move-target-${token}`
+    );
+    const settingsResponse = await client.get(
+      `/api/v1/projects/${targetProject.id}/settings`
+    );
+    expect(settingsResponse.ok(), await settingsResponse.text()).toBe(true);
+    const targetSettings = await settingsResponse.json() as { revision: string };
+    const changedSettings = await client.patch(
+      `/api/v1/projects/${targetProject.id}/settings`,
+      {
+        data: {
+          expected_revision: targetSettings.revision,
+          job_completion_report_prompt:
+            `Target-project instructions for external move recovery ${key}.`
+        }
+      }
+    );
+    expect(changedSettings.ok(), await changedSettings.text()).toBe(true);
+    const revisedTargetSettings = await changedSettings.json() as { revision: string };
+    const work = await createWork(client, {
+      title,
+      sessionId: `surface-external-move-${key}`
+    }, sourceProject.id);
+
+    // Keep recovery deterministic by exercising the activity catch-up path rather than
+    // depending on websocket delivery timing.
+    await page.routeWebSocket(/\/api\/mnemonic\/sync$/, () => {});
+    await page.goto("/");
+    await page.locator("#project-select").selectOption(sourceProject.id);
+    await searchFor(page, token, 1);
+    const pane = await selectWork(page, title);
+    const contextPanel = await openTab(pane, "Context");
+    await contextPanel.getByLabel("Checkpoint text").fill(checkpointDraft);
+    await contextPanel.getByLabel(/^Human summary/).fill(reportDraft);
+    await contextPanel.getByRole("button", { name: "Add FYI", exact: true }).click();
+    await contextPanel.getByLabel(/^FYI 1/).fill(fyiDraft);
+    await contextPanel.locator("details.completion-evidence-disclosure > summary").click();
+    await contextPanel.getByRole("button", { name: "Add verification result" }).click();
+    await contextPanel
+      .getByRole("group", { name: "Verification result 1" })
+      .getByLabel("Name")
+      .fill(evidenceDraft);
+
+    const moved = await client.post(
+      `/api/v1/projects/${sourceProject.id}/work-items/${work.id}/move`,
+      {
+        data: {
+          target_project_id: targetProject.id,
+          expected_version: work.version,
+          client_operation_id: crypto.randomUUID(),
+          actor: {
+            actor_client: "playwright-api",
+            actor_session_id: `surface-external-move-${key}`,
+            actor_model: null
+          }
+        }
+      }
+    );
+    expect(moved.ok(), await moved.text()).toBe(true);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+
+    await expect(page.locator(".toast")).toContainText(
+      `moved to “${targetProjectName}” in another session`
+    );
+    await expect(page.locator("#project-select")).toHaveValue(targetProject.id);
+    await expect(page).toHaveURL(new RegExp(`[?&]work=${work.id}(?:&|$)`));
+    await expect(pane.locator(".detail-title")).toHaveText(title);
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Pending");
+    await expect(page.getByRole("button", { name: "Pending", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    await expect(contextPanel.getByLabel("Checkpoint text")).toHaveValue(checkpointDraft);
+    await expect(contextPanel.getByLabel(/^Human summary/)).toHaveValue(reportDraft);
+    await expect(contextPanel.getByLabel(/^FYI 1/)).toHaveValue(fyiDraft);
+    await contextPanel.locator("details.completion-evidence-disclosure > summary").click();
+    await expect(
+      contextPanel
+        .getByRole("group", { name: "Verification result 1" })
+        .getByLabel("Name")
+    ).toHaveValue(evidenceDraft);
+    await expect(contextPanel.getByText(
+      `Project report instructions · revision ${revisedTargetSettings.revision}`,
+      { exact: true }
+    )).toBeVisible();
+    await expect(contextPanel.getByText(
+      "Project instructions changed. Review the latest instructions and your report before accepting this revision.",
+      { exact: true }
+    )).toHaveCount(0);
+    const targetContext = await getContext(client, work.id, targetProject.id);
+    expect(targetContext.work_item).toMatchObject({
+      id: work.id,
+      project_id: targetProject.id,
+      status: "pending"
+    });
+  } finally {
+    await client.dispose();
+  }
+});
+
+test("Move retries keep every draft and follow an item that moves again", async ({ page }, testInfo) => {
+  test.slow();
+  const token = searchToken("surfacemoverace", testInfo);
+  const key = testKey(testInfo);
+  const sourceProject = `Receipt race source ${key}`;
+  const targetProject = `Receipt race target ${key}`;
+  const finalProject = `Receipt race final ${key}`;
+  const title = `Receipt-raced item ${token}`;
+  const editTitle = `Unsaved edit for ${title}`;
+  const checkpointDraft = `Checkpoint kept through receipt target race ${key}.`;
+  const reportDraft = `Report kept through receipt target race ${key}.`;
+  const fyiDraft = `FYI kept through receipt target race ${key}.`;
+  const evidenceDraft = `Evidence kept through receipt target race ${key}`;
+  const client = await apiClient();
+  try {
+    const source = await createProject(
+      client,
+      sourceProject,
+      `receipt-race-source-${token}`
+    );
+    const target = await createProject(
+      client,
+      targetProject,
+      `receipt-race-target-${token}`
+    );
+    const final = await createProject(
+      client,
+      finalProject,
+      `receipt-race-final-${token}`
+    );
+    const work = await createWork(client, {
+      title,
+      sessionId: `surface-move-receipt-race-${key}`
+    }, source.id);
+
+    await openDashboard(page, source.id);
+    await searchFor(page, token, 1);
+    const pane = await selectWork(page, title);
+    const contextPanel = await openTab(pane, "Context");
+    await contextPanel.getByLabel("Checkpoint text").fill(checkpointDraft);
+    await contextPanel.getByLabel(/^Human summary/).fill(reportDraft);
+    await contextPanel.getByRole("button", { name: "Add FYI", exact: true }).click();
+    await contextPanel.getByLabel(/^FYI 1/).fill(fyiDraft);
+    await contextPanel.locator("details.completion-evidence-disclosure > summary").click();
+    await contextPanel.getByRole("button", { name: "Add verification result" }).click();
+    await contextPanel
+      .getByRole("group", { name: "Verification result 1" })
+      .getByLabel("Name")
+      .fill(evidenceDraft);
+    await pane.getByRole("button", { name: "Edit work item" }).click();
+    await contextPanel.getByLabel("Title").fill(editTitle);
+
+    let intercepted = false;
+    const capturedMove: { work: WorkItem | null } = { work: null };
+    let targetContextAttempts = 0;
+    await page.route(
+      `**/api/mnemonic/projects/${target.id}/work-items/${work.id}/context?*`,
+      async (route) => {
+        if (route.request().method() !== "GET") {
+          await route.continue();
+          return;
+        }
+        targetContextAttempts += 1;
+        if (targetContextAttempts === 1) {
+          await route.fulfill({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({ detail: "Temporary target-context failure." })
+          });
+          return;
+        }
+        if (targetContextAttempts === 2) {
+          await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+          return;
+        }
+        await route.continue();
+      }
+    );
+    await page.route(
+      `**/api/mnemonic/projects/${source.id}/work-items/${work.id}/move`,
+      async (route) => {
+        if (intercepted || route.request().method() !== "POST") {
+          await route.continue();
+          return;
+        }
+        intercepted = true;
+        const response = await route.fetch();
+        expect(response.ok(), await response.text()).toBe(true);
+        const responseBody = await response.body();
+        capturedMove.work = (JSON.parse(responseBody.toString("utf8")) as {
+          work_item: WorkItem;
+        }).work_item;
+        await route.fulfill({ response, body: responseBody });
+      }
+    );
+
+    const moveConfirmed = new Promise<void>((resolve, reject) => {
+      page.once("dialog", async (checkpointDialog) => {
+        try {
+          expect(checkpointDialog.message()).toBe(
+            "Discard your unsaved checkpoint and job completion report?"
+          );
+          page.once("dialog", async (editDialog) => {
+            try {
+              expect(editDialog.message()).toBe("Discard your unsaved work-item edits?");
+              await editDialog.accept();
+              resolve();
+            } catch (error) {
+              reject(error);
+            }
+          });
+          await checkpointDialog.accept();
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+    await pane.getByRole("button", { name: `Move ${title} to another project` }).click();
+    await Promise.all([
+      moveConfirmed,
+      pane.getByRole("menuitem", {
+        name: `${targetProject} (${target.slug})`,
+        exact: true
+      }).click()
+    ]);
+
+    await expect(pane.getByRole("button", { name: "Try again" })).toBeVisible();
+    await expect.poll(() => targetContextAttempts).toBe(1);
+
+    await pane.getByRole("button", { name: "Try again" }).click();
+    await expect.poll(() => targetContextAttempts).toBe(2);
+    await expect(pane.getByRole("button", { name: "Try again" })).toBeVisible();
+
+    const movedVersion = capturedMove.work?.version;
+    if (movedVersion === undefined) {
+      throw new Error("The browser Move response was not captured.");
+    }
+    const movedAgain = await client.post(
+      `/api/v1/projects/${target.id}/work-items/${work.id}/move`,
+      {
+        data: {
+          target_project_id: final.id,
+          expected_version: movedVersion,
+          client_operation_id: crypto.randomUUID(),
+          actor: {
+            actor_client: "playwright-api",
+            actor_session_id: `surface-move-receipt-race-${key}`,
+            actor_model: null
+          }
+        }
+      }
+    );
+    expect(movedAgain.ok(), await movedAgain.text()).toBe(true);
+
+    await pane.getByRole("button", { name: "Try again" }).click();
+    await expect(page.locator(".toast")).toContainText(
+      `already moved to “${finalProject}” before this move finished`
+    );
+    expect(intercepted).toBe(true);
+    await expect(page.locator("#project-select")).toHaveValue(final.id);
+    await expect(page).toHaveURL(new RegExp(`[?&]work=${work.id}(?:&|$)`));
+    await expect(pane.locator(".detail-title")).toHaveText(title);
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Pending");
+    await expect(contextPanel.getByLabel("Title")).toHaveValue(editTitle);
+    await contextPanel.getByRole("button", { name: "Cancel" }).click();
+    await expect(contextPanel.getByLabel("Checkpoint text")).toHaveValue(checkpointDraft);
+    await expect(contextPanel.getByLabel(/^Human summary/)).toHaveValue(reportDraft);
+    await expect(contextPanel.getByLabel(/^FYI 1/)).toHaveValue(fyiDraft);
+    await contextPanel.locator("details.completion-evidence-disclosure > summary").click();
+    await expect(
+      contextPanel
+        .getByRole("group", { name: "Verification result 1" })
+        .getByLabel("Name")
+    ).toHaveValue(evidenceDraft);
+    const finalContext = await getContext(client, work.id, final.id);
+    expect(finalContext.work_item).toMatchObject({
+      id: work.id,
+      project_id: final.id,
+      status: "pending"
+    });
+    const staleTarget = await client.get(
+      `/api/v1/projects/${target.id}/work-items/${work.id}/context`
+    );
+    expect(staleTarget.status()).toBe(404);
   } finally {
     await client.dispose();
   }

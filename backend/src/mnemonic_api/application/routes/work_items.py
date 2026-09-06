@@ -35,6 +35,8 @@ from mnemonic_api.schemas import (
     WorkItemDetailRead,
     WorkItemPatch,
     WorkItemRead,
+    WorkMoveCreate,
+    WorkMoveRead,
     WorkUpdateRead,
 )
 from mnemonic_api.services.completion_evidence import hydrate_completion_evidence
@@ -49,6 +51,7 @@ from mnemonic_api.services.work_items import (
     create_work_records,
     defer_work_record,
     delete_work_record,
+    move_work_record,
     require_work_item,
     update_work_record,
 )
@@ -149,6 +152,42 @@ def defer_work(
         request=request,
         database=database,
         project_id=project_id,
+        target={"work_item_id": work_item_id},
+        payload=payload,
+        execute=execute,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/work-items/{work_item_id}/move",
+    response_model=WorkMoveRead,
+)
+def move_work(
+    project_id: UUID,
+    work_item_id: UUID,
+    payload: WorkMoveCreate,
+    request: Request,
+    database: Database,
+) -> JSONResponse:
+    """Human dashboard action; intentionally absent from the agent MCP surface."""
+
+    def execute(domain_payload: WorkMoveCreate) -> WorkMoveRead:
+        work_item = require_work_item(database, project_id, work_item_id, lock=True)
+        move = move_work_record(database, work_item, project_id, domain_payload)
+        database.refresh(work_item)
+        return WorkMoveRead(
+            source_project_id=move.source_project_id,
+            target_project_id=move.target_project_id,
+            preserved_status=move.preserved_status,
+            work_item=WorkItemRead.model_validate(work_item),
+        )
+
+    return run_registered_mutation(
+        "move_work",
+        request=request,
+        database=database,
+        project_id=project_id,
+        additional_project_ids=(payload.target_project_id,),
         target={"work_item_id": work_item_id},
         payload=payload,
         execute=execute,

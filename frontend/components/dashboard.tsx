@@ -78,11 +78,13 @@ import type {
   WorkDeletionInput,
   WorkItem,
   WorkMergeResult,
+  WorkMoveInput,
+  WorkMoveResult,
   WorkPatch,
   WorkSort,
   WorkSummary
 } from "@/lib/types";
-import { validUuid } from "@/lib/wire-guards";
+import { sameUuid, validUuid } from "@/lib/wire-guards";
 import type { DetailTab } from "@/lib/work-detail-tabs";
 import { editableLifecycleStatuses, normalizedTags } from "@/lib/work-item-view";
 import { paneCrossfadeTargets } from "@/lib/pane-crossfade";
@@ -96,8 +98,17 @@ import {
   type ManualStatusAction
 } from "@/lib/work-status-actions";
 import { scheduleHierarchyFilterCommit } from "@/lib/work-item-search";
-import { statusFilterTransition } from "@/lib/work-queue";
+import { statusFilterLabels, statusFilterTransition } from "@/lib/work-queue";
 import { workRecallPointer } from "@/lib/work-recall-pointer";
+import {
+  loadCompleteProjectCatalog,
+  preservedWorkMoveDisplayStatus,
+  resolveCurrentWorkProject,
+  sameProjectCatalog,
+  summaryAfterWorkMove,
+  workMoveDisabledReason,
+  type WorkMoveDisplayStatus
+} from "@/lib/work-move";
 import {
   AffectedPathsValidationError,
   parseAffectedPathsDraft
@@ -230,12 +241,41 @@ function summaryWithContext(base: WorkSummary, context: WorkContext): WorkSummar
   };
 }
 
+function summaryFromContext(context: WorkContext): WorkSummary {
+  return {
+    work_item: context.work_item,
+    checkpoint_count: context.checkpoint_total,
+    ancestor_path: [],
+    ancestor_path_truncated: false,
+    current_context: currentContext(context),
+    readiness: context.readiness
+  };
+}
+
+function isDefinitiveWorkPlacementMiss(error: unknown): error is ApiError {
+  return error instanceof ApiError
+    && error.status === 404
+    && (error.code === "work_item_not_found" || error.code === "project_not_found");
+}
+
 function locationWorkSelection(): string | null {
   const value = new URLSearchParams(window.location.search).get("work");
   return value && validUuid(value) ? value : null;
 }
 
 type ContextLoadResult = "loaded" | "superseded" | "failed";
+type WorkPlacementRecoveryResult = "relocated" | "absent" | "ambiguous" | "superseded";
+type WorkPlacementRecoveryReason = "context_refresh" | "move_action";
+type WorkPlacementSummary = Pick<WorkSummary, "work_item">;
+type ExactContextTarget = {
+  projectId: string;
+  workItemId: string;
+  moveRecovery?: WorkPlacementSummary;
+};
+type WorkContextScanResult =
+  | { kind: "found"; project: Project; context: WorkContext }
+  | { kind: "absent" }
+  | { kind: "superseded" };
 type WorkDialogState = "closed" | "open" | "suspended";
 
 export default function Dashboard({ view = "library", timeZone }: { view?: "library" | "attention" | "summaries" | "settings"; timeZone?: string | null; }) {
@@ -301,8 +341,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [editError, setEditError] = useState("");
   const [conflict, setConflict] = useState<WorkItem | null>(null);
   const recordRequest = useRef(0);
+  const workPlacementRequest = useRef(0);
   const lastLoadedContextRequest = useRef(0);
-  const exactContextTarget = useRef<{ projectId: string; workItemId: string } | null>(null);
+  const exactContextTarget = useRef<ExactContextTarget | null>(null);
   // undefined until the address has been read once; then the pending `?work=` restore or null.
   const urlWorkRestore = useRef<string | null | undefined>(undefined);
 
@@ -328,6 +369,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     useState<readonly CompletionEvidenceIssue[]>([]);
 
   const [deleteTarget, setDeleteTarget] = useState<WorkItem | null>(null);
+  const [movingId, setMovingId] = useState<string | null>(null);
   const [statusChangingId, setStatusChangingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -370,6 +412,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const activityPoll = useRef(activity.poll);
   activityPoll.current = activity.poll;
   const crossfade = usePaneCrossfade();
+  const projectCatalogRequest = useRef(0);
   const activeIdRef = useRef(activeId);
   const openedRef = useRef(opened);
   const settingsLoadController = useRef<AbortController | null>(null);
@@ -402,26 +445,25 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
 
   useEffect(() => {
     const controller = new AbortController();
+    const requestId = ++projectCatalogRequest.current;
+    const isCurrent = () =>
+      !controller.signal.aborted && projectCatalogRequest.current === requestId;
     setProjectsLoading(true);
     setProjectsError("");
     async function load() {
-      const all: Project[] = [];
-      let total = 1;
-      while (all.length < total) {
-        const page = await api<Page<Project>>(`/projects?limit=100&offset=${all.length}`, { signal: controller.signal });
-        all.push(...page.items);
-        total = page.total;
-        if (!page.items.length) break;
-      }
-      if (controller.signal.aborted) return;
-      all.sort((a, b) => a.name.localeCompare(b.name));
+      const all = await fetchFreshProjectCatalog(
+        isCurrent,
+        controller.signal
+      );
+      if (!all || !isCurrent()) return;
+      all.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
       setProjects(all);
       let saved = "";
       try { saved = localStorage.getItem(dashboardStorageKeys.project) ?? ""; } catch { /* optional */ }
       setActiveId((current) => all.some((item) => item.id === current) ? current : all.find((item) => item.id === saved)?.id ?? all[0]?.id ?? "");
     }
-    load().catch((error) => { if (!controller.signal.aborted) setProjectsError(errorMessage(error)); })
-      .finally(() => { if (!controller.signal.aborted) setProjectsLoading(false); });
+    load().catch((error) => { if (isCurrent()) setProjectsError(errorMessage(error)); })
+      .finally(() => { if (isCurrent()) setProjectsLoading(false); });
     return () => controller.abort();
   }, [projectsRefresh]);
 
@@ -638,7 +680,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
     ])) return;
     lastContextRefresh.current = contextRefresh;
-    void loadContext(opened, ++recordRequest.current);
+    void loadContext(opened, ++recordRequest.current, false, true);
   }, [contextLoading, contextRefresh, mode, opened, mutationIntents, mutationRegistry]);
 
   useEffect(() => {
@@ -722,22 +764,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     window.history.replaceState(window.history.state, "", url);
   }, [openedId, view]);
 
-  function chooseProject(id: string) {
-    if (
-      id !== activeId
-      && activeId
-      && selectMutationScope(mutationRegistry.getSnapshot(), { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up"].includes(intent.kind))
-    ) {
-      setNotice({
-        message: "Resolve pending mutations before switching projects. Reloading would lose the exact retry request.",
-        error: true
-      });
-      return;
-    }
-    if (id !== activeId && opened) {
-      if (!leavingOpenedWorkAllowed()) return;
-      clearSelection();
-    }
+  function applyProjectSelection(id: string) {
     setActiveId(id);
     setQuery("");
     setSearch("");
@@ -751,6 +778,26 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setTagFilter("");
     setSourceClientFilter("");
     setSourceSessionFilter("");
+  }
+
+  function chooseProject(id: string) {
+    if (
+      id !== activeId
+      && activeId
+      && selectMutationScope(mutationRegistry.getSnapshot(), { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up"].includes(intent.kind))
+    ) {
+      setNotice({
+        message: "Resolve pending mutations before switching projects. Reloading would lose the exact retry request.",
+        error: true
+      });
+      return;
+    }
+    ++workPlacementRequest.current;
+    if (id !== activeId && opened) {
+      if (!leavingOpenedWorkAllowed()) return;
+      clearSelection();
+    }
+    applyProjectSelection(id);
   }
 
   async function createProject(event: FormEvent<HTMLFormElement>) {
@@ -768,7 +815,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           ...(form.get("repository_url") ? { repository_url: form.get("repository_url") } : {})
         })
       });
-      setProjects((items) => [...items, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setProjects((items) => [...items, created].sort((a, b) =>
+        a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
+      ));
       chooseProject(created.id);
       setProjectDialog(false);
       setNotice({ message: `“${created.name}” is ready for durable work.` });
@@ -863,13 +912,16 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     if (saved.id !== activeIdRef.current) return;
     setProjects((items) => items
       .map((item) => item.id === saved.id ? saved : item)
-      .sort((left, right) => left.name.localeCompare(right.name)));
+      .sort((left, right) =>
+        left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
+      ));
   }
 
   async function loadContext(
     summary: WorkSummary,
     requestId = ++recordRequest.current,
-    preserveEditDraft = false
+    preserveEditDraft = false,
+    recoverPlacement = false
   ): Promise<ContextLoadResult> {
     setContextLoading(true);
     setContextError("");
@@ -888,6 +940,23 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       if (!preserveEditDraft) setEditDraft(draftFromWork(full.work_item));
       return "loaded";
     } catch (error) {
+      if (
+        recordRequest.current === requestId
+        && recoverPlacement
+        && isDefinitiveWorkPlacementMiss(error)
+      ) {
+        setContext(null);
+        setContextReconciliationRequired(true);
+        const recovery = await recoverCurrentWorkPlacement(
+          summary,
+          requestId,
+          "context_refresh",
+          preserveEditDraft
+        );
+        return recovery === "relocated"
+          ? "loaded"
+          : recovery === "superseded" ? "superseded" : "failed";
+      }
       if (recordRequest.current === requestId) setContextError(errorMessage(error));
       return recordRequest.current === requestId ? "failed" : "superseded";
     } finally {
@@ -921,31 +990,39 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setCheckpointKind("progress");
     setCheckpointActionError("");
     setEventRefresh((value) => value + 1);
-    void loadContext(summary, requestId);
+    void loadContext(summary, requestId, false, true);
   }
 
-  async function openExactWork(projectId: string, workItemId: string): Promise<boolean> {
+  async function openExactWork(
+    projectId: string,
+    workItemId: string,
+    moveRecovery?: WorkPlacementSummary
+  ): Promise<boolean> {
     const requestId = ++recordRequest.current;
-    exactContextTarget.current = { projectId, workItemId };
+    exactContextTarget.current = { projectId, workItemId, moveRecovery };
     setContext(null);
     setContextReconciliationRequired(true);
     setContextLoading(true);
     setContextError("");
-    setMode("view");
-    setMergeOpen(false);
-    setEditError("");
-    setConflict(null);
     setCheckpointOffset(0);
     setCheckpointPage(null);
-    setCheckpointBody("");
-    setCheckpointBranch("");
-    setCheckpointCommit("");
-    setCheckpointAffectedPaths("");
-    setCheckpointAffectedPathsError("");
-    setCheckpointTags("");
-    setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
-    setCompletionEvidenceIssues([]);
-    setCheckpointActionError("");
+    // A post-Move retry must retain every draft until a verified context is loaded.
+    // Fresh exact opens still clear eagerly so an unrelated record never inherits them.
+    if (!moveRecovery) {
+      setMode("view");
+      setMergeOpen(false);
+      setEditError("");
+      setConflict(null);
+      setCheckpointBody("");
+      setCheckpointBranch("");
+      setCheckpointCommit("");
+      setCheckpointAffectedPaths("");
+      setCheckpointAffectedPathsError("");
+      setCheckpointTags("");
+      setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
+      setCompletionEvidenceIssues([]);
+      setCheckpointActionError("");
+    }
     try {
       const value = await api<unknown>(
         `${workItemPath(projectId, workItemId)}/context?recent_limit=5&recent_event_limit=10`
@@ -963,12 +1040,49 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       setOpened(summary);
       setContext(full);
       setEditDraft(draftFromWork(full.work_item));
+      if (moveRecovery) {
+        // The Move guard already confirmed that these drafts may be discarded. Delay
+        // that discard until the exact target context has actually been verified.
+        setMode("view");
+        setMergeOpen(false);
+        setEditError("");
+        setConflict(null);
+        setCheckpointBody("");
+        setCheckpointBranch("");
+        setCheckpointCommit("");
+        setCheckpointAffectedPaths("");
+        setCheckpointAffectedPathsError("");
+        setCheckpointTags("");
+        setJobReportDraft(emptyJobReportDraft());
+        setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
+        setCompletionEvidenceIssues([]);
+        setCheckpointActionError("");
+      }
       setContextReconciliationRequired(false);
       exactContextTarget.current = null;
       lastLoadedContextRequest.current = requestId;
       setEventRefresh((value) => value + 1);
       return true;
     } catch (cause) {
+      if (
+        recordRequest.current === requestId
+        && moveRecovery
+        && isDefinitiveWorkPlacementMiss(cause)
+      ) {
+        exactContextTarget.current = null;
+        const recovery = await recoverCurrentWorkPlacement(
+          moveRecovery,
+          requestId,
+          "move_action",
+          true
+        );
+        // An ambiguous scan is retryable. Keep the exact moved-to project as the
+        // first probe, then scan the complete catalog again if it still returns 404.
+        if (recordRequest.current === requestId && recovery === "ambiguous") {
+          exactContextTarget.current = { projectId, workItemId, moveRecovery };
+        }
+        return recovery === "relocated";
+      }
       if (recordRequest.current === requestId) {
         const message = errorMessage(cause);
         setContextError(message);
@@ -978,6 +1092,335 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       return false;
     } finally {
       if (recordRequest.current === requestId) setContextLoading(false);
+    }
+  }
+
+  async function fetchFreshProjectCatalog(
+    isCurrent: () => boolean,
+    signal?: AbortSignal
+  ): Promise<Project[] | null> {
+    return loadCompleteProjectCatalog(
+      (offset) => api<unknown>(
+        `/projects?limit=100&offset=${offset}`,
+        signal ? { signal } : undefined
+      ),
+      isCurrent
+    );
+  }
+
+  async function scanWorkContexts(
+    catalog: readonly Project[],
+    workItemId: string,
+    preferredProjectId: string,
+    isCurrent: () => boolean
+  ): Promise<WorkContextScanResult> {
+    if (!sameProjectCatalog(catalog, catalog)) {
+      throw new Error("The work-placement lookup scope is invalid.");
+    }
+    const ordered = [
+      ...catalog.filter((project) => sameUuid(project.id, preferredProjectId)),
+      ...catalog.filter((project) => !sameUuid(project.id, preferredProjectId))
+    ];
+    for (const candidate of ordered) {
+      if (!isCurrent()) return { kind: "superseded" };
+      try {
+        const value = await api<unknown>(
+          `${workItemPath(candidate.id, workItemId)}/context?recent_limit=5&recent_event_limit=10`
+        );
+        if (!isCurrent()) return { kind: "superseded" };
+        const full = decodeWorkContext(value, candidate.id, workItemId);
+        if (!isCurrent()) return { kind: "superseded" };
+        return { kind: "found", project: candidate, context: full };
+      } catch (error) {
+        if (!isCurrent()) return { kind: "superseded" };
+        if (isDefinitiveWorkPlacementMiss(error)) continue;
+        throw error;
+      }
+    }
+    return isCurrent() ? { kind: "absent" } : { kind: "superseded" };
+  }
+
+  async function recoverCurrentWorkPlacement(
+    staleSummary: WorkPlacementSummary,
+    recordRequestId: number,
+    reason: WorkPlacementRecoveryReason,
+    preserveEditDraft = false
+  ): Promise<WorkPlacementRecoveryResult> {
+    const placementRequestId = ++workPlacementRequest.current;
+    const catalogRequestId = projectCatalogRequest.current;
+    const isCurrent = () =>
+      recordRequest.current === recordRequestId
+      && workPlacementRequest.current === placementRequestId;
+    let latestCatalog: Project[] | null = null;
+
+    function updateCatalog(catalog: readonly Project[]): void {
+      if (projectCatalogRequest.current !== catalogRequestId) return;
+      projectCatalogRequest.current += 1;
+      setProjects([...catalog]);
+      setProjectsError("");
+      setProjectsLoading(false);
+    }
+
+    function commitFound(
+      found: Extract<WorkContextScanResult, { kind: "found" }>,
+      catalog: readonly Project[] | null
+    ): WorkPlacementRecoveryResult {
+      if (!isCurrent()) return "superseded";
+      const targetProjectId = found.project.id;
+      const sourceProjectId = staleSummary.work_item.project_id;
+      const projectChanged = !sameUuid(sourceProjectId, targetProjectId);
+      const displayStatus = preservedWorkMoveDisplayStatus(found.context);
+      if (catalog) updateCatalog(catalog);
+      if (projectChanged) {
+        applyProjectSelection(targetProjectId);
+        setJobReportDraft((draft) => ({ ...draft, promptRevision: null }));
+      }
+      setStatus(displayStatus);
+      setOpened(summaryFromContext(found.context));
+      setContext(found.context);
+      if (!preserveEditDraft) {
+        setEditDraft(draftFromWork(found.context.work_item));
+        setMode("view");
+        setMergeOpen(false);
+        setEditError("");
+        setConflict(null);
+      }
+      setCheckpointOffset(0);
+      setCheckpointPage(null);
+      setContextError("");
+      setContextReconciliationRequired(false);
+      setContextLoading(false);
+      exactContextTarget.current = null;
+      lastLoadedContextRequest.current = recordRequestId;
+      setRefresh((value) => value + 1);
+      setAttentionRefresh((value) => value + 1);
+      setReportRefresh((value) => value + 1);
+      setCheckpointRefresh((value) => value + 1);
+      setEventRefresh((value) => value + 1);
+      setNotice({
+        message: reason === "move_action"
+          ? `The work item had already moved to “${found.project.name}” before this move finished. Its current context was verified there with its ${statusFilterLabels[displayStatus]} status preserved.`
+          : `The work item moved to “${found.project.name}” in another session. Its current context was verified there with its ${statusFilterLabels[displayStatus]} status preserved.`
+      });
+      return "relocated";
+    }
+
+    function commitAmbiguous(catalog: readonly Project[] | null): WorkPlacementRecoveryResult {
+      if (!isCurrent()) return "superseded";
+      if (catalog) updateCatalog(catalog);
+      const message = "This work item is no longer in its previously selected project, but its current placement could not be verified. Your drafts are still here; retry the context load to keep looking.";
+      setContext(null);
+      setContextError(message);
+      setContextReconciliationRequired(true);
+      setContextLoading(false);
+      exactContextTarget.current = null;
+      setNotice({ message, error: true });
+      return "ambiguous";
+    }
+
+    try {
+      if (sameProjectCatalog(projects, projects)) {
+        const initial = await scanWorkContexts(
+          projects,
+          staleSummary.work_item.id,
+          staleSummary.work_item.project_id,
+          isCurrent
+        );
+        if (initial.kind === "superseded") return "superseded";
+        if (initial.kind === "found") return commitFound(initial, null);
+      }
+
+      const firstCatalog = await fetchFreshProjectCatalog(isCurrent);
+      if (!firstCatalog) return "superseded";
+      latestCatalog = firstCatalog;
+      const firstScan = await scanWorkContexts(
+        firstCatalog,
+        staleSummary.work_item.id,
+        staleSummary.work_item.project_id,
+        isCurrent
+      );
+      if (firstScan.kind === "superseded") return "superseded";
+      if (firstScan.kind === "found") return commitFound(firstScan, firstCatalog);
+
+      const secondCatalog = await fetchFreshProjectCatalog(isCurrent);
+      if (!secondCatalog) return "superseded";
+      latestCatalog = secondCatalog;
+      const secondScan = await scanWorkContexts(
+        secondCatalog,
+        staleSummary.work_item.id,
+        staleSummary.work_item.project_id,
+        isCurrent
+      );
+      if (secondScan.kind === "superseded") return "superseded";
+      if (secondScan.kind === "found") return commitFound(secondScan, secondCatalog);
+      if (!sameProjectCatalog(firstCatalog, secondCatalog)) {
+        return commitAmbiguous(secondCatalog);
+      }
+      // Project-scoped probes are not an atomic locator: a concurrent move can remain
+      // behind both sequential scans even when the catalog itself is unchanged.
+      if (secondCatalog.length > 0) return commitAmbiguous(secondCatalog);
+      if (!isCurrent()) return "superseded";
+      updateCatalog(secondCatalog);
+      const selectedProjectId = activeIdRef.current;
+      if (
+        selectedProjectId
+        && !secondCatalog.some((project) => sameUuid(project.id, selectedProjectId))
+      ) {
+        applyProjectSelection(secondCatalog[0]?.id ?? "");
+      }
+      const message = "This work item is no longer available in any current project. The stale selection was cleared.";
+      setNotice({ message, error: true });
+      clearSelection();
+      return "absent";
+    } catch {
+      return commitAmbiguous(latestCatalog);
+    }
+  }
+
+  async function currentWorkProject(
+    workItemId: string,
+    preferredProjectId: string | null,
+    isCurrent: () => boolean = () => true
+  ): Promise<string | null> {
+    return resolveCurrentWorkProject(
+      projects,
+      workItemId,
+      preferredProjectId,
+      async (projectId, candidateWorkItemId) => {
+        if (!isCurrent()) return false;
+        try {
+          const value = await api<unknown>(workItemPath(projectId, candidateWorkItemId));
+          if (!isCurrent()) return false;
+          decodeWorkItemDetail(value, projectId, candidateWorkItemId);
+          if (!isCurrent()) return false;
+          return true;
+        } catch (error) {
+          if (!isCurrent()) return false;
+          if (isDefinitiveWorkPlacementMiss(error)) {
+            return false;
+          }
+          throw error;
+        }
+      }
+    );
+  }
+
+  async function openWorkAtCurrentPlacement(
+    workItemId: string,
+    preferredProjectId: string | null = activeIdRef.current || null
+  ): Promise<void> {
+    if (mutationRegistry.hasDispatched()) {
+      setNotice({
+        message: "Resolve pending mutations before opening another work item.",
+        error: true
+      });
+      return;
+    }
+    const requestId = ++workPlacementRequest.current;
+    const recordRequestId = recordRequest.current;
+    const isCurrent = () =>
+      requestId === workPlacementRequest.current
+      && recordRequestId === recordRequest.current;
+    try {
+      const projectId = await currentWorkProject(
+        workItemId,
+        preferredProjectId,
+        isCurrent
+      );
+      if (!isCurrent()) return;
+      if (!projectId) {
+        setNotice({
+          message: "This linked work item is not in any current project.",
+          error: true
+        });
+        return;
+      }
+      const currentOpen = openedRef.current;
+      if (
+        currentOpen
+        && sameUuid(currentOpen.work_item.id, workItemId)
+        && sameUuid(currentOpen.work_item.project_id, projectId)
+      ) return;
+      if (mutationRegistry.hasDispatched()) {
+        setNotice({
+          message: "Resolve pending mutations before opening another work item.",
+          error: true
+        });
+        return;
+      }
+      if (!leavingOpenedWorkAllowed()) return;
+      if (!isCurrent()) return;
+      clearSelection();
+      applyProjectSelection(projectId);
+      const loaded = await openExactWork(projectId, workItemId);
+      if (!loaded && requestId === workPlacementRequest.current) {
+        setNotice({
+          message: "The linked work item’s current project was found, but its context could not be opened. Retry the link.",
+          error: true
+        });
+      }
+    } catch (error) {
+      if (isCurrent()) {
+        setNotice({ message: errorMessage(error), error: true });
+      }
+    }
+  }
+
+  async function navigateToCurrentWorkPlacement(
+    workItemId: string,
+    preferredProjectId: string | null
+  ): Promise<void> {
+    if (mutationRegistry.hasDispatched()) {
+      setNotice({
+        message: "Resolve pending mutations before leaving this dashboard document.",
+        error: true
+      });
+      return;
+    }
+    const requestId = ++workPlacementRequest.current;
+    const recordRequestId = recordRequest.current;
+    const isCurrent = () =>
+      requestId === workPlacementRequest.current
+      && recordRequestId === recordRequest.current;
+    try {
+      const projectId = await currentWorkProject(
+        workItemId,
+        preferredProjectId,
+        isCurrent
+      );
+      if (!isCurrent()) return;
+      if (!projectId) {
+        setNotice({
+          message: "This linked work item is not in any current project.",
+          error: true
+        });
+        return;
+      }
+      if (mutationRegistry.hasDispatched()) {
+        setNotice({
+          message: "Resolve pending mutations before leaving this dashboard document.",
+          error: true
+        });
+        return;
+      }
+      if (!isCurrent()) return;
+      try {
+        localStorage.setItem(dashboardStorageKeys.project, projectId);
+        if (localStorage.getItem(dashboardStorageKeys.project) !== projectId) {
+          throw new Error("Project selection was not retained.");
+        }
+      } catch {
+        setNotice({
+          message: "The linked work item was found, but its project could not be selected safely.",
+          error: true
+        });
+        return;
+      }
+      window.location.assign(`/?work=${encodeURIComponent(workItemId)}`);
+    } catch (error) {
+      if (isCurrent()) {
+        setNotice({ message: errorMessage(error), error: true });
+      }
     }
   }
 
@@ -1137,9 +1580,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   function retryOpenedContext(): void {
     const target = exactContextTarget.current;
     if (target) {
-      void openExactWork(target.projectId, target.workItemId);
+      void openExactWork(target.projectId, target.workItemId, target.moveRecovery);
     } else if (opened) {
-      void loadContext(opened);
+      void loadContext(opened, ++recordRequest.current, false, true);
     }
   }
 
@@ -1440,6 +1883,174 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     }
   }
 
+  async function showMovedWork(
+    result: WorkMoveResult,
+    displayStatus: WorkMoveDisplayStatus = result.preserved_status
+  ): Promise<void> {
+    const target = projects.find((item) => item.id === result.target_project_id);
+    const movedSummary = summaryAfterWorkMove(openedRef.current, result, displayStatus);
+    const placementRequestId = ++workPlacementRequest.current;
+    const requestId = ++recordRequest.current;
+    const isCurrent = () =>
+      workPlacementRequest.current === placementRequestId
+      && recordRequest.current === requestId;
+    applyProjectSelection(result.target_project_id);
+    setStatus(displayStatus);
+    setOpened(movedSummary);
+    setContext(null);
+    setContextLoading(true);
+    setContextError("");
+    setContextReconciliationRequired(true);
+    setJobReportDraft((draft) => ({ ...draft, promptRevision: null }));
+    const moveRecovery = movedSummary ?? { work_item: result.work_item };
+    exactContextTarget.current = {
+      projectId: result.target_project_id,
+      workItemId: result.work_item.id,
+      moveRecovery
+    };
+    setRefresh((value) => value + 1);
+    setAttentionRefresh((value) => value + 1);
+    let loaded: "loaded" | "failed" | "superseded" | WorkPlacementRecoveryResult;
+    try {
+      const value = await api<unknown>(
+        `${workItemPath(result.target_project_id, result.work_item.id)}/context?recent_limit=5&recent_event_limit=10`
+      );
+      if (!isCurrent()) return;
+      const full = decodeWorkContext(
+        value,
+        result.target_project_id,
+        result.work_item.id
+      );
+      if (!isCurrent()) return;
+      setStatus(preservedWorkMoveDisplayStatus(full));
+      setOpened(summaryFromContext(full));
+      setContext(full);
+      setEditDraft(draftFromWork(full.work_item));
+      setContextError("");
+      setContextReconciliationRequired(false);
+      exactContextTarget.current = null;
+      lastLoadedContextRequest.current = requestId;
+      setCheckpointRefresh((value) => value + 1);
+      setEventRefresh((value) => value + 1);
+      loaded = "loaded";
+    } catch (error) {
+      if (!isCurrent()) return;
+      if (isDefinitiveWorkPlacementMiss(error)) {
+        exactContextTarget.current = null;
+        loaded = await recoverCurrentWorkPlacement(
+          moveRecovery,
+          requestId,
+          "move_action",
+          true
+        );
+        if (isCurrent() && loaded === "ambiguous") {
+          exactContextTarget.current = {
+            projectId: result.target_project_id,
+            workItemId: result.work_item.id,
+            moveRecovery
+          };
+        }
+      } else {
+        setContextError(errorMessage(error));
+        loaded = "failed";
+      }
+    } finally {
+      if (isCurrent()) setContextLoading(false);
+    }
+    if (!isCurrent()) return;
+    if (loaded === "loaded") {
+      setCheckpointBody("");
+      setCheckpointBranch("");
+      setCheckpointCommit("");
+      setCheckpointAffectedPaths("");
+      setCheckpointAffectedPathsError("");
+      setCheckpointTags("");
+      setJobReportDraft(emptyJobReportDraft());
+      setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
+      setCompletionEvidenceIssues([]);
+      setCheckpointActionError("");
+      setNotice({
+        message: `Work item moved to “${target?.name ?? "the selected project"}” with its ${statusFilterLabels[displayStatus]} status preserved.`
+      });
+    } else if (loaded === "failed") {
+      setNotice({
+        message: "The work item was moved and the target project is selected, but its context could not be opened there. Retry or use Refresh before continuing.",
+        error: true
+      });
+    }
+  }
+
+  async function moveWork(targetProjectId: string): Promise<void> {
+    if (!context || movingId || targetProjectId === context.work_item.project_id) return;
+    if (!projects.some((item) => item.id === targetProjectId)) {
+      setNotice({ message: "That target project is no longer available. Refresh and try again.", error: true });
+      return;
+    }
+    const sourceContext = context;
+    const source = sourceContext.work_item;
+    const conflictKeys = [
+      mutationWorkKey(source.project_id, source.id),
+      mutationWorkKey(targetProjectId, source.id)
+    ];
+    const disabledReason = workMoveDisabledReason(
+      sourceContext,
+      mutationRegistry.blocks(conflictKeys)
+    );
+    if (disabledReason) {
+      setNotice({ message: disabledReason, error: true });
+      return;
+    }
+    if (!leavingOpenedWorkAllowed()) return;
+    const displayStatus = preservedWorkMoveDisplayStatus(sourceContext);
+    const currentSummary = openedRef.current;
+    const sourceSummary = currentSummary
+      && sameUuid(currentSummary.work_item.id, source.id)
+      && sameUuid(currentSummary.work_item.project_id, source.project_id)
+      ? summaryWithContext(currentSummary, sourceContext)
+      : summaryFromContext(sourceContext);
+    const payload: WorkMoveInput = {
+      target_project_id: targetProjectId,
+      expected_version: source.version,
+      actor: dashboardMutationActor(dashboardSessionId())
+    };
+    setMovingId(source.id);
+    try {
+      const result = await mutationRegistry.execute({
+        kind: "move_work",
+        slot: `move-work:${source.project_id}:${source.id}`,
+        projectId: source.project_id,
+        conflictKeys,
+        method: "POST",
+        path: `${workItemPath(source.project_id, source.id)}/move`,
+        payload,
+        expectedSourceWorkStatus: source.status
+      });
+      await showMovedWork(result, displayStatus);
+    } catch (error) {
+      if (isDefinitiveWorkPlacementMiss(error)) {
+        const requestId = ++recordRequest.current;
+        exactContextTarget.current = null;
+        setContext(null);
+        setContextLoading(true);
+        setContextError("");
+        setContextReconciliationRequired(true);
+        await recoverCurrentWorkPlacement(sourceSummary, requestId, "move_action", true);
+      } else if (isVersionConflict(error)) {
+        const reconciled = await reloadOpenContext();
+        setNotice({
+          message: reconciled
+            ? "This work item changed before it could be moved. Its current version is ready for review."
+            : "This work item changed before it could be moved, and its current state could not be reloaded. Use Refresh before continuing.",
+          error: true
+        });
+      } else {
+        setNotice({ message: errorMessage(error), error: true });
+      }
+    } finally {
+      setMovingId(null);
+    }
+  }
+
   async function changeManualStatus(
     action: ManualStatusAction,
     summary: WorkSummary
@@ -1643,7 +2254,19 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setRetryingMutation(intent.slot);
     let contextReconciled = true;
     try {
-      if (intent.kind === "merge_work") {
+      if (intent.kind === "move_work") {
+        const selectedContext = context;
+        const displayStatus = selectedContext
+          && intent.conflictKeys.includes(mutationWorkKey(
+            selectedContext.work_item.project_id,
+            selectedContext.work_item.id
+          ))
+          ? preservedWorkMoveDisplayStatus(selectedContext)
+          : undefined;
+        const result = await mutationRegistry.retry<"move_work">(intent.slot);
+        await showMovedWork(result, displayStatus);
+        return;
+      } else if (intent.kind === "merge_work") {
         const result = await mutationRegistry.retry<"merge_work">(intent.slot);
         const selected = openedRef.current?.work_item;
         if (selected?.id === result.merge.source_work_item_id
@@ -1940,9 +2563,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           {project && activityReadyProjectId === project.id
             ? <JobReportList key={project.id} projectId={project.id} refreshSignal={reportRefresh}
                 onChanged={() => { setReportRefresh((value) => value + 1); setRefresh((value) => value + 1); }}
-                onOpenWork={(workItemId) => {
-                  if (mutationRegistry.hasDispatched()) { setNotice({ message: "Resolve pending mutations before leaving this dashboard document.", error: true }); return; }
-                  window.location.assign(`/?work=${encodeURIComponent(workItemId)}`);
+                onOpenWork={(workItemId, preferredProjectId) => {
+                  void navigateToCurrentWorkPlacement(workItemId, preferredProjectId ?? null);
                 }} />
             : <div className="loading-state" role="status">{project ? "Opening the project feed…" : "Select a project to read summaries."}</div>}
         </> : view === "attention" ? <>
@@ -2068,10 +2690,14 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                   statusChanging={Boolean(openedId && statusChangingId === openedId)}
                   reportSettingsReady={projectSettings?.project_id === opened?.work_item.project_id}
                   onDelete={() => { if (context) openDeletion(context.work_item); }}
-                  onOpenCanonical={(workItemId) => {
-                    if (opened && (workItemId === opened.work_item.id || leavingOpenedWorkAllowed())) {
-                      void openExactWork(opened.work_item.project_id, workItemId);
-                    }
+                  onMove={(targetProjectId) => void moveWork(targetProjectId)}
+                  projects={projects}
+                  moving={Boolean(openedId && movingId === openedId)}
+                  onOpenCanonical={(workItemId, preferredProjectId) => {
+                    void openWorkAtCurrentPlacement(
+                      workItemId,
+                      preferredProjectId ?? opened?.work_item.project_id ?? null
+                    );
                   }}
                   onViewDuplicateGroup={viewDuplicateGroup}
                   onCopy={(value, key, success) => void copyText(value, key, success)}

@@ -937,6 +937,7 @@ EventType = Literal[
     "human_attention_requested",
     "human_attention_resolved",
     "work_merged",
+    "work_moved",
 ]
 ProjectName = Annotated[
     str,
@@ -1489,6 +1490,21 @@ class WorkDeferralCreate(APIModel):
         return self
 
 
+class WorkMoveCreate(APIModel):
+    target_project_id: UUID
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+    actor: MutationActor | None = None
+    client_operation_id: UUID | None = Field(
+        default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
+    )
+
+    @model_validator(mode="after")
+    def keyed_operation_requires_actor(self) -> Self:
+        if self.client_operation_id is not None and self.actor is None:
+            raise ValueError("actor is required when client_operation_id is present")
+        return self
+
+
 class WorkCompletionRequest(APIModel):
     """Control-free completion intent used after receipt preparation."""
 
@@ -1822,6 +1838,24 @@ class WorkUpdateRead(WorkItemRead):
             or report.work_title_at_closeout != self.title
         ):
             raise ValueError("Closeout report does not match this work update")
+        return self
+
+
+class WorkMoveRead(APIModel):
+    source_project_id: UUID
+    target_project_id: UUID
+    preserved_status: Status
+    work_item: WorkItemRead
+
+    @model_validator(mode="after")
+    def moved_work_is_coherent(self) -> Self:
+        if self.source_project_id == self.target_project_id:
+            raise ValueError("A move requires distinct source and target projects")
+        if (
+            self.work_item.project_id != self.target_project_id
+            or self.work_item.status != self.preserved_status
+        ):
+            raise ValueError("Moved work does not match the target project and preserved status")
         return self
 
 
@@ -2814,6 +2848,20 @@ class WorkMergedMetadata(APIModel):
         return self
 
 
+class WorkMovedMetadata(APIModel):
+    move_id: UUID
+    source_project_id: UUID
+    target_project_id: UUID
+    role: Literal["source", "target"]
+    work_version: Annotated[StrictInt, Field(ge=2)]
+
+    @model_validator(mode="after")
+    def projects_are_distinct(self) -> Self:
+        if self.source_project_id == self.target_project_id:
+            raise ValueError("Move event projects must be distinct")
+        return self
+
+
 class WorkCompletedLiveMetadata(APIModel):
     from_status: Literal["open", "pending"]
     to_status: Literal["done"]
@@ -2842,6 +2890,7 @@ WorkEventMetadata = (
     | RelationshipEventMetadata
     | HumanGateEventMetadata
     | WorkMergedMetadata
+    | WorkMovedMetadata
     | WorkCompletedLiveMetadata
     | WorkDeletedMetadata
     | ProgressEventMetadata
@@ -2911,6 +2960,7 @@ _PLAIN_METADATA_TYPES: dict[str, type[WorkEventMetadata]] = {
     "human_attention_requested": HumanGateEventMetadata,
     "human_attention_resolved": HumanGateEventMetadata,
     "work_merged": WorkMergedMetadata,
+    "work_moved": WorkMovedMetadata,
     "work_deleted": WorkDeletedMetadata,
 }
 
@@ -2986,6 +3036,7 @@ class WorkEventRead(APIModel):
         self._require_relationship_projection()
         self.metadata = self._typed_metadata()
         self._require_merge_projection()
+        self._require_move_projection()
         return self
 
     def _require_merge_projection(self) -> None:
@@ -3000,6 +3051,19 @@ class WorkEventRead(APIModel):
         )
         if self.work_item_id != expected_work_item_id:
             raise ValueError("Merge event role does not match its work item")
+
+    def _require_move_projection(self) -> None:
+        if self.event_type != "work_moved":
+            return
+        if not isinstance(self.metadata, WorkMovedMetadata):
+            raise ValueError("Move events require typed move metadata")
+        expected_project_id = (
+            self.metadata.source_project_id
+            if self.metadata.role == "source"
+            else self.metadata.target_project_id
+        )
+        if self.project_id != expected_project_id:
+            raise ValueError("Move event role does not match its project")
 
     def _require_actor_provenance(self) -> None:
         actor_values = (self.actor_client, self.actor_session_id, self.actor_model)

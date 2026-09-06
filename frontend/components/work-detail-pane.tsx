@@ -40,6 +40,7 @@ import type {
   Checkpoint,
   CheckpointKind,
   Page,
+  Project,
   WorkContext,
   WorkItem,
   WorkMergeResult,
@@ -60,6 +61,7 @@ import {
   statusActionDisabledReason,
   type ManualStatusAction
 } from "@/lib/work-status-actions";
+import { workMoveDisabledReason } from "@/lib/work-move";
 
 const iconPaths = {
   copy: "M9 5V3h12v14h-3M3 7h12v14H3V7Z",
@@ -121,10 +123,13 @@ export type WorkDetailPaneProps = {
   onMerged: (result: WorkMergeResult) => void | Promise<void>;
   onMergeSourceChanged: () => void | Promise<void>;
   onDelete: () => void;
+  onMove: (targetProjectId: string) => void;
+  projects: readonly Project[];
+  moving: boolean;
   onStatusAction: (action: ManualStatusAction, summary: WorkSummary) => void;
   statusChanging: boolean;
   reportSettingsReady: boolean;
-  onOpenCanonical: (workItemId: string) => void;
+  onOpenCanonical: (workItemId: string, preferredProjectId?: string) => void | Promise<void>;
   onViewDuplicateGroup: (canonicalWorkItemId: string) => void;
   onCopy: (value: string, key: string, success: string) => void;
   onCopyPointer: (summary: WorkSummary) => void;
@@ -423,6 +428,152 @@ function StatusActionButton({
   </div>;
 }
 
+function DeleteMoveButton({
+  work,
+  projects,
+  deleteDisabled,
+  moveDisabled,
+  moving,
+  deleteTitle,
+  moveTitle,
+  deleteExplanationId,
+  moveExplanationId,
+  onDelete,
+  onMove
+}: {
+  work: WorkItem;
+  projects: readonly Project[];
+  deleteDisabled: boolean;
+  moveDisabled: boolean;
+  moving: boolean;
+  deleteTitle: string;
+  moveTitle: string;
+  deleteExplanationId?: string;
+  moveExplanationId?: string;
+  onDelete: () => void;
+  onMove: (targetProjectId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const openingFocus = useRef<"first" | "last">("first");
+  const hasTarget = projects.some((project) => project.id !== work.project_id);
+  const toggleDisabled = moveDisabled || moving || !hasTarget;
+
+  useEffect(() => setOpen(false), [work.id, work.project_id]);
+  useEffect(() => {
+    if (toggleDisabled) setOpen(false);
+  }, [toggleDisabled]);
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    const items = menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+    const target = openingFocus.current === "last" ? items?.item(items.length - 1) : items?.item(0);
+    target?.focus();
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [open]);
+
+  function closeAndFocus(): void {
+    setOpen(false);
+    toggleRef.current?.focus();
+  }
+
+  function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>): void {
+    const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>(
+      "button:not(:disabled)"
+    ) ?? [])];
+    if (!items.length) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number | null = null;
+    if (event.key === "ArrowDown") next = current < items.length - 1 ? current + 1 : 0;
+    if (event.key === "ArrowUp") next = current > 0 ? current - 1 : items.length - 1;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = items.length - 1;
+    if (next !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      items[next]?.focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeAndFocus();
+    } else if (event.key === "Tab") {
+      setOpen(false);
+    }
+  }
+
+  return <div className="status-split-button delete-move-split" ref={rootRef}>
+    <button
+      type="button"
+      className="button detail-delete status-split-primary"
+      aria-label="Delete work item"
+      title={deleteTitle}
+      aria-describedby={deleteExplanationId}
+      disabled={deleteDisabled || moving}
+      onClick={() => {
+        setOpen(false);
+        onDelete();
+      }}
+    >Delete</button>
+    <button
+      ref={toggleRef}
+      type="button"
+      className="button button-secondary status-split-toggle delete-move-toggle"
+      disabled={toggleDisabled}
+      aria-label={`Move ${work.title} to another project`}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      aria-controls={menuId}
+      aria-describedby={moveExplanationId}
+      title={hasTarget ? moveTitle : "No other projects are available"}
+      onClick={() => {
+        openingFocus.current = "first";
+        setOpen((value) => !value);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          event.stopPropagation();
+          openingFocus.current = event.key === "ArrowUp" ? "last" : "first";
+          setOpen(true);
+        }
+      }}
+    >{moving ? "Moving…" : "Move"}<span aria-hidden="true">⌄</span></button>
+    {open && <div
+      ref={menuRef}
+      className="status-action-menu move-project-menu"
+      id={menuId}
+      role="menu"
+      aria-label={`Move ${work.title} to project`}
+      onKeyDown={moveMenuFocus}
+    >
+      <span className="move-project-menu-label" role="presentation">Move to project</span>
+      {projects.map((project) => {
+        const current = project.id === work.project_id;
+        return <button
+          type="button"
+          role="menuitem"
+          key={project.id}
+          disabled={current || toggleDisabled}
+          aria-label={current
+            ? `${project.name} (${project.slug}), current project`
+            : `${project.name} (${project.slug})`}
+          onClick={() => {
+            setOpen(false);
+            onMove(project.id);
+          }}
+        ><span className="move-project-identity"><bdi dir="auto">{project.name}</bdi>
+            <small>{project.slug}</small></span>{current && <span>Current</span>}</button>;
+      })}
+    </div>}
+  </div>;
+}
+
 function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailPaneProps }) {
   // A context is only trusted for the header when it belongs to the selection;
   // the dashboard sets both together, so a mismatch renders as still loading.
@@ -449,6 +600,11 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
   const idCopied = props.copiedKey === idKey;
   const deleteExplanation = terminalActionGateExplanation(readiness, "deletion");
   const deleteExplanationId = `detail-delete-gate-explanation-${work.id}`;
+  const moveDisabledReason = workMoveDisabledReason(context, props.mutationBlocked);
+  const hasMoveTarget = props.projects.some((project) => project.id !== work.project_id);
+  const moveExplanation = moveDisabledReason
+    ?? (!hasMoveTarget ? "Create another project before moving this work item." : null);
+  const moveExplanationId = `detail-move-explanation-${work.id}`;
   const mergeLeaseExplanation = context?.duplicate_merge_eligibility.source_lease_state === "active"
     ? "Release the source’s active lease, or wait for it to expire, before merging in the browser."
     : "";
@@ -495,9 +651,24 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
           onAction={props.onStatusAction}
         />}
         {!isDuplicate && context && context.duplicate_member_total > 0 && <button type="button" className={`button button-secondary ${props.copiedKey === canonicalKey ? "is-copied" : ""}`} onClick={() => props.onCopy(work.id, canonicalKey, "Canonical work ID copied.")}><Icon name="copy" size={16} />Copy canonical ID</button>}
-        {!isDuplicate && <button type="button" className="button detail-delete" aria-label="Delete work item" title={readiness.is_gated ? "Resolve every human question before deleting this work item." : "Delete work item"} aria-describedby={deleteExplanation ? deleteExplanationId : undefined} disabled={!context || terminalActionDisabled(readiness, props.mutationBlocked)} onClick={props.onDelete}>Delete</button>}
+        {!isDuplicate && <DeleteMoveButton
+          work={work}
+          projects={props.projects}
+          deleteDisabled={!context || terminalActionDisabled(readiness, props.mutationBlocked)}
+          moveDisabled={Boolean(moveDisabledReason)}
+          moving={props.moving}
+          deleteTitle={readiness.is_gated ? "Resolve every human question before deleting this work item." : "Delete work item"}
+          moveTitle={moveDisabledReason ?? "Move this work item to another project"}
+          deleteExplanationId={deleteExplanation ? deleteExplanationId : undefined}
+          moveExplanationId={moveExplanation ? moveExplanationId : undefined}
+          onDelete={props.onDelete}
+          onMove={props.onMove}
+        />}
         {!isDuplicate && deleteExplanation && <p className="terminal-action-note" id={deleteExplanationId}>
           {deleteExplanation}
+        </p>}
+        {!isDuplicate && moveExplanation && <p className="terminal-action-note" id={moveExplanationId}>
+          {moveExplanation}
         </p>}
         {mergeLeaseExplanation && <p className="terminal-action-note" id={mergeLeaseExplanationId}>{mergeLeaseExplanation}</p>}
       </div>

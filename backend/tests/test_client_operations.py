@@ -33,6 +33,7 @@ from mnemonic_api.schemas import (
     WorkItemCreate,
     WorkItemPatch,
     WorkMergeCreate,
+    WorkMoveCreate,
 )
 from mnemonic_api.services.client_operations import (
     _CHECKPOINT_FIELDS,
@@ -53,6 +54,7 @@ from mnemonic_api.services.client_operations import (
 )
 
 PROJECT_ID = UUID("10000000-0000-0000-0000-000000000001")
+TARGET_PROJECT_ID = UUID("10000000-0000-0000-0000-000000000002")
 WORK_ID = UUID("20000000-0000-0000-0000-000000000001")
 OTHER_WORK_ID = UUID("20000000-0000-0000-0000-000000000002")
 CHECKPOINT_ID = UUID("30000000-0000-0000-0000-000000000001")
@@ -129,6 +131,12 @@ def canonical_vector_cases():
         client_operation_id=OPERATION_ID,
     )
     deferral_request = WorkDeferralCreate(
+        expected_version=8,
+        actor=MutationActor(**actor()),
+        client_operation_id=OPERATION_ID,
+    )
+    move_request = WorkMoveCreate(
+        target_project_id=TARGET_PROJECT_ID,
         expected_version=8,
         actor=MutationActor(**actor()),
         client_operation_id=OPERATION_ID,
@@ -304,6 +312,16 @@ def canonical_vector_cases():
             {"expected_version": 8, "actor": actor_fields},
         ),
         (
+            "move_work",
+            {"work_item_id": WORK_ID},
+            move_request,
+            {
+                "target_project_id": str(TARGET_PROJECT_ID),
+                "expected_version": 8,
+                "actor": actor_fields,
+            },
+        ),
+        (
             "complete_work",
             {"work_item_id": WORK_ID},
             completion_request,
@@ -396,6 +414,7 @@ CANONICAL_DIGESTS = {
     "add_relationship": "ab063fbc4de9ebdf312e8a2261371f66bed0d4c521f268d79a7286e0a5fb1ce2",
     "update_work": "a2132547ab61bc8b4f5141daf252f9dc8b56fd69d3fde7be3d38b97a6f4071b8",
     "defer_work": "c9413cf7e9a09505b112229516847ef452d39c96c65fa58a79c9019d58e5184a",
+    "move_work": "3e78b296fdd15f19b098a21001efe9b267569c66772afb155a3c7958a17ad9bf",
     "complete_work": "ce8f9e979f02cdefd0c4e7e0949775c7dc7098aa9c18d3779e034c2a9d7a09b5",
     "delete_work": "a7a4bdbc1b8351e50f8b449bf7d6b911381bc51625a2ffa9947cd4acb0762bd0",
     "remove_relationship": "dd9ade0a4af557a223f23ddb660f8bef4a02aa4ff635a034bf44dc2b7263e59e",
@@ -418,10 +437,11 @@ def response_vector_cases():
         title="Frozen response work",
         status="pending",
         version=2,
+        project_id=PROJECT_ID,
     ):
         return {
             "id": str(work_item_id),
-            "project_id": str(PROJECT_ID),
+            "project_id": str(project_id),
             "title": title,
             "summary": "Freeze the public response-v1 representation.",
             "status": status,
@@ -713,6 +733,29 @@ def response_vector_cases():
             work(status="deferred", version=3),
         ),
         (
+            "move_work",
+            {
+                "source_project_id": str(PROJECT_ID),
+                "target_project_id": str(TARGET_PROJECT_ID),
+                "preserved_status": "deferred",
+                "work_item": work(
+                    status="deferred",
+                    version=3,
+                    project_id=TARGET_PROJECT_ID,
+                ),
+            },
+            {
+                "source_project_id": str(PROJECT_ID),
+                "target_project_id": str(TARGET_PROJECT_ID),
+                "preserved_status": "deferred",
+                "work_item": work(
+                    status="deferred",
+                    version=3,
+                    project_id=TARGET_PROJECT_ID,
+                ),
+            },
+        ),
+        (
             "complete_work",
             {
                 "work_item": work(status="done", version=3),
@@ -755,6 +798,7 @@ RESPONSE_V1_DIGESTS = {
     "add_relationship": "353f244332110d5dd32d25ab2c58b05798e9ccbbbe4fed7adb44c373b08cc4b5",
     "update_work": "8cf62c7bbf17f7dac076f467c53dd59abdc273196ab999607488fcb53dc726da",
     "defer_work": "9759d6a3da79bfde4b41c21cf413039ce808122d09e6ade99446cd40dad58280",
+    "move_work": "3c8cd85ed4f639b627cdb03e039dec17b79191ae172165dbe70d95b4a56428ab",
     "complete_work": "623f9200fb93c69396ccbd971c1050cd81e79fdde6718d19c591962b6713f276",
     "delete_work": "5a15f8bd7a23ac3b5a0545914e60a6e3e2f3306327fb28e1386074292690a5e9",
     "remove_relationship": "e71f2ae31da622edb038d3ea5e83da22fd88397c63e463de420a60aa60a8e7d4",
@@ -1045,7 +1089,7 @@ def test_gate_response_replay_regenerates_computed_fields_and_refuses_tampering(
 
 def test_registry_is_closed_and_non_capability_bearing():
     assert tuple(OPERATION_REGISTRY) == REGISTERED_OPERATION_KINDS
-    assert len(OPERATION_REGISTRY) == 15
+    assert len(OPERATION_REGISTRY) == 16
     assert {
         spec.request_model.__name__ for spec in OPERATION_REGISTRY.values()
     } == {
@@ -1055,6 +1099,7 @@ def test_registry_is_closed_and_non_capability_bearing():
         "RelationshipCreate",
         "WorkItemPatch",
         "WorkDeferralCreate",
+        "WorkMoveCreate",
         "WorkCompletionCreate",
         "WorkDeletionCreate",
         "RelationshipRemovalCreate",
@@ -1100,6 +1145,12 @@ def test_exactly_covered_request_models_accept_the_optional_uuid():
             client_operation_id=operation_id,
         ),
         WorkDeferralCreate(
+            expected_version=1,
+            actor=MutationActor(**actor()),
+            client_operation_id=operation_id,
+        ),
+        WorkMoveCreate(
+            target_project_id=TARGET_PROJECT_ID,
             expected_version=1,
             actor=MutationActor(**actor()),
             client_operation_id=operation_id,
@@ -1179,6 +1230,10 @@ def test_exactly_covered_request_models_accept_the_optional_uuid():
         (
             WorkDeferralCreate,
             {"expected_version": 1},
+        ),
+        (
+            WorkMoveCreate,
+            {"target_project_id": TARGET_PROJECT_ID, "expected_version": 1},
         ),
         (
             RelationshipRemovalCreate,
@@ -1649,6 +1704,79 @@ def test_defer_response_coherence_requires_the_new_deferred_version():
             request,
             impossible,
             True,
+        )
+
+
+def test_move_response_coherence_preserves_identity_status_and_new_version():
+    request = WorkMoveCreate(
+        target_project_id=TARGET_PROJECT_ID,
+        expected_version=4,
+        actor=MutationActor(**actor()),
+        client_operation_id=OPERATION_ID,
+    )
+    spec = operation_spec("move_work")
+    base_response = {
+        "source_project_id": PROJECT_ID,
+        "target_project_id": TARGET_PROJECT_ID,
+        "preserved_status": "deferred",
+        "work_item": {
+            "id": WORK_ID,
+            "project_id": TARGET_PROJECT_ID,
+            "title": "Moved response",
+            "summary": "The stored response must represent the identity-preserving move.",
+            "status": "deferred",
+            "priority": 4,
+            "initial_checkpoint_id": CHECKPOINT_ID,
+            "version": 5,
+            "created_at": "2026-09-01T00:00:00Z",
+            "updated_at": "2026-09-01T00:00:01Z",
+        },
+    }
+    coherent = spec.response_model.model_validate(base_response)
+
+    assert _response_matches_operation(
+        spec,
+        PROJECT_ID,
+        {"work_item_id": str(WORK_ID)},
+        request,
+        coherent,
+        True,
+    )
+
+    another_project_id = UUID("10000000-0000-0000-0000-000000000003")
+    impossible_responses = [
+        {**base_response, "source_project_id": another_project_id},
+        {
+            **base_response,
+            "target_project_id": another_project_id,
+            "work_item": {**base_response["work_item"], "project_id": another_project_id},
+        },
+        {
+            **base_response,
+            "work_item": {**base_response["work_item"], "id": OTHER_WORK_ID},
+        },
+        {
+            **base_response,
+            "work_item": {**base_response["work_item"], "version": 6},
+        },
+    ]
+    for impossible_response in impossible_responses:
+        impossible = spec.response_model.model_validate(impossible_response)
+        assert not _response_matches_operation(
+            spec,
+            PROJECT_ID,
+            {"work_item_id": str(WORK_ID)},
+            request,
+            impossible,
+            True,
+        )
+
+    with pytest.raises(ValidationError):
+        spec.response_model.model_validate(
+            {
+                **base_response,
+                "work_item": {**base_response["work_item"], "status": "pending"},
+            }
         )
 
 

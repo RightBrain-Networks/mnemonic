@@ -90,10 +90,10 @@ EXPECTED_FUNCTION_HASHES = {
         "2c6b0e84d7e8aaa4871c07452c127375909a6f6fb5c3ec3efc0f74969b014300"
     ),
     "mnemonic_duplicate_merge_is_complete": (
-        "7500894c29129f0cad5b03e20cc882be6d4b120dc7b0567a0053dde6842f4663"
+        "d88bf3afbffb4317f8293219dae4625b49fbadea737dd6fb7545710077a63448"
     ),
     "mnemonic_guard_duplicate_merge_insert": (
-        "9ae2ccb197f82c2cbd3875b3d113919a2e18bdb2422b9d6161ba06aec9c00832"
+        "74cf2231b51f8c5ccf6a2d8ed9184661a06b4b131b3c3af3863fbda2350846a1"
     ),
     "mnemonic_guard_duplicate_relationship_mutation": (
         "bdc6bc7f37a34b95efa7a424879f5bcf6f8f3a42d36e4677cb1dd2f2467b8db1"

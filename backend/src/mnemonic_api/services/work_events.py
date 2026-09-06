@@ -12,7 +12,14 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.database import rows_affected
 from mnemonic_api.errors import ApplicationError, not_found
-from mnemonic_api.models import Checkpoint, WorkEvent, WorkGate, WorkItem, WorkRelationship
+from mnemonic_api.models import (
+    Checkpoint,
+    WorkEvent,
+    WorkGate,
+    WorkItem,
+    WorkItemMove,
+    WorkRelationship,
+)
 from mnemonic_api.schemas import (
     MutationActor,
     ProgressEventCreate,
@@ -70,6 +77,7 @@ def _event(
     gate_id: UUID | None = None,
     created_for_duplicate_merge_id: UUID | None = None,
     work_duplicate_merge_id: UUID | None = None,
+    work_move_id: UUID | None = None,
 ) -> WorkEvent:
     values: dict[str, Any] = {
         "project_id": project_id,
@@ -83,6 +91,7 @@ def _event(
         "gate_id": gate_id,
         "created_for_duplicate_merge_id": created_for_duplicate_merge_id,
         "work_duplicate_merge_id": work_duplicate_merge_id,
+        "work_move_id": work_move_id,
         "event_metadata": metadata,
         "created_at": created_at,
         "origin": "live",
@@ -428,6 +437,38 @@ def stage_work_merged_events(
     return events
 
 
+def stage_work_moved_events(
+    database: Session,
+    move: WorkItemMove,
+    *,
+    actor: MutationActor | None,
+) -> list[WorkEvent]:
+    """Stage the source-project witness first and target-project witness second."""
+    metadata = {
+        "move_id": str(move.id),
+        "source_project_id": str(move.source_project_id),
+        "target_project_id": str(move.target_project_id),
+        "work_version": move.resulting_work_version,
+    }
+    events = [
+        _event(
+            project_id=project_id,
+            work_item_id=move.work_item_id,
+            event_type="work_moved",
+            actor=actor,
+            created_at=move.created_at,
+            metadata={**metadata, "role": role},
+            work_move_id=move.id,
+        )
+        for role, project_id in (
+            ("source", move.source_project_id),
+            ("target", move.target_project_id),
+        )
+    ]
+    database.add_all(events)
+    return events
+
+
 def _progress_strings(
     payload: ProgressEventCreate,
 ) -> Iterable[tuple[str, str]]:
@@ -617,7 +658,7 @@ def list_work_events(
                     event.created_at
                 FROM visible_work
                 JOIN work_events AS event ON event.work_item_id = visible_work.id
-                WHERE event.project_id = :project_id
+                WHERE true
                   {type_predicate}
                 ORDER BY {ordering}
                 LIMIT :limit OFFSET :offset
@@ -667,15 +708,14 @@ def list_work_events(
                     SELECT count(*)
                     FROM work_events AS event
                     JOIN visible_work ON visible_work.id = event.work_item_id
-                    WHERE event.project_id = :project_id
+                    WHERE true
                       {type_predicate}
                 ) AS total,
                 COALESCE(
                     (
                         SELECT origin = 'backfill'
                         FROM work_events AS creation
-                        WHERE creation.project_id = :project_id
-                          AND creation.work_item_id = :work_item_id
+                        WHERE creation.work_item_id = :work_item_id
                           AND creation.event_type = 'work_created'
                     ),
                     false

@@ -110,7 +110,7 @@ Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemon
 reachable remotely.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current application/API/MCP release is `0.11.0`, with plugin version `0.13.0` and database head `0022_external_references`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
+not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current application/API/MCP release is `0.12.0`, with plugin version `0.13.0` and database head `0023_work_item_moves`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
 
 - **`mnemonic-save`** searches for existing work, explicitly compares a stable
   draft with grouped duplicate candidates while preserving Create anyway,
@@ -222,9 +222,13 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
 - Stores append-only, actor-attributed work events for creation, work changes,
   claims/releases, checkpoints, relationships, completion/reopen, deletion,
   explicit concise progress, human-gate requests/resolutions, and paired
-  `work_merged` audit facts. Authoritative
+  `work_merged` and `work_moved` audit facts. Authoritative
   events commit with the mutation they describe; canonical idempotent replays
   and natural no-ops do not fabricate duplicates.
+- Moves one stable work UUID between projects through the REST/dashboard human
+  control plane while preserving its lifecycle status and project-at-fact
+  history. Active leases, unresolved gates, relationships, duplicate
+  membership, and unsealed terminal history block a fresh move.
 - Provides first-class human gates with exact question/answer history, asserted
   requester/resolver provenance, immutable request and resolution revisions,
   drift flags and a required reviewed revision, a cursor-paged Needs Attention queue, per-work history,
@@ -232,15 +236,16 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   completion, terminal transitions, and deletion without revoking exact active
   claim replay, renewal, release, checkpoints, or progress. Resolution is a
   direct REST/dashboard human action; MCP intentionally has no resolve tool.
-- Makes retries safe for fifteen project-scoped REST mutations with
+- Makes retries safe for sixteen project-scoped REST mutations with
   caller-generated `client_operation_id` values and durable typed success
   receipts. Exactly eleven of the 32 canonical MCP tools require the UUID,
   including `request_human_input` and `merge_work`; the dashboard retains frozen
-  same-document requests for its thirteen non-capability mutations, including
-  deferral, gate resolution, merge, report dismissal, and report follow-ups. Every
-  fresh closeout, merge, dismissal, and report follow-up requires an operation
-  UUID. Exact retries return the original historical result before fresh domain
-  guards, including previously acknowledged report-free closeouts.
+  same-document requests for its fourteen non-capability mutations, including
+  deferral, move, gate resolution, merge, report dismissal, and report follow-ups.
+  Every fresh closeout, merge, dismissal, report follow-up, and dashboard move
+  requires an operation UUID. Exact retries return the original historical result
+  before fresh domain guards, including previously acknowledged report-free
+  closeouts and source-scoped completed moves.
 - Requires a concise human summary and optional FYI bullets on each fresh Done,
   Won’t do, or Promoted closeout. Agents author the report assuming the reader
   has read no other LLM output. Projects ship a sensible authoring prompt,

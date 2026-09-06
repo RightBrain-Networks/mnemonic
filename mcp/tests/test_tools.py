@@ -455,6 +455,50 @@ def test_recall_model_rejects_misordered_events(
         WorkContext.model_validate(payload)
 
 
+def test_recall_model_accepts_history_from_a_work_items_previous_project(
+    work_context, progress_event, resolved_human_gate
+):
+    historical_event = {**progress_event, "project_id": OTHER_CHECKPOINT_ID}
+    historical_gate = {**resolved_human_gate, "project_id": OTHER_CHECKPOINT_ID}
+    payload = {
+        **work_context,
+        "recent_resolved_gates": [historical_gate],
+        "resolved_gate_total": 1,
+        "recent_events": [historical_event],
+        "omitted_event_count": 0,
+    }
+
+    recalled = WorkContext.model_validate(payload)
+
+    assert str(recalled.recent_events[0].project_id) == OTHER_CHECKPOINT_ID
+    assert str(recalled.recent_resolved_gates[0].project_id) == OTHER_CHECKPOINT_ID
+
+
+def test_recall_model_rejects_an_unresolved_gate_from_a_previous_project(
+    work_context, human_gate
+):
+    historical_gate = {**human_gate, "project_id": OTHER_CHECKPOINT_ID}
+    payload = {
+        **work_context,
+        "unresolved_gates": [historical_gate],
+        "unresolved_gate_total": 1,
+        "readiness": {
+            **work_context["readiness"],
+            "unresolved_gate_count": 1,
+            "is_gated": True,
+            "is_ready": False,
+            "display_state": "waiting",
+        },
+        "duplicate_merge_eligibility": {
+            **work_context["duplicate_merge_eligibility"],
+            "has_unresolved_gate": True,
+        },
+    }
+
+    with pytest.raises(ValueError, match="outside current work context"):
+        WorkContext.model_validate(payload)
+
+
 def test_recall_model_rejects_misordered_relationships_and_false_eligibility(
     work_context, adjacent_relationship
 ):
@@ -1878,6 +1922,10 @@ async def test_gate_reads_use_exact_cursor_queries_and_enforce_scope(
             "display_state": "waiting",
         },
     }
+    historical_resolved_gate = {
+        **resolved_human_gate,
+        "project_id": OTHER_CHECKPOINT_ID,
+    }
     calls = []
 
     def handler(request):
@@ -1895,7 +1943,7 @@ async def test_gate_reads_use_exact_cursor_queries_and_enforce_scope(
         return httpx.Response(
             200,
             json={
-                "items": [resolved_human_gate],
+                "items": [historical_resolved_gate],
                 "total": 1,
                 "limit": 7,
                 "next_cursor": "history-cursor-v1",
@@ -1929,6 +1977,7 @@ async def test_gate_reads_use_exact_cursor_queries_and_enforce_scope(
     assert attention["items"][0]["gate"]["status"] == "unresolved"
     assert attention["items"][0]["summary"]["readiness"]["is_gated"] is True
     assert history["items"][0]["resolution"] == resolved_human_gate["resolution"]
+    assert history["items"][0]["project_id"] == OTHER_CHECKPOINT_ID
     assert calls == [
         (
             "GET",
@@ -2026,6 +2075,31 @@ async def test_gate_read_scope_or_filter_mismatch_is_rejected_without_values(
     assert human_gate["question"] not in str(caught.value)
     assert GATE_ID not in str(caught.value)
 
+    unresolved_historical_gate = {
+        **human_gate,
+        "project_id": OTHER_CHECKPOINT_ID,
+    }
+
+    def unresolved_history_handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "items": [unresolved_historical_gate],
+                "total": 1,
+                "limit": 30,
+                "next_cursor": None,
+            },
+        )
+
+    with pytest.raises(ToolError, match="unexpected response"):
+        await adapter(settings, unresolved_history_handler).call_tool(
+            "list_work_gates",
+            {
+                "project_id": PROJECT_ID,
+                "work_item_id": WORK_ID,
+            },
+        )
+
 
 async def test_attention_count_mode_is_text_free_and_rejects_a_cursor(
     settings, human_gate
@@ -2111,6 +2185,58 @@ def test_gate_event_models_preserve_legacy_wire_and_validate_typed_metadata(
         WorkEventRead.model_validate({**base, "origin": "backfill"})
     with pytest.raises(ValueError):
         WorkEventRead.model_validate({**base, "gate_id": GATE_ID})
+
+
+def test_move_event_models_accept_client_and_unattributed_witnesses(progress_event):
+    metadata = {
+        "move_id": RELATIONSHIP_ID,
+        "source_project_id": PROJECT_ID,
+        "target_project_id": OTHER_WORK_ID,
+        "role": "source",
+        "work_version": 4,
+    }
+    source = WorkEventRead.model_validate(
+        {
+            **progress_event,
+            "event_type": "work_moved",
+            "body": None,
+            "metadata": metadata,
+        }
+    )
+    target = WorkEventRead.model_validate(
+        {
+            **progress_event,
+            "project_id": OTHER_WORK_ID,
+            "event_type": "work_moved",
+            "actor_kind": "unattributed",
+            "actor_client": None,
+            "actor_session_id": None,
+            "actor_model": None,
+            "body": None,
+            "metadata": {**metadata, "role": "target"},
+        }
+    )
+    assert source.metadata.model_dump(mode="json") == metadata
+    assert target.actor_kind == "unattributed"
+
+    with pytest.raises(ValueError, match="role does not match its project"):
+        WorkEventRead.model_validate(
+            {
+                **progress_event,
+                "event_type": "work_moved",
+                "body": None,
+                "metadata": {**metadata, "role": "target"},
+            }
+        )
+    with pytest.raises(ValueError, match="projects must be distinct"):
+        WorkEventRead.model_validate(
+            {
+                **progress_event,
+                "event_type": "work_moved",
+                "body": None,
+                "metadata": {**metadata, "target_project_id": PROJECT_ID},
+            }
+        )
 
 
 async def test_event_tools_use_exact_rest_contract(settings, progress_event):
@@ -2578,10 +2704,7 @@ async def test_event_tools_reject_responses_outside_requested_scope(
                 "append_event", append_arguments
             )
 
-    for override in (
-        {"project_id": OTHER_CHECKPOINT_ID},
-        {"work_item_id": OTHER_WORK_ID},
-    ):
+    for override in ({"work_item_id": OTHER_WORK_ID},):
         def list_handler(request, override=override):
             return httpx.Response(
                 200,
@@ -2599,6 +2722,26 @@ async def test_event_tools_reject_responses_outside_requested_scope(
                 "list_work_events",
                 {"project_id": PROJECT_ID, "work_item_id": WORK_ID},
             )
+
+    def historical_list_handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "items": [{**progress_event, "project_id": OTHER_CHECKPOINT_ID}],
+                "total": 1,
+                "limit": 50,
+                "offset": 0,
+                "pre_phase5_history_may_be_incomplete": False,
+            },
+        )
+
+    historical = structured(
+        await adapter(settings, historical_list_handler).call_tool(
+            "list_work_events",
+            {"project_id": PROJECT_ID, "work_item_id": WORK_ID},
+        )
+    )
+    assert historical["items"][0]["project_id"] == OTHER_CHECKPOINT_ID
 
 
 async def test_append_event_validation_and_unknown_outcome_are_value_free(settings):

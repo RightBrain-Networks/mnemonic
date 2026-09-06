@@ -660,14 +660,13 @@ def _ensure_event_scope(
 def _event_page_matches_request(
     page: WorkEventPage,
     *,
-    project_id: UUID,
     work_item_id: UUID,
     event_type: EventType | None,
     limit: int,
     offset: int,
 ) -> bool:
     return matches_requested_offset_page(page, limit=limit, offset=offset) and all(
-        matches_requested_ids((item.project_id, project_id), (item.work_item_id, work_item_id))
+        matches_requested_ids((item.work_item_id, work_item_id))
         and (event_type is None or item.event_type == event_type)
         for item in page.items
     )
@@ -726,7 +725,8 @@ def _gate_history_matches_request(
     limit: int,
 ) -> bool:
     return matches_requested_limit(page, limit=limit) and all(
-        matches_requested_ids((gate.project_id, project_id), (gate.work_item_id, work_item_id))
+        matches_requested_ids((gate.work_item_id, work_item_id))
+        and (gate.status != "unresolved" or gate.project_id == project_id)
         and (status == "all" or gate.status == status)
         for gate in page.items
     )
@@ -1345,7 +1345,7 @@ def _register_event_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 response_validator=response_matches(
                     WorkEventPage,
                     lambda page: _event_page_matches_request(
-                        page, project_id=project_id, work_item_id=work_item_id,
+                        page, work_item_id=work_item_id,
                         event_type=event_type, limit=limit, offset=offset,
                     ),
                 ),

@@ -420,13 +420,21 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
         assert relationship is not None
         relationship_events = database.scalars(
             select(WorkEvent)
-            .options(defer(WorkEvent.reopen_generation), defer(WorkEvent.job_completion_report_id))
+            .options(
+                defer(WorkEvent.reopen_generation),
+                defer(WorkEvent.job_completion_report_id),
+                defer(WorkEvent.work_move_id),
+            )
             .where(WorkEvent.created_for_duplicate_merge_id == merge_id)
             .order_by(WorkEvent.id)
         ).all()
         merge_events = database.scalars(
             select(WorkEvent)
-            .options(defer(WorkEvent.reopen_generation), defer(WorkEvent.job_completion_report_id))
+            .options(
+                defer(WorkEvent.reopen_generation),
+                defer(WorkEvent.job_completion_report_id),
+                defer(WorkEvent.work_move_id),
+            )
             .where(WorkEvent.work_duplicate_merge_id == merge_id)
             .order_by(WorkEvent.id)
         ).all()
@@ -598,6 +606,7 @@ def _insert_receipt_corpus(
     bodies = {
         kind: expected_body
         for kind, _source, expected_body in response_vector_cases()
+        if kind in _RECEIPT_KINDS
     }
     assert tuple(bodies) == _RECEIPT_KINDS
     checkpoint_bodies, prepared = _coherent_historical_checkpoint_receipts(

@@ -5,6 +5,20 @@ and database head `0021_job_completion_reports`. It adds four MCP reads;
 the final catalog has 32 tools, 11 protected agent writes, 15 REST receipt
 kinds, 13 protected browser mutations, and 17 work-event types.
 
+## 0.12 cross-project move extension
+
+Application/API/MCP/dashboard `0.12.0` and migration `0023_work_item_moves` add
+one REST receipt kind, one protected browser mutation, and the eighteenth event
+type, `work_moved`; the MCP and plugin catalogs do not change. Each successful
+move contributes a source and target event to their respective activity streams.
+The immutable report/activity project continues to mean project-at-fact, while
+the work item's project is its current placement. Per-work history follows the
+stable work UUID after authorizing that current placement.
+Move is available through REST and the dashboard only; no MCP write or plugin
+skill exposes it. It preserves the stored lifecycle status and stable work UUID.
+An active lease, unresolved gate, relationship, duplicate membership or alias,
+or unsealed terminal history blocks fresh execution.
+
 ## Closing work
 
 Fresh work starts Pending. Every actual Pending → Done, Won’t do, or Promoted
@@ -128,7 +142,7 @@ and requires a fresh snapshot. A client never silently skips to now.
 
 ## Durable ordering and recovery
 
-Database source triggers produce a compact journal: all 17 work-event kinds,
+Database source triggers produce a compact journal: all 18 work-event kinds,
 project create/update, effective settings changes, lease renewals, report
 creation, first dismissal, and follow-up association creation. Replays, no-ops,
 rollback, time-driven expiry, and derived caches add no facts. All fresh writers

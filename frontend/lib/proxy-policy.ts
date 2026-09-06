@@ -88,6 +88,10 @@ export const DEFINITIVE_PROXY_ERRORS = {
     status: 400,
     detail: "The work-item deletion does not match the dashboard allowlist."
   },
+  invalidWorkItemMove: {
+    status: 400,
+    detail: "The work-item move does not match the dashboard allowlist."
+  },
   invalidRelationshipRemoval: {
     status: 400,
     detail: "The relationship-removal body does not match the dashboard allowlist."
@@ -173,6 +177,7 @@ const WORK_DEFER = new RegExp(`^projects/${UUID}/work-items/${UUID}/defer$`);
 const WORK_ACTIVATE = new RegExp(`^projects/${UUID}/work-items/${UUID}/activate$`);
 const WORK_PENDING = new RegExp(`^projects/${UUID}/work-items/${UUID}/return-to-pending$`);
 const WORK_DELETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/delete$`);
+const WORK_MOVE = new RegExp(`^projects/${UUID}/work-items/${UUID}/move$`);
 const WORK_MERGE = new RegExp(`^projects/${UUID}/work-items/${UUID}/merge$`);
 const WORK_EVENTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/events$`);
 const COMPLETION_EVIDENCE = new RegExp(
@@ -285,6 +290,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   if (WORK_ACTIVATE.test(path) && method === "POST") return [];
   if (WORK_PENDING.test(path) && method === "POST") return [];
   if (WORK_DELETE.test(path) && method === "POST") return [];
+  if (WORK_MOVE.test(path) && method === "POST") return [];
   if (WORK_MERGE.test(path) && method === "POST") return [];
   return null;
 }
@@ -423,6 +429,7 @@ function coveredMutation(path: string, method: string): boolean {
     || method === "POST" && WORK_COMPLETE.test(path)
     || method === "POST" && WORK_DEFER.test(path)
     || method === "POST" && WORK_DELETE.test(path)
+    || method === "POST" && WORK_MOVE.test(path)
     || method === "POST" && WORK_MERGE.test(path)
     || method === "DELETE" && RELATIONSHIP.test(path)
     || method === "POST" && GATE_RESOLVE.test(path)
@@ -636,6 +643,19 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !finiteInteger(body.expected_version, 1)
       || !validActor(body.actor)
     ) return DEFINITIVE_PROXY_ERRORS.invalidWorkItemDeletion.detail;
+  }
+  if (WORK_MOVE.test(path) && method === "POST") {
+    const sourceProjectId = path.split("/")[1];
+    if (
+      !allowedKeys(body, [
+        "target_project_id", "expected_version", "actor", CLIENT_OPERATION_FIELD
+      ])
+      || Object.keys(body).length !== 4
+      || !validUuid(body.target_project_id)
+      || body.target_project_id.toLowerCase() === sourceProjectId?.toLowerCase()
+      || !finiteInteger(body.expected_version, 1)
+      || !validActor(body.actor)
+    ) return DEFINITIVE_PROXY_ERRORS.invalidWorkItemMove.detail;
   }
   if (RELATIONSHIP.test(path) && method === "DELETE") {
     if (

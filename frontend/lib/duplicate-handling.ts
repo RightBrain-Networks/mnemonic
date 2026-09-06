@@ -20,7 +20,7 @@ import { decodeWorkIdentityPointer, decodeWorkItem, decodeWorkSummary } from "./
 import { decodeCheckpoint } from "./checkpoint-codecs.ts";
 import { decodeRelationship } from "./relationship-codecs.ts";
 import { decodeMergeReviewRevision } from "./revision-codecs.ts";
-import { decodeWorkEventForWork } from "./work-events.ts";
+import { decodeHistoricalWorkEventForWork } from "./work-events.ts";
 import {
   boundedText,
   compareUtcDateTimes,
@@ -485,7 +485,7 @@ export function decodeWorkContext(
     throw new Error("Mnemonic returned an invalid event slice.");
   }
   const recentEvents = context.recent_events.map((entry) => (
-    decodeWorkEventForWork(entry, projectId, workItem.id)
+    decodeHistoricalWorkEventForWork(entry, workItem.id)
   ));
   if (
     new Set(recentEvents.map((event) => event.id)).size !== recentEvents.length
@@ -503,7 +503,11 @@ export function decodeWorkContext(
   ) throw new Error("Mnemonic returned an incoherent event slice.");
 
   const decodeGateSlice = (entry: unknown, status: "unresolved" | "resolved") => (
-    decodeHumanGate(entry, { projectId, workItemId, status })
+    decodeHumanGate(entry, {
+      ...(status === "unresolved" ? { projectId } : {}),
+      workItemId,
+      status
+    })
   );
   if (
     !Array.isArray(context.unresolved_gates)

@@ -418,21 +418,20 @@ item separately:
 - An existing populated installation requires the upgrade or credential-rotation procedure in
   `docs/operations.md`; it MUST NOT be treated as a new installation.
 
-## External records release boundary
+## Cross-project move release boundary
 
-Current application/API/MCP/dashboard 0.10.0, plugin 0.12.0 and Alembic
-`0022_external_references` ship together. The catalog remains exactly 32 MCP tools,
-11 receipt-protected MCP writes, 15 REST receipt kinds, 13 browser mutations,
-17 event types and three plugin skills. Do not start old processes against this
-schema. An existing `0021` installation must follow the stopped-writer final backup,
-pre/post/restored integrity audits and history-aware recovery gates in
-[operations](docs/operations.md#external-records-release-0021-to-0022).
+Current application/API/MCP/dashboard 0.12.0, plugin 0.13.0, and Alembic
+`0023_work_item_moves` ship together. The catalog is exactly 32 MCP tools,
+11 receipt-protected MCP writes, 16 REST receipt kinds, 14 protected browser
+mutations, 18 work-event types, and three plugin skills. Do not start old
+processes against this schema. Existing installations must follow the stopped-writer
+backup, migration, restored-audit, and recovery procedure in
+[operations](docs/operations.md#current-coordinated-cutover).
 
-No new setting or provider credential is needed. Ordered mutable external
-references appear before work selection; exact inverse lookup uses encoded
-`external_url`, `view=full`, `status=all`, `duplicate_scope=all` and full pagination.
-Aliases own their references independently. Comparison accepts bounded caller-supplied
-records only, with no server fetch or persistence. MCP's complete frame remains
-1 MiB; REST/browser bodies remain 2 MiB. Observe the packaged explicit-compare
-collection budget, and never treat stored/provider text as execution authority.
-Links never replace required closeout reports or coordinate workers that skip lookup.
+Migration 0023 moves one stable work-item identity between projects without
+changing its lifecycle status. It leaves historical facts at their original
+project and records paired `work_moved` activity in the source and target. An
+active lease, unresolved gate, relationship, duplicate membership or alias, or
+unsealed terminal history blocks a fresh move. Move is a REST/dashboard action;
+there is no MCP write or plugin skill for it. Permanent source-scoped receipts
+remain the authority for exact unknown-outcome retries after the item has moved.

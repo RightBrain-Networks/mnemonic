@@ -11,6 +11,7 @@ import {
 } from "../lib/proxy-policy.ts";
 
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
+const targetProject = "3e805646-8014-47df-9f53-27572bb1d85b";
 const work = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const counterpart = "f1cf3691-7d28-4716-94a9-4867b341a685";
 const checkpointId = "1dfa9455-4a17-4cd4-938b-010ea17ccaf0";
@@ -126,7 +127,7 @@ async function classify(spec, status, value) {
   );
 }
 
-test("all nine dashboard mutation response contracts decode with path/result coherence", async () => {
+test("all dashboard mutation response contracts decode with path/result coherence", async () => {
   const initial = checkpointInput();
   const actor = { actor_client: "dashboard", actor_session_id: "tab-1" };
   const cases = [
@@ -206,6 +207,27 @@ test("all nine dashboard mutation response contracts decode with path/result coh
       }),
       200,
       { deleted: true, project_id: project, work_item_id: work, version: 2 }
+    ],
+    [
+      {
+        ...request("move_work", "POST", `/projects/${project}/work-items/${work}/move`, {
+          target_project_id: targetProject,
+          expected_version: 1,
+          actor
+        }),
+        expectedSourceWorkStatus: "deferred"
+      },
+      200,
+      {
+        source_project_id: project,
+        target_project_id: targetProject,
+        preserved_status: "deferred",
+        work_item: workItem({
+          project_id: targetProject,
+          status: "deferred",
+          version: 2
+        })
+      }
     ],
     [
       request("remove_relationship", "DELETE", `/projects/${project}/relationships/${relationshipId}`, {
@@ -325,7 +347,7 @@ test("completion response binds authoritative evidence IDs, parents, positions, 
   assert.equal((await classify(oldSpec, 200, value)).type, "unresolved");
 });
 
-test("Core exposes exactly thirteen closed browser mutation kinds", () => {
+test("Core exposes exactly fourteen closed browser mutation kinds", () => {
   assert.deepEqual(MUTATION_KINDS, [
     "create_work",
     "add_checkpoint",
@@ -335,12 +357,39 @@ test("Core exposes exactly thirteen closed browser mutation kinds", () => {
     "defer_work",
     "complete_work",
     "delete_work",
+    "move_work",
     "remove_relationship",
     "resolve_human_input",
     "merge_work",
     "dismiss_job_completion_report",
     "create_job_completion_report_follow_up"
   ]);
+});
+
+test("move response binds both projects, stable identity, version, and preserved status", async () => {
+  const spec = {
+    ...request("move_work", "POST", `/projects/${project}/work-items/${work}/move`, {
+      target_project_id: targetProject,
+      expected_version: 1,
+      actor: { actor_client: "dashboard", actor_session_id: "tab-1" }
+    }),
+    expectedSourceWorkStatus: "pending"
+  };
+  const valid = {
+    source_project_id: project,
+    target_project_id: targetProject,
+    preserved_status: "pending",
+    work_item: workItem({ project_id: targetProject, version: 2 })
+  };
+  assert.equal((await classify(spec, 200, valid)).type, "success");
+  for (const invalid of [
+    { ...valid, source_project_id: targetProject },
+    { ...valid, preserved_status: "deferred" },
+    { ...valid, work_item: { ...valid.work_item, id: counterpart } },
+    { ...valid, work_item: { ...valid.work_item, project_id: project } },
+    { ...valid, work_item: { ...valid.work_item, version: 3 } }
+  ]) assert.equal((await classify(spec, 200, invalid)).type, "unresolved");
+  assert.equal((await classify({ ...spec, expectedSourceWorkStatus: undefined }, 200, valid)).type, "unresolved");
 });
 
 test("merge success binds exact direction, revisions, relationship witness, and paired events", async () => {
@@ -1042,6 +1091,17 @@ test("finite error envelopes distinguish rejection, safety conflict, and unknown
     }
   });
   assert.equal(workNotPending.type, "rejected");
+  for (const code of [
+    "work_move_same_project",
+    "work_move_active_lease",
+    "work_move_relationships",
+    "work_move_duplicate_membership"
+  ]) {
+    const moveRejection = await classify(spec, 409, {
+      detail: { code, message: "This work item cannot be moved.", context: {} }
+    });
+    assert.equal(moveRejection.type, "rejected", code);
+  }
   // Work completed before the event timeline owns no sealed episode, so the
   // dashboard has to render the refusal rather than drop an unknown code.
   const unsealed = await classify(spec, 409, {
@@ -1053,6 +1113,15 @@ test("finite error envelopes distinguish rejection, safety conflict, and unknown
   });
   assert.equal(unsealed.type, "rejected");
   assert.equal(unsealed.error.code, "completion_episode_unsealed");
+  const closeoutUnsealed = await classify(spec, 409, {
+    detail: {
+      code: "closeout_report_unsealed",
+      message: "This closeout report is not attached to a sealed episode.",
+      context: {}
+    }
+  });
+  assert.equal(closeoutUnsealed.type, "rejected");
+  assert.equal(closeoutUnsealed.error.code, "closeout_report_unsealed");
 });
 
 test("operation IDs are never accepted back in a success or error body", async () => {

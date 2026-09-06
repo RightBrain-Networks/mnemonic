@@ -202,6 +202,19 @@ async def test_four_safe_reads_and_strict_projection_boundaries(settings):
     assert await call(settings, "get_project_settings", settings_response) == settings_response
 
 
+async def test_activity_accepts_work_move_witnesses(settings):
+    page = activity_page()
+    page["items"] = [
+        activity(
+            kind="work_event",
+            work_event_id="9",
+            event_type="work_moved",
+            work_item_id=WORK_ID,
+        )
+    ]
+    assert await call(settings, "get_activity", page) == page
+
+
 @pytest.mark.parametrize("changes", [
     {"sequence": "0"}, {"sequence": 1}, {"kind": "progress"}, {"summary": "secret prose"},
     {"work_item_id": WORK_ID}, {"event_type": "work_created"}, {"origin": "history_import"},

@@ -537,14 +537,15 @@ invalidation, actor request construction, progress composer errors, pagination/
 filtering, and the partial-history notice at desktop and narrow viewports. The
 ready endpoint remains intentionally proxy-denied.
 
-Mutation tests cover all thirteen browser writes, one UUID and exact frozen serialized
-body per intent, in-flight coalescing, same-document recovery after component or
+Mutation tests cover all fourteen browser writes, one UUID and exact frozen
+serialized body per intent, in-flight coalescing, same-document recovery after component or
 view unmount, exact manual retry after ambiguous outcomes, and a non-discardable
 safety state for key conflicts. Strict per-operation decoders require the
 expected status, exact shape, and path/result coherence before clearing
-recovery. Proxy-policy tests admit the top-level UUID only on those thirteen
-routes, including gate resolution, merge, report dismissal, and report follow-ups, and reject invalid, nested,
-query/header/cookie, secret-equal, and excluded-route IDs without echoing them.
+recovery. Proxy-policy tests admit the top-level UUID only on those fourteen
+routes, including move, gate resolution, merge, report dismissal, and report
+follow-ups, and reject invalid, nested, query/header/cookie, secret-equal, and
+excluded-route IDs without echoing them.
 Gate creation and token-bearing lease mutations remain denied. The two token-free
 dashboard status routes accept only a dashboard actor and exact version/lease
 review state, return no capability, and have dedicated proxy-policy tests.
@@ -568,7 +569,7 @@ ambiguous retry, stale-review replacement, and current-root refetch after
 success. Since the two-column work library, that merge review is an inline
 panel at the top of the detail pane's Graph tab rather than a dialog; the same
 destination search, eligibility facts, registry intent, and recovery block apply
-there. The browser registry contains exactly thirteen kinds and admits no lease
+there. The browser registry contains exactly fourteen kinds and admits no lease
 token.
 
 Advisory Node tests cover exact request construction and strict response
@@ -787,13 +788,20 @@ on port 3000; update the configured origins when changing the port. Browser
 requests always use `/api/mnemonic`; the upstream API address and bearer key
 remain server-only.
 
-## Phase 12 acceptance additions
+## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.11.0`, plugin is `0.13.0`,
-and Alembic head is `0022_external_references`. Validate all surfaces together
+Current application/API/MCP/dashboard versions are `0.12.0`, plugin is `0.13.0`,
+and Alembic head is `0023_work_item_moves`. Validate all surfaces together
 with the existing regression suites. Historical Phase 11 downgrade/catalog tests
 must seed valid historical shapes with offline SQL at 0019; never run current
 application writers against an older schema or strip reports from fresh receipts.
+
+Move coverage must prove same-UUID/status relocation for every stored lifecycle,
+Dropped lease retention, active lease/relationship/gate/duplicate rejection,
+dual-project lock ordering, paired activity witnesses, permanent retry replay,
+and current-project authorization of cross-project history. Browser coverage must
+exercise the accessible Delete/Move split menu, all-project ordering, successful
+target navigation, strict proxy body validation, and exact ambiguous retry.
 
 Backend checks cover fresh and populated upgrades through 0020/0021, typed
 activity coverage, per-project ordering and stream changes, all three closeout

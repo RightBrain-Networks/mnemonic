@@ -208,8 +208,7 @@ def assemble_work_context(
                 SELECT gate.*
                 FROM chosen AS w
                 JOIN work_gates AS gate
-                  ON gate.project_id = w.project_id
-                 AND gate.work_item_id = w.id
+                  ON gate.work_item_id = w.id
             ),
             recent_events AS MATERIALIZED (
                 SELECT
@@ -275,8 +274,7 @@ def assemble_work_context(
                             ELSE event.relationship_source_work_item_id
                         END AS counterpart_work_item_id
                     FROM work_events AS event
-                    WHERE event.project_id = w.project_id
-                      AND event.work_item_id = w.id
+                    WHERE event.work_item_id = w.id
                     ORDER BY event.created_at DESC, event.id DESC
                     LIMIT :recent_event_limit
                 ) AS recent_event
@@ -596,15 +594,13 @@ def assemble_work_context(
                 (
                     SELECT count(*)
                     FROM work_events AS event_count
-                    WHERE event_count.project_id = w.project_id
-                      AND event_count.work_item_id = w.id
+                    WHERE event_count.work_item_id = w.id
                 ) AS event_total,
                 COALESCE(
                     (
                         SELECT creation.origin = 'backfill'
                         FROM work_events AS creation
-                        WHERE creation.project_id = w.project_id
-                          AND creation.work_item_id = w.id
+                        WHERE creation.work_item_id = w.id
                           AND creation.event_type = 'work_created'
                     ),
                     false

@@ -114,6 +114,7 @@ EventType = Literal[
     "human_attention_requested",
     "human_attention_resolved",
     "work_merged",
+    "work_moved",
 ]
 
 _HISTORICAL_RESERVED_METADATA_KEYS = frozenset(
@@ -1042,6 +1043,20 @@ class WorkMergedMetadata(CanonicalResponse):
         return self
 
 
+class WorkMovedMetadata(CanonicalResponse):
+    move_id: UUID
+    source_project_id: UUID
+    target_project_id: UUID
+    role: Literal["source", "target"]
+    work_version: StrictInt = Field(ge=2)
+
+    @model_validator(mode="after")
+    def enforce_distinct_projects(self) -> Self:
+        if self.source_project_id == self.target_project_id:
+            raise ValueError("Move event projects must be distinct.")
+        return self
+
+
 class HumanGateEventMetadata(CanonicalResponse):
     gate_id: UUID
     gate_type: Literal["human"]
@@ -1074,6 +1089,7 @@ WorkEventMetadata = (
     | CheckpointAddedMetadata
     | RelationshipEventMetadata
     | WorkMergedMetadata
+    | WorkMovedMetadata
     | HumanGateEventMetadata
     | WorkCompletedLiveMetadata
     | WorkDeletedMetadata
@@ -2661,6 +2677,19 @@ def _validated_completed_metadata(
     return EmptyEventMetadata.model_validate(payload)
 
 
+def _validated_moved_metadata(
+    event: WorkEventRead,
+    payload: dict[str, JsonValue],
+) -> WorkMovedMetadata:
+    parsed = WorkMovedMetadata.model_validate(payload)
+    expected_project_id = (
+        parsed.source_project_id if parsed.role == "source" else parsed.target_project_id
+    )
+    if event.project_id != expected_project_id:
+        raise ValueError("Move event role does not match its project.")
+    return parsed
+
+
 def _validated_other_event_metadata(
     event: WorkEventRead,
     payload: dict[str, JsonValue],
@@ -2705,6 +2734,8 @@ def _validated_event_metadata(event: WorkEventRead) -> WorkEventMetadata:
         return _validated_relationship_metadata(event, payload)
     if event.event_type in {"human_attention_requested", "human_attention_resolved"}:
         return HumanGateEventMetadata.model_validate(payload)
+    if event.event_type == "work_moved":
+        return _validated_moved_metadata(event, payload)
     return _validated_other_event_metadata(event, payload)
 
 
@@ -2789,8 +2820,11 @@ class WorkContext(CanonicalResponse):
                 raise ValueError("Recall gate slices cannot duplicate a gate.")
             seen_gate_ids.add(gate.id)
             if (
-                gate.project_id != self.work_item.project_id
-                or gate.work_item_id != self.work_item.id
+                gate.work_item_id != self.work_item.id
+                or (
+                    gate.status == "unresolved"
+                    and gate.project_id != self.work_item.project_id
+                )
                 or gate.current_context_revision.work_version != self.work_item.version
                 or gate.current_context_revision.context_checkpoint_id
                 != context_checkpoint_id
@@ -2885,11 +2919,7 @@ class WorkContext(CanonicalResponse):
         event_ids = [event.id for event in self.recent_events]
         event_order = [(event.created_at, event.id) for event in self.recent_events]
         if (
-            any(
-                event.project_id != work_item.project_id
-                or event.work_item_id != work_item.id
-                for event in self.recent_events
-            )
+            any(event.work_item_id != work_item.id for event in self.recent_events)
             or len(event_ids) != len(set(event_ids))
             or event_order != sorted(event_order)
             or self.omitted_event_count != self.event_total - len(self.recent_events)

@@ -39,6 +39,7 @@ export const WORK_EVENT_TYPES = [
   "human_attention_requested",
   "human_attention_resolved",
   "work_merged",
+  "work_moved",
   "work_completed",
   "work_deleted"
 ] as const satisfies readonly WorkEventType[];
@@ -277,6 +278,20 @@ function validMetadata(eventType: WorkEventType, origin: "live" | "backfill", va
       && finiteInteger(metadata.source_work_version, 1)
       && finiteInteger(metadata.destination_work_version, 1);
   }
+  if (eventType === "work_moved") {
+    const source = metadata.source_project_id;
+    const target = metadata.target_project_id;
+    return origin === "live"
+      && exactKeys(metadata, [
+        "move_id", "source_project_id", "target_project_id", "role", "work_version"
+      ])
+      && validUuid(metadata.move_id)
+      && validUuid(source)
+      && validUuid(target)
+      && source.toLowerCase() !== target.toLowerCase()
+      && (metadata.role === "source" || metadata.role === "target")
+      && finiteInteger(metadata.work_version, 2);
+  }
   if (eventType === "work_completed") {
     return origin === "backfill"
       ? exactKeys(metadata, [])
@@ -302,6 +317,13 @@ function validReferences(event: JsonObject): boolean {
   const contextPairMatches = (event.relationship_context_checkpoint_work_item_id === null)
     === (event.relationship_context_checkpoint_id === null);
   if (!contextPairMatches) return false;
+  if (eventType === "work_moved") {
+    const metadata = objectValue(event.metadata);
+    const projectId = metadata?.role === "source"
+      ? metadata.source_project_id
+      : metadata?.target_project_id;
+    if (!sameUuid(event.project_id, projectId)) return false;
+  }
   if (
     eventType === "progress"
     || eventType === "human_attention_requested"
@@ -509,6 +531,20 @@ export function decodeWorkEventForWork(
   return event;
 }
 
+export function decodeHistoricalWorkEventForWork(
+  value: unknown,
+  expectedWorkItemId: string
+): WorkEventRead {
+  const event = decodeWorkEvent(value);
+  if (
+    !validUuid(expectedWorkItemId)
+    || event.work_item_id.toLowerCase() !== expectedWorkItemId.toLowerCase()
+  ) {
+    return invalidEventResponse();
+  }
+  return event;
+}
+
 export function decodeWorkEventPage(
   value: unknown,
   expectedProjectId: string,
@@ -534,10 +570,7 @@ export function decodeWorkEventPage(
   if (
     !validUuid(expectedProjectId)
     || !validUuid(expectedWorkItemId)
-    || items.some((item) => (
-      item.project_id.toLowerCase() !== expectedProjectId.toLowerCase()
-      || item.work_item_id.toLowerCase() !== expectedWorkItemId.toLowerCase()
-    ))
+    || items.some((item) => !sameUuid(item.work_item_id, expectedWorkItemId))
   ) {
     throw new Error("Mnemonic returned an invalid work-event page.");
   }
@@ -602,6 +635,7 @@ export function workEventTitle(eventType: WorkEventType): string {
     human_attention_requested: "Requested human attention",
     human_attention_resolved: "Resolved human attention",
     work_merged: "Merged duplicate work",
+    work_moved: "Moved work",
     work_completed: "Completed work",
     work_deleted: "Deleted work"
   }[eventType];
@@ -698,6 +732,10 @@ export function workEventDescription(event: WorkEventRead, counterpartTitle?: st
       return metadata.role === "source"
         ? `Made this work an immutable duplicate of ${String(metadata.destination_work_item_id)}.`
         : `Kept this work canonical when ${String(metadata.source_work_item_id)} was merged into it.`;
+    case "work_moved":
+      return metadata.role === "source"
+        ? `Moved this work to project ${String(metadata.target_project_id)}.`
+        : `Moved this work here from project ${String(metadata.source_project_id)}.`;
     case "work_completed":
       return humanDecision
         ? "Explicit human decision: completed work with an immutable completion checkpoint."

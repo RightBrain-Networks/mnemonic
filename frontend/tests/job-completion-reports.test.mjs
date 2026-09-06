@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { jobReportDraftHasEdits, emptyJobReportDraft, decodeJobReport, decodeReportEnvelope, decodeReportPage, decodeReportCount, decodeProjectSettings, validJobReportInput, validReportPrompt } from "../lib/job-completion-reports.ts";
+import { jobReportDraftHasEdits, emptyJobReportDraft, decodeJobReport, decodeReportEnvelope, decodeReportPage, decodeReportCount, decodeProjectSettings, decodeReportProvenancePage, validJobReportInput, validReportPrompt } from "../lib/job-completion-reports.ts";
 import { decodePhase12Cursor, decimalString } from "../lib/activity-cursors.ts";
 import { allowedQueryKeys, invalidMutationBody, phase12ResponseLimitBytes } from "../lib/proxy-policy.ts";
 import { classifyMutationResponse } from "../lib/mutation-responses.ts";
@@ -49,6 +49,90 @@ test("report pagination rejects wrong cursors, scope, filters, reordered sequenc
   for (const bad of [next+"=", next+"A", "!", "A", f.cursor({kind:"activity",after:"9"}),f.cursor({kind:"reports",dismissal:"all",work_item_id:null,upper:"9",last:"9"})]) assert.throws(() => decodeReportPage(f.reportPage({has_more:true,next_cursor:bad}),f.project));
   assert.deepEqual(decodeReportCount({project_id:f.project,undismissed_count:"9007199254740993",as_of_sequence:"9"},f.project).undismissed_count,"9007199254740993");
   assert.throws(() => decodePhase12Cursor(Buffer.from('{"v":1,"v":1}').toString('base64url'),f.project,"reports"));
+});
+
+test("global work provenance retains origin projects and orders by timestamp then id", () => {
+  const historicalProject = "99999999-9999-4999-8999-999999999999";
+  const laterId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const secondFollowWork = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const link = {
+    id: f.actionId,
+    project_id: historicalProject,
+    report_id: f.reportId,
+    source_work_item_id: f.work,
+    follow_up_work_item_id: f.followWork,
+    created_sequence: "40",
+    ...f.actor,
+    created_at: f.timestamp
+  };
+  const later = {
+    ...link,
+    id: laterId,
+    follow_up_work_item_id: secondFollowWork,
+    created_sequence: "1"
+  };
+  const opaqueCursor = Buffer.from(JSON.stringify({
+    a: "2",
+    d: "created",
+    i: laterId,
+    s: f.stream,
+    t: f.timestamp,
+    u: f.timestamp,
+    v: 1,
+    w: f.work
+  })).toString("base64url");
+  const page = {
+    project_id: f.project,
+    work_item_id: f.work,
+    direction: "created",
+    items: [link, later],
+    as_of_sequence: "2",
+    has_more: true,
+    next_cursor: opaqueCursor
+  };
+  const decoded = decodeReportProvenancePage(page, f.project, {
+    workItemId: f.work,
+    direction: "created"
+  });
+  assert.equal(decoded.items[0].project_id, historicalProject);
+  assert.equal(decoded.items[0].created_sequence, "40");
+  assert.equal(decoded.next_cursor, opaqueCursor);
+  assert.throws(() => decodeReportProvenancePage({
+    ...page,
+    items: [later, link]
+  }, f.project, { workItemId: f.work, direction: "created" }));
+  assert.throws(() => decodeReportProvenancePage({
+    ...page,
+    items: [link, { ...later, id: f.actionId }]
+  }, f.project, { workItemId: f.work, direction: "created" }));
+});
+
+test("report-scoped provenance remains bound to its origin project", () => {
+  const link = {
+    id: f.actionId,
+    project_id: f.project,
+    report_id: f.reportId,
+    source_work_item_id: f.work,
+    follow_up_work_item_id: f.followWork,
+    created_sequence: "1",
+    ...f.actor,
+    created_at: f.timestamp
+  };
+  const page = {
+    project_id: f.project,
+    report_id: f.reportId,
+    items: [link],
+    as_of_sequence: "2",
+    has_more: false,
+    next_cursor: null
+  };
+  assert.equal(decodeReportProvenancePage(page, f.project, {
+    reportId: f.reportId
+  }).items.length, 1);
+  assert.throws(() => decodeReportProvenancePage({
+    ...page,
+    items: [{ ...link, project_id: "99999999-9999-4999-8999-999999999999" }]
+  }, f.project, { reportId: f.reportId }));
 });
 
 test("browser allowlist exposes bounded report reads and exact human mutations without control leakage", () => {

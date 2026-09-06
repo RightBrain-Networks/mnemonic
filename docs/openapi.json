@@ -5193,6 +5193,7 @@
                   "work_completed",
                   "work_deleted",
                   "work_merged",
+                  "work_moved",
                   "human_attention_requested",
                   "human_attention_resolved"
                 ],
@@ -7039,7 +7040,8 @@
               "work_deleted",
               "human_attention_requested",
               "human_attention_resolved",
-              "work_merged"
+              "work_merged",
+              "work_moved"
             ],
             "title": "Event Type",
             "type": "string"
@@ -7109,6 +7111,9 @@
               },
               {
                 "$ref": "#/components/schemas/WorkMergedMetadata"
+              },
+              {
+                "$ref": "#/components/schemas/WorkMovedMetadata"
               },
               {
                 "$ref": "#/components/schemas/WorkCompletedLiveMetadata"
@@ -7902,6 +7907,129 @@
         "title": "WorkMergedMetadata",
         "type": "object"
       },
+      "WorkMoveCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MutationActor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_operation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with the exact same operation and semantic arguments after an unknown outcome.",
+            "title": "Client Operation Id"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "target_project_id": {
+            "format": "uuid",
+            "title": "Target Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_project_id",
+          "expected_version"
+        ],
+        "title": "WorkMoveCreate",
+        "type": "object"
+      },
+      "WorkMoveRead": {
+        "additionalProperties": false,
+        "properties": {
+          "preserved_status": {
+            "enum": [
+              "pending",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Preserved Status",
+            "type": "string"
+          },
+          "source_project_id": {
+            "format": "uuid",
+            "title": "Source Project Id",
+            "type": "string"
+          },
+          "target_project_id": {
+            "format": "uuid",
+            "title": "Target Project Id",
+            "type": "string"
+          },
+          "work_item": {
+            "$ref": "#/components/schemas/WorkItemRead"
+          }
+        },
+        "required": [
+          "source_project_id",
+          "target_project_id",
+          "preserved_status",
+          "work_item"
+        ],
+        "title": "WorkMoveRead",
+        "type": "object"
+      },
+      "WorkMovedMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "move_id": {
+            "format": "uuid",
+            "title": "Move Id",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "source",
+              "target"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "source_project_id": {
+            "format": "uuid",
+            "title": "Source Project Id",
+            "type": "string"
+          },
+          "target_project_id": {
+            "format": "uuid",
+            "title": "Target Project Id",
+            "type": "string"
+          },
+          "work_version": {
+            "minimum": 2.0,
+            "title": "Work Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "move_id",
+          "source_project_id",
+          "target_project_id",
+          "role",
+          "work_version"
+        ],
+        "title": "WorkMovedMetadata",
+        "type": "object"
+      },
       "WorkPointer": {
         "additionalProperties": false,
         "properties": {
@@ -8359,7 +8487,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.11.0"
+    "version": "0.12.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -11036,7 +11164,8 @@
                     "work_deleted",
                     "human_attention_requested",
                     "human_attention_resolved",
-                    "work_merged"
+                    "work_merged",
+                    "work_moved"
                   ],
                   "type": "string"
                 },
@@ -11489,6 +11618,72 @@
           }
         ],
         "summary": "Resolve Human Gate Route"
+      }
+    },
+    "/api/v1/projects/{project_id}/work-items/{work_item_id}/move": {
+      "post": {
+        "description": "Human dashboard action; intentionally absent from the agent MCP surface.",
+        "operationId": "move_work_api_v1_projects__project_id__work_items__work_item_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "work_item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Work Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkMoveCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkMoveRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Move Work"
       }
     },
     "/api/v1/projects/{project_id}/work-items/{work_item_id}/relationships": {

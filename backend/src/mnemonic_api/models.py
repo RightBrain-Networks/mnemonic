@@ -116,7 +116,7 @@ class ClientOperation(Base):
         CheckConstraint(
             "operation_kind IN ('create_work', 'add_checkpoint', 'append_event', "
             "'add_relationship', 'update_work', 'defer_work', 'complete_work', "
-            "'delete_work', 'remove_relationship', 'release_claim', "
+            "'delete_work', 'move_work', 'remove_relationship', 'release_claim', "
             "'request_human_input', 'resolve_human_input', 'merge_work', "
             "'dismiss_job_completion_report', 'create_job_completion_report_follow_up')",
             name="operation_kind_valid",
@@ -257,6 +257,74 @@ class WorkItem(Base):
             "setweight(to_tsvector('english'::regconfig, coalesce(summary, '')), 'B')",
             persisted=True,
         ),
+    )
+
+
+class WorkItemMove(Base):
+    """One immutable identity-preserving relocation between projects."""
+
+    __tablename__ = "work_item_moves"
+    __table_args__ = (
+        CheckConstraint("source_project_id <> target_project_id", name="projects_distinct"),
+        CheckConstraint(
+            "source_work_version >= 1 AND resulting_work_version = source_work_version + 1",
+            name="versions_valid",
+        ),
+        CheckConstraint(
+            "preserved_status IN ('pending', 'deferred', 'done', 'wont-do', 'promoted')",
+            name="status_valid",
+        ),
+        CheckConstraint(
+            "(actor_kind = 'client' AND actor_client IS NOT NULL "
+            "AND mnemonic_has_non_whitespace(actor_client) "
+            "AND actor_session_id IS NOT NULL "
+            "AND mnemonic_has_non_whitespace(actor_session_id) "
+            "AND (actor_model IS NULL OR mnemonic_has_non_whitespace(actor_model))) OR "
+            "(actor_kind = 'unattributed' AND actor_client IS NULL "
+            "AND actor_session_id IS NULL AND actor_model IS NULL)",
+            name="actor_valid",
+        ),
+        UniqueConstraint(
+            "work_item_id",
+            "resulting_work_version",
+            name="uq_work_item_moves_work_version",
+        ),
+        ForeignKeyConstraint(
+            ["work_item_id"],
+            ["work_items.id"],
+            name="fk_work_item_moves_work_item",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_project_id"],
+            ["projects.id"],
+            name="fk_work_item_moves_source_project",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["target_project_id"],
+            ["projects.id"],
+            name="fk_work_item_moves_target_project",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_work_item_moves_work_created", "work_item_id", "created_at", "id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        primary_key=True, default=uuid4, server_default=text("gen_random_uuid()")
+    )
+    work_item_id: Mapped[UUID] = mapped_column()
+    source_project_id: Mapped[UUID] = mapped_column()
+    target_project_id: Mapped[UUID] = mapped_column()
+    source_work_version: Mapped[int] = mapped_column(Integer)
+    resulting_work_version: Mapped[int] = mapped_column(Integer)
+    preserved_status: Mapped[WorkStatus] = mapped_column(String(20))
+    actor_kind: Mapped[str] = mapped_column(String(20))
+    actor_client: Mapped[str | None] = mapped_column(String(80))
+    actor_session_id: Mapped[str | None] = mapped_column(String(200))
+    actor_model: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
     )
 
 
@@ -404,8 +472,8 @@ class VerificationResult(Base):
         ),
         CheckConstraint("position BETWEEN 0 AND 19", name="position_range"),
         ForeignKeyConstraint(
-            ["project_id", "work_item_id"],
-            ["work_items.project_id", "work_items.id"],
+            ["work_item_id"],
+            ["work_items.id"],
             name="fk_verification_results_work_item",
             ondelete="RESTRICT",
         ),
@@ -470,8 +538,8 @@ class ArtifactReference(Base):
         ),
         CheckConstraint("position BETWEEN 0 AND 19", name="position_range"),
         ForeignKeyConstraint(
-            ["project_id", "work_item_id"],
-            ["work_items.project_id", "work_items.id"],
+            ["work_item_id"],
+            ["work_items.id"],
             name="fk_artifact_references_work_item",
             ondelete="RESTRICT",
         ),
@@ -905,8 +973,8 @@ class WorkGate(Base):
             name="timestamp_order",
         ),
         ForeignKeyConstraint(
-            ["project_id", "work_item_id"],
-            ["work_items.project_id", "work_items.id"],
+            ["work_item_id"],
+            ["work_items.id"],
             name="fk_work_gates_work_item",
             ondelete="RESTRICT",
         ),
@@ -1008,7 +1076,7 @@ class WorkEvent(Base):
             "'work_reopened', 'work_claimed', 'work_released', 'checkpoint_added', "
             "'progress', 'dependency_added', 'dependency_removed', "
             "'relationship_added', 'relationship_removed', 'work_completed', "
-            "'work_deleted', 'work_merged', 'human_attention_requested', "
+            "'work_deleted', 'work_merged', 'work_moved', 'human_attention_requested', "
             "'human_attention_resolved')",
             name="event_type_valid",
         ),
@@ -1106,6 +1174,11 @@ class WorkEvent(Base):
             "(event_type <> 'work_merged' AND work_duplicate_merge_id IS NULL))",
             name="duplicate_merge_references_valid",
         ),
+        CheckConstraint(
+            "(event_type = 'work_moved' AND work_move_id IS NOT NULL) OR "
+            "(event_type <> 'work_moved' AND work_move_id IS NULL)",
+            name="work_move_reference_valid",
+        ),
         CheckConstraint("metadata_version = 1", name="metadata_version_valid"),
         CheckConstraint(
             "jsonb_typeof(metadata) = 'object' AND octet_length(metadata::text) <= "
@@ -1121,8 +1194,11 @@ class WorkEvent(Base):
             "(event_type = 'work_merged' AND "
             "mnemonic_work_merged_metadata_v1_is_valid(work_item_id, "
             "work_duplicate_merge_id, metadata_version, metadata)) OR "
+            "(event_type = 'work_moved' AND "
+            "mnemonic_work_moved_metadata_v1_is_valid(work_item_id, project_id, "
+            "work_move_id, metadata_version, metadata)) OR "
             "(event_type NOT IN ('human_attention_requested', 'human_attention_resolved', "
-            "'work_merged') AND mnemonic_work_event_metadata_v2_is_valid("
+            "'work_merged', 'work_moved') AND mnemonic_work_event_metadata_v2_is_valid("
             "event_type, origin, work_item_id, checkpoint_id, lease_generation_id, "
             "lease_release_id, relationship_id, relationship_source_work_item_id, "
             "relationship_target_work_item_id, "
@@ -1151,8 +1227,8 @@ class WorkEvent(Base):
             name="reopen_generation_kind",
         ),
         ForeignKeyConstraint(
-            ["project_id", "work_item_id"],
-            ["work_items.project_id", "work_items.id"],
+            ["work_item_id"],
+            ["work_items.id"],
             name="fk_work_events_work_item",
             ondelete="RESTRICT",
         ),
@@ -1163,14 +1239,14 @@ class WorkEvent(Base):
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
-            ["project_id", "relationship_source_work_item_id"],
-            ["work_items.project_id", "work_items.id"],
+            ["relationship_source_work_item_id"],
+            ["work_items.id"],
             name="fk_work_events_relationship_source_work_item",
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
-            ["project_id", "relationship_target_work_item_id"],
-            ["work_items.project_id", "work_items.id"],
+            ["relationship_target_work_item_id"],
+            ["work_items.id"],
             name="fk_work_events_relationship_target_work_item",
             ondelete="RESTRICT",
         ),
@@ -1204,6 +1280,12 @@ class WorkEvent(Base):
             ondelete="RESTRICT",
             deferrable=True,
             initially="DEFERRED",
+        ),
+        ForeignKeyConstraint(
+            ["work_move_id"],
+            ["work_item_moves.id"],
+            name="fk_work_events_work_move",
+            ondelete="RESTRICT",
         ),
         Index(
             "uq_work_events_checkpoint_fact",
@@ -1291,6 +1373,13 @@ class WorkEvent(Base):
             postgresql_where=text("work_duplicate_merge_id IS NOT NULL"),
         ),
         Index(
+            "uq_work_events_move_project",
+            "work_move_id",
+            "project_id",
+            unique=True,
+            postgresql_where=text("work_move_id IS NOT NULL"),
+        ),
+        Index(
             "ix_work_events_timeline",
             "project_id",
             "work_item_id",
@@ -1302,6 +1391,12 @@ class WorkEvent(Base):
             "project_id",
             "work_item_id",
             "event_type",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
+        Index(
+            "ix_work_events_work_timeline",
+            "work_item_id",
             text("created_at DESC"),
             text("id DESC"),
         ),
@@ -1347,6 +1442,7 @@ class WorkEvent(Base):
     gate_id: Mapped[UUID | None] = mapped_column()
     created_for_duplicate_merge_id: Mapped[UUID | None] = mapped_column()
     work_duplicate_merge_id: Mapped[UUID | None] = mapped_column()
+    work_move_id: Mapped[UUID | None] = mapped_column()
     job_completion_report_id: Mapped[UUID | None] = mapped_column()
     reopen_generation: Mapped[int | None] = mapped_column(BigInteger)
     metadata_version: Mapped[int] = mapped_column(SmallInteger, default=1, server_default="1")
@@ -1369,7 +1465,11 @@ class ProjectActivityHead(Base):
 
 
 class ProjectActivity(Base):
-    __table__ = Table("project_activity", Base.metadata, *phase12.activity_elements())
+    __table__ = Table(
+        "project_activity",
+        Base.metadata,
+        *phase12.activity_elements(movable_work=True),
+    )
 
     project_id: Mapped[UUID]
     sequence: Mapped[int]
@@ -1386,7 +1486,11 @@ class ProjectActivity(Base):
 
 
 class JobCompletionReport(Base):
-    __table__ = Table("job_completion_reports", Base.metadata, *phase12.report_elements())
+    __table__ = Table(
+        "job_completion_reports",
+        Base.metadata,
+        *phase12.report_elements(movable_work=True),
+    )
 
     id: Mapped[UUID]
     project_id: Mapped[UUID]
@@ -1430,9 +1534,22 @@ class ProjectJobCompletionReportCount(Base):
     undismissed_count: Mapped[int]
 
 
+class WorkReportProvenanceHead(Base):
+    __table__ = Table(
+        "work_report_provenance_heads",
+        Base.metadata,
+        *phase12.work_report_provenance_head_elements(),
+    )
+
+    work_item_id: Mapped[UUID]
+    last_sequence: Mapped[int]
+
+
 class JobCompletionReportFollowUp(Base):
     __table__ = Table(
-        "job_completion_report_follow_ups", Base.metadata, *phase12.follow_up_elements()
+        "job_completion_report_follow_ups",
+        Base.metadata,
+        *phase12.follow_up_elements(movable_work=True, sequenced_provenance=True),
     )
 
     id: Mapped[UUID]
@@ -1441,6 +1558,8 @@ class JobCompletionReportFollowUp(Base):
     source_work_item_id: Mapped[UUID]
     follow_up_work_item_id: Mapped[UUID]
     created_sequence: Mapped[int]
+    source_work_sequence: Mapped[int]
+    follow_up_work_sequence: Mapped[int]
     created_at: Mapped[datetime]
     actor_client: Mapped[str]
     actor_session_id: Mapped[str]

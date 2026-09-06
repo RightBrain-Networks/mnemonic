@@ -122,6 +122,7 @@ WorkEventType = Literal[
     "work_completed",
     "work_deleted",
     "work_merged",
+    "work_moved",
     "human_attention_requested",
     "human_attention_resolved",
 ]

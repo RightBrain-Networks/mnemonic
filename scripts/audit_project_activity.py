@@ -19,9 +19,11 @@ from typing import Any
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0022_external_references"
+HEAD = "0023_work_item_moves"
+REFERENCE_HEAD = "0022_external_references"
 REPORT_HEAD = "0021_job_completion_reports"
-REPORT_HEADS = (REPORT_HEAD, HEAD)
+REPORT_HEADS = (REPORT_HEAD, REFERENCE_HEAD, HEAD)
+REFERENCE_HEADS = (REFERENCE_HEAD, HEAD)
 ACTIVITY_HEAD = "0020_project_activity"
 PREVIOUS_HEAD = "0019_structured_completion_evidence"
 CATALOG_PATH = (
@@ -157,7 +159,11 @@ def _catalog_drift(connection: Connection, expected_head: str) -> dict[str, int]
 
 
 _ACTIVITY_FINDINGS = {
-    "missing_activity_heads": "SELECT count(*) FROM projects p LEFT JOIN project_activity_heads h ON h.project_id=p.id WHERE h.project_id IS NULL",
+    "missing_activity_heads": """
+        SELECT count(*) FROM projects p
+        LEFT JOIN project_activity_heads h ON h.project_id=p.id
+        WHERE h.project_id IS NULL
+    """,
     "activity_prefix_mismatch": """
         SELECT count(*) FROM project_activity_heads h LEFT JOIN (
             SELECT project_id,count(*) amount,min(sequence) first,max(sequence) last
@@ -177,8 +183,22 @@ _ACTIVITY_FINDINGS = {
            OR a.project_id<>e.project_id OR a.work_item_id<>e.work_item_id
     """,
     "duplicate_activity_event_source": """
-        SELECT count(*) FROM (SELECT work_event_id FROM project_activity WHERE work_event_id IS NOT NULL
-                              GROUP BY work_event_id HAVING count(*)<>1) duplicate
+        SELECT count(*) FROM (
+            SELECT work_event_id FROM project_activity
+            WHERE work_event_id IS NOT NULL
+            GROUP BY work_event_id HAVING count(*)<>1
+        ) duplicate
+    """,
+    "invalid_lease_renewal_source": """
+        SELECT count(*) FROM project_activity activity
+        WHERE activity.kind='lease_renewed'
+          AND NOT EXISTS (
+              SELECT 1 FROM work_events claim
+              WHERE claim.event_type='work_claimed'
+                AND claim.work_item_id=activity.work_item_id
+                AND claim.lease_generation_id=activity.lease_generation_id
+                AND claim.project_id=activity.project_id
+          )
     """,
 }
 _REPORT_FINDINGS = {
@@ -211,13 +231,17 @@ _REPORT_FINDINGS = {
           AND NOT mnemonic_job_report_slot_sealed(w.id,w.last_reportable_closeout_version)
     """,
     "invalid_report_event_binding": """
-        SELECT count(*) FROM job_completion_reports r LEFT JOIN work_events e ON e.id=r.closeout_event_id
+        SELECT count(*) FROM job_completion_reports r
+        LEFT JOIN work_events e ON e.id=r.closeout_event_id
         LEFT JOIN work_items w ON w.id=r.work_item_id
         WHERE e.id IS NULL OR w.id IS NULL OR e.job_completion_report_id IS DISTINCT FROM r.id
            OR ROW(e.project_id,e.work_item_id,e.actor_client,e.actor_session_id,e.actor_model)
-              IS DISTINCT FROM ROW(r.project_id,r.work_item_id,r.actor_client,r.actor_session_id,r.actor_model)
+              IS DISTINCT FROM ROW(
+                  r.project_id,r.work_item_id,r.actor_client,r.actor_session_id,r.actor_model
+              )
            OR e.metadata->>'work_version' IS DISTINCT FROM r.closeout_work_version::text
-           OR w.last_reportable_closeout_version IS NULL OR w.last_reportable_closeout_version<r.closeout_work_version
+           OR w.last_reportable_closeout_version IS NULL
+           OR w.last_reportable_closeout_version<r.closeout_work_version
            OR (r.closeout_status='done' AND (e.event_type<>'work_completed'
                   OR r.completion_checkpoint_id IS DISTINCT FROM e.checkpoint_id))
            OR (r.closeout_status IN ('wont-do','promoted') AND (e.event_type<>'work_status_changed'
@@ -229,17 +253,23 @@ _REPORT_FINDINGS = {
         WHERE NOT mnemonic_job_report_text_valid_v1(summary,2000,8000,false)
            OR NOT mnemonic_job_report_fyis_valid_v1(summary,fyi_items)
            OR NOT mnemonic_job_report_text_valid_v1(prompt_text,8000,16384,true)
-           OR prompt_revision<1 OR prompt_sha256<>encode(sha256(convert_to(prompt_text,'UTF8')),'hex')
+           OR prompt_revision<1
+           OR prompt_sha256<>encode(sha256(convert_to(prompt_text,'UTF8')),'hex')
     """,
     "invalid_settings_text": """
         SELECT count(*) FROM project_settings WHERE revision<1
           OR NOT mnemonic_job_report_text_valid_v1(job_completion_report_prompt,8000,16384,true)
     """,
     "missing_or_mismatched_review": """
-        SELECT count(*) FROM job_completion_reports r LEFT JOIN job_completion_report_reviews v ON v.report_id=r.id
+        SELECT count(*) FROM job_completion_reports r
+        LEFT JOIN job_completion_report_reviews v ON v.report_id=r.id
         LEFT JOIN project_activity a ON a.project_id=v.project_id AND a.sequence=v.created_sequence
-        WHERE v.report_id IS NULL OR ROW(v.project_id,v.work_item_id) IS DISTINCT FROM ROW(r.project_id,r.work_item_id)
-           OR a.kind IS DISTINCT FROM 'job_completion_report_created' OR a.job_completion_report_id IS DISTINCT FROM r.id
+        WHERE v.report_id IS NULL
+           OR ROW(v.project_id,v.work_item_id)
+              IS DISTINCT FROM ROW(r.project_id,r.work_item_id)
+           OR a.kind IS DISTINCT FROM 'job_completion_report_created'
+           OR a.job_completion_report_id IS DISTINCT FROM r.id
+           OR a.work_item_id IS DISTINCT FROM r.work_item_id
     """,
     "report_count_drift": """
         SELECT count(*) FROM project_job_completion_report_counts c LEFT JOIN (
@@ -249,16 +279,22 @@ _REPORT_FINDINGS = {
     """,
     "follow_up_count_drift": """
         SELECT count(*) FROM job_completion_report_reviews r LEFT JOIN (
-            SELECT report_id,count(*) amount FROM job_completion_report_follow_ups GROUP BY report_id
+            SELECT report_id,count(*) amount
+            FROM job_completion_report_follow_ups GROUP BY report_id
         ) f USING(report_id) WHERE r.follow_up_count<>coalesce(f.amount,0)
     """,
     "invalid_follow_up_provenance": """
         SELECT count(*) FROM job_completion_report_follow_ups f
         LEFT JOIN job_completion_reports r ON r.id=f.report_id
         LEFT JOIN work_items w ON w.id=f.follow_up_work_item_id
+        LEFT JOIN work_events creation
+          ON creation.work_item_id=f.follow_up_work_item_id
+         AND creation.event_type='work_created'
         LEFT JOIN project_activity a ON a.project_id=f.project_id AND a.sequence=f.created_sequence
-        WHERE r.id IS NULL OR w.id IS NULL OR f.project_id<>r.project_id OR f.project_id<>w.project_id
-           OR f.source_work_item_id<>r.work_item_id OR f.source_work_item_id=f.follow_up_work_item_id
+        WHERE r.id IS NULL OR w.id IS NULL OR f.project_id<>r.project_id
+           OR f.source_work_item_id<>r.work_item_id
+           OR f.source_work_item_id=f.follow_up_work_item_id
+           OR creation.id IS NULL OR creation.project_id<>f.project_id
            OR a.kind IS DISTINCT FROM 'job_completion_report_follow_up_created'
            OR a.follow_up_id IS DISTINCT FROM f.id OR a.work_item_id IS DISTINCT FROM w.id
            OR a.job_completion_report_id IS DISTINCT FROM r.id
@@ -266,8 +302,10 @@ _REPORT_FINDINGS = {
     "missing_dismissal_activity": """
         SELECT count(*) FROM job_completion_report_reviews r
         LEFT JOIN project_activity a ON a.human_dismissal_id=r.dismissal_id
-        WHERE r.dismissal_id IS NOT NULL AND (a.kind IS DISTINCT FROM 'job_completion_report_dismissed'
-           OR a.project_id IS DISTINCT FROM r.project_id OR a.work_item_id IS DISTINCT FROM r.work_item_id
+        WHERE r.dismissal_id IS NOT NULL
+          AND (a.kind IS DISTINCT FROM 'job_completion_report_dismissed'
+           OR a.project_id IS DISTINCT FROM r.project_id
+           OR a.work_item_id IS DISTINCT FROM r.work_item_id
            OR a.job_completion_report_id IS DISTINCT FROM r.report_id)
     """,
 }
@@ -307,6 +345,330 @@ _REFERENCE_FINDINGS = {
 }
 
 
+_MOVE_FINDINGS = {
+    "work_provenance_prefix_mismatch": """
+        WITH facts AS (
+            SELECT source_work_item_id AS work_item_id,
+                   source_work_sequence AS sequence
+            FROM job_completion_report_follow_ups
+            UNION ALL
+            SELECT follow_up_work_item_id AS work_item_id,
+                   follow_up_work_sequence AS sequence
+            FROM job_completion_report_follow_ups
+        ), prefixes AS (
+            SELECT work_item_id,count(*) AS amount,
+                   count(DISTINCT sequence) AS distinct_amount,
+                   min(sequence) AS first,max(sequence) AS last
+            FROM facts
+            GROUP BY work_item_id
+        )
+        SELECT count(*)
+        FROM work_report_provenance_heads head
+        FULL OUTER JOIN prefixes USING(work_item_id)
+        WHERE head.work_item_id IS NULL OR prefixes.work_item_id IS NULL
+           OR prefixes.amount<>head.last_sequence
+           OR prefixes.distinct_amount<>prefixes.amount
+           OR prefixes.first<>1 OR prefixes.last<>head.last_sequence
+    """,
+    "work_provenance_order_mismatch": """
+        WITH facts AS (
+            SELECT source_work_item_id AS work_item_id,
+                   source_work_sequence AS sequence,id,created_at
+            FROM job_completion_report_follow_ups
+            UNION ALL
+            SELECT follow_up_work_item_id AS work_item_id,
+                   follow_up_work_sequence AS sequence,id,created_at
+            FROM job_completion_report_follow_ups
+        ), ordered AS (
+            SELECT work_item_id,sequence,id,created_at,
+                   lag(id) OVER (
+                       PARTITION BY work_item_id ORDER BY sequence
+                   ) AS prior_id,
+                   lag(created_at) OVER (
+                       PARTITION BY work_item_id ORDER BY sequence
+                   ) AS prior_created_at
+            FROM facts
+        )
+        SELECT count(*) FROM ordered
+        WHERE prior_created_at IS NOT NULL
+          AND ROW(prior_created_at,prior_id)>=ROW(created_at,id)
+    """,
+    "invalid_move_event_pairs": """
+        SELECT count(*) FROM work_item_moves m
+        LEFT JOIN LATERAL (
+            SELECT count(*) AS total,
+                   count(*) FILTER (
+                       WHERE event.project_id=m.source_project_id
+                         AND event.metadata->>'role'='source'
+                   ) AS sources,
+                   count(*) FILTER (
+                       WHERE event.project_id=m.target_project_id
+                         AND event.metadata->>'role'='target'
+                   ) AS targets,
+                   min(event.id) FILTER (
+                       WHERE event.project_id=m.source_project_id
+                         AND event.metadata->>'role'='source'
+                   ) AS source_event_id,
+                   min(event.id) FILTER (
+                       WHERE event.project_id=m.target_project_id
+                         AND event.metadata->>'role'='target'
+                   ) AS target_event_id
+            FROM work_events event
+            WHERE event.work_move_id=m.id
+              AND event.event_type='work_moved'
+              AND event.work_item_id=m.work_item_id
+              AND event.created_at=m.created_at
+              AND ROW(event.actor_kind,event.actor_client,event.actor_session_id,event.actor_model)
+                  IS NOT DISTINCT FROM
+                  ROW(m.actor_kind,m.actor_client,m.actor_session_id,m.actor_model)
+              AND mnemonic_work_moved_metadata_v1_is_valid(
+                  event.work_item_id,event.project_id,event.work_move_id,
+                  event.metadata_version,event.metadata
+              )
+              AND event.metadata->>'move_id'=m.id::text
+              AND event.metadata->>'source_project_id'=m.source_project_id::text
+              AND event.metadata->>'target_project_id'=m.target_project_id::text
+              AND event.metadata->>'work_version'=m.resulting_work_version::text
+        ) evidence ON true
+        WHERE evidence.total<>2 OR evidence.sources<>1 OR evidence.targets<>1
+           OR evidence.source_event_id>=evidence.target_event_id
+    """,
+    "invalid_move_chain": """
+        SELECT count(*) FROM (
+            SELECT m.id
+            FROM (
+                SELECT m.*,
+                       lag(target_project_id) OVER (
+                           PARTITION BY work_item_id
+                           ORDER BY resulting_work_version,id
+                       ) AS prior_target,
+                       lag(resulting_work_version) OVER (
+                           PARTITION BY work_item_id
+                           ORDER BY resulting_work_version,id
+                       ) AS prior_resulting_work_version
+                FROM work_item_moves m
+            ) m
+            WHERE m.prior_target IS NOT NULL
+              AND (m.source_project_id<>m.prior_target
+                   OR m.source_work_version<m.prior_resulting_work_version)
+            UNION ALL
+            SELECT latest.id
+            FROM (
+                SELECT DISTINCT ON (work_item_id) *
+                FROM work_item_moves
+                ORDER BY work_item_id,resulting_work_version DESC,id DESC
+            ) latest
+            LEFT JOIN work_items work ON work.id=latest.work_item_id
+            WHERE work.id IS NULL OR work.project_id<>latest.target_project_id
+               OR work.version<latest.resulting_work_version
+            UNION ALL
+            SELECT first_move.id
+            FROM (
+                SELECT DISTINCT ON (work_item_id) *
+                FROM work_item_moves
+                ORDER BY work_item_id,resulting_work_version,id
+            ) first_move
+            LEFT JOIN work_events creation
+              ON creation.work_item_id=first_move.work_item_id
+             AND creation.event_type='work_created'
+            WHERE creation.id IS NULL
+               OR creation.project_id<>first_move.source_project_id
+        ) invalid
+    """,
+    "invalid_move_receipts": """
+        SELECT count(*) FROM client_operations receipt
+        WHERE receipt.operation_kind='move_work' AND receipt.state='completed'
+          AND NOT EXISTS (
+              SELECT 1 FROM work_item_moves m
+              WHERE m.source_project_id=receipt.project_id
+                AND receipt.response_status=200
+                AND receipt.mutation_applied=true
+                AND receipt.response_body#>>'{work_item,id}'=m.work_item_id::text
+                AND receipt.response_body->>'target_project_id'=m.target_project_id::text
+                AND receipt.response_body#>>'{work_item,version}'
+                    =m.resulting_work_version::text
+                AND m.preserved_status=receipt.response_body->>'preserved_status'
+                AND receipt.response_body->>'source_project_id'=m.source_project_id::text
+                AND receipt.response_body#>>'{work_item,project_id}'
+                    =m.target_project_id::text
+                AND receipt.response_body#>>'{work_item,status}'=m.preserved_status
+                AND CASE
+                    WHEN pg_input_is_valid(
+                        receipt.response_body#>>'{work_item,updated_at}',
+                        'timestamp with time zone'
+                    )
+                    THEN (receipt.response_body#>>'{work_item,updated_at}')::timestamptz
+                        =m.created_at
+                    ELSE false
+                END
+          )
+    """,
+}
+
+
+def _event_project_matches_placement(
+    work_item_id: str,
+    event_id: str,
+    project_id: str,
+) -> str:
+    """Return SQL binding one event endpoint to its serialized move interval.
+
+    Work writers lock the stable work row and stage each move's source witness
+    before its target witness. The source event ID is therefore the durable
+    ownership boundary even when both witnesses share one timestamp.
+    """
+    return f"""
+        EXISTS (
+            SELECT 1 FROM work_items current_work
+            WHERE current_work.id={work_item_id}
+        )
+        AND EXISTS (
+            SELECT 1 FROM work_events creation
+            WHERE creation.work_item_id={work_item_id}
+              AND creation.event_type='work_created'
+              AND creation.id<={event_id}
+        )
+        AND {project_id} IS NOT DISTINCT FROM COALESCE(
+            (
+                SELECT move.target_project_id
+                FROM work_item_moves move
+                JOIN work_events source_event
+                  ON source_event.work_move_id=move.id
+                 AND source_event.event_type='work_moved'
+                 AND source_event.project_id=move.source_project_id
+                 AND source_event.metadata->>'role'='source'
+                WHERE move.work_item_id={work_item_id}
+                  AND source_event.id<{event_id}
+                ORDER BY source_event.id DESC
+                LIMIT 1
+            ),
+            (
+                SELECT first_move.source_project_id
+                FROM work_item_moves first_move
+                WHERE first_move.work_item_id={work_item_id}
+                ORDER BY first_move.resulting_work_version,first_move.id
+                LIMIT 1
+            ),
+            (
+                SELECT current_work.project_id FROM work_items current_work
+                WHERE current_work.id={work_item_id}
+            )
+        )
+    """
+
+
+def _move_aware_prior_counts(
+    connection: Connection, counts: dict[str, int], previous: Any
+) -> None:
+    """Replace old same-project owner checks with stable-identity checks at 0023."""
+    primary_owner = _event_project_matches_placement(
+        "event.work_item_id", "event.id", "event.project_id"
+    )
+    source_owner = _event_project_matches_placement(
+        "event.relationship_source_work_item_id", "event.id", "event.project_id"
+    )
+    target_owner = _event_project_matches_placement(
+        "event.relationship_target_work_item_id", "event.id", "event.project_id"
+    )
+    event_owner_query = """
+        SELECT count(*) FROM work_events event
+        WHERE NOT (__PRIMARY_OWNER__)
+           OR (event.relationship_source_work_item_id IS NOT NULL
+               AND NOT (__SOURCE_OWNER__))
+           OR (event.relationship_target_work_item_id IS NOT NULL
+               AND NOT (__TARGET_OWNER__))
+    """
+    event_owner_query = event_owner_query.replace("__PRIMARY_OWNER__", primary_owner)
+    event_owner_query = event_owner_query.replace("__SOURCE_OWNER__", source_owner)
+    event_owner_query = event_owner_query.replace("__TARGET_OWNER__", target_owner)
+    counts["event_owner_violations"] = connection.scalar(text(event_owner_query))
+    counts["gate_owner_violations"] = connection.scalar(text("""
+        SELECT count(*) FROM work_gates gate
+        LEFT JOIN work_items work ON work.id=gate.work_item_id
+        WHERE work.id IS NULL
+           OR (gate.resolved_at IS NULL
+               AND gate.project_id IS DISTINCT FROM work.project_id)
+           OR NOT EXISTS (
+                SELECT 1 FROM work_events request
+                WHERE request.work_item_id=gate.work_item_id
+                  AND request.gate_id=gate.id
+                  AND request.event_type='human_attention_requested'
+                  AND request.project_id=gate.project_id
+           )
+           OR (gate.resolved_at IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM work_events resolution
+                WHERE resolution.work_item_id=gate.work_item_id
+                  AND resolution.gate_id=gate.id
+                  AND resolution.event_type='human_attention_resolved'
+                  AND resolution.project_id=gate.project_id
+           ))
+    """))
+    counts["reopen_binding_violation_count"] = (
+        previous._phase11_batched_reopen_binding_violation_count(
+            connection,
+            movable_work=True,
+        )
+    )
+    counts["evidence_owner_violation_count"] = connection.scalar(text("""
+        SELECT count(*) FROM (
+            SELECT result.work_item_id,result.completion_checkpoint_id
+            FROM verification_results result
+            LEFT JOIN work_items work ON work.id=result.work_item_id
+            LEFT JOIN checkpoints checkpoint
+              ON checkpoint.work_item_id=result.work_item_id
+             AND checkpoint.id=result.completion_checkpoint_id
+            WHERE work.id IS NULL OR checkpoint.id IS NULL
+               OR checkpoint.kind<>'completion'
+               OR result.created_at IS DISTINCT FROM checkpoint.created_at
+               OR NOT EXISTS (
+                   SELECT 1 FROM work_events completion
+                   WHERE completion.work_item_id=result.work_item_id
+                     AND completion.checkpoint_id=result.completion_checkpoint_id
+                     AND completion.event_type='work_completed'
+                     AND completion.project_id=result.project_id
+               )
+            UNION ALL
+            SELECT artifact.work_item_id,artifact.completion_checkpoint_id
+            FROM artifact_references artifact
+            LEFT JOIN work_items work ON work.id=artifact.work_item_id
+            LEFT JOIN checkpoints checkpoint
+              ON checkpoint.work_item_id=artifact.work_item_id
+             AND checkpoint.id=artifact.completion_checkpoint_id
+            WHERE work.id IS NULL OR checkpoint.id IS NULL
+               OR checkpoint.kind<>'completion'
+               OR artifact.created_at IS DISTINCT FROM checkpoint.created_at
+               OR NOT EXISTS (
+                   SELECT 1 FROM work_events completion
+                   WHERE completion.work_item_id=artifact.work_item_id
+                     AND completion.checkpoint_id=artifact.completion_checkpoint_id
+                     AND completion.event_type='work_completed'
+                     AND completion.project_id=artifact.project_id
+               )
+        ) invalid
+    """))
+
+
+def _head_findings(
+    connection: Connection, expected_head: str, previous: Any
+) -> dict[str, int]:
+    if expected_head == PREVIOUS_HEAD:
+        return previous._catalog_blocking_counts(
+            previous._catalog(connection, expected_head)
+        )
+    findings = _catalog_drift(connection, expected_head)
+    checks = dict(_ACTIVITY_FINDINGS)
+    if expected_head in REPORT_HEADS:
+        checks.update(_REPORT_FINDINGS)
+    if expected_head in REFERENCE_HEADS:
+        checks.update(_REFERENCE_FINDINGS)
+    if expected_head == HEAD:
+        checks.update(_MOVE_FINDINGS)
+    findings.update(
+        {key: connection.scalar(text(sql)) for key, sql in checks.items()}
+    )
+    return findings
+
+
 def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[str, Any]:
     if connection.scalar(text("SHOW transaction_read_only")) != "on":
         raise RuntimeError("Audit requires a read-only transaction")
@@ -326,23 +688,10 @@ def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[st
     counts.update(previous._core_counts(connection))
     counts.update(previous._repository_freshness_counts(connection))
     counts.update(previous._completion_evidence_counts(connection, schema))
+    if expected_head == HEAD:
+        _move_aware_prior_counts(connection, counts, previous)
     findings = previous._blocking_counts(counts)
-    if expected_head == PREVIOUS_HEAD:
-        findings.update(
-            previous._catalog_blocking_counts(
-                previous._catalog(connection, expected_head)
-            )
-        )
-    else:
-        findings.update(_catalog_drift(connection, expected_head))
-        checks = dict(_ACTIVITY_FINDINGS)
-        if expected_head in REPORT_HEADS:
-            checks.update(_REPORT_FINDINGS)
-        if expected_head == HEAD:
-            checks.update(_REFERENCE_FINDINGS)
-        findings.update(
-            {key: connection.scalar(text(sql)) for key, sql in checks.items()}
-        )
+    findings.update(_head_findings(connection, expected_head, previous))
     findings = {key: value for key, value in findings.items() if value}
     inventory = {"projects": connection.scalar(text("SELECT count(*) FROM projects"))}
     if expected_head != PREVIOUS_HEAD:
@@ -355,6 +704,11 @@ def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[st
         )
         inventory["follow_ups"] = connection.scalar(
             text("SELECT count(*) FROM job_completion_report_follow_ups")
+        )
+    if expected_head == HEAD:
+        inventory["moves"] = connection.scalar(text("SELECT count(*) FROM work_item_moves"))
+        inventory["work_provenance_heads"] = connection.scalar(
+            text("SELECT count(*) FROM work_report_provenance_heads")
         )
     return {
         "audit_version": "project-activity-v1",
@@ -370,7 +724,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     parser.add_argument(
-        "--expected-head", choices=(PREVIOUS_HEAD, ACTIVITY_HEAD, REPORT_HEAD, HEAD), default=HEAD
+        "--expected-head",
+        choices=(PREVIOUS_HEAD, ACTIVITY_HEAD, REPORT_HEAD, REFERENCE_HEAD, HEAD),
+        default=HEAD,
     )
     args = parser.parse_args()
     engine = None

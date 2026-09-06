@@ -11,7 +11,8 @@ import JobReportContent from "@/components/job-report-content";
 import JobReportFollowUpForm from "@/components/job-report-follow-up-form";
 
 export default function JobReportList({ projectId, refreshSignal, onChanged, onOpenWork }: {
-  projectId: string; refreshSignal: number; onChanged: () => void; onOpenWork: (workItemId: string) => void;
+  projectId: string; refreshSignal: number; onChanged: () => void;
+  onOpenWork: (workItemId: string, preferredProjectId?: string) => void | Promise<void>;
 }) {
   const registry = useMutationIntentRegistry();
   useMutationIntents();
@@ -135,12 +136,12 @@ export default function JobReportList({ projectId, refreshSignal, onChanged, onO
       return <article className="job-report-card" key={item.report.id} aria-label={`Report for ${item.report.work_title_at_closeout}`}>
         <JobReportContent item={item} />
         <div className="report-card-actions">
-          {!item.source_work_state.deleted && <button type="button" className="button button-secondary" onClick={() => onOpenWork(item.report.work_item_id)}>Open original work</button>}
+          {!item.source_work_state.deleted && <button type="button" className="button button-secondary" onClick={() => void onOpenWork(item.report.work_item_id, item.report.project_id)}>Open original work</button>}
           <button type="button" className="button button-secondary" disabled={blocked || formOpen} onClick={() => void dismiss(item)}>Dismiss</button>
           <button type="button" className="button button-primary" disabled={blocked || followUpReport !== null} onClick={() => { setFollowUpReport(item); setCreated(null); }}>Create Follow-up</button>
           {item.follow_up_count !== "0" && <span className="field-hint">{item.follow_up_count} follow-up{item.follow_up_count === "1" ? "" : "s"}</span>}
         </div>
-        {created?.reportId === item.report.id && <div className="detail-notice" role="status"><p>Follow-up created in Pending.</p><button type="button" className="button button-secondary" onClick={() => onOpenWork(created.workId)}>Open work</button></div>}
+        {created?.reportId === item.report.id && <div className="detail-notice" role="status"><p>Follow-up created in Pending.</p><button type="button" className="button button-secondary" onClick={() => void onOpenWork(created.workId, projectId)}>Open work</button></div>}
 
       </article>;
     })}

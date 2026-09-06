@@ -1,8 +1,9 @@
-# Phase 12 API contract
+# Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.10.0`, plugin `0.12.0`, and migration
-`0022_external_references`. The catalog has exactly 32 MCP tools, 11 protected
-MCP writes, 15 REST receipt kinds, and 13 protected browser mutations.
+This is application/API/MCP/dashboard `0.12.0`, plugin `0.13.0`, and migration
+`0023_work_item_moves`. The catalog has exactly 32 MCP tools, 11 protected
+MCP writes, 16 REST receipt kinds, 14 protected browser mutations, and 18
+work-event types.
 [Project activity and human reports](project-activity-and-reports.md) documents
 the new resource shapes, strict cursors, required closeout companions, settings,
 retry rules, and human review workflow. Existing structured completion evidence,
@@ -37,11 +38,14 @@ context. No error contains a lease token or claim request ID.
 
 Lifecycle and graph conflicts use stable codes including
 `invalid_status_transition`, `work_blocked`, `completion_episode_unsealed`,
+`closeout_report_unsealed`,
 `relationship_context_invalid`, `relationship_cycle`, `parent_already_set`, and
 `active_relationships`. `completion_episode_unsealed` refuses to move work out
 of `done` when its completion owns no sealed episode -- work completed before
 `0010_work_events` is the case that reaches it. The condition is permanent, so
-the refusal is a 409 rather than a retryable fault.
+the refusal is a 409 rather than a retryable fault. `closeout_report_unsealed`
+likewise permanently refuses to move terminal work whose historical closeout
+has no sealed report.
 Self-edges and a missing discovery context fail strict request validation with
 422. Missing or cross-project endpoints/checkpoints use sanitized 404 codes.
 Error context never includes checkpoint content or non-allowlisted upstream values.
@@ -58,6 +62,14 @@ Any database failure may return `503 database_unavailable`; a write outcome can
 be unknown, so retain the exact request before deciding whether to retry.
 The typed `503 duplicate_graph_invalid` response is the exception: it is a
 definitive integrity stop, not an unknown write outcome, and must not be retried.
+
+Move-specific 409 conflicts are `work_move_same_project`,
+`work_move_active_lease`, `work_move_relationships`, and
+`work_move_duplicate_membership`. Moves also use the existing `work_gated`,
+`work_duplicate`, `version_conflict`, `completion_episode_unsealed`, and
+`closeout_report_unsealed` conflicts where applicable. These are definitive
+fresh-domain refusals: correct or remove the stated blocker, reread the work,
+and submit a newly reviewed intent rather than retrying the rejected request.
 
 Duplicate conflicts use `duplicate_merge_required`, `duplicate_self`,
 `work_duplicate`, `work_already_duplicate`,
@@ -85,7 +97,7 @@ neither error proves whether a write committed.
 
 ## Idempotent mutation receipts
 
-Exactly fifteen project-scoped REST mutations use a top-level
+Exactly sixteen project-scoped REST mutations use a top-level
 `client_operation_id` UUID. It is mandatory for every fresh closeout, every
 merge, and the two human report actions. Other originally optional REST writes
 retain their unkeyed single-attempt form:
@@ -98,6 +110,7 @@ retain their unkeyed single-attempt form:
 | add relationship | `POST /projects/{project_id}/relationships` |
 | update work | `PATCH /projects/{project_id}/work-items/{work_item_id}` |
 | defer work | `POST /projects/{project_id}/work-items/{work_item_id}/defer` |
+| move work | `POST /projects/{project_id}/work-items/{work_item_id}/move` |
 | complete work | `POST /projects/{project_id}/work-items/{work_item_id}/complete` |
 | delete work | `POST /projects/{project_id}/work-items/{work_item_id}/delete` |
 | remove relationship | `DELETE /projects/{project_id}/relationships/{relationship_id}` |
@@ -133,7 +146,7 @@ The UUID is accepted only as that top-level JSON field. It is rejected in URLs,
 queries, headers, cookies, nested objects, progress metadata at any depth, and
 excluded mutation bodies. It is control data: it never appears in ordinary
 responses, errors, events, resources, prompts, logs, or browser persistence.
-`WorkItemPatch`, `WorkDeferralCreate`, `WorkDeletionCreate`,
+`WorkItemPatch`, `WorkDeferralCreate`, `WorkMoveCreate`, `WorkDeletionCreate`,
 `RelationshipRemovalCreate`, and `LeaseReleaseCreate` require their nested
 `actor` whenever the operation ID is present. Their unkeyed direct-REST form
 remains valid and may remain unattributed.
@@ -144,7 +157,7 @@ do, or Promoted transition requires it and an authored report. `merge_work`,
 report dismissal, and report follow-up have no unkeyed form. Exactly eleven
 canonical MCP mutation tools require it. Human-only deferral, gate resolution,
 report dismissal, and follow-up creation have no MCP mutation tools. The
-dashboard generates it for thirteen protected actions. Token-bearing lease
+dashboard generates it for fourteen protected actions. Token-bearing lease
 release and gate creation remain denied; the two token-free manual status lease
 routes described below are outside the receipt ledger.
 It freezes the entire request and retries only that exact in-memory intent.
@@ -194,6 +207,8 @@ Base path: `/projects/{project_id}/work-items`.
   lifecycle edit.
 - `POST /{work_item_id}/defer` is the human control-plane action that parks
   Pending work outside the agent queue.
+- `POST /{work_item_id}/move` relocates the same versioned work identity to a
+  different project without changing its lifecycle status.
 - `POST /{work_item_id}/delete` soft-deletes version-protected work and
   returns `DeletionResult`.
 - `GET /{work_item_id}/checkpoints` returns a stable checkpoint page.
@@ -236,6 +251,45 @@ There are no event update/delete routes. PostgreSQL rejects direct event
 Current work-item responses never return `open`. Immutable event readers still
 accept historical `open` snapshots written before migration `0012`; new events
 use `pending` and `deferred`.
+
+### Moving work between projects
+
+`POST /projects/{source_project_id}/work-items/{work_item_id}/move` accepts:
+
+```json
+{
+  "target_project_id": "22222222-2222-4222-8222-222222222222",
+  "expected_version": 7,
+  "actor": {
+    "actor_client": "dashboard",
+    "actor_session_id": "opaque-dashboard-session"
+  },
+  "client_operation_id": "33333333-3333-4333-8333-333333333333"
+}
+```
+
+It returns `{source_project_id,target_project_id,preserved_status,work_item}`.
+The returned work item has the same UUID, the requested target project, the
+unchanged stored lifecycle status, and `version=expected_version+1`. An expired
+retained lease is preserved, so the derived Dropped display state is preserved
+too. An active lease, an unresolved human gate, any current relationship or
+duplicate membership, an immutable duplicate alias, an unsealed legacy terminal
+report, or an unsealed legacy Done episode prevents the move. Source and target
+must differ and both projects must exist.
+
+The receipt is permanently scoped to the source project and replays before
+fresh source visibility checks. An exact same-key retry therefore returns its
+stored result after the item has left the source. Fresh execution locks both
+projects in UUID order, advances the work once, records one immutable
+`work_item_moves` fact, and appends paired `work_moved` events to the source and
+target activity streams. Existing events, resolved gates, completion evidence,
+reports, and report provenance keep their original project-at-fact; per-work
+history reads authorize the item's current project and then follow its stable
+UUID across those historical facts.
+
+Move is exposed only by this REST endpoint and the dashboard's protected
+browser mutation. The MCP tool catalog and Claude plugin skills do not expose a
+move write.
 
 ### Work-item requests
 
@@ -1282,7 +1336,7 @@ raises the streaming proxy body cap to 2,097,152 bytes and the transport budget
 to 60 seconds. It forwards `Retry-After: 1` only for the typed busy response,
 never enters the protected-intent registry, and publishes no live invalidation.
 
-The thirteen covered browser writes require one top-level operation UUID and a frozen body.
+The fourteen covered browser writes require one top-level operation UUID and a frozen body.
 The existing completion body alone may contain `completion_evidence`; it is
 validated before registration and frozen with the rest of the intent. No
 standalone evidence POST or browser mutation kind exists.
@@ -1311,6 +1365,13 @@ panels, shows their full UUIDs, and requires explicit acknowledgement that the
 source becomes a permanent alias. A definite stale-context rejection requires
 two fresh contexts and a new UUID; an ambiguous outcome permits only exact
 retry of the retained body.
+
+Move similarly freezes one intent under the work key in both its source and
+target projects. Its exact allowlisted body is `target_project_id`,
+`expected_version`, dashboard `actor`, and `client_operation_id`. The Delete/Move
+split control lists every current project, marks the source as current, and
+navigates to the same work UUID in the selected target only after a coherent
+receipt-protected success. An ambiguous outcome retains only exact retry.
 
 ## Live invalidation
 
@@ -1519,7 +1580,7 @@ work_created, work_updated, work_status_changed, work_reopened,
 work_claimed, work_released, checkpoint_added, progress,
 dependency_added, dependency_removed, relationship_added,
 relationship_removed, work_completed, work_deleted,
-human_attention_requested, human_attention_resolved, work_merged
+human_attention_requested, human_attention_resolved, work_merged, work_moved
 ```
 
 Gate request/resolution events are server-only. Each carries the same exact
@@ -1545,6 +1606,12 @@ Its body is the exact rationale and its version-1 metadata has only the six
 public merge keys documented above. It has no checkpoint, lease, relationship,
 release, or gate reference. Internal merge/witness foreign keys are excluded
 from every public event and from preserved historical receipt shapes.
+
+`work_moved` is server-only and also appears as a pair: role `source` in the
+departing project's activity stream and role `target` in the receiving stream.
+Both events share `move_id`, `source_project_id`, `target_project_id`, resulting
+`work_version`, actor, and timestamp. Historical event pages remain one stable
+work timeline even when their `project_id` values record different placements.
 
 `WorkEventPage` has `items,total,limit,offset` plus
 `pre_phase5_history_may_be_incomplete`. Reconstructed rows include only facts
