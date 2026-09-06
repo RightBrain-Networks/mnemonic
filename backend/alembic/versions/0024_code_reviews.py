@@ -181,7 +181,8 @@ def _columns() -> None:
         "purpose_valid",
         "work_leases",
         "(purpose = 'implementation' AND code_review_id IS NULL AND mode IS NULL) OR "
-        "(purpose = 'code_review' AND code_review_id IS NOT NULL AND mode IN ('cold','warm'))",
+        "(purpose = 'code_review' AND code_review_id IS NOT NULL "
+        "AND mode IS NOT NULL AND mode IN ('cold','warm'))",
     )
     for name in EVENT_COLUMNS:
         op.add_column("work_events", sa.Column(name, sa.UUID()))
@@ -391,6 +392,7 @@ def _drop_guards(schema: str) -> None:
         ("work_duplicate_merges", "code_review_merge_guard"),
         ("work_leases", "code_review_lease_guard"),
         ("work_events", "code_review_event_guard"),
+        ("work_events", "code_review_event_sealed"),
     ):
         op.execute(f"DROP TRIGGER {trigger} ON {schema}.{table}")
 

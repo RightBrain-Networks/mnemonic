@@ -14,6 +14,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 HEAD = "0024_code_reviews"
 CHECKS = {
+    "lifecycle_event_witness_mismatch": """
+        SELECT count(*) FROM work_events event
+        WHERE event.event_type IN ('work_follow_up_requested','work_follow_up_answered',
+            'work_follow_up_superseded','code_review_requested','code_review_completed',
+            'code_review_superseded') AND NOT mnemonic_code_review_event_is_sealed(event.id)
+    """,
     "review_work_ownership_mismatch": """
         SELECT count(*) FROM (
             SELECT project_id,work_item_id FROM work_completion_review_policies
@@ -118,7 +124,7 @@ CHECKS = {
         LEFT JOIN work_items work ON work.id=lease.work_item_id
         WHERE lease.purpose='code_review' AND (review.id IS NULL OR review.state<>'requested'
           OR work.status<>'done' OR work.deleted_at IS NOT NULL OR work.remediation_depth>=2
-          OR review.work_item_id<>work.id OR lease.mode NOT IN ('cold','warm')
+          OR review.work_item_id<>work.id OR lease.mode IS NULL OR lease.mode NOT IN ('cold','warm')
           OR review.completion_checkpoint_id IS DISTINCT FROM work.completion_review_checkpoint_id)
     """,
     "result_claim_witness_mismatch": """

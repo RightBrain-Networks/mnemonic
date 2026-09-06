@@ -644,7 +644,7 @@ class WorkLease(Base):
     __table_args__ = (
         CheckConstraint("(purpose = 'implementation' AND code_review_id IS NULL AND mode IS NULL) "
                         "OR (purpose = 'code_review' AND code_review_id IS NOT NULL "
-                        "AND mode IN ('cold','warm'))", name="purpose_valid"),
+                        "AND mode IS NOT NULL AND mode IN ('cold','warm'))", name="purpose_valid"),
         ForeignKeyConstraint(
             ["work_item_id", "code_review_id"], ["code_reviews.work_item_id", "code_reviews.id"],
             name="fk_work_leases_review", ondelete="RESTRICT", deferrable=True,

@@ -634,6 +634,48 @@ END $f$;
 """
 
 SEAL_GUARDS = r"""
+CREATE FUNCTION SCHEMA.mnemonic_code_review_event_is_sealed(event_id bigint)
+RETURNS boolean LANGUAGE sql STABLE SET search_path=pg_catalog AS $f$
+SELECT coalesce((SELECT CASE event.event_type
+    WHEN 'work_follow_up_requested' THEN EXISTS(
+        SELECT 1 FROM SCHEMA.work_agent_follow_ups question
+        WHERE question.id=event.work_follow_up_id AND
+          ROW(question.project_id,question.work_item_id,question.created_event_id)
+          IS NOT DISTINCT FROM ROW(event.project_id,event.work_item_id,event.id))
+    WHEN 'work_follow_up_answered' THEN EXISTS(
+        SELECT 1 FROM SCHEMA.work_agent_follow_up_answers answer
+        JOIN SCHEMA.work_agent_follow_ups question ON question.id=answer.follow_up_id
+        WHERE answer.id=event.work_follow_up_answer_id
+          AND question.id=event.work_follow_up_id AND question.state='answered'
+          AND question.answer_id=answer.id
+          AND (event.code_review_id IS NULL OR
+               event.code_review_id IS NOT DISTINCT FROM answer.code_review_id)
+          AND ROW(answer.project_id,answer.work_item_id,answer.created_event_id)
+          IS NOT DISTINCT FROM ROW(event.project_id,event.work_item_id,event.id))
+    WHEN 'work_follow_up_superseded' THEN EXISTS(
+        SELECT 1 FROM SCHEMA.work_agent_follow_ups question
+        WHERE question.id=event.work_follow_up_id AND question.state='superseded'
+          AND ROW(question.project_id,question.work_item_id,question.superseded_by_event_id)
+          IS NOT DISTINCT FROM ROW(event.project_id,event.work_item_id,event.id))
+    WHEN 'code_review_requested' THEN EXISTS(
+        SELECT 1 FROM SCHEMA.code_reviews review WHERE review.id=event.code_review_id
+          AND ROW(review.project_id,review.work_item_id,review.created_event_id)
+          IS NOT DISTINCT FROM ROW(event.project_id,event.work_item_id,event.id))
+    WHEN 'code_review_completed' THEN EXISTS(
+        SELECT 1 FROM SCHEMA.code_review_results result
+        JOIN SCHEMA.code_reviews review ON review.id=result.review_id
+        WHERE result.id=event.code_review_result_id AND review.id=event.code_review_id
+          AND review.state='completed' AND review.result_id=result.id
+          AND ROW(result.project_id,result.work_item_id,result.created_event_id)
+          IS NOT DISTINCT FROM ROW(event.project_id,event.work_item_id,event.id))
+    WHEN 'code_review_superseded' THEN EXISTS(
+        SELECT 1 FROM SCHEMA.code_reviews review
+        WHERE review.id=event.code_review_id AND review.state='superseded'
+          AND ROW(review.project_id,review.work_item_id,review.superseded_by_event_id)
+          IS NOT DISTINCT FROM ROW(event.project_id,event.work_item_id,event.id))
+    ELSE true END FROM SCHEMA.work_events event WHERE event.id=event_id),false)
+$f$;
+
 CREATE FUNCTION SCHEMA.mnemonic_code_review_event_matches(
     event_id bigint, kind text, project uuid, work uuid, resource_key text, resource uuid,
     client text, session_id text, model text)
@@ -899,4 +941,29 @@ BEGIN
 END $f$;
 CREATE TRIGGER code_review_event_guard BEFORE INSERT ON SCHEMA.work_events
 FOR EACH ROW EXECUTE FUNCTION SCHEMA.mnemonic_code_review_event_guard();
+
+CREATE FUNCTION SCHEMA.mnemonic_code_review_event_sealed()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $f$
+BEGIN
+    IF NOT SCHEMA.mnemonic_code_review_event_is_sealed(NEW.id) THEN
+        RAISE EXCEPTION USING ERRCODE='23514',
+            MESSAGE='review lifecycle event requires its exact resource witness';
+    END IF;
+    IF NEW.event_type IN ('work_follow_up_requested','work_follow_up_answered',
+                         'work_follow_up_superseded') THEN
+        PERFORM SCHEMA.mnemonic_code_review_assert_question(NEW.work_follow_up_id);
+    ELSE
+        PERFORM SCHEMA.mnemonic_code_review_assert_review(NEW.code_review_id);
+        IF NEW.event_type='code_review_completed' THEN
+            PERFORM SCHEMA.mnemonic_code_review_assert_result(NEW.code_review_result_id);
+        END IF;
+    END IF;
+    RETURN NULL;
+END $f$;
+CREATE CONSTRAINT TRIGGER code_review_event_sealed AFTER INSERT ON SCHEMA.work_events
+DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+WHEN (NEW.event_type IN ('work_follow_up_requested','work_follow_up_answered',
+    'work_follow_up_superseded','code_review_requested','code_review_completed',
+    'code_review_superseded'))
+EXECUTE FUNCTION SCHEMA.mnemonic_code_review_event_sealed();
 """

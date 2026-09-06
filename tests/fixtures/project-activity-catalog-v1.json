@@ -17605,8 +17605,8 @@
         "ee5fe1456ae31aa7ad71e24f9cec8ed6db841ae1289b69512a65b34917034839"
       ],
       "work_leases.ck_work_leases_purpose_valid": [
-        "a8a3c393ab3367f70197f2622f7f1dd2641038e063f9c01288710ceeb836870d",
-        "eaa7c46915a513864fdffcdb151e06ce66a3345890a26394601d824f0bbf5349"
+        "0a834dc1b066a97e8d94c472f91eb8835262e85a28277eef5a301f9596207670",
+        "149b8452ad995f442f0ad006681628ec38bcab9d40218e2eb75d2cf0e8e39e3d"
       ],
       "work_leases.ck_work_leases_timestamp_order": [
         "5e9682c6f74bd6d5dcf2494ffb5800ee54928b64bf26efc0a3db9f6b1ac57059"
@@ -18891,10 +18891,16 @@
       "mnemonic_code_review_event_guard()": [
         "f5b6665b01596783241e5738a4ee1d798c579d22e247be2d67f249d9e142d2e8"
       ],
+      "mnemonic_code_review_event_is_sealed(event_id bigint)": [
+        "f5b6665b01596783241e5738a4ee1d798c579d22e247be2d67f249d9e142d2e8"
+      ],
       "mnemonic_code_review_event_matches(event_id bigint, kind text, project uuid, work uuid, resource_key text, resource uuid, client text, session_id text, model text)": [
         "f5b6665b01596783241e5738a4ee1d798c579d22e247be2d67f249d9e142d2e8"
       ],
       "mnemonic_code_review_event_references_valid(kind text, review uuid, question uuid, answer uuid, result uuid)": [
+        "f5b6665b01596783241e5738a4ee1d798c579d22e247be2d67f249d9e142d2e8"
+      ],
+      "mnemonic_code_review_event_sealed()": [
         "f5b6665b01596783241e5738a4ee1d798c579d22e247be2d67f249d9e142d2e8"
       ],
       "mnemonic_code_review_finding_valid(value jsonb)": [
@@ -19229,11 +19235,17 @@
       "mnemonic_code_review_event_guard()": [
         "747530f8433de8575aac901b6c3abf41a55dc8814a691e40fd1a2c945b89c0fb"
       ],
+      "mnemonic_code_review_event_is_sealed(event_id bigint)": [
+        "8ae98c27ca3c9bf262127211b846002f24bd8aa1d56bea806e9c2db37cb84fe8"
+      ],
       "mnemonic_code_review_event_matches(event_id bigint, kind text, project uuid, work uuid, resource_key text, resource uuid, client text, session_id text, model text)": [
         "38c67de36f17b906ffbe116225ba29259d791d3b74fa920d1751f3f5205c4ba1"
       ],
       "mnemonic_code_review_event_references_valid(kind text, review uuid, question uuid, answer uuid, result uuid)": [
         "4c7236cccb0e3eef37f225d8d145a451bd931e9048e5aa9d74da9b0f5dfaae4f"
+      ],
+      "mnemonic_code_review_event_sealed()": [
+        "d1cad9fa06d464ad0c7829ab1f6fa2bfd8a6344890767606719c9ca1a3942e1d"
       ],
       "mnemonic_code_review_finding_valid(value jsonb)": [
         "b3e4e95fb5fd7c8c72f2eaefe4ba77728e6aad82f1b73f36003f00918b86667b"
@@ -20331,6 +20343,10 @@
       ],
       "work_events.code_review_event_guard": [
         "fc70f6bdabf15a01df7cda5697ffca29f6f030d413f92952bcf622eeb92b8f64"
+      ],
+      "work_events.code_review_event_sealed": [
+        "a28a7af335b7464e8c53d2c83a7cdb363cebddb13176a4e9a792e546da4a36cc",
+        "adf3baece7b0d84c0f790c3cbd6c2608ce8b3e288f46c6305e70ddef88aeaa7e"
       ],
       "work_events.completion_lifecycle_event_insert_guard": [
         "c714a028a3a24749b2b774329b91424c74740d3ad0070cee4c5562612a7668f1"
