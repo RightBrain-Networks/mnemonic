@@ -34,6 +34,23 @@ class TransportEffect(StrEnum):
 
 
 _APPLICATION_ERRORS = {
+    "code_review_handoff_required": "Mandatory review needs accurate pinned Git scope and handoff before Done.",
+    "code_review_handoff_not_applicable": "This closeout policy does not accept a mandatory review handoff.",
+    "work_follow_up_answer_invalid": "Supply the typed yes/no recommendation, rationale, and handoff only for yes.",
+    "work_follow_up_changed": "This question changed. Read its exact current state before a new answer intent.",
+    "work_follow_up_superseded": "This question was superseded; do not answer the old completion episode.",
+    "work_follow_up_origin_mismatch": "Only the originating client/session can answer. Resume it or obtain explicit reopen direction.",
+    "code_review_not_requested": "This exact review is not available for a new review claim or submission.",
+    "code_review_superseded": "This review was superseded. Stop; cold review requires a newly copied operator prompt, not a contextual reread.",
+    "code_review_changed": "The exact review revision changed. Stop this intent; cold coordination must not load context.",
+    "code_review_already_completed": "This review already has its one result. An unknown outcome must replay the original operation UUID and arguments.",
+    "code_review_scope_mismatch": "The supplied hash does not identify this review's immutable Git scope.",
+    "code_review_coverage_incomplete": "Complete review requires exact coverage of every pinned repository range; leave incomplete review open.",
+    "code_review_depth_forbidden": "This remediation generation is structurally ineligible for review; no override exists.",
+    "code_review_remediation_disabled": "The snapshotted project policy did not permit reviewing this remediation.",
+    "lease_purpose_mismatch": "This capability does not authorize that purpose, review episode, or mode.",
+    "code_review_obligation_outstanding": "An outstanding review/question requires exact explicit reopen and supersession first.",
+    "code_review_provenance_merge_forbidden": "Remediation work cannot be merged in either direction; its ancestry must remain immutable.",
     "initial_status_must_be_pending": "Fresh work must start pending before a report-bearing closeout.",
     "job_completion_report_required": (
         "Every fresh Done, Won't do, or Promoted closeout requires a job completion report. "
@@ -87,7 +104,7 @@ _APPLICATION_ERRORS = {
         "control data appeared in durable content. Remove it and create a genuinely corrected intent."
     ),
     "lease_held": "This work item has an active claim.",
-    "lease_expired": "This work claim has expired. Recall the work state before retrying.",
+    "lease_expired": "This work claim has expired. Reconcile only after resolving any unknown outcome. Cold review permits a minimal same-scope claim, never a contextual reread.",
     "lease_token_mismatch": "The work claim does not match the current active claim.",
     "claim_request_expired": (
         "That claim request can no longer be resumed. Claim again with a new claim_request_id."

@@ -224,6 +224,8 @@ def assemble_work_context(
                     recent_event.checkpoint_id,
                     recent_event.lease_generation_id,
                     recent_event.lease_release_id,
+                    recent_event.code_review_id, recent_event.work_follow_up_id,
+                    recent_event.work_follow_up_answer_id, recent_event.code_review_result_id,
                     recent_event.relationship_id,
                     recent_event.relationship_source_work_item_id,
                     recent_event.relationship_target_work_item_id,
@@ -250,6 +252,8 @@ def assemble_work_context(
                         event.checkpoint_id,
                         event.lease_generation_id,
                         event.lease_release_id,
+                        event.code_review_id, event.work_follow_up_id,
+                        event.work_follow_up_answer_id, event.code_review_result_id,
                         event.relationship_id,
                         event.relationship_source_work_item_id,
                         event.relationship_target_work_item_id,
@@ -326,7 +330,10 @@ def assemble_work_context(
                             'holder_session_id', counterpart_lease.holder_session_id,
                             'acquired_at', counterpart_lease.acquired_at,
                             'renewed_at', counterpart_lease.renewed_at,
-                            'expires_at', counterpart_lease.expires_at
+                            'expires_at', counterpart_lease.expires_at,
+                            'purpose', counterpart_lease.purpose,
+                            'code_review_id', counterpart_lease.code_review_id,
+                            'mode', counterpart_lease.mode
                         )
                     END AS counterpart_active_lease,
                     ({counterpart_blocker_count_sql}) AS counterpart_blocker_count,
@@ -400,14 +407,14 @@ def assemble_work_context(
                     'relationship_event_count', w.current_relationship_event_count
                 ) AS current_context_revision,
                 to_jsonb(initial_checkpoint) - 'search_vector'
-                    - 'completion_generation' AS initial_checkpoint,
+                    - 'completion_generation' - 'requires_code_review_policy' AS initial_checkpoint,
                 to_jsonb(current_checkpoint) - 'search_vector'
-                    - 'completion_generation' AS current_checkpoint,
+                    - 'completion_generation' - 'requires_code_review_policy' AS current_checkpoint,
                 COALESCE(
                     (
                         SELECT jsonb_agg(
                             to_jsonb(recent_checkpoint) - 'search_vector'
-                                - 'completion_generation'
+                                - 'completion_generation' - 'requires_code_review_policy'
                             ORDER BY recent_checkpoint.created_at, recent_checkpoint.id
                         )
                         FROM recent AS recent_checkpoint
@@ -426,7 +433,10 @@ def assemble_work_context(
                         'holder_session_id', active_lease.holder_session_id,
                         'acquired_at', active_lease.acquired_at,
                         'renewed_at', active_lease.renewed_at,
-                        'expires_at', active_lease.expires_at
+                        'expires_at', active_lease.expires_at,
+                        'purpose', active_lease.purpose,
+                        'code_review_id', active_lease.code_review_id,
+                        'mode', active_lease.mode
                     )
                 END AS active_lease,
                 EXISTS (
@@ -569,6 +579,10 @@ def assemble_work_context(
                                 'checkpoint_id', recent_event.checkpoint_id,
                                 'lease_generation_id', recent_event.lease_generation_id,
                                 'lease_release_id', recent_event.lease_release_id,
+                                'code_review_id', recent_event.code_review_id,
+                                'work_follow_up_id', recent_event.work_follow_up_id,
+                                'work_follow_up_answer_id', recent_event.work_follow_up_answer_id,
+                                'code_review_result_id', recent_event.code_review_result_id,
                                 'relationship_id', recent_event.relationship_id,
                                 'relationship_source_work_item_id',
                                     recent_event.relationship_source_work_item_id,
@@ -721,7 +735,10 @@ def assemble_work_context(
         "total": int(relationship_counts["total"])
         - sum(len(group) for group in relationship_groups),
     }
+    from mnemonic_api.services.code_review_reads import review_context
+
     return WorkContext(
+        code_review_context=review_context(database, work_item_id),
         work_item=work_item,
         merge_review_revision=MergeReviewRevision(
             work_version=work_item.version,

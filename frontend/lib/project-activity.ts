@@ -14,7 +14,9 @@ const EVENT_TYPES = new Set([
   "work_created", "work_updated", "work_status_changed", "work_reopened", "work_claimed",
   "work_released", "checkpoint_added", "progress", "dependency_added", "dependency_removed",
   "relationship_added", "relationship_removed", "human_attention_requested", "human_attention_resolved",
-  "work_merged", "work_moved", "work_completed", "work_deleted"
+  "work_merged", "work_moved", "work_completed", "work_deleted",
+  "work_follow_up_requested", "work_follow_up_answered", "work_follow_up_superseded",
+  "code_review_requested", "code_review_completed", "code_review_superseded"
 ]);
 const REF_FIELDS = ["work_event_id", "event_type", "work_item_id", "job_completion_report_id",
   "human_dismissal_id", "follow_up_id", "settings_revision", "lease_generation_id"];

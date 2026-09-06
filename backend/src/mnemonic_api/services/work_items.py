@@ -106,7 +106,8 @@ def _checkpoint(
 
 
 def create_work_records(
-    database: Session, project_id: UUID, payload: WorkItemCreate
+    database: Session, project_id: UUID, payload: WorkItemCreate, *,
+    remediation_id: UUID | None = None, remediation_depth: int = 0,
 ) -> tuple[WorkItem, Checkpoint, list[WorkRelationship]]:
     """Stage required work, context, and requested graph facts in one transaction."""
     if payload.status != "pending":
@@ -132,6 +133,8 @@ def create_work_records(
         priority=payload.priority,
         status=payload.status,
         initial_checkpoint_id=initial_checkpoint_id,
+        remediation_id=remediation_id,
+        remediation_depth=remediation_depth,
     )
     checkpoint = Checkpoint(
         id=initial_checkpoint_id,
@@ -272,15 +275,17 @@ def require_sealed_closeout_report(database: Session, work_item: WorkItem) -> No
 
 
 def update_work_record(database: Session, work_item: WorkItem, payload: WorkItemPatch) -> None:
+    from mnemonic_api.services.code_reviews import SUPERSESSION_FIELDS, supersede_for_reopen
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
     require_canonical_work_item(database, work_item)
     require_version(work_item, payload.expected_version)
+    supersede_for_reopen(database, work_item, payload)
     changes = payload.model_dump(
         mode="json",
         exclude_unset=True,
         exclude={"expected_version", "lease_token", "actor", "client_operation_id",
-                 "job_completion_report"},
+                 "job_completion_report", *SUPERSESSION_FIELDS},
     )
     before = {
         field: deepcopy(getattr(work_item, field))
@@ -392,6 +397,7 @@ def complete_work_record(
     lease_token: str | None = None,
     completion_evidence: CompletionEvidenceInput | None = None,
     job_completion_report: JobCompletionReportInput | None = None,
+    code_review_handoff=None,
 ) -> Checkpoint:
     from mnemonic_api.services.completion_evidence import (
         hydrate_completion_evidence,
@@ -409,6 +415,9 @@ def complete_work_record(
     )
 
     report_settings = prepare_closeout_report(database, work_item, job_completion_report)
+    from mnemonic_api.services.code_reviews import prepare_review_policy, seal_review_policy
+
+    review_decision = prepare_review_policy(work_item, report_settings, code_review_handoff)
     report_id = uuid4()
     require_unblocked(database, work_item.id)
     require_no_unresolved_gates(database, work_item.id)
@@ -439,6 +448,9 @@ def complete_work_record(
     seal_closeout_report(database, work_item, event, report_id, job_completion_report,
         report_settings, source_actor(payload.source_client, payload.source_session_id,
                                       payload.source_model), checkpoint.id)
+    seal_review_policy(database, work_item, event, report_settings, code_review_handoff,
+        review_decision, source_actor(payload.source_client, payload.source_session_id,
+                                      payload.source_model))
     sealed_evidence = hydrate_completion_evidence(database, checkpoint)
     if sealed_evidence != inserted_evidence:
         from mnemonic_api.errors import completion_evidence_unavailable
@@ -454,10 +466,12 @@ def delete_work_record(
     lease_token: str | None = None,
     actor: MutationActor | None = None,
 ) -> None:
+    from mnemonic_api.services.code_reviews import require_no_review_obligation
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
     require_canonical_work_item(database, work_item)
     require_version(work_item, expected_version)
+    require_no_review_obligation(database, work_item.id)
     require_no_relationships(database, work_item.project_id, work_item.id)
     require_no_unresolved_gates(database, work_item.id)
     consume_lease_for_terminal_mutation(database, work_item.id, lease_token)

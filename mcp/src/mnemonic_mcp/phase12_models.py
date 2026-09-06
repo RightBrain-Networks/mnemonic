@@ -189,6 +189,9 @@ class JobCompletionReportDetailRead(JobCompletionReportRead):
 
 
 class ProjectSettingsRead(Phase12Wire):
+    code_review_required_min_priority: Annotated[StrictInt, Field(ge=0, le=100, multiple_of=5)]
+    code_review_optional_min_priority: Annotated[StrictInt, Field(ge=0, le=100, multiple_of=5)]
+    allow_remediation_code_reviews: StrictBool
     project_id: UUID
     recall_pointer_template: Annotated[StrictStr, Field(min_length=1, max_length=100000)] | None
     job_completion_report_prompt: ReportPrompt
@@ -209,6 +212,8 @@ WorkEventType = Literal[
     "work_released", "checkpoint_added", "progress", "dependency_added", "dependency_removed",
     "relationship_added", "relationship_removed", "work_completed", "work_deleted", "work_merged",
     "work_moved", "human_attention_requested", "human_attention_resolved",
+    "work_follow_up_requested", "work_follow_up_answered", "work_follow_up_superseded",
+    "code_review_requested", "code_review_completed", "code_review_superseded",
 ]
 ActivityKind = Literal[
     "work_event", "project_created", "project_updated", "project_settings_updated", "lease_renewed",

@@ -76,6 +76,16 @@ redirect, relationship, or hidden creation veto.
 
 ## Discover actionable candidates
 
+Review discovery is separate: use
+`list_code_reviews(state="requested", availability="unclaimed")` for original
+Done items needing review and `list_work_follow_ups` for unanswered post-Done
+recommendations. Keep the exact project/work/review identities and cursor
+filters. These reads do not grant execution authority or acquire a lease.
+Follow [code-reviews.md](${CLAUDE_PLUGIN_ROOT}/reference/code-reviews.md) and the
+recall skill's temperature branch when selected. Never perform ordinary recall
+before a cold attempt, create a review work item, or fan out findings. Remediation
+lineage is immutable and cannot be removed to make deeper work reviewable.
+
 When explaining priority or choosing a priority threshold, read
 [priority.md](${CLAUDE_PLUGIN_ROOT}/reference/priority.md). Historical scores may
 predate the rubric; do not silently rescore them or treat a low score as proof

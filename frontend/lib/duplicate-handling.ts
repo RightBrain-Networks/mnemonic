@@ -1,4 +1,5 @@
 import { validSparseReferences, referenceKeys } from "./external-references.ts";
+import { decodeCodeReviewContext } from "./code-reviews.ts";
 import type {
   AdjacentRelationshipRead,
   CanonicalWorkProjection,
@@ -87,8 +88,8 @@ const CONTEXT_FIELDS = [
 export const DUPLICATE_HANDLING_DECODER_FIELDS = {
   decodeWorkPointer: [...WORK_POINTER_FIELDS, "external_references"],
   decodeCanonicalWorkProjection: PROJECTION_FIELDS,
-  decodeWorkContext: CONTEXT_FIELDS,
-  decodeWorkItemDetail: DETAIL_FIELDS,
+  decodeWorkContext: [...CONTEXT_FIELDS, "code_review_context"],
+  decodeWorkItemDetail: [...DETAIL_FIELDS, "code_review_context"],
   "decodeWorkSearchPage:item": SEARCH_HIT_FIELDS,
   decodeWorkSearchPage: PAGE_FIELDS
 } as const;
@@ -179,7 +180,7 @@ export function decodeWorkItemDetail(
   workItemId: string
 ): WorkItemDetailRead {
   const detail = objectValue(value);
-  if (!detail || !exactKeys(detail, DETAIL_FIELDS)) {
+  if (!detail || !exactKeys(detail, [...DETAIL_FIELDS, ...(Object.hasOwn(detail, "code_review_context") ? ["code_review_context"] : [])])) {
     throw new Error("Mnemonic returned an invalid work-item detail.");
   }
   const workItem = decodeWorkItem(
@@ -190,7 +191,8 @@ export function decodeWorkItemDetail(
   );
   return {
     work_item: workItem,
-    canonical: decodeCanonicalWorkProjection(detail.canonical, workItem)
+    canonical: decodeCanonicalWorkProjection(detail.canonical, workItem),
+    ...(Object.hasOwn(detail, "code_review_context") ? { code_review_context: decodeCodeReviewContext(detail.code_review_context, projectId, workItemId) } : {})
   };
 }
 
@@ -342,7 +344,7 @@ export function decodeWorkContext(
   workItemId: string
 ): WorkContext {
   const context = objectValue(value);
-  if (!context || !exactKeys(context, CONTEXT_FIELDS)) {
+  if (!context || !exactKeys(context, [...CONTEXT_FIELDS, ...(Object.hasOwn(context, "code_review_context") ? ["code_review_context"] : [])])) {
     throw new Error("Mnemonic returned an invalid work context.");
   }
   const workItem = decodeWorkItem(
@@ -548,6 +550,7 @@ export function decodeWorkContext(
   return {
     work_item: workItem,
     merge_review_revision: revision,
+    ...(Object.hasOwn(context, "code_review_context") ? { code_review_context: decodeCodeReviewContext(context.code_review_context, projectId, workItemId) } : {}),
     canonical,
     duplicate_members: duplicateMembers,
     duplicate_member_total: context.duplicate_member_total,

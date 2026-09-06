@@ -11,6 +11,7 @@ export type DetailTabName =
   | "Evidence"
   | "Graph"
   | "Questions"
+  | "Code review"
   | "Activity";
 
 export function workPane(page: Page): Locator {
@@ -43,5 +44,5 @@ export async function openTab(pane: Locator, name: DetailTabName): Promise<Locat
   const tab = pane.getByRole("tab", { name: new RegExp(`^${name}`) });
   await tab.click();
   await expect(tab).toHaveAttribute("aria-selected", "true");
-  return pane.locator(`#detail-panel-${name.toLowerCase()}`);
+  return pane.locator(`#detail-panel-${name === "Code review" ? "reviews" : name.toLowerCase()}`);
 }

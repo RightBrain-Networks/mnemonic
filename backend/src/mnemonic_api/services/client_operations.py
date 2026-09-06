@@ -32,6 +32,9 @@ from mnemonic_api.schemas import (
     APIModel,
     CheckpointCreate,
     CheckpointRead,
+    CodeReviewCompletionCreate,
+    CodeReviewCompletionRead,
+    CodeReviewCompletionRequest,
     HumanGateRead,
     HumanGateRequestCreate,
     HumanGateResolutionCreate,
@@ -59,6 +62,9 @@ from mnemonic_api.schemas import (
     WorkDeletionCreate,
     WorkDeletionRead,
     WorkEventRead,
+    WorkFollowUpResponseCreate,
+    WorkFollowUpResponseRequest,
+    WorkFollowUpResponseResult,
     WorkItemCreate,
     WorkItemPatch,
     WorkItemRead,
@@ -87,8 +93,10 @@ type OperationKind = Literal[
     "merge_work",
     "dismiss_job_completion_report",
     "create_job_completion_report_follow_up",
+    "respond_to_work_follow_up", "complete_code_review",
 ]
 REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
+    "respond_to_work_follow_up", "complete_code_review",
     "create_work",
     "add_checkpoint",
     "append_event",
@@ -188,6 +196,14 @@ def _spec(
 
 
 _REGISTRY: dict[OperationKind, OperationSpec] = {
+    "respond_to_work_follow_up": _spec(
+        "respond_to_work_follow_up", WorkFollowUpResponseCreate, WorkFollowUpResponseResult,
+        200, "work_item_id", "follow_up_id", domain_model=WorkFollowUpResponseRequest,
+    ),
+    "complete_code_review": _spec(
+        "complete_code_review", CodeReviewCompletionCreate, CodeReviewCompletionRead,
+        200, "work_item_id", "review_id", domain_model=CodeReviewCompletionRequest,
+    ),
     "create_work": _spec("create_work", WorkItemCreate, WorkCreation, 201),
     "add_checkpoint": _spec(
         "add_checkpoint", CheckpointCreate, CheckpointRead, 201, "work_item_id"
@@ -439,6 +455,7 @@ def prepare_client_operation(
             known_secret_values=known_secret_values,
         )
     reject_report_secret_substrings(payload, known_secret_values=known_secret_values)
+    reject_review_secret_substrings(payload, known_secret_values=known_secret_values)
     reject_reference_secret_substrings(payload, known_secret_values=known_secret_values)
     forbidden_response_values = reject_client_operation_secret_echo(
         payload, known_secret_values=known_secret_values
@@ -523,6 +540,30 @@ def reject_reference_secret_substrings(
     for reference in references:
         for value in (reference.url, reference.label or ""):
             if any(secret in value for secret in secrets_to_check) or any(
+                spelling in value.casefold() for spelling in spellings
+            ):
+                raise client_operation_secret_echo()
+
+
+def reject_review_secret_substrings(
+    payload: APIModel, *, known_secret_values: Iterable[str] = (),
+) -> None:
+    values = {secret for secret in known_secret_values if secret}
+    token = getattr(payload, "lease_token", None)
+    if token:
+        values.add(token)
+    operation_id = getattr(payload, "client_operation_id", None)
+    spellings: set[str] = set()
+    if operation_id is not None:
+        identifier = str(operation_id)
+        spellings = {identifier, identifier.replace("-", ""), "urn:uuid:" + identifier,
+                     "{" + identifier + "}"}
+    for field_name in ("code_review_handoff", "answer", "result"):
+        content = getattr(payload, field_name, None)
+        if content is None:
+            continue
+        for value in _nested_strings(content.model_dump(mode="json")):
+            if any(secret in value for secret in values) or any(
                 spelling in value.casefold() for spelling in spellings
             ):
                 raise client_operation_secret_echo()
@@ -972,6 +1013,8 @@ def _update_work_matches(
         "actor",
         "client_operation_id",
         "job_completion_report",
+        "supersede_code_review_id", "expected_code_review_version",
+        "supersede_follow_up_id", "expected_follow_up_version",
     }
     return (
         _report_matches(result.job_completion_report, request.job_completion_report, request.actor)
@@ -1080,6 +1123,7 @@ def _complete_work_matches(
         and result.checkpoint.kind == "completion"
         and _checkpoint_matches_payload(result.checkpoint, request.checkpoint)
         and _completion_evidence_matches(result, request)
+        and result.code_review_handoff == request.code_review_handoff
         and _report_matches(result.job_completion_report, request.job_completion_report,
             MutationActor(actor_client=request.checkpoint.source_client,
                           actor_session_id=request.checkpoint.source_session_id,
@@ -1286,6 +1330,8 @@ def _follow_up_matches(project_id: UUID, target: Mapping[str, str],
 
 _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
     {
+        "respond_to_work_follow_up": lambda p, t, q, r: _follow_up_response_matches(p, t, q, r),
+        "complete_code_review": lambda p, t, q, r: _review_completion_matches(p, t, q, r),
         "create_work": _create_work_matches,
         "add_checkpoint": _add_checkpoint_matches,
         "append_event": _append_event_matches,
@@ -1306,6 +1352,45 @@ _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
 )
 if set(_RESPONSE_MATCHERS) != set(OPERATION_REGISTRY):  # pragma: no cover - import guard
     raise RuntimeError("Every registered operation needs a response coherence check")
+
+
+def _follow_up_response_matches(project_id: UUID, target: Mapping[str, str],
+                                  payload: APIModel, typed: APIModel) -> bool:
+    request = cast(WorkFollowUpResponseRequest, payload)
+    result = cast(WorkFollowUpResponseResult, typed)
+    answer = result.answer
+    return (
+        result.follow_up.project_id == project_id
+        and str(result.follow_up.work_item_id) == target.get("work_item_id")
+        and str(result.follow_up.id) == target.get("follow_up_id")
+        and result.follow_up.version == request.expected_follow_up_version + 1
+        and answer.recommend_review == request.answer.recommend_review
+        and answer.rationale == request.answer.rationale
+        and result.code_review_handoff == request.answer.code_review_handoff
+        and (answer.actor_client, answer.actor_session_id, answer.actor_model) == (
+            request.actor.actor_client, request.actor.actor_session_id, request.actor.actor_model)
+    )
+
+
+def _review_completion_matches(project_id: UUID, target: Mapping[str, str],
+                                payload: APIModel, typed: APIModel) -> bool:
+    from mnemonic_api.services.code_review_records import result_input
+
+    request = cast(CodeReviewCompletionRequest, payload)
+    result = cast(CodeReviewCompletionRead, typed)
+    return (
+        result.review.project_id == project_id
+        and str(result.review.work_item_id) == target.get("work_item_id")
+        and str(result.review.id) == target.get("review_id")
+        and result.review.version == request.expected_review_version + 1
+        and result.result.scope_sha256 == request.scope_sha256
+        and result_input(result.result) == request.result
+        and (
+            result.result.actor_client, result.result.actor_session_id, result.result.actor_model,
+        ) == (
+            request.actor.actor_client, request.actor.actor_session_id, request.actor.actor_model,
+        )
+    )
 
 
 def _response_matches_operation(

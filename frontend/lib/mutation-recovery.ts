@@ -14,6 +14,7 @@ export const mutationLabels: Record<MutationIntentSummary["kind"], string> = {
   update_work: "Update work",
   defer_work: "Defer work",
   complete_work: "Complete work",
+  respond_to_work_follow_up: "Answer review recommendation",
   delete_work: "Delete work",
   move_work: "Move work",
   remove_relationship: "Remove relationship",

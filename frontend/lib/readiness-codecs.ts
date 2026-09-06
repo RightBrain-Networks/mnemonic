@@ -29,7 +29,7 @@ const READINESS_FIELDS = [
 ] as const;
 
 export const READINESS_DECODER_FIELDS = {
-  decodeLease: LEASE_FIELDS,
+  decodeLease: [...LEASE_FIELDS, "purpose", "code_review_id", "mode"],
   decodeReadiness: READINESS_FIELDS
 } as const;
 
@@ -38,7 +38,9 @@ function decodeLease(value: unknown): LeasePublic | null {
   const lease = objectValue(value);
   if (
     !lease
-    || !exactKeys(lease, LEASE_FIELDS)
+    || !exactKeys(lease, [...LEASE_FIELDS, ...["purpose", "code_review_id", "mode"].filter((key) => Object.hasOwn(lease, key))])
+    || (Object.hasOwn(lease, "purpose") || Object.hasOwn(lease, "code_review_id") || Object.hasOwn(lease, "mode"))
+      && (lease.purpose !== "code_review" || !validUuid(lease.code_review_id) || !["cold", "warm"].includes(String(lease.mode)))
     || !boundedText(lease.holder_client, 80)
     || !boundedText(lease.holder_session_id, 200)
     || !validUtcDateTime(lease.acquired_at)

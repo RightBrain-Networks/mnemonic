@@ -1,5 +1,11 @@
 # Job completion reports and project activity
 
+Code review results are not implementation closeouts and do not create a second
+job report. See [code-reviews.md](${CLAUDE_PLUGIN_ROOT}/reference/code-reviews.md)
+for mandatory handoff and durable post-Done agent questions. Any review-policy
+settings change also changes the report revision. Agent review findings must
+never use the human report-follow-up endpoint to bypass single-item remediation.
+
 Shared by `mnemonic-save`, `mnemonic-recall`, and `mnemonic-search`.
 
 ## Author a report for every closeout

@@ -311,6 +311,8 @@ def stage_work_claimed(
     lease_generation_id: UUID,
     acquired_at: datetime,
     expires_at: datetime,
+    code_review_id: UUID | None = None,
+    mode: str | None = None,
 ) -> WorkEvent:
     event = _event(
         project_id=work_item.project_id,
@@ -323,8 +325,10 @@ def stage_work_claimed(
         ),
         created_at=acquired_at,
         lease_generation_id=lease_generation_id,
-        metadata={"expires_at": utc_iso(expires_at)},
+        metadata={"expires_at": utc_iso(expires_at), **({"purpose": "code_review",
+                  "code_review_id": str(code_review_id), "mode": mode} if code_review_id else {})},
     )
+    event.code_review_id = code_review_id
     database.add(event)
     return event
 
@@ -339,6 +343,8 @@ def stage_work_released(
     lease_holder_session_id: str,
     actor: MutationActor | None,
     created_at: datetime,
+    code_review_id: UUID | None = None,
+    mode: str | None = None,
 ) -> WorkEvent:
     metadata: dict[str, JsonValue]
     if lease_holder_client.strip() and lease_holder_session_id.strip():
@@ -349,6 +355,8 @@ def stage_work_released(
         }
     else:
         metadata = {"lease_holder_kind": "unattributed"}
+    if code_review_id is not None:
+        metadata.update(purpose="code_review", code_review_id=str(code_review_id), mode=mode)
     event = _event(
         project_id=work_item.project_id,
         work_item_id=work_item.id,
@@ -359,6 +367,7 @@ def stage_work_released(
         lease_release_id=lease_release_id,
         metadata=metadata,
     )
+    event.code_review_id = code_review_id
     database.add(event)
     return event
 
@@ -583,6 +592,12 @@ def work_event_read(event: WorkEvent) -> WorkEventRead:
         )
     return WorkEventRead.model_validate(
         {
+            **{
+                field: getattr(event, field)
+                for field in ("code_review_id", "work_follow_up_id",
+                              "work_follow_up_answer_id", "code_review_result_id")
+                if getattr(event, field) is not None
+            },
             "id": event.id,
             "project_id": event.project_id,
             "work_item_id": event.work_item_id,
@@ -647,6 +662,8 @@ def list_work_events(
                     event.checkpoint_id,
                     event.lease_generation_id,
                     event.lease_release_id,
+                    event.code_review_id, event.work_follow_up_id,
+                    event.work_follow_up_answer_id, event.code_review_result_id,
                     event.relationship_id,
                     event.relationship_source_work_item_id,
                     event.relationship_target_work_item_id,
@@ -677,6 +694,8 @@ def list_work_events(
                     paged.checkpoint_id,
                     paged.lease_generation_id,
                     paged.lease_release_id,
+                    paged.code_review_id, paged.work_follow_up_id,
+                    paged.work_follow_up_answer_id, paged.code_review_result_id,
                     paged.relationship_id,
                     paged.relationship_source_work_item_id,
                     paged.relationship_target_work_item_id,

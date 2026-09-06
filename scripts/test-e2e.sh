@@ -90,5 +90,5 @@ trap 'exit 130' INT TERM
 docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" up -d --build --wait
 (
   cd -- "$repo_root/frontend"
-  npm run test:e2e
+  npm run test:e2e -- "$@"
 )

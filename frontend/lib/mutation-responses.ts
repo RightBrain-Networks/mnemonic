@@ -56,6 +56,8 @@ import {
 
 import { decodeReportDismissal, decodeReportFollowUp, matchCloseoutReport } from "./job-completion-reports.ts";
 import { readBoundedJson } from "./bounded-json.ts";
+import { decodeCodeReview, decodeReviewPolicy, decodeWorkFollowUp, decodeFollowUpAnswerResult, validFollowUpAnswer, validReviewHandoff, type FollowUpAnswerResult } from "./code-reviews.ts";
+import type { MutationActor } from "./types.ts";
 
 export const MUTATION_KINDS = [
   "create_work",
@@ -65,6 +67,7 @@ export const MUTATION_KINDS = [
   "update_work",
   "defer_work",
   "complete_work",
+  "respond_to_work_follow_up",
   "delete_work",
   "move_work",
   "remove_relationship",
@@ -84,6 +87,7 @@ export interface MutationResultByKind {
   update_work: WorkUpdate;
   defer_work: WorkItem;
   complete_work: CompletionResult;
+  respond_to_work_follow_up: FollowUpAnswerResult;
   delete_work: DeletionResult;
   move_work: WorkMoveResult;
   remove_relationship: RelationshipRemovalResult;
@@ -110,7 +114,7 @@ export type MutationHttpOutcome<K extends MutationKind = MutationKind> =
   | { readonly type: "unresolved"; readonly message: string };
 
 const WORK_COMPLETION_RESPONSE_FIELDS = [
-  "work_item", "checkpoint", "completion_evidence", "job_completion_report"
+  "work_item", "checkpoint", "completion_evidence", "job_completion_report", "review_policy_decision", "code_review_request", "agent_follow_ups", "code_review_handoff"
 ] as const;
 
 export const MUTATION_RESPONSE_DECODER_FIELDS = {
@@ -124,6 +128,7 @@ const EXPECTED_STATUS: Record<MutationKind, number> = {
   update_work: 200,
   defer_work: 200,
   complete_work: 200,
+  respond_to_work_follow_up: 200,
   delete_work: 200,
   move_work: 200,
   remove_relationship: 200,
@@ -146,10 +151,14 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "work_item_not_found",
     "checkpoint_not_found",
     "relationship_not_found",
-    "gate_not_found", "job_completion_report_not_found"
+    "gate_not_found", "job_completion_report_not_found", "code_review_not_found", "work_follow_up_not_found"
   ])],
   [409, new Set([
     "job_report_prompt_changed", "project_settings_changed",
+    "work_follow_up_changed", "work_follow_up_superseded", "work_follow_up_origin_mismatch", "work_follow_up_already_answered",
+    "code_review_not_requested", "code_review_superseded", "code_review_changed", "code_review_already_completed",
+    "code_review_depth_forbidden", "code_review_remediation_disabled", "lease_purpose_mismatch",
+    "code_review_obligation_outstanding", "code_review_provenance_merge_forbidden",
     "version_conflict",
     "invalid_status_transition",
     "work_not_pending",
@@ -185,6 +194,7 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
   ])],
   [422, new Set([
     "event_secret_echo", "client_operation_secret_echo", "gate_secret_echo",
+    "code_review_handoff_required", "code_review_handoff_not_applicable", "work_follow_up_answer_invalid", "code_review_scope_mismatch", "code_review_coverage_incomplete",
     "merge_secret_echo", "job_completion_report_required", "job_completion_report_not_applicable", "client_operation_id_required",
     "initial_status_must_be_pending", "job_report_secret_echo"
   ])],
@@ -592,7 +602,8 @@ function decodeSuccess<K extends MutationKind>(
       || !exactKeys(
         result,
         ["work_item", "checkpoint", ...(expectedEvidence ? ["completion_evidence"] : []),
-          ...(Object.hasOwn(body, "job_completion_report") ? ["job_completion_report"] : [])]
+          ...(Object.hasOwn(body, "job_completion_report") ? ["job_completion_report"] : []),
+          ...["review_policy_decision", "code_review_request", "agent_follow_ups", "code_review_handoff"].filter((key) => Object.hasOwn(result, key))]
       )
     ) {
       throw new Error("Mnemonic returned an invalid mutation response.");
@@ -622,6 +633,32 @@ function decodeSuccess<K extends MutationKind>(
         body.checkpoint, checkpoint.id
       );
     }
+    if (Object.hasOwn(result, "review_policy_decision")) {
+      const policy = decodeReviewPolicy(result.review_policy_decision, path.projectId, path.workItemId);
+      if (!sameUuid(policy.completion_checkpoint_id, checkpoint.id) || policy.priority_at_closeout !== workItem.priority
+        || policy.settings_revision !== objectValue(body.job_completion_report)?.prompt_revision) throw new Error("Mnemonic returned an incoherent review policy.");
+      const review = result.code_review_request === undefined ? undefined : decodeCodeReview(result.code_review_request, path.projectId, path.workItemId);
+      const followUps = result.agent_follow_ups === undefined ? undefined : Array.isArray(result.agent_follow_ups)
+        ? result.agent_follow_ups.map((entry) => decodeWorkFollowUp(entry, path.projectId, path.workItemId)) : null;
+      if ((policy.decision === "mandatory") !== Boolean(review)
+        || (policy.decision === "ask_recommendation") !== Boolean(followUps)
+        || followUps && (followUps.length !== 1 || !sameUuid(followUps[0]!.kind_data.policy_decision_id, policy.id)
+          || !sameUuid(followUps[0]!.completion_checkpoint_id, checkpoint.id) || followUps[0]!.state !== "pending")
+        || review && (!sameUuid(review.policy_decision_id, policy.id) || !sameUuid(review.completion_checkpoint_id, checkpoint.id)
+          || review.state !== "requested" || review.request_reason !== "mandatory" || !Object.hasOwn(body, "code_review_handoff"))
+        || Boolean(review) !== Object.hasOwn(result, "code_review_handoff")
+        || review && (!validReviewHandoff(result.code_review_handoff) || !jsonEqual(result.code_review_handoff, body.code_review_handoff))) {
+        throw new Error("Mnemonic returned incoherent completion review resources.");
+      }
+      Object.assign(decoded as CompletionResult, { review_policy_decision: policy, ...(review ? { code_review_request: review, code_review_handoff: result.code_review_handoff } : {}), ...(followUps ? { agent_follow_ups: followUps } : {}) });
+    } else if (result.code_review_request !== undefined || result.agent_follow_ups !== undefined || body.code_review_handoff !== undefined) {
+      throw new Error("Mnemonic omitted the review policy.");
+    }
+  } else if (request.kind === "respond_to_work_follow_up") {
+    const uuid = UUID_PATTERN.source.slice(1, -1);
+    const match = new RegExp(`^/projects/(${uuid})/work-items/(${uuid})/agent-follow-ups/(${uuid})/answer$`).exec(request.path);
+    if (!match || !finiteInteger(body.expected_follow_up_version, 1) || !validFollowUpAnswer(body.answer) || !objectValue(body.actor)) throw new Error("The frozen follow-up answer is invalid.");
+    decoded = decodeFollowUpAnswerResult(value, match[1]!, match[2]!, match[3]!, body.expected_follow_up_version, body.answer, body.actor as unknown as MutationActor);
   } else if (request.kind === "dismiss_job_completion_report" || request.kind === "create_job_completion_report_follow_up") {
     const uuid = UUID_PATTERN.source.slice(1, -1);
     const suffix = request.kind === "dismiss_job_completion_report" ? "dismiss" : "follow-ups";
@@ -839,7 +876,7 @@ export async function classifyMutationResponse<K extends MutationKind>(
 ): Promise<MutationHttpOutcome<K>> {
   let value: unknown;
   try {
-    value = await readBoundedJson(response, 3_145_728);
+    value = await readBoundedJson(response, request.kind === "respond_to_work_follow_up" ? 1_048_576 : 3_145_728);
   } catch {
     return {
       type: "unresolved",

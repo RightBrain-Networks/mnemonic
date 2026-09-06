@@ -139,10 +139,18 @@ provenance.
 
 ## Retain protected mutation intents privately
 
-These eleven canonical mutations require a caller-generated
+These thirteen canonical mutations require a caller-generated
 `client_operation_id`: `create_work`, `add_checkpoint`, `append_event`,
 `add_relationship`, `update_work`, `complete_work`, `delete_work`,
-`remove_relationship`, `release_claim`, `request_human_input`, and `merge_work`.
+`remove_relationship`, `release_claim`, `request_human_input`, `merge_work`,
+`respond_to_work_follow_up`, and `complete_code_review`.
+
+Review leases are purpose-bound to the original Done work and exact review
+episode, never implementation capabilities. Cold review recovery must not read
+context before independent findings freeze; follow
+[code-reviews.md](${CLAUDE_PLUGIN_ROOT}/reference/code-reviews.md) for the minimal
+coordination exception. An optional recommendation answer belongs to its
+originating client/session; do not impersonate an abandoned author.
 
 Before the first attempt, generate one fresh UUID and retain it together with
 the complete tool name and complete immutable argument object in secure,

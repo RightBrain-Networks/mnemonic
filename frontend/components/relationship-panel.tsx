@@ -210,6 +210,10 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
 
   async function removeRelationship(relationship: AdjacentRelationshipRead) {
     if (removingId || saving) return;
+    if (context.code_review_context?.remediation_origin?.relationship_id === relationship.relationship.id) {
+      setActionError("Review remediation provenance is permanent and cannot be removed.");
+      return;
+    }
     const id = relationship.relationship.id;
     setRemovingId(id);
     setActionError("");
@@ -262,7 +266,7 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
               <ExternalReferences references={relationship.counterpart.external_references} />
               {relationship.relationship.context_checkpoint_id && <span className="mono" title={relationship.relationship.context_checkpoint_id}>Context checkpoint {relationship.relationship.context_checkpoint_id}</span>}
             </div>
-            <button type="button" className="button button-secondary relationship-remove" aria-label={`Remove ${relationshipGroup(relationship)} relationship with ${relationship.counterpart.title}`} disabled={saving || Boolean(removingId) || mutationBlocked || relationship.counterpart.readiness.is_duplicate} title={mutationBlocked || relationship.counterpart.readiness.is_duplicate ? "Relationships incident to an immutable duplicate cannot be removed." : undefined} onClick={() => void removeRelationship(relationship)}>{removingId === relationship.relationship.id ? "Removing…" : "Remove"}</button>
+            <button type="button" className="button button-secondary relationship-remove" aria-label={`Remove ${relationshipGroup(relationship)} relationship with ${relationship.counterpart.title}`} disabled={saving || Boolean(removingId) || mutationBlocked || relationship.counterpart.readiness.is_duplicate || context.code_review_context?.remediation_origin?.relationship_id === relationship.relationship.id} title={context.code_review_context?.remediation_origin?.relationship_id === relationship.relationship.id ? "Review remediation provenance is permanent." : mutationBlocked || relationship.counterpart.readiness.is_duplicate ? "Relationships incident to an immutable duplicate cannot be removed." : undefined} onClick={() => void removeRelationship(relationship)}>{context.code_review_context?.remediation_origin?.relationship_id === relationship.relationship.id ? "Review provenance" : removingId === relationship.relationship.id ? "Removing…" : "Remove"}</button>
           </article>)}</div>
         </section>;
       })}</div>}

@@ -34,6 +34,7 @@ export function currentManualStatusAction(
   status: WorkStatus,
   readiness: Readiness
 ): ManualStatusAction | null {
+  if (readiness.active_lease?.purpose === "code_review" || status === "done") return status === "deferred" ? "defer" : status;
   if (readiness.has_active_lease) return "active";
   if (readiness.has_dropped_lease) return null;
   return status === "deferred" ? "defer" : status;
@@ -52,6 +53,9 @@ export function statusActionDisabledReason(
   readiness: Readiness,
   reportSettingsReady: boolean
 ): string | null {
+  if (readiness.active_lease?.purpose === "code_review") {
+    return "Use Reopen work to explicitly supersede this review before changing implementation status.";
+  }
   if (action === "active" && readiness.is_gated) {
     return "Resolve every human question before marking this work Active.";
   }

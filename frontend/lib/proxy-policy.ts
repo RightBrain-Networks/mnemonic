@@ -1,5 +1,7 @@
 import { validExternalCandidates, validExternalReferences } from "./external-references.ts";
 import { validHumanGateRevision, validMergeReviewRevision } from "./revision-codecs.ts";
+import { validReviewThreshold } from "./code-review-policy.ts";
+import { validFollowUpAnswer, validReviewHandoff } from "./code-reviews.ts";
 import {
   UUID_PATTERN,
   boundedText,
@@ -104,6 +106,7 @@ export const DEFINITIVE_PROXY_ERRORS = {
     status: 400,
     detail: "The work-completion body does not match the dashboard allowlist."
   },
+  invalidWorkFollowUp: { status: 400, detail: "The follow-up answer does not match the dashboard allowlist." },
   invalidHumanGateResolution: {
     status: 400,
     detail: "The human-gate resolution body does not match the dashboard allowlist."
@@ -188,6 +191,10 @@ const WORK_GATES = new RegExp(`^projects/${UUID}/work-items/${UUID}/gates$`);
 const GATE_CONTEXT = new RegExp(`^projects/${UUID}/work-items/${UUID}/gates/${UUID}/context$`);
 const GATE_RESOLVE = new RegExp(`^projects/${UUID}/work-items/${UUID}/gates/${UUID}/resolve$`);
 const LEASE_CAPABILITY = new RegExp(`^projects/${UUID}/work-items/${UUID}/(?:claim|claim-and-recall|renew-claim|release-claim)$`);
+const REVIEW_LIST = new RegExp(`^projects/${UUID}/(?:code-reviews|work-agent-follow-ups)$`);
+const REVIEW_DETAIL = new RegExp(`^projects/${UUID}/work-items/${UUID}/code-reviews/${UUID}$`);
+const FOLLOW_UP_DETAIL = new RegExp(`^projects/${UUID}/work-items/${UUID}/agent-follow-ups/${UUID}$`);
+const FOLLOW_UP_ANSWER = new RegExp(`^projects/${UUID}/work-items/${UUID}/agent-follow-ups/${UUID}/answer$`);
 const RESERVED_METADATA_KEYS = new Set([
   "lease_token",
   "claim_request_id",
@@ -227,6 +234,9 @@ const FORBIDDEN_CONTROL_TRANSPORT_NAMES = new Set([
 export function allowedQueryKeys(path: string, method: string): string[] | null {
   // Lease receipts and arguments carry browser-forbidden capabilities.
   if (LEASE_CAPABILITY.test(path)) return null;
+  if (REVIEW_LIST.test(path) && method === "GET") return ["state", "availability", "work_item_id", "after", "limit"];
+  if ((REVIEW_DETAIL.test(path) || FOLLOW_UP_DETAIL.test(path)) && method === "GET") return [];
+  if (FOLLOW_UP_ANSWER.test(path) && method === "POST") return [];
   if (PROJECT_ACTIVITY.test(path) && method === "GET") return ["after", "start", "limit"];
   if (JOB_REPORT_COUNT.test(path) && method === "GET") return [];
   if (JOB_REPORTS.test(path) && method === "GET") return ["dismissal", "work_item_id", "limit", "cursor"];
@@ -337,6 +347,15 @@ function validActor(value: unknown): boolean {
       || boundedText(actor.actor_model, 120));
 }
 
+function validReviewSupersession(body: Record<string, unknown>): boolean {
+  const review = "supersede_code_review_id" in body || "expected_code_review_version" in body;
+  const question = "supersede_follow_up_id" in body || "expected_follow_up_version" in body;
+  if (!review && !question) return true;
+  if (review && question || body.status !== "pending") return false;
+  return review ? validUuid(body.supersede_code_review_id) && finiteInteger(body.expected_code_review_version, 1, 2147483647)
+    : validUuid(body.supersede_follow_up_id) && finiteInteger(body.expected_follow_up_version, 1, 2147483647);
+}
+
 function validExpectedActiveLease(value: unknown): boolean {
   const lease = jsonObject(value);
   return Boolean(
@@ -421,7 +440,8 @@ function nestedClientOperationField(value: unknown, root = true): boolean {
 }
 
 function coveredMutation(path: string, method: string): boolean {
-  return method === "POST" && WORK_ITEMS.test(path)
+  return method === "POST" && FOLLOW_UP_ANSWER.test(path)
+    || method === "POST" && WORK_ITEMS.test(path)
     || method === "POST" && CHECKPOINTS.test(path)
     || method === "POST" && WORK_EVENTS.test(path)
     || method === "POST" && RELATIONSHIPS.test(path)
@@ -575,11 +595,13 @@ export function invalidMutationBody(path: string, method: string, value: unknown
     if (
       !allowedKeys(body, [
         "expected_version", "title", "summary", "priority", "status", "actor", "job_completion_report", "external_references",
+        "supersede_code_review_id", "expected_code_review_version", "supersede_follow_up_id", "expected_follow_up_version",
         CLIENT_OPERATION_FIELD
       ])
       || !finiteInteger(body.expected_version, 1)
       || !validActor(body.actor)
       || (Object.hasOwn(body, "job_completion_report") && !validJobReportInput(body.job_completion_report))
+      || !validReviewSupersession(body)
       || !["title", "summary", "priority", "status", "external_references"].some((key) => key in body)
       || (Object.hasOwn(body, "external_references") && !validExternalReferences(body.external_references))
       || (body.title !== undefined && !boundedText(body.title, 200))
@@ -628,9 +650,12 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   }
   if (PROJECT_SETTINGS.test(path) && method === "PATCH") {
     if (
-      !allowedKeys(body, ["expected_revision", "recall_pointer_template", "job_completion_report_prompt"])
+      !allowedKeys(body, ["expected_revision", "recall_pointer_template", "job_completion_report_prompt", "code_review_required_min_priority", "code_review_optional_min_priority", "allow_remediation_code_reviews"])
       || !decimalString(body.expected_revision, true)
-      || !(Object.hasOwn(body, "recall_pointer_template") || Object.hasOwn(body, "job_completion_report_prompt"))
+      || !["recall_pointer_template", "job_completion_report_prompt", "code_review_required_min_priority", "code_review_optional_min_priority", "allow_remediation_code_reviews"].some((field) => Object.hasOwn(body, field))
+      || (Object.hasOwn(body, "code_review_required_min_priority") && !validReviewThreshold(body.code_review_required_min_priority))
+      || (Object.hasOwn(body, "code_review_optional_min_priority") && !validReviewThreshold(body.code_review_optional_min_priority))
+      || (Object.hasOwn(body, "allow_remediation_code_reviews") && typeof body.allow_remediation_code_reviews !== "boolean")
       || (Object.hasOwn(body, "recall_pointer_template") && body.recall_pointer_template !== null
         && !boundedText(body.recall_pointer_template, 100000))
       || (Object.hasOwn(body, "job_completion_report_prompt") && body.job_completion_report_prompt !== null
@@ -689,13 +714,20 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   if (WORK_COMPLETE.test(path) && method === "POST") {
     if (
       !allowedKeys(body, [
-        "expected_version", "checkpoint", "completion_evidence", "job_completion_report", CLIENT_OPERATION_FIELD
+        "expected_version", "checkpoint", "completion_evidence", "job_completion_report", "code_review_handoff", CLIENT_OPERATION_FIELD
       ])
       || !finiteInteger(body.expected_version, 1, COMPLETION_EXPECTED_VERSION_MAX)
       || !validCheckpointPayload(body.checkpoint, false)
       || completionEvidenceIssues(body.completion_evidence).length > 0
       || (Object.hasOwn(body, "job_completion_report") && !validJobReportInput(body.job_completion_report))
+      || (Object.hasOwn(body, "code_review_handoff") && !validReviewHandoff(body.code_review_handoff))
     ) return DEFINITIVE_PROXY_ERRORS.invalidWorkCompletion.detail;
+  }
+  if (FOLLOW_UP_ANSWER.test(path) && method === "POST") {
+    if (!allowedKeys(body, ["expected_follow_up_version", "actor", "answer", CLIENT_OPERATION_FIELD])
+      || !finiteInteger(body.expected_follow_up_version, 1, 2147483647)
+      || !validActor(body.actor) || jsonObject(body.actor)?.actor_client !== "dashboard"
+      || !validFollowUpAnswer(body.answer)) return DEFINITIVE_PROXY_ERRORS.invalidWorkFollowUp.detail;
   }
   if (GATE_RESOLVE.test(path) && method === "POST") {
     if (
@@ -866,6 +898,10 @@ export function trustedRequest(headers: Headers, method: string, origins: Set<st
 
 
 export function phase12ResponseLimitBytes(path: string, method = "GET"): number | null {
+  if (REVIEW_LIST.test(path)) return 524_288;
+  if (REVIEW_DETAIL.test(path)) return 786_432;
+  if (FOLLOW_UP_DETAIL.test(path)) return 65_536;
+  if (FOLLOW_UP_ANSWER.test(path)) return 1_048_576;
   if (PROJECT_ACTIVITY.test(path)) return 524_288;
   if (JOB_REPORT_COUNT.test(path)) return 1_024;
   if (JOB_REPORTS.test(path)) return 2_097_152;

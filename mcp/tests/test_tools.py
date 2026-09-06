@@ -621,6 +621,8 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {
+        "list_code_reviews", "get_code_review", "complete_code_review",
+        "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
         "get_activity",
         "get_project_settings",
         "list_job_completion_reports",
@@ -709,6 +711,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "request_human_input",
         "merge_work",
     }
+    protected |= {"respond_to_work_follow_up", "complete_code_review"}
     mutating = protected | {
         "create_project",
         "claim_work",
@@ -722,7 +725,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 32
+    assert len(tools) == 38
     for name in mutating:
         assert tools[name].annotations.idempotentHint is (name in protected)
     for name in tools.keys() - mutating:
@@ -747,6 +750,7 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}
     protected = {
+        "respond_to_work_follow_up", "complete_code_review",
         "create_work",
         "add_checkpoint",
         "append_event",
@@ -791,6 +795,8 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
         assert "lease_token" not in properties
 
     receipt_fields = {
+        "purpose", "code_review_id", "mode", "lease_generation_id", "code_review_version",
+        "scope_sha256",
         "work_item_id",
         "holder_client",
         "holder_session_id",
@@ -4730,6 +4736,7 @@ async def test_phase9_core_catalog_exposes_exact_merge_and_search_contracts(sett
     assert set(tools["get_work"].outputSchema["properties"]) == {
         "work_item",
         "canonical",
+        "code_review_context",
     }
     assert tools["get_work"].outputSchema["$defs"]["CanonicalWorkProjection"][
         "additionalProperties"

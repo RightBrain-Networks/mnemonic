@@ -1,4 +1,4 @@
-"""One lifecycle for the sixteen receipt-protected REST mutations.
+"""One lifecycle for the eighteen receipt-protected REST mutations.
 
 Every route that accepts an optional ``client_operation_id`` runs the same
 sequence, so it is written once here and each route contributes only its

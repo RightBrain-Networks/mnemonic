@@ -1,9 +1,10 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.12.0`, plugin `0.13.0`, and migration
-`0023_work_item_moves`. The catalog has exactly 32 MCP tools, 11 protected
-MCP writes, 16 REST receipt kinds, 14 protected browser mutations, and 18
-work-event types.
+This is application/API/MCP/dashboard `0.13.0`, plugin `0.14.0`, and migration
+`0024_code_reviews`. The catalog has exactly 38 MCP tools, 13 protected
+MCP writes, 18 REST receipt kinds, 15 protected browser mutations and 24 work-event types.
+[Code reviews](code-reviews.md) documents durable post-Done follow-ups,
+purpose-bound review leases, pinned cold/warm scope and single-item remediation.
 [Project activity and human reports](project-activity-and-reports.md) documents
 the new resource shapes, strict cursors, required closeout companions, settings,
 retry rules, and human review workflow. Existing structured completion evidence,
@@ -1182,7 +1183,7 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 32 tools:
+The catalog is exactly 38 tools:
 
 ```text
 list_projects, create_project,
@@ -1193,12 +1194,15 @@ update_work, complete_work, list_completion_evidence, delete_work,
 claim_work, claim_and_recall, renew_claim, release_claim,
 add_relationship, get_relationship, list_relationships, remove_relationship,
 merge_work, suggest_duplicate_work,
-get_activity, get_project_settings, list_job_completion_reports, get_job_completion_report
+get_activity, get_project_settings, list_job_completion_reports, get_job_completion_report,
+list_work_follow_ups, get_work_follow_up, respond_to_work_follow_up,
+list_code_reviews, get_code_review, complete_code_review
 ```
 
 Exactly `create_work`, `add_checkpoint`, `append_event`, `add_relationship`,
 `update_work`, `complete_work`, `delete_work`, `remove_relationship`,
-`release_claim`, `request_human_input`, and `merge_work` require a
+`release_claim`, `request_human_input`, `merge_work`, `respond_to_work_follow_up`,
+and `complete_code_review` require a
 caller-generated `client_operation_id` and are annotated as idempotent
 mutations. Prepare the
 complete arguments once, retain them privately, and retry only that exact tool,

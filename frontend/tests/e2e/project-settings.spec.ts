@@ -143,6 +143,7 @@ test("a background settings refresh cannot disable or overwrite a save", async (
             body: JSON.stringify({
               project_id: state.projectId,
               revision: String(patchCount + 1), job_completion_report_prompt: "Write a concise human summary.",
+              code_review_required_min_priority: 100, code_review_optional_min_priority: 100, allow_remediation_code_reviews: false,
           recall_pointer_template: responseTemplate
             })
           });
@@ -159,6 +160,7 @@ test("a background settings refresh cannot disable or overwrite a save", async (
         body: JSON.stringify({
           project_id: state.projectId,
           revision: String(patchCount + 1), job_completion_report_prompt: "Write a concise human summary.",
+          code_review_required_min_priority: 100, code_review_optional_min_priority: 100, allow_remediation_code_reviews: false,
           recall_pointer_template: responseTemplate
         })
       });
@@ -175,6 +177,7 @@ test("a background settings refresh cannot disable or overwrite a save", async (
         body: JSON.stringify({
           project_id: state.projectId,
           revision: String(patchCount + 1), job_completion_report_prompt: "Write a concise human summary.",
+          code_review_required_min_priority: 100, code_review_optional_min_priority: 100, allow_remediation_code_reviews: false,
           recall_pointer_template: storedTemplate
         })
       });

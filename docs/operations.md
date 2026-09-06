@@ -1,5 +1,11 @@
 # Operating Mnemonic
 
+For the coordinated 0.12.0 code-review release (plugin 0.14.0, migration 0023),
+see [code-review deployment and recovery](code-reviews.md#recovery-and-deployment).
+Back up and quiesce old writers; do not deploy older processes against the new
+schema or force a downgrade after review facts/settings changes. Defaults stay
+Never/Never/off. The integrity audit is read-only and never repairs ancestry.
+
 ## Configuration
 
 `python scripts/setup.py` creates two independent random secrets in `.env`,
@@ -100,10 +106,10 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.12.0`, plugin `0.13.0`,
-and Alembic `0023_work_item_moves`. Inventory exactly 32 MCP tools,
-11 protected MCP writes, 16 REST receipt kinds, 14 protected browser mutations,
-and 18 work-event types. Keep older writers stopped: fresh closeouts now require
+The current coordinated boundary is API/MCP/dashboard `0.13.0`, plugin `0.14.0`,
+and Alembic `0024_code_reviews`. Inventory exactly 38 MCP tools,
+13 protected MCP writes, 18 REST receipt kinds, 15 protected browser mutations,
+and 24 work-event types. Keep older writers stopped: fresh closeouts now require
 a report and operation UUID, fresh work starts Pending, and settings use revision
 checks. Permanent historical receipts remain recoverable with their exact old
 request; do not manufacture missing reports or evidence for historical work.
@@ -114,6 +120,11 @@ guards change together. After upgrade, verify that each move has one immutable
 move row, exactly one source and one target event, and one corresponding activity
 entry in each project. A move preserves the UUID, lifecycle/completion state, and
 expired retained lease; it never rewrites the project recorded on older facts.
+
+Migration 0024 adds review policy and history that cannot move between projects.
+For its final cutover use the [code-review deployment rules](code-reviews.md#recovery-and-deployment)
+and `audit_code_reviews.py`. Older-head activity-audit commands below remain
+valid at their explicit preflight/restore heads, not as a 0024 certification.
 
 Before changing a production database, pin the coordinated artifacts, reserve a
 maintenance window, close ingress and quiesce every writer including direct

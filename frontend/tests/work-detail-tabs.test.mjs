@@ -26,9 +26,9 @@ function context(overrides = {}) {
   };
 }
 
-test("the six tabs keep their order and labels", () => {
+test("the seven tabs keep their order and labels", () => {
   assert.deepEqual(DETAIL_TABS, [
-    "context", "history", "evidence", "graph", "questions", "activity"
+    "context", "history", "evidence", "graph", "questions", "reviews", "activity"
   ]);
   assert.deepEqual(detailTabs(null, summary()).map((tab) => tab.key), DETAIL_TABS);
   assert.deepEqual(detailTabs(null, summary()).map((tab) => tab.label), [
@@ -37,6 +37,7 @@ test("the six tabs keep their order and labels", () => {
     "Evidence",
     "Graph",
     "Questions",
+    "Code review",
     "Activity"
   ]);
   for (const key of DETAIL_TABS) assert.equal(typeof detailTabLabels[key], "string");

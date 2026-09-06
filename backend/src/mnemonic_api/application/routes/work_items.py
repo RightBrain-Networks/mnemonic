@@ -215,10 +215,13 @@ def complete_work(
             domain_payload.lease_token,
             domain_payload.completion_evidence,
             domain_payload.job_completion_report,
+            domain_payload.code_review_handoff,
         )
         database.refresh(work_item)
         database.refresh(checkpoint)
-        response_fields = {}
+        from mnemonic_api.services.code_reviews import completion_review_fields
+
+        response_fields = completion_review_fields(database, checkpoint.id)
         report = closeout_report(database, work_item)
         if report is not None:
             response_fields["job_completion_report"] = report

@@ -116,6 +116,9 @@ def settings_read(settings: ProjectSettings) -> ProjectSettingsRead:
         recall_pointer_template=settings.recall_pointer_template,
         job_completion_report_prompt=settings.job_completion_report_prompt,
         revision=str(settings.revision),
+        code_review_required_min_priority=settings.code_review_required_min_priority,
+        code_review_optional_min_priority=settings.code_review_optional_min_priority,
+        allow_remediation_code_reviews=settings.allow_remediation_code_reviews,
     )
 
 

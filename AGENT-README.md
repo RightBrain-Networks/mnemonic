@@ -418,20 +418,23 @@ item separately:
 - An existing populated installation requires the upgrade or credential-rotation procedure in
   `docs/operations.md`; it MUST NOT be treated as a new installation.
 
-## Cross-project move release boundary
+## Current code reviews release boundary
 
-Current application/API/MCP/dashboard 0.12.0, plugin 0.13.0, and Alembic
-`0023_work_item_moves` ship together. The catalog is exactly 32 MCP tools,
-11 receipt-protected MCP writes, 16 REST receipt kinds, 14 protected browser
-mutations, 18 work-event types, and three plugin skills. Do not start old
-processes against this schema. Existing installations must follow the stopped-writer
-backup, migration, restored-audit, and recovery procedure in
-[operations](docs/operations.md#current-coordinated-cutover).
+Application/API/MCP/dashboard 0.13.0, plugin 0.14.0 and Alembic
+`0024_code_reviews` ship together: 38 MCP tools, 13 receipt-protected MCP writes,
+18 REST receipt kinds, 15 protected browser mutations, 24 event types and three
+plugin skills. Existing projects default to Never/Never/off review settings;
+do not infer historical review requests. Quiesce old writers and back up before
+migration. Use the read-only `scripts/audit_code_reviews.py` at 0024; the older
+activity audit remains a historical-head preflight, not a 0024 audit. After any
+review policy change or fact, downgrade is forbidden even after resetting the
+settings. See [code reviews](docs/code-reviews.md) for deployment and recovery.
 
 Migration 0023 moves one stable work-item identity between projects without
 changing its lifecycle status. It leaves historical facts at their original
 project and records paired `work_moved` activity in the source and target. An
 active lease, unresolved gate, relationship, duplicate membership or alias, or
 unsealed terminal history blocks a fresh move. Move is a REST/dashboard action;
+review-policy/history or remediation ancestry also blocks a move in this release.
 there is no MCP write or plugin skill for it. Permanent source-scoped receipts
 remain the authority for exact unknown-outcome retries after the item has moved.

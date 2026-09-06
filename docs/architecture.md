@@ -1,7 +1,9 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.12.0`, Claude plugin `0.13.0`,
-and Alembic head `0023_work_item_moves`. The longer-term
+This architecture describes application/API/MCP `0.13.0`, Claude plugin `0.14.0`,
+and Alembic head `0024_code_reviews`. [Code reviews](code-reviews.md) adds
+immutable completion policies, durable typed follow-ups, review scope/handoff,
+purpose-bound leases, results and bounded remediation ancestry. The longer-term
 direction and later-phase boundaries are in [`roadmap.md`](roadmap.md).
 
 ## Cross-project work placement
@@ -299,11 +301,11 @@ routes. `routes/` has one module per concept: `projects`, `work_search`,
 `human_gates`, `completion_evidence`, `leases`, `duplicates`,
 `dashboard_sync`, and `health`.
 
-The MCP service is a typed HTTP adapter. Its eleven protected mutation tools
+The MCP service is a typed HTTP adapter. Its thirteen protected mutation tools
 require the caller to prepare and retain one operation UUID plus the complete
 arguments; the adapter sends only one HTTP attempt. Its other tools use work,
 checkpoint, lease, relationship, human-gate, evidence, and duplicate terminology. Its exact
-32-tool
+38-tool
 catalog includes request, attention, and gate-history operations but deliberately
 no resolution, dismissal, or report-follow-up write tools; Phase 12 adds four safe
 reads for activity, project settings, report lists, and report detail,

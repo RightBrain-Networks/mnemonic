@@ -17,6 +17,7 @@ Backend code, migrations, and tests live under `backend/`; the MCP adapter and t
 - `cd frontend && npm run test:e2e:stack`: provision and run the isolated Playwright acceptance stack.
 - `uv run --project backend python scripts/audit_duplicate_handling.py --backup-directory ./backups`: run the read-only Phase 11 preflight before migrating from 0019.
 - `uv run --project backend python scripts/audit_project_activity.py`: run the aggregate Phase 12 integrity audit from a private environment with database access.
+- `uv run --project backend python scripts/audit_code_reviews.py`: run the read-only current-head review integrity audit; the Phase 12 audit remains for its explicitly supported historical heads.
 
 Use Python 3.14, `uv`, and Node 24. Keep the backend and MCP virtual environments separate.
 
@@ -78,10 +79,10 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.12.0`, Claude plugin
-`0.13.0`, and Alembic head `0023_work_item_moves`. The catalog is exactly
-32 MCP tools, 11 receipt-protected MCP writes, 16 REST receipt kinds, 14 protected
-browser mutations, 18 work-event types, and three plugin skills. The suggestion
+The current application/API/MCP/dashboard release is `0.13.0`, Claude plugin
+`0.14.0`, and Alembic head `0024_code_reviews`. The catalog is exactly
+38 MCP tools, 13 receipt-protected MCP writes, 18 REST receipt kinds, 15 protected
+browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
 only in the existing closeout mutations; do not add standalone agent writes.
 Fresh work starts pending. Every actual Done, Won’t do, or Promoted closeout
@@ -89,6 +90,12 @@ requires a report and operation UUID. Sparse historical requests remain
 parseable exclusively for permanent receipt replay before fresh domain guards.
 Do not run older processes against this schema, infer historical reports, or add
 projection, redirect, coalescing, or compatibility execution paths.
+
+Reviews belong to original Done work and require purpose-bound review leases.
+Optional closeout questions are durable originating-session follow-ups, not
+human gates. Cold reviewers must not load context before freezing findings.
+One completed review creates zero or one remediation containing all findings;
+immutable depth 2 can never be reviewed, and remediation cannot be merged.
 
 ## Commit & Pull Request Guidelines
 

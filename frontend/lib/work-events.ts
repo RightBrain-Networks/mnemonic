@@ -41,6 +41,8 @@ export const WORK_EVENT_TYPES = [
   "work_merged",
   "work_moved",
   "work_completed",
+  "work_follow_up_requested", "work_follow_up_answered", "work_follow_up_superseded",
+  "code_review_requested", "code_review_completed", "code_review_superseded",
   "work_deleted"
 ] as const satisfies readonly WorkEventType[];
 
@@ -68,6 +70,8 @@ const BACKFILLABLE_EVENT_TYPES = new Set<WorkEventType>([
   "work_deleted"
 ]);
 const REQUIRED_LIVE_ACTOR_TYPES = new Set<WorkEventType>([
+  "work_follow_up_requested", "work_follow_up_answered", "work_follow_up_superseded",
+  "code_review_requested", "code_review_completed", "code_review_superseded",
   "work_created",
   "work_claimed",
   "checkpoint_added",
@@ -104,7 +108,14 @@ const EVENT_FIELDS = [
   "origin",
   "created_at"
 ] as const;
-const EVENT_FIELD_SET = new Set<string>(EVENT_FIELDS);
+const REVIEW_REFERENCE_FIELDS = ["code_review_id", "work_follow_up_id", "work_follow_up_answer_id", "code_review_result_id"] as const;
+const REVIEW_EVENT_REFS: Partial<Record<WorkEventType, readonly string[]>> = {
+  work_follow_up_requested: ["work_follow_up_id"], work_follow_up_superseded: ["work_follow_up_id"],
+  work_follow_up_answered: ["work_follow_up_id", "work_follow_up_answer_id"],
+  code_review_requested: ["code_review_id"], code_review_superseded: ["code_review_id"],
+  code_review_completed: ["code_review_id", "code_review_result_id"]
+};
+const EVENT_FIELD_SET = new Set<string>([...EVENT_FIELDS, ...REVIEW_REFERENCE_FIELDS]);
 const EVENT_PAGE_FIELDS = [
   "items",
   "total",
@@ -114,7 +125,7 @@ const EVENT_PAGE_FIELDS = [
 ] as const;
 
 export const WORK_EVENT_DECODER_FIELDS = {
-  EVENT_FIELDS,
+  EVENT_FIELDS: [...EVENT_FIELDS, ...REVIEW_REFERENCE_FIELDS],
   decodeWorkEventPage: EVENT_PAGE_FIELDS
 } as const;
 const EVENT_SECRET_KEYS = new Set([
@@ -164,6 +175,14 @@ function validMetadata(eventType: WorkEventType, origin: "live" | "backfill", va
   if (origin === "backfill" && !BACKFILLABLE_EVENT_TYPES.has(eventType)) return false;
   const metadata = objectValue(value);
   if (!metadata || !validEventMetadata(metadata, eventType)) return false;
+  const reviewFields = REVIEW_EVENT_REFS[eventType];
+  if (reviewFields) return origin === "live" && exactKeys(metadata, reviewFields) && reviewFields.every((key) => validUuid(metadata[key]));
+  if (["work_claimed", "work_released"].includes(eventType)
+    && ["purpose", "code_review_id", "mode"].some((key) => Object.hasOwn(metadata, key))) {
+    const { purpose, code_review_id, mode, ...ordinary } = metadata;
+    return origin === "live" && purpose === "code_review" && validUuid(code_review_id)
+      && ["cold", "warm"].includes(String(mode)) && validMetadata(eventType, origin, ordinary);
+  }
   if (eventType === "work_created") {
     if (origin === "backfill") return exactKeys(metadata, []);
     const initial = objectValue(metadata.initial);
@@ -462,7 +481,7 @@ export function decodeWorkEvent(value: unknown): WorkEventRead {
   if (
     !event
     || Object.keys(event).some((key) => !EVENT_FIELD_SET.has(key))
-    || !exactKeys(event, EVENT_FIELDS)
+    || !exactKeys(event, [...EVENT_FIELDS, ...REVIEW_REFERENCE_FIELDS.filter((key) => Object.hasOwn(event, key))])
   ) {
     return invalidEventResponse();
   }
@@ -511,6 +530,10 @@ export function decodeWorkEvent(value: unknown): WorkEventRead {
   )) {
     return invalidEventResponse();
   }
+  const reviewFields = REVIEW_EVENT_REFS[event.event_type as WorkEventType]
+    ?? (["work_claimed", "work_released"].includes(String(event.event_type)) && objectValue(event.metadata)?.purpose === "code_review" ? ["code_review_id"] : []);
+  if (!exactKeys(Object.fromEntries(REVIEW_REFERENCE_FIELDS.filter((key) => Object.hasOwn(event, key)).map((key) => [key, event[key]])), reviewFields)
+    || reviewFields.some((key) => !validUuid(event[key]) || !sameUuid(event[key], objectValue(event.metadata)?.[key]))) return invalidEventResponse();
   return event as unknown as WorkEventRead;
 }
 
@@ -637,6 +660,12 @@ export function workEventTitle(eventType: WorkEventType): string {
     work_merged: "Merged duplicate work",
     work_moved: "Moved work",
     work_completed: "Completed work",
+    work_follow_up_requested: "Requested author recommendation",
+    work_follow_up_answered: "Recorded author recommendation",
+    work_follow_up_superseded: "Superseded author recommendation",
+    code_review_requested: "Requested code review",
+    code_review_completed: "Completed code review",
+    code_review_superseded: "Superseded code review",
     work_deleted: "Deleted work"
   }[eventType];
 }
@@ -692,6 +721,12 @@ export function workEventDescription(event: WorkEventRead, counterpartTitle?: st
     && event.actor_client === "dashboard"
     && event.actor_model === null;
   switch (event.event_type) {
+    case "work_follow_up_requested": return "Asked the originating session whether this completed work needs an adversarial review.";
+    case "work_follow_up_answered": return "Recorded the originating session's review recommendation and rationale.";
+    case "work_follow_up_superseded": return "Reopening superseded the unanswered recommendation without inferring an answer.";
+    case "code_review_requested": return "Requested an adversarial review on this completed implementation episode.";
+    case "code_review_completed": return "Recorded the immutable review result; all actionable findings share one remediation work item.";
+    case "code_review_superseded": return "Reopening superseded this review request and invalidated its review lease.";
     case "work_created": {
       const initial = objectValue(metadata.initial);
       return initial && typeof initial.title === "string"

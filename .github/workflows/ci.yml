@@ -95,6 +95,7 @@ jobs:
           uv run --project backend ruff check \
             scripts/audit_duplicate_handling.py \
             scripts/audit_project_activity.py \
+            scripts/audit_code_reviews.py \
             scripts/seed_e2e_historical_completion.py \
             scripts/check-stack.py
 

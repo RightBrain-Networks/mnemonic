@@ -27,6 +27,52 @@ export const SAFE_VALIDATION_LOCATION_ROOTS: ReadonlySet<string> = new Set([
   "body", "query", "path", "header", "cookie"
 ]);
 export const SAFE_VALIDATION_LOCATION_PARTS: ReadonlySet<string> = new Set([
+  "code_review_handoff",
+  "scope",
+  "repositories",
+  "repository_key",
+  "checkout_path",
+  "object_format",
+  "base_commit",
+  "head_commit",
+  "handoff",
+  "change_summary",
+  "decisions",
+  "focus_areas",
+  "traps",
+  "validation_summary",
+  "recommend_review",
+  "answer",
+  "follow_up_id",
+  "expected_follow_up_version",
+  "expected_review_version",
+  "review_id",
+  "scope_sha256",
+  "mode",
+  "purpose",
+  "code_review_id",
+  "supersede_code_review_id",
+  "expected_code_review_version",
+  "supersede_follow_up_id",
+  "coverage",
+  "limitations",
+  "findings",
+  "finding_key",
+  "severity",
+  "path",
+  "location_side",
+  "start_line",
+  "end_line",
+  "problem",
+  "triggering_conditions",
+  "impact",
+  "evidence",
+  "recommended_verification",
+  "result",
+  "availability",
+  "code_review_required_min_priority",
+  "code_review_optional_min_priority",
+  "allow_remediation_code_reviews",
   "actor",
   "actor_client",
   "actor_model",
@@ -192,8 +238,11 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new ApiError("Cannot reach Mnemonic. Check that the application is running, then try again.", 0);
   }
-  const phase12 = /\/(activity|job-completion-reports|report-follow-ups|settings)(?:[/?]|$)/.test(path);
-  const maximumBytes = path.includes("/activity") ? 524_288
+  const reviewRead = /\/(code-reviews|work-agent-follow-ups|agent-follow-ups)(?:[/?]|$)/.test(path);
+  const phase12 = reviewRead || /\/(activity|job-completion-reports|report-follow-ups|settings)(?:[/?]|$)/.test(path);
+  const maximumBytes = reviewRead ? /\/agent-follow-ups\//.test(path) ? 65_536
+    : /\/code-reviews\//.test(path) ? 786_432 : 524_288
+    : path.includes("/activity") ? 524_288
     : /job-completion-reports\/count(?:\?|$)/.test(path) ? 1_024
       : /job-completion-reports(?:\?|$)/.test(path) ? 2_097_152
         : path.includes("/settings") ? 1_048_576 : 262_144;

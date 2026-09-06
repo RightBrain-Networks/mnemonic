@@ -1,10 +1,16 @@
 # Agent workflow
 
+For code reviews, branch by temperature before ordinary recall: the
+[code-review protocol](code-reviews.md) governs mandatory handoff, durable
+originating-session recommendation answers, minimal cold coordination, warm
+adversarial review and one atomic remediation. Reviews are not implementation
+closeouts. The current catalog is 38 tools and thirteen protected writes.
+
 Mnemonic Phase 12 requires an agent-authored human report on every fresh Done,
 Won’t do, or Promoted closeout. Read current project settings before authoring,
-then submit the report inside the existing closeout intent. The 32-tool MCP
+then submit the report inside the existing closeout intent. The 38-tool MCP
 catalog adds four safe reads for settings, durable project activity, and report
-history; it retains eleven protected writes. Human dismissal and manual
+history; reviews add four reads and two protected writes, totaling thirteen. Human dismissal and manual
 follow-ups belong in the dashboard’s Summaries page, immediately below Needs
 Attention. See [project activity and reports](project-activity-and-reports.md).
 
@@ -87,7 +93,7 @@ declared pattern must match independently before an `unchanged` result. The
 copyable scoped-checkpoint example is
 [`repository-scoped-checkpoint.json`](../examples/repository-scoped-checkpoint.json).
 
-`suggest_duplicate_work` is a safe read, not one of the eleven protected
+`suggest_duplicate_work` is a safe read, not one of the thirteen protected
 mutations. It takes no operation UUID, does not persist the draft or result, and
 may be retried normally after a timeout, `duplicate_suggestion_busy`, or
 `duplicate_suggestion_unavailable`. Busy responses advise a one-second retry;
@@ -104,7 +110,7 @@ before writing.
 
 ## Protect mutation intents and recover unknown outcomes
 
-The eleven protected MCP mutations require a caller-generated UUID in the
+The thirteen protected MCP mutations require a caller-generated UUID in the
 top-level `client_operation_id` argument:
 
 - `create_work`;
@@ -117,7 +123,9 @@ top-level `client_operation_id` argument:
 - `remove_relationship`;
 - `release_claim`;
 - `request_human_input`;
-- `merge_work`.
+- `merge_work`;
+- `respond_to_work_follow_up`;
+- `complete_code_review`.
 
 Before the first attempt, generate one fresh random UUID and retain it together
 with the complete, exact tool name and argument object in private client-local
@@ -681,7 +689,7 @@ source that is already an alias. Source gates, structural edges, active-lease
 token mismatch, and depth have distinct merge errors. `duplicate_graph_invalid`
 is an integrity incident: stop authority-changing work and involve the operator.
 
-After an unknown outcome from one of the eleven protected writes, use only its
+After an unknown outcome from one of the thirteen protected writes, use only its
 retained exact operation retry; search or recall cannot substitute for the
 receipt protocol. Claims use only their distinct same-request replay rule while
 the lease remains active. For excluded writes, reconcile their current state

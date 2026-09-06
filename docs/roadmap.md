@@ -24,11 +24,12 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 ## Delivery Snapshot
 
-As of 2026-09-06, Phases 1–12 and identity-preserving cross-project work moves
-are shipped in the repository. The current release is application/API/MCP/dashboard
-`0.12.0`, plugin `0.13.0`, and migration `0023_work_item_moves`.
-Production-target preflight and cutover remain explicit operator gates. Phase 13
-remains planned.
+Phases 1–12, identity-preserving work moves and first-class code reviews are
+implemented in the repository. The current release is application/API/MCP/dashboard
+`0.13.0`, plugin `0.14.0`, and migration `0024_code_reviews`. Reviews add project thresholds, durable optional
+questions, cold/warm review leases and one remediation with a hard ancestry
+ceiling; see [code reviews](code-reviews.md). Production-target preflight and cutover
+remain explicit operator gates. Phase 13 remains planned.
 
 | Roadmap element | Status | Implemented functionality |
 | --- | --- | --- |

@@ -840,24 +840,66 @@
             "title": "Claim Request Id",
             "type": "string"
           },
+          "code_review_id": {
+            "format": "uuid",
+            "title": "Code Review Id",
+            "type": "string"
+          },
+          "code_review_version": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Code Review Version",
+            "type": "integer"
+          },
           "expires_at": {
             "title": "Expires At",
             "type": "string"
           },
           "holder_client": {
+            "maxLength": 80,
+            "minLength": 1,
             "title": "Holder Client",
             "type": "string"
           },
           "holder_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
             "title": "Holder Session Id",
+            "type": "string"
+          },
+          "lease_generation_id": {
+            "format": "uuid",
+            "title": "Lease Generation Id",
             "type": "string"
           },
           "lease_token": {
             "title": "Lease Token",
             "type": "string"
           },
+          "mode": {
+            "enum": [
+              "cold",
+              "warm"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "purpose": {
+            "default": "implementation",
+            "enum": [
+              "implementation",
+              "code_review"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
           "renewed_at": {
             "title": "Renewed At",
+            "type": "string"
+          },
+          "scope_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Scope Sha256",
             "type": "string"
           },
           "work_item_id": {
@@ -877,6 +919,887 @@
           "lease_token"
         ],
         "title": "ClaimReceipt",
+        "type": "object"
+      },
+      "CodeReviewCompletionCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/MutationActor"
+          },
+          "client_operation_id": {
+            "format": "uuid",
+            "title": "Client Operation Id",
+            "type": "string"
+          },
+          "expected_review_version": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Expected Review Version",
+            "type": "integer"
+          },
+          "lease_token": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/CodeReviewResultInput"
+          },
+          "scope_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Scope Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_review_version",
+          "scope_sha256",
+          "lease_token",
+          "actor",
+          "result",
+          "client_operation_id"
+        ],
+        "title": "CodeReviewCompletionCreate",
+        "type": "object"
+      },
+      "CodeReviewCompletionRead": {
+        "additionalProperties": false,
+        "properties": {
+          "remediation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CodeReviewRemediationRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remediation_work": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkCreation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "$ref": "#/components/schemas/CodeReviewResultRead"
+          },
+          "review": {
+            "$ref": "#/components/schemas/CodeReviewRead"
+          }
+        },
+        "required": [
+          "review",
+          "result",
+          "remediation",
+          "remediation_work"
+        ],
+        "title": "CodeReviewCompletionRead",
+        "type": "object"
+      },
+      "CodeReviewContext": {
+        "additionalProperties": false,
+        "properties": {
+          "current_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CodeReviewRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pending_follow_up": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkFollowUpRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remediation_depth": {
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Remediation Depth",
+            "type": "integer"
+          },
+          "remediation_origin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CodeReviewRemediationRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "remediation_depth",
+          "current_review",
+          "pending_follow_up",
+          "remediation_origin"
+        ],
+        "title": "CodeReviewContext",
+        "type": "object"
+      },
+      "CodeReviewDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "handoff": {
+            "$ref": "#/components/schemas/CodeReviewHandoffNotes"
+          },
+          "policy_decision": {
+            "$ref": "#/components/schemas/ReviewPolicyRead"
+          },
+          "remediation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CodeReviewRemediationRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CodeReviewResultRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review": {
+            "$ref": "#/components/schemas/CodeReviewRead"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/CodeReviewScopeInput"
+          },
+          "source_work_state": {
+            "$ref": "#/components/schemas/ReviewSourceState"
+          }
+        },
+        "required": [
+          "review",
+          "policy_decision",
+          "scope",
+          "handoff",
+          "result",
+          "remediation",
+          "source_work_state"
+        ],
+        "title": "CodeReviewDetail",
+        "type": "object"
+      },
+      "CodeReviewFindingInput": {
+        "additionalProperties": false,
+        "properties": {
+          "end_line": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Line"
+          },
+          "evidence": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Evidence",
+            "type": "string"
+          },
+          "finding_key": {
+            "pattern": "^F[0-9]{3}$",
+            "title": "Finding Key",
+            "type": "string"
+          },
+          "impact": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Impact",
+            "type": "string"
+          },
+          "location_side": {
+            "enum": [
+              "base",
+              "head"
+            ],
+            "title": "Location Side",
+            "type": "string"
+          },
+          "path": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "problem": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Problem",
+            "type": "string"
+          },
+          "recommended_verification": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Recommended Verification",
+            "type": "string"
+          },
+          "repository_key": {
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "title": "Repository Key",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "start_line": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Line"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "triggering_conditions": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Triggering Conditions",
+            "type": "string"
+          }
+        },
+        "required": [
+          "finding_key",
+          "severity",
+          "title",
+          "repository_key",
+          "path",
+          "location_side",
+          "problem",
+          "triggering_conditions",
+          "impact",
+          "evidence",
+          "recommended_verification"
+        ],
+        "title": "CodeReviewFindingInput",
+        "type": "object"
+      },
+      "CodeReviewHandoffInput": {
+        "additionalProperties": false,
+        "properties": {
+          "handoff": {
+            "$ref": "#/components/schemas/CodeReviewHandoffNotes"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/CodeReviewScopeInput"
+          }
+        },
+        "required": [
+          "scope",
+          "handoff"
+        ],
+        "title": "CodeReviewHandoffInput",
+        "type": "object"
+      },
+      "CodeReviewHandoffNotes": {
+        "additionalProperties": false,
+        "properties": {
+          "change_summary": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Change Summary",
+            "type": "string"
+          },
+          "decisions": {
+            "items": {
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Decisions",
+            "type": "array"
+          },
+          "focus_areas": {
+            "items": {
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Focus Areas",
+            "type": "array"
+          },
+          "traps": {
+            "items": {
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Traps",
+            "type": "array"
+          },
+          "validation_summary": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Validation Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "change_summary",
+          "decisions",
+          "focus_areas",
+          "traps",
+          "validation_summary"
+        ],
+        "title": "CodeReviewHandoffNotes",
+        "type": "object"
+      },
+      "CodeReviewRead": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Id"
+          },
+          "completion_checkpoint_id": {
+            "format": "uuid",
+            "title": "Completion Checkpoint Id",
+            "type": "string"
+          },
+          "completion_event_id": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Completion Event Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_event_id": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Created Event Id",
+            "type": "string"
+          },
+          "created_sequence": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Created Sequence",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "policy_decision_id": {
+            "format": "uuid",
+            "title": "Policy Decision Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "request_reason": {
+            "enum": [
+              "mandatory",
+              "recommended"
+            ],
+            "title": "Request Reason",
+            "type": "string"
+          },
+          "requesting_client": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Requesting Client",
+            "type": "string"
+          },
+          "requesting_model": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requesting Model"
+          },
+          "requesting_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Requesting Session Id",
+            "type": "string"
+          },
+          "result_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Id"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "scope_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Scope Sha256",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "requested",
+              "completed",
+              "superseded"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "superseded_by_event_id": {
+            "anyOf": [
+              {
+                "maxLength": 19,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By Event Id"
+          },
+          "version": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "id",
+          "project_id",
+          "work_item_id",
+          "completion_checkpoint_id",
+          "completion_event_id",
+          "policy_decision_id",
+          "answer_id",
+          "request_reason",
+          "schema_version",
+          "version",
+          "state",
+          "requesting_client",
+          "requesting_session_id",
+          "requesting_model",
+          "scope_sha256",
+          "created_event_id",
+          "created_sequence",
+          "result_id",
+          "superseded_by_event_id"
+        ],
+        "title": "CodeReviewRead",
+        "type": "object"
+      },
+      "CodeReviewRecommendationAnswer": {
+        "additionalProperties": false,
+        "properties": {
+          "code_review_handoff": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CodeReviewHandoffInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "const": "code_review_recommendation",
+            "title": "Kind",
+            "type": "string"
+          },
+          "rationale": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Rationale",
+            "type": "string"
+          },
+          "recommend_review": {
+            "title": "Recommend Review",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "recommend_review",
+          "rationale"
+        ],
+        "title": "CodeReviewRecommendationAnswer",
+        "type": "object"
+      },
+      "CodeReviewRemediationRead": {
+        "additionalProperties": false,
+        "properties": {
+          "completion_checkpoint_id": {
+            "format": "uuid",
+            "title": "Completion Checkpoint Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "depth": {
+            "maximum": 2.0,
+            "minimum": 1.0,
+            "title": "Depth",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "parent_remediation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Remediation Id"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "relationship_id": {
+            "format": "uuid",
+            "title": "Relationship Id",
+            "type": "string"
+          },
+          "remediation_work_item_id": {
+            "format": "uuid",
+            "title": "Remediation Work Item Id",
+            "type": "string"
+          },
+          "result_id": {
+            "format": "uuid",
+            "title": "Result Id",
+            "type": "string"
+          },
+          "review_id": {
+            "format": "uuid",
+            "title": "Review Id",
+            "type": "string"
+          },
+          "root_work_item_id": {
+            "format": "uuid",
+            "title": "Root Work Item Id",
+            "type": "string"
+          },
+          "source_work_item_id": {
+            "format": "uuid",
+            "title": "Source Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "id",
+          "project_id",
+          "review_id",
+          "result_id",
+          "source_work_item_id",
+          "completion_checkpoint_id",
+          "remediation_work_item_id",
+          "relationship_id",
+          "parent_remediation_id",
+          "root_work_item_id",
+          "depth"
+        ],
+        "title": "CodeReviewRemediationRead",
+        "type": "object"
+      },
+      "CodeReviewResultInput": {
+        "additionalProperties": false,
+        "properties": {
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewCoverage"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Coverage",
+            "type": "array"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/CodeReviewFindingInput"
+            },
+            "maxItems": 100,
+            "title": "Findings",
+            "type": "array"
+          },
+          "limitations": {
+            "items": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Limitations",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "cold",
+              "warm"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "summary",
+          "coverage",
+          "limitations",
+          "findings"
+        ],
+        "title": "CodeReviewResultInput",
+        "type": "object"
+      },
+      "CodeReviewResultRead": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_client": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Actor Client",
+            "type": "string"
+          },
+          "actor_model": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Model"
+          },
+          "actor_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Actor Session Id",
+            "type": "string"
+          },
+          "claim_event_id": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Claim Event Id",
+            "type": "string"
+          },
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewCoverage"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Coverage",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_event_id": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Created Event Id",
+            "type": "string"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/CodeReviewFindingInput"
+            },
+            "maxItems": 100,
+            "title": "Findings",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lease_generation_id": {
+            "format": "uuid",
+            "title": "Lease Generation Id",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Limitations",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "cold",
+              "warm"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "review_id": {
+            "format": "uuid",
+            "title": "Review Id",
+            "type": "string"
+          },
+          "scope_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Scope Sha256",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "mode",
+          "summary",
+          "coverage",
+          "limitations",
+          "findings",
+          "id",
+          "project_id",
+          "work_item_id",
+          "review_id",
+          "scope_sha256",
+          "actor_client",
+          "actor_session_id",
+          "actor_model",
+          "lease_generation_id",
+          "claim_event_id",
+          "created_event_id"
+        ],
+        "title": "CodeReviewResultRead",
+        "type": "object"
+      },
+      "CodeReviewScopeInput": {
+        "additionalProperties": false,
+        "properties": {
+          "repositories": {
+            "items": {
+              "$ref": "#/components/schemas/RepositoryRange"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Repositories",
+            "type": "array"
+          }
+        },
+        "required": [
+          "repositories"
+        ],
+        "title": "CodeReviewScopeInput",
         "type": "object"
       },
       "CommandVerificationInput": {
@@ -4549,16 +5472,42 @@
             "title": "Acquired At",
             "type": "string"
           },
+          "code_review_id": {
+            "format": "uuid",
+            "title": "Code Review Id",
+            "type": "string"
+          },
           "expires_at": {
             "title": "Expires At",
             "type": "string"
           },
           "holder_client": {
+            "maxLength": 80,
+            "minLength": 1,
             "title": "Holder Client",
             "type": "string"
           },
           "holder_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
             "title": "Holder Session Id",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "cold",
+              "warm"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "purpose": {
+            "default": "implementation",
+            "enum": [
+              "implementation",
+              "code_review"
+            ],
+            "title": "Purpose",
             "type": "string"
           },
           "renewed_at": {
@@ -5178,6 +6127,12 @@
             "anyOf": [
               {
                 "enum": [
+                  "work_follow_up_requested",
+                  "work_follow_up_answered",
+                  "work_follow_up_superseded",
+                  "code_review_requested",
+                  "code_review_completed",
+                  "code_review_superseded",
                   "work_created",
                   "work_updated",
                   "work_status_changed",
@@ -5504,6 +6459,22 @@
       "ProjectSettingsPatch": {
         "additionalProperties": false,
         "properties": {
+          "allow_remediation_code_reviews": {
+            "title": "Allow Remediation Code Reviews",
+            "type": "boolean"
+          },
+          "code_review_optional_min_priority": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Code Review Optional Min Priority",
+            "type": "integer"
+          },
+          "code_review_required_min_priority": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Code Review Required Min Priority",
+            "type": "integer"
+          },
           "expected_revision": {
             "maxLength": 19,
             "minLength": 1,
@@ -5546,6 +6517,22 @@
       "ProjectSettingsRead": {
         "additionalProperties": false,
         "properties": {
+          "allow_remediation_code_reviews": {
+            "title": "Allow Remediation Code Reviews",
+            "type": "boolean"
+          },
+          "code_review_optional_min_priority": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Code Review Optional Min Priority",
+            "type": "integer"
+          },
+          "code_review_required_min_priority": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Code Review Required Min Priority",
+            "type": "integer"
+          },
           "job_completion_report_prompt": {
             "maxLength": 8000,
             "minLength": 1,
@@ -5579,7 +6566,10 @@
           "project_id",
           "recall_pointer_template",
           "job_completion_report_prompt",
-          "revision"
+          "revision",
+          "code_review_required_min_priority",
+          "code_review_optional_min_priority",
+          "allow_remediation_code_reviews"
         ],
         "title": "ProjectSettingsRead",
         "type": "object"
@@ -6098,6 +7088,454 @@
         "title": "ReportFollowUpPage",
         "type": "object"
       },
+      "RepositoryRange": {
+        "additionalProperties": false,
+        "properties": {
+          "base_commit": {
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "title": "Base Commit",
+            "type": "string"
+          },
+          "checkout_path": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkout Path"
+          },
+          "head_commit": {
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "title": "Head Commit",
+            "type": "string"
+          },
+          "object_format": {
+            "enum": [
+              "sha1",
+              "sha256"
+            ],
+            "title": "Object Format",
+            "type": "string"
+          },
+          "repository_key": {
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "title": "Repository Key",
+            "type": "string"
+          },
+          "repository_url": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository Url"
+          }
+        },
+        "required": [
+          "repository_key",
+          "object_format",
+          "base_commit",
+          "head_commit"
+        ],
+        "title": "RepositoryRange",
+        "type": "object"
+      },
+      "ReviewCoverage": {
+        "additionalProperties": false,
+        "properties": {
+          "base_commit": {
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "title": "Base Commit",
+            "type": "string"
+          },
+          "head_commit": {
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "title": "Head Commit",
+            "type": "string"
+          },
+          "repository_key": {
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "title": "Repository Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository_key",
+          "base_commit",
+          "head_commit"
+        ],
+        "title": "ReviewCoverage",
+        "type": "object"
+      },
+      "ReviewEventMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "code_review_id": {
+            "format": "uuid",
+            "title": "Code Review Id",
+            "type": "string"
+          },
+          "code_review_result_id": {
+            "format": "uuid",
+            "title": "Code Review Result Id",
+            "type": "string"
+          },
+          "work_follow_up_answer_id": {
+            "format": "uuid",
+            "title": "Work Follow Up Answer Id",
+            "type": "string"
+          },
+          "work_follow_up_id": {
+            "format": "uuid",
+            "title": "Work Follow Up Id",
+            "type": "string"
+          }
+        },
+        "title": "ReviewEventMetadata",
+        "type": "object"
+      },
+      "ReviewPolicyRead": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_remediation_code_reviews": {
+            "title": "Allow Remediation Code Reviews",
+            "type": "boolean"
+          },
+          "completion_checkpoint_id": {
+            "format": "uuid",
+            "title": "Completion Checkpoint Id",
+            "type": "string"
+          },
+          "completion_event_id": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Completion Event Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "ineligible_depth_limit",
+              "ineligible_remediation_disabled",
+              "mandatory",
+              "ask_recommendation",
+              "not_requested"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "optional_min_priority": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Optional Min Priority",
+            "type": "integer"
+          },
+          "priority_at_closeout": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Priority At Closeout",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "remediation_depth": {
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Remediation Depth",
+            "type": "integer"
+          },
+          "required_min_priority": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Required Min Priority",
+            "type": "integer"
+          },
+          "settings_revision": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Settings Revision",
+            "type": "string"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "id",
+          "project_id",
+          "work_item_id",
+          "completion_checkpoint_id",
+          "completion_event_id",
+          "settings_revision",
+          "required_min_priority",
+          "optional_min_priority",
+          "allow_remediation_code_reviews",
+          "priority_at_closeout",
+          "remediation_depth",
+          "decision"
+        ],
+        "title": "ReviewPolicyRead",
+        "type": "object"
+      },
+      "ReviewQueuePage": {
+        "additionalProperties": false,
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewQueueRow"
+            },
+            "maxItems": 50,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "maxLength": 4096,
+            "title": "Next Cursor",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "items",
+          "has_more",
+          "next_cursor"
+        ],
+        "title": "ReviewQueuePage",
+        "type": "object"
+      },
+      "ReviewQueueRow": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_sequence": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Created Sequence",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "const": "code_review_recommendation",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "lease": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "remediation_depth": {
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Remediation Depth",
+            "type": "integer"
+          },
+          "remediation_work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation Work Item Id"
+          },
+          "request_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "mandatory",
+                  "recommended"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Reason"
+          },
+          "result_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Id"
+          },
+          "review_available": {
+            "title": "Review Available",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "answered",
+              "requested",
+              "completed",
+              "superseded"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          },
+          "work_status": {
+            "enum": [
+              "pending",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Work Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "id",
+          "project_id",
+          "work_item_id",
+          "title",
+          "work_status",
+          "state",
+          "version",
+          "created_sequence",
+          "request_reason",
+          "kind",
+          "remediation_depth",
+          "review_available",
+          "result_id",
+          "remediation_work_item_id",
+          "lease"
+        ],
+        "title": "ReviewQueueRow",
+        "type": "object"
+      },
+      "ReviewSourceState": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "work_item_id",
+          "title",
+          "status",
+          "deleted"
+        ],
+        "title": "ReviewSourceState",
+        "type": "object"
+      },
       "SourceWorkState": {
         "additionalProperties": false,
         "properties": {
@@ -6323,6 +7761,11 @@
             "title": "Claim Request Id",
             "type": "string"
           },
+          "code_review_id": {
+            "format": "uuid",
+            "title": "Code Review Id",
+            "type": "string"
+          },
           "holder_client": {
             "maxLength": 80,
             "minLength": 1,
@@ -6333,6 +7776,23 @@
             "maxLength": 200,
             "minLength": 1,
             "title": "Holder Session Id",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "cold",
+              "warm"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "purpose": {
+            "default": "implementation",
+            "enum": [
+              "implementation",
+              "code_review"
+            ],
+            "title": "Purpose",
             "type": "string"
           }
         },
@@ -6368,9 +7828,27 @@
       "WorkClaimedLiveMetadata": {
         "additionalProperties": false,
         "properties": {
+          "code_review_id": {
+            "format": "uuid",
+            "title": "Code Review Id",
+            "type": "string"
+          },
           "expires_at": {
             "format": "date-time",
             "title": "Expires At",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "cold",
+              "warm"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "code_review",
+            "title": "Purpose",
             "type": "string"
           }
         },
@@ -6463,6 +7941,10 @@
             "description": "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with the exact same operation and semantic arguments after an unknown outcome.",
             "title": "Client Operation Id"
           },
+          "code_review_handoff": {
+            "$ref": "#/components/schemas/CodeReviewHandoffInput",
+            "title": "Code Review Handoff"
+          },
           "completion_evidence": {
             "$ref": "#/components/schemas/CompletionEvidenceInput",
             "title": "Completion Evidence"
@@ -6513,8 +7995,25 @@
       "WorkCompletionRead": {
         "additionalProperties": false,
         "properties": {
+          "agent_follow_ups": {
+            "items": {
+              "$ref": "#/components/schemas/WorkFollowUpRead"
+            },
+            "maxLength": 1,
+            "minLength": 1,
+            "title": "Agent Follow Ups",
+            "type": "array"
+          },
           "checkpoint": {
             "$ref": "#/components/schemas/CompletionCheckpointRead"
+          },
+          "code_review_handoff": {
+            "$ref": "#/components/schemas/CodeReviewHandoffInput",
+            "title": "Code Review Handoff"
+          },
+          "code_review_request": {
+            "$ref": "#/components/schemas/CodeReviewRead",
+            "title": "Code Review Request"
           },
           "completion_evidence": {
             "$ref": "#/components/schemas/CompletionEvidencePayloadRead",
@@ -6523,6 +8022,10 @@
           "job_completion_report": {
             "$ref": "#/components/schemas/JobCompletionReportRead",
             "title": "Job Completion Report"
+          },
+          "review_policy_decision": {
+            "$ref": "#/components/schemas/ReviewPolicyRead",
+            "title": "Review Policy Decision"
           },
           "work_item": {
             "$ref": "#/components/schemas/WorkItemRead"
@@ -6545,6 +8048,10 @@
             "description": "Every checkpoint on this work item, including those not returned here.",
             "title": "Checkpoint Total",
             "type": "integer"
+          },
+          "code_review_context": {
+            "$ref": "#/components/schemas/CodeReviewContext",
+            "title": "Code Review Context"
           },
           "current_context": {
             "anyOf": [
@@ -7006,6 +8513,16 @@
             ],
             "title": "Checkpoint Id"
           },
+          "code_review_id": {
+            "format": "uuid",
+            "title": "Code Review Id",
+            "type": "string"
+          },
+          "code_review_result_id": {
+            "format": "uuid",
+            "title": "Code Review Result Id",
+            "type": "string"
+          },
           "counterpart_work_item_id": {
             "anyOf": [
               {
@@ -7024,6 +8541,12 @@
           },
           "event_type": {
             "enum": [
+              "work_follow_up_requested",
+              "work_follow_up_answered",
+              "work_follow_up_superseded",
+              "code_review_requested",
+              "code_review_completed",
+              "code_review_superseded",
               "work_created",
               "work_updated",
               "work_status_changed",
@@ -7078,6 +8601,9 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/EmptyEventMetadata"
+              },
+              {
+                "$ref": "#/components/schemas/ReviewEventMetadata"
               },
               {
                 "$ref": "#/components/schemas/WorkCreatedLiveMetadata"
@@ -7221,6 +8747,16 @@
             ],
             "title": "Relationship Target Work Item Id"
           },
+          "work_follow_up_answer_id": {
+            "format": "uuid",
+            "title": "Work Follow Up Answer Id",
+            "type": "string"
+          },
+          "work_follow_up_id": {
+            "format": "uuid",
+            "title": "Work Follow Up Id",
+            "type": "string"
+          },
           "work_item_id": {
             "format": "uuid",
             "title": "Work Item Id",
@@ -7253,6 +8789,391 @@
           "created_at"
         ],
         "title": "WorkEventRead",
+        "type": "object"
+      },
+      "WorkFollowUpAnswerRead": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_client": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Actor Client",
+            "type": "string"
+          },
+          "actor_model": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Model"
+          },
+          "actor_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Actor Session Id",
+            "type": "string"
+          },
+          "code_review_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code Review Id"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_event_id": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Created Event Id",
+            "type": "string"
+          },
+          "follow_up_id": {
+            "format": "uuid",
+            "title": "Follow Up Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "rationale": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Rationale",
+            "type": "string"
+          },
+          "recommend_review": {
+            "title": "Recommend Review",
+            "type": "boolean"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "id",
+          "project_id",
+          "work_item_id",
+          "follow_up_id",
+          "recommend_review",
+          "rationale",
+          "actor_client",
+          "actor_session_id",
+          "actor_model",
+          "code_review_id",
+          "created_event_id"
+        ],
+        "title": "WorkFollowUpAnswerRead",
+        "type": "object"
+      },
+      "WorkFollowUpDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkFollowUpAnswerRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "code_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CodeReviewRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "follow_up": {
+            "$ref": "#/components/schemas/WorkFollowUpRead"
+          },
+          "source_work_state": {
+            "$ref": "#/components/schemas/ReviewSourceState"
+          }
+        },
+        "required": [
+          "follow_up",
+          "answer",
+          "code_review",
+          "source_work_state"
+        ],
+        "title": "WorkFollowUpDetail",
+        "type": "object"
+      },
+      "WorkFollowUpRead": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_answers": {
+            "items": {
+              "enum": [
+                "yes",
+                "no"
+              ],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Allowed Answers",
+            "type": "array"
+          },
+          "answer_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Id"
+          },
+          "audience": {
+            "enum": [
+              "origin_agent",
+              "origin_human"
+            ],
+            "title": "Audience",
+            "type": "string"
+          },
+          "completion_checkpoint_id": {
+            "format": "uuid",
+            "title": "Completion Checkpoint Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_event_id": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Created Event Id",
+            "type": "string"
+          },
+          "created_sequence": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Created Sequence",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "code_review_recommendation",
+            "title": "Kind",
+            "type": "string"
+          },
+          "kind_data": {
+            "additionalProperties": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Kind Data",
+            "type": "object"
+          },
+          "origin_client": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Origin Client",
+            "type": "string"
+          },
+          "origin_model": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Model"
+          },
+          "origin_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Origin Session Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "required_answer_fields": {
+            "items": {
+              "maxLength": 80,
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Required Answer Fields",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "answered",
+              "superseded"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "superseded_by_event_id": {
+            "anyOf": [
+              {
+                "maxLength": 19,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By Event Id"
+          },
+          "trigger_event_id": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Trigger Event Id",
+            "type": "string"
+          },
+          "version": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "id",
+          "project_id",
+          "work_item_id",
+          "trigger_event_id",
+          "completion_checkpoint_id",
+          "kind",
+          "schema_version",
+          "version",
+          "audience",
+          "question",
+          "allowed_answers",
+          "required_answer_fields",
+          "origin_client",
+          "origin_session_id",
+          "origin_model",
+          "kind_data",
+          "state",
+          "answer_id",
+          "superseded_by_event_id",
+          "created_event_id",
+          "created_sequence"
+        ],
+        "title": "WorkFollowUpRead",
+        "type": "object"
+      },
+      "WorkFollowUpResponseCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/MutationActor"
+          },
+          "answer": {
+            "$ref": "#/components/schemas/CodeReviewRecommendationAnswer"
+          },
+          "client_operation_id": {
+            "format": "uuid",
+            "title": "Client Operation Id",
+            "type": "string"
+          },
+          "expected_follow_up_version": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Expected Follow Up Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_follow_up_version",
+          "actor",
+          "answer",
+          "client_operation_id"
+        ],
+        "title": "WorkFollowUpResponseCreate",
+        "type": "object"
+      },
+      "WorkFollowUpResponseResult": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "$ref": "#/components/schemas/WorkFollowUpAnswerRead"
+          },
+          "code_review_handoff": {
+            "$ref": "#/components/schemas/CodeReviewHandoffInput",
+            "title": "Code Review Handoff"
+          },
+          "code_review_request": {
+            "$ref": "#/components/schemas/CodeReviewRead",
+            "title": "Code Review Request"
+          },
+          "follow_up": {
+            "$ref": "#/components/schemas/WorkFollowUpRead"
+          }
+        },
+        "required": [
+          "follow_up",
+          "answer"
+        ],
+        "title": "WorkFollowUpResponseResult",
         "type": "object"
       },
       "WorkIdentityPointer": {
@@ -7366,6 +9287,10 @@
           "canonical": {
             "$ref": "#/components/schemas/CanonicalWorkProjection"
           },
+          "code_review_context": {
+            "$ref": "#/components/schemas/CodeReviewContext",
+            "title": "Code Review Context"
+          },
           "work_item": {
             "$ref": "#/components/schemas/WorkItemRead"
           }
@@ -7402,6 +9327,18 @@
             ],
             "description": "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with the exact same operation and semantic arguments after an unknown outcome.",
             "title": "Client Operation Id"
+          },
+          "expected_code_review_version": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Expected Code Review Version",
+            "type": "integer"
+          },
+          "expected_follow_up_version": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Expected Follow Up Version",
+            "type": "integer"
           },
           "expected_version": {
             "minimum": 1.0,
@@ -7475,6 +9412,16 @@
               }
             ],
             "title": "Summary"
+          },
+          "supersede_code_review_id": {
+            "format": "uuid",
+            "title": "Supersede Code Review Id",
+            "type": "string"
+          },
+          "supersede_follow_up_id": {
+            "format": "uuid",
+            "title": "Supersede Follow Up Id",
+            "type": "string"
           },
           "title": {
             "anyOf": [
@@ -8077,6 +10024,11 @@
       "WorkReleasedClientMetadata": {
         "additionalProperties": false,
         "properties": {
+          "code_review_id": {
+            "format": "uuid",
+            "title": "Code Review Id",
+            "type": "string"
+          },
           "lease_holder_client": {
             "maxLength": 80,
             "minLength": 1,
@@ -8092,6 +10044,19 @@
             "maxLength": 200,
             "minLength": 1,
             "title": "Lease Holder Session Id",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "cold",
+              "warm"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "code_review",
+            "title": "Purpose",
             "type": "string"
           }
         },
@@ -8779,6 +10744,128 @@
           }
         ],
         "summary": "Get Activity"
+      }
+    },
+    "/api/v1/projects/{project_id}/code-reviews": {
+      "get": {
+        "operationId": "list_code_reviews_api_v1_projects__project_id__code_reviews_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "requested",
+              "enum": [
+                "requested",
+                "completed",
+                "superseded",
+                "all"
+              ],
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "availability",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "unclaimed"
+              ],
+              "title": "Availability",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "work_item_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Work Item Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewQueuePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Code Reviews"
       }
     },
     "/api/v1/projects/{project_id}/duplicate-suggestions": {
@@ -9745,6 +11832,114 @@
         "summary": "Update Project Settings"
       }
     },
+    "/api/v1/projects/{project_id}/work-agent-follow-ups": {
+      "get": {
+        "operationId": "list_work_follow_ups_api_v1_projects__project_id__work_agent_follow_ups_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "enum": [
+                "pending",
+                "answered",
+                "superseded",
+                "all"
+              ],
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "work_item_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Work Item Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewQueuePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Work Follow Ups"
+      }
+    },
     "/api/v1/projects/{project_id}/work-items": {
       "get": {
         "operationId": "search_work_api_v1_projects__project_id__work_items_get",
@@ -10296,6 +12491,146 @@
         "summary": "Activate Work From Dashboard"
       }
     },
+    "/api/v1/projects/{project_id}/work-items/{work_item_id}/agent-follow-ups/{follow_up_id}": {
+      "get": {
+        "operationId": "get_work_follow_up_api_v1_projects__project_id__work_items__work_item_id__agent_follow_ups__follow_up_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "work_item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Work Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkFollowUpDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Work Follow Up"
+      }
+    },
+    "/api/v1/projects/{project_id}/work-items/{work_item_id}/agent-follow-ups/{follow_up_id}/answer": {
+      "post": {
+        "operationId": "respond_to_work_follow_up_api_v1_projects__project_id__work_items__work_item_id__agent_follow_ups__follow_up_id__answer_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "work_item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Work Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkFollowUpResponseCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkFollowUpResponseResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Respond To Work Follow Up"
+      }
+    },
     "/api/v1/projects/{project_id}/work-items/{work_item_id}/checkpoints": {
       "get": {
         "operationId": "list_checkpoints_api_v1_projects__project_id__work_items__work_item_id__checkpoints_get",
@@ -10748,6 +13083,146 @@
         "summary": "Claim And Recall"
       }
     },
+    "/api/v1/projects/{project_id}/work-items/{work_item_id}/code-reviews/{review_id}": {
+      "get": {
+        "operationId": "get_code_review_api_v1_projects__project_id__work_items__work_item_id__code_reviews__review_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "work_item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Work Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "review_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Review Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeReviewDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Code Review"
+      }
+    },
+    "/api/v1/projects/{project_id}/work-items/{work_item_id}/code-reviews/{review_id}/complete": {
+      "post": {
+        "operationId": "complete_code_review_api_v1_projects__project_id__work_items__work_item_id__code_reviews__review_id__complete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "work_item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Work Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "review_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Review Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeReviewCompletionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeReviewCompletionRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Complete Code Review"
+      }
+    },
     "/api/v1/projects/{project_id}/work-items/{work_item_id}/complete": {
       "post": {
         "operationId": "complete_work_api_v1_projects__project_id__work_items__work_item_id__complete_post",
@@ -11148,6 +13623,12 @@
               "anyOf": [
                 {
                   "enum": [
+                    "work_follow_up_requested",
+                    "work_follow_up_answered",
+                    "work_follow_up_superseded",
+                    "code_review_requested",
+                    "code_review_completed",
+                    "code_review_superseded",
                     "work_created",
                     "work_updated",
                     "work_status_changed",

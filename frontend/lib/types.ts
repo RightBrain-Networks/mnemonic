@@ -1,3 +1,4 @@
+import type { CodeReviewContext, CodeReview, WorkFollowUp, ReviewPolicy, CodeReviewHandoff } from "./code-reviews.ts";
 export type ExternalRecordState = "open" | "closed" | "merged" | "unknown";
 export interface ExternalReference {
   url: string;
@@ -48,6 +49,9 @@ export interface ProjectSettings {
   recall_pointer_template: string | null;
   job_completion_report_prompt: string;
   revision: string;
+  code_review_required_min_priority: number;
+  code_review_optional_min_priority: number;
+  allow_remediation_code_reviews: boolean;
 }
 
 export interface Page<T> {
@@ -94,6 +98,9 @@ export interface Checkpoint extends CheckpointPointer {
 }
 
 export interface LeasePublic {
+  purpose?: "code_review";
+  code_review_id?: string;
+  mode?: "cold" | "warm";
   holder_client: string;
   holder_session_id: string;
   acquired_at: string;
@@ -164,6 +171,7 @@ export interface CanonicalWorkProjection {
 }
 
 export interface WorkItemDetailRead {
+  code_review_context?: CodeReviewContext;
   work_item: WorkItem;
   canonical: CanonicalWorkProjection;
 }
@@ -226,6 +234,8 @@ export type WorkEventType =
   | "work_merged"
   | "work_moved"
   | "work_completed"
+  | "work_follow_up_requested" | "work_follow_up_answered" | "work_follow_up_superseded"
+  | "code_review_requested" | "code_review_completed" | "code_review_superseded"
   | "work_deleted";
 
 export type WorkEventOrigin = "live" | "backfill";
@@ -289,6 +299,10 @@ export type WorkEventMetadata =
   | Record<string, unknown>;
 
 export interface WorkEventRead {
+  code_review_id?: string;
+  work_follow_up_id?: string;
+  work_follow_up_answer_id?: string;
+  code_review_result_id?: string;
   id: number;
   project_id: string;
   work_item_id: string;
@@ -447,6 +461,7 @@ export interface HumanGateResolutionInput extends ClientOperationInput {
 }
 
 export interface WorkContext {
+  code_review_context?: CodeReviewContext;
   work_item: WorkItem;
   initial_checkpoint: Checkpoint;
   // Null when the newest context checkpoint is the initial one; read
@@ -600,6 +615,10 @@ export interface WorkCreation {
 }
 
 export interface CompletionResult {
+  code_review_handoff?: CodeReviewHandoff;
+  review_policy_decision?: ReviewPolicy;
+  code_review_request?: CodeReview;
+  agent_follow_ups?: WorkFollowUp[];
   work_item: WorkItem;
   checkpoint: Checkpoint;
   completion_evidence?: CompletionEvidencePayloadRead;

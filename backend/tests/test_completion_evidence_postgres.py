@@ -477,6 +477,28 @@ def _insert_direct_completion_event(
             ),
             {**parameters, "event_id": inserted},
         )
+        connection.execute(
+            text(
+                """
+                INSERT INTO work_completion_review_policies (
+                    id,project_id,work_item_id,completion_checkpoint_id,completion_event_id,
+                    settings_revision,required_min_priority,optional_min_priority,
+                    allow_remediation_code_reviews,priority_at_closeout,remediation_depth,decision
+                ) SELECT gen_random_uuid(),work.project_id,work.id,CAST(:checkpoint_id AS uuid),
+                    :event_id,settings.revision,settings.code_review_required_min_priority,
+                    settings.code_review_optional_min_priority,
+                    settings.allow_remediation_code_reviews,work.priority,work.remediation_depth,
+                    mnemonic_code_review_decision(work.priority,work.remediation_depth,
+                        settings.code_review_required_min_priority,
+                        settings.code_review_optional_min_priority,
+                        settings.allow_remediation_code_reviews)
+                FROM work_items work
+                JOIN project_settings settings ON settings.project_id=work.project_id
+                WHERE work.id=CAST(:work_item_id AS uuid)
+                """
+            ),
+            {**parameters, "event_id": inserted},
+        )
     return inserted
 
 

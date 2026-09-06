@@ -5,6 +5,23 @@ description: Retrieve or safely continue saved Mnemonic work through MCP - recal
 
 # Recall Mnemonic work
 
+## Choose review or implementation before loading context
+
+For a copied **Cold review** prompt, read only the fixed protocol in
+[code-reviews.md](${CLAUDE_PLUGIN_ROOT}/reference/code-reviews.md), then follow
+its cold branch. Before independent findings freeze, do not run the ordinary
+recall, settings, checkpoint-freshness, or evidence steps below: only minimal
+`claim_work` and renew/release coordination are allowed. Do not read author
+handoff, plans/docs, external trackers, or prior findings. Be adversarial.
+
+A warm review may recall, but must claim the exact original Done work with
+purpose `code_review` and mode `warm`, then call `get_code_review` for the full
+scope/handoff. Challenge the author's account independently. Submit either mode
+through `complete_code_review`; never re-complete implementation or fan out
+findings. Review-purpose claims are the explicit exception to pending-only
+implementation claims below. Read the shared review reference before every
+implementation Done too, and answer returned durable recommendation follow-ups.
+
 Read [job-completion-reports.md](${CLAUDE_PLUGIN_ROOT}/reference/job-completion-reports.md)
 for project activity, human summaries, and every closeout to Done, Won’t do, or
 Promoted. Fetch `get_project_settings` immediately before authoring the required
