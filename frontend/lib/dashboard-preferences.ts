@@ -5,8 +5,17 @@ export const dashboardStorageKeys = {
   project: "mnemonic.project",
   status: "mnemonic.status",
   sort: "mnemonic.sort",
+  libraryTools: "mnemonic.library-tools",
   workSplit: "mnemonic.work-split"
 } as const;
+
+export const libraryToolsInitializationScript = `(() => {
+  let state = "open";
+  try {
+    if (localStorage.getItem("${dashboardStorageKeys.libraryTools}") === "closed") state = "closed";
+  } catch {}
+  document.documentElement.dataset.libraryTools = state;
+})();`;
 
 const statusFilters = new Set<StatusFilter>([
   "pending",
@@ -27,6 +36,10 @@ export function dashboardStatusPreference(value: string | null): StatusFilter {
 
 export function dashboardSortPreference(value: string | null): WorkSort {
   return workSorts.has(value as WorkSort) ? value as WorkSort : "updated";
+}
+
+export function dashboardLibraryToolsPreference(value: string | null): boolean {
+  return value !== "closed";
 }
 
 // The queue's share of the work surface, or null when the stylesheet defaults should apply.

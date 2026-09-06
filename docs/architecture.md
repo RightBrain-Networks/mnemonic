@@ -1,6 +1,6 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.17.0`, Claude plugin `0.16.0`,
+This architecture describes application/API/MCP `0.18.0`, Claude plugin `0.16.0`,
 and Alembic head `0025_cross_project_relationships`.
 [Code reviews](code-reviews.md) adds
 immutable completion policies, durable typed follow-ups, review scope/handoff,
@@ -28,7 +28,7 @@ derived Dropped state does not change.
 Migration `0025_cross_project_relationships` replaces project-composite endpoint
 ownership and per-project natural identity with global endpoint foreign keys and
 a global edge key. `WorkRelationship.project_id` remains immutable creation and
-route authority. Upgrade requires a quiescent coordinated 0.17.0 deployment
+route authority. Upgrade requires a quiescent coordinated 0.18.0 deployment
 because relationship, move, event, and duplicate guards change together.
 Downgrade to 0024 is guarded before DDL and succeeds only when both current
 endpoints of every retained edge remain in the immutable authority project of

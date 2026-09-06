@@ -54,6 +54,7 @@ import {
 } from "@/lib/mutation-intent";
 import { mutationLabels, selectMutationRecovery } from "@/lib/mutation-recovery";
 import {
+  dashboardLibraryToolsPreference,
   dashboardSortPreference,
   dashboardStatusPreference,
   dashboardStorageKeys
@@ -307,6 +308,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [semantic, setSemantic] = useState(false);
+  const [libraryToolsOpen, setLibraryToolsOpen] = useState(true);
   const [duplicateScope, setDuplicateScope] = useState<DuplicateScope>("canonical");
   const [canonicalWorkItemId, setCanonicalWorkItemId] = useState("");
   const [status, setStatus] = useState<StatusFilter>("pending");
@@ -448,6 +450,11 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
 
   useEffect(() => {
     try {
+      const storedLibraryToolsOpen = dashboardLibraryToolsPreference(
+        localStorage.getItem(dashboardStorageKeys.libraryTools)
+      );
+      document.documentElement.dataset.libraryTools = storedLibraryToolsOpen ? "open" : "closed";
+      setLibraryToolsOpen(storedLibraryToolsOpen);
       setStatus(dashboardStatusPreference(localStorage.getItem(dashboardStorageKeys.status)));
       setSort(dashboardSortPreference(localStorage.getItem(dashboardStorageKeys.sort)));
     } catch {
@@ -517,12 +524,16 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   useEffect(() => {
     if (!preferencesReady) return;
     try {
+      localStorage.setItem(
+        dashboardStorageKeys.libraryTools,
+        libraryToolsOpen ? "open" : "closed"
+      );
       localStorage.setItem(dashboardStorageKeys.status, status);
       localStorage.setItem(dashboardStorageKeys.sort, sort);
     } catch {
       // Preferences are optional when storage is unavailable.
     }
-  }, [preferencesReady, sort, status]);
+  }, [libraryToolsOpen, preferencesReady, sort, status]);
 
   useEffect(() => {
     const generation = ++settingsLoadGeneration.current;
@@ -750,11 +761,16 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
       if (typingTarget(event.target) || dialogOpen()) return;
       event.preventDefault();
+      if (!libraryToolsOpen) {
+        changeLibraryToolsOpen(true);
+        requestAnimationFrame(() => searchRef.current?.focus());
+        return;
+      }
       searchRef.current?.focus();
     }
     window.addEventListener("keydown", focusSearch);
     return () => window.removeEventListener("keydown", focusSearch);
-  }, [view]);
+  }, [libraryToolsOpen, view]);
 
   // The address is read once so a reload restores the selection; it is captured
   // before the mirror below could rewrite it.
@@ -1544,6 +1560,11 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   // load would otherwise open into the pane after the queue had already moved on.
   function selectedWorkItemId(): string | null {
     return openedId ?? exactContextTarget.current?.workItemId ?? null;
+  }
+
+  function changeLibraryToolsOpen(open: boolean): void {
+    document.documentElement.dataset.libraryTools = open ? "open" : "closed";
+    setLibraryToolsOpen(open);
   }
 
   // A lifecycle filter names a different queue, so the pane's record may no longer belong
@@ -2846,9 +2867,13 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
             projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
             !projects.length ? <section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">A DURABLE PLACE TO CONTINUE</div><h2>Create your first project.</h2><p>Projects hold stable objectives and the session checkpoints that move them forward.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}><Icon name="plus" size={17} />Create your first project</button></section> : <>
-              {project && activityReadyProjectId === project.id && <details className="review-inbox-disclosure"><summary>Code review queue and unanswered recommendations</summary><CodeReviewInbox key={`library-reviews:${project.id}`} projectId={project.id} refreshSignal={eventRefresh + refresh} onOpen={(workItemId) => { void openExactWork(project.id, workItemId).then(() => setTab("reviews")); }} /></details>}
               <WorkItemList
                 queuePaneRef={crossfade.queueRef}
+                supplementaryContent={project && activityReadyProjectId === project.id
+                  ? <details className="review-inbox-disclosure"><summary>Code review queue and unanswered recommendations</summary><CodeReviewInbox key={`library-reviews:${project.id}`} projectId={project.id} refreshSignal={eventRefresh + refresh} onOpen={(workItemId) => { void openExactWork(project.id, workItemId).then(() => setTab("reviews")); }} /></details>
+                  : undefined}
+                libraryToolsOpen={libraryToolsOpen}
+                onLibraryToolsOpen={changeLibraryToolsOpen}
                 query={query}
                 searchedQuery={search}
                 searchRef={searchRef}

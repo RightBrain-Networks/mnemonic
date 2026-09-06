@@ -35,6 +35,9 @@ export type WorkItemListProps = {
   // The queue pane the lifecycle filter cross-dissolves; usePaneCrossfade owns it.
   queuePaneRef: RefObject<HTMLDivElement | null>;
   // Search and filter controls.
+  supplementaryContent?: ReactNode;
+  libraryToolsOpen: boolean;
+  onLibraryToolsOpen: (open: boolean) => void;
   query: string;
   searchedQuery: string;
   searchRef: RefObject<HTMLInputElement | null>;
@@ -92,6 +95,9 @@ export type WorkItemListProps = {
 
 export default function WorkItemList({
   queuePaneRef,
+  supplementaryContent,
+  libraryToolsOpen,
+  onLibraryToolsOpen,
   query,
   searchedQuery,
   searchRef,
@@ -159,13 +165,36 @@ export default function WorkItemList({
 
   return <>
     <section className="library-controls" aria-label="Find work items">
-      <div className="search-field">
-        <Icon name="search" size={20} />
-        <input ref={searchRef} type="search" value={query} maxLength={500} aria-label="Search work items" placeholder="Search objectives, checkpoints, or session IDs…" onChange={(event) => onQuery(event.target.value)} />
-        {query ? <button className="icon-button" type="button" aria-label="Clear search" onClick={() => onQuery("")}><Icon name="close" size={16} /></button> : <kbd aria-hidden="true">/</kbd>}
-        <span className="search-mode-divider" />
-        <button className={`semantic-toggle ${semantic ? "selected" : ""}`} type="button" aria-label="Semantic search" aria-pressed={semantic} onClick={onToggleSemantic}><span className="semantic-switch"><span /></span><span>Semantic</span></button>
-      </div>
+      <section className={`library-tools ${libraryToolsOpen ? "is-open" : ""}`} aria-label="Search and review tools">
+        <button
+          className="library-tools-toggle"
+          type="button"
+          aria-label={`${libraryToolsOpen ? "Hide" : "Show"} search and review tools`}
+          aria-expanded={libraryToolsOpen}
+          aria-controls="library-tools-panel"
+          onClick={() => onLibraryToolsOpen(!libraryToolsOpen)}
+        >
+          <span className="library-tools-title"><Icon name="search" size={15} />Search and reviews</span>
+          <span className="library-tools-state">{libraryToolsOpen ? "Hide" : "Show"}<span className="library-tools-chevron" aria-hidden="true">⌄</span></span>
+        </button>
+        <div
+          className="library-tools-region"
+          id="library-tools-panel"
+          aria-hidden={!libraryToolsOpen}
+          inert={!libraryToolsOpen}
+        >
+          <div className="library-tools-clip"><div className="library-tools-content">
+            {supplementaryContent}
+            <div className="search-field">
+              <Icon name="search" size={20} />
+              <input ref={searchRef} type="search" value={query} maxLength={500} aria-label="Search work items" placeholder="Search objectives, checkpoints, or session IDs…" onChange={(event) => onQuery(event.target.value)} />
+              {query ? <button className="icon-button" type="button" aria-label="Clear search" onClick={() => onQuery("")}><Icon name="close" size={16} /></button> : <kbd aria-hidden="true">/</kbd>}
+              <span className="search-mode-divider" />
+              <button className={`semantic-toggle ${semantic ? "selected" : ""}`} type="button" aria-label="Semantic search" aria-pressed={semantic} onClick={onToggleSemantic}><span className="semantic-switch"><span /></span><span>Semantic</span></button>
+            </div>
+          </div></div>
+        </div>
+      </section>
       <div className="filter-row">
         <div className="status-filters" role="group" aria-label="Filter work items" aria-keyshortcuts="ArrowLeft ArrowRight">
           {statusFilterOrder.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "pending" && <span className="filter-dot" />}{statusFilterLabels[filter]}</button>)}
