@@ -2757,6 +2757,21 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       : undefined
   );
 
+  const libraryChrome = <DashboardViewChrome
+    title="Work library"
+    subject={project?.name}
+    subjectDescription={project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}
+    liveSyncStatus={liveSyncStatus}
+    onRefresh={() => {
+      setProjectsRefresh((value) => value + 1);
+      setRefresh((value) => value + 1);
+      setCheckpointRefresh((value) => value + 1);
+      setEventRefresh((value) => value + 1);
+      setContextRefresh((value) => value + 1);
+    }}
+    actions={project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}
+  />;
+
   return <MutationIntentProvider registry={mutationRegistry}><div className="app-shell">
     <a className="skip-link" href="#main-content">{view === "settings" ? "Skip to project settings" : view === "attention" ? "Skip to human questions" : view === "summaries" ? "Skip to summaries" : "Skip to work items"}</a>
     <aside className="sidebar">
@@ -2849,29 +2864,17 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
             window.location.assign(`/?work=${encodeURIComponent(workItemId)}&review=1`);
           }} />}
         </> : <>
-          <DashboardViewChrome
-            title="Work library"
-            subject={project?.name}
-            subjectDescription={project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}
-            liveSyncStatus={liveSyncStatus}
-            onRefresh={() => {
-              setProjectsRefresh((value) => value + 1);
-              setRefresh((value) => value + 1);
-              setCheckpointRefresh((value) => value + 1);
-              setEventRefresh((value) => value + 1);
-              setContextRefresh((value) => value + 1);
-            }}
-            actions={project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}
-          />
-
-          {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
-            projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
-            !projects.length ? <section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">A DURABLE PLACE TO CONTINUE</div><h2>Create your first project.</h2><p>Projects hold stable objectives and the session checkpoints that move them forward.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}><Icon name="plus" size={17} />Create your first project</button></section> : <>
+          {projectsError ? <>{libraryChrome}<ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice></> :
+            projectsLoading && !projects.length ? <>{libraryChrome}<div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div></> :
+            !projects.length ? <>{libraryChrome}<section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">A DURABLE PLACE TO CONTINUE</div><h2>Create your first project.</h2><p>Projects hold stable objectives and the session checkpoints that move them forward.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}><Icon name="plus" size={17} />Create your first project</button></section></> : <>
               <WorkItemList
                 queuePaneRef={crossfade.queueRef}
-                supplementaryContent={project && activityReadyProjectId === project.id
-                  ? <details className="review-inbox-disclosure"><summary>Code review queue and unanswered recommendations</summary><CodeReviewInbox key={`library-reviews:${project.id}`} projectId={project.id} refreshSignal={eventRefresh + refresh} onOpen={(workItemId) => { void openExactWork(project.id, workItemId).then(() => setTab("reviews")); }} /></details>
-                  : undefined}
+                introductoryContent={<>
+                  {libraryChrome}
+                  {project && activityReadyProjectId === project.id
+                    ? <details className="review-inbox-disclosure"><summary>Code review queue and unanswered recommendations</summary><CodeReviewInbox key={`library-reviews:${project.id}`} projectId={project.id} refreshSignal={eventRefresh + refresh} onOpen={(workItemId) => { void openExactWork(project.id, workItemId).then(() => setTab("reviews")); }} /></details>
+                    : undefined}
+                </>}
                 libraryToolsOpen={libraryToolsOpen}
                 onLibraryToolsOpen={changeLibraryToolsOpen}
                 query={query}

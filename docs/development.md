@@ -791,7 +791,7 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.18.1`, plugin is `0.16.0`,
+Current application/API/MCP/dashboard versions are `0.19.0`, plugin is `0.16.0`,
 and Alembic head is `0025_cross_project_relationships`. Validate all surfaces
 together with the existing regression suites. Exercise a quiescent populated
 0024-to-0025 upgrade and deploy every surface before reopening writes. A
