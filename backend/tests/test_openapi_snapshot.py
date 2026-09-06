@@ -23,6 +23,13 @@ MCP_COMPONENT_OVERRIDES = {
 }
 
 FRONTEND_PROPERTY_SETS = {
+    "frontend/lib/external-references.ts:decodeExternalReference": "ExternalReference",
+    "frontend/lib/work-codecs.ts:decodeWorkItem": "WorkItemRead",
+    "frontend/lib/duplicate-handling.ts:decodeWorkPointer": "WorkPointer",
+    "frontend/lib/duplicate-suggestions.ts:decodeExternalSuggestion": "ExternalDuplicateSuggestion",
+    "frontend/lib/duplicate-suggestions.ts:decodeExternalCandidateReference": (
+        "ExternalCandidateReference"
+    ),
     "frontend/lib/job-completion-reports.ts:decodeJobReport": "JobCompletionReportRead",
     "frontend/lib/job-completion-reports.ts:decodeReportDetail": "JobCompletionReportDetailRead",
     "frontend/lib/job-completion-reports.ts:decodeProjectSettings": "ProjectSettingsRead",

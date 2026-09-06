@@ -46,7 +46,6 @@ from mnemonic_mcp.server import build_server, create_app
 from mnemonic_mcp.transport import (
     COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES,
     MCP_REQUEST_MAX_BYTES,
-    MCP_RESULT_MAX_BYTES,
     BoundedMCPIngressMiddleware,
     _bounded_stdin_reader,
     _send_stdio_record,
@@ -2037,7 +2036,7 @@ async def test_typed_page_keeps_both_sdk_representations_under_twelve_mib(settin
     assert json.loads(content[0].text) == structured
     assert len(structured["items"]) == 10
     assert all(len(item["verification_results"]) == 20 for item in structured["items"])
-    assert len(record) <= MCP_RESULT_MAX_BYTES
+    assert len(record) <= 12_582_912
 
 
 def test_maximum_page_fits_actual_streamable_http_result(settings):
@@ -2073,7 +2072,7 @@ def test_maximum_page_fits_actual_streamable_http_result(settings):
         )
 
     assert response.status_code == 200
-    assert len(response.content) <= MCP_RESULT_MAX_BYTES
+    assert len(response.content) <= 12_582_912
     result = response.json()["result"]
     assert result["isError"] is False
     assert json.loads(result["content"][0]["text"]) == result["structuredContent"]
@@ -2160,7 +2159,7 @@ def test_maximum_page_fits_actual_stdio_result_record():
     assert returncode == 0, stderr.decode(errors="replace")
     assert json.loads(response_record)["id"] == call_id
     assert response_record.endswith(b"\n")
-    assert len(response_record) <= MCP_RESULT_MAX_BYTES
+    assert len(response_record) <= 12_582_912
     result = json.loads(response_record)["result"]
     assert result["isError"] is False
     assert json.loads(result["content"][0]["text"]) == result["structuredContent"]

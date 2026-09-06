@@ -1,16 +1,19 @@
 """Authoritative duplicate merges and inert duplicate suggestions."""
 
+import asyncio
 import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from sqlalchemy.orm import Session, sessionmaker
 
 from mnemonic_api.application.mutations import run_registered_mutation
 from mnemonic_api.application.state import api_key_of, embedder_of, settings_of
 from mnemonic_api.application.suggestion_resources import (
     suggestion_inference_acquired,
+    suggestion_owned_work,
     suggestion_request_deadline,
 )
 from mnemonic_api.database import Database
@@ -22,8 +25,12 @@ from mnemonic_api.schemas import (
     WorkMergeRequest,
     WorkMergeResult,
 )
-from mnemonic_api.services.duplicate_suggestions import suggest_duplicate_work
+from mnemonic_api.services.duplicate_suggestions import (
+    InternalSuggestionResult,
+    capture_internal_suggestions,
+)
 from mnemonic_api.services.duplicates import merge_work_records, reject_merge_secret_echo
+from mnemonic_api.services.external_duplicate_suggestions import extend_external_suggestions
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -34,26 +41,34 @@ router = APIRouter()
     response_model=DuplicateSuggestionPage,
     openapi_extra={"x-mnemonic-effect": "safe_read"},
 )
-def duplicate_suggestions(
+async def duplicate_suggestions(
     project_id: UUID,
     payload: DuplicateSuggestionRequest,
     request: Request,
-    database: Database,
 ) -> DuplicateSuggestionPage:
+    factory: sessionmaker[Session] = request.app.state.session_factory
+    owner = suggestion_owned_work(request.scope)
+    inference_permitted = suggestion_inference_acquired(request.scope)
+    deadline = suggestion_request_deadline(request.scope)
+
+    def internal() -> InternalSuggestionResult:
+        with factory() as database:
+            return capture_internal_suggestions(
+                database, project_id, payload, settings=settings_of(request),
+                embedder=embedder_of(request), inference_permitted=inference_permitted,
+                deadline=deadline,
+            )
+
     try:
-        return suggest_duplicate_work(
-            database,
-            project_id,
-            payload,
-            settings=settings_of(request),
-            embedder=embedder_of(request),
-            inference_permitted=suggestion_inference_acquired(request.scope),
-            deadline=suggestion_request_deadline(request.scope),
+        captured = await asyncio.shield(owner.start(internal))
+        return await extend_external_suggestions(
+            captured.page, payload, session_factory=factory, embedder=embedder_of(request),
+            query_vector=captured.query_vector, inference_permitted=inference_permitted,
+            request_deadline=deadline, owned_work=owner,
         )
     except ApplicationError:
         raise
     except Exception as exc:
-        database.rollback()
         logger.error("Duplicate suggestion unavailable (%s)", type(exc).__name__)
         raise duplicate_suggestion_unavailable() from None
 

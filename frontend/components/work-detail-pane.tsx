@@ -1,5 +1,6 @@
 "use client";
 
+import ExternalReferences from "@/components/external-references";
 import WorkReportProvenance from "@/components/work-report-provenance";
 import JobReportEditor from "@/components/job-report-editor";
 import type { JobReportDraft } from "@/lib/job-completion-reports";
@@ -470,6 +471,7 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
       </div>
       <h3 className="detail-title">{work.title}</h3>
       <p className="detail-summary">{work.summary}</p>
+      <ExternalReferences references={work.external_references} />
       <dl className="detail-facts" aria-label="Work item facts">
         <div><dt>Priority</dt><dd>{work.priority}</dd></div>
         <div><dt>Checkpoints</dt><dd>{context?.checkpoint_total ?? opened.checkpoint_count}</dd></div>

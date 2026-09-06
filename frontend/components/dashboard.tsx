@@ -1,5 +1,8 @@
 "use client";
 
+import ExternalReferencesEditor from "@/components/external-references-editor";
+import { normalizeExternalReferences, sameExternalReferences } from "@/lib/external-references";
+import type { ExternalReference } from "@/lib/types";
 import {
   useEffect,
   useId,
@@ -292,6 +295,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [tab, setTab] = useState<DetailTab>("context");
   const [mergeOpen, setMergeOpen] = useState(false);
   const [mode, setMode] = useState<"view" | "edit">("view");
+  const [createExternalReferences, setCreateExternalReferences] = useState<ExternalReference[]>([]);
   const [editDraft, setEditDraft] = useState<WorkEditDraft | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState("");
@@ -780,6 +784,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       setWorkDialog("open");
       return;
     }
+    setCreateExternalReferences([]);
     setNewWorkError("");
     setCreateAffectedPathsError("");
     setWorkDialog("open");
@@ -806,6 +811,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         summary: String(form.get("summary") ?? ""),
         priority: Number(form.get("priority") ?? 0),
         status: "pending",
+        ...(createExternalReferences.length ? { external_references: normalizeExternalReferences(createExternalReferences) } : {}),
         initial_checkpoint: initialCheckpoint
       };
       const created = await mutationRegistry.execute({
@@ -1200,6 +1206,10 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     if (editDraft.title !== base.title) patch.title = editDraft.title;
     if (editDraft.summary !== base.summary) patch.summary = editDraft.summary;
     if (editDraft.priority !== base.priority) patch.priority = editDraft.priority;
+    if (!sameExternalReferences(editDraft.externalReferences, base.external_references)) {
+      try { patch.external_references = normalizeExternalReferences(editDraft.externalReferences); }
+      catch (error) { setEditError(errorMessage(error)); return; }
+    }
     if (!editableLifecycleStatuses(base.status).includes(editDraft.status)) {
       setEditError("That lifecycle transition is no longer available from the saved status.");
       return;
@@ -2149,6 +2159,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       <label className="field field-half">Priority<input name="priority" type="number" disabled={createWorkMutationBlocked} min={0} max={100} defaultValue={0} /></label>
       <label className="field">Initial context checkpoint<textarea className="prompt-editor" name="prompt" required disabled={createWorkMutationBlocked} rows={14} maxLength={100000} spellCheck={false} placeholder="Context, intended outcome, references, hazards, and verification…" onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /><span className="field-hint">Saved exactly as entered. Corrections become new checkpoints.</span></label>
       <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input name="repository_branch" disabled={createWorkMutationBlocked} maxLength={200} /></label><label className="field">Caller-asserted baseline commit<input name="verified_against" disabled={createWorkMutationBlocked} className="mono" maxLength={64} /></label><AffectedPathsEditor name="affected_paths" disabled={createWorkMutationBlocked} error={createAffectedPathsError} onChange={() => setCreateAffectedPathsError("")} /><label className="field">Tags <span className="optional">Comma separated</span><input name="tags" disabled={createWorkMutationBlocked} onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /></label></div></details>
+      <ExternalReferencesEditor value={createExternalReferences} onChange={setCreateExternalReferences} disabled={createWorkMutationBlocked} />
       <DuplicateSuggestionPanel
         projectId={project.id}
         draftGeneration={suggestionDraftGeneration}

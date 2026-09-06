@@ -1243,7 +1243,7 @@ def test_scope_errors_are_sanitized_and_system_failures_use_advisory_error(
     def fail(*_args, **_kwargs):
         raise RuntimeError("private system detail")
 
-    monkeypatch.setattr(duplicate_routes, "suggest_duplicate_work", fail)
+    monkeypatch.setattr(duplicate_routes, "capture_internal_suggestions", fail)
     unavailable = suggest(api, project)
     assert unavailable.status_code == 503
     assert unavailable.json()["detail"]["code"] == "duplicate_suggestion_unavailable"
@@ -1325,5 +1325,5 @@ def test_title_key_function_and_partial_expression_index_are_frozen(postgres_eng
                 """
             )
         ).one()
-        assert head == "0021_job_completion_reports"
+        assert head == "0022_external_references"
         assert capacity == 64

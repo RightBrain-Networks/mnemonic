@@ -1,0 +1,19 @@
+{
+  "project_id": "123e4567-e89b-42d3-a456-426614174000",
+  "work_item_id": "123e4567-e89b-42d3-a456-426614174001",
+  "expected_version": 3,
+  "client_operation_id": "123e4567-e89b-42d3-a456-426614174002",
+  "actor_client": "example-client",
+  "actor_session_id": "real-current-session-id",
+  "changes": {
+    "external_references": [
+      {
+        "url": "https://github.com/example/project/issues/2188",
+        "kind": "tracked-by",
+        "label": "project#2188",
+        "state": "closed",
+        "state_observed_at": "2026-09-05T14:20:00Z"
+      }
+    ]
+  }
+}

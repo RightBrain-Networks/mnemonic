@@ -402,6 +402,7 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
             options=(
                 defer(WorkItem.completion_generation),
                 defer(WorkItem.last_reportable_closeout_version),
+                defer(WorkItem.external_references),
             ),
         )
         destination = database.get(
@@ -410,6 +411,7 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
             options=(
                 defer(WorkItem.completion_generation),
                 defer(WorkItem.last_reportable_closeout_version),
+                defer(WorkItem.external_references),
             ),
         )
         relationship = database.get(WorkRelationship, merge.duplicate_relationship_id)
@@ -431,8 +433,12 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
         pointer = _identity_pointer(destination)
         result = WorkMergeResult(
             merge=_merge_read(merge),
-            source_work_item=WorkItemRead.model_validate(source),
-            destination_work_item=WorkItemRead.model_validate(destination),
+            source_work_item=WorkItemRead.model_validate(
+                _historical_work_body(connection, source.id)
+            ),
+            destination_work_item=WorkItemRead.model_validate(
+                _historical_work_body(connection, destination.id)
+            ),
             direct_destination=pointer,
             canonical_work_item=pointer,
             supporting_relationship_created=True,

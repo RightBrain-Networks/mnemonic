@@ -1,7 +1,7 @@
 # Phase 12 API contract
 
-This is application/API/MCP/dashboard `0.9.0`, plugin `0.11.0`, and migration
-`0021_job_completion_reports`. The catalog has exactly 32 MCP tools, 11 protected
+This is application/API/MCP/dashboard `0.10.0`, plugin `0.12.0`, and migration
+`0022_external_references`. The catalog has exactly 32 MCP tools, 11 protected
 MCP writes, 15 REST receipt kinds, and 13 protected browser mutations.
 [Project activity and human reports](project-activity-and-reports.md) documents
 the new resource shapes, strict cursors, required closeout companions, settings,
@@ -1174,8 +1174,12 @@ strict signed 64-bit integer or a 1–128-character ASCII string matching
 `[A-Za-z0-9._:-]+`; invalid requests are rejected without reflecting the ID.
 An invalid stdio record terminates that transport without a competing response
 writer. The locked SDK's complete evidence success—including JSON text,
-`structuredContent`, the maximum ID, and the stdio newline—is capped at
-12,582,912 bytes; evidence is never truncated to satisfy that bound.
+`structuredContent`, the maximum ID, and the stdio newline—continues to fit the
+12,582,912-byte evidence envelope proof. The general stdio result ceiling is
+67,108,864 bytes (64 MiB) as of 0.10.0: full reference-bearing contexts with maximum
+checkpoint history exceed the former 12 MiB ceiling because the SDK emits both
+representations. Request ingress remains 1 MiB and permanent receipts remain
+1 MiB. No reference, checkpoint or event is truncated to fit a response.
 
 `search_work` defaults to `view="full"` and `duplicate_scope="canonical"`.
 Every result is a `WorkSearchHit`; `matched_member` identifies which exact
@@ -1562,3 +1566,99 @@ whole per-work timeline. The partial-history flag comes from the unique
 creation-event origin and remains correct when no backfilled event is present
 in the materialized slice. A referenced checkpoint body is never materialized
 again inside an event.
+
+## External references and caller-supplied comparison (0.10.0)
+
+`external_references` is an ordered work-owned list of zero to ten entries. The
+full shape is `{url, kind, state, label?, state_observed_at?}`. `kind` is
+`tracked-by` (this objective) or `references` (supporting context); `state` is
+`open`, `closed`, `merged`, or `unknown`, asserted by the caller. Neither links
+nor state observations affect readiness, claims, or closeout requirements.
+Known state without a timestamp means observation time unknown. Observations
+are timezone-aware RFC 3339 strings normalized to UTC `Z`; absent optional
+fields must be omitted, and explicit null is invalid.
+
+URLs accept 1–2,000 ASCII bytes of absolute credential-free HTTP(S) URI grammar,
+with a valid host and port. They retain exact accepted case, path, port spelling,
+query, and fragment. Credentials, whitespace, backslashes, malformed percent
+escapes and repairable invalid URLs are rejected. Labels are nonblank,
+single-line plain text, at most 120 Unicode scalars and 480 UTF-8 bytes, without
+controls or explicit bidi formatting. Exact URLs must be unique in each list;
+order is authored and significant. Canonical compact sorted-key UTF-8 JSON is
+bounded to 32,768 bytes. The cross-layer fixture corpus is
+[`external-record-contract-v1.json`](../tests/fixtures/external-record-contract-v1.json).
+Use stable permalinks without signed tokens. Existing request-known secret
+checks extend to durable URL/label text; this is not a general secret detector.
+
+Create omission and `[]` both mean no references and share a receipt fingerprint.
+PATCH omission preserves the list; `[]` clears it and remains in the fingerprint.
+A nonempty PATCH replaces the whole ordered list with `expected_version`.
+Identical replacements keep existing version/event behavior. Freeze the complete
+list and UUID for unknown-outcome retries; reconcile definitive version conflicts
+against a reread list with a new intent. A reference-only edit requires no report
+or lease, but validates a supplied lease token. A qualifying closeout in the same
+PATCH still requires the existing nested report and operation UUID. `complete_work`
+gains no reference-writing field. Mutable links never alter completion evidence.
+
+All full work records and ready/relationship/canonical-suggestion pointers carry
+the same sparse field: empty reads omit it. Ancestor/matched-member identities
+stay minimal. References remain exact-row owned; merges freeze source lists and
+leave destination lists unchanged. Old receipt snapshots retain their original
+absence/presence and are never hydrated from current work. Reference content is
+excluded from text search vectors and duplicate embedding composition.
+
+`search_work(external_url=...)` and REST `GET /projects/{id}/work-items` apply an
+exact owning-row JSONB containment filter, ANDed with other filters before totals
+and pagination. Both kinds match; aliases never contribute their URL to roots.
+An exhaustive inverse lookup sends `view=full&status=all&duplicate_scope=all`,
+no text query, and paginates every match using an encoded query parameter.
+`view=roots` with `external_url` is rejected. Read aliases and canonical work
+explicitly before normal readiness/lease operations; multiple matches are valid.
+
+The existing duplicate suggestion safe-read POST/tool accepts optional
+`external_candidates`: up to 64 unique exact URLs with precisely `url`, `title`,
+`body`, `state`. Titles are nonblank single-line plain text up to 500 Unicode
+scalars; bodies allow multiline text including empty strings, up to 20,000 scalars.
+Invalid Unicode, NUL, coercion and unknown fields are rejected. Omission or `[]`
+omits every external response field. A nonempty request adds all three together:
+`external_items`, `external_candidate_count` (supplied count), `external_scope`.
+Each item has contiguous `rank`, ordered unique categorical `signals`, and a
+`reference` containing only the submitted URL/title/state triple; bodies are never
+returned. Both lanes independently return up to `limit` and exact external title
+matches reserve a URL-sorted prefix. Scope is independently `hybrid`, `lexical`,
+or `unavailable`; unavailable carries an explicit empty list and does not claim
+successful comparison. Clients bind identity, count, presence, ranks, signals and
+exact prefixes to the actual request. Results are advisory and authorize no write.
+
+Internal ranking remains independent. External work gets at most five seconds
+within the global 60-second deadline, reserving one second for serialization.
+Failure preserves the completed internal page and any external lexical baseline;
+owned worker permits remain retained until actual completion. No provider fetch,
+external persistence, cache, event, activity, receipt, new tool or configuration is
+added. REST/browser request bodies retain 2,097,152 bytes; complete MCP HTTP and
+stdio JSON-RPC frames retain the stricter 1,048,576 bytes, including envelope and
+escaping. Caller gathering must reduce bodies/count explicitly to fit its actual
+transport. Creation remains available after an unavailable or stale comparison.
+
+Creation events optionally snapshot nonempty lists; update events preserve full
+`changes.external_references.before/after` arrays, including `[]` for clearing.
+The four system events `work_created`, `work_updated`, `work_status_changed`, and
+`work_reopened` allow 131,072 bytes of JSONB metadata text. All other events retain
+16,384 bytes. SQL validates shape and creation source correspondence; ordinary
+update before/after authenticity remains the transactional service's responsibility.
+Neither bound authenticates the external observation. Permanent receipts retain
+the existing 1 MiB response cap.
+
+Title-key guards are pinned to PostgreSQL 17's Unicode 15.1 normalization,
+including characters added in newer Python/browser runtimes. Packaged assigned
+range tables are generated from the official
+[Unicode 15.1 DerivedAge data](https://www.unicode.org/Public/15.1.0/ucd/DerivedAge.txt),
+with its SHA-256 recorded in each helper.
+[PostgreSQL 17 declares Unicode 15.1](https://github.com/postgres/postgres/blob/REL_17_STABLE/src/include/common/unicode_version.h).
+Each scalar unassigned in that version remains unchanged and separates normalized
+runs, preserving its old combining-class-zero boundary. This prevents newer
+compatibility decompositions and combining-mark reordering from inventing an
+exact match or rejecting a valid SQL result. Normalization stability for already
+assigned characters permits native NFKC inside those runs on supported newer
+runtimes; see [Unicode normalization stability](https://www.unicode.org/reports/tr15/#Versioning_and_Stability).
+The shipped SQL key and draft-specific boundary trimming remain unchanged.

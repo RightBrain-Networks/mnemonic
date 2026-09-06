@@ -10,6 +10,20 @@ its owner decisions in §10. This document is self-contained: that untracked
 evaluation is historical evidence, not a required runtime or implementation
 dependency. Its September 3 incident measurements have not been rerun here.
 
+Implementation amendments (2026-09-05): application release 0.9.0 landed on
+`main` during implementation, so the coordinated application release is 0.10.0.
+The plugin and migration reservations are unchanged. The original planning
+scope below is preserved; implementation was subsequently requested by the owner.
+
+Maximum-context rehearsal measured a
+full SDK JSON-RPC result above 48 MiB because it includes both text and structured
+copies. The original 12 MiB stdio result ceiling cannot carry this supported
+context. The implementation raises only the general result ceiling to 64 MiB;
+MCP request frames and permanent receipts remain 1 MiB, and the existing evidence
+response proof remains 12 MiB. No fields or histories are truncated. See
+[performance evidence](external-records-performance-and-recovery-evidence.md) and
+[implementation validation](external-records-implementation-validation.md).
+
 ## 1. Outcome, scope, and baseline
 
 Implement the evaluation's Branch A in dependency order:
@@ -43,7 +57,7 @@ it does not provide cross-system mutual exclusion.
 
 | Coordinate | Inspected baseline | Proposed implementation release |
 | --- | --- | --- |
-| Application, API, MCP, dashboard | `0.8.0` | `0.9.0` |
+| Application, API, MCP, dashboard | `0.8.0` | `0.10.0` |
 | Claude plugin | `0.11.0` | `0.12.0` |
 | Alembic head | `0021_job_completion_reports` | `0022_external_references` |
 | MCP tools / receipt-protected MCP writes | 32 / 11 | 32 / 11 |

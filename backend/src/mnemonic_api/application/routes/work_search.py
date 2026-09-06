@@ -122,6 +122,8 @@ def search_work(
                 WorkItem.deleted_at.is_(None),
                 *status_conditions(filters.status, as_of),
                 *provenance_conditions(filters),
+                *([WorkItem.external_references.contains([{ "url": filters.external_url }])]
+                  if filters.external_url is not None else []),
             )
         )
     )

@@ -196,3 +196,76 @@ test("exact-title decoding mirrors create-title Unicode boundary trimming", () =
     title: "\ufeffDurable work\ufeff"
   })), /incoherent/);
 });
+
+function externalCandidate(url = "https://example.com/issues/1", title = "Durable work") {
+  return { url, title, state: "open", body: "Untrusted text, never echoed" };
+}
+function externalItem(candidate, rank = 1, signals = ["exact_title", "lexical"]) {
+  const { body: _body, ...reference } = candidate;
+  return { rank, signals, reference };
+}
+
+test("external-only results preserve the internal page and validate independent comparison scope", () => {
+  const candidate = externalCandidate();
+  const input = request({ external_candidates: [candidate] });
+  const value = page({ items: [], exact_title_group_total: 0, external_items: [externalItem(candidate)], external_candidate_count: 1, external_scope: "hybrid" });
+  const decoded = decodeDuplicateSuggestionPage(value, input);
+  assert.equal(decoded.items.length, 0);
+  assert.equal(decoded.mode, "lexical");
+  assert.equal(decoded.external_scope, "hybrid");
+  assert.equal(decoded.external_items.length, 1);
+  assert.equal("body" in decoded.external_items[0].reference, false);
+  assert.deepEqual(decodeDuplicateSuggestionPage({ ...value, external_scope: "unavailable", external_items: [] }, input).external_items, []);
+  assert.deepEqual(decodeDuplicateSuggestionPage(page(), request({ external_candidates: [] })), page());
+});
+
+test("external response guards reject omitted, unsolicited, forged and incoherent extensions", () => {
+  const candidate = externalCandidate();
+  const input = request({ external_candidates: [candidate] });
+  const value = page({ external_items: [externalItem(candidate)], external_candidate_count: 1, external_scope: "lexical" });
+  assert.throws(() => decodeDuplicateSuggestionPage(value, request()), /Mnemonic returned/);
+  assert.throws(() => decodeDuplicateSuggestionPage(value, request({ external_candidates: [] })), /Mnemonic returned/);
+  for (const field of ["external_items", "external_candidate_count", "external_scope"]) {
+    const missing = { ...value }; delete missing[field];
+    assert.throws(() => decodeDuplicateSuggestionPage(missing, input), /Mnemonic returned/);
+  }
+  for (const change of [
+    { external_candidate_count: 2 }, { external_candidate_count: "1" }, { external_scope: "full_project" },
+    { external_scope: "unavailable" }, { external_items: [] },
+    { external_items: [externalItem(candidate, 2)] },
+    { external_items: [externalItem(candidate, 1, ["lexical"])] },
+    { external_items: [externalItem(candidate, 1, ["lexical", "exact_title"])] },
+    { external_items: [externalItem(candidate, 1, ["exact_title", "semantic"])] },
+    { external_items: [externalItem(candidate, 1, ["exact_title", "exact_title"])] },
+    { external_items: [externalItem({ ...candidate, state: "closed" })] },
+    { external_items: [externalItem({ ...candidate, title: "Forged" })] },
+    { external_items: [externalItem({ ...candidate, url: candidate.url + "#other" })] },
+    { external_items: [{ ...externalItem(candidate), reference: candidate }] }
+  ]) assert.throws(() => decodeDuplicateSuggestionPage({ ...value, ...change }, input), /Mnemonic returned/);
+});
+
+test("external exact-title overflow reserves the ASCII URL ordered prefix regardless of submitted order", () => {
+  const a = externalCandidate("https://example.com/a");
+  const b = externalCandidate("https://example.com/b");
+  const c = externalCandidate("https://example.com/c", "Unrelated");
+  const input = request({ limit: 1, external_candidates: [b, c, a] });
+  const value = page({ limit: 1, external_candidate_count: 3, external_scope: "hybrid", external_items: [externalItem(a)] });
+  assert.equal(decodeDuplicateSuggestionPage(value, input).external_items[0].reference.url, a.url);
+  assert.throws(() => decodeDuplicateSuggestionPage({ ...value, external_items: [externalItem(b)] }, input), /Mnemonic returned/);
+  assert.throws(() => decodeDuplicateSuggestionPage({ ...value, external_items: [externalItem(c, 1, ["semantic"])] }, input), /Mnemonic returned/);
+});
+
+test("manual candidate submission freezes a deep snapshot, omits empty population, and rejects invalid text", () => {
+  const form = new FormData();
+  form.set("title", "Durable work"); form.set("summary", "Summary"); form.set("prompt", "Initial prompt");
+  const candidates = [externalCandidate()];
+  const input = duplicateSuggestionInputFromForm(form, candidates);
+  candidates[0].title = "Changed after check";
+  candidates.push(externalCandidate("https://example.com/2"));
+  assert.equal(input.external_candidates.length, 1);
+  assert.equal(input.external_candidates[0].title, "Durable work");
+  assert.equal(Object.isFrozen(input.external_candidates[0]), true);
+  assert.equal(Object.isFrozen(input.external_candidates), true);
+  assert.equal(Object.hasOwn(duplicateSuggestionInputFromForm(form, []), "external_candidates"), false);
+  assert.throws(() => duplicateSuggestionInputFromForm(form, [{ ...externalCandidate(), body: null }]), /External records/);
+});

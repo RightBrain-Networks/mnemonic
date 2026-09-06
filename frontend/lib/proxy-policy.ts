@@ -1,3 +1,4 @@
+import { validExternalCandidates, validExternalReferences } from "./external-references.ts";
 import { validHumanGateRevision, validMergeReviewRevision } from "./revision-codecs.ts";
 import {
   UUID_PATTERN,
@@ -237,7 +238,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     if (method === "GET") {
       return [
         "q", "semantic", "status", "sort", "tag", "source_client",
-        "source_session_id", "view", "duplicate_scope", "canonical_work_item_id",
+        "external_url", "source_session_id", "view", "duplicate_scope", "canonical_work_item_id",
         "limit", "offset"
       ];
     }
@@ -480,7 +481,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   if (DUPLICATE_SUGGESTIONS.test(path) && method === "POST") {
     if (
       !allowedKeys(body, [
-        "title", "summary", "initial_prompt", "tags", "exclude_work_item_id", "limit"
+        "title", "summary", "initial_prompt", "tags", "exclude_work_item_id", "limit", "external_candidates"
       ])
       || !boundedText(body.title, 200)
       || !boundedText(body.summary, 1_000)
@@ -490,13 +491,14 @@ export function invalidMutationBody(path: string, method: string, value: unknown
         || body.exclude_work_item_id === null
         || validUuid(body.exclude_work_item_id))
       || !(body.limit === undefined || finiteInteger(body.limit, 1, 10))
+      || (Object.hasOwn(body, "external_candidates") && !validExternalCandidates(body.external_candidates))
     ) return DEFINITIVE_PROXY_ERRORS.invalidDuplicateSuggestion.detail;
   }
   if (WORK_ITEMS.test(path) && method === "POST") {
     if (
       !allowedKeys(body, [
         "title", "summary", "priority", "status", "initial_checkpoint",
-        "initial_relationships", CLIENT_OPERATION_FIELD
+        "initial_relationships", "external_references", CLIENT_OPERATION_FIELD
       ])
       || !boundedText(body.title, 200)
       || !boundedText(body.summary, 1_000)
@@ -504,6 +506,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !["pending", "wont-do", "promoted"].includes(String(body.status))
       || !validCheckpointPayload(body.initial_checkpoint, false)
       || !validInitialRelationships(body.initial_relationships)
+      || (Object.hasOwn(body, "external_references") && !validExternalReferences(body.external_references))
     ) return DEFINITIVE_PROXY_ERRORS.invalidWorkCreation.detail;
   }
   if (CHECKPOINTS.test(path) && method === "POST") {
@@ -529,13 +532,14 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   if (WORK_ITEM.test(path) && method === "PATCH") {
     if (
       !allowedKeys(body, [
-        "expected_version", "title", "summary", "priority", "status", "actor", "job_completion_report",
+        "expected_version", "title", "summary", "priority", "status", "actor", "job_completion_report", "external_references",
         CLIENT_OPERATION_FIELD
       ])
       || !finiteInteger(body.expected_version, 1)
       || !validActor(body.actor)
       || (Object.hasOwn(body, "job_completion_report") && !validJobReportInput(body.job_completion_report))
-      || !["title", "summary", "priority", "status"].some((key) => key in body)
+      || !["title", "summary", "priority", "status", "external_references"].some((key) => key in body)
+      || (Object.hasOwn(body, "external_references") && !validExternalReferences(body.external_references))
       || (body.title !== undefined && !boundedText(body.title, 200))
       || (body.summary !== undefined && !boundedText(body.summary, 1_000))
       || (body.priority !== undefined && !finiteInteger(body.priority, 0, 100))

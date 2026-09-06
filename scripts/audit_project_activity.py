@@ -19,7 +19,9 @@ from typing import Any
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0021_job_completion_reports"
+HEAD = "0022_external_references"
+REPORT_HEAD = "0021_job_completion_reports"
+REPORT_HEADS = (REPORT_HEAD, HEAD)
 ACTIVITY_HEAD = "0020_project_activity"
 PREVIOUS_HEAD = "0019_structured_completion_evidence"
 CATALOG_PATH = (
@@ -271,6 +273,40 @@ _REPORT_FINDINGS = {
 }
 
 
+_REFERENCE_FINDINGS = {
+    "invalid_external_reference_lists": """
+        SELECT count(*) FROM work_items
+        WHERE NOT mnemonic_external_references_is_valid(external_references)
+    """,
+    "invalid_external_event_envelopes": """
+        SELECT count(*) FROM work_events
+        WHERE octet_length(metadata::text) > CASE WHEN event_type IN (
+            'work_created','work_updated','work_status_changed','work_reopened'
+        ) THEN 131072 ELSE 16384 END
+    """,
+    "invalid_external_creation_snapshots": """
+        SELECT count(*) FROM work_events
+        WHERE event_type='work_created' AND metadata->'initial' ? 'external_references'
+          AND (NOT mnemonic_external_references_is_valid(
+              metadata->'initial'->'external_references'
+          ) OR metadata->'initial'->'external_references'='[]'::jsonb)
+    """,
+    "invalid_external_event_metadata": """
+        SELECT count(*) FROM work_events
+        WHERE (metadata->'initial' ? 'external_references'
+               OR metadata->'changes' ? 'external_references')
+          AND (event_type NOT IN (
+              'work_created','work_updated','work_status_changed','work_reopened'
+          ) OR mnemonic_work_event_metadata_v2_is_valid(
+              event_type, origin, work_item_id, checkpoint_id, lease_generation_id,
+              lease_release_id, relationship_id, relationship_source_work_item_id,
+              relationship_target_work_item_id, relationship_context_checkpoint_work_item_id,
+              relationship_context_checkpoint_id, metadata_version, metadata
+          ) IS DISTINCT FROM true)
+    """,
+}
+
+
 def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[str, Any]:
     if connection.scalar(text("SHOW transaction_read_only")) != "on":
         raise RuntimeError("Audit requires a read-only transaction")
@@ -300,8 +336,10 @@ def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[st
     else:
         findings.update(_catalog_drift(connection, expected_head))
         checks = dict(_ACTIVITY_FINDINGS)
-        if expected_head == HEAD:
+        if expected_head in REPORT_HEADS:
             checks.update(_REPORT_FINDINGS)
+        if expected_head == HEAD:
+            checks.update(_REFERENCE_FINDINGS)
         findings.update(
             {key: connection.scalar(text(sql)) for key, sql in checks.items()}
         )
@@ -311,7 +349,7 @@ def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[st
         inventory["activity"] = connection.scalar(
             text("SELECT count(*) FROM project_activity")
         )
-    if expected_head == HEAD:
+    if expected_head in REPORT_HEADS:
         inventory["reports"] = connection.scalar(
             text("SELECT count(*) FROM job_completion_reports")
         )
@@ -332,7 +370,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     parser.add_argument(
-        "--expected-head", choices=(PREVIOUS_HEAD, ACTIVITY_HEAD, HEAD), default=HEAD
+        "--expected-head", choices=(PREVIOUS_HEAD, ACTIVITY_HEAD, REPORT_HEAD, HEAD), default=HEAD
     )
     args = parser.parse_args()
     engine = None

@@ -319,6 +319,7 @@ def assemble_work_context(
                 SELECT
                     relationship.*,
                     counterpart.title AS counterpart_title,
+                    counterpart.external_references AS counterpart_external_references,
                     counterpart.status AS counterpart_status,
                     CASE
                         WHEN counterpart_lease.work_item_id IS NULL THEN NULL
@@ -370,6 +371,7 @@ def assemble_work_context(
                         'counterpart', jsonb_build_object(
                             'id', adjacent.counterpart_id,
                             'title', adjacent.counterpart_title,
+                            'external_references', adjacent.counterpart_external_references,
                             'status', adjacent.counterpart_status,
                             'readiness', jsonb_build_object(
                                 'has_dropped_lease',
@@ -388,6 +390,7 @@ def assemble_work_context(
                 jsonb_build_object(
                     'id', w.id, 'project_id', w.project_id,
                     'title', w.title, 'summary', w.summary,
+                    'external_references', w.external_references,
                     'status', w.status, 'priority', w.priority,
                     'initial_checkpoint_id', w.initial_checkpoint_id,
                     'version', w.version, 'created_at', w.created_at, 'updated_at', w.updated_at

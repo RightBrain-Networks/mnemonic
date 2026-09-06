@@ -1,3 +1,4 @@
+import { validSparseReferences, referenceKeys } from "./external-references.ts";
 import type { WorkIdentityPointer, WorkItem, WorkStatus, WorkSummary } from "./types.ts";
 import { decodeCheckpointPointer } from "./checkpoint-codecs.ts";
 import { decodeReadiness } from "./readiness-codecs.ts";
@@ -11,6 +12,11 @@ import {
   validUuid
 } from "./wire-guards.ts";
 
+const WORK_ITEM_FIELDS = [
+  "id", "project_id", "title", "summary", "status", "priority", "initial_checkpoint_id",
+  "version", "created_at", "updated_at", "external_references"
+] as const;
+
 const WORK_STATUSES = new Set<WorkStatus>([
   "pending", "deferred", "done", "wont-do", "promoted"
 ]);
@@ -22,6 +28,7 @@ const WORK_SUMMARY_FIELDS = [
 ] as const;
 
 export const WORK_DECODER_FIELDS = {
+  decodeWorkItem: WORK_ITEM_FIELDS,
   decodeWorkIdentityPointer: ANCESTOR_FIELDS,
   decodeWorkSummary: WORK_SUMMARY_FIELDS
 } as const;
@@ -35,10 +42,8 @@ export function decodeWorkItem(
   const item = objectValue(value);
   if (
     !item
-    || !exactKeys(item, [
-      "id", "project_id", "title", "summary", "status", "priority",
-      "initial_checkpoint_id", "version", "created_at", "updated_at"
-    ])
+    || !validSparseReferences(item)
+    || !exactKeys(item, referenceKeys(item, WORK_ITEM_FIELDS.filter((key) => key !== "external_references")))
     || !validUuid(item.id)
     || !sameUuid(item.project_id, projectId)
     || (workItemId !== undefined && !sameUuid(item.id, workItemId))

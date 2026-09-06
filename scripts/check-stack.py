@@ -1102,8 +1102,19 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.9.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.10.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
+        require(
+            {"ExternalReference", "ExternalReferencesChange", "ExternalDuplicateCandidate",
+             "ExternalCandidateReference", "ExternalDuplicateSuggestion"}.issubset(schemas)
+            and "external_references" in schemas["WorkItemRead"]["properties"]
+            and "external_references" in schemas["WorkItemCreate"]["properties"]
+            and "external_candidates" in schemas["DuplicateSuggestionRequest"]["properties"]
+            and {"external_items", "external_candidate_count", "external_scope"}.issubset(
+                schemas["DuplicateSuggestionPage"]["properties"]
+            ),
+            "REST external records lack coordinated canonical contracts.",
+        )
         endpoint_refs = {
             "/api/v1/projects/{project_id}/work-items": "#/components/schemas/WorkItemCreate",
             "/api/v1/projects/{project_id}/work-items/{work_item_id}/checkpoints": (
@@ -1545,14 +1556,14 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.9.0",
+                    and initialized.serverInfo.version == "0.10.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.9.0 structured-completion-evidence contract, real MCP "
+                    "PASS: REST 0.10.0 structured-completion-evidence contract, real MCP "
                     "initialization, 32-tool catalog, exact eleven protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )

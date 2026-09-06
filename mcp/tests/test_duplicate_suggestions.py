@@ -97,7 +97,7 @@ def required_arguments() -> dict[str, object]:
 
 
 def test_advisory_package_version_is_coordinated():
-    assert __version__ == "0.9.0"
+    assert __version__ == "0.10.0"
 
 
 async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
@@ -114,6 +114,7 @@ async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
         "initial_prompt",
         "tags",
         "exclude_work_item_id",
+        "external_candidates",
         "limit",
     }
     assert set(schema["required"]) == {
@@ -151,6 +152,9 @@ async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
         "composition_version",
         "exact_title_group_total",
         "omitted_exact_title_group_count",
+        "external_items",
+        "external_scope",
+        "external_candidate_count",
     }
     candidate = output["$defs"]["DuplicateCandidateSummary"]
     assert set(candidate["properties"]) == {
@@ -160,6 +164,7 @@ async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
         "status",
         "updated_at",
         "duplicate_member_count",
+        "external_references",
     }
     serialized_output = json.dumps(output).lower()
     for forbidden in (

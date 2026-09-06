@@ -39,6 +39,7 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     repository_url duplicate_scope canonical_work_item_id
     job_completion_report fyi_items prompt_revision report_id dismissal after start
     job_completion_report_prompt expected_revision
+    external_candidates external_references external_url state state_observed_at url
     """.split()
 )
 

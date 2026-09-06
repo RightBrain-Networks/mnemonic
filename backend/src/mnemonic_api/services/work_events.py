@@ -1,6 +1,7 @@
 """Immutable work-event construction, public progress append, and bounded reads."""
 
 from collections.abc import Iterable
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -170,6 +171,8 @@ def stage_work_created(
                 "status": work_item.status,
                 "priority": work_item.priority,
                 "version": work_item.version,
+                **({"external_references": deepcopy(work_item.external_references)}
+                   if work_item.external_references else {}),
             }
         },
     )
@@ -231,14 +234,15 @@ def stage_work_changed(
     database: Session,
     work_item: WorkItem,
     *,
-    before: dict[str, str | int],
+    before: dict[str, Any],
     requested_fields: Iterable[str],
     actor: MutationActor | None,
     created_at: datetime,
 ) -> WorkEvent:
     fields = sorted(set(requested_fields))
     changes = {
-        field: {"before": before[field], "after": getattr(work_item, field)} for field in fields
+        field: {"before": before[field], "after": deepcopy(getattr(work_item, field))}
+        for field in fields
     }
     old_status = str(before["status"])
     status_requested = "status" in changes

@@ -1,3 +1,4 @@
+import { validSparseReferences, referenceKeys } from "./external-references.ts";
 import type {
   AdjacentRelationshipRead,
   CanonicalWorkProjection,
@@ -84,6 +85,7 @@ const CONTEXT_FIELDS = [
 ] as const;
 
 export const DUPLICATE_HANDLING_DECODER_FIELDS = {
+  decodeWorkPointer: [...WORK_POINTER_FIELDS, "external_references"],
   decodeCanonicalWorkProjection: PROJECTION_FIELDS,
   decodeWorkContext: CONTEXT_FIELDS,
   decodeWorkItemDetail: DETAIL_FIELDS,
@@ -296,7 +298,8 @@ function decodeAdjacent(
     || !sameUuid(adjacent.relative_to_work_item_id, workItemId)
     || adjacent.direction !== direction
     || !counterpart
-    || !exactKeys(counterpart, WORK_POINTER_FIELDS)
+    || !validSparseReferences(counterpart)
+    || !exactKeys(counterpart, referenceKeys(counterpart, WORK_POINTER_FIELDS))
   ) throw new Error("Mnemonic returned an invalid adjacent relationship.");
   const relationship = decodeRelationship(adjacent.relationship, projectId);
   const pointer = decodeWorkIdentityPointer({
@@ -323,6 +326,7 @@ function decodeAdjacent(
     direction,
     counterpart: {
       ...pointer,
+      ...(Object.hasOwn(counterpart, "external_references") ? { external_references: counterpart.external_references as import("./types.ts").ExternalReference[] } : {}),
       readiness: decodeReadiness(counterpart.readiness, pointer.status, pointer.id)
     }
   };

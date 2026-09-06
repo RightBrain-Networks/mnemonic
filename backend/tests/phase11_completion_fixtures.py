@@ -21,7 +21,6 @@ from mnemonic_api.schemas import (
     WorkCompletionRead,
     WorkCreation,
     WorkItemCreate,
-    WorkItemRead,
 )
 from mnemonic_api.services.client_operations import (
     OperationKind,
@@ -391,7 +390,7 @@ def set_terminal(
 def _creation_body(work: dict[str, Any], checkpoint: dict[str, Any]) -> dict[str, Any]:
     return WorkCreation.model_validate(
         {
-            "work_item": {key: work[key] for key in WorkItemRead.model_fields},
+            "work_item": {key: work[key] for key in WORK_COLUMNS.split(", ")},
             "initial_checkpoint": {key: checkpoint[key] for key in CheckpointRead.model_fields},
         }
     ).model_dump(mode="json")

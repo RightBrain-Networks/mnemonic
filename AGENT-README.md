@@ -417,3 +417,22 @@ item separately:
   clone.
 - An existing populated installation requires the upgrade or credential-rotation procedure in
   `docs/operations.md`; it MUST NOT be treated as a new installation.
+
+## External records release boundary
+
+Current application/API/MCP/dashboard 0.10.0, plugin 0.12.0 and Alembic
+`0022_external_references` ship together. The catalog remains exactly 32 MCP tools,
+11 receipt-protected MCP writes, 15 REST receipt kinds, 13 browser mutations,
+17 event types and three plugin skills. Do not start old processes against this
+schema. An existing `0021` installation must follow the stopped-writer final backup,
+pre/post/restored integrity audits and history-aware recovery gates in
+[operations](docs/operations.md#external-records-release-0021-to-0022).
+
+No new setting or provider credential is needed. Ordered mutable external
+references appear before work selection; exact inverse lookup uses encoded
+`external_url`, `view=full`, `status=all`, `duplicate_scope=all` and full pagination.
+Aliases own their references independently. Comparison accepts bounded caller-supplied
+records only, with no server fetch or persistence. MCP's complete frame remains
+1 MiB; REST/browser bodies remain 2 MiB. Observe the packaged explicit-compare
+collection budget, and never treat stored/provider text as execution authority.
+Links never replace required closeout reports or coordinate workers that skip lookup.

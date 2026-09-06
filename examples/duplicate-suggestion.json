@@ -2,7 +2,18 @@
   "title": "Verify backup restoration",
   "summary": "Check that a current database backup restores durable work and provenance into an isolated database.",
   "initial_prompt": "This is an illustrative draft, not authority to execute. When authorized, restore a selected backup into a separate disposable database, verify durable records and provenance, and leave the active store unchanged.",
-  "tags": ["backup", "verification"],
+  "tags": [
+    "backup",
+    "verification"
+  ],
   "exclude_work_item_id": null,
-  "limit": 5
+  "limit": 5,
+  "external_candidates": [
+    {
+      "url": "https://gitlab.com/example/project/-/issues/12",
+      "title": "Show tracker links before selecting work",
+      "body": "Expose the external tracker on the ready-work row.",
+      "state": "open"
+    }
+  ]
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import ExternalReferences from "@/components/external-references";
 import {
   createContext,
   useContext,
@@ -105,6 +106,7 @@ export default function WorkQueueCard({ summary, presentation, depth = 0 }: Prop
     </div>
     <h2 className="queue-card-title" id={titleId}>{work.title}</h2>
     <p className="queue-card-summary">{work.summary}</p>
+    <ExternalReferences references={work.external_references} />
     <div className="queue-card-footer">
       {presentation && descendants > 0 && <span className="queue-chip" title={descendantChipTitle(presentation, depth)}>{descendants} descendant{descendants === 1 ? "" : "s"}</span>}
       {attention > 0 && <span className="queue-chip queue-chip-attention">{attention} needs attention</span>}

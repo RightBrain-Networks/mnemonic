@@ -50,7 +50,11 @@ def test_duplicate_suggestion_request_matches_openapi_shape():
     assert set(model_schema["properties"]) == set(component["properties"])
     assert set(model_schema["required"]) == set(component["required"])
     for name in model_schema["properties"]:
-        assert model_schema["properties"][name] == component["properties"][name]
+        # Pydantic and OpenAPI use different locations for the same nested component.
+        expected = json.dumps(model_schema["properties"][name], sort_keys=True).replace(
+            "#/$defs/", "#/components/schemas/"
+        )
+        assert json.loads(expected) == component["properties"][name]
 
 
 def test_phase12_models_match_published_openapi_shape():
@@ -69,3 +73,20 @@ def test_phase12_models_match_published_openapi_shape():
         assert name in components, name
         assert set(schema.get("properties", {})) == set(components[name].get("properties", {})), name
         assert set(schema.get("required", [])) == set(components[name].get("required", [])), name
+
+
+def test_external_nested_contracts_match_openapi_properties_and_required_sets():
+    from mnemonic_mcp.external_records import (
+        ExternalCandidateReference,
+        ExternalDuplicateCandidate,
+        ExternalDuplicateSuggestion,
+        ExternalReference,
+    )
+
+    document = json.loads((REPOSITORY_ROOT / "docs/openapi.json").read_text())
+    for model in (ExternalReference, ExternalCandidateReference, ExternalDuplicateCandidate,
+                  ExternalDuplicateSuggestion):
+        actual = model.model_json_schema()
+        expected = document["components"]["schemas"][model.__name__]
+        assert set(actual["properties"]) == set(expected["properties"]), model.__name__
+        assert set(actual["required"]) == set(expected["required"]), model.__name__

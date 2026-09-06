@@ -2106,3 +2106,20 @@ html.theme-crossfade *::after {
   .report-fyi-field .field { width: 100%; }
   .report-provenance dl > div { grid-template-columns: 1fr; }
 }
+
+/* External context is visible before selecting work, with full keyboard access. */
+.external-reference-list { display: grid; gap: .65rem; padding: 0; margin: .8rem 0; list-style: none; min-width: 0; }
+.external-reference { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .6rem; padding: .65rem; border: 1px solid var(--line); border-radius: .5rem; font-size: .82rem; min-width: 0; }
+.external-reference a, .external-reference details, .external-reference time { overflow-wrap: anywhere; }
+.external-reference-kind, .external-reference-state { font-weight: 650; }
+.external-reference-host { opacity: .8; overflow-wrap: anywhere; }
+.external-reference details { width: 100%; }
+.external-reference summary { cursor: pointer; }
+.external-reference.state-closed, .external-reference.state-merged { border-inline-start: 3px solid currentColor; }
+.external-reference-editor, .external-candidates-editor > fieldset { border: 0; padding: 0; margin: .75rem 0; min-width: 0; }
+.external-reference-editor > legend { font-weight: 650; }
+.external-record-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem 1rem; margin: .8rem 0; padding: .8rem; border: 1px solid var(--line); border-radius: .5rem; min-width: 0; }
+.external-record-row .field:first-of-type, .external-row-actions { grid-column: 1 / -1; }
+.external-row-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.external-candidates-editor > summary { cursor: pointer; margin: .8rem 0; }
+@media (max-width: 600px) { .external-record-row { grid-template-columns: minmax(0, 1fr); } }

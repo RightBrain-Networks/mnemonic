@@ -6,9 +6,11 @@ import hashlib
 import logging
 import math
 from collections.abc import Iterable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from time import monotonic
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select, text
@@ -19,6 +21,7 @@ from sqlalchemy.orm import Session
 from mnemonic_api.config import Settings
 from mnemonic_api.database import begin_coherent_read
 from mnemonic_api.errors import duplicate_graph_invalid
+from mnemonic_api.external_references import ExternalReference
 from mnemonic_api.models import WorkItem, WorkItemEmbedding, WorkStatus
 from mnemonic_api.schemas import (
     DuplicateCandidateSummary,
@@ -318,6 +321,7 @@ class WorkSnapshot:
     status: WorkStatus
     version: int
     updated_at: datetime
+    external_references: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -366,6 +370,12 @@ class CapturedSuggestionSnapshot:
     exact_title_group_total: int
 
 
+@dataclass(frozen=True, slots=True)
+class InternalSuggestionResult:
+    page: DuplicateSuggestionPage
+    query_vector: tuple[float, ...] | None
+
+
 def suggest_duplicate_work(
     database: Session,
     project_id: UUID,
@@ -376,6 +386,22 @@ def suggest_duplicate_work(
     inference_permitted: bool,
     deadline: float,
 ) -> DuplicateSuggestionPage:
+    return capture_internal_suggestions(
+        database, project_id, payload, settings=settings, embedder=embedder,
+        inference_permitted=inference_permitted, deadline=deadline,
+    ).page
+
+
+def capture_internal_suggestions(
+    database: Session,
+    project_id: UUID,
+    payload: DuplicateSuggestionRequest,
+    *,
+    settings: Settings,
+    embedder: Embedder,
+    inference_permitted: bool,
+    deadline: float,
+) -> InternalSuggestionResult:
     """Capture once, rank outside the snapshot, and persist only derived cache rows."""
     _remaining_deadline_milliseconds(deadline)
     query_vector = _query_vector(embedder, payload) if inference_permitted else None
@@ -386,7 +412,7 @@ def suggest_duplicate_work(
     snapshot = _capture_snapshot(database, project_id, payload, settings, dimensions)
     database.commit()
     if query_vector is None:
-        return _lexical_page(snapshot, payload.limit)
+        return InternalSuggestionResult(_lexical_page(snapshot, payload.limit), query_vector)
     try:
         page, updates = _semantic_page(snapshot, payload.limit, query_vector, embedder, settings)
         _persist_cache_updates(
@@ -397,8 +423,8 @@ def suggest_duplicate_work(
         )
     except Exception as exc:
         logger.warning("Duplicate suggestion semantic fallback (%s)", type(exc).__name__)
-        return _lexical_page(snapshot, payload.limit)
-    return page
+        return InternalSuggestionResult(_lexical_page(snapshot, payload.limit), query_vector)
+    return InternalSuggestionResult(page, query_vector)
 
 
 def _query_vector(
@@ -505,6 +531,7 @@ def _work_snapshot(work_item: WorkItem) -> WorkSnapshot:
         status=work_item.status,
         version=work_item.version,
         updated_at=work_item.updated_at,
+        external_references=tuple(deepcopy(work_item.external_references or [])),
     )
 
 
@@ -1067,6 +1094,8 @@ def _suggestions(
                     summary=root.summary,
                     status=root.status,
                     updated_at=root.updated_at,
+                    external_references=[ExternalReference.model_validate(item)
+                                         for item in root.external_references],
                     duplicate_member_count=snapshot.member_count_by_root[root.id],
                 ),
                 matched_member=WorkIdentityPointer(

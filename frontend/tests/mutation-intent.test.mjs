@@ -562,3 +562,22 @@ test("invalid UUID generation fails before dispatch and network failure retains 
   );
   assert.equal(offline.get(deletionInput().slot).state, "unresolved");
 });
+
+test("reference replacement retries retain the exact ordered list and clear remains in frozen intent", async () => {
+  const calls = [];
+  const registry = new MutationIntentRegistry(async (_url, init) => {
+    calls.push(init.body);
+    return new Response(JSON.stringify({ detail: "Upstream unavailable." }), { status: 502 });
+  }, () => operation);
+  const references = [{ url: "https://example.com/1", kind: "tracked-by", state: "closed", state_observed_at: "2026-09-05T14:20:00Z" }];
+  const spec = { ...deletionInput(), kind: "update_work", method: "PATCH", path: `/projects/${project}/work-items/${work}`, payload: { ...deletionInput().payload, external_references: references } };
+  await assert.rejects(registry.execute(spec), (error) => error.state === "unresolved");
+  references[0].state = "open";
+  references.length = 0;
+  await assert.rejects(registry.retry(spec.slot), (error) => error.state === "unresolved");
+  assert.equal(calls[0], calls[1]);
+  assert.equal(JSON.parse(calls[1]).external_references[0].state, "closed");
+  const clearRegistry = new MutationIntentRegistry(async () => { throw new Error("Not dispatched"); }, () => operation);
+  const clear = clearRegistry.prepare({ ...spec, payload: { ...spec.payload, external_references: [] } });
+  assert.deepEqual(JSON.parse(clear.body).external_references, []);
+});

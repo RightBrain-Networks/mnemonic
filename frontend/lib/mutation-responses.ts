@@ -1,3 +1,4 @@
+import { sameExternalReferences } from "./external-references.ts";
 import { ApiError, detailMessage } from "./api.ts";
 import type {
   Checkpoint,
@@ -434,6 +435,7 @@ function decodeSuccess<K extends MutationKind>(
     const workItem = decodeWorkItem(creation.work_item, path.projectId);
     if (
       workItem.version !== 1
+      || !sameExternalReferences(workItem.external_references, body.external_references)
       || workItem.title !== String(body.title).trim()
       || workItem.summary !== String(body.summary).trim()
       || workItem.priority !== (body.priority === undefined ? 0 : body.priority)
@@ -546,6 +548,7 @@ function decodeSuccess<K extends MutationKind>(
     const workItem = decodeWorkItem(workFields, path.projectId, path.workItemId);
     if (
       workItem.version !== Number(body.expected_version) + 1
+      || (Object.hasOwn(body, "external_references") && !sameExternalReferences(workItem.external_references, body.external_references))
       || (body.title !== undefined && workItem.title !== String(body.title).trim())
       || (body.summary !== undefined && workItem.summary !== String(body.summary).trim())
       || (body.priority !== undefined && workItem.priority !== body.priority)

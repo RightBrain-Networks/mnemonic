@@ -100,8 +100,8 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Phase 12 activity and completion reports cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.9.0`, plugin `0.11.0`,
-and Alembic `0021_job_completion_reports`. Inventory exactly 32 MCP tools,
+The current coordinated boundary is API/MCP/dashboard `0.10.0`, plugin `0.12.0`,
+and Alembic `0022_external_references`. Inventory exactly 32 MCP tools,
 11 protected MCP writes, 15 REST receipt kinds, 13 protected browser mutations,
 and 17 work-event types. Keep older writers stopped: fresh closeouts now require
 a report and operation UUID, fresh work starts Pending, and settings use revision
@@ -745,8 +745,10 @@ limit. Any non-identity or malformed `Content-Encoding`, byte 3,145,729,
 read incident and never evidence that history is empty. The supplied nginx
 snippet must remain installed so the same-origin path disables compression,
 transformation, buffering, and caching. MCP ingress is separately 1 MiB and its
-complete SDK-emitted evidence response is 12 MiB; do not raise limits or
-truncate data during an incident. Reduce future unreleased input/page maxima
+complete SDK-emitted evidence response retains its 12 MiB size proof. The
+0.10.0 general stdio result ceiling is 64 MiB to carry full contexts (including
+the SDK's text and structured copies); supported maximum-context measurements
+exceed 48 MiB. Do not raise limits or truncate data during an incident. Reduce future unreleased input/page maxima
 only through a reviewed compatibility change.
 
 ### Leases
@@ -897,10 +899,10 @@ or weaken hierarchy constraints.
 
 ### Identifier-free aggregate monitoring
 
-At current head 0021, run `scripts/audit_project_activity.py` using the private
+At current head 0022, run `scripts/audit_project_activity.py` using the private
 `DATABASE_URL` environment variable. It composes the historical domain checks
-with Phase 12 activity/report checks. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.9.0` clients and plugin `0.11.0` together.
+with Phase 12 activity/report and external-reference checks. Alert on any blocking finding or runtime
+failure, and inventory deployed `0.10.0` clients and plugin `0.12.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 For the historical Phase 11 boundary, run `scripts/audit_duplicate_handling.py` with
@@ -1269,3 +1271,70 @@ origins/hosts, request limits, and an operational backup policy. Browser origin
 allowlisting is not user authentication. ChatGPT's cloud clients cannot reach
 this machine's loopback address, and this MVP does not implement OAuth or
 provision a public MCP endpoint. Those are later integration work.
+
+## External records release: 0021 to 0022
+
+The coordinated application/API/MCP/dashboard is 0.10.0, plugin 0.12.0, Alembic
+`0022_external_references`. Counts remain 32 MCP tools, 11 protected MCP writes,
+15 REST receipt kinds, 13 browser mutations, 17 event types and three skills.
+Restart aligned components together; older processes must not use this schema.
+No provider credential, environment setting, external network permission, source
+configuration or background refresher is introduced. References use existing
+create/update writes; external suggestions remain a non-persistent safe read.
+
+Rehearse migration and a complete backup restore first on isolated PostgreSQL 17,
+including populated aliases, deleted work, gates, receipts, completion evidence,
+reports, follow-ups, reviews and activity. Compare old content digests, counts,
+relationships, sequences and every permanent receipt byte. Existing rows gain only
+an empty reference list; do not infer links from prose or rewrite history. Verify
+catalog parity, direct SQL rejection, all receipt replay paths, max metadata and
+receipt sizes, high-fanout contexts, index and complete route plans. Record actual
+model cold/warm 1/16/64 candidate latency and competing semantic search behavior.
+These release gates are distinct from executing production cutover.
+
+At the separately authorized cutover, close ingress, stop/drain **all** writers,
+then audit and take the final named custom-format recovery backup. An earlier
+rehearsal backup is not the final recovery point. The exact audit commands are:
+
+```sh
+uv run --project backend python scripts/audit_project_activity.py \
+  --expected-head 0021_job_completion_reports
+```
+
+Run this pre-upgrade command while the quiescent database still has `0021`.
+Validate the final archive, copy it off-machine and restore-test it before
+migration. Preserve the final quiescence counts/digests, relationships, sequences,
+permanent receipts and catalog. Keep writers stopped, apply `0022`, then start
+aligned processes behind closed ingress and verify health/version/catalog plus
+create/update/clear/discovery/search/comparison smoke tests in an approved
+staging or disposable project. Next run:
+
+```sh
+uv run --project backend python scripts/audit_project_activity.py \
+  --expected-head 0022_external_references
+```
+
+The updated audit recognizes both frozen catalogs and keeps report/activity
+checks active. It checks reference storage/index/validator/caps and data
+invariants without outputting record text or credentials. Validate and restore a
+post-upgrade backup to an isolated database and run the same `0022` audit there
+before reopening ingress. The Phase 11 duplicate-handling preflight is not a
+`0022` migration preflight. The audit uses existing private database access;
+never paste database credentials into documentation, logs, or tool arguments.
+
+Prefer forward repair. Downgrade fails closed if any reference remains in a row,
+an event, or a populated permanent receipt, including a created-then-cleared list.
+Only an empty-feature disposable database may restore predecessor validators and
+remove the new objects. Before reopening ingress, failed cutover recovery restores
+the entire verified final backup while writers stay stopped and rotates the
+activity stream under the existing recovery procedure. Never erase links or edit
+receipts to make old clients start. After reopening, restoring that backup can
+lose later accepted writes; recovery then needs a separately decided strategy
+preserving those writes or an explicit owner decision about loss.
+
+Use stable credential-free provider permalinks, never signed access URLs.
+Request-known secret checks are a narrow safeguard and cannot detect every
+third-party secret. Candidate text is ephemeral and untrusted; log only bounded
+aggregate timings/counts and categorical failures. Do not log drafts, bodies,
+URLs, raw exceptions or authentication material. No external provider checks run
+on the server, and no background index is created. D3 requires a new design.

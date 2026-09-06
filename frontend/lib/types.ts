@@ -1,3 +1,28 @@
+export type ExternalRecordState = "open" | "closed" | "merged" | "unknown";
+export interface ExternalReference {
+  url: string;
+  kind: "tracked-by" | "references";
+  label?: string;
+  state: ExternalRecordState;
+  state_observed_at?: string;
+}
+export interface ExternalCandidate {
+  url: string;
+  title: string;
+  body: string;
+  state: ExternalRecordState;
+}
+export interface ExternalSuggestionReference {
+  url: string;
+  title: string;
+  state: ExternalRecordState;
+}
+export interface ExternalSuggestion {
+  rank: number;
+  signals: DuplicateSuggestionSignal[];
+  reference: ExternalSuggestionReference;
+}
+
 export type WorkStatus = "pending" | "deferred" | "done" | "wont-do" | "promoted";
 export type EventWorkStatus = "open" | WorkStatus;
 export type EventCreateWorkStatus = Exclude<EventWorkStatus, "done">;
@@ -33,6 +58,7 @@ export interface Page<T> {
 }
 
 export interface WorkItem {
+  external_references?: ExternalReference[];
   id: string;
   project_id: string;
   title: string;
@@ -205,6 +231,7 @@ export type WorkEventOrigin = "live" | "backfill";
 export type WorkEventActorKind = "client" | "unattributed";
 
 export interface WorkSnapshot {
+  external_references?: ExternalReference[];
   title: string;
   summary: string;
   status: EventCreateWorkStatus;
@@ -213,6 +240,7 @@ export interface WorkSnapshot {
 }
 
 export type WorkEventChangeSet = Partial<{
+  external_references: { before: ExternalReference[]; after: ExternalReference[] };
   title: { before: string; after: string };
   summary: { before: string; after: string };
   priority: { before: number; after: number };
@@ -304,6 +332,7 @@ export interface RelationshipEdgeRead {
 }
 
 export interface WorkPointer {
+  external_references?: ExternalReference[];
   id: string;
   title: string;
   status: WorkStatus;
@@ -506,6 +535,7 @@ export type DuplicateSuggestionSemanticScope =
 export type DuplicateSuggestionSignal = "exact_title" | "lexical" | "semantic";
 
 export interface DuplicateSuggestionInput {
+  external_candidates?: ExternalCandidate[];
   title: string;
   summary: string;
   initial_prompt: string;
@@ -515,6 +545,7 @@ export interface DuplicateSuggestionInput {
 }
 
 export interface DuplicateCandidateSummary {
+  external_references?: ExternalReference[];
   work_item_id: string;
   title: string;
   summary: string;
@@ -531,6 +562,9 @@ export interface DuplicateSuggestion {
 }
 
 export interface DuplicateSuggestionPage {
+  external_items?: ExternalSuggestion[];
+  external_candidate_count?: number;
+  external_scope?: "hybrid" | "lexical" | "unavailable";
   items: DuplicateSuggestion[];
   limit: number;
   mode: DuplicateSuggestionMode;
@@ -542,6 +576,7 @@ export interface DuplicateSuggestionPage {
 }
 
 export interface WorkCreateInput extends ClientOperationInput {
+  external_references?: ExternalReference[];
   title: string;
   summary: string;
   priority: number;
@@ -694,6 +729,7 @@ export interface WorkUpdate extends WorkItem {
 }
 
 export interface WorkPatch extends ClientOperationInput {
+  external_references?: ExternalReference[];
   job_completion_report?: JobCompletionReportInput;
   expected_version: number;
   title?: string;

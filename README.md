@@ -110,7 +110,7 @@ Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemon
 reachable remotely.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current application/API/MCP release is `0.9.0`, with plugin version `0.11.0` and database head `0021_job_completion_reports`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
+not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current application/API/MCP release is `0.10.0`, with plugin version `0.12.0` and database head `0022_external_references`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
 
 - **`mnemonic-save`** searches for existing work, explicitly compares a stable
   draft with grouped duplicate candidates while preserving Create anyway,
@@ -308,3 +308,28 @@ docker compose up -d --wait
 
 Normal stop/restart preserves the database. **Do not use `docker compose down -v` on your working stack:** it removes the data volume. Backups are written to `./backups` by default and are not committed. Copy them off the machine and
 monitor available disk space; a local dump alone does not protect against disk loss. Restore commands and security limits are in [`docs/operations.md`](docs/operations.md).
+
+## External trackers and duplicate comparison
+
+Work items can retain up to ten ordered external references. “Tracked by” means
+the record tracks the objective; “Reference” means supporting context. Ready-work
+rows show these links and caller-observed state/time before selection, even when
+a summary is stale. References are mutable context, separate from immutable
+completion evidence. Editing replaces the complete list; clearing sends `[]`.
+A closed issue hint never changes readiness or closes Mnemonic work automatically.
+
+Keep park-then-file and attach the actual stable credential-free URL afterward.
+Use the [reference update example](examples/external-reference-update.json), then
+reread versions before a separately authorized report-required closeout. Exact
+inverse lookup includes URL case, query and fragment: search `view=full`,
+`status=all`, `duplicate_scope=all`, and paginate all matches. Normal lookup/claim
+practice cannot coordinate an external worker that never consults Mnemonic.
+
+The explicit duplicate comparison supports a separate list of up to 64 supplied
+external records alongside internal matches. The dashboard accepts manual fields;
+the plugin can gather during explicit comparison through existing provider access
+with a repository URL and bounded reads. Mnemonic stores no provider credentials
+and fetches no provider data. Failed comparison still allows Create anyway.
+See the [agent workflow](docs/agents.md#external-first-and-park-then-file-workflows)
+and [offline frame example](examples/external-candidate-frame.py). The complete
+MCP frame has a 1 MiB limit, including envelope and text escaping.

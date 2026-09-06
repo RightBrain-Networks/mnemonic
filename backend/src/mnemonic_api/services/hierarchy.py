@@ -481,6 +481,7 @@ def hierarchy_page(
                                     'project_id', page_rows.project_id,
                                     'title', page_rows.title,
                                     'summary', page_rows.summary,
+                                    'external_references', page_rows.external_references,
                                     'status', page_rows.status,
                                     'priority', page_rows.priority,
                                     'initial_checkpoint_id',
