@@ -15,7 +15,7 @@ const chrome = await readFile(CHROME_URL, "utf8");
 const dashboard = await readFile(DASHBOARD_URL, "utf8");
 const css = await readFile(CSS_URL, "utf8");
 
-const heading = chrome.match(/^\s*(<h1>.*<\/h1>)$/m)?.[1];
+const heading = chrome.match(/^\s*(<h1>[\s\S]*?<\/h1>)$/m)?.[1] ?? "";
 
 // Selectors are anchored to the line start so a shorthand rule never resolves to the
 // longer one that shares its tail.
@@ -46,21 +46,29 @@ const plex = fontFaces("IBM Plex Sans");
 const roman = plex.filter((face) => face["font-style"] === "normal");
 const italic = plex.filter((face) => face["font-style"] === "italic");
 
-test("the library hero names the selected project and other views keep their period", () => {
+test("the library hero names the selected project and its slug without an eyebrow", () => {
   // Only the library passes a subject, so "Project settings." and "Needs Attention."
   // are unchanged by this heading.
   const subjects = [...dashboard.matchAll(/^\s*subject=\{([^}]*)\}$/gm)].map(([, value]) => value);
   assert.deepEqual(subjects, ["project?.name"]);
-  assert.match(dashboard, /title="Work library"\n\s*subject=\{project\?\.name\}/);
+  assert.match(dashboard,
+    /title="Work library"\n\s*subject=\{project\?\.name\}\n\s*subjectSlug=\{project\?\.slug\}/);
+  assert.doesNotMatch(dashboard, /eyebrow="DURABLE WORK FOR TEMPORARY SESSIONS"/);
   assert.equal((chrome.match(/subject\?: string;/g) ?? []).length, 1);
+  assert.equal((chrome.match(/subjectSlug\?: string;/g) ?? []).length, 1);
 });
 
-test("the colon replaces the period and the name follows it as its own span", () => {
-  assert.equal(
-    heading,
-    '<h1>{title}<span className="heading-mark">{subject ? ":" : "."}</span>'
-    + '{subject && <>{" "}<span className="heading-subject">{subject}</span></>}</h1>'
+test("the colon replaces the period and the slug follows the name after an em dash", () => {
+  assert.match(heading,
+    /\{title\}<span className="heading-mark">\{subject \? ":" : "\."\}<\/span>/);
+  const nameIndex = heading.indexOf('<span className="heading-subject-name">{subject}</span>');
+  const separatorIndex = heading.indexOf(
+    '<span className="heading-subject-separator">—</span>'
   );
+  const slugIndex = heading.indexOf(
+    '<span className="heading-subject-slug">{subjectSlug}</span>'
+  );
+  assert.ok(nameIndex >= 0 && nameIndex < separatorIndex && separatorIndex < slugIndex);
 });
 
 test("the colon keeps the period's accent and the project name does not take it", () => {
@@ -72,7 +80,7 @@ test("the colon keeps the period's accent and the project name does not take it"
     "var(--accent)");
   assert.match(css,
     /html\[data-theme="dark"\] :is\(\.small-mark, \.eyebrow, \.page-heading h1 > \.heading-mark\)/);
-  for (const body of ruleBodies(".page-heading h1 > .heading-subject")) {
+  for (const body of ruleBodies(".heading-subject-name")) {
     assert.ok(!/color:/.test(body), "the project name should inherit the heading's ink");
   }
 });
@@ -88,11 +96,16 @@ test("the project name is set smaller than the view title it follows", () => {
 
 test("the project name is italic at 80% opacity and never a synthesized slant", () => {
   assert.equal(declaration(".page-heading h1 > .heading-subject", "font-style"), "italic");
-  assert.equal(declaration(".page-heading h1 > .heading-subject", "opacity"), ".8");
+  assert.equal(declaration(".heading-subject-name", "opacity"), ".8");
   // Without this a missing italic face would silently render as a faux oblique.
   assert.equal(declaration(".page-heading h1 > .heading-subject", "font-synthesis-style"), "none");
   // A long project name would otherwise widen the hero past the viewport.
   assert.equal(declaration(".page-heading h1 > .heading-subject", "overflow-wrap"), "anywhere");
+});
+
+test("the project slug is spaced by an em dash and painted at 50% opacity", () => {
+  assert.equal(declaration(".heading-subject-separator", "margin-inline"), ".45em");
+  assert.equal(declaration(".heading-subject-slug", "opacity"), ".5");
 });
 
 test("the heading font ships a real italic covering the same subsets as its roman", () => {
