@@ -4,6 +4,10 @@
 
 Backend code, migrations, and tests live under `backend/`; the MCP adapter and tests under `mcp/`; and the Next.js app, components, libraries, tests, and assets under `frontend/`. Compose files are at root, with supporting material in `scripts/`, `docs/`, and `examples/`. The Claude Code plugin — the three skills and their shared references — lives under `plugin/`, with the marketplace manifest in `.claude-plugin/`.
 
+## Documentation
+
+- `/README.md` is exclusively human-authored and therefore is READ ONLY unless the owner explicitly asks you to edit it.
+
 ## Build, Test, and Development Commands
 
 - `python scripts/setup.py`: create settings from `.env.example`.
