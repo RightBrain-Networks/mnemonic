@@ -1948,6 +1948,11 @@ html[data-theme="dark"] :is(.detail-reconciliation-status, .defer-button,
   background: var(--dark-warning-bg);
   border-color: var(--dark-warning-line);
 }
+html[data-theme="dark"] .defer-button:hover:not(:disabled) {
+  color: var(--dark-warning-text);
+  background: #302719;
+  border-color: var(--dark-warning-line);
+}
 html[data-theme="dark"] .status-action-menu {
   color: var(--dark-text);
   background: var(--dark-raised);

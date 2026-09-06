@@ -432,6 +432,18 @@ const contrastFixture = `
 </main>
 `;
 
+const deferHoverFixture = `
+<main style="display:flex;gap:24px;padding:32px">
+  <div class="status-split-button">
+    <button id="detail-defer-primary" class="button defer-button status-split-primary">Defer</button>
+    <button id="detail-defer-toggle" class="button defer-button status-split-toggle"><span>⌄</span></button>
+  </div>
+  <div class="status-split-button queue-status-split-button">
+    <button id="queue-defer-primary" class="button defer-button status-split-primary">Defer</button>
+    <button id="queue-defer-toggle" class="button defer-button status-split-toggle"><span>⌄</span></button>
+  </div>
+</main>`;
+
 test("dark-theme text stays in the 7.21:1 to 9.5:1 contrast band", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("mnemonic.theme", "dark"));
   await page.goto("/");
@@ -474,5 +486,32 @@ test("dark-theme text stays in the 7.21:1 to 9.5:1 contrast band", async ({ page
   ]) {
     await frame.locator(selector).hover({ force: true });
     expect(await auditTextContrast(page, fixture)).toEqual([]);
+  }
+
+  const css = await page.evaluate(() => {
+    return [...document.styleSheets].flatMap((sheet) => {
+      try {
+        return [...sheet.cssRules].map((rule) => rule.cssText);
+      } catch {
+        return [];
+      }
+    }).join("\n");
+  });
+  await page.setContent("<style>" + css + "</style>" + deferHoverFixture);
+  await page.locator("html").evaluate((element) => {
+    element.dataset.theme = "dark";
+    element.style.colorScheme = "dark";
+  });
+
+  for (const selector of [
+    "#detail-defer-primary", "#detail-defer-toggle",
+    "#queue-defer-primary", "#queue-defer-toggle"
+  ]) {
+    const button = page.locator(selector);
+    await button.hover();
+    await expect(button).toHaveCSS("background-color", "rgb(48, 39, 25)");
+    await expect(button).toHaveCSS("color", "rgb(215, 203, 172)");
+    await expect(button).toHaveCSS("border-top-color", "rgb(128, 107, 53)");
+    expect(await auditTextContrast(page)).toEqual([]);
   }
 });
