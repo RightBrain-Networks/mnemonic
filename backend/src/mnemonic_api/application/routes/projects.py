@@ -76,15 +76,21 @@ def get_project(project_id: UUID, database: Database) -> Project:
 
 @router.patch("/projects/{project_id}", response_model=ProjectRead)
 def update_project(project_id: UUID, payload: ProjectPatch, database: Database) -> Project:
-    with project_mutation(database, project_id):
-        project = require_project(database, project_id)
-        changes = payload.model_dump(exclude_unset=True)
-        changed = any(getattr(project, field) != value for field, value in changes.items())
-        for field, value in changes.items():
-            setattr(project, field, value)
-        if changed:
-            project.updated_at = datetime.now(UTC)
-        database.commit()
+    try:
+        with project_mutation(database, project_id):
+            project = require_project(database, project_id)
+            changes = payload.model_dump(exclude_unset=True)
+            changed = any(getattr(project, field) != value for field, value in changes.items())
+            for field, value in changes.items():
+                setattr(project, field, value)
+            if changed:
+                project.updated_at = datetime.now(UTC)
+            database.commit()
+    except IntegrityError as exc:
+        database.rollback()
+        if database_sqlstate(exc) == UNIQUE_VIOLATION:
+            raise conflict("slug_conflict", "A project with that slug exists.") from None
+        raise
     database.refresh(project)
     return project
 

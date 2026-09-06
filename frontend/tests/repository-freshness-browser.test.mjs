@@ -7,9 +7,9 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 test("dashboard package and lock ship the coordinated current release version", async () => {
   const manifest = JSON.parse(await read("package.json"));
   const lock = JSON.parse(await read("package-lock.json"));
-  assert.equal(manifest.version, "0.10.0");
-  assert.equal(lock.version, "0.10.0");
-  assert.equal(lock.packages[""].version, "0.10.0");
+  assert.equal(manifest.version, "0.11.0");
+  assert.equal(lock.version, "0.11.0");
+  assert.equal(lock.packages[""].version, "0.11.0");
 });
 
 test("full checkpoints carry scope while compact pointers stay unchanged", async () => {

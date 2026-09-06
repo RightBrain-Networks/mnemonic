@@ -859,6 +859,13 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setSettingsRefresh((value) => value + 1);
   }
 
+  function handleProjectSaved(saved: Project) {
+    if (saved.id !== activeIdRef.current) return;
+    setProjects((items) => items
+      .map((item) => item.id === saved.id ? saved : item)
+      .sort((left, right) => left.name.localeCompare(right.name)));
+  }
+
   async function loadContext(
     summary: WorkSummary,
     requestId = ++recordRequest.current,
@@ -1923,6 +1930,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
               loadError={settingsLoadError}
               onRetry={() => setSettingsRefresh((value) => value + 1)}
               onSaved={handleProjectSettingsSaved}
+              onProjectSaved={handleProjectSaved}
               onNotice={(message, error) => setNotice({ message, error })}
             />}
         </> : view === "summaries" ? <>

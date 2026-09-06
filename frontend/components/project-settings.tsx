@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import {
   DEFAULT_RECALL_POINTER_TEMPLATE,
@@ -16,10 +16,29 @@ type Props = {
   loadError: string;
   onRetry: () => void;
   onSaved: (settings: ProjectSettings) => void;
+  onProjectSaved: (project: Project) => void;
   onNotice: (message: string, error?: boolean) => void;
 };
 
 type PendingAction = "save" | "clear" | "report-save" | "report-reset" | null;
+
+type ProjectDetailsDraft = {
+  name: string;
+  slug: string;
+  description: string;
+  repositoryUrl: string;
+};
+
+function detailsFromProject(project?: Project): ProjectDetailsDraft {
+  return {
+    name: project?.name ?? "",
+    slug: project?.slug ?? "",
+    description: project?.description ?? "",
+    repositoryUrl: project?.repository_url ?? ""
+  };
+}
+
+const validSlug = (slug: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
 
 export default function ProjectSettingsPanel({
   project,
@@ -28,8 +47,10 @@ export default function ProjectSettingsPanel({
   loadError,
   onRetry,
   onSaved,
+  onProjectSaved,
   onNotice
 }: Props) {
+  const [projectDetails, setProjectDetails] = useState(() => detailsFromProject(project));
   const storedTemplate = settings && project && settings.project_id === project.id
     ? settings.recall_pointer_template
     : null;
@@ -45,6 +66,10 @@ export default function ProjectSettingsPanel({
   const [saveError, setSaveError] = useState("");
   const lastEffectiveTemplate = useRef(effectiveTemplate);
   const requestGeneration = useRef(0);
+  const lastProject = useRef(project);
+  const projectRequestGeneration = useRef(0);
+  const [projectSaving, setProjectSaving] = useState(false);
+  const [projectSaveError, setProjectSaveError] = useState("");
 
   useEffect(() => {
     const previousTemplate = lastEffectiveTemplate.current;
@@ -59,6 +84,26 @@ export default function ProjectSettingsPanel({
     lastReportPrompt.current = effectiveReportPrompt;
     setReportDraft((current) => current === previous ? effectiveReportPrompt : current);
   }, [effectiveReportPrompt]);
+
+  useEffect(() => {
+    const previous = lastProject.current;
+    lastProject.current = project;
+    const next = detailsFromProject(project);
+    setProjectDetails((current) => {
+      if (!project || !previous || previous.id !== project.id) return next;
+      const prior = detailsFromProject(previous);
+      return {
+        name: current.name === prior.name ? next.name : current.name,
+        slug: current.slug === prior.slug ? next.slug : current.slug,
+        description: current.description === prior.description
+          ? next.description
+          : current.description,
+        repositoryUrl: current.repositoryUrl === prior.repositoryUrl
+          ? next.repositoryUrl
+          : current.repositoryUrl
+      };
+    });
+  }, [project]);
 
   useEffect(() => {
     if (!settings) return;
@@ -77,6 +122,14 @@ export default function ProjectSettingsPanel({
     requestGeneration.current += 1;
   }, [project?.id]);
 
+  useEffect(() => {
+    setProjectSaving(false);
+    setProjectSaveError("");
+    return () => {
+      projectRequestGeneration.current += 1;
+    };
+  }, [project?.id]);
+
   if (!project) {
     return <section className="empty-state settings-empty">
       <h2>Select a project.</h2>
@@ -90,6 +143,45 @@ export default function ProjectSettingsPanel({
   const unavailable = !settingsAvailable || loading || conflictRevision !== null;
   const dirty = draft !== effectiveTemplate;
   const canClear = storedTemplate !== null || draft !== DEFAULT_RECALL_POINTER_TEMPLATE;
+  const projectDirty = projectDetails.name !== selectedProject.name
+    || projectDetails.slug !== selectedProject.slug
+    || projectDetails.description !== selectedProject.description
+    || projectDetails.repositoryUrl !== (selectedProject.repository_url ?? "");
+
+  async function saveProject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const generation = ++projectRequestGeneration.current;
+    setProjectSaving(true);
+    setProjectSaveError("");
+    try {
+      const saved = await api<Project>(
+        `/projects/${encodeURIComponent(selectedProject.id)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: projectDetails.name,
+            slug: projectDetails.slug,
+            description: projectDetails.description,
+            repository_url: projectDetails.repositoryUrl.trim() || null
+          })
+        }
+      );
+      if (generation !== projectRequestGeneration.current) return;
+      setProjectDetails(detailsFromProject(saved));
+      onProjectSaved(saved);
+      onNotice(`Project details saved for “${saved.name}”.`);
+    } catch (error) {
+      if (generation !== projectRequestGeneration.current) return;
+      setProjectSaveError(errorMessage(error));
+      if (!(error instanceof ApiError) || error.status === 0 || error.status >= 500) {
+        setProjectSaveError(
+          "The save outcome is uncertain. Reload this page and compare the project before retrying."
+        );
+      }
+    } finally {
+      if (generation === projectRequestGeneration.current) setProjectSaving(false);
+    }
+  }
 
   async function updateTemplate(template: string | null, action: Exclude<PendingAction, null>) {
     const generation = ++requestGeneration.current;
@@ -179,6 +271,99 @@ export default function ProjectSettingsPanel({
   }
 
   return <div className="settings-stack">
+    <section className="settings-card" aria-labelledby="project-details-title">
+      <div className="settings-card-heading">
+        <div>
+          <span className="section-label">WORKSPACE DETAILS</span>
+          <h2 id="project-details-title">Project details</h2>
+        </div>
+      </div>
+      <p className="settings-intro">
+        Keep the project identity and repository location current for people and agents.
+      </p>
+      <form
+        className="form-stack settings-project-form"
+        onSubmit={(event) => void saveProject(event)}
+      >
+        <label className="field" htmlFor="project-settings-name">
+          Project name
+          <input
+            id="project-settings-name"
+            required
+            maxLength={120}
+            value={projectDetails.name}
+            disabled={projectSaving}
+            onChange={(event) => {
+              setProjectDetails((current) => ({ ...current, name: event.target.value }));
+              setProjectSaveError("");
+            }}
+          />
+        </label>
+        <div className="field">
+          <label htmlFor="project-settings-slug">Project slug</label>
+          <input
+            id="project-settings-slug"
+            required
+            maxLength={100}
+            pattern="[a-z0-9]+(-[a-z0-9]+)*"
+            aria-describedby="project-settings-slug-hint"
+            value={projectDetails.slug}
+            disabled={projectSaving}
+            onChange={(event) => {
+              setProjectDetails((current) => ({ ...current, slug: event.target.value }));
+              setProjectSaveError("");
+            }}
+          />
+          <span className="field-hint" id="project-settings-slug-hint">
+            Lowercase letters, numbers, and single hyphens only.
+          </span>
+        </div>
+        <label className="field" htmlFor="project-settings-description">
+          Description <span className="optional">Optional</span>
+          <textarea
+            id="project-settings-description"
+            rows={3}
+            maxLength={4000}
+            value={projectDetails.description}
+            disabled={projectSaving}
+            onChange={(event) => {
+              setProjectDetails((current) => ({ ...current, description: event.target.value }));
+              setProjectSaveError("");
+            }}
+          />
+        </label>
+        <label className="field" htmlFor="project-settings-repository-url">
+          Repository URL <span className="optional">Optional</span>
+          <input
+            id="project-settings-repository-url"
+            type="url"
+            maxLength={2000}
+            value={projectDetails.repositoryUrl}
+            disabled={projectSaving}
+            onChange={(event) => {
+              setProjectDetails((current) => ({
+                ...current,
+                repositoryUrl: event.target.value
+              }));
+              setProjectSaveError("");
+            }}
+          />
+        </label>
+        {projectSaveError && <div className="error-notice" role="alert">
+          <p>{projectSaveError}</p>
+        </div>}
+        <div className="settings-actions">
+          <button
+            className="button button-primary"
+            type="submit"
+            disabled={projectSaving || !projectDirty || !projectDetails.name.trim()
+              || !validSlug(projectDetails.slug)}
+          >
+            {projectSaving ? "Saving…" : "Save project details"}
+          </button>
+        </div>
+      </form>
+    </section>
     {conflictRevision && <section className="error-notice" role="alert">
       <p>Review the latest saved settings before applying your draft. Your edits have been kept.</p>
       <details><summary>Current saved values</summary><p className="job-report-prompt">{effectiveTemplate}</p><p className="job-report-prompt">{effectiveReportPrompt}</p></details>

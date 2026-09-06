@@ -1287,6 +1287,7 @@ class ProjectCreate(APIModel):
 
 class ProjectPatch(APIModel):
     name: ProjectName | None = None
+    slug: Slug | None = None
     description: ProjectDescription | None = None
     repository_url: HTTPURL | None = None
 
@@ -1294,7 +1295,7 @@ class ProjectPatch(APIModel):
     def editable_fields(self) -> Self:
         if not self.model_fields_set:
             raise ValueError("Provide at least one editable field")
-        for field in ("name", "description"):
+        for field in ("name", "slug", "description"):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")
         return self

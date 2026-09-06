@@ -165,7 +165,7 @@ idempotency path.
 - `POST /projects` accepts
   `{name, slug?, description?, repository_url?}` and returns a project (201).
 - `GET /projects/{project_id}` returns a project.
-- `PATCH /projects/{project_id}` updates name, description, or repository URL.
+- `PATCH /projects/{project_id}` updates name, slug, description, or repository URL.
 
 Project fields are `id`, `name`, `slug`, `description`,
 `repository_url`, `created_at`, and `updated_at`. Slugs are unique,

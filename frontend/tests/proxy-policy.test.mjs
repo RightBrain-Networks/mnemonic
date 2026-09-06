@@ -223,6 +223,28 @@ test("project settings require a revision for independent recall-pointer patches
   }
 });
 
+test("project detail patches use the exact editable project contract", () => {
+  const path = `projects/${project}`;
+  assert.equal(invalidMutationBody(path, "PATCH", {
+    name: "Renamed project",
+    slug: "renamed-project",
+    description: "A new description.",
+    repository_url: "https://example.test/repository"
+  }), null);
+  assert.equal(invalidMutationBody(path, "PATCH", { repository_url: null }), null);
+  for (const body of [
+    {},
+    { name: " " },
+    { slug: "Not Valid" },
+    { description: "NUL\0byte" },
+    { repository_url: "file:///tmp/repository" },
+    { repository_url: "https://user:password@example.test/repository" },
+    { name: "Valid", extra: true }
+  ]) {
+    assert.match(invalidMutationBody(path, "PATCH", body), /allowlist/);
+  }
+});
+
 test("Phase 4 ready discovery is not exposed through the browser proxy", () => {
   for (const method of ["GET", "POST", "PATCH", "DELETE"]) {
     assert.equal(allowedQueryKeys(`projects/${project}/ready-work`, method), null);
