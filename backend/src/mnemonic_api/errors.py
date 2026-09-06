@@ -5,7 +5,10 @@ from typing import Any
 from fastapi import HTTPException
 
 SAFE_ERROR_CONTEXT_KEYS = frozenset(
-    {"holder_client", "expires_at", "canonical_work_item_id"}
+    {
+        "holder_client", "holder_session_id", "expires_at", "purpose", "code_review_id", "mode",
+        "canonical_work_item_id",
+    }
 )
 SAFE_ERROR_FIELD_LOCATIONS = frozenset(
     {

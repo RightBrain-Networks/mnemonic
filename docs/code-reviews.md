@@ -108,6 +108,12 @@ unanswered until a typed handler is available.
 
 ## Cold and warm reviews
 
+Reviewers may use any MCP client and any model. Each independently acting reviewer
+establishes its own stable client/session identity; when the host exposes no
+distinct native agent ID, retain one generated `mnemonic-<UUID>` for that reviewer.
+This requires no read of implementation context. The same identity must accompany
+the review claim and result; never use the implementer's or parent's identity.
+
 An outstanding request replaces **Copy context** with green **Cold review**.
 Copying only copies a prompt; it does not claim or create work. The allowlisted
 prompt contains routing IDs, revision, scope hash and pinned repository ranges,

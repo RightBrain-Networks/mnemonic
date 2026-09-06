@@ -153,7 +153,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         initialized = client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS)
         assert initialized.status_code == 200
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
-        assert initialized.json()["result"]["serverInfo"]["version"] == "0.19.0"
+        assert initialized.json()["result"]["serverInfo"]["version"] == "0.20.0"
         instructions = initialized.json()["result"]["instructions"]
         # Clients truncate this block, so it must stay short and lead with the
         # trigger condition. Per-tool doctrine lives in the tool descriptions.
@@ -442,7 +442,7 @@ async def test_stdio_transport_handshake_and_catalog():
         ):
             initialized = await session.initialize()
             assert initialized.serverInfo.name == "Mnemonic"
-            assert initialized.serverInfo.version == "0.19.0"
+            assert initialized.serverInfo.version == "0.20.0"
             result = await session.list_tools()
             assert len(result.tools) == 38
             assert all(tool.outputSchema is not None for tool in result.tools)

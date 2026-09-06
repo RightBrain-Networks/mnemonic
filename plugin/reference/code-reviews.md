@@ -71,6 +71,14 @@ question before a truthful new completion; preserve prior history.
 
 ## Cold review: branch before ordinary recall
 
+Establish the reviewer's own client/session identity before claiming. Prefer
+a distinct host-exposed agent/session ID; otherwise generate one
+`mnemonic-<UUID>` for this reviewer and retain it privately through retries and
+restores. A parent conversation ID shared with other acting agents is not a
+distinct reviewer identity. Never copy an implementer's or another lease
+holder's provenance. Use your actual client and only a reliably known model.
+This identity rule requires no work-context read.
+
 A copied Cold review prompt is a separate entry path. Use a fresh session with
 no implementation rationale or prior findings. Before findings are frozen,
 the ONLY Mnemonic calls are `claim_work` with `purpose="code_review"`, exact

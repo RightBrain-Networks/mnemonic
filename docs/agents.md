@@ -103,10 +103,28 @@ to recover this read. If comparison stays unavailable, disclose that and keep
 the independent create workflow available.
 
 The installable [skills](../plugin/skills/) contain the complete capture/search/recall
-workflows. Claude Code expands `${CLAUDE_SESSION_ID}` in skill text. Other
-clients may not; an unexpanded token is not a valid session ID. If the current
-host cannot reveal its real conversation ID, obtain a truthful identifier
-before writing.
+workflows. Establish one stable `(client, session_id)` identity for each independently
+acting agent before writing. Use the actual client name (for example `claude-code`,
+`codex`, or `opencode`) and a host-exposed identifier for that agent's session when
+available. Claude Code can supply `${CLAUDE_SESSION_ID}` in skill text; an unexpanded
+token is never an identifier. If the host exposes no suitable identifier, generate
+one random UUID once, prefix it with `mnemonic-`, and retain it in that agent's private
+session state. This is an explicitly client-generated Mnemonic session identifier,
+not a claim to know the host's conversation ID.
+
+Keep this identity stable across claims, checkpoints, events, closeouts, follow-up
+answers, compaction, and exact retries. Each independently acting subagent needs its
+own session identity, even if its host exposes only the parent's conversation ID.
+Never use a shared repository setting, API key, MCP connection ID, process ID, model
+name, or a new per-call UUID as session identity. Never adopt another agent's identity
+from stored history. Resume an identity only from that same agent's retained state;
+if it is lost, a new session cannot answer the old session's follow-ups. Optional
+model and session URL fields are supplied only when actually known. The same session
+string under different clients denotes different agents. These fields remain asserted
+provenance, not authentication.
+
+See [multi-client setup and coordination](mcp-clients.md) for installation and a
+mixed-client workflow.
 
 ## Protect mutation intents and recover unknown outcomes
 
@@ -712,14 +730,17 @@ information out of checkpoints and metadata.
 
 ## Client portability
 
-Claude Code HTTP configuration and a Docker stdio alternative are in
-[`examples`](../examples/). OpenCode can use the HTTP adapter. Tool schemas and
-stored source fields accept arbitrary client names; MCP transport session IDs
-must never be substituted for the originating LLM conversation ID.
+Claude Code, Codex, and OpenCode HTTP and stdio configurations are in
+[`examples`](../examples/). All use the same full MCP tool surface, with optional
+resources and prompts; no vendor adapter or model allowlist is required.
 
-Copy the generic skill directories into the discovery location supported by the
-target client. Tool-name prefixes may differ, but the underlying canonical names
-stay the same. Setup does not modify other projects or user-global configuration.
+Keep Claude Code's native plugin installation. For Codex, OpenCode, and other
+clients with Agent Skills support, use the [portable exporter](mcp-clients.md)
+to bundle each skill with all its references and repository helper. Copying only
+the source skill directory omits required files. Tool-name prefixes may differ,
+but the underlying canonical names stay the same. Clients without skill discovery
+can load the exported files explicitly. Setup does not modify other projects or
+user-global configuration.
 
 The dashboard protects fifteen browser-accessible mutations: create work, add a
 checkpoint, append progress, add a relationship, edit work, complete work,

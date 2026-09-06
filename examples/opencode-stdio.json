@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "mnemonic": {
+      "type": "local",
+      "command": ["uv", "run", "--project", "/absolute/path/to/mnemonic/mcp", "mnemonic-mcp", "--transport", "stdio"],
+      "enabled": true,
+      "environment": {
+        "MNEMONIC_API_URL": "http://127.0.0.1:8000",
+        "MNEMONIC_API_KEY": "{env:MNEMONIC_API_KEY}"
+      }
+    }
+  }
+}

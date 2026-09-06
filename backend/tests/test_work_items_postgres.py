@@ -611,6 +611,12 @@ def test_deferral_is_dedicated_nonterminal_and_excluded_from_agent_claims(
     )
     assert active_defer.status_code == 409
     assert active_defer.json()["detail"]["code"] == "lease_held"
+    assert active_defer.json()["detail"]["context"] == {
+        "holder_client": "claude-code", "holder_session_id": "directed-session",
+        "purpose": "implementation", "expires_at": claimed.json()["expires_at"],
+    }
+    assert claimed.json()["lease_token"] not in active_defer.text
+    assert "directed-claim" not in active_defer.text
 
 
 def test_checkpoint_contract_is_append_only_and_validates_lease_fields(

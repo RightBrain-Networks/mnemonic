@@ -670,7 +670,11 @@ def test_application_error_context_uses_a_strict_safe_allowlist():
         context={
             "holder_client": "safe-client",
             "expires_at": "2026-08-31T18:15:00Z",
-            "holder_session_id": "not-error-context",
+            "holder_session_id": "safe-session",
+            "purpose": "code_review",
+            "code_review_id": "21ef1a19-eb1a-4cd3-84f4-e379e0bf2cd4",
+            "mode": "cold",
+            "claim_request_id": "never-expose-request-id",
             "lease_token": "never-expose-this",
             "prompt": "also-never-expose-this",
             "source_metadata": {"secret": True},
@@ -679,7 +683,11 @@ def test_application_error_context_uses_a_strict_safe_allowlist():
     )
     assert error.detail["context"] == {
         "holder_client": "safe-client",
+        "holder_session_id": "safe-session",
         "expires_at": "2026-08-31T18:15:00Z",
+        "purpose": "code_review",
+        "code_review_id": "21ef1a19-eb1a-4cd3-84f4-e379e0bf2cd4",
+        "mode": "cold",
     }
     assert conflict(
         "lease_held",

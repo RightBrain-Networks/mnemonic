@@ -1,0 +1,6 @@
+# Merge this table into ~/.codex/config.toml or a trusted project's .codex/config.toml.
+# Export MNEMONIC_API_KEY in the environment that launches Codex.
+# Replace the port with the host's MNEMONIC_MCP_PORT when it differs.
+[mcp_servers.mnemonic]
+url = "http://127.0.0.1:8001/mcp"
+bearer_token_env_var = "MNEMONIC_API_KEY"
