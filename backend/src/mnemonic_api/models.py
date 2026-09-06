@@ -27,6 +27,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from mnemonic_api import code_review_db_tables as reviews
 from mnemonic_api import phase12_db_tables as phase12
 
 # The work lifecycle vocabulary. WorkItem's status_valid check constraint is the
@@ -68,6 +69,10 @@ class ProjectSettings(Base):
     __tablename__ = "project_settings"
     __table_args__ = (
         CheckConstraint("revision > 0", name="revision_positive"),
+        CheckConstraint("code_review_required_min_priority BETWEEN 0 AND 100 AND "
+                        "code_review_required_min_priority % 5 = 0 AND "
+                        "code_review_optional_min_priority BETWEEN 0 AND 100 AND "
+                        "code_review_optional_min_priority % 5 = 0", name="review_thresholds"),
         CheckConstraint(
             "mnemonic_job_report_text_valid_v1(job_completion_report_prompt, 8000, 16384, true)",
             name="report_prompt_valid",
@@ -88,6 +93,14 @@ class ProjectSettings(Base):
     recall_pointer_template: Mapped[str | None] = mapped_column(Text)
     job_completion_report_prompt: Mapped[str] = mapped_column(Text)
     revision: Mapped[int] = mapped_column(BigInteger, default=1, server_default="1")
+    code_review_required_min_priority: Mapped[int] = mapped_column(
+        SmallInteger, default=100, server_default="100")
+    code_review_optional_min_priority: Mapped[int] = mapped_column(
+        SmallInteger, default=100, server_default="100")
+    allow_remediation_code_reviews: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false")
+    code_review_policy_touched: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false")
 
 
 class ClientOperation(Base):
@@ -118,7 +131,8 @@ class ClientOperation(Base):
             "'add_relationship', 'update_work', 'defer_work', 'complete_work', "
             "'delete_work', 'move_work', 'remove_relationship', 'release_claim', "
             "'request_human_input', 'resolve_human_input', 'merge_work', "
-            "'dismiss_job_completion_report', 'create_job_completion_report_follow_up')",
+            "'dismiss_job_completion_report', 'create_job_completion_report_follow_up', "
+            "'respond_to_work_follow_up', 'complete_code_review')",
             name="operation_kind_valid",
         ),
         CheckConstraint(
@@ -188,6 +202,23 @@ class WorkItem(Base):
         ),
         CheckConstraint("priority BETWEEN 0 AND 100", name="priority_range"),
         CheckConstraint("version >= 1", name="version_positive"),
+        CheckConstraint("(remediation_depth = 0 AND remediation_id IS NULL) OR "
+                        "(remediation_depth IN (1,2) AND remediation_id IS NOT NULL)",
+                        name="remediation_provenance"),
+        ForeignKeyConstraint(
+            ["project_id", "id", "remediation_id", "remediation_depth"],
+            ["code_review_remediations.project_id",
+             "code_review_remediations.remediation_work_item_id",
+             "code_review_remediations.id", "code_review_remediations.depth"],
+            name="fk_work_items_remediation", ondelete="RESTRICT", deferrable=True,
+            initially="DEFERRED", use_alter=True,
+        ),
+        ForeignKeyConstraint(
+            ["id", "completion_review_checkpoint_id"],
+            ["checkpoints.work_item_id", "checkpoints.id"],
+            name="fk_work_items_review_checkpoint", ondelete="RESTRICT", deferrable=True,
+            initially="DEFERRED", use_alter=True,
+        ),
         CheckConstraint("mnemonic_external_references_is_valid(external_references)",
                         name="external_references_valid"),
         Index("ix_work_items_external_references", "external_references",
@@ -247,6 +278,10 @@ class WorkItem(Base):
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     last_reportable_closeout_version: Mapped[int | None] = mapped_column(Integer)
     completion_generation: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    remediation_depth: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
+    remediation_id: Mapped[UUID | None] = mapped_column()
+    completion_review_checkpoint_id: Mapped[UUID | None] = mapped_column()
+    completion_review_policy_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -407,6 +442,8 @@ class Checkpoint(Base):
     migration_origin: Mapped[str | None] = mapped_column(String(40))
     legacy_record_id: Mapped[UUID | None] = mapped_column()
     completion_generation: Mapped[int | None] = mapped_column(BigInteger)
+    requires_code_review_policy: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.clock_timestamp()
     )
@@ -605,6 +642,14 @@ class WorkLease(Base):
 
     __tablename__ = "work_leases"
     __table_args__ = (
+        CheckConstraint("(purpose = 'implementation' AND code_review_id IS NULL AND mode IS NULL) "
+                        "OR (purpose = 'code_review' AND code_review_id IS NOT NULL "
+                        "AND mode IS NOT NULL AND mode IN ('cold','warm'))", name="purpose_valid"),
+        ForeignKeyConstraint(
+            ["work_item_id", "code_review_id"], ["code_reviews.work_item_id", "code_reviews.id"],
+            name="fk_work_leases_review", ondelete="RESTRICT", deferrable=True,
+            initially="DEFERRED", use_alter=True,
+        ),
         CheckConstraint("length(btrim(holder_client)) > 0", name="holder_client_nonblank"),
         CheckConstraint("length(btrim(holder_session_id)) > 0", name="holder_session_id_nonblank"),
         CheckConstraint("length(btrim(claim_request_id)) > 0", name="claim_request_id_nonblank"),
@@ -635,6 +680,10 @@ class WorkLease(Base):
         server_default=text("gen_random_uuid()"),
     )
     pending_release_id: Mapped[UUID | None] = mapped_column()
+    purpose: Mapped[str] = mapped_column(String(20), default="implementation",
+                                       server_default="implementation")
+    code_review_id: Mapped[UUID | None] = mapped_column()
+    mode: Mapped[str | None] = mapped_column(String(8))
     acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     renewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -1061,6 +1110,7 @@ class WorkEvent(Base):
 
     __tablename__ = "work_events"
     __table_args__ = (
+        *reviews.event_extension_elements(),
         UniqueConstraint("project_id", "work_item_id", "id", name="uq_work_events_project_work_id"),
         UniqueConstraint("project_id", "work_item_id", "id", "job_completion_report_id",
                          name="uq_work_events_report_owner"),
@@ -1077,7 +1127,9 @@ class WorkEvent(Base):
             "'progress', 'dependency_added', 'dependency_removed', "
             "'relationship_added', 'relationship_removed', 'work_completed', "
             "'work_deleted', 'work_merged', 'work_moved', 'human_attention_requested', "
-            "'human_attention_resolved')",
+            "'human_attention_resolved', 'work_follow_up_requested', 'work_follow_up_answered', "
+            "'work_follow_up_superseded', 'code_review_requested', 'code_review_completed', "
+            "'code_review_superseded')",
             name="event_type_valid",
         ),
         CheckConstraint(
@@ -1198,12 +1250,13 @@ class WorkEvent(Base):
             "mnemonic_work_moved_metadata_v1_is_valid(work_item_id, project_id, "
             "work_move_id, metadata_version, metadata)) OR "
             "(event_type NOT IN ('human_attention_requested', 'human_attention_resolved', "
-            "'work_merged', 'work_moved') AND mnemonic_work_event_metadata_v2_is_valid("
+            "'work_merged', 'work_moved') AND mnemonic_work_event_metadata_v3_is_valid("
             "event_type, origin, work_item_id, checkpoint_id, lease_generation_id, "
             "lease_release_id, relationship_id, relationship_source_work_item_id, "
             "relationship_target_work_item_id, "
             "relationship_context_checkpoint_work_item_id, "
-            "relationship_context_checkpoint_id, metadata_version, metadata))",
+            "relationship_context_checkpoint_id, metadata_version, metadata, "
+            "code_review_id, work_follow_up_id, work_follow_up_answer_id, code_review_result_id))",
             name="metadata_v1_valid",
         ),
         CheckConstraint(
@@ -1444,6 +1497,10 @@ class WorkEvent(Base):
     work_duplicate_merge_id: Mapped[UUID | None] = mapped_column()
     work_move_id: Mapped[UUID | None] = mapped_column()
     job_completion_report_id: Mapped[UUID | None] = mapped_column()
+    code_review_id: Mapped[UUID | None] = mapped_column()
+    work_follow_up_id: Mapped[UUID | None] = mapped_column()
+    work_follow_up_answer_id: Mapped[UUID | None] = mapped_column()
+    code_review_result_id: Mapped[UUID | None] = mapped_column()
     reopen_generation: Mapped[int | None] = mapped_column(BigInteger)
     metadata_version: Mapped[int] = mapped_column(SmallInteger, default=1, server_default="1")
     event_metadata: Mapped[dict[str, Any]] = mapped_column(
@@ -1564,3 +1621,160 @@ class JobCompletionReportFollowUp(Base):
     actor_client: Mapped[str]
     actor_session_id: Mapped[str]
     actor_model: Mapped[str | None]
+
+
+class WorkCompletionReviewPolicy(Base):
+    __table__ = Table("work_completion_review_policies", Base.metadata, *reviews.policy_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    work_item_id: Mapped[UUID]
+    completion_checkpoint_id: Mapped[UUID]
+    completion_event_id: Mapped[int]
+    settings_revision: Mapped[int]
+    required_min_priority: Mapped[int]
+    optional_min_priority: Mapped[int]
+    allow_remediation_code_reviews: Mapped[bool]
+    priority_at_closeout: Mapped[int]
+    remediation_depth: Mapped[int]
+    decision: Mapped[str]
+    created_at: Mapped[datetime]
+
+
+class WorkAgentFollowUp(Base):
+    __table__ = Table("work_agent_follow_ups", Base.metadata, *reviews.follow_up_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    work_item_id: Mapped[UUID]
+    trigger_event_id: Mapped[int]
+    completion_checkpoint_id: Mapped[UUID | None]
+    kind: Mapped[str]
+    schema_version: Mapped[int]
+    version: Mapped[int]
+    audience: Mapped[str]
+    question: Mapped[str]
+    allowed_answers: Mapped[list[str]]
+    required_answer_fields: Mapped[list[str]]
+    origin_client: Mapped[str]
+    origin_session_id: Mapped[str]
+    origin_model: Mapped[str | None]
+    kind_data: Mapped[dict[str, Any]]
+    state: Mapped[str]
+    answer_id: Mapped[UUID | None]
+    superseded_by_event_id: Mapped[int | None]
+    created_event_id: Mapped[int | None]
+    created_sequence: Mapped[int | None]
+    created_at: Mapped[datetime]
+
+
+class WorkAgentFollowUpAnswer(Base):
+    __table__ = Table("work_agent_follow_up_answers", Base.metadata, *reviews.answer_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    work_item_id: Mapped[UUID]
+    follow_up_id: Mapped[UUID]
+    recommend_review: Mapped[bool]
+    rationale: Mapped[str]
+    actor_client: Mapped[str]
+    actor_session_id: Mapped[str]
+    actor_model: Mapped[str | None]
+    code_review_id: Mapped[UUID | None]
+    created_event_id: Mapped[int | None]
+    created_at: Mapped[datetime]
+
+
+class CodeReview(Base):
+    __table__ = Table("code_reviews", Base.metadata, *reviews.review_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    work_item_id: Mapped[UUID]
+    completion_checkpoint_id: Mapped[UUID]
+    completion_event_id: Mapped[int]
+    policy_decision_id: Mapped[UUID]
+    answer_id: Mapped[UUID | None]
+    request_reason: Mapped[str]
+    schema_version: Mapped[int]
+    version: Mapped[int]
+    state: Mapped[str]
+    requesting_client: Mapped[str]
+    requesting_session_id: Mapped[str]
+    requesting_model: Mapped[str | None]
+    scope_sha256: Mapped[str]
+    created_event_id: Mapped[int | None]
+    created_sequence: Mapped[int | None]
+    result_id: Mapped[UUID | None]
+    superseded_by_event_id: Mapped[int | None]
+    created_at: Mapped[datetime]
+
+
+class CodeReviewScope(Base):
+    __table__ = Table("code_review_scopes", Base.metadata, *reviews.scope_elements())
+
+    review_id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    work_item_id: Mapped[UUID]
+    repositories: Mapped[list[dict[str, Any]]]
+
+
+class CodeReviewHandoff(Base):
+    __table__ = Table("code_review_handoffs", Base.metadata, *reviews.handoff_elements())
+
+    review_id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    work_item_id: Mapped[UUID]
+    change_summary: Mapped[str]
+    decisions: Mapped[list[str]]
+    focus_areas: Mapped[list[str]]
+    traps: Mapped[list[str]]
+    validation_summary: Mapped[str]
+
+
+class CodeReviewResult(Base):
+    __table__ = Table("code_review_results", Base.metadata, *reviews.result_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    work_item_id: Mapped[UUID]
+    review_id: Mapped[UUID]
+    mode: Mapped[str]
+    scope_sha256: Mapped[str]
+    summary: Mapped[str]
+    coverage: Mapped[list[dict[str, Any]]]
+    limitations: Mapped[list[str]]
+    findings_count: Mapped[int]
+    actor_client: Mapped[str]
+    actor_session_id: Mapped[str]
+    actor_model: Mapped[str | None]
+    lease_generation_id: Mapped[UUID]
+    claim_event_id: Mapped[int]
+    created_event_id: Mapped[int | None]
+    created_at: Mapped[datetime]
+
+
+class CodeReviewFinding(Base):
+    __table__ = Table("code_review_findings", Base.metadata, *reviews.finding_elements())
+
+    result_id: Mapped[UUID]
+    position: Mapped[int]
+    finding_key: Mapped[str]
+    data: Mapped[dict[str, Any]]
+
+
+class CodeReviewRemediation(Base):
+    __table__ = Table("code_review_remediations", Base.metadata, *reviews.remediation_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    review_id: Mapped[UUID]
+    result_id: Mapped[UUID]
+    source_work_item_id: Mapped[UUID]
+    completion_checkpoint_id: Mapped[UUID]
+    remediation_work_item_id: Mapped[UUID]
+    relationship_id: Mapped[UUID]
+    parent_remediation_id: Mapped[UUID | None]
+    root_work_item_id: Mapped[UUID]
+    depth: Mapped[int]
+    created_at: Mapped[datetime]

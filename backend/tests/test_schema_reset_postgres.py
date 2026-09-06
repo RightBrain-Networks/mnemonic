@@ -14,6 +14,15 @@ from .report_fixtures import reported
 pytestmark = pytest.mark.postgres
 
 _GUARDED_TABLES = (
+    "work_completion_review_policies",
+    "work_agent_follow_ups",
+    "work_agent_follow_up_answers",
+    "code_reviews",
+    "code_review_scopes",
+    "code_review_handoffs",
+    "code_review_results",
+    "code_review_findings",
+    "code_review_remediations",
     "artifact_references",
     "client_operations",
     "work_item_moves",
@@ -30,6 +39,14 @@ _GUARDED_TABLES = (
 )
 _POPULATED_TABLES = (
     *(table for table in _GUARDED_TABLES if table not in {
+        "work_agent_follow_ups",
+        "work_agent_follow_up_answers",
+        "code_reviews",
+        "code_review_scopes",
+        "code_review_handoffs",
+        "code_review_results",
+        "code_review_findings",
+        "code_review_remediations",
         "job_completion_report_follow_ups",
         "work_item_moves",
         "work_report_provenance_heads",

@@ -357,6 +357,7 @@ test("tabs mount one panel at a time and the selected tab persists across items"
       /^Evidence$/,
       /^Graph \d+$/,
       /^Questions \d+$/,
+      /^Code review$/,
       /^Activity \d+$/
     ];
     await expect(tabs).toHaveCount(tabNames.length);
@@ -404,6 +405,10 @@ test("tabs mount one panel at a time and the selected tab persists across items"
     const questions = await openTab(paneB, "Questions");
     await expect(paneB.getByRole("tabpanel")).toHaveCount(1);
     await expect(questions.getByRole("heading", { name: "Questions and answers" })).toBeVisible();
+
+    const reviews = await openTab(paneB, "Code review");
+    await expect(paneB.getByRole("tabpanel")).toHaveCount(1);
+    await expect(reviews.getByText("No code review has been requested for this work item.", { exact: false })).toBeVisible();
 
     const activity = await openTab(paneB, "Activity");
     await expect(paneB.getByRole("tabpanel")).toHaveCount(1);
@@ -1195,6 +1200,7 @@ test("the work item ID copies from the pane header", async ({ page }, testInfo) 
 
     // The pane's primary pointer copy still produces a recall pointer.
     await pane.getByRole("button", { name: "Copy recall pointer", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("recall_work");
     const pointer = await page.evaluate(() => navigator.clipboard.readText());
     expect(pointer).toContain(work.id);
     expect(pointer).toContain("recall_work");

@@ -129,6 +129,12 @@ def claim_and_recall(
     request: Request,
     database: Database,
 ) -> ClaimAndRecall:
+    if payload.purpose == "code_review" and payload.mode == "cold":
+        from mnemonic_api.errors import conflict
+
+        raise conflict(
+            "lease_purpose_mismatch", "Cold reviews must claim without recalling context."
+        )
     with project_mutation(database, project_id):
         work_item = require_work_item(database, project_id, work_item_id, lock=True)
         receipt = claim_lease_record(

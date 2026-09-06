@@ -26,6 +26,7 @@ from mnemonic_api.application.guards import (
     reject_lease_token_query,
 )
 from mnemonic_api.application.routes import (
+    code_reviews,
     completion_evidence,
     duplicates,
     history,
@@ -56,6 +57,7 @@ def api_router() -> APIRouter:
     )
     for router in (
         projects.router,
+        code_reviews.router,
         project_reports.router,
         work_search.router,
         work_items.router,

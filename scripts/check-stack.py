@@ -42,6 +42,8 @@ from pydantic import AnyUrl, ValidationError
 from mcp import ClientSession
 
 CANONICAL_TOOLS = {
+    "list_code_reviews", "get_code_review", "complete_code_review",
+    "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
     "get_activity",
     "get_project_settings",
     "list_job_completion_reports",
@@ -76,6 +78,7 @@ CANONICAL_TOOLS = {
     "suggest_duplicate_work",
 }
 PROTECTED_MUTATION_TOOLS = {
+    "respond_to_work_follow_up", "complete_code_review",
     "create_work",
     "add_checkpoint",
     "append_event",
@@ -1102,7 +1105,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.12.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.13.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         require(
             {"ExternalReference", "ExternalReferencesChange", "ExternalDuplicateCandidate",
@@ -1184,7 +1187,9 @@ def validate_rest_contract(document: Any) -> None:
         }
         require(
             lease_public.get("additionalProperties") is False
-            and set(lease_public["properties"]) == lease_public_fields
+            and set(lease_public["properties"]) == lease_public_fields | {
+                "purpose", "code_review_id", "mode",
+            }
             and set(lease_public["required"]) == lease_public_fields,
             "REST manual activation does not return the exact token-free lease projection.",
         )
@@ -1302,9 +1307,9 @@ def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
     require(
-        len(catalog.tools) == 32
-        and len(tools_by_name) == 32
-        and len(PROTECTED_MUTATION_TOOLS) == 11
+        len(catalog.tools) == 38
+        and len(tools_by_name) == 38
+        and len(PROTECTED_MUTATION_TOOLS) == 13
         and set(tools_by_name) == CANONICAL_TOOLS,
         "Unexpected MCP tool catalog.",
     )
@@ -1563,15 +1568,15 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.12.0",
+                    and initialized.serverInfo.version == "0.13.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.12.0 cross-project work-move contract, real MCP "
-                    "initialization, 32-tool catalog, exact eleven protected mutation "
+                    "PASS: REST 0.13.0 work-move and code-review contract, real MCP "
+                    "initialization, 38-tool catalog, exact thirteen protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )
                 if not args.project_id:

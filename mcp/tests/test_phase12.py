@@ -196,6 +196,8 @@ async def test_four_safe_reads_and_strict_projection_boundaries(settings):
     detail = envelope(detail=True)
     assert await call(settings, "get_job_completion_report", detail, {"report_id": REPORT_ID}) == detail
     settings_response = {
+        "code_review_required_min_priority": 100, "code_review_optional_min_priority": 100,
+        "allow_remediation_code_reviews": False,
         "project_id": PROJECT_ID, "revision": "3", "recall_pointer_template": None,
         "job_completion_report_prompt": AUTHORING_PROMPT,
     }
@@ -519,11 +521,11 @@ async def test_report_input_errors_hide_prose_and_arbitrary_keys(settings, work_
     assert "private-" not in message
 
 
-async def test_catalog_is_32_tools_11_protected_and_report_omission_is_replay_only(settings):
+async def test_catalog_is_38_tools_13_protected_and_report_omission_is_replay_only(settings):
     tools = {tool.name: tool for tool in await build_server(settings).list_tools()}
-    assert len(tools) == 32
+    assert len(tools) == 38
     protected = [tool for tool in tools.values() if "client_operation_id" in tool.inputSchema["properties"]]
-    assert len(protected) == 11
+    assert len(protected) == 13
     assert "dismiss_job_completion_report" not in tools
     assert "create_job_completion_report_follow_up" not in tools
     for name in ("complete_work", "update_work"):

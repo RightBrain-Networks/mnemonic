@@ -51,7 +51,7 @@ function event(overrides = {}) {
 }
 
 test("every retained event type has a deterministic human label", () => {
-  assert.equal(WORK_EVENT_TYPES.length, 18);
+  assert.equal(WORK_EVENT_TYPES.length, 24);
   assert.deepEqual(
     WORK_EVENT_TYPES.map(workEventTitle),
     [
@@ -72,6 +72,12 @@ test("every retained event type has a deterministic human label", () => {
       "Merged duplicate work",
       "Moved work",
       "Completed work",
+      "Requested author recommendation",
+      "Recorded author recommendation",
+      "Superseded author recommendation",
+      "Requested code review",
+      "Completed code review",
+      "Superseded code review",
       "Deleted work"
     ]
   );
@@ -120,6 +126,19 @@ test("move events retain their project-at-fact and historical reads stay work-sc
     event({ event_type: "work_moved", body: "unexpected", metadata }),
     event({ event_type: "work_moved", body: null, project_id: counterpart, metadata })
   ]) assert.throws(() => decodeWorkEvent(invalid), /invalid work-event response/);
+});
+
+test("review and recommendation events require exact mirrored references without lease or body leakage", () => {
+  const refs={code_review_requested:["code_review_id"],code_review_completed:["code_review_id","code_review_result_id"],code_review_superseded:["code_review_id"],work_follow_up_requested:["work_follow_up_id"],work_follow_up_answered:["work_follow_up_id","work_follow_up_answer_id"],work_follow_up_superseded:["work_follow_up_id"]};
+  for(const [event_type,keys] of Object.entries(refs)) {
+    const references=Object.fromEntries(keys.map((key,index)=>[key,index===0?work:counterpart]));
+    const value=event({event_type,body:null,metadata:references,...references});
+    assert.ok(decodeWorkEvent(value));
+    assert.throws(()=>decodeWorkEvent({...value,[keys[0]]:counterpart}));
+    assert.throws(()=>decodeWorkEvent({...value,metadata:{...references,unexpected:"private"}}));
+    assert.throws(()=>decodeWorkEvent({...value,body:"private handoff"}));
+    assert.throws(()=>decodeWorkEvent({...value,lease_generation_id:counterpart}));
+  }
 });
 
 test("event queries are newest-first, bounded, filtered, and reset after invalidation", () => {

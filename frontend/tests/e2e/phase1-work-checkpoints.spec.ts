@@ -665,6 +665,7 @@ test("one work item groups immutable checkpoints through its full dashboard life
   await page.getByLabel("Search work items").fill(title);
   await expect(card).toHaveCount(1);
   await card.getByRole("button", { name: /Copy recall pointer/ }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("recall_work");
   const pointer = await page.evaluate(() => navigator.clipboard.readText());
   expect(pointer).toContain("work_item_id");
   expect(pointer).toContain("recall_work");

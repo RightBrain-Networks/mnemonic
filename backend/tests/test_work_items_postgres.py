@@ -101,6 +101,12 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
     detail = api.get(item_path(project, work_item)).json()
     assert detail == {
         "work_item": work_item,
+        "code_review_context": {
+            "remediation_depth": 0,
+            "current_review": None,
+            "pending_follow_up": None,
+            "remediation_origin": None,
+        },
         "canonical": {
             "is_duplicate": False,
             "direct_destination": None,

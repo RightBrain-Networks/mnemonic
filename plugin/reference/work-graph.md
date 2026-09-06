@@ -1,5 +1,13 @@
 # Mnemonic work-graph semantics
 
+Code review findings use one server-owned `discovered-from` edge from the single
+remediation item to its original implementation work, citing the original
+completion checkpoint. The review itself is never work or a graph node.
+Immutable review/result/ancestry provenance is separate from generic edges;
+never remove its protected edge or merge remediation to erase depth. See
+[code-reviews.md](${CLAUDE_PLUGIN_ROOT}/reference/code-reviews.md). Ordinary
+relationship creation is not a findings fanout mechanism.
+
 Shared by the `mnemonic-save`, `mnemonic-search`, and `mnemonic-recall` skills.
 Relationships are project-local graph facts, never semantic guesses.
 

@@ -48,14 +48,14 @@ function OperationalBadge({ readiness }: { readiness: Readiness }) {
     {readiness.is_duplicate && <span className="operational-badge duplicate">Duplicate</span>}
     {readiness.is_gated && readiness.display_state !== "waiting" && <span className="operational-badge waiting">Needs attention</span>}
     {readiness.is_blocked && readiness.display_state !== "blocked" && <span className="operational-badge blocked">Blocked</span>}
-    {readiness.has_active_lease && readiness.display_state !== "active" && <span className="operational-badge active">Active</span>}
+    {readiness.has_active_lease && readiness.display_state !== "active" && <span className="operational-badge active">{readiness.active_lease?.purpose === "code_review" ? "Review in progress" : "Active"}</span>}
   </>;
 }
 
 function ActiveLeaseSummary({ lease, detailed = false }: { lease: LeasePublic; detailed?: boolean }) {
-  return <section className={`active-lease-summary ${detailed ? "active-lease-detail" : ""}`} aria-label="Active work lease">
+  return <section className={`active-lease-summary ${detailed ? "active-lease-detail" : ""}`} aria-label={lease.purpose === "code_review" ? "Active review lease" : "Active work lease"}>
     <div className="active-lease-holder">
-      <span className="lease-label">Active session</span>
+      <span className="lease-label">{lease.purpose === "code_review" ? `${lease.mode === "cold" ? "Cold" : "Warm"} review session` : "Active session"}</span>
       <strong>{clientLabel(lease.holder_client)}</strong>
       <span className="mono" title={lease.holder_session_id}>{lease.holder_session_id}</span>
     </div>

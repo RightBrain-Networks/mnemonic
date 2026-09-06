@@ -1,13 +1,13 @@
 """Atomic work-lease operations and capability-token enforcement.
 
-Callers lock the visible project-scoped WorkItem first. These helpers then lock
-the retained WorkLease row, preserving the global work-before-lease lock order.
+Callers lock the visible project-scoped WorkItem first. Review operations lock
+their review before the retained WorkLease row, preserving the global lock order.
 No helper commits; the route owns the one outer transaction boundary.
 """
 
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import NoReturn
+from typing import Any, NoReturn
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
@@ -58,9 +58,20 @@ def _expired() -> NoReturn:
     raise conflict("lease_expired", "This work lease has expired.")
 
 
-def claim_receipt(lease: WorkLease) -> ClaimReceipt:
+def claim_receipt(lease: WorkLease, database: Session | None = None) -> ClaimReceipt:
     """Build the only response projection that may expose the raw token."""
+    fields: dict[str, Any] = {}
+    if lease.purpose == "code_review":
+        from mnemonic_api.models import CodeReview
+
+        assert database is not None
+        review = database.get(CodeReview, lease.code_review_id)
+        assert review is not None
+        fields = {"purpose": "code_review", "code_review_id": review.id, "mode": lease.mode,
+                  "lease_generation_id": lease.lease_generation_id,
+                  "code_review_version": review.version, "scope_sha256": review.scope_sha256}
     return ClaimReceipt(
+        **fields,
         work_item_id=lease.work_item_id,
         holder_client=lease.holder_client,
         holder_session_id=lease.holder_session_id,
@@ -82,9 +93,16 @@ def claim_lease_record(
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
     require_canonical_work_item(database, work_item)
-    lease = _locked_lease(database, work_item.id)
-    if work_item.status != "pending":
+    if payload.purpose == "code_review":
+        from mnemonic_api.services.code_review_records import require_requested, require_review
+
+        assert payload.code_review_id is not None
+        review = require_review(database, work_item.project_id, work_item.id,
+                                 payload.code_review_id, lock=True)
+        require_requested(database, work_item, review)
+    elif work_item.status != "pending":
         raise conflict("work_not_pending", "Only pending work can be claimed.")
+    lease = _locked_lease(database, work_item.id)
 
     # Capture time only after both possible work/lease lock waits.
     database_now = _database_now(database)
@@ -92,15 +110,17 @@ def claim_lease_record(
         payload.holder_client,
         payload.holder_session_id,
         payload.claim_request_id,
+        payload.purpose, payload.code_review_id, payload.mode,
     )
 
     if lease is None:
-        require_fresh_claim_eligible(database, work_item)
+        _fresh_claim_eligible(database, work_item, payload)
         lease = WorkLease(
             work_item_id=work_item.id,
             holder_client=payload.holder_client,
             holder_session_id=payload.holder_session_id,
             claim_request_id=payload.claim_request_id,
+            purpose=payload.purpose, code_review_id=payload.code_review_id, mode=payload.mode,
             lease_token=secrets.token_urlsafe(32),
             lease_generation_id=uuid4(),
             acquired_at=database_now,
@@ -117,19 +137,21 @@ def claim_lease_record(
             lease_generation_id=lease.lease_generation_id,
             acquired_at=lease.acquired_at,
             expires_at=lease.expires_at,
+            code_review_id=lease.code_review_id, mode=lease.mode,
         )
         database.flush()
-        return claim_receipt(lease)
+        return claim_receipt(lease, database)
 
     retained_identity = (
         lease.holder_client,
         lease.holder_session_id,
         lease.claim_request_id,
+        lease.purpose, lease.code_review_id, lease.mode,
     )
     if lease.expires_at > database_now:
         if retained_identity == requested_identity:
-            return claim_receipt(lease)
-        require_fresh_claim_eligible(database, work_item)
+            return claim_receipt(lease, database)
+        _fresh_claim_eligible(database, work_item, payload)
         raise conflict(
             "lease_held",
             "This work item has an active lease.",
@@ -146,11 +168,14 @@ def claim_lease_record(
             context={"expires_at": _utc(lease.expires_at)},
         )
 
-    require_fresh_claim_eligible(database, work_item)
+    _fresh_claim_eligible(database, work_item, payload)
 
     lease.holder_client = payload.holder_client
     lease.holder_session_id = payload.holder_session_id
     lease.claim_request_id = payload.claim_request_id
+    lease.purpose = payload.purpose
+    lease.code_review_id = payload.code_review_id
+    lease.mode = payload.mode
     lease.lease_generation_id = uuid4()
     lease.pending_release_id = None
 
@@ -167,9 +192,15 @@ def claim_lease_record(
         lease_generation_id=lease.lease_generation_id,
         acquired_at=lease.acquired_at,
         expires_at=lease.expires_at,
+        code_review_id=lease.code_review_id, mode=lease.mode,
     )
     database.flush()
-    return claim_receipt(lease)
+    return claim_receipt(lease, database)
+
+
+def _fresh_claim_eligible(database: Session, work: WorkItem, payload: WorkClaimCreate) -> None:
+    if payload.purpose == "implementation":
+        require_fresh_claim_eligible(database, work)
 
 
 def renew_lease_record(
@@ -181,6 +212,7 @@ def renew_lease_record(
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
     require_canonical_work_item(database, work_item)
+    _lock_current_review(database, work_item)
     lease = _locked_lease(database, work_item.id)
     database_now = _database_now(database)
     if lease is None:
@@ -189,10 +221,16 @@ def renew_lease_record(
         _token_mismatch()
     if lease.expires_at <= database_now:
         _expired()
+    if lease.purpose == "code_review":
+        from mnemonic_api.services.code_review_records import require_requested, require_review
+
+        assert lease.code_review_id is not None
+        review = require_review(database, work_item.project_id, work_item.id, lease.code_review_id)
+        require_requested(database, work_item, review)
     lease.renewed_at = database_now
     lease.expires_at = database_now + timedelta(seconds=ttl_seconds)
     database.flush()
-    return claim_receipt(lease)
+    return claim_receipt(lease, database)
 
 
 def release_lease_record(
@@ -204,6 +242,7 @@ def release_lease_record(
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
     require_canonical_work_item(database, work_item)
+    _lock_current_review(database, work_item)
     lease = _locked_lease(database, work_item.id)
     database_now = _database_now(database)
     if lease is None:
@@ -221,6 +260,7 @@ def release_lease_record(
             lease_holder_session_id=lease.holder_session_id,
             actor=actor,
             created_at=database_now,
+            code_review_id=lease.code_review_id, mode=lease.mode,
         )
         database.flush()
         database.delete(lease)
@@ -229,6 +269,18 @@ def release_lease_record(
     if lease.expires_at > database_now:
         _token_mismatch()
     return ReleaseResult(work_item_id=work_item.id, released=False)
+
+
+def _lock_current_review(database: Session, work: WorkItem) -> None:
+    from mnemonic_api.models import CodeReview
+
+    database.scalar(
+        select(CodeReview).where(
+            CodeReview.project_id == work.project_id,
+            CodeReview.work_item_id == work.id,
+            CodeReview.state == "requested",
+        ).with_for_update()
+    )
 
 
 def release_lease_for_human_decision(
@@ -241,6 +293,10 @@ def release_lease_for_human_decision(
 
     require_canonical_work_item(database, work_item)
     lease = _locked_lease(database, work_item.id)
+    if work_item.status != "pending" or (lease is not None and lease.purpose != "implementation"):
+        raise conflict(
+            "lease_purpose_mismatch", "Dashboard status controls apply to implementation only."
+        )
     if lease is None:
         return ReleaseResult(work_item_id=work_item.id, released=False)
 
@@ -300,6 +356,10 @@ def validate_optional_lease_token(
     database_now = _database_now(database)
     if lease is None or not _same_token(lease_token, lease.lease_token):
         _token_mismatch()
+    if lease.purpose != "implementation":
+        raise conflict(
+            "lease_purpose_mismatch", "A review capability cannot edit implementation work."
+        )
     if lease.expires_at <= database_now:
         _expired()
 
@@ -352,6 +412,9 @@ def consume_lease_for_terminal_mutation(
         if lease_token is not None:
             _token_mismatch()
         return
+
+    if lease.purpose != "implementation":
+        raise conflict("lease_purpose_mismatch", "Review work requires explicit supersession.")
 
     if lease_token is not None:
         if not _same_token(lease_token, lease.lease_token):

@@ -107,6 +107,8 @@ CloseoutStatus = Literal["done", "wont-do", "promoted"]
 DismissalFilter = Literal["undismissed", "dismissed", "all"]
 WorkStatus = Literal["pending", "deferred", "done", "wont-do", "promoted"]
 WorkEventType = Literal[
+    "work_follow_up_requested", "work_follow_up_answered", "work_follow_up_superseded",
+    "code_review_requested", "code_review_completed", "code_review_superseded",
     "work_created",
     "work_updated",
     "work_status_changed",

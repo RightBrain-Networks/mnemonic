@@ -390,17 +390,18 @@ uv run ruff check .
 uv run ty check src/mnemonic_mcp
 ```
 
-The MCP suite verifies the exact 32-tool canonical catalog, strict unknown-field
+The MCP suite verifies the exact 38-tool canonical catalog, strict unknown-field
 rejection, nested checkpoint request bodies, canonical/grouped search hits,
 compact ready results, bounded recall, deterministic checkpoint/event
 pagination, versioned mutation receipts, typed graph and lease behavior, the
 `resume_work` prompt, and the work-item resource across direct, Streamable HTTP,
 and real stdio transports.
 
-Exactly eleven mutation tools require a canonical `client_operation_id` and
+Exactly thirteen mutation tools require a canonical `client_operation_id` and
 advertise truthful idempotency: `create_work`, `add_checkpoint`, `append_event`,
 `add_relationship`, `update_work`, `complete_work`, `delete_work`,
-`remove_relationship`, `release_claim`, `request_human_input`, and `merge_work`. Tests prove
+`remove_relationship`, `release_claim`, `request_human_input`, `merge_work`,
+`respond_to_work_follow_up`, and `complete_code_review`. Tests prove
 exact one-attempt forwarding, strict coherent response decoding, sanitized
 same-key recovery guidance, and local rejection on excluded tools. Project
 creation, claim, claim-and-recall, and renewal retain separate non-idempotent
@@ -464,17 +465,17 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.13.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.13.0` install
-plus a `0.12.0 -> 0.13.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.14.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.14.0` install
+plus a `0.13.0 -> 0.14.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
 the inventory remains exactly three skills (`mnemonic-save`, `mnemonic-search`,
-and `mnemonic-recall`), seven shared references (`authority-and-provenance.md`,
+and `mnemonic-recall`), eight shared references (`authority-and-provenance.md`,
 `completion-evidence.md`, `external-records.md`, `job-completion-reports.md`,
 `priority.md`, `repository-freshness.md`,
-and `work-graph.md`), and
+`code-reviews.md`, and `work-graph.md`), and
 one executable (`mnemonic-repository-freshness`).
 A compatibility copy of the old prerelease schema or workflow is not a valid
 substitute.
@@ -537,12 +538,12 @@ invalidation, actor request construction, progress composer errors, pagination/
 filtering, and the partial-history notice at desktop and narrow viewports. The
 ready endpoint remains intentionally proxy-denied.
 
-Mutation tests cover all fourteen browser writes, one UUID and exact frozen
+Mutation tests cover all fifteen browser writes, one UUID and exact frozen
 serialized body per intent, in-flight coalescing, same-document recovery after component or
 view unmount, exact manual retry after ambiguous outcomes, and a non-discardable
 safety state for key conflicts. Strict per-operation decoders require the
 expected status, exact shape, and path/result coherence before clearing
-recovery. Proxy-policy tests admit the top-level UUID only on those fourteen
+recovery. Proxy-policy tests admit the top-level UUID only on those fifteen
 routes, including move, gate resolution, merge, report dismissal, and report
 follow-ups, and reject invalid, nested, query/header/cookie, secret-equal, and
 excluded-route IDs without echoing them.
@@ -569,7 +570,7 @@ ambiguous retry, stale-review replacement, and current-root refetch after
 success. Since the two-column work library, that merge review is an inline
 panel at the top of the detail pane's Graph tab rather than a dialog; the same
 destination search, eligibility facts, registry intent, and recovery block apply
-there. The browser registry contains exactly fourteen kinds and admits no lease
+there. The browser registry contains exactly fifteen kinds and admits no lease
 token.
 
 Advisory Node tests cover exact request construction and strict response
@@ -790,8 +791,8 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.12.0`, plugin is `0.13.0`,
-and Alembic head is `0023_work_item_moves`. Validate all surfaces together
+Current application/API/MCP/dashboard versions are `0.13.0`, plugin is `0.14.0`,
+and Alembic head is `0024_code_reviews`. Validate all surfaces together
 with the existing regression suites. Historical Phase 11 downgrade/catalog tests
 must seed valid historical shapes with offline SQL at 0019; never run current
 application writers against an older schema or strip reports from fresh receipts.
@@ -825,6 +826,16 @@ full current backend/MCP/frontend suites, and independent cold code reviews.
 See [project activity and reports](project-activity-and-reports.md) for the wire
 contracts and [operations](operations.md) for target-environment cutover.
 
+Code-review acceptance additionally covers the Never/Never/off migration defaults,
+strict priority policy, immutable completion episodes, durable originating-session
+questions, cold/warm lease isolation, one atomic remediation and hard depth ceiling,
+exact historical and new receipt replay, protected lineage under direct SQL,
+bounded discovery/history, backup/restore audit, and both dashboard Done paths.
+Run `scripts/audit_code_reviews.py` read-only from a private database environment.
+The current inventory is 38 MCP tools, 13 protected MCP writes, 18 REST receipt
+kinds, 15 protected browser mutations and 24 work-event types. See
+[code reviews](code-reviews.md) for client and deployment rules.
+
 ## Full running-stack check
 
 After starting current images with:
@@ -839,8 +850,8 @@ Run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 32-tool
-catalog, the exact eleven protected schemas and annotations, the absence of an MCP
+Read-only mode verifies REST/MCP health, authentication, the exact 38-tool
+catalog, the exact thirteen protected schemas and annotations, the absence of an MCP
 resolution tool, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, settings/activity/report read contracts, and the
 shipped WOFF2 font assets. It does

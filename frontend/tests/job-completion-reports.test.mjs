@@ -32,7 +32,7 @@ test("strict report reads bind exact closeout provenance and reject mutable or h
 });
 
 test("settings are exact revisioned aggregates with independent editable prompt bounds", () => {
-  const settings={project_id:f.project,revision:"3",recall_pointer_template:null,job_completion_report_prompt:"Write clearly.\nUse one paragraph.\tNo jargon."};
+  const settings={project_id:f.project,revision:"3",recall_pointer_template:null,job_completion_report_prompt:"Write clearly.\nUse one paragraph.\tNo jargon.",code_review_required_min_priority:100,code_review_optional_min_priority:100,allow_remediation_code_reviews:false};
   assert.deepEqual(decodeProjectSettings(settings,f.project),settings);
   assert.ok(validReportPrompt(settings.job_completion_report_prompt));
   for (const prompt of [" ","x\u206f","x\0","x".repeat(8001),"🙂".repeat(4097)]) assert.equal(validReportPrompt(prompt),false);

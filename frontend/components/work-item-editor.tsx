@@ -28,6 +28,7 @@ type Props = {
   saving: boolean;
   blocked: boolean;
   gated: boolean;
+  reviewObligation?: boolean;
   error: string;
   conflict: WorkItem | null;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -44,6 +45,7 @@ export default function WorkItemEditor({
   saving,
   blocked,
   gated,
+  reviewObligation = false,
   error,
   conflict,
   onSubmit,
@@ -61,9 +63,9 @@ export default function WorkItemEditor({
     <label className="field">Title<input required disabled={blocked} maxLength={200} value={draft.title} onChange={(event) => setDraft((value) => ({ ...value, title: event.target.value }))} /></label>
     <label className="field">Summary<textarea required disabled={blocked} rows={4} maxLength={1000} value={draft.summary} onChange={(event) => setDraft((value) => ({ ...value, summary: event.target.value }))} /></label>
     <label className="field field-half">Priority<input type="number" disabled={blocked} min={0} max={100} value={draft.priority} onChange={(event) => setDraft((value) => ({ ...value, priority: Number(event.target.value) }))} /><span className="field-hint">0–100. Higher values are more important; ordinary search is not a scheduler.</span></label>
-    <label className="field field-half">Lifecycle<select value={draft.status} disabled={blocked} onChange={(event) => setDraft((value) => ({ ...value, status: event.target.value as WorkStatus }))}>
+    <label className="field field-half">Lifecycle<select value={draft.status} disabled={blocked || reviewObligation} onChange={(event) => setDraft((value) => ({ ...value, status: event.target.value as WorkStatus }))}>
       {lifecycleOptions.map((status) => <option value={status} key={status}>{statusLabels[status]}</option>)}
-    </select><span className="field-hint">{gated
+    </select><span className="field-hint">{reviewObligation ? "Use Reopen work to explicitly supersede the outstanding review or recommendation. Other fields remain editable." : gated
       ? "Terminal lifecycle changes stay unavailable until every human question is resolved. Nonterminal fields remain editable."
       : work.status === "pending" ? "Done is available only through the completion workflow. Use the card’s Defer action to hold work out of the queue." : work.status === "deferred" ? "Only a human can defer work. Moving it to Pending restores that lifecycle, but blockers or human gates can still keep it out of ready discovery." : `${statusLabels[work.status]} work can only remain there or reopen as Pending.`}</span></label>
     <ExternalReferencesEditor value={draft.externalReferences} disabled={blocked || saving} onChange={(externalReferences) => setDraft((value) => ({ ...value, externalReferences }))} />

@@ -262,7 +262,10 @@ def work_item_detail(
     project_id: UUID,
     work_item: WorkItem,
 ) -> WorkItemDetailRead:
+    from mnemonic_api.services.code_review_reads import review_context
+
     return WorkItemDetailRead(
+        code_review_context=review_context(database, work_item.id),
         work_item=WorkItemRead.model_validate(work_item),
         canonical=canonical_projection(database, project_id, work_item),
     )
@@ -453,6 +456,12 @@ def _require_merge_preconditions(
     payload: WorkMergeRequest,
     graph: CanonicalGraph,
 ) -> None:
+    from mnemonic_api.services.code_reviews import require_no_review_obligation
+
+    if source.remediation_depth or destination.remediation_depth:
+        raise conflict("code_review_provenance_merge_forbidden", "Remediation cannot be merged.")
+    require_no_review_obligation(database, source.id)
+    require_no_review_obligation(database, destination.id)
     if source.id in graph.edges:
         raise work_already_duplicate()
     if destination.id in graph.edges:

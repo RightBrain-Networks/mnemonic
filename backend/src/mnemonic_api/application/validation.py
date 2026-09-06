@@ -40,6 +40,15 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     job_completion_report fyi_items prompt_revision report_id dismissal after start
     job_completion_report_prompt expected_revision
     external_candidates external_references external_url state state_observed_at url
+    code_review_handoff scope repositories repository_key checkout_path object_format
+    base_commit head_commit handoff change_summary decisions focus_areas traps
+    validation_summary recommend_review answer follow_up_id expected_follow_up_version
+    expected_review_version review_id scope_sha256 mode purpose code_review_id
+    supersede_code_review_id expected_code_review_version supersede_follow_up_id coverage
+    limitations findings finding_key severity location_side start_line end_line problem
+    triggering_conditions impact evidence recommended_verification result availability
+    code_review_required_min_priority code_review_optional_min_priority
+    allow_remediation_code_reviews
     """.split()
 )
 

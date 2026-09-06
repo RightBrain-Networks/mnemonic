@@ -5,6 +5,12 @@ description: Save a hand-off, follow-up, or resume prompt to Mnemonic, append co
 
 # Save Mnemonic work
 
+Read [code-reviews.md](${CLAUDE_PLUGIN_ROOT}/reference/code-reviews.md) for every
+Done closeout. Prepare mandatory pinned scope/handoff before `complete_work`,
+then process returned durable `agent_follow_ups` with truthful yes/no rationale
+before ending this workflow. Review completion uses `complete_code_review`, not
+this implementation closeout or a manual findings fanout.
+
 Read [job-completion-reports.md](${CLAUDE_PLUGIN_ROOT}/reference/job-completion-reports.md)
 for project activity, human summaries, and every closeout to Done, Won’t do, or
 Promoted. Fetch `get_project_settings` immediately before authoring the required
@@ -110,10 +116,11 @@ recovery.
 
 ## Prepare each protected write once
 
-The eleven protected mutations are `create_work`, `add_checkpoint`,
+The thirteen protected mutations are `create_work`, `add_checkpoint`,
 `append_event`, `add_relationship`, `update_work`, `complete_work`,
 `delete_work`, `remove_relationship`, `release_claim`, `request_human_input`,
-and `merge_work`. Prepare each complete intent once and follow the canonical
+`merge_work`, `respond_to_work_follow_up`, and `complete_code_review`. Prepare
+each complete intent once and follow the canonical
 retention, exact-retry, conflict, and lost-intent rules in
 [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md)
 under "Retain protected mutation intents privately". Never put an operation

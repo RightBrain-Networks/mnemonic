@@ -62,7 +62,9 @@ def _work(database: Session, project_id: UUID) -> WorkItem:
     return work
 
 
-def _close(database: Session, work: WorkItem, outcome: str = "wont-do") -> JobCompletionReport:
+def _close(
+    database: Session, work: WorkItem, outcome: str = "wont-do", *, with_review_policy: bool = True
+) -> JobCompletionReport:
     report_id = uuid4()
     old_version = work.version
     checkpoint = None
@@ -111,6 +113,21 @@ def _close(database: Session, work: WorkItem, outcome: str = "wont-do") -> JobCo
     )
     database.add(report)
     database.flush()
+    if checkpoint is not None and with_review_policy:
+        from mnemonic_api.models import ProjectSettings
+        from mnemonic_api.services.code_reviews import seal_review_policy
+
+        settings = database.get(ProjectSettings, work.project_id)
+        assert settings is not None
+        seal_review_policy(
+            database,
+            work,
+            event,
+            settings,
+            None,
+            "not_requested",
+            MutationActor(actor_client="dashboard", actor_session_id="phase12-proof"),
+        )
     return report
 
 

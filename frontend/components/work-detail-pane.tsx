@@ -1,6 +1,7 @@
 "use client";
 
 import ExternalReferences from "@/components/external-references";
+import CodeReviewPanel from "@/components/code-review-panel";
 import WorkReportProvenance from "@/components/work-report-provenance";
 import JobReportEditor from "@/components/job-report-editor";
 import type { JobReportDraft } from "@/lib/job-completion-reports";
@@ -130,9 +131,13 @@ export type WorkDetailPaneProps = {
   statusChanging: boolean;
   reportSettingsReady: boolean;
   onOpenCanonical: (workItemId: string, preferredProjectId?: string) => void | Promise<void>;
+  allowRemediationReviews?: boolean;
   onViewDuplicateGroup: (canonicalWorkItemId: string) => void;
   onCopy: (value: string, key: string, success: string) => void;
   onCopyPointer: (summary: WorkSummary) => void;
+  onCopyColdReview: () => void;
+  onReopenReview: () => void;
+  onReviewChanged: () => Promise<void>;
   copiedKey: string | null;
   checkpointPage: Page<Checkpoint> | null;
   checkpointOffset: number;
@@ -240,7 +245,7 @@ function DuplicateAuditPanel({
 function ContextTab({ context, isDuplicate, props }: { context: WorkContext; isDuplicate: boolean; props: WorkDetailPaneProps }) {
   if (props.mode === "edit" && props.editDraft && !isDuplicate) {
     return <div className="detail-edit">
-      <WorkItemEditor jobReportDraft={props.jobReportDraft} onJobReportDraft={props.onJobReportDraft} work={context.work_item} draft={props.editDraft} setDraft={props.setEditDraft} saving={props.editSaving} blocked={props.mutationBlocked} gated={context.readiness.is_gated} error={props.editError} conflict={props.conflict} onSubmit={props.onSaveEdits} onCancel={props.onCancelEdit} onLoadCurrent={props.onLoadCurrent} onUseCurrentVersion={props.onUseCurrentVersion} />
+      <WorkItemEditor jobReportDraft={props.jobReportDraft} onJobReportDraft={props.onJobReportDraft} work={context.work_item} draft={props.editDraft} setDraft={props.setEditDraft} saving={props.editSaving} blocked={props.mutationBlocked} gated={context.readiness.is_gated} reviewObligation={Boolean(context.code_review_context?.current_review || context.code_review_context?.pending_follow_up)} error={props.editError} conflict={props.conflict} onSubmit={props.onSaveEdits} onCancel={props.onCancelEdit} onLoadCurrent={props.onLoadCurrent} onUseCurrentVersion={props.onUseCurrentVersion} />
     </div>;
   }
   const current = currentContext(context);
@@ -305,6 +310,8 @@ function TabBody({ context, isDuplicate, props }: { context: WorkContext; isDupl
       </>;
     case "questions":
       return <HumanGatePanel context={context} refreshSignal={props.eventRefreshSignal} onResolved={props.onGateResolved} />;
+    case "reviews":
+      return <CodeReviewPanel key={context.work_item.id} context={context} allowRemediationReviews={props.allowRemediationReviews} refreshSignal={props.eventRefreshSignal} onChanged={props.onReviewChanged} onOpen={props.onOpenCanonical} />;
     case "activity":
       return <WorkEventTimeline context={context} refreshSignal={props.eventRefreshSignal} onAppended={props.onEventAppended} />;
   }
@@ -596,16 +603,21 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
   const idKey = copyKey(work.id, "id");
   const pointerKey = copyKey(work.id, "pointer");
   const contextKey = copyKey(work.id, "context");
+  const reviewKey = copyKey(work.id, "cold-review");
+  const currentReview = context?.code_review_context?.current_review;
+  const reviewObligation = Boolean(currentReview || context?.code_review_context?.pending_follow_up);
   const canonicalKey = copyKey(work.id, "canonical-id");
   const idCopied = props.copiedKey === idKey;
-  const deleteExplanation = terminalActionGateExplanation(readiness, "deletion");
+  const deleteExplanation = reviewObligation ? "Reopen work to explicitly supersede the outstanding review or recommendation before deletion." : terminalActionGateExplanation(readiness, "deletion");
   const deleteExplanationId = `detail-delete-gate-explanation-${work.id}`;
   const moveDisabledReason = workMoveDisabledReason(context, props.mutationBlocked);
   const hasMoveTarget = props.projects.some((project) => project.id !== work.project_id);
   const moveExplanation = moveDisabledReason
     ?? (!hasMoveTarget ? "Create another project before moving this work item." : null);
   const moveExplanationId = `detail-move-explanation-${work.id}`;
-  const mergeLeaseExplanation = context?.duplicate_merge_eligibility.source_lease_state === "active"
+  const mergeLeaseExplanation = reviewObligation ? "Reopen work to supersede the outstanding review or recommendation before merging."
+    : context?.code_review_context?.remediation_depth ? "Review remediation work cannot be merged as a duplicate; its provenance must remain intact."
+    : context?.duplicate_merge_eligibility.source_lease_state === "active"
     ? "Release the source’s active lease, or wait for it to expire, before merging in the browser."
     : "";
   const mergeLeaseExplanationId = `merge-lease-explanation-${work.id}`;
@@ -640,12 +652,13 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
       {readiness.active_lease && <ActiveLeaseSummary lease={readiness.active_lease} detailed />}
       <div className="detail-actions">
         <button type="button" className={`button button-primary ${props.copiedKey === pointerKey ? "is-copied" : ""}`} onClick={() => props.onCopyPointer(pointerSummary)}><Icon name="copy" size={16} />{props.copiedKey === pointerKey ? "Copied" : "Copy recall pointer"}</button>
-        <button type="button" className={`button copy-button detail-copy-context ${props.copiedKey === contextKey ? "is-copied" : ""}`} aria-label="Copy current context" disabled={!context} onClick={() => { if (context) props.onCopy(currentContext(context).prompt, contextKey, "Current context copied exactly as stored."); }}><Icon name="copy" size={16} />{props.copiedKey === contextKey ? "Copied" : "Copy context"}</button>
+        {currentReview ? <button type="button" className={`button button-primary detail-cold-review ${props.copiedKey === reviewKey ? "is-copied" : ""}`} aria-label="Copy cold review prompt" disabled={!context || props.contextLoading} onClick={props.onCopyColdReview}><Icon name="copy" size={16} />{props.copiedKey === reviewKey ? "Copied" : "Cold review"}</button> : <button type="button" className={`button copy-button detail-copy-context ${props.copiedKey === contextKey ? "is-copied" : ""}`} aria-label="Copy current context" disabled={!context} onClick={() => { if (context) props.onCopy(currentContext(context).prompt, contextKey, "Current context copied exactly as stored."); }}><Icon name="copy" size={16} />{props.copiedKey === contextKey ? "Copied" : "Copy context"}</button>}
+        {reviewObligation && <button type="button" className="button button-secondary" disabled={actionsLocked} onClick={props.onReopenReview}>Reopen work…</button>}
         {!isDuplicate && <button type="button" className="button button-secondary" aria-label="Edit work item" disabled={actionsLocked} onClick={props.onEdit}>Edit</button>}
         {!isDuplicate && <button type="button" className="button button-secondary" title={mergeLeaseExplanation || undefined} aria-describedby={mergeLeaseExplanation ? mergeLeaseExplanationId : undefined} disabled={actionsLocked || Boolean(mergeLeaseExplanation)} onClick={props.onOpenMerge}>Merge as duplicate…</button>}
         {!isDuplicate && <StatusActionButton
           summary={pointerSummary}
-          disabled={actionsLocked}
+          disabled={actionsLocked || reviewObligation}
           busy={props.statusChanging}
           reportSettingsReady={props.reportSettingsReady}
           onAction={props.onStatusAction}
@@ -654,10 +667,10 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
         {!isDuplicate && <DeleteMoveButton
           work={work}
           projects={props.projects}
-          deleteDisabled={!context || terminalActionDisabled(readiness, props.mutationBlocked)}
+          deleteDisabled={!context || reviewObligation || terminalActionDisabled(readiness, props.mutationBlocked)}
           moveDisabled={Boolean(moveDisabledReason)}
           moving={props.moving}
-          deleteTitle={readiness.is_gated ? "Resolve every human question before deleting this work item." : "Delete work item"}
+          deleteTitle={deleteExplanation || "Delete work item"}
           moveTitle={moveDisabledReason ?? "Move this work item to another project"}
           deleteExplanationId={deleteExplanation ? deleteExplanationId : undefined}
           moveExplanationId={moveExplanation ? moveExplanationId : undefined}

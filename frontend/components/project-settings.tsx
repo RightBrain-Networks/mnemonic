@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import CodeReviewSettingsPanel from "@/components/code-review-settings";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import {
   DEFAULT_RECALL_POINTER_TEMPLATE,
@@ -271,6 +272,7 @@ export default function ProjectSettingsPanel({
   }
 
   return <div className="settings-stack">
+    <CodeReviewSettingsPanel key={selectedProject.id} projectId={selectedProject.id} settings={settings} loading={loading} onSaved={onSaved} onRetry={onRetry} onNotice={onNotice} />
     <section className="settings-card" aria-labelledby="project-details-title">
       <div className="settings-card-heading">
         <div>

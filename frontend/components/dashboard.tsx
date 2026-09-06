@@ -1,6 +1,12 @@
 "use client";
 
 import ExternalReferencesEditor from "@/components/external-references-editor";
+import CodeReviewHandoffEditor, { emptyReviewHandoff } from "@/components/code-review-handoff-editor";
+import CodeReviewInbox from "@/components/code-review-inbox";
+import JobReportEditor from "@/components/job-report-editor";
+import { codeReviewDecision } from "@/lib/code-review-policy";
+import { decodeCodeReviewDetail, validReviewHandoff, type CodeReviewHandoff } from "@/lib/code-reviews";
+import { coldReviewPrompt, warmReviewDirective } from "@/lib/code-review-prompts";
 import { normalizeExternalReferences, sameExternalReferences } from "@/lib/external-references";
 import type { ExternalReference } from "@/lib/types";
 import {
@@ -365,6 +371,13 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
   const [completionEvidenceDraft, setCompletionEvidenceDraft] =
     useState<CompletionEvidenceDraft>(emptyCompletionEvidenceDraft);
   const [jobReportDraft, setJobReportDraft] = useState<JobReportDraft>(emptyJobReportDraft);
+  const [reviewCloseout, setReviewCloseout] = useState<{ mode: "checkpoint" | "manual"; summary: WorkSummary; revision: string } | null>(null);
+  const [reviewHandoff, setReviewHandoff] = useState<CodeReviewHandoff>(emptyReviewHandoff);
+  const reviewDraftWorkId = useRef<string | null>(null);
+  const [reviewCloseoutError, setReviewCloseoutError] = useState("");
+  const [reopenReview, setReopenReview] = useState<WorkContext | null>(null);
+  const [reviewReopening, setReviewReopening] = useState(false);
+  const [reviewReopenError, setReviewReopenError] = useState("");
   const [completionEvidenceIssues, setCompletionEvidenceIssues] =
     useState<readonly CompletionEvidenceIssue[]>([]);
 
@@ -752,7 +765,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     const target = urlWorkRestore.current;
     if (!target) return;
     urlWorkRestore.current = null;
-    void openExactWork(activeId, target);
+    const showReview = new URLSearchParams(window.location.search).get("review") === "1";
+    void openExactWork(activeId, target).then(() => { if (showReview) setTab("reviews"); });
   }, [activeId, opened, view]);
 
   useEffect(() => {
@@ -784,7 +798,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     if (
       id !== activeId
       && activeId
-      && selectMutationScope(mutationRegistry.getSnapshot(), { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up"].includes(intent.kind))
+      && selectMutationScope(mutationRegistry.getSnapshot(), { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))
     ) {
       setNotice({
         message: "Resolve pending mutations before switching projects. Reloading would lose the exact retry request.",
@@ -1490,9 +1504,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     if (editSaving || checkpointSaving) return false;
     if (
       opened
-      && mutationRegistry.blocks([
-        mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
-      ])
+      && selectMutationScope(mutationRegistry.getSnapshot(), { conflictKeys: [mutationWorkKey(opened.work_item.project_id, opened.work_item.id)] }).intents.some((intent) => intent.kind !== "respond_to_work_follow_up")
     ) {
       setNotice({
         message: "Resolve the pending mutation before closing this work view.",
@@ -1745,7 +1757,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setEditError("");
   }
 
-  async function saveCheckpoint(complete: boolean) {
+  async function saveCheckpoint(complete: boolean, handoff?: CodeReviewHandoff) {
     if (!context || !checkpointBody.trim() || checkpointSaving) return;
     const evidenceIssues = complete
       ? completionEvidenceDraftIssues(completionEvidenceDraft)
@@ -1761,7 +1773,27 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     setCheckpointSaving(true);
     setCheckpointActionError("");
     setCheckpointAffectedPathsError("");
+    const selection = recordRequest.current;
     try {
+      if (complete) {
+        const latestSettings = decodeProjectSettings(await api<unknown>(`/projects/${context.work_item.project_id}/settings`), context.work_item.project_id);
+        if (recordRequest.current !== selection) return;
+        handleProjectSettingsSaved(latestSettings);
+        const decision = codeReviewDecision(latestSettings, context.work_item.priority, context.code_review_context?.remediation_depth ?? 0);
+        if (decision === "mandatory" && !handoff) {
+          setReviewCloseout({ mode: "checkpoint", summary: summaryWithContext(opened!, context), revision: latestSettings.revision });
+          if (reviewDraftWorkId.current !== context.work_item.id) setReviewHandoff(emptyReviewHandoff(project?.repository_url));
+          reviewDraftWorkId.current = context.work_item.id; setReviewCloseoutError("");
+          return;
+        }
+        if (handoff && (decision !== "mandatory" || reviewCloseout?.revision !== latestSettings.revision)) {
+          setReviewCloseoutError("Project review settings changed. Your handoff is kept. Close this dialog, review the refreshed settings, then prepare a new completion.");
+          return;
+        }
+        if (jobReportDraft.promptRevision !== latestSettings.revision) {
+          throw new Error("Project instructions changed. Review the current report prompt and accept its revision before completing. Your draft is kept.");
+        }
+      }
       const checkpoint = checkpointPayload(
         checkpointBody,
         checkpointBranch,
@@ -1772,7 +1804,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       const base = workItemPath(context.work_item.project_id, context.work_item.id);
       if (complete) {
         const report = jobReportFromDraft(jobReportDraft);
-        await mutationRegistry.execute({
+        const completed = await mutationRegistry.execute({
           kind: "complete_work",
           slot: `complete-work:${context.work_item.project_id}:${context.work_item.id}`,
           projectId: context.work_item.project_id,
@@ -1785,9 +1817,13 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
             expected_version: context.work_item.version,
             checkpoint,
             job_completion_report: report,
+            ...(handoff ? { code_review_handoff: handoff } : {}),
             ...(completionEvidence ? { completion_evidence: completionEvidence } : {})
           }
         });
+        setReviewCloseout(null);
+        reviewDraftWorkId.current = null;
+        if (completed.agent_follow_ups?.length || completed.code_review_request) setTab("reviews");
         setNotice({ message: "Human report and completion checkpoint recorded. Work marked done." });
         setJobReportDraft(emptyJobReportDraft());
         setReportRefresh((value) => value + 1);
@@ -1824,6 +1860,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         setNotice({ message, error: true });
       }
     } catch (error) {
+      if (handoff) setReviewCloseoutError(errorMessage(error));
       if (error instanceof AffectedPathsValidationError) {
         setCheckpointAffectedPathsError(error.message);
       } else if (complete && isVersionConflict(error)) {
@@ -2027,7 +2064,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       });
       await showMovedWork(result, displayStatus);
     } catch (error) {
-      if (isDefinitiveWorkPlacementMiss(error)) {
+      if (error instanceof ApiError && error.code === "work_move_review_history_conflict") {
+        setNotice({ message: "This work has retained code review policy, recommendation or remediation history and must remain in its original project. Reopening does not erase that history.", error: true });
+      } else if (isDefinitiveWorkPlacementMiss(error)) {
         const requestId = ++recordRequest.current;
         exactContextTarget.current = null;
         setContext(null);
@@ -2053,10 +2092,11 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
 
   async function changeManualStatus(
     action: ManualStatusAction,
-    summary: WorkSummary
+    summary: WorkSummary,
+    handoff?: CodeReviewHandoff
   ): Promise<void> {
     const work = summary.work_item;
-    const settings = projectSettings?.project_id === work.project_id
+    let settings = projectSettings?.project_id === work.project_id
       ? projectSettings
       : null;
     if (statusChangingId || summary.readiness.is_duplicate) return;
@@ -2083,6 +2123,27 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     let currentWork = work;
     setStatusChangingId(work.id);
     try {
+      const latestValue = await api<unknown>(`${basePath}/context?recent_limit=0&recent_event_limit=0`);
+      const latestContext = decodeWorkContext(latestValue, work.project_id, work.id);
+      if (latestContext.code_review_context?.current_review || latestContext.code_review_context?.pending_follow_up) {
+        throw new Error("Use Reopen work to explicitly supersede the outstanding review or recommendation before changing status.");
+      }
+      if (latestContext.work_item.version !== work.version) throw new Error("This work item changed. Refresh it before making a status decision.");
+      if (action === "done") {
+        settings = decodeProjectSettings(await api<unknown>(`/projects/${work.project_id}/settings`), work.project_id);
+        handleProjectSettingsSaved(settings);
+        const decision = codeReviewDecision(settings, work.priority, latestContext.code_review_context?.remediation_depth ?? 0);
+        if (decision === "mandatory" && !handoff) {
+          setReviewCloseout({ mode: "manual", summary: summaryWithContext(summary, latestContext), revision: settings.revision });
+          if (reviewDraftWorkId.current !== work.id) setReviewHandoff(emptyReviewHandoff(projects.find((item) => item.id === work.project_id)?.repository_url));
+          reviewDraftWorkId.current = work.id; setReviewCloseoutError("");
+          return;
+        }
+        if (handoff && (decision !== "mandatory" || reviewCloseout?.revision !== settings.revision)) {
+          setReviewCloseoutError("Project review settings changed. Your handoff is kept. Close this dialog and review the refreshed policy before preparing another completion.");
+          return;
+        }
+      }
       if (
         action !== "active"
         && (summary.readiness.has_active_lease || summary.readiness.has_dropped_lease)
@@ -2153,7 +2214,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
             action: "manual-status-change"
           }
         };
-        await mutationRegistry.execute({
+        const completed = await mutationRegistry.execute({
           kind: "complete_work",
           slot: `complete-work:${work.project_id}:${work.id}`,
           projectId: work.project_id,
@@ -2163,6 +2224,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           payload: {
             expected_version: currentWork.version,
             checkpoint,
+            ...(handoff ? { code_review_handoff: handoff } : {}),
             job_completion_report: humanDecisionReport(
               currentWork,
               "done",
@@ -2170,6 +2232,11 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
             )
           }
         });
+        setReviewCloseout(null);
+        if (completed.agent_follow_ups?.length || completed.code_review_request) {
+          await openExactWork(work.project_id, work.id);
+          setTab("reviews");
+        }
         setCheckpointOffset(0);
         setCheckpointRefresh((value) => value + 1);
         setReportRefresh((value) => value + 1);
@@ -2227,6 +2294,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       if (openedRef.current?.work_item.id === work.id) void reloadOpenContext();
     } catch (error) {
       if (isVersionConflict(error)) setRefresh((value) => value + 1);
+      if (handoff) setReviewCloseoutError(errorMessage(error));
       setNotice({ message: errorMessage(error), error: true });
     } finally {
       setStatusChangingId(null);
@@ -2275,7 +2343,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           return;
         }
       } else {
-        await mutationRegistry.retry(intent.slot);
+        const result = await mutationRegistry.retry(intent.slot);
+        if (intent.kind === "complete_work" && result && typeof result === "object" && ("code_review_request" in result || "agent_follow_ups" in result)) setTab("reviews");
       }
       setRefresh((value) => value + 1);
       setAttentionRefresh((value) => value + 1);
@@ -2305,12 +2374,14 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
         setCheckpointAffectedPathsError("");
         setCheckpointTags("");
         if (intent.kind === "complete_work") {
+          setReviewCloseout(null);
+          reviewDraftWorkId.current = null;
           setJobReportDraft(emptyJobReportDraft());
           setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
           setCompletionEvidenceIssues([]);
         }
       }
-      if (intent.kind === "update_work") setMode("view");
+      if (intent.kind === "update_work") { setMode("view"); setReopenReview(null); }
       if (!contextReconciled) {
         setContext(null);
         setNotice({
@@ -2360,7 +2431,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     }
   }
 
-  function copyRecallPointer(summary: WorkSummary) {
+  async function copyRecallPointer(summary: WorkSummary) {
     const projectId = summary.work_item.project_id;
     const pointerProject = projects.find((item) => item.id === projectId);
     if (!pointerProject) {
@@ -2381,14 +2452,53 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       });
       return;
     }
-    void copyText(
-      workRecallPointer(summary, {
+    const requestGeneration = recordRequest.current;
+    try {
+      const value = await api<unknown>(`${workItemPath(projectId, summary.work_item.id)}/context?recent_limit=0&recent_event_limit=0`);
+      const latest = decodeWorkContext(value, projectId, summary.work_item.id);
+      if (recordRequest.current !== requestGeneration) return;
+      const review = latest.code_review_context?.current_review;
+      await copyText(
+      workRecallPointer(summaryWithContext(summary, latest), {
         template: projectSettings.recall_pointer_template ?? undefined,
         project: pointerProject
-      }),
+      }) + (review ? `\n\n${warmReviewDirective(review)}` : ""),
       `${summary.work_item.id}:pointer`,
       "Recall pointer copied. Paste it into a session with Mnemonic connected."
     );
+    } catch (error) { setNotice({ message: errorMessage(error), error: true }); }
+  }
+
+  async function copyColdReview() {
+    const review = context?.code_review_context?.current_review;
+    if (!review) return;
+    const requestGeneration = recordRequest.current;
+    try {
+      const value = await api<unknown>(`${workItemPath(review.project_id, review.work_item_id)}/code-reviews/${review.id}`);
+      const detail = decodeCodeReviewDetail(value, review.project_id, review.work_item_id, review.id);
+      if (requestGeneration !== recordRequest.current) return;
+      if (detail.review.state !== "requested" || detail.review.version !== review.version || detail.review.scope_sha256 !== review.scope_sha256) {
+        setContextRefresh((value) => value + 1); throw new Error("The review changed. Refresh the work item before copying its prompt.");
+      }
+      const prompt = coldReviewPrompt({ project_id: review.project_id, work_item_id: review.work_item_id, code_review_id: review.id,
+        review_version: review.version, scope_sha256: review.scope_sha256, scope: detail.scope });
+      await copyText(prompt, `${review.work_item_id}:cold-review`, "Cold review prompt copied with pinned Git scope and no handoff context.");
+    } catch (error) { setNotice({ message: errorMessage(error), error: true }); }
+  }
+
+  async function supersedeReview() {
+    if (!reopenReview) return;
+    const work = reopenReview.work_item, review = reopenReview.code_review_context?.current_review, question = reopenReview.code_review_context?.pending_follow_up;
+    if (!review && !question) return;
+    setReviewReopening(true); setReviewReopenError("");
+    try {
+      await mutationRegistry.execute({ kind: "update_work", slot: `update-work:${work.project_id}:${work.id}`, projectId: work.project_id,
+        conflictKeys: [mutationWorkKey(work.project_id, work.id)], method: "PATCH", path: workItemPath(work.project_id, work.id),
+        payload: { expected_version: work.version, status: "pending", actor: dashboardMutationActor(dashboardSessionId()),
+          ...(review ? { supersede_code_review_id: review.id, expected_code_review_version: review.version }
+            : { supersede_follow_up_id: question!.id, expected_follow_up_version: question!.version }) } });
+      setReopenReview(null); setRefresh((value) => value + 1); setEventRefresh((value) => value + 1); await reloadOpenContext();
+    } catch (error) { setReviewReopenError(errorMessage(error)); } finally { setReviewReopening(false); }
   }
 
   // c copies the open record's recall pointer: the same value, notice, and copied
@@ -2448,6 +2558,8 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
     openedWorkKey && selectMutationScope(mutationIntents, { conflictKeys: [openedWorkKey] }).blocked
   );
   const detailMutationBlocked = openedWorkMutationBlocked
+    || contextReconciliationRequired && contextLoading;
+  const detailNavigationBlocked = Boolean(openedWorkKey && selectMutationScope(mutationIntents, { conflictKeys: [openedWorkKey] }).intents.some((intent) => intent.kind !== "respond_to_work_follow_up"))
     || contextReconciliationRequired && contextLoading;
   const createWorkMutationBlocked = Boolean(
     project && selectMutationScope(mutationIntents, {
@@ -2511,7 +2623,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       <a href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={blockNavigationWhilePending}><Logo /><span>mnemonic<span className="brand-period">.</span></span></a>
       <div className="workspace-picker">
         <label className="section-label" htmlFor="project-select">YOUR WORKSPACE</label>
-        <div className="select-wrap"><select id="project-select" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
+        <div className="select-wrap"><select id="project-select" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
           {!projects.length && <option value="">{projectsLoading ? "Loading projects…" : "Select a project"}</option>}
           {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select><span className="select-chevron" aria-hidden="true">⌄</span></div>
@@ -2592,6 +2704,10 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                 setEventRefresh((value) => value + 1);
               }}
             />}
+          {project && activityReadyProjectId === project.id && <CodeReviewInbox key={`attention-reviews:${project.id}`} projectId={project.id} refreshSignal={attentionRefresh} onOpen={(workItemId) => {
+            if (mutationRegistry.hasDispatched()) { setNotice({ message: "Resolve pending mutations before leaving this dashboard.", error: true }); return; }
+            window.location.assign(`/?work=${encodeURIComponent(workItemId)}&review=1`);
+          }} />}
         </> : <>
           <DashboardViewChrome
             title="Work library"
@@ -2611,6 +2727,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
           {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
             projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
             !projects.length ? <section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">A DURABLE PLACE TO CONTINUE</div><h2>Create your first project.</h2><p>Projects hold stable objectives and the session checkpoints that move them forward.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}><Icon name="plus" size={17} />Create your first project</button></section> : <>
+              {project && activityReadyProjectId === project.id && <details className="review-inbox-disclosure"><summary>Code review queue and unanswered recommendations</summary><CodeReviewInbox key={`library-reviews:${project.id}`} projectId={project.id} refreshSignal={eventRefresh + refresh} onOpen={(workItemId) => { void openExactWork(project.id, workItemId).then(() => setTab("reviews")); }} /></details>}
               <WorkItemList
                 queuePaneRef={crossfade.queueRef}
                 query={query}
@@ -2689,6 +2806,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                   onStatusAction={(action, item) => void changeManualStatus(action, item)}
                   statusChanging={Boolean(openedId && statusChangingId === openedId)}
                   reportSettingsReady={projectSettings?.project_id === opened?.work_item.project_id}
+                  allowRemediationReviews={projectSettings?.project_id === opened?.work_item.project_id ? projectSettings?.allow_remediation_code_reviews : undefined}
                   onDelete={() => { if (context) openDeletion(context.work_item); }}
                   onMove={(targetProjectId) => void moveWork(targetProjectId)}
                   projects={projects}
@@ -2702,6 +2820,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                   onViewDuplicateGroup={viewDuplicateGroup}
                   onCopy={(value, key, success) => void copyText(value, key, success)}
                   onCopyPointer={(item) => void copyRecallPointer(item)}
+                  onCopyColdReview={() => void copyColdReview()}
+                  onReopenReview={() => { if (context) { setReopenReview(context); setReviewReopenError(""); } }}
+                  onReviewChanged={async () => { setEventRefresh((value) => value + 1); setAttentionRefresh((value) => value + 1); setRefresh((value) => value + 1); await reloadOpenContext(); }}
                   copiedKey={copied}
                   checkpointPage={checkpointPage}
                   checkpointOffset={checkpointOffset}
@@ -2760,7 +2881,7 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
                     ? <div className="detail-notice" role="status"><span>Inspecting existing work for your unsaved draft.</span><button type="button" className="button button-secondary" onClick={() => setWorkDialog("open")}>Return to new work</button></div>
                     : undefined}
                   onBack={closeWork}
-                  backDisabled={editSaving || checkpointSaving || detailMutationBlocked}
+                  backDisabled={editSaving || checkpointSaving || detailNavigationBlocked}
                 />}
               />
             </>}
@@ -2774,6 +2895,22 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       onRetry={(intent) => void retryMutation(intent)}
     />
 
+    {reviewCloseout && <Dialog title="Complete work with mandatory review" wide
+      busy={checkpointSaving || Boolean(statusChangingId) || mutationRegistry.blocks([mutationWorkKey(reviewCloseout.summary.work_item.project_id, reviewCloseout.summary.work_item.id)])}
+      onClose={() => { if (!checkpointSaving && !statusChangingId && !mutationRegistry.blocks([mutationWorkKey(reviewCloseout.summary.work_item.project_id, reviewCloseout.summary.work_item.id)])) setReviewCloseout(null); }}
+      recovery={modalRecovery(selectMutationScope(mutationIntents, { conflictKeys: [mutationWorkKey(reviewCloseout.summary.work_item.project_id, reviewCloseout.summary.work_item.id)] }).intents)}>
+      <p className="dialog-intro">“{reviewCloseout.summary.work_item.title}” requires a review under project policy. Complete the implementation and attach its immutable Git scope and originating-session handoff in one operation.</p>
+      <CodeReviewHandoffEditor value={reviewHandoff} onChange={setReviewHandoff} disabled={checkpointSaving || Boolean(statusChangingId) || detailMutationBlocked} />
+      {reviewCloseout.mode === "checkpoint" && <JobReportEditor projectId={reviewCloseout.summary.work_item.project_id} draft={jobReportDraft} onChange={setJobReportDraft} disabled={checkpointSaving || detailMutationBlocked} />}
+      {reviewCloseoutError && <p className="error-notice" role="alert">{reviewCloseoutError}</p>}
+      <div className="dialog-actions"><button className="button button-secondary" disabled={checkpointSaving || Boolean(statusChangingId) || detailMutationBlocked} onClick={() => setReviewCloseout(null)}>Keep draft</button><button className="button button-primary" disabled={checkpointSaving || Boolean(statusChangingId) || detailMutationBlocked || !validReviewHandoff(reviewHandoff)} onClick={() => { void (reviewCloseout.mode === "checkpoint" ? saveCheckpoint(true, reviewHandoff) : changeManualStatus("done", reviewCloseout.summary, reviewHandoff)); }}>Complete and request review</button></div>
+    </Dialog>}
+    {reopenReview && <Dialog title="Reopen work and supersede its review?" busy={reviewReopening || detailMutationBlocked} onClose={() => { if (!reviewReopening && !detailMutationBlocked) setReopenReview(null); }} recovery={modalRecovery(openedPaneMutationIntents)}>
+      <p>Reopen “{reopenReview.work_item.title}” as Pending. Its outstanding {reopenReview.code_review_context?.current_review ? "review request" : "recommendation question"} will be superseded. Any review lease will be invalidated. Existing notes and results remain in history.</p>
+      {reopenReview.readiness.active_lease && <p>Active reviewer: {reopenReview.readiness.active_lease.holder_client}. Reopening abandons this attempt.</p>}
+      {reviewReopenError && <p className="error-notice" role="alert">{reviewReopenError}</p>}
+      <div className="dialog-actions"><button className="button button-secondary" disabled={reviewReopening || detailMutationBlocked} onClick={() => setReopenReview(null)}>Keep review</button><button className="button button-primary" disabled={reviewReopening || detailMutationBlocked} onClick={() => void supersedeReview()}>{reviewReopening ? "Reopening…" : "Reopen and supersede"}</button></div>
+    </Dialog>}
     {notice && <div className={`toast ${notice.error ? "toast-error" : ""}`} role={notice.error ? "alert" : "status"}><Icon name={notice.error ? "close" : "check"} size={18} /><span>{notice.message}</span><button className="icon-button" aria-label="Dismiss notification" onClick={() => setNotice(null)}><Icon name="close" size={16} /></button></div>}
 
     {projectDialog && <Dialog title="Create a project" onClose={() => { if (!projectSaving) setProjectDialog(false); }} busy={projectSaving}><form className="form-stack" onSubmit={(event) => void createProject(event)}>

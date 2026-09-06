@@ -1,5 +1,13 @@
 # Mnemonic validation record
 
+## Code reviews implementation
+
+Application/API/MCP/dashboard 0.13.0, plugin 0.14.0 and migration
+`0024_code_reviews` add first-class reviews and bounded remediation ancestry.
+The [implementation validation](code-reviews-validation.md) records the current
+regression, capacity, restore, browser and independent cold-review evidence.
+These are isolated implementation checks, not a production deployment.
+
 ## External records implementation — 2026-09-05
 
 Application/API/MCP/dashboard `0.10.0`, plugin `0.12.0`, and migration

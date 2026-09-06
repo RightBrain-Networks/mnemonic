@@ -19,6 +19,9 @@ import { COMPLETION_EVIDENCE_DECODER_FIELDS } from "../lib/completion-evidence.t
 
 const SNAPSHOT_URL = new URL("../../docs/openapi.json", import.meta.url);
 const DEFAULTED_RESPONSE_FIELDS = {
+  "frontend/lib/readiness-codecs.ts:decodeLease": ["purpose", "code_review_id", "mode"],
+  "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": ["code_review_context"],
+  "frontend/lib/work-events.ts:EVENT_FIELDS": ["code_review_id", "code_review_result_id", "work_follow_up_id", "work_follow_up_answer_id"],
   "frontend/lib/external-references.ts:decodeExternalReference": ["label", "state_observed_at"],
   "frontend/lib/work-codecs.ts:decodeWorkItem": ["external_references"],
   "frontend/lib/duplicate-handling.ts:decodeWorkPointer": ["external_references"],
@@ -28,7 +31,7 @@ const DEFAULTED_RESPONSE_FIELDS = {
     "affected_paths"
   ],
   "frontend/lib/mutation-responses.ts:decodeMutationResult:complete_work": [
-    "completion_evidence", "job_completion_report"
+    "completion_evidence", "job_completion_report", "review_policy_decision", "code_review_request", "agent_follow_ups", "code_review_handoff"
   ],
   "frontend/lib/completion-evidence.ts:decodeVerificationResult:command": [
     "exit_code", "observed_at", "observed_at_commit"
@@ -45,7 +48,8 @@ const DEFAULTED_RESPONSE_FIELDS = {
     "omitted_relationship_counts",
     "outgoing_relationships",
     "relationship_counts",
-    "undirected_relationships"
+    "undirected_relationships",
+    "code_review_context"
   ]
 };
 

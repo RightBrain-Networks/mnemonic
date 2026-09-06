@@ -35,6 +35,20 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
+from .code_review_models import (
+    CodeReviewContext,
+    CodeReviewHandoffInput,
+    CodeReviewRead,
+    CodeReviewRemediationRead,
+    CodeReviewResultRead,
+    ReviewMode,
+    ReviewModel,
+    ReviewPolicyRead,
+    ReviewVersion,
+    ScopeHash,
+    WorkFollowUpAnswerRead,
+    WorkFollowUpRead,
+)
 from .external_records import (
     ExternalCandidates,
     ExternalDuplicateSuggestion,
@@ -115,7 +129,18 @@ EventType = Literal[
     "human_attention_resolved",
     "work_merged",
     "work_moved",
+    "work_follow_up_requested", "work_follow_up_answered", "work_follow_up_superseded",
+    "code_review_requested", "code_review_completed", "code_review_superseded",
 ]
+
+_REVIEW_EVENT_FIELDS: dict[str, set[str]] = {
+    "work_follow_up_requested": {"work_follow_up_id"},
+    "work_follow_up_answered": {"work_follow_up_id", "work_follow_up_answer_id"},
+    "work_follow_up_superseded": {"work_follow_up_id"},
+    "code_review_requested": {"code_review_id"},
+    "code_review_completed": {"code_review_id", "code_review_result_id"},
+    "code_review_superseded": {"code_review_id"},
+}
 
 _HISTORICAL_RESERVED_METADATA_KEYS = frozenset(
     {
@@ -1001,7 +1026,41 @@ class WorkStatusMetadata(CanonicalResponse):
     work_version: int = Field(ge=1)
 
 
-class WorkClaimedLiveMetadata(CanonicalResponse):
+class ReviewLeaseMetadata(ReviewModel):
+    purpose: Literal["code_review"] | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    code_review_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    mode: ReviewMode | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def review_metadata_is_paired(self) -> Self:
+        values = (self.purpose, self.code_review_id, self.mode)
+        if any(value is not None for value in values) and not all(value is not None for value in values):
+            raise ValueError("Review lease metadata must contain exact purpose, review and mode.")
+        return self
+
+
+class ReviewEventMetadata(CanonicalResponse):
+    code_review_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    work_follow_up_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    work_follow_up_answer_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    code_review_result_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+
+class WorkClaimedLiveMetadata(ReviewLeaseMetadata, CanonicalResponse):
     expires_at: UTCDateTime
 
 
@@ -1010,7 +1069,7 @@ class WorkClaimedBackfillMetadata(CanonicalResponse):
     expiry_basis: Literal["retained_lease_at_cutover"]
 
 
-class WorkReleasedClientMetadata(CanonicalResponse):
+class WorkReleasedClientMetadata(ReviewLeaseMetadata, CanonicalResponse):
     lease_holder_kind: Literal["client"]
     lease_holder_client: RetainedClientName
     lease_holder_session_id: RetainedSessionID
@@ -1079,6 +1138,7 @@ class ProgressEventMetadata(RootModel[HistoricalProgressMetadata]):
 
 WorkEventMetadata = (
     EmptyEventMetadata
+    | ReviewEventMetadata
     | WorkCreatedLiveMetadata
     | WorkUpdatedMetadata
     | WorkStatusMetadata
@@ -1739,11 +1799,35 @@ class CompletionEvidencePage(CanonicalResponse):
 
 
 class LeasePublic(CanonicalResponse):
+    purpose: Literal["implementation", "code_review"] = Field(
+        default="implementation", exclude_if=lambda value: value == "implementation",
+    )
+    code_review_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    mode: ReviewMode | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     holder_client: str
     holder_session_id: str
     acquired_at: datetime
     renewed_at: datetime
     expires_at: datetime
+
+    @model_validator(mode="after")
+    def review_identity_corresponds(self) -> Self:
+        _validate_lease_review_identity(self.purpose, self.code_review_id, self.mode)
+        return self
+
+
+def _validate_lease_review_identity(
+    purpose: str, review_id: UUID | None, mode: str | None,
+) -> None:
+    if purpose == "code_review":
+        if review_id is None or mode is None:
+            raise ValueError("Review lease requires its exact review identity and mode.")
+    elif review_id is not None or mode is not None:
+        raise ValueError("Implementation lease cannot contain review identity.")
 
 
 class Readiness(CanonicalResponse):
@@ -2000,9 +2084,13 @@ class CanonicalWorkProjection(CanonicalResponse):
 class WorkItemDetailRead(CanonicalResponse):
     work_item: WorkItemRead
     canonical: CanonicalWorkProjection
+    code_review_context: CodeReviewContext | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def enforce_detail_contract(self) -> Self:
+        _validate_code_review_context_scope(self.code_review_context, self.work_item)
         requested = self.work_item
         projection = self.canonical
         if projection.is_duplicate:
@@ -2386,6 +2474,18 @@ class DuplicateMergeEligibility(CanonicalResponse):
 class WorkEventRead(CanonicalResponse):
     """Strict event wire model with event-type/origin-specific metadata validation."""
 
+    code_review_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    work_follow_up_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    work_follow_up_answer_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    code_review_result_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: int = Field(ge=1)
     project_id: UUID
     work_item_id: UUID
@@ -2417,6 +2517,7 @@ class WorkEventRead(CanonicalResponse):
         _validate_event_body(self)
         _validate_event_references(self)
         self.metadata = _validated_event_metadata(self)
+        _validate_review_event_references(self)
         return self
 
 
@@ -2432,6 +2533,8 @@ _LIVE_CLIENT_EVENT_TYPES: frozenset[EventType] = frozenset(
         "human_attention_requested",
         "human_attention_resolved",
         "work_merged",
+        "work_follow_up_requested", "work_follow_up_answered", "work_follow_up_superseded",
+        "code_review_requested", "code_review_completed", "code_review_superseded",
     }
 )
 _BACKFILL_EVENT_TYPES: frozenset[EventType] = frozenset(
@@ -2549,6 +2652,19 @@ def _validate_relationship_references(event: WorkEventRead) -> None:
 def _validate_event_references(event: WorkEventRead) -> None:
     _validate_checkpoint_and_lease_references(event)
     _validate_relationship_references(event)
+
+
+def _validate_review_event_references(event: WorkEventRead) -> None:
+    expected = _REVIEW_EVENT_FIELDS.get(event.event_type, set())
+    if event.event_type in {"work_claimed", "work_released"} and getattr(event.metadata, "purpose", None):
+        expected = {"code_review_id"}
+    fields = {"code_review_id", "code_review_result_id", "work_follow_up_id", "work_follow_up_answer_id"}
+    present = {field for field in fields if getattr(event, field) is not None}
+    metadata_present = {field for field in fields if getattr(event.metadata, field, None) is not None}
+    if present != expected or metadata_present != expected:
+        raise ValueError("Review event reference matrix is inconsistent.")
+    if any(getattr(event, field) != getattr(event.metadata, field) for field in expected):
+        raise ValueError("Review event reference and metadata disagree.")
 
 
 def _validated_status_metadata(
@@ -2722,6 +2838,8 @@ def _validated_other_event_metadata(
 
 
 def _validated_event_metadata(event: WorkEventRead) -> WorkEventMetadata:
+    if event.event_type in _REVIEW_EVENT_FIELDS:
+        return ReviewEventMetadata.model_validate(_metadata_payload(event.metadata))
     payload = _metadata_payload(event.metadata)
     maximum_bytes = 131072 if event.event_type in {
         "work_created", "work_updated", "work_status_changed", "work_reopened"
@@ -2756,6 +2874,9 @@ class WorkEventPage(CanonicalResponse):
 
 
 class WorkContext(CanonicalResponse):
+    code_review_context: CodeReviewContext | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     work_item: WorkItemRead
     merge_review_revision: MergeReviewRevision
     canonical: CanonicalWorkProjection
@@ -2800,6 +2921,7 @@ class WorkContext(CanonicalResponse):
 
     @model_validator(mode="after")
     def enforce_gate_recall_contract(self) -> Self:
+        _validate_code_review_context_scope(self.code_review_context, self.work_item)
         self._enforce_duplicate_contract()
         self._enforce_relationship_contract()
         context_checkpoint_id = self._enforce_history_contract()
@@ -2994,6 +3116,24 @@ def _relationship_projection(
 class ClaimReceipt(CanonicalResponse):
     """Capability-bearing lease receipt returned only by claim and renew operations."""
 
+    purpose: Literal["implementation", "code_review"] = Field(
+        default="implementation", exclude_if=lambda value: value == "implementation",
+    )
+    code_review_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    mode: ReviewMode | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    lease_generation_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    code_review_version: ReviewVersion | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    scope_sha256: ScopeHash | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     work_item_id: UUID
     holder_client: RetainedClientName
     holder_session_id: RetainedSessionID
@@ -3009,6 +3149,12 @@ class ClaimReceipt(CanonicalResponse):
 
     @model_validator(mode="after")
     def enforce_lease_times(self) -> Self:
+        _validate_lease_review_identity(self.purpose, self.code_review_id, self.mode)
+        references = (self.lease_generation_id, self.code_review_version, self.scope_sha256)
+        if self.purpose == "code_review" and any(value is None for value in references):
+            raise ValueError("Review claim requires generation, revision and scope hash.")
+        if self.purpose == "implementation" and any(value is not None for value in references):
+            raise ValueError("Implementation claim cannot contain review coordination fields.")
         if self.renewed_at < self.acquired_at or self.expires_at <= self.renewed_at:
             raise ValueError("Claim receipt timestamps are incoherent.")
         return self
@@ -3030,6 +3176,10 @@ class ClaimAndRecall(CanonicalResponse):
             or public.acquired_at != self.lease.acquired_at
             or public.renewed_at != self.lease.renewed_at
             or public.expires_at != self.lease.expires_at
+            or public.purpose != self.lease.purpose
+            or public.code_review_id != self.lease.code_review_id
+            or public.mode != self.lease.mode
+            or self.lease.mode == "cold"
         ):
             raise ValueError("Claim receipt and recalled context are incoherent.")
         return self
@@ -3273,6 +3423,18 @@ class WorkChanges(BaseModel):
 
 
 class WorkCompletion(CanonicalResponse):
+    code_review_handoff: CodeReviewHandoffInput | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    review_policy_decision: ReviewPolicyRead | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    code_review_request: CodeReviewRead | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    agent_follow_ups: list[WorkFollowUpRead] | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None, min_length=1, max_length=1,
+    )
     work_item: WorkItemRead
     checkpoint: CheckpointRead
     job_completion_report: Annotated[
@@ -3281,6 +3443,20 @@ class WorkCompletion(CanonicalResponse):
     ] = Field(default=None, exclude_if=lambda value: value is None)
 
     _non_null_report = field_validator("job_completion_report", mode="before")(reject_null_report)
+
+    @field_validator("review_policy_decision", "code_review_request", "agent_follow_ups",
+                     "code_review_handoff",
+                     mode="before")
+    @classmethod
+    def reject_null_review_fields(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("Present review completion fields cannot be null.")
+        return value
+
+    @model_validator(mode="after")
+    def review_correspondence(self) -> Self:
+        _validate_completion_review(self)
+        return self
 
     @model_validator(mode="after")
     def enforce_report_ownership(self) -> Self:
@@ -3339,6 +3515,199 @@ class WorkCompletion(CanonicalResponse):
                 ):
                     raise ValueError("Completion evidence parent or timestamp is incoherent.")
         return self
+
+
+def _validate_code_review_context_scope(
+    context: CodeReviewContext | None, work: WorkItemRead,
+) -> None:
+    if context is None:
+        return
+    for resource in (context.current_review, context.pending_follow_up):
+        if resource is not None and (
+            resource.project_id != work.project_id or resource.work_item_id != work.id
+            or work.status != "done"
+        ):
+            raise ValueError("Review context refers to another work item or lifecycle.")
+    origin = context.remediation_origin
+    if origin is not None and (
+        origin.project_id != work.project_id or origin.remediation_work_item_id != work.id
+    ):
+        raise ValueError("Remediation origin refers to another work item.")
+
+
+def _validate_completion_review(response: WorkCompletion) -> None:
+    policy = response.review_policy_decision
+    review = response.code_review_request
+    questions = response.agent_follow_ups
+    if policy is None:
+        if review is not None or questions is not None or response.code_review_handoff is not None:
+            raise ValueError("Review effects require their policy snapshot.")
+        return
+    if (
+        policy.project_id != response.work_item.project_id
+        or policy.work_item_id != response.work_item.id
+        or policy.completion_checkpoint_id != response.checkpoint.id
+        or policy.priority_at_closeout != response.work_item.priority
+        or response.work_item.status != "done"
+        or response.job_completion_report is None
+        or policy.settings_revision != response.job_completion_report.prompt_revision
+        or policy.completion_event_id != response.job_completion_report.closeout_event_id
+    ):
+        raise ValueError("Policy snapshot does not belong to this exact closeout.")
+    _validate_completion_review_effects(response)
+
+
+def _validate_completion_review_effects(response: WorkCompletion) -> None:
+    policy = response.review_policy_decision
+    assert policy is not None
+    if (policy.decision == "mandatory") != (response.code_review_request is not None):
+        raise ValueError("Mandatory policy and request disagree.")
+    if (response.code_review_request is None) != (response.code_review_handoff is None):
+        raise ValueError("Review creation requires its exact handoff snapshot.")
+    if (policy.decision == "ask_recommendation") != (response.agent_follow_ups is not None):
+        raise ValueError("Optional policy and question disagree.")
+    if response.code_review_request is not None:
+        _validate_completion_review_request(response, response.code_review_request)
+    if response.agent_follow_ups is not None:
+        _validate_completion_question(response, response.agent_follow_ups[0])
+
+
+def _validate_completion_review_request(response: WorkCompletion, review: CodeReviewRead) -> None:
+    policy = response.review_policy_decision
+    assert policy is not None
+    if (
+        review.project_id != policy.project_id or review.work_item_id != policy.work_item_id
+        or review.policy_decision_id != policy.id
+        or review.completion_checkpoint_id != policy.completion_checkpoint_id
+        or review.completion_event_id != policy.completion_event_id
+        or review.request_reason != "mandatory" or review.state != "requested"
+        or (review.requesting_client, review.requesting_session_id, review.requesting_model)
+        != (response.checkpoint.source_client, response.checkpoint.source_session_id,
+            response.checkpoint.source_model)
+    ):
+        raise ValueError("Mandatory request does not belong to this originating closeout.")
+
+
+def _validate_completion_question(response: WorkCompletion, question: WorkFollowUpRead) -> None:
+    policy = response.review_policy_decision
+    assert policy is not None
+    if (
+        question.project_id != policy.project_id or question.work_item_id != policy.work_item_id
+        or question.kind_data.get("policy_decision_id") != policy.id
+        or question.completion_checkpoint_id != policy.completion_checkpoint_id
+        or question.trigger_event_id != policy.completion_event_id or question.state != "pending"
+        or (question.origin_client, question.origin_session_id, question.origin_model)
+        != (response.checkpoint.source_client, response.checkpoint.source_session_id,
+            response.checkpoint.source_model)
+    ):
+        raise ValueError("Question does not belong to this originating closeout.")
+
+
+class WorkFollowUpResponseResult(CanonicalResponse):
+    code_review_handoff: CodeReviewHandoffInput | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    follow_up: WorkFollowUpRead
+    answer: WorkFollowUpAnswerRead
+    code_review_request: CodeReviewRead | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def correspondence(self) -> Self:
+        question, answer = self.follow_up, self.answer
+        if (
+            question.answer_id != answer.id or question.state != "answered"
+            or answer.follow_up_id != question.id or answer.work_item_id != question.work_item_id
+            or answer.project_id != question.project_id
+            or answer.actor_client != question.origin_client
+            or answer.actor_session_id != question.origin_session_id
+        ):
+            raise ValueError("Answer does not belong to this originating question.")
+        _validate_answer_review(self)
+        return self
+
+
+def _validate_answer_review(response: WorkFollowUpResponseResult) -> None:
+    review, answer, question = response.code_review_request, response.answer, response.follow_up
+    if answer.recommend_review != (review is not None):
+        raise ValueError("Affirmative answers require their review creation snapshot.")
+    if (review is None) != (response.code_review_handoff is None):
+        raise ValueError("Affirmative answers require their exact handoff snapshot.")
+    if review is not None and (
+        review.answer_id != answer.id or review.id != answer.code_review_id
+        or review.work_item_id != answer.work_item_id or review.project_id != answer.project_id
+        or review.completion_checkpoint_id != question.completion_checkpoint_id
+        or review.completion_event_id != question.trigger_event_id
+        or review.policy_decision_id != question.kind_data.get("policy_decision_id")
+        or review.state != "requested" or review.request_reason != "recommended"
+        or (review.requesting_client, review.requesting_session_id, review.requesting_model)
+        != (answer.actor_client, answer.actor_session_id, answer.actor_model)
+    ):
+        raise ValueError("Answer review creation snapshot does not correspond.")
+
+
+class CodeReviewCompletionRead(CanonicalResponse):
+    review: CodeReviewRead
+    result: CodeReviewResultRead
+    remediation: CodeReviewRemediationRead | None
+    remediation_work: WorkCreation | None
+
+    @model_validator(mode="after")
+    def correspondence(self) -> Self:
+        review, result = self.review, self.result
+        if (
+            review.state != "completed" or review.result_id != result.id
+            or result.review_id != review.id or result.work_item_id != review.work_item_id
+            or result.project_id != review.project_id or result.scope_sha256 != review.scope_sha256
+        ):
+            raise ValueError("Review and result ownership disagree.")
+        if bool(result.findings) != (self.remediation is not None):
+            raise ValueError("Nonempty findings require exactly one remediation.")
+        if (self.remediation is None) != (self.remediation_work is None):
+            raise ValueError("Remediation requires its exact creation snapshot.")
+        _validate_review_remediation(self)
+        return self
+
+
+def _validate_review_remediation(response: CodeReviewCompletionRead) -> None:
+    association, creation, review = response.remediation, response.remediation_work, response.review
+    if association is None or creation is None:
+        return
+    if (
+        association.review_id != review.id or association.result_id != response.result.id
+        or association.source_work_item_id != review.work_item_id
+        or association.project_id != review.project_id
+        or association.completion_checkpoint_id != review.completion_checkpoint_id
+        or association.remediation_work_item_id != creation.work_item.id
+        or creation.work_item.project_id != review.project_id
+        or creation.work_item.status != "pending" or creation.work_item.version != 1
+    ):
+        raise ValueError("Remediation creation does not belong to the reviewed result.")
+    _validate_remediation_checkpoint(association, creation)
+
+
+def _validate_remediation_checkpoint(
+    association: CodeReviewRemediationRead, creation: WorkCreation,
+) -> None:
+    checkpoint = creation.initial_checkpoint
+    if (
+        checkpoint.work_item_id != creation.work_item.id
+        or creation.work_item.initial_checkpoint_id != checkpoint.id or checkpoint.kind != "context"
+    ):
+        raise ValueError("Remediation initial checkpoint does not belong to the new work.")
+    edges = creation.initial_relationships
+    if len(edges) != 1:
+        raise ValueError("Review remediation requires one protected provenance edge.")
+    edge = edges[0]
+    if (
+        edge.id != association.relationship_id or edge.project_id != association.project_id
+        or edge.source_work_item_id != association.remediation_work_item_id
+        or edge.target_work_item_id != association.source_work_item_id
+        or edge.relationship_type != "discovered-from"
+        or edge.context_checkpoint_id != association.completion_checkpoint_id
+    ):
+        raise ValueError("Remediation edge does not match its protected provenance.")
 
 
 class WorkDeletionResult(CanonicalResponse):

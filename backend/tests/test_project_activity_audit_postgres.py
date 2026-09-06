@@ -4,10 +4,21 @@ import runpy
 from uuid import uuid4
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
 
+from .code_review_database_fixtures import close_work, create_work, finish_review, policy
 from .conftest import BACKEND_DIR, reset_disposable_schema
+from .historical_review_audit_fixtures import seal_historical_receipt
+from .test_completion_evidence_postgres import (
+    _insert_direct_artifact,
+    _insert_direct_completion_checkpoint,
+    _insert_direct_completion_event,
+    _insert_direct_observation,
+    _transition_direct_completion_to_done,
+)
 from .test_phase12_database_postgres import _close, _project, _work
 
 pytestmark = pytest.mark.postgres
@@ -20,6 +31,36 @@ def _audit(engine: Engine):
         return audit["audit_snapshot"](connection)
 
 
+def _pre_review_completion(engine: Engine, project: dict, work: dict) -> dict:
+    """Create genuine 0023 completion history that predates review policy witnesses."""
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    with engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0023_work_item_moves")
+    with engine.begin() as connection:
+        checkpoint = _insert_direct_completion_checkpoint(connection, work["id"])
+        _insert_direct_observation(connection, project["id"], work["id"], checkpoint)
+        _insert_direct_artifact(connection, project["id"], work["id"], checkpoint)
+        version = _transition_direct_completion_to_done(connection, work["id"])
+        _insert_direct_completion_event(
+            connection, project["id"], work["id"], checkpoint, version, seal_review_policy=False
+        )
+        receipt_id = seal_historical_receipt(connection, work["id"], checkpoint["id"])
+        receipt_before = connection.scalar(
+            text("SELECT response_body::text FROM client_operations WHERE id=:id"),
+            {"id": receipt_id},
+        )
+    with engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, "head")
+        assert connection.scalar(
+            text("SELECT response_body::text FROM client_operations WHERE id=:id"),
+            {"id": receipt_id},
+        ) == receipt_before
+        assert connection.scalar(text("SELECT count(*) FROM work_completion_review_policies")) == 0
+    return {**work, "version": version, "status": "done"}
+
+
 def test_project_activity_audit_accepts_valid_populated_history(postgres_engine: Engine):
     reset_disposable_schema(postgres_engine)
     with Session(postgres_engine) as database, database.begin():
@@ -29,6 +70,21 @@ def test_project_activity_audit_accepts_valid_populated_history(postgres_engine:
     assert report["result"] == "pass", report
     assert report["inventory"]["reports"] == 1
     assert "The font request" not in str(report)
+
+
+def test_project_activity_audit_accepts_review_events_and_checks_review_facts(
+    api, project, work_payload, checkpoint_fields, postgres_engine
+):
+    policy(api, project)
+    work = create_work(api, project, work_payload)
+    completed = close_work(api, project, work, checkpoint_fields)
+    finish_review(api, project, completed["work_item"], completed["code_review_request"], count=2)
+    policy(api, project, required=100, optional=0)
+    question_work = create_work(api, project, work_payload)
+    close_work(api, project, question_work, checkpoint_fields, review=False)
+    report = _audit(postgres_engine)
+    assert report["result"] == "pass", report
+    assert report["expected_head"] == "0024_code_reviews"
 
 
 def test_project_activity_audit_detects_count_and_guard_tampering(postgres_engine: Engine):
@@ -437,10 +493,7 @@ def test_project_activity_audit_accepts_origin_receipts_after_move(
 
     with postgres_engine.begin() as connection:
         connection.execute(
-            text(
-                "ALTER TABLE client_operations "
-                "DISABLE TRIGGER client_operation_mutation_guard"
-            )
+            text("ALTER TABLE client_operations DISABLE TRIGGER client_operation_mutation_guard")
         )
         connection.execute(
             text(
@@ -450,28 +503,20 @@ def test_project_activity_audit_accepts_origin_receipts_after_move(
             {"target_project_id": target["id"]},
         )
         connection.execute(
-            text(
-                "ALTER TABLE client_operations "
-                "ENABLE TRIGGER client_operation_mutation_guard"
-            )
+            text("ALTER TABLE client_operations ENABLE TRIGGER client_operation_mutation_guard")
         )
     corrupted = _audit(postgres_engine)
     assert corrupted["result"] == "blocked", corrupted
-    assert (
-        corrupted["prior_phase_counts"]["checkpoint_receipt_scope_violation_count"]
-        == 1
-    )
+    assert corrupted["prior_phase_counts"]["checkpoint_receipt_scope_violation_count"] == 1
 
 
 def test_project_activity_audit_tracks_reopen_owner_through_move_chain(
     api, project, work_payload, checkpoint_fields, postgres_engine
 ):
-    from .test_project_reports_postgres import close, create
+    from .test_project_reports_postgres import create
 
     work = create(api, project, work_payload)
-    closed, _ = close(api, project, work, checkpoint_fields)
-    assert closed.status_code == 200, closed.text
-    closed_work = closed.json()["work_item"]
+    closed_work = _pre_review_completion(postgres_engine, project, work)
     reopened = api.patch(
         f"/api/v1/projects/{project['id']}/work-items/{work['id']}",
         json={"expected_version": closed_work["version"], "status": "pending"},
@@ -488,7 +533,7 @@ def test_project_activity_audit_tracks_reopen_owner_through_move_chain(
     assert moved.status_code == 200, moved.text
 
     report = _audit(postgres_engine)
-    assert report["result"] == "pass", report
+    assert report["result"] == "pass", report["blocking_findings"]
     assert report["prior_phase_counts"]["reopen_binding_violation_count"] == 0
 
     with postgres_engine.begin() as connection:
@@ -500,19 +545,13 @@ def test_project_activity_audit_tracks_reopen_owner_through_move_chain(
             {"work_item_id": work["id"]},
         )
         target_sequence = connection.scalar(
-            text(
-                "SELECT last_sequence+1 FROM project_activity_heads "
-                "WHERE project_id=:project_id"
-            ),
+            text("SELECT last_sequence+1 FROM project_activity_heads WHERE project_id=:project_id"),
             {"project_id": target["id"]},
         )
         connection.execute(text("ALTER TABLE work_events DISABLE TRIGGER ALL"))
         connection.execute(text("ALTER TABLE project_activity DISABLE TRIGGER ALL"))
         connection.execute(
-            text(
-                "UPDATE work_events SET project_id=:project_id "
-                "WHERE id=:event_id"
-            ),
+            text("UPDATE work_events SET project_id=:project_id WHERE id=:event_id"),
             {"project_id": target["id"], "event_id": reopen_event_id},
         )
         connection.execute(
@@ -547,9 +586,7 @@ def test_project_activity_audit_rejects_unresolved_gate_in_historical_project(
     )
     assert created.status_code == 201, created.text
     work = created.json()["work_item"]
-    source_gate_path = (
-        f"/api/v1/projects/{project['id']}/work-items/{work['id']}/gates"
-    )
+    source_gate_path = f"/api/v1/projects/{project['id']}/work-items/{work['id']}/gates"
     requested = api.post(source_gate_path, json=gate_request())
     assert requested.status_code == 201, requested.text
     gate = requested.json()
@@ -588,9 +625,7 @@ def test_project_activity_audit_rejects_unresolved_gate_in_historical_project(
         connection.execute(text("ALTER TABLE work_gates ENABLE TRIGGER USER"))
     assert _audit(postgres_engine)["result"] == "pass"
 
-    current_gate_path = (
-        f"/api/v1/projects/{target['id']}/work-items/{work['id']}/gates"
-    )
+    current_gate_path = f"/api/v1/projects/{target['id']}/work-items/{work['id']}/gates"
     current_gate = api.post(current_gate_path, json=gate_request())
     assert current_gate.status_code == 201, current_gate.text
     with postgres_engine.begin() as connection:
@@ -677,19 +712,10 @@ def test_project_activity_audit_binds_evidence_to_completion_event_project(
     table_name: str,
     trigger_name: str,
 ):
-    from .test_completion_evidence_postgres import _mixed_evidence
-    from .test_project_reports_postgres import close, create
+    from .test_project_reports_postgres import create
 
     work = create(api, project, work_payload)
-    closed, _ = close(
-        api,
-        project,
-        work,
-        checkpoint_fields,
-        completion_evidence=_mixed_evidence("move-owner-audit"),
-    )
-    assert closed.status_code == 200, closed.text
-    closed_work = closed.json()["work_item"]
+    closed_work = _pre_review_completion(postgres_engine, project, work)
     target = _create_api_project(api, "Completion evidence destination")
     moved = api.post(
         f"/api/v1/projects/{project['id']}/work-items/{work['id']}/move",
@@ -702,9 +728,7 @@ def test_project_activity_audit_binds_evidence_to_completion_event_project(
     assert _audit(postgres_engine)["result"] == "pass"
 
     with postgres_engine.begin() as connection:
-        connection.execute(
-            text(f"ALTER TABLE {table_name} DISABLE TRIGGER {trigger_name}")
-        )
+        connection.execute(text(f"ALTER TABLE {table_name} DISABLE TRIGGER {trigger_name}"))
         connection.execute(
             text(
                 f"UPDATE {table_name} SET project_id=:target_project_id "
@@ -716,9 +740,7 @@ def test_project_activity_audit_binds_evidence_to_completion_event_project(
                 "work_item_id": work["id"],
             },
         )
-        connection.execute(
-            text(f"ALTER TABLE {table_name} ENABLE TRIGGER {trigger_name}")
-        )
+        connection.execute(text(f"ALTER TABLE {table_name} ENABLE TRIGGER {trigger_name}"))
 
     corrupted = _audit(postgres_engine)
     assert corrupted["result"] == "blocked", corrupted
@@ -763,17 +785,11 @@ def test_project_activity_audit_binds_lease_renewal_to_claim_origin(
 
     with postgres_engine.begin() as connection:
         target_sequence = connection.scalar(
-            text(
-                "SELECT last_sequence+1 FROM project_activity_heads "
-                "WHERE project_id=:project_id"
-            ),
+            text("SELECT last_sequence+1 FROM project_activity_heads WHERE project_id=:project_id"),
             {"project_id": target["id"]},
         )
         connection.execute(
-            text(
-                "ALTER TABLE project_activity "
-                "DISABLE TRIGGER project_activity_immutable"
-            )
+            text("ALTER TABLE project_activity DISABLE TRIGGER project_activity_immutable")
         )
         connection.execute(
             text(
@@ -789,10 +805,7 @@ def test_project_activity_audit_binds_lease_renewal_to_claim_origin(
         )
         connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
         connection.execute(
-            text(
-                "ALTER TABLE project_activity "
-                "ENABLE TRIGGER project_activity_immutable"
-            )
+            text("ALTER TABLE project_activity ENABLE TRIGGER project_activity_immutable")
         )
 
     corrupted = _audit(postgres_engine)
@@ -821,17 +834,16 @@ def test_project_activity_audit_accepts_moved_report_follow_up(
     )
     assert followed.status_code == 201, followed.text
     follow_up_work = followed.json()["work_item"]
-    follow_up_closed, _ = close(api, project, follow_up_work, checkpoint_fields)
+    follow_up_closed, _ = close(api, project, follow_up_work, checkpoint_fields, "wont-do")
     assert follow_up_closed.status_code == 200, follow_up_closed.text
-    follow_up_work = follow_up_closed.json()["work_item"]
+    follow_up_work = follow_up_closed.json()
     second_report_id = follow_up_closed.json()["job_completion_report"]["id"]
     chained_checkpoint = {
         **checkpoint_fields,
         "source_session_id": "audit-provenance-chain",
     }
     chained = api.post(
-        f"/api/v1/projects/{project['id']}/job-completion-reports/"
-        f"{second_report_id}/follow-ups",
+        f"/api/v1/projects/{project['id']}/job-completion-reports/{second_report_id}/follow-ups",
         json={
             "client_operation_id": str(uuid4()),
             "actor": actor(chained_checkpoint),
@@ -869,10 +881,7 @@ def test_project_activity_audit_accepts_moved_report_follow_up(
     follow_up_id = followed.json()["follow_up"]["id"]
     with postgres_engine.begin() as connection:
         connection.execute(
-            text(
-                "ALTER TABLE project_activity "
-                "DISABLE TRIGGER project_activity_immutable"
-            )
+            text("ALTER TABLE project_activity DISABLE TRIGGER project_activity_immutable")
         )
         connection.execute(
             text(
@@ -883,23 +892,14 @@ def test_project_activity_audit_accepts_moved_report_follow_up(
             {"work_item_id": unrelated_work["id"], "report_id": second_report_id},
         )
         connection.execute(
-            text(
-                "ALTER TABLE project_activity "
-                "ENABLE TRIGGER project_activity_immutable"
-            )
+            text("ALTER TABLE project_activity ENABLE TRIGGER project_activity_immutable")
         )
     corrupted_report_activity = _audit(postgres_engine)
     assert corrupted_report_activity["result"] == "blocked", corrupted_report_activity
-    assert (
-        corrupted_report_activity["blocking_findings"]["missing_or_mismatched_review"]
-        == 1
-    )
+    assert corrupted_report_activity["blocking_findings"]["missing_or_mismatched_review"] == 1
     with postgres_engine.begin() as connection:
         connection.execute(
-            text(
-                "ALTER TABLE project_activity "
-                "DISABLE TRIGGER project_activity_immutable"
-            )
+            text("ALTER TABLE project_activity DISABLE TRIGGER project_activity_immutable")
         )
         connection.execute(
             text(
@@ -910,25 +910,18 @@ def test_project_activity_audit_accepts_moved_report_follow_up(
             {"work_item_id": follow_up_work["id"], "report_id": second_report_id},
         )
         connection.execute(
-            text(
-                "ALTER TABLE project_activity "
-                "ENABLE TRIGGER project_activity_immutable"
-            )
+            text("ALTER TABLE project_activity ENABLE TRIGGER project_activity_immutable")
         )
     assert _audit(postgres_engine)["result"] == "pass"
 
     with postgres_engine.begin() as connection:
         connection.execute(
             text(
-                "ALTER TABLE job_completion_report_follow_ups "
-                "DISABLE TRIGGER job_report_immutable"
+                "ALTER TABLE job_completion_report_follow_ups DISABLE TRIGGER job_report_immutable"
             )
         )
         connection.execute(
-            text(
-                "ALTER TABLE project_activity "
-                "DISABLE TRIGGER project_activity_immutable"
-            )
+            text("ALTER TABLE project_activity DISABLE TRIGGER project_activity_immutable")
         )
         connection.execute(
             text(
@@ -945,16 +938,10 @@ def test_project_activity_audit_accepts_moved_report_follow_up(
             {"work_item_id": unrelated_work["id"], "follow_up_id": follow_up_id},
         )
         connection.execute(
-            text(
-                "ALTER TABLE project_activity "
-                "ENABLE TRIGGER project_activity_immutable"
-            )
+            text("ALTER TABLE project_activity ENABLE TRIGGER project_activity_immutable")
         )
         connection.execute(
-            text(
-                "ALTER TABLE job_completion_report_follow_ups "
-                "ENABLE TRIGGER job_report_immutable"
-            )
+            text("ALTER TABLE job_completion_report_follow_ups ENABLE TRIGGER job_report_immutable")
         )
 
     corrupted = _audit(postgres_engine)
@@ -1042,9 +1029,7 @@ def test_project_activity_audit_detects_provenance_sequence_corruption(
         report = _audit(postgres_engine)
         assert report["result"] == "blocked"
         assert report["blocking_findings"][finding] > 0
-        assert not any(
-            key.startswith("catalog_") for key in report["blocking_findings"]
-        )
+        assert not any(key.startswith("catalog_") for key in report["blocking_findings"])
     finally:
         reset_disposable_schema(postgres_engine)
 
@@ -1116,9 +1101,7 @@ def test_project_activity_audit_detects_move_corruption_after_guard_restoration(
     wrong_project = _create_api_project(api, "Corruption audit unrelated project")
     try:
         with postgres_engine.begin() as connection:
-            connection.execute(
-                text(f"ALTER TABLE {table_name} DISABLE TRIGGER {trigger_name}")
-            )
+            connection.execute(text(f"ALTER TABLE {table_name} DISABLE TRIGGER {trigger_name}"))
             connection.execute(
                 text(mutation),
                 {
@@ -1127,16 +1110,12 @@ def test_project_activity_audit_detects_move_corruption_after_guard_restoration(
                 },
             )
             connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
-            connection.execute(
-                text(f"ALTER TABLE {table_name} ENABLE TRIGGER {trigger_name}")
-            )
+            connection.execute(text(f"ALTER TABLE {table_name} ENABLE TRIGGER {trigger_name}"))
 
         report = _audit(postgres_engine)
 
         assert report["result"] == "blocked"
         assert report["blocking_findings"][finding] > 0
-        assert not any(
-            key.startswith("catalog_") for key in report["blocking_findings"]
-        )
+        assert not any(key.startswith("catalog_") for key in report["blocking_findings"])
     finally:
         reset_disposable_schema(postgres_engine)

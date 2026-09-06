@@ -86,10 +86,13 @@ def relationship_edge(relationship: WorkRelationship) -> RelationshipEdgeRead:
 
 
 def require_no_relationships(database: Session, project_id: UUID, work_item_id: UUID) -> None:
+    from mnemonic_api.models import CodeReviewRemediation
+
     exists = database.scalar(
         select(WorkRelationship.id)
         .where(
             WorkRelationship.project_id == project_id,
+            WorkRelationship.id.not_in(select(CodeReviewRemediation.relationship_id)),
             or_(
                 WorkRelationship.source_work_item_id == work_item_id,
                 WorkRelationship.target_work_item_id == work_item_id,
@@ -441,6 +444,13 @@ def remove_relationship_record(
             relationship_id=relationship_id,
             removed=False,
         )
+    from mnemonic_api.models import CodeReviewRemediation
+
+    if database.scalar(select(CodeReviewRemediation.id).where(
+        CodeReviewRemediation.relationship_id == relationship.id,
+    )) is not None:
+        raise conflict("code_review_provenance_relationship_protected",
+                       "Review provenance relationships cannot be removed.")
     mutation_time = database_now(database)
     stage_relationship_events(
         database,
