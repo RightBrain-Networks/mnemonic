@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from mnemonic_api.code_review_schemas import CodeReviewHandoffInput
 from mnemonic_api.database import rows_affected
 from mnemonic_api.errors import ApplicationError, conflict, not_found
 from mnemonic_api.models import Checkpoint, Project, WorkItem, WorkItemMove, WorkRelationship
@@ -397,7 +398,7 @@ def complete_work_record(
     lease_token: str | None = None,
     completion_evidence: CompletionEvidenceInput | None = None,
     job_completion_report: JobCompletionReportInput | None = None,
-    code_review_handoff=None,
+    code_review_handoff: CodeReviewHandoffInput | None = None,
 ) -> Checkpoint:
     from mnemonic_api.services.completion_evidence import (
         hydrate_completion_evidence,

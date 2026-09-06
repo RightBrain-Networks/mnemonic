@@ -505,3 +505,33 @@ test("single remediation provenance follows the opt-in first generation and stru
     await api.dispose();
   }
 });
+
+test("optional recommendation respects originating sessions, explicit supersession and affirmative handoff", async ({page}, testInfo) => {
+  test.setTimeout(60000);
+  const api = await client();
+  try {
+    const p = await project(api);
+    await configure(api, p.id, {code_review_optional_min_priority: 0});
+    const work = await create(api, p.id, "Resume the originating review recommendation");
+    await completeApi(api, p.id, work, false);
+    const pane = await open(page, p.id, work.title, "Done");
+    await openTab(pane, "Code review");
+    await expect(pane.getByText("The originating session must answer this question.", {exact:false})).toBeVisible();
+    await expect(pane.getByLabel("Do you recommend a review?")).toHaveCount(0);
+    await pane.getByRole("button", {name:"Reopen work…",exact:true}).click();
+    const dialog = page.getByRole("dialog", {name:"Reopen work and supersede its review?"});
+    await dialog.getByRole("button", {name:"Reopen and supersede",exact:true}).click();
+    await expect(dialog).toBeHidden();
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Pending");
+    await manualDone(pane, work.title);
+    await expect(pane.getByLabel("Do you recommend a review?")).toBeVisible();
+    await pane.getByLabel("Do you recommend a review?").selectOption("yes");
+    await pane.getByLabel("Reason", {exact:true}).fill("The changes are complex and affect concurrent cache readers.");
+    await fillHandoff(pane);
+    await page.screenshot({path:testInfo.outputPath("affirmative-recommendation.png"),fullPage:true});
+    await pane.getByRole("button", {name:"Record recommendation",exact:true}).click();
+    await expect(pane.getByRole("button", {name:"Copy cold review prompt"})).toBeVisible();
+    await expect(pane.getByText("Review recommended",{exact:true})).toBeVisible();
+    await page.screenshot({path:testInfo.outputPath("requested-review-work.png"),fullPage:true});
+  } finally { await api.dispose(); }
+});

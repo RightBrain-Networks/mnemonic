@@ -31,7 +31,7 @@ def requested_review(api, project, work_payload, checkpoint_fields):
     return closed["work_item"], closed["code_review_request"]
 
 
-def test_database_byte_accounting_matches_canonical_utf8_json(postgres_engine: Engine):
+def test_database_byte_accounting_matches_canonical_utf8_json(api, postgres_engine: Engine):
     payload = {"text": "Café\n東京", "quotes": '"\\', "count": 123, "flags": [True, None]}
     canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     with postgres_engine.connect() as connection:

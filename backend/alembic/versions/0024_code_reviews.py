@@ -379,7 +379,7 @@ def downgrade() -> None:
 def _drop_guards(schema: str) -> None:
     op.execute(f"DROP TRIGGER code_review_checkpoint_guard ON {schema}.checkpoints")
     for table, trigger in (
-        ("work_items", "code_review_work_guard"),
+        ("work_items", "review_work_guard"),
         ("work_items", "code_review_work_sealed"),
         ("work_relationships", "code_review_edge_guard"),
         ("work_duplicate_merges", "code_review_merge_guard"),

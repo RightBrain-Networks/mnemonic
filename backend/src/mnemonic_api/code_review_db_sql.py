@@ -297,7 +297,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END $f$;
-CREATE TRIGGER code_review_work_guard BEFORE INSERT OR UPDATE OR DELETE ON SCHEMA.work_items
+CREATE TRIGGER review_work_guard BEFORE INSERT OR UPDATE OR DELETE ON SCHEMA.work_items
 FOR EACH ROW EXECUTE FUNCTION SCHEMA.mnemonic_code_review_work_guard();
 
 CREATE FUNCTION SCHEMA.mnemonic_code_review_work_sealed()
