@@ -553,8 +553,21 @@ test("the library hero names the selected project in the vendored italic face", 
   await expect(description).toHaveText(state.projectDescription);
   await expect(description).toHaveCSS("opacity", "0.5");
   await expect(page.locator(".page-heading p")).toHaveCount(0);
-  expect(await description.evaluate((node) => getComputedStyle(node).fontSize))
-    .toBe(await subject.evaluate((node) => getComputedStyle(node).fontSize));
+  const descriptionType = await description.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      family: style.fontFamily.split(",")[0].replace(/["']/g, "").trim(),
+      size: style.fontSize,
+      style: style.fontStyle,
+      weight: style.fontWeight,
+    };
+  });
+  expect(descriptionType).toEqual({
+    family: "Alan Sans",
+    size: page.viewportSize()!.width <= 580 ? "12px" : "13px",
+    style: "normal",
+    weight: "400",
+  });
   const color = (locator: Locator) => locator.evaluate((node) => getComputedStyle(node).color);
   expect(await color(mark)).toBe(await color(page.locator(".topbar .small-mark")));
   expect(await color(subject)).toBe(await color(heading));
