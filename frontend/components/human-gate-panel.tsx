@@ -3,6 +3,7 @@
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useRef, useState } from "react";
 import HumanGateResolution from "@/components/human-gate-resolution";
+import MarkdownContent from "@/components/markdown-content";
 import { clientLabel, formatDateTime } from "@/components/work-item-card";
 import { api, errorMessage } from "@/lib/api";
 import {
@@ -24,7 +25,7 @@ function GateFact({ gate, resolved = false }: { gate: HumanGateRead; resolved?: 
       <span className={`gate-state gate-state-${gate.status}`}>{gate.status === "resolved" ? "Resolved" : "Needs attention"}</span>
       <time dateTime={gate.created_at}>{formatDateTime(gate.created_at)}</time>
     </div>
-    <p className="gate-question">{gate.question}</p>
+    <MarkdownContent className="gate-question">{gate.question}</MarkdownContent>
     <p className="gate-provenance">Requested through {clientLabel(gate.requested_by_client)} · <span className="mono">{gate.requested_by_session_id}</span>{gate.requested_by_model ? ` · ${gate.requested_by_model}` : ""}</p>
     {driftMessage && <p className="gate-changes">{driftMessage}</p>}
     {gate.status === "resolved" && <>

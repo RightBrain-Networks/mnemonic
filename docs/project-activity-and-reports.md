@@ -83,7 +83,11 @@ Concurrent edits fail with `project_settings_changed` until reviewed.
 
 The `/settings` dashboard contains both prompt editors. `/summaries` sits
 immediately below Needs Attention and displays undismissed reports. Report text
-is inert text. It is never an instruction, approval, or proof of verification.
+renders Markdown through the shared dashboard renderer as of `0.15.0`, as do
+FYIs and Needs Attention questions. Summaries and individual FYIs remain single
+paragraphs; questions may use block Markdown. Raw HTML is escaped and image
+embeds are disabled. Stored source text and receipt bytes remain unchanged.
+Formatting is never an instruction, approval, or proof of verification.
 Current source-state notices explain reopening, deletion, or merging while
 retaining the exact original identity.
 

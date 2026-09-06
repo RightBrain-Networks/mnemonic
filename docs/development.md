@@ -465,9 +465,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.14.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.14.0` install
-plus a `0.13.0 -> 0.14.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.15.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.15.0` install
+plus a `0.14.0 -> 0.15.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -791,7 +791,7 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.14.0`, plugin is `0.14.0`,
+Current application/API/MCP/dashboard versions are `0.15.0`, plugin is `0.15.0`,
 and Alembic head is `0024_code_reviews`. Validate all surfaces together
 with the existing regression suites. Historical Phase 11 downgrade/catalog tests
 must seed valid historical shapes with offline SQL at 0019; never run current

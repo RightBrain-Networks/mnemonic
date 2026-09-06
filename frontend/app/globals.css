@@ -2102,16 +2102,18 @@ html.theme-crossfade *::after {
   }
 }
 
-/* Human reports retain plain text and exact historical ownership. */
+/* Human report layout retains exact historical ownership. */
 .settings-stack, .job-report-list { display: grid; gap: 1.5rem; }
 .job-report-card { min-width: 0; padding: clamp(1rem, 3vw, 2rem); background: var(--surface); border: 1px solid var(--line); border-radius: 1rem; }
-.job-report-content h3 { margin: .75rem 0; font-size: 1.25rem; overflow-wrap: anywhere; unicode-bidi: isolate; }
+.job-report-content > h3 { margin: .75rem 0; font-size: 1.25rem; overflow-wrap: anywhere; unicode-bidi: isolate; }
 .report-heading, .report-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
 .report-heading time, .report-source-state, .report-provenance { font-size: .875rem; color: var(--muted); }
 .human-report-summary, .human-report-fyis { max-width: 75ch; font-size: 1rem; line-height: 1.65; }
-.human-report-summary, .human-report-fyis li, .job-report-prompt { white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: isolate; }
+.human-report-summary { margin: 1em 0; }
+.human-report-fyis > li, .job-report-prompt { overflow-wrap: anywhere; unicode-bidi: isolate; }
+.job-report-prompt { white-space: pre-wrap; }
 .human-report-fyis { padding-inline-start: 1.5rem; }
-.human-report-fyis li + li { margin-top: .65rem; }
+.human-report-fyis > li + li { margin-top: .65rem; }
 .report-source-state { margin-top: 1rem; }
 .report-card-actions { margin-top: 1.25rem; }
 .report-provenance { margin-top: 1rem; }
@@ -2134,6 +2136,31 @@ html.theme-crossfade *::after {
   .report-fyi-field .field { width: 100%; }
   .report-provenance dl > div { grid-template-columns: 1fr; }
 }
+
+/* Shared typography for agent-authored Markdown in summaries and questions. */
+.markdown-content { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; unicode-bidi: isolate; line-height: 1.65; }
+.markdown-content > :first-child { margin-top: 0; }
+.markdown-content > :last-child { margin-bottom: 0; }
+.markdown-content :is(p, ul, ol, blockquote, pre, table) { margin-block: .75em; }
+.markdown-content :is(h1, h2, h3, h4, h5, h6) { margin: 1em 0 .5em; font-family: inherit; font-weight: 650; line-height: 1.35; }
+.markdown-content h1 { font-size: 1.4em; }
+.markdown-content h2 { font-size: 1.25em; }
+.markdown-content h3 { font-size: 1.1em; }
+.markdown-content :is(h4, h5, h6) { font-size: 1em; }
+.markdown-content :is(ul, ol) { padding-inline-start: 1.5em; }
+.markdown-content li + li { margin-top: .25em; }
+.markdown-content li > :is(ul, ol) { margin-block: .25em; }
+.markdown-content a { color: var(--accent-deep); text-decoration: underline; text-underline-offset: .15em; }
+.markdown-content a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+.markdown-content blockquote { margin-inline: 0; padding-inline-start: 1em; border-inline-start: 3px solid var(--line); }
+.markdown-content code { padding: .1em .3em; border-radius: 3px; background: color-mix(in srgb, currentColor 8%, transparent); font: .9em/1.6 var(--mono); }
+.markdown-content pre { max-width: 100%; overflow-x: auto; padding: .8em; border: 1px solid var(--line); border-radius: 5px; background: color-mix(in srgb, currentColor 5%, transparent); white-space: pre; overflow-wrap: normal; tab-size: 2; }
+.markdown-content pre code { padding: 0; background: none; }
+.markdown-content table { display: block; width: max-content; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.markdown-content :is(th, td) { padding: .4em .65em; border: 1px solid var(--line); text-align: start; }
+.markdown-content th { font-weight: 650; }
+.markdown-content hr { margin-block: 1em; border: 0; border-top: 1px solid var(--line); }
+.attention-question.markdown-content, .gate-question.markdown-content { font-family: var(--font); font-size: 13px; }
 
 /* External context is visible before selecting work, with full keyboard access. */
 .external-reference-list { display: grid; gap: .65rem; padding: 0; margin: .8rem 0; list-style: none; min-width: 0; }

@@ -212,7 +212,9 @@ Do these in order:
    `requested_by_model`), and a fresh `client_operation_id`. Never include a
    password, API key, token, cookie, lease capability, operation UUID, private
    chain-of-thought, or transcript dump; store a safe reference or remediation
-   instruction instead. Name work by its title and quote the question.
+   instruction instead. Name work by its title and quote the question. Use
+   Markdown to make the decision and options easy to scan in Needs Attention;
+   follow the shared report reference's dashboard-formatting guidance.
 4. **After success the item is `waiting`.** It leaves ready discovery, no other
    session can newly claim it, and completion, retirement, promotion, and
    deletion are refused until every gate on it is resolved. An existing lease is
@@ -327,7 +329,9 @@ promote it without owner direction.
    prompt, and author a concise paragraph plus zero or more FYIs following the
    shared report reference. Assume the human saw no other LLM output and is
    multitasking. Put every material outcome, limitation and override decision
-   in the stored report; final chat output cannot supply missing context.
+   in the stored report; final chat output cannot supply missing context. Use
+   inline Markdown where it helps the human scan the summary and FYIs, while
+   keeping their existing single-paragraph and separate-bullet structure.
 3. Freeze `summary`, ordered `fyi_items`, settings `revision` as the report's
    `prompt_revision`, expected version, provenance, lease and operation UUID.
    For Done also freeze the completion checkpoint and optional evidence.
