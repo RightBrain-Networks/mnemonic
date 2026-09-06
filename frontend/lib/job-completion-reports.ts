@@ -5,10 +5,17 @@ import type {
 } from "./types.ts";
 import {
   boundedText, exactKeys, finiteInteger, jsonEqual, nullableBoundedText, nullableUuid,
-  objectValue, sameUuid, validUnicode, validUtcDateTime, validUuid
+  objectValue, sameUuid, validUnicode, validUtcDateTime, validUuid,
+  compareUtcDateTimes
 } from "./wire-guards.ts";
 
-import { decimalString, validOpaqueCursor, decodePhase12Cursor, type ReportsCursor, type ProvenanceCursor } from "./activity-cursors.ts";
+import {
+  decimalString,
+  validOpaqueCursor,
+  decodePhase12Cursor,
+  type ProvenanceCursor,
+  type ReportsCursor
+} from "./activity-cursors.ts";
 export { decimalString, validOpaqueCursor } from "./activity-cursors.ts";
 const encoder = new TextEncoder();
 const FORBIDDEN_PROSE = /[\p{Cc}\p{Cs}\u2028\u2029\u061c\u200e\u200f\u202a-\u202e\u2066-\u206f]/u;
@@ -171,16 +178,29 @@ export function decodeReportCount(value: unknown, projectId: string): JobReportC
     || !decimalString(count.as_of_sequence)) throw invalid();
   return count as unknown as JobReportCount;
 }
-export function decodeReportFollowUp(value: unknown, projectId: string, reportId?: string): JobReportFollowUp {
+function decodeReportFollowUpValue(
+  value: unknown,
+  projectId: string | undefined,
+  reportId?: string
+): JobReportFollowUp {
   const link = objectValue(value);
   if (!link || !exactKeys(link, REPORT_FOLLOW_UP_FIELDS)
-    || !validUuid(link.id) || !sameUuid(link.project_id, projectId) || !validUuid(link.report_id)
+    || !validUuid(link.id) || !validUuid(link.project_id)
+    || projectId !== undefined && !sameUuid(link.project_id, projectId)
+    || !validUuid(link.report_id)
     || reportId !== undefined && !sameUuid(link.report_id, reportId)
     || !decimalString(link.created_sequence, true) || !validUuid(link.source_work_item_id) || !validUuid(link.follow_up_work_item_id)
     || sameUuid(link.source_work_item_id, link.follow_up_work_item_id)
     || !boundedText(link.actor_client, 80) || !boundedText(link.actor_session_id, 200)
     || !nullableBoundedText(link.actor_model, 120) || !validUtcDateTime(link.created_at)) throw invalid();
   return link as unknown as JobReportFollowUp;
+}
+export function decodeReportFollowUp(
+  value: unknown,
+  projectId: string,
+  reportId?: string
+): JobReportFollowUp {
+  return decodeReportFollowUpValue(value, projectId, reportId);
 }
 export function decodeReportProvenancePage(value: unknown, projectId: string, focal: {
   reportId?: string; workItemId?: string; direction?: "origin" | "created";
@@ -193,19 +213,48 @@ export function decodeReportProvenancePage(value: unknown, projectId: string, fo
     || (page.has_more ? !validOpaqueCursor(page.next_cursor) || page.items.length === 0 : page.next_cursor !== null)
     || focal.reportId && !sameUuid(page.report_id, focal.reportId)
     || focal.workItemId && (!sameUuid(page.work_item_id, focal.workItemId) || page.direction !== focal.direction)) throw invalid();
-  const items = page.items.map((item) => decodeReportFollowUp(item, projectId, focal.reportId));
+  const globalWorkHistory = focal.workItemId !== undefined;
+  const items = page.items.map((item) => decodeReportFollowUpValue(
+    item,
+    globalWorkHistory ? undefined : projectId,
+    focal.reportId
+  ));
   if (new Set(items.map((item) => item.id)).size !== items.length || items.some((item) => focal.workItemId
     && !sameUuid(focal.direction === "origin" ? item.follow_up_work_item_id : item.source_work_item_id, focal.workItemId))) throw invalid();
-  let previousSequence = 0n;
-  for (const item of items) {
-    if (BigInt(item.created_sequence) <= previousSequence || BigInt(item.created_sequence) > BigInt(page.as_of_sequence)) throw invalid();
-    previousSequence = BigInt(item.created_sequence);
+  if (globalWorkHistory) {
+    for (let index = 1; index < items.length; index += 1) {
+      const previous = items[index - 1]!;
+      const current = items[index]!;
+      const timeOrder = compareUtcDateTimes(previous.created_at, current.created_at);
+      if (
+        timeOrder > 0
+        || timeOrder === 0
+          && previous.id.toLowerCase() >= current.id.toLowerCase()
+      ) throw invalid();
+    }
+  } else {
+    let previousSequence = 0n;
+    for (const item of items) {
+      if (
+        BigInt(item.created_sequence) <= previousSequence
+        || BigInt(item.created_sequence) > BigInt(page.as_of_sequence)
+      ) throw invalid();
+      previousSequence = BigInt(item.created_sequence);
+    }
   }
   if (page.next_cursor !== null) {
-    const cursor = decodePhase12Cursor(page.next_cursor, projectId, focal.reportId ? "report_follow_ups" : "work_report_follow_ups") as ProvenanceCursor;
-    if (cursor.upper !== page.as_of_sequence || cursor.last !== items.at(-1)?.created_sequence
-      || focal.reportId && !sameUuid(cursor.report_id, focal.reportId)
-      || focal.workItemId && (!sameUuid(cursor.work_item_id, focal.workItemId) || cursor.direction !== focal.direction)) throw invalid();
+    if (!globalWorkHistory) {
+      const cursor = decodePhase12Cursor(
+        page.next_cursor,
+        projectId,
+        "report_follow_ups"
+      ) as ProvenanceCursor;
+      if (
+        cursor.upper !== page.as_of_sequence
+        || cursor.last !== items.at(-1)?.created_sequence
+        || !sameUuid(cursor.report_id, focal.reportId)
+      ) throw invalid();
+    }
   }
   return { ...page, items } as unknown as JobReportProvenancePage;
 }

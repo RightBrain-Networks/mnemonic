@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.database import rows_affected
 from mnemonic_api.errors import ApplicationError, conflict, not_found
-from mnemonic_api.models import Checkpoint, Project, WorkItem, WorkRelationship
+from mnemonic_api.models import Checkpoint, Project, WorkItem, WorkItemMove, WorkRelationship
 from mnemonic_api.phase12_schemas import JobCompletionReportInput
 from mnemonic_api.schemas import (
     CheckpointCreate,
@@ -18,10 +18,12 @@ from mnemonic_api.schemas import (
     WorkDeferralCreate,
     WorkItemCreate,
     WorkItemPatch,
+    WorkMoveCreate,
 )
 from mnemonic_api.services.leases import (
     consume_lease_for_terminal_mutation,
     require_no_active_lease,
+    require_no_active_lease_for_move,
     validate_optional_lease_token,
 )
 from mnemonic_api.services.readiness import require_no_unresolved_gates, require_unblocked
@@ -29,9 +31,11 @@ from mnemonic_api.services.relationships import (
     lock_endpoint_work_items,
     lock_project_graph,
     require_no_relationships,
+    require_no_relationships_for_move,
     stage_relationship_locked,
 )
 from mnemonic_api.services.work_events import (
+    actor_fields,
     database_now,
     source_actor,
     stage_checkpoint_added,
@@ -40,6 +44,7 @@ from mnemonic_api.services.work_events import (
     stage_work_completed,
     stage_work_created,
     stage_work_deleted,
+    stage_work_moved_events,
 )
 
 
@@ -249,6 +254,23 @@ def require_sealed_completion_episode(database: Session, work_item: WorkItem) ->
         raise completion_episode_unsealed()
 
 
+def require_sealed_closeout_report(database: Session, work_item: WorkItem) -> None:
+    slot = work_item.last_reportable_closeout_version
+    if slot is None:
+        if work_item.status in {"done", "wont-do", "promoted"}:
+            from mnemonic_api.errors import closeout_report_unsealed
+
+            raise closeout_report_unsealed()
+        return
+    sealed = database.scalar(
+        select(func.mnemonic_job_report_slot_sealed(work_item.id, slot))
+    )
+    if sealed is not True:
+        from mnemonic_api.errors import closeout_report_unsealed
+
+        raise closeout_report_unsealed()
+
+
 def update_work_record(database: Session, work_item: WorkItem, payload: WorkItemPatch) -> None:
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
@@ -446,3 +468,54 @@ def delete_work_record(
     database.flush()
     stage_work_deleted(database, work_item, actor=actor)
     database.flush()
+
+
+def move_work_record(
+    database: Session,
+    work_item: WorkItem,
+    source_project_id: UUID,
+    payload: WorkMoveCreate,
+) -> WorkItemMove:
+    """Move one stable work identity while leaving immutable facts at their origins."""
+    from mnemonic_api.services.duplicates import (
+        require_canonical_work_item,
+        require_no_duplicate_membership,
+    )
+
+    if payload.target_project_id == source_project_id:
+        raise conflict(
+            "work_move_same_project",
+            "The work item is already in the target project.",
+        )
+    require_canonical_work_item(database, work_item)
+    require_version(work_item, payload.expected_version)
+    require_no_duplicate_membership(database, work_item)
+    require_no_relationships_for_move(database, source_project_id, work_item.id)
+    require_no_unresolved_gates(database, work_item.id)
+    require_no_active_lease_for_move(database, work_item.id)
+    if work_item.status == "done":
+        require_sealed_completion_episode(database, work_item)
+    require_sealed_closeout_report(database, work_item)
+
+    mutation_time = database_now(database)
+    move = WorkItemMove(
+        id=uuid4(),
+        work_item_id=work_item.id,
+        source_project_id=source_project_id,
+        target_project_id=payload.target_project_id,
+        source_work_version=work_item.version,
+        resulting_work_version=work_item.version + 1,
+        preserved_status=work_item.status,
+        created_at=mutation_time,
+        **actor_fields(payload.actor),
+    )
+    database.add(move)
+    database.flush()
+
+    work_item.project_id = payload.target_project_id
+    work_item.version = move.resulting_work_version
+    work_item.updated_at = mutation_time
+    database.flush()
+    stage_work_moved_events(database, move, actor=payload.actor)
+    database.flush()
+    return move

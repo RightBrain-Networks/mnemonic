@@ -16,6 +16,8 @@ pytestmark = pytest.mark.postgres
 _GUARDED_TABLES = (
     "artifact_references",
     "client_operations",
+    "work_item_moves",
+    "work_report_provenance_heads",
     "verification_results",
     "work_events",
     "project_activity",
@@ -27,7 +29,11 @@ _GUARDED_TABLES = (
     "project_job_completion_report_counts",
 )
 _POPULATED_TABLES = (
-    *(table for table in _GUARDED_TABLES if table != "job_completion_report_follow_ups"),
+    *(table for table in _GUARDED_TABLES if table not in {
+        "job_completion_report_follow_ups",
+        "work_item_moves",
+        "work_report_provenance_heads",
+    }),
     "checkpoints", "projects", "work_items",
 )
 

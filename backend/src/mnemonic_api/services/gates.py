@@ -520,10 +520,7 @@ def list_work_gates(
         status=filters.status,
         direction="desc",
     )
-    conditions: list[Any] = [
-        WorkGate.project_id == project_id,
-        WorkGate.work_item_id == work_item_id,
-    ]
+    conditions: list[Any] = [WorkGate.work_item_id == work_item_id]
     if filters.status == "unresolved":
         conditions.append(WorkGate.resolved_at.is_(None))
     elif filters.status == "resolved":

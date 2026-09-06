@@ -53,6 +53,11 @@ function referenceRows(event: WorkEventPage["items"][number]): Array<[string, st
     rows.push(["Source work", String(event.metadata.source_work_item_id)]);
     rows.push(["Destination work", String(event.metadata.destination_work_item_id)]);
   }
+  if (event.event_type === "work_moved" && "move_id" in event.metadata) {
+    rows.push(["Move", String(event.metadata.move_id)]);
+    rows.push(["Source project", String(event.metadata.source_project_id)]);
+    rows.push(["Target project", String(event.metadata.target_project_id)]);
+  }
   return rows;
 }
 

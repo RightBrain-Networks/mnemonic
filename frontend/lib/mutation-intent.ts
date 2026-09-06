@@ -15,6 +15,7 @@ import {
   type MutationKind,
   type MutationResultByKind
 } from "./mutation-responses.ts";
+import type { WorkStatus } from "./types.ts";
 
 export type MutationIntentState = "prepared" | "in_flight" | "unresolved" | "safety_conflict";
 
@@ -85,6 +86,7 @@ export interface PrepareMutation<K extends MutationKind> {
   readonly path: string;
   readonly payload: object;
   readonly expectedSourceWorkItemId?: string;
+  readonly expectedSourceWorkStatus?: WorkStatus;
 }
 
 export class MutationIntentError extends Error {
@@ -237,6 +239,9 @@ export class MutationIntentRegistry {
       path: input.path,
       operationId,
       ...(input.expectedSourceWorkItemId ? { expectedSourceWorkItemId: input.expectedSourceWorkItemId } : {}),
+      ...(input.expectedSourceWorkStatus
+        ? { expectedSourceWorkStatus: input.expectedSourceWorkStatus }
+        : {}),
       body,
       state: "prepared",
       attempts: 0,
@@ -264,6 +269,7 @@ export class MutationIntentRegistry {
       || existing.method !== input.method
       || existing.path !== input.path
       || existing.expectedSourceWorkItemId !== input.expectedSourceWorkItemId
+      || existing.expectedSourceWorkStatus !== input.expectedSourceWorkStatus
       || !sameKeys(existing.conflictKeys, input.conflictKeys)
       || JSON.stringify({ ...input.payload, client_operation_id: existing.operationId }) !== existing.body
     ) {

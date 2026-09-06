@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import (
     client_operation_secret_echo,
+    conflict,
     duplicate_context_changed,
     duplicate_depth_exceeded,
     duplicate_destination_not_canonical,
@@ -286,6 +287,25 @@ def require_canonical_work_item(database: Session, work_item: WorkItem) -> None:
         return
     projection = canonical_projection(database, work_item.project_id, work_item)
     raise work_duplicate(projection.canonical_work_item.id)
+
+
+def require_no_duplicate_membership(database: Session, work_item: WorkItem) -> None:
+    membership = database.scalar(
+        select(WorkDuplicateMerge.id)
+        .where(
+            WorkDuplicateMerge.project_id == work_item.project_id,
+            or_(
+                WorkDuplicateMerge.source_work_item_id == work_item.id,
+                WorkDuplicateMerge.destination_work_item_id == work_item.id,
+            ),
+        )
+        .limit(1)
+    )
+    if membership is not None:
+        raise conflict(
+            "work_move_duplicate_membership",
+            "Duplicate-group work cannot move between projects.",
+        )
 
 
 def merge_review_revisions(

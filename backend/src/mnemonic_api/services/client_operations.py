@@ -27,7 +27,7 @@ from mnemonic_api.errors import (
     client_operation_secret_echo,
     client_operation_unavailable,
 )
-from mnemonic_api.models import ClientOperation
+from mnemonic_api.models import ClientOperation, WorkItemMove
 from mnemonic_api.schemas import (
     APIModel,
     CheckpointCreate,
@@ -65,6 +65,8 @@ from mnemonic_api.schemas import (
     WorkMergeCreate,
     WorkMergeRequest,
     WorkMergeResult,
+    WorkMoveCreate,
+    WorkMoveRead,
     WorkUpdateRead,
 )
 
@@ -75,6 +77,7 @@ type OperationKind = Literal[
     "add_relationship",
     "update_work",
     "defer_work",
+    "move_work",
     "complete_work",
     "delete_work",
     "remove_relationship",
@@ -92,6 +95,7 @@ REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
     "add_relationship",
     "update_work",
     "defer_work",
+    "move_work",
     "complete_work",
     "delete_work",
     "remove_relationship",
@@ -201,6 +205,9 @@ _REGISTRY: dict[OperationKind, OperationSpec] = {
     "update_work": _spec("update_work", WorkItemPatch, WorkUpdateRead, 200, "work_item_id"),
     "defer_work": _spec(
         "defer_work", WorkDeferralCreate, WorkItemRead, 200, "work_item_id"
+    ),
+    "move_work": _spec(
+        "move_work", WorkMoveCreate, WorkMoveRead, 200, "work_item_id"
     ),
     "complete_work": _spec(
         "complete_work",
@@ -991,6 +998,71 @@ def _defer_work_matches(
     )
 
 
+def _move_work_matches(
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    result = cast(WorkMoveRead, typed)
+    request = cast(WorkMoveCreate, payload)
+    return (
+        result.source_project_id == project_id
+        and result.target_project_id == request.target_project_id
+        and str(result.work_item.id) == target_envelope.get("work_item_id")
+        and result.work_item.project_id == request.target_project_id
+        and result.work_item.version == request.expected_version + 1
+        and result.work_item.status == result.preserved_status
+    )
+
+
+def _move_work_fact_matches(
+    database: Session,
+    project_id: UUID,
+    target_envelope: Mapping[str, str],
+    payload: APIModel,
+    typed: APIModel,
+) -> bool:
+    if not _move_work_matches(project_id, target_envelope, payload, typed):
+        return False
+    result = cast(WorkMoveRead, typed)
+    request = cast(WorkMoveCreate, payload)
+    move = database.scalar(
+        select(WorkItemMove).where(
+            WorkItemMove.work_item_id == result.work_item.id,
+            WorkItemMove.resulting_work_version == result.work_item.version,
+        )
+    )
+    if move is None:
+        return False
+    actor = request.actor
+    expected_actor = (
+        ("unattributed", None, None, None)
+        if actor is None
+        else (
+            "client",
+            actor.actor_client,
+            actor.actor_session_id,
+            actor.actor_model,
+        )
+    )
+    return (
+        move.source_project_id == project_id == result.source_project_id
+        and move.target_project_id == request.target_project_id == result.target_project_id
+        and move.source_work_version == request.expected_version
+        and move.resulting_work_version == request.expected_version + 1
+        and move.preserved_status == result.preserved_status == result.work_item.status
+        and move.created_at == result.work_item.updated_at
+        and (
+            move.actor_kind,
+            move.actor_client,
+            move.actor_session_id,
+            move.actor_model,
+        )
+        == expected_actor
+    )
+
+
 def _complete_work_matches(
     project_id: UUID,
     target_envelope: Mapping[str, str],
@@ -1220,6 +1292,7 @@ _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
         "add_relationship": _add_relationship_matches,
         "update_work": _update_work_matches,
         "defer_work": _defer_work_matches,
+        "move_work": _move_work_matches,
         "complete_work": _complete_work_matches,
         "delete_work": _delete_work_matches,
         "remove_relationship": _remove_relationship_matches,
@@ -1242,6 +1315,7 @@ def _response_matches_operation(
     payload: APIModel,
     typed: APIModel,
     mutation_applied: bool,
+    database: Session | None = None,
 ) -> bool:
     expected_applied = (
         True
@@ -1253,7 +1327,13 @@ def _response_matches_operation(
     matcher = _RESPONSE_MATCHERS.get(spec.kind)
     if matcher is None:
         return False
-    return matcher(project_id, target_envelope, payload, typed)
+    if not matcher(project_id, target_envelope, payload, typed):
+        return False
+    return (
+        spec.kind != "move_work"
+        or database is None
+        or _move_work_fact_matches(database, project_id, target_envelope, payload, typed)
+    )
 
 
 def reserve_client_operation(
@@ -1425,6 +1505,7 @@ def _replay_completed_receipt(
         prepared.domain_payload,
         typed,
         mutation_applied,
+        database,
     ):
         _raise_unavailable(database)
     return ReplayedOperation(
@@ -1470,6 +1551,7 @@ def complete_client_operation(
         operation.domain_payload,
         typed,
         mutation_applied,
+        database,
     ):
         _raise_unavailable(database)
 

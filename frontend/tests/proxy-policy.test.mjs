@@ -97,6 +97,7 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
     []
   );
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/delete`, "POST"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/move`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/merge`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/human-attention`, "GET"), ["work_item_id", "limit", "cursor"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/gates`, "GET"), ["status", "limit", "cursor"]);
@@ -740,6 +741,7 @@ test("canonical mutation bodies cannot carry lease tokens", () => {
     [`projects/${project}/work-items/${work}/complete`, "POST"],
     [`projects/${project}/work-items/${work}/defer`, "POST"],
     [`projects/${project}/work-items/${work}/delete`, "POST"],
+    [`projects/${project}/work-items/${work}/move`, "POST"],
     [`projects/${project}/work-items/${work}/checkpoints`, "POST"],
     [`projects/${project}/relationships`, "POST"],
     [`projects/${project}/work-items/${work}/merge`, "POST"]
@@ -748,6 +750,30 @@ test("canonical mutation bodies cannot carry lease tokens", () => {
     assert.notEqual(allowedQueryKeys(path, method), null, `${method} ${path} should otherwise be allowed`);
     assert.equal(forbiddenMutationField({ expected_version: 1, lease_token: "browser-secret" }), "lease_token");
   }
+});
+
+test("work move is receipt protected with one exact source-to-target body", () => {
+  const path = `projects/${project}/work-items/${work}/move`;
+  const body = {
+    target_project_id: other,
+    expected_version: 3,
+    actor: {
+      actor_client: "dashboard",
+      actor_session_id: "tab-1",
+      actor_model: null
+    },
+    client_operation_id: operation
+  };
+  assert.equal(invalidMutationBody(path, "POST", body), null);
+  assert.equal(browserTransportEffect(path, "POST"), "receipt_protected_write");
+  for (const invalid of [
+    { ...body, target_project_id: project },
+    { ...body, target_project_id: "not-a-uuid" },
+    { ...body, expected_version: 0 },
+    { ...body, actor: { ...body.actor, actor_session_id: "" } },
+    { ...body, extra: true },
+    { ...body, lease_token: "browser-secret" }
+  ]) assert.match(invalidMutationBody(path, "POST", invalid), /(allowlist|unsupported field)/);
 });
 
 test("Core merge is a receipt-protected browser mutation with one exact body", () => {

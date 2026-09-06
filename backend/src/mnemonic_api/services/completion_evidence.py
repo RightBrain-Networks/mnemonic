@@ -157,7 +157,6 @@ def _decode_cursor(
     named_ids = set(
         database.scalars(
             select(WorkEvent.id).where(
-                WorkEvent.project_id == project_id,
                 WorkEvent.work_item_id == work_item_id,
                 WorkEvent.event_type == "work_completed",
                 WorkEvent.id.in_((as_of, last)),
@@ -288,7 +287,6 @@ def _children_by_checkpoint(
 def _exact_completion_receipt(
     body: object,
     *,
-    project_id: UUID,
     work_item_id: UUID,
     checkpoint_ids: set[UUID],
 ) -> WorkCompletionRead:
@@ -311,7 +309,6 @@ def _exact_completion_receipt(
         raise ValueError
     if (
         receipt.checkpoint.id not in checkpoint_ids
-        or receipt.work_item.project_id != project_id
         or receipt.work_item.id != work_item_id
         or receipt.checkpoint.work_item_id != work_item_id
     ):
@@ -345,7 +342,6 @@ def _require_checkpoint_receipt_match(
 def _validate_receipt_child_sets(
     database: Session,
     *,
-    project_id: UUID,
     work_item_id: UUID,
     checkpoint_ids: Sequence[UUID],
     results: dict[UUID, list[VerificationResultRead]],
@@ -362,7 +358,6 @@ def _validate_receipt_child_sets(
     bodies = database.scalars(
         select(ClientOperation.response_body)
         .where(
-            ClientOperation.project_id == project_id,
             ClientOperation.operation_kind == "complete_work",
             ClientOperation.state == "completed",
             checkpoint_path.in_(tuple(str(value) for value in checkpoint_ids)),
@@ -373,7 +368,6 @@ def _validate_receipt_child_sets(
         for body in bodies:
             receipt = _exact_completion_receipt(
                 body,
-                project_id=project_id,
                 work_item_id=work_item_id,
                 checkpoint_ids=checkpoint_set,
             )
@@ -461,7 +455,6 @@ def completion_evidence_page(
     if query.cursor is None:
         as_of = database.scalar(
             select(func.max(WorkEvent.id)).where(
-                WorkEvent.project_id == project_id,
                 WorkEvent.work_item_id == work_item_id,
                 WorkEvent.event_type == "work_completed",
             )
@@ -476,7 +469,6 @@ def completion_evidence_page(
         )
 
     event_filter = (
-        WorkEvent.project_id == project_id,
         WorkEvent.work_item_id == work_item_id,
         WorkEvent.event_type == "work_completed",
         WorkEvent.id <= as_of if as_of is not None else WorkEvent.id < 0,
@@ -563,7 +555,6 @@ def completion_evidence_page(
         results, artifacts = _children_by_checkpoint(database, work_item_id, checkpoint_ids)
         _validate_receipt_child_sets(
             database,
-            project_id=project_id,
             work_item_id=work_item_id,
             checkpoint_ids=checkpoint_ids,
             results=results,

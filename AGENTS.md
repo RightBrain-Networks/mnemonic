@@ -78,10 +78,10 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.11.0`, Claude plugin
-`0.13.0`, and Alembic head `0022_external_references`. The catalog is exactly
-32 MCP tools, 11 receipt-protected MCP writes, 15 REST receipt kinds, 13 protected
-browser mutations, 17 work-event types, and three plugin skills. The suggestion
+The current application/API/MCP/dashboard release is `0.12.0`, Claude plugin
+`0.13.0`, and Alembic head `0023_work_item_moves`. The catalog is exactly
+32 MCP tools, 11 receipt-protected MCP writes, 16 REST receipt kinds, 14 protected
+browser mutations, 18 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
 only in the existing closeout mutations; do not add standalone agent writes.
 Fresh work starts pending. Every actual Done, Won’t do, or Promoted closeout

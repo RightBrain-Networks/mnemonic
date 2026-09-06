@@ -6,7 +6,7 @@ Read the package from a request's point of view:
 - ``auth``        the single bearer rule, checked before routing and again per route.
 - ``guards``      which transports may carry lease tokens and client operation IDs.
 - ``validation``  how request validation failures are sanitized before they leave.
-- ``mutations``   the one lifecycle shared by the thirteen receipt-protected writes.
+- ``mutations``   the one lifecycle shared by the sixteen receipt-protected writes.
 - ``handlers``    the two failure classes that escape routes, and their envelopes.
 - ``routes``      one module per domain concept; its docstring maps paths to modules.
 - ``state``       typed access to what ``create_app`` stores on ``app.state``.
@@ -52,7 +52,7 @@ def create_app(
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.11.0",
+        version="0.12.0",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )

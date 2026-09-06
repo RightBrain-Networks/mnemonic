@@ -323,6 +323,23 @@ def require_no_active_lease(database: Session, work_item_id: UUID) -> None:
     database.flush()
 
 
+def require_no_active_lease_for_move(database: Session, work_item_id: UUID) -> None:
+    """Reject an active holder while retaining an expired lease as Dropped history."""
+    lease = _locked_lease(database, work_item_id)
+    if lease is None:
+        return
+    database_now = _database_now(database)
+    if lease.expires_at > database_now:
+        raise conflict(
+            "work_move_active_lease",
+            "Active work cannot move until its lease is released or expires.",
+            context={
+                "holder_client": lease.holder_client,
+                "expires_at": _utc(lease.expires_at),
+            },
+        )
+
+
 def consume_lease_for_terminal_mutation(
     database: Session,
     work_item_id: UUID,

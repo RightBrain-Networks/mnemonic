@@ -178,11 +178,13 @@ export function decodeHumanGatePage(
     throw new Error("The expected human-gate history scope is invalid.");
   }
   const expectedStatus = options.status === "all" ? undefined : options.status;
-  return decodeCursorPage(value, (item) => decodeHumanGate(item, {
-    projectId,
-    workItemId,
-    status: expectedStatus
-  }), options.limit) as HumanGatePage;
+  return decodeCursorPage(value, (item) => {
+    const gate = decodeHumanGate(item, { workItemId, status: expectedStatus });
+    if (gate.status === "unresolved" && !sameUuid(gate.project_id, projectId)) {
+      throw new Error("Mnemonic returned an invalid human gate.");
+    }
+    return gate;
+  }, options.limit) as HumanGatePage;
 }
 
 export function humanAttentionSearchParams(input: {

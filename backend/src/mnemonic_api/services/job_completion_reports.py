@@ -1,7 +1,9 @@
 """Immutable closeout reports and independent human review/provenance."""
 
+import base64
 import hashlib
-from typing import Any
+import json
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -12,11 +14,13 @@ from mnemonic_api.models import (
     JobCompletionReport,
     JobCompletionReportFollowUp,
     JobCompletionReportReview,
+    ProjectActivityHead,
     ProjectJobCompletionReportCount,
     ProjectSettings,
     WorkDuplicateMerge,
     WorkEvent,
     WorkItem,
+    WorkReportProvenanceHead,
 )
 from mnemonic_api.phase12_schemas import (
     DismissalFilter,
@@ -41,7 +45,12 @@ from mnemonic_api.schemas import (
     WorkItemCreate,
     WorkItemRead,
 )
-from mnemonic_api.services.activity_cursors import cursor_base, decode_cursor, encode_cursor
+from mnemonic_api.services.activity_cursors import (
+    cursor_base,
+    decode_cursor,
+    encode_cursor,
+    invalid_cursor,
+)
 from mnemonic_api.services.project_activity import activity_head
 from mnemonic_api.services.work_context import checkpoint_read
 from mnemonic_api.services.work_events import database_now
@@ -133,7 +142,6 @@ def seal_closeout_report(
 def closeout_report(database: Session, work_item: WorkItem) -> JobCompletionReportRead | None:
     report = database.scalar(
         select(JobCompletionReport).where(
-            JobCompletionReport.project_id == work_item.project_id,
             JobCompletionReport.work_item_id == work_item.id,
             JobCompletionReport.closeout_work_version == work_item.version,
         )
@@ -156,7 +164,7 @@ def _dismissal(review: JobCompletionReportReview) -> HumanDismissalRead | None:
     )
 
 
-def _canonical_ids(database: Session, project_id: UUID, ids: set[UUID]) -> dict[UUID, UUID]:
+def _canonical_ids(database: Session, ids: set[UUID]) -> dict[UUID, UUID]:
     """Bounded indexed traversals for only the page's sources, including deleted aliases."""
     result = {item: item for item in ids}
     visited = {item: {item} for item in ids}
@@ -168,7 +176,6 @@ def _canonical_ids(database: Session, project_id: UUID, ids: set[UUID]) -> dict[
                     WorkDuplicateMerge.source_work_item_id,
                     WorkDuplicateMerge.destination_work_item_id,
                 ).where(
-                    WorkDuplicateMerge.project_id == project_id,
                     WorkDuplicateMerge.source_work_item_id.in_(set(result.values())),
                 )
             ).all()
@@ -194,7 +201,7 @@ def _envelopes(
     *,
     detail: bool = False,
 ) -> list[JobCompletionReportEnvelope]:
-    canonical = _canonical_ids(database, project_id, {report.work_item_id for report, _, _ in rows})
+    canonical = _canonical_ids(database, {report.work_item_id for report, _, _ in rows})
     model = JobCompletionReportDetailEnvelope if detail else JobCompletionReportEnvelope
     return [
         model(
@@ -380,35 +387,145 @@ def create_follow_up(
     )
 
 
+def _decode_work_provenance_cursor(
+    token: str,
+    *,
+    head: ProjectActivityHead,
+    provenance_last_sequence: int,
+    work_item_id: UUID,
+    direction: Literal["origin", "created"],
+) -> tuple[int, int]:
+    try:
+        if not token or len(token) > 512 or not token.isascii():
+            raise ValueError
+        raw = base64.b64decode(
+            token + "=" * (-len(token) % 4),
+            altchars=b"-_",
+            validate=True,
+        )
+        value = json.loads(raw)
+        expected = {"v", "s", "w", "d", "u", "l"}
+        if not isinstance(value, dict) or set(value) != expected:
+            raise ValueError
+        if encode_cursor(value) != token or type(value["v"]) is not int or value["v"] != 1:
+            raise ValueError
+        if (
+            value["s"] != str(head.stream_id)
+            or value["w"] != str(work_item_id)
+            or value["d"] != direction
+        ):
+            raise ValueError
+        upper = int(value["u"])
+        last = int(value["l"])
+        if str(upper) != value["u"] or str(last) != value["l"]:
+            raise ValueError
+        if (
+            upper < 0
+            or upper > provenance_last_sequence
+            or last < 1
+            or last > upper
+        ):
+            raise ValueError
+    except (AttributeError, KeyError, TypeError, UnicodeError, ValueError):
+        raise invalid_cursor("report") from None
+    return upper, last
+
+
+def _work_provenance_page(
+    database: Session,
+    project_id: UUID,
+    work_item_id: UUID,
+    direction: Literal["origin", "created"],
+    limit: int,
+    cursor: str | None,
+    head: ProjectActivityHead,
+) -> WorkReportFollowUpPage:
+    work = database.get(WorkItem, work_item_id)
+    if work is None or work.project_id != project_id or work.deleted_at is not None:
+        raise not_found("work_item_not_found", "Work item not found in this project.")
+    table = JobCompletionReportFollowUp
+    column = table.follow_up_work_item_id if direction == "origin" else table.source_work_item_id
+    sequence = (
+        table.follow_up_work_sequence
+        if direction == "origin"
+        else table.source_work_sequence
+    )
+    provenance_head = database.get(WorkReportProvenanceHead, work_item_id)
+    current_upper = provenance_head.last_sequence if provenance_head is not None else 0
+    if cursor is None:
+        upper = current_upper
+        last = None
+    else:
+        upper, last = _decode_work_provenance_cursor(
+            cursor,
+            head=head,
+            provenance_last_sequence=current_upper,
+            work_item_id=work_item_id,
+            direction=direction,
+        )
+    query = select(table).where(column == work_item_id, sequence <= upper)
+    if last is not None:
+        query = query.where(sequence > last)
+    rows = list(database.scalars(query.order_by(sequence).limit(limit + 1)))
+    more = len(rows) > limit
+    rows = rows[:limit]
+    items = [follow_up_read(row) for row in rows]
+    token = (
+        encode_cursor(
+            {
+                "v": 1,
+                "s": str(head.stream_id),
+                "w": str(work_item_id),
+                "d": direction,
+                "u": str(upper),
+                "l": str(
+                    rows[-1].follow_up_work_sequence
+                    if direction == "origin"
+                    else rows[-1].source_work_sequence
+                ),
+            }
+        )
+        if more
+        else None
+    )
+    return WorkReportFollowUpPage(
+        project_id=project_id,
+        work_item_id=work_item_id,
+        direction=direction,
+        items=items,
+        as_of_sequence=str(upper),
+        has_more=more,
+        next_cursor=token,
+    )
+
+
 def provenance_page(
     database: Session,
     project_id: UUID,
     *,
     report_id: UUID | None = None,
     work_item_id: UUID | None = None,
-    direction: str | None = None,
+    direction: Literal["origin", "created"] | None = None,
     limit: int = 20,
     cursor: str | None = None,
 ) -> ReportFollowUpPage | WorkReportFollowUpPage:
     head = activity_head(database, project_id)
+    if report_id is None:
+        assert work_item_id is not None and direction is not None
+        return _work_provenance_page(
+            database,
+            project_id,
+            work_item_id,
+            direction,
+            limit,
+            cursor,
+            head,
+        )
     table = JobCompletionReportFollowUp
     query = select(table).where(table.project_id == project_id)
-    if report_id is not None:
-        require_report(database, project_id, report_id)
-        kind, scope = "report_follow_ups", {"report_id": str(report_id)}
-        query = query.where(table.report_id == report_id)
-    else:
-        work = database.get(WorkItem, work_item_id)
-        if work is None or work.project_id != project_id:
-            raise not_found("work_item_not_found", "Work item not found in this project.")
-        kind, scope = (
-            "work_report_follow_ups",
-            {"work_item_id": str(work_item_id), "direction": direction},
-        )
-        column = (
-            table.follow_up_work_item_id if direction == "origin" else table.source_work_item_id
-        )
-        query = query.where(column == work_item_id)
+    require_report(database, project_id, report_id)
+    kind, scope = "report_follow_ups", {"report_id": str(report_id)}
+    query = query.where(table.report_id == report_id)
     upper, last = head.last_sequence, 0
     if cursor is not None:
         decoded = decode_cursor(cursor, head, kind, scope)
@@ -433,8 +550,7 @@ def provenance_page(
         if more
         else None
     )
-    model = ReportFollowUpPage if report_id is not None else WorkReportFollowUpPage
-    return model.model_validate(
+    return ReportFollowUpPage.model_validate(
         dict(
             project_id=project_id,
             **scope,

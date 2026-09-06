@@ -112,6 +112,14 @@ def completion_episode_unsealed() -> ApplicationError:
     )
 
 
+def closeout_report_unsealed() -> ApplicationError:
+    return ApplicationError(
+        409,
+        "closeout_report_unsealed",
+        "This terminal work item has no sealed closeout report and cannot be moved.",
+    )
+
+
 def gate_not_found() -> ApplicationError:
     return not_found("gate_not_found", "Human gate not found in this work item.")
 

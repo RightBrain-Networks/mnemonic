@@ -8,7 +8,7 @@ or LLM authoring belongs inside this scope.
 
 import math
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -35,7 +35,7 @@ class _DomainDeadlineExceeded(Exception):
 
 @dataclass(frozen=True)
 class _DomainBudget:
-    project_id: UUID | None
+    project_ids: tuple[UUID, ...]
     deadline: float
 
     def remaining_milliseconds(self) -> int:
@@ -98,25 +98,40 @@ def project_mutation(
     database: Session,
     project_id: UUID | None,
     *,
+    additional_project_ids: Iterable[UUID] = (),
     protected: bool = False,
 ) -> Iterator[None]:
-    """Bound fresh execution through its commit; None is only for project creation."""
+    """Bound fresh execution through its commit and lock every project in UUID order.
+
+    None is only for project creation. Cross-project mutations provide their
+    additional projects up front so opposite-direction moves cannot deadlock by
+    taking source and destination locks in request order.
+    """
+    project_ids = tuple(
+        sorted(
+            ({project_id} if project_id is not None else set())
+            | set(additional_project_ids),
+            key=str,
+        )
+    )
     existing = database.info.get(_STATE_KEY)
     if isinstance(existing, _DomainBudget):
-        if existing.project_id != project_id:
+        if existing.project_ids != project_ids:
             raise RuntimeError("A project mutation cannot change its project scope")
         yield
         return
-    budget = _DomainBudget(project_id, time.monotonic() + DOMAIN_SECONDS)
+    budget = _DomainBudget(project_ids, time.monotonic() + DOMAIN_SECONDS)
     database.info[_STATE_KEY] = budget
     connection = None
     listener = None
     try:
         connection = database.connection()
         listener = _install_budget(connection, budget)
-        if project_id is not None:
+        for locked_project_id in project_ids:
             project = database.scalar(
-                select(Project.id).where(Project.id == project_id).with_for_update()
+                select(Project.id)
+                .where(Project.id == locked_project_id)
+                .with_for_update()
             )
             if project is None:
                 raise not_found("project_not_found", "Project not found.")

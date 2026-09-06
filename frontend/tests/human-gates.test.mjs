@@ -380,7 +380,7 @@ test("relationship drift review is complete only when every directional count is
 
 test("paired history and cursor helpers preserve endpoint-specific filters", () => {
   const page = decodeHumanGatePage({
-    items: [resolvedGate(), gate()],
+    items: [resolvedGate({ project_id: incomingWork }), gate()],
     total: 2,
     limit: 30,
     next_cursor: null
@@ -389,6 +389,9 @@ test("paired history and cursor helpers preserve endpoint-specific filters", () 
   assert.throws(() => decodeHumanGatePage({
     items: [gate()], total: 1, limit: 30, next_cursor: null
   }, project, work, { status: "resolved", limit: 30 }));
+  assert.throws(() => decodeHumanGatePage({
+    items: [gate({ project_id: incomingWork })], total: 1, limit: 30, next_cursor: null
+  }, project, work, { status: "all", limit: 30 }), /invalid human gate/);
 
   assert.equal(
     humanAttentionSearchParams({ workItemId: work, limit: 30, cursor: "next" }).toString(),

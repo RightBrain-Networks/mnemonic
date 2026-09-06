@@ -29,11 +29,24 @@ test("cursors reject duplicate keys, unbounded integers, padding, unknown keys a
   const raw={v:1,kind:"activity",project_id:f.project,stream_id:f.stream,after:"9"};
   const invalid=[valid+"=", f.cursor({...raw,after:"9223372036854775808"}),f.cursor({...raw,after:9}),f.cursor({...raw,extra:"x"}), Buffer.from(JSON.stringify(raw)).toString("base64url"),Buffer.from('{"after":"9","after":"9"}').toString("base64url")];
   for(const cursor of invalid) assert.throws(()=>decodePhase12Cursor(cursor,f.project,"activity"));
+  assert.throws(() => decodePhase12Cursor(
+    f.cursor({
+      kind: "work_report_follow_ups",
+      work_item_id: f.work,
+      direction: "created",
+      upper: "9",
+      last: "9"
+    }),
+    f.project,
+    "work_report_follow_ups"
+  ));
 });
 
 
 test("work lifecycle and identity events refresh current source state in Summaries", () => {
-  for (const event_type of ["work_updated", "work_reopened", "work_merged", "work_deleted"]) {
+  for (const event_type of [
+    "work_updated", "work_reopened", "work_merged", "work_moved", "work_deleted"
+  ]) {
     const item=decodeActivityItem(f.activity({kind:"work_event",event_type,work_event_id:"8",job_completion_report_id:null}));
     assert.deepEqual(activityInvalidations([item]),{work:true,reports:true,settings:false,projects:false});
   }

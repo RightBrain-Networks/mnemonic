@@ -90,7 +90,7 @@ def activity_matrix(*, reports: bool) -> str:
     )
 
 
-def activity_elements(*, reports: bool = True) -> list[SchemaItem]:
+def activity_elements(*, reports: bool = True, movable_work: bool = False) -> list[SchemaItem]:
     elements: list[SchemaItem] = [
         sa.Column("project_id", sa.UUID(), primary_key=True),
         sa.Column("sequence", sa.BigInteger(), primary_key=True),
@@ -107,8 +107,12 @@ def activity_elements(*, reports: bool = True) -> list[SchemaItem]:
         sa.Column("origin", sa.String(16), nullable=False, server_default="live"),
         _fk(["project_id"], ["project_activity_heads.project_id"], "fk_project_activity_head"),
         _fk(
-            ["project_id", "work_item_id"],
-            ["work_items.project_id", "work_items.id"],
+            ["work_item_id"] if movable_work else ["project_id", "work_item_id"],
+            (
+                ["work_items.id"]
+                if movable_work
+                else ["work_items.project_id", "work_items.id"]
+            ),
             "fk_project_activity_work",
         ),
         _fk(
@@ -192,7 +196,7 @@ def _actor_columns(prefix: str = "actor_") -> list[SchemaItem]:
     ]
 
 
-def report_elements() -> list[SchemaItem]:
+def report_elements(*, movable_work: bool = False) -> list[SchemaItem]:
     return [
         sa.Column("id", sa.UUID(), primary_key=True),
         sa.Column("project_id", sa.UUID(), nullable=False),
@@ -233,8 +237,12 @@ def report_elements() -> list[SchemaItem]:
             name="uq_job_reports_event_owner",
         ),
         _fk(
-            ["project_id", "work_item_id"],
-            ["work_items.project_id", "work_items.id"],
+            ["work_item_id"] if movable_work else ["project_id", "work_item_id"],
+            (
+                ["work_items.id"]
+                if movable_work
+                else ["work_items.project_id", "work_items.id"]
+            ),
             "fk_job_reports_work",
         ),
         _fk(
@@ -356,7 +364,54 @@ def report_count_elements() -> list[SchemaItem]:
     ]
 
 
-def follow_up_elements() -> list[SchemaItem]:
+def work_report_provenance_head_elements() -> list[SchemaItem]:
+    return [
+        sa.Column("work_item_id", sa.UUID(), primary_key=True),
+        sa.Column("last_sequence", sa.BigInteger(), nullable=False, server_default="0"),
+        _fk(
+            ["work_item_id"],
+            ["work_items.id"],
+            "fk_work_report_provenance_heads_work_item",
+        ),
+        sa.CheckConstraint(
+            "last_sequence >= 0",
+            name="sequence_nonnegative",
+        ),
+    ]
+
+
+def follow_up_elements(
+    *,
+    movable_work: bool = False,
+    sequenced_provenance: bool = False,
+) -> list[SchemaItem]:
+    provenance_columns: list[SchemaItem] = []
+    provenance_constraints: list[SchemaItem] = []
+    if sequenced_provenance:
+        provenance_columns = [
+            sa.Column("source_work_sequence", sa.BigInteger(), nullable=False),
+            sa.Column("follow_up_work_sequence", sa.BigInteger(), nullable=False),
+        ]
+        provenance_constraints = [
+            sa.UniqueConstraint(
+                "source_work_item_id",
+                "source_work_sequence",
+                name="uq_job_report_follow_ups_source_work_sequence",
+            ),
+            sa.UniqueConstraint(
+                "follow_up_work_item_id",
+                "follow_up_work_sequence",
+                name="uq_job_report_follow_ups_follow_up_work_sequence",
+            ),
+            sa.CheckConstraint(
+                "source_work_sequence > 0",
+                name=sa.schema.conv("ck_job_completion_report_follow_ups_source_work_sequenc_4b58"),
+            ),
+            sa.CheckConstraint(
+                "follow_up_work_sequence > 0",
+                name=sa.schema.conv("ck_job_completion_report_follow_ups_follow_up_work_sequ_b375"),
+            ),
+        ]
     return [
         sa.Column("id", sa.UUID(), primary_key=True),
         sa.Column("project_id", sa.UUID(), nullable=False),
@@ -364,6 +419,7 @@ def follow_up_elements() -> list[SchemaItem]:
         sa.Column("source_work_item_id", sa.UUID(), nullable=False),
         sa.Column("follow_up_work_item_id", sa.UUID(), nullable=False),
         sa.Column("created_sequence", sa.BigInteger(), nullable=False),
+        *provenance_columns,
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -373,6 +429,7 @@ def follow_up_elements() -> list[SchemaItem]:
         *_actor_columns(),
         sa.UniqueConstraint("follow_up_work_item_id", name="uq_job_report_follow_ups_work"),
         sa.UniqueConstraint("project_id", "report_id", "id", name="uq_job_report_follow_ups_owner"),
+        *provenance_constraints,
         _fk(
             ["project_id", "source_work_item_id", "report_id"],
             [
@@ -383,8 +440,12 @@ def follow_up_elements() -> list[SchemaItem]:
             "fk_job_report_follow_ups_report",
         ),
         _fk(
-            ["project_id", "follow_up_work_item_id"],
-            ["work_items.project_id", "work_items.id"],
+            ["follow_up_work_item_id"]
+            if movable_work
+            else ["project_id", "follow_up_work_item_id"],
+            ["work_items.id"]
+            if movable_work
+            else ["work_items.project_id", "work_items.id"],
             "fk_job_report_follow_ups_work",
         ),
         _fk(

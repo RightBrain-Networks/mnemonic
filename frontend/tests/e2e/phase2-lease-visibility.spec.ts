@@ -78,6 +78,14 @@ test("an active lease is visible without exposing its capability and refreshes a
     "title",
     "Explicitly hold this work item out of the work queue"
   );
+  const move = pane.getByRole("button", { name: `Move ${title} to another project` });
+  const moveReason = pane.getByText(
+    "Release the active lease before moving this work item.",
+    { exact: true }
+  );
+  await expect(move).toBeDisabled();
+  await expect(moveReason).toBeVisible();
+  await expect(move).toHaveAttribute("aria-describedby", await moveReason.getAttribute("id") ?? "");
   const statusChooser = pane.getByRole("button", { name: `Choose a status for ${title}` });
   await statusChooser.click();
   await expect(pane.getByRole("menuitem")).toHaveText([

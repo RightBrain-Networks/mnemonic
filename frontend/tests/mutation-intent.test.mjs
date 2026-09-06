@@ -69,6 +69,43 @@ test("unknown outcome retry reuses one UUID and the exact frozen serialized body
   assert.equal("operationId" in recovered[0], false);
 });
 
+test("move ambiguity freezes source status and both source and target work keys", async () => {
+  const registry = new MutationIntentRegistry(async () => (
+    new Response(JSON.stringify({ detail: "Lost move response." }), { status: 502 })
+  ), () => operation);
+  const slot = `move-work:${project}:${work}`;
+  const input = {
+    kind: "move_work",
+    slot,
+    projectId: project,
+    conflictKeys: [
+      mutationWorkKey(project, work),
+      mutationWorkKey(destination, work)
+    ],
+    method: "POST",
+    path: `/projects/${project}/work-items/${work}/move`,
+    payload: {
+      target_project_id: destination,
+      expected_version: 2,
+      actor: { actor_client: "dashboard", actor_session_id: "tab-1" }
+    },
+    expectedSourceWorkStatus: "deferred"
+  };
+  await assert.rejects(
+    registry.execute(input),
+    (error) => error instanceof MutationIntentError && error.state === "unresolved"
+  );
+  const retained = registry.get(slot);
+  assert.equal(retained.expectedSourceWorkStatus, "deferred");
+  assert.equal(JSON.parse(retained.body).expectedSourceWorkStatus, undefined);
+  assert.equal(registry.blocks([mutationWorkKey(project, work)]), true);
+  assert.equal(registry.blocks([mutationWorkKey(destination, work)]), true);
+  await assert.rejects(
+    registry.execute({ ...input, expectedSourceWorkStatus: "pending" }),
+    (error) => error instanceof MutationIntentError && error.state === "blocked"
+  );
+});
+
 test("merge ambiguity freezes both work keys, both revisions, and byte-identical retry", async () => {
   const calls = [];
   const registry = new MutationIntentRegistry(async (url, init) => {

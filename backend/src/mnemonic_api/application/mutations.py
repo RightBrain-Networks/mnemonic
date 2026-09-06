@@ -1,4 +1,4 @@
-"""One lifecycle for the fifteen receipt-protected REST mutations.
+"""One lifecycle for the sixteen receipt-protected REST mutations.
 
 Every route that accepts an optional ``client_operation_id`` runs the same
 sequence, so it is written once here and each route contributes only its
@@ -23,7 +23,7 @@ through here. Their missing trace is what keeps the middleware's method/path
 fallback for them.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Literal, cast
 from uuid import UUID
@@ -91,6 +91,7 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
     target: Mapping[str, UUID],
     payload: Payload,
     execute: Callable[[Payload], Result],
+    additional_project_ids: Iterable[UUID] = (),
     before_commit: Callable[[], None] | None = None,
 ) -> JSONResponse:
     """Run ``execute`` under the lifecycle described in the module docstring.
@@ -110,7 +111,12 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
     database.info["client_operation_keyed"] = (
         getattr(payload, "client_operation_id", None) is not None
     )
-    with project_mutation(database, project_id, protected=True):
+    with project_mutation(
+        database,
+        project_id,
+        additional_project_ids=additional_project_ids,
+        protected=True,
+    ):
         result = execute(cast(Payload, operation.domain_payload))
         completed = complete_client_operation(
             database,

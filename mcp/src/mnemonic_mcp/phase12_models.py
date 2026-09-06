@@ -208,7 +208,7 @@ WorkEventType = Literal[
     "work_created", "work_updated", "work_status_changed", "work_reopened", "work_claimed",
     "work_released", "checkpoint_added", "progress", "dependency_added", "dependency_removed",
     "relationship_added", "relationship_removed", "work_completed", "work_deleted", "work_merged",
-    "human_attention_requested", "human_attention_resolved",
+    "work_moved", "human_attention_requested", "human_attention_resolved",
 ]
 ActivityKind = Literal[
     "work_event", "project_created", "project_updated", "project_settings_updated", "lease_renewed",

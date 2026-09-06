@@ -701,12 +701,12 @@ Copy the generic skill directories into the discovery location supported by the
 target client. Tool-name prefixes may differ, but the underlying canonical names
 stay the same. Setup does not modify other projects or user-global configuration.
 
-The dashboard protects thirteen browser-accessible mutations: create work, add a
+The dashboard protects fourteen browser-accessible mutations: create work, add a
 checkpoint, append progress, add a relationship, edit work, complete work,
-defer work, delete work, remove a relationship, resolve a human gate, and
+defer work, delete work, move work, remove a relationship, resolve a human gate, and
 permanently merge duplicate work, dismiss a report, and create a report follow-up.
-Deferral and resolution remain human-only actions with no MCP tools; the proxy
-intentionally denies gate creation. The dashboard creates one UUID and
+Deferral, move, and resolution remain human-only actions with no MCP tools; the
+proxy intentionally denies gate creation. The dashboard creates one UUID and
 freezes one serialized request in a dashboard-owned, same-document registry.
 An ambiguous result remains recoverable across pane deselection, dialog closure,
 or component unmount, blocks conflicting work actions, and is cleared only by a
@@ -718,10 +718,17 @@ process loss. If the document is lost while an intent is unresolved, do not
 invent a replacement key or claim the mutation is safe to repeat; inspect state
 and request direction. The dashboard intentionally exposes no claim, renewal,
 release, or lease-token route, so `release_claim` is protected through MCP/REST
-but is not one of the thirteen browser actions. Gate resolution freezes its reviewed
+but is not one of the fourteen browser actions. Gate resolution freezes its reviewed
 revision and answer in the same registry; a definite context-change rejection
 requires a fresh human review and new UUID, while an ambiguous outcome permits
 only the exact frozen retry. No question or answer is browser-persisted.
+
+Move freezes the source project, target project, work UUID, expected version,
+actor, and operation UUID. A completed receipt stays source-scoped for exact
+replay after the item leaves that project. On success the dashboard selects the
+target and reopens the same work UUID without clearing unsaved authoring state
+until the new placement is verified; a concurrent move with no verified target
+remains an ambiguous retry state rather than proof that the work was deleted.
 
 Merge is keyed under both endpoint work IDs, so either item's conflicting UI
 actions stay blocked while its outcome is uncertain. The browser shows separate

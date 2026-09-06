@@ -224,6 +224,7 @@ export type WorkEventType =
   | "human_attention_requested"
   | "human_attention_resolved"
   | "work_merged"
+  | "work_moved"
   | "work_completed"
   | "work_deleted";
 
@@ -275,6 +276,13 @@ export type WorkEventMetadata =
       role: "source" | "destination";
       source_work_version: number;
       destination_work_version: number;
+    }
+  | {
+      move_id: string;
+      source_project_id: string;
+      target_project_id: string;
+      role: "source" | "target";
+      work_version: number;
     }
   | { from_status: "open" | "pending"; to_status: "done"; work_version: number }
   | { final_status: EventWorkStatus; final_version: number }
@@ -686,6 +694,13 @@ export interface DeletionResult {
   version: number;
 }
 
+export interface WorkMoveResult {
+  source_project_id: string;
+  target_project_id: string;
+  preserved_status: WorkStatus;
+  work_item: WorkItem;
+}
+
 export interface CheckpointInput {
   prompt: string;
   source_client: string;
@@ -711,6 +726,12 @@ export interface WorkCompletionInput extends ClientOperationInput {
 }
 
 export interface WorkDeletionInput extends ClientOperationInput {
+  expected_version: number;
+  actor: MutationActor;
+}
+
+export interface WorkMoveInput extends ClientOperationInput {
+  target_project_id: string;
   expected_version: number;
   actor: MutationActor;
 }

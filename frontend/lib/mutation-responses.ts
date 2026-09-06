@@ -12,7 +12,9 @@ import type {
   WorkUpdate,
   JobReportDismissalResult,
   JobReportFollowUpResult,
-  WorkMergeResult
+  WorkMergeResult,
+  WorkMoveResult,
+  WorkStatus
 } from "@/lib/types";
 import { decodeHumanGate } from "./human-gates.ts";
 import { decodeWorkIdentityPointer, decodeWorkItem } from "./work-codecs.ts";
@@ -64,6 +66,7 @@ export const MUTATION_KINDS = [
   "defer_work",
   "complete_work",
   "delete_work",
+  "move_work",
   "remove_relationship",
   "resolve_human_input",
   "merge_work",
@@ -82,6 +85,7 @@ export interface MutationResultByKind {
   defer_work: WorkItem;
   complete_work: CompletionResult;
   delete_work: DeletionResult;
+  move_work: WorkMoveResult;
   remove_relationship: RelationshipRemovalResult;
   resolve_human_input: HumanGateRead;
   merge_work: WorkMergeResult;
@@ -96,6 +100,7 @@ export interface FrozenMutationRequest {
   readonly body: string;
   readonly operationId: string;
   readonly expectedSourceWorkItemId?: string;
+  readonly expectedSourceWorkStatus?: WorkStatus;
 }
 
 export type MutationHttpOutcome<K extends MutationKind = MutationKind> =
@@ -120,6 +125,7 @@ const EXPECTED_STATUS: Record<MutationKind, number> = {
   defer_work: 200,
   complete_work: 200,
   delete_work: 200,
+  move_work: 200,
   remove_relationship: 200,
   resolve_human_input: 200,
   merge_work: 201,
@@ -148,6 +154,7 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "invalid_status_transition",
     "work_not_pending",
     "completion_episode_unsealed",
+    "closeout_report_unsealed",
     "work_blocked",
     "lease_held",
     "lease_expired",
@@ -158,6 +165,10 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "relationship_context_invalid",
     "relationship_cycle",
     "active_relationships",
+    "work_move_same_project",
+    "work_move_active_lease",
+    "work_move_relationships",
+    "work_move_duplicate_membership",
     "work_gated",
     "gate_already_resolved",
     "gate_context_changed",
@@ -644,6 +655,42 @@ function decodeSuccess<K extends MutationKind>(
       ) throw new Error("Mnemonic returned an incoherent follow-up.");
       decoded = { work_item: work, initial_checkpoint: checkpoint, follow_up: link };
     }
+  } else if (request.kind === "move_work") {
+    const path = parsePath(request.path, "/move");
+    const result = objectValue(value);
+    if (
+      !path?.workItemId
+      || !result
+      || !exactKeys(body, [
+        "target_project_id", "expected_version", "actor", "client_operation_id"
+      ])
+      || !validUuid(body.target_project_id)
+      || sameUuid(body.target_project_id, path.projectId)
+      || !finiteInteger(body.expected_version, 1)
+      || !exactKeys(result, [
+        "source_project_id", "target_project_id", "preserved_status", "work_item"
+      ])
+      || !sameUuid(result.source_project_id, path.projectId)
+      || !sameUuid(result.target_project_id, body.target_project_id)
+      || request.expectedSourceWorkStatus === undefined
+      || result.preserved_status !== request.expectedSourceWorkStatus
+    ) throw new Error("Mnemonic returned an invalid move response.");
+    const workItem = decodeWorkItem(
+      result.work_item,
+      body.target_project_id,
+      path.workItemId,
+      "Mnemonic returned an invalid move response."
+    );
+    if (
+      workItem.version !== Number(body.expected_version) + 1
+      || workItem.status !== result.preserved_status
+    ) throw new Error("Mnemonic returned an incoherent move response.");
+    decoded = {
+      source_project_id: path.projectId,
+      target_project_id: workItem.project_id,
+      preserved_status: workItem.status,
+      work_item: workItem
+    };
   } else if (request.kind === "delete_work") {
     const path = parsePath(request.path, "/delete");
     const result = objectValue(value);

@@ -1,8 +1,25 @@
-# Mnemonic architecture through Phase 12
+# Mnemonic architecture
 
-This architecture describes application/API/MCP `0.10.0`, Claude plugin `0.12.0`,
-and Alembic head `0022_external_references`. The longer-term
+This architecture describes application/API/MCP `0.12.0`, Claude plugin `0.13.0`,
+and Alembic head `0023_work_item_moves`. The longer-term
 direction and later-phase boundaries are in [`roadmap.md`](roadmap.md).
+
+## Cross-project work placement
+
+`WorkItem.project_id` is the work identity's current placement. Migration 0023
+separates that mutable placement from immutable project-at-fact history. A move
+keeps the global work/checkpoint identity and lifecycle state, advances the work
+version, records an immutable move row, and emits paired source/target events.
+Historical events, resolved gates, evidence, reports, report links, and activity
+remain attributed to the project in which they occurred. Current-project route
+authorization happens before per-work history is read by stable UUID.
+
+Move execution reserves or replays its source-scoped receipt first, then locks
+both project rows in UUID order under one bounded domain budget. This makes an
+exact retry valid after the source route stops seeing the moved item and avoids
+opposite-direction lock inversion. Current graph edges, unresolved gates, and
+active leases must be resolved before movement; expired retained leases remain
+attached so the derived Dropped state does not change.
 
 ## Phase 12 integration
 
@@ -229,8 +246,10 @@ that locks and revalidates before already-authorized execution.
   and searches, including ordinary evidence history. Its immutable gate history
   remains readable only through an exact project/work ID. Completion-evidence
   rows remain stored for operator audit and receipt replay.
-- Every lookup is project-scoped. A work or checkpoint UUID under the wrong
-  project returns 404.
+- Current work lookup is project-scoped. A work UUID under the wrong current
+  project returns 404. After current-placement authorization, immutable
+  per-work event/gate/evidence history may retain earlier project-at-fact values;
+  report and activity lookup remains scoped to its origin project.
 - Stored prompt text and metadata are untrusted historical context. Reading or
   recalling them is not authority to execute them.
 - PostgreSQL and the FastAPI service are the sole persistence and transaction
@@ -240,7 +259,7 @@ that locks and revalidates before already-authorized execution.
   explicitly selected current Git worktree. Its ephemeral three-state evidence
   is advisory and never persisted or converted into authority.
 - `client_operation_id` is private control data. It is accepted only at the
-  top level of the thirteen enrolled REST request bodies, never persisted in domain
+  top level of the sixteen enrolled REST request bodies, never persisted in domain
   models/events or returned through public read surfaces.
 
 ## Services and trust boundaries
@@ -298,15 +317,15 @@ history transport and pre-SDK HTTP/stdio frame guards prevent content coding,
 oversized bodies, or unbounded caller IDs from defeating the result envelope.
 The dashboard calls only an exact same-origin proxy
 allowlist, including attention/history reads, gate resolution, event
-list/progress append, and actor-bearing work or relationship writes. A
-dashboard-lifetime in-memory registry owns thirteen frozen protected intents,
-including a two-work-key merge intent, blocks overlapping conflicts while an
-outcome is unresolved, and never writes those bodies or UUIDs to browser
-storage. Its API key is server-only. Every token-bearing lease-capability route
-is denied to the browser. Two exact token-free lease routes support explicit
-human Active/Pending status decisions; event append still rejects a browser
-lease token, and any browser mutation body containing `lease_token` is
-rejected rather than forwarded.
+list/progress append, move, and actor-bearing work or relationship writes. A
+dashboard-lifetime in-memory registry owns fourteen frozen protected intents,
+including a two-work-key merge intent and a source/target-keyed move intent,
+blocks overlapping conflicts while an outcome is unresolved, and never writes
+those bodies or UUIDs to browser storage. Its API key is server-only. Every
+token-bearing lease-capability route is denied to the browser. Two exact
+token-free lease routes support explicit human Active/Pending status decisions;
+event append still rejects a browser lease token, and any browser mutation body
+containing `lease_token` is rejected rather than forwarded.
 
 All published ports bind to loopback by default. The shared bearer key protects
 REST and MCP, while the dashboard remains a trusted-local single-user surface.
@@ -559,14 +578,15 @@ is fix-forward or a consciously selected whole-database restore.
 
 ## Idempotent mutation execution
 
-The thirteen enrolled REST operations are create work, add checkpoint, append
-event, add relationship, update, defer, complete, delete, remove relationship,
-release claim, request human input, resolve human input, and merge work. Direct
-REST makes the operation UUID optional for the original twelve only when
-completion evidence is absent or empty; non-empty completion evidence and every
-merge require it. Canonical MCP requires it for eleven tools: the previous ten plus merge;
-defer and gate resolution remain human control-plane actions without MCP tools.
-The browser keys eleven non-capability mutations: the previous ten plus merge,
+The sixteen enrolled REST operations are create work, add checkpoint, append
+event, add relationship, update, defer, move, complete, delete, remove
+relationship, release claim, request human input, resolve human input, merge
+work, dismiss a report, and create a report follow-up. The operation UUID is
+mandatory for every fresh closeout, every merge, and both report actions; other
+eligible direct REST writes retain their unkeyed single-attempt form. Canonical
+MCP requires it for eleven tools and deliberately exposes no defer, move, gate
+resolution, dismissal, or report-follow-up write. The browser keys fourteen
+non-capability mutations, including move under both source and target work keys,
 while gate creation and release remain proxy-denied. Project administration,
 claim, claim-and-recall, and renewal are explicitly excluded.
 

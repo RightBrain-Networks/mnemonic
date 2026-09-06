@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   dashboardMutationActor,
+  decodeHistoricalWorkEventForWork,
   decodeWorkEvent,
   decodeWorkEventForWork,
   decodeWorkEventPage,
@@ -50,7 +51,7 @@ function event(overrides = {}) {
 }
 
 test("every retained event type has a deterministic human label", () => {
-  assert.equal(WORK_EVENT_TYPES.length, 17);
+  assert.equal(WORK_EVENT_TYPES.length, 18);
   assert.deepEqual(
     WORK_EVENT_TYPES.map(workEventTitle),
     [
@@ -69,10 +70,56 @@ test("every retained event type has a deterministic human label", () => {
       "Requested human attention",
       "Resolved human attention",
       "Merged duplicate work",
+      "Moved work",
       "Completed work",
       "Deleted work"
     ]
   );
+});
+
+test("move events retain their project-at-fact and historical reads stay work-scoped", () => {
+  const metadata = {
+    move_id: "1dfa9455-4a17-4cd4-938b-010ea17ccaf0",
+    source_project_id: project,
+    target_project_id: counterpart,
+    role: "source",
+    work_version: 2
+  };
+  const source = event({ event_type: "work_moved", body: null, metadata });
+  const target = event({
+    id: 2,
+    project_id: counterpart,
+    event_type: "work_moved",
+    body: null,
+    metadata: { ...metadata, role: "target" }
+  });
+  assert.match(workEventDescription(decodeWorkEvent(source)), /Moved this work to project/);
+  assert.match(workEventDescription(decodeWorkEvent(target)), /Moved this work here from project/);
+  assert.equal(decodeWorkEvent({
+    ...source,
+    actor_kind: "unattributed",
+    actor_client: null,
+    actor_session_id: null,
+    actor_model: null
+  }).actor_kind, "unattributed");
+  assert.equal(decodeHistoricalWorkEventForWork(target, work).project_id, counterpart);
+  assert.throws(
+    () => decodeWorkEventForWork(target, project, work),
+    /invalid work-event response/
+  );
+  assert.deepEqual(decodeWorkEventPage({
+    items: [target, source],
+    total: 2,
+    limit: 20,
+    offset: 0,
+    pre_phase5_history_may_be_incomplete: false
+  }, counterpart, work).items.map((item) => item.project_id), [counterpart, project]);
+  for (const invalid of [
+    event({ event_type: "work_moved", body: null, metadata: { ...metadata, role: "other" } }),
+    event({ event_type: "work_moved", body: null, metadata: { ...metadata, target_project_id: project } }),
+    event({ event_type: "work_moved", body: "unexpected", metadata }),
+    event({ event_type: "work_moved", body: null, project_id: counterpart, metadata })
+  ]) assert.throws(() => decodeWorkEvent(invalid), /invalid work-event response/);
 });
 
 test("event queries are newest-first, bounded, filtered, and reset after invalidation", () => {
