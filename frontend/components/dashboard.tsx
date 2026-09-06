@@ -1954,9 +1954,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
             />}
         </> : <>
           <DashboardViewChrome
-            eyebrow="DURABLE WORK FOR TEMPORARY SESSIONS"
             title="Work library"
             subject={project?.name}
+            subjectSlug={project?.slug}
             description={project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}
             liveSyncStatus={liveSyncStatus}
             onRefresh={() => {

@@ -36,6 +36,7 @@ export type HistoricalCompletionFixture = {
 export type E2EState = {
   projectId: string;
   projectName: string;
+  projectSlug: string;
   runId: string;
   historicalCompletion: HistoricalCompletionFixture;
 };

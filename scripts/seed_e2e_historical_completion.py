@@ -250,6 +250,7 @@ def seed_historical_completion(connection: Connection, run_id: UUID) -> dict[str
     return {
         "projectId": str(project_id),
         "projectName": project_name,
+        "projectSlug": "e2e-" + str(run_id),
         "runId": str(run_id),
         "historicalCompletion": {
             "title": title,

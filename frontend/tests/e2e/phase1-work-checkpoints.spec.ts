@@ -540,20 +540,23 @@ test("the library hero names the selected project in the vendored italic face", 
   const heading = page.getByRole("heading", { name: /^Work library[.:]/ });
   await expect(heading).toBeVisible();
   await page.locator("#project-select").selectOption(state.projectId);
-  await expect(heading).toHaveText(`Work library: ${state.projectName}`);
+  await expect(heading).toHaveText(`Work library: ${state.projectName}—${state.projectSlug}`);
 
   // The colon inherits the accent the period carried; the project name must not.
   const mark = heading.locator(".heading-mark");
-  const subject = heading.locator(".heading-subject");
+  const subject = heading.locator(".heading-subject-name");
+  const slug = heading.locator(".heading-subject-slug");
   await expect(mark).toHaveText(":");
   await expect(subject).toHaveText(state.projectName);
+  await expect(slug).toHaveText(state.projectSlug);
+  await expect(slug).toHaveCSS("opacity", "0.5");
   const color = (locator: Locator) => locator.evaluate((node) => getComputedStyle(node).color);
-  expect(await color(mark)).toBe(await color(page.locator(".page-heading .eyebrow")));
+  expect(await color(mark)).toBe(await color(page.locator(".topbar .small-mark")));
   expect(await color(subject)).toBe(await color(heading));
 
   const painted = await subject.evaluate((node) => {
     const style = getComputedStyle(node);
-    const parent = getComputedStyle(node.parentElement!);
+    const parent = getComputedStyle(node.closest("h1")!);
     return {
       family: style.fontFamily.split(",")[0].replace(/["']/g, "").trim(),
       opacity: style.opacity,
