@@ -24,7 +24,8 @@ const iconPaths = {
   search: "m21 21-4.4-4.4M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0Z",
   close: "m6 6 12 12M6 18 18 6",
   box: "M4 8h16v13H4V8ZM2 3h20v5H2V3Zm7 10h6",
-  filterLines: "M4 6h16M7 12h10M10 18h4"
+  filterLines: "M4 6h16M7 12h10M10 18h4",
+  chevronUp: "m6 15 6-6 6 6"
 };
 
 function Icon({ name, size = 18 }: { name: keyof typeof iconPaths; size?: number }) {
@@ -34,8 +35,8 @@ function Icon({ name, size = 18 }: { name: keyof typeof iconPaths; size?: number
 export type WorkItemListProps = {
   // The queue pane the lifecycle filter cross-dissolves; usePaneCrossfade owns it.
   queuePaneRef: RefObject<HTMLDivElement | null>;
-  // Search and filter controls.
-  supplementaryContent?: ReactNode;
+  // Everything above the lifecycle filters, including the page heading.
+  introductoryContent: ReactNode;
   libraryToolsOpen: boolean;
   onLibraryToolsOpen: (open: boolean) => void;
   query: string;
@@ -95,7 +96,7 @@ export type WorkItemListProps = {
 
 export default function WorkItemList({
   queuePaneRef,
-  supplementaryContent,
+  introductoryContent,
   libraryToolsOpen,
   onLibraryToolsOpen,
   query,
@@ -165,17 +166,16 @@ export default function WorkItemList({
 
   return <>
     <section className="library-controls" aria-label="Find work items">
-      <section className={`library-tools ${libraryToolsOpen ? "is-open" : ""}`} aria-label="Search and review tools">
+      <section className={`library-tools ${libraryToolsOpen ? "is-open" : ""}`} aria-label="Work library overview">
         <button
           className="library-tools-toggle"
           type="button"
-          aria-label={`${libraryToolsOpen ? "Hide" : "Show"} search and review tools`}
+          aria-label={`${libraryToolsOpen ? "Collapse" : "Expand"} work library overview`}
           aria-expanded={libraryToolsOpen}
           aria-controls="library-tools-panel"
           onClick={() => onLibraryToolsOpen(!libraryToolsOpen)}
         >
-          <span className="library-tools-title"><Icon name="search" size={15} />Search and reviews</span>
-          <span className="library-tools-state">{libraryToolsOpen ? "Hide" : "Show"}<span className="library-tools-chevron" aria-hidden="true">⌄</span></span>
+          <span className="library-tools-chevron" aria-hidden="true"><Icon name="chevronUp" size={15} /></span>
         </button>
         <div
           className="library-tools-region"
@@ -184,7 +184,7 @@ export default function WorkItemList({
           inert={!libraryToolsOpen}
         >
           <div className="library-tools-clip"><div className="library-tools-content">
-            {supplementaryContent}
+            {introductoryContent}
             <div className="search-field">
               <Icon name="search" size={20} />
               <input ref={searchRef} type="search" value={query} maxLength={500} aria-label="Search work items" placeholder="Search objectives, checkpoints, or session IDs…" onChange={(event) => onQuery(event.target.value)} />
