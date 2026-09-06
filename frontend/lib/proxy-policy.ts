@@ -8,6 +8,7 @@ import {
   objectValue as jsonObject,
   validBoundedMetadata,
   validUuid,
+  validUnicode,
   validUtcDateTime
 } from "./wire-guards.ts";
 import { decimalString, validJobReportInput, validReportPrompt } from "./job-completion-reports.ts";
@@ -78,6 +79,10 @@ export const DEFINITIVE_PROXY_ERRORS = {
   invalidProjectSettingsPatch: {
     status: 400,
     detail: "The project-settings patch does not match the dashboard allowlist."
+  },
+  invalidProjectPatch: {
+    status: 400,
+    detail: "The project patch does not match the dashboard allowlist."
   },
   invalidWorkItemDeletion: {
     status: 400,
@@ -348,6 +353,17 @@ function validStringArray(value: unknown, maximumItems: number, maximumLength: n
     && value.every((entry) => boundedText(entry, maximumLength));
 }
 
+function validProjectUrl(value: unknown): boolean {
+  if (!boundedText(value, 2_000) || /\s/.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:")
+      && Boolean(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 function validCheckpointPayload(value: unknown, includeKind: boolean): boolean {
   const checkpoint = jsonObject(value);
   if (!checkpoint) return false;
@@ -493,6 +509,25 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !(body.limit === undefined || finiteInteger(body.limit, 1, 10))
       || (Object.hasOwn(body, "external_candidates") && !validExternalCandidates(body.external_candidates))
     ) return DEFINITIVE_PROXY_ERRORS.invalidDuplicateSuggestion.detail;
+  }
+  if (PROJECT.test(path) && method === "PATCH") {
+    if (
+      !allowedKeys(body, ["name", "slug", "description", "repository_url"])
+      || !Object.keys(body).length
+      || (Object.hasOwn(body, "name") && !boundedText(body.name, 120))
+      || (Object.hasOwn(body, "slug")
+        && (typeof body.slug !== "string"
+          || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(body.slug)
+          || body.slug.length > 100))
+      || (Object.hasOwn(body, "description")
+        && (typeof body.description !== "string"
+          || !validUnicode(body.description)
+          || body.description.includes("\0")
+          || Array.from(body.description).length > 4_000))
+      || (Object.hasOwn(body, "repository_url")
+        && body.repository_url !== null
+        && !validProjectUrl(body.repository_url))
+    ) return DEFINITIVE_PROXY_ERRORS.invalidProjectPatch.detail;
   }
   if (WORK_ITEMS.test(path) && method === "POST") {
     if (

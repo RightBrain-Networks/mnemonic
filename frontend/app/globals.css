@@ -195,6 +195,7 @@ button { touch-action: manipulation; }
 .settings-template-field { font-size: 13px; }
 .field .settings-template { min-height: 230px; padding: 17px; font-size: 12px; line-height: 1.8; tab-size: 2; }
 .settings-actions { display: flex; align-items: center; gap: 10px; margin: 17px 0 30px; }
+.settings-project-form .settings-actions { margin-bottom: 0; }
 .settings-loading { display: inline-flex; align-items: center; margin-left: 3px; color: var(--muted); font-size: 11px; }
 .macro-legend { padding-top: 27px; border-top: 1px solid var(--line); }
 .macro-legend h3 { margin: 7px 0 18px; font: 700 17px/1.35 var(--display); letter-spacing: -.2px; }

@@ -64,12 +64,22 @@ def test_project_crud_counts_and_conflict(api, project):
     assert result["items"][0]["id"] == project["id"]
     updated = api.patch(
         f"/api/v1/projects/{project['id']}",
-        json={"name": "Renamed", "description": "A project description", "repository_url": None},
+        json={
+            "name": "Renamed",
+            "slug": "renamed-project",
+            "description": "A project description",
+            "repository_url": None,
+        },
     )
     assert updated.status_code == 200
-    assert updated.json()["slug"] == project["slug"]
+    assert updated.json()["slug"] == "renamed-project"
     assert updated.json()["description"] == "A project description"
     assert api.get(f"/api/v1/projects/{project['id']}").json() == updated.json()
+    duplicate_slug = api.patch(
+        f"/api/v1/projects/{second.json()['id']}", json={"slug": "renamed-project"}
+    )
+    assert duplicate_slug.status_code == 409
+    assert duplicate_slug.json()["detail"]["code"] == "slug_conflict"
     assert api.get(f"/api/v1/projects/{uuid4()}").status_code == 404
 
 

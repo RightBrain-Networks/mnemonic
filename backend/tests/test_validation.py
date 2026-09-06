@@ -498,10 +498,17 @@ def test_project_slug_normalization():
         ProjectCreate(name="日本語")
 
 
-@pytest.mark.parametrize("payload", [{}, {"description": None}, {"name": None}, {"slug": "new"}])
+@pytest.mark.parametrize(
+    "payload",
+    [{}, {"description": None}, {"name": None}, {"slug": None}, {"slug": "Not Valid"}],
+)
 def test_project_patch_rejects_invalid_edits(payload):
     with pytest.raises(ValidationError):
         ProjectPatch.model_validate(payload)
+
+
+def test_project_patch_accepts_slug_edits():
+    assert ProjectPatch.model_validate({"slug": "new-project"}).slug == "new-project"
 
 
 def test_project_settings_patch_is_exact_nullable_and_bounded():
