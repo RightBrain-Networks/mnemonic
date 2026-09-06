@@ -464,15 +464,16 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.12.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.12.0` install
-plus a `0.11.0 -> 0.12.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.13.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.13.0` install
+plus a `0.12.0 -> 0.13.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
 the inventory remains exactly three skills (`mnemonic-save`, `mnemonic-search`,
-and `mnemonic-recall`), five shared references (`authority-and-provenance.md`,
-`completion-evidence.md`, `job-completion-reports.md`, `repository-freshness.md`,
+and `mnemonic-recall`), seven shared references (`authority-and-provenance.md`,
+`completion-evidence.md`, `external-records.md`, `job-completion-reports.md`,
+`priority.md`, `repository-freshness.md`,
 and `work-graph.md`), and
 one executable (`mnemonic-repository-freshness`).
 A compatibility copy of the old prerelease schema or workflow is not a valid
@@ -788,7 +789,7 @@ remain server-only.
 
 ## Phase 12 acceptance additions
 
-Current application/API/MCP/dashboard versions are `0.11.0`, plugin is `0.12.0`,
+Current application/API/MCP/dashboard versions are `0.11.0`, plugin is `0.13.0`,
 and Alembic head is `0022_external_references`. Validate all surfaces together
 with the existing regression suites. Historical Phase 11 downgrade/catalog tests
 must seed valid historical shapes with offline SQL at 0019; never run current

@@ -110,7 +110,7 @@ Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemon
 reachable remotely.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current application/API/MCP release is `0.11.0`, with plugin version `0.12.0` and database head `0022_external_references`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
+not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current application/API/MCP release is `0.11.0`, with plugin version `0.13.0` and database head `0022_external_references`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
 
 - **`mnemonic-save`** searches for existing work, explicitly compares a stable
   draft with grouped duplicate candidates while preserving Create anyway,
@@ -124,6 +124,7 @@ not the installed files. After a published plugin version changes, run `claude p
   normally restricted to canonical pending work, identifies the exact member
   that supplied a grouped match, interprets categorical duplicate-suggestion
   signals without treating them as authority, supports explicit alias audit scopes,
+  assigns deliberate priorities using a shared [consequence rubric](plugin/reference/priority.md),
   separately lists priority-ordered ready candidates, and pages the Needs
   Attention queue without treating any read as authority.
   A compact search pointer never carries repository dependency scope, so any
