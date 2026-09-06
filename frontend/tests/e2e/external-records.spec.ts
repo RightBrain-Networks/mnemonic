@@ -18,7 +18,7 @@ async function openCreate(page: Page, title: string) {
   return dialog;
 }
 
-test("external references remain visible before selection and ordered edits can clear them", async ({ page }, testInfo) => {
+test("external references appear only in detail and ordered edits can clear them", async ({ page }, testInfo) => {
   const title = `External reference acceptance ${testInfo.project.name} ${state.runId} ${crypto.randomUUID().slice(0, 8)}`;
   const dialog = await openCreate(page, title);
   await dialog.getByRole("button", { name: "Add external reference" }).click();
@@ -35,24 +35,25 @@ test("external references remain visible before selection and ordered edits can 
   await expect(dialog).toBeHidden();
   const pane = workPane(page);
   await expect(pane.locator(".detail-title")).toHaveText(title);
-  await closeDetail(page);
-  const card = workCard(page, title);
-  await expect(card).toContainText("Tracked by");
-  await expect(card).toContainText("Caller observed: closed");
-  await expect(card).toContainText("2026-09-05T14:20:00Z");
-  await expect(card).toContainText("Observation time unknown");
-  const selection = await card.getAttribute("aria-selected");
+  await expect(pane).toContainText("Tracked by");
+  await expect(pane).toContainText("Caller observed: closed");
+  await expect(pane).toContainText("2026-09-05T14:20:00Z");
+  await expect(pane).toContainText("Observation time unknown");
   await page.route("https://example.com/**", (route) => route.fulfill({ status: 200, body: "Disposable external target" }));
-  const trackerLink = card.getByRole("link", { name: /project#2188/ });
+  const trackerLink = pane.getByRole("link", { name: /project#2188/ });
   await expect.poll(() => trackerLink.evaluate((link) => link.closest("[inert]") === null)).toBe(true);
   const popupPromise = page.waitForEvent("popup");
   await trackerLink.press("Enter");
   const popup = await popupPromise;
   await popup.close();
-  await expect(card).toHaveAttribute("aria-selected", selection!);
-  await card.getByText("Full reference", { exact: true }).first().click();
-  await expect(card.getByText("https://example.com/issues/2188?view=all#details", { exact: true })).toBeVisible();
-  await testInfo.attach("External references on discovery", { body: await card.screenshot(), contentType: "image/png" });
+  await pane.getByText("Full reference", { exact: true }).first().click();
+  await expect(pane.getByText("https://example.com/issues/2188?view=all#details", { exact: true })).toBeVisible();
+  await testInfo.attach("External references in detail", { body: await pane.screenshot(), contentType: "image/png" });
+  await closeDetail(page);
+  const card = workCard(page, title);
+  await expect(card.locator(".external-reference-list")).toHaveCount(0);
+  await expect(card).not.toContainText("Tracked by");
+  await expect(card).not.toContainText("project#2188");
   await card.locator(".queue-card-title").click();
   await pane.getByRole("button", { name: "Edit work item" }).click();
   await pane.getByRole("button", { name: "Move reference 2 up" }).click();
