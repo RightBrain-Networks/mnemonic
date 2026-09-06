@@ -134,8 +134,12 @@ def _fk(table: str, constraint: sa.ForeignKeyConstraint) -> None:
 
 
 def _columns() -> None:
-    op.add_column("checkpoints", sa.Column("requires_code_review_policy", sa.Boolean(),
-                                         nullable=False, server_default="false"))
+    op.add_column(
+        "checkpoints",
+        sa.Column(
+            "requires_code_review_policy", sa.Boolean(), nullable=False, server_default="false"
+        ),
+    )
     for name in SETTINGS_COLUMNS[:2]:
         op.add_column(
             "project_settings",
@@ -331,6 +335,7 @@ def _downgrade_guard(schema: str) -> None:
     tables = tuple(TABLE_ELEMENTS) + (
         "project_settings",
         "work_items",
+        "work_item_moves",
         "checkpoints",
         "work_leases",
         "work_events",
@@ -380,6 +385,7 @@ def _drop_guards(schema: str) -> None:
     op.execute(f"DROP TRIGGER code_review_checkpoint_guard ON {schema}.checkpoints")
     for table, trigger in (
         ("work_items", "review_work_guard"),
+        ("work_item_moves", "code_review_move_guard"),
         ("work_items", "code_review_work_sealed"),
         ("work_relationships", "code_review_edge_guard"),
         ("work_duplicate_merges", "code_review_merge_guard"),

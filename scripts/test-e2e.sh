@@ -87,7 +87,10 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" up -d --build --wait
+if ! docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" up -d --build --wait; then
+  docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" logs --no-color api web
+  exit 1
+fi
 (
   cd -- "$repo_root/frontend"
   npm run test:e2e -- "$@"

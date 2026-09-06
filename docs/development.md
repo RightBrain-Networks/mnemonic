@@ -390,17 +390,18 @@ uv run ruff check .
 uv run ty check src/mnemonic_mcp
 ```
 
-The MCP suite verifies the exact 32-tool canonical catalog, strict unknown-field
+The MCP suite verifies the exact 38-tool canonical catalog, strict unknown-field
 rejection, nested checkpoint request bodies, canonical/grouped search hits,
 compact ready results, bounded recall, deterministic checkpoint/event
 pagination, versioned mutation receipts, typed graph and lease behavior, the
 `resume_work` prompt, and the work-item resource across direct, Streamable HTTP,
 and real stdio transports.
 
-Exactly eleven mutation tools require a canonical `client_operation_id` and
+Exactly thirteen mutation tools require a canonical `client_operation_id` and
 advertise truthful idempotency: `create_work`, `add_checkpoint`, `append_event`,
 `add_relationship`, `update_work`, `complete_work`, `delete_work`,
-`remove_relationship`, `release_claim`, `request_human_input`, and `merge_work`. Tests prove
+`remove_relationship`, `release_claim`, `request_human_input`, `merge_work`,
+`respond_to_work_follow_up`, and `complete_code_review`. Tests prove
 exact one-attempt forwarding, strict coherent response decoding, sanitized
 same-key recovery guidance, and local rejection on excluded tools. Project
 creation, claim, claim-and-recall, and renewal retain separate non-idempotent
@@ -537,12 +538,12 @@ invalidation, actor request construction, progress composer errors, pagination/
 filtering, and the partial-history notice at desktop and narrow viewports. The
 ready endpoint remains intentionally proxy-denied.
 
-Mutation tests cover all fourteen browser writes, one UUID and exact frozen
+Mutation tests cover all fifteen browser writes, one UUID and exact frozen
 serialized body per intent, in-flight coalescing, same-document recovery after component or
 view unmount, exact manual retry after ambiguous outcomes, and a non-discardable
 safety state for key conflicts. Strict per-operation decoders require the
 expected status, exact shape, and path/result coherence before clearing
-recovery. Proxy-policy tests admit the top-level UUID only on those fourteen
+recovery. Proxy-policy tests admit the top-level UUID only on those fifteen
 routes, including move, gate resolution, merge, report dismissal, and report
 follow-ups, and reject invalid, nested, query/header/cookie, secret-equal, and
 excluded-route IDs without echoing them.
@@ -569,7 +570,7 @@ ambiguous retry, stale-review replacement, and current-root refetch after
 success. Since the two-column work library, that merge review is an inline
 panel at the top of the detail pane's Graph tab rather than a dialog; the same
 destination search, eligibility facts, registry intent, and recovery block apply
-there. The browser registry contains exactly fourteen kinds and admits no lease
+there. The browser registry contains exactly fifteen kinds and admits no lease
 token.
 
 Advisory Node tests cover exact request construction and strict response
@@ -831,8 +832,8 @@ questions, cold/warm lease isolation, one atomic remediation and hard depth ceil
 exact historical and new receipt replay, protected lineage under direct SQL,
 bounded discovery/history, backup/restore audit, and both dashboard Done paths.
 Run `scripts/audit_code_reviews.py` read-only from a private database environment.
-The current inventory is 38 MCP tools, 13 protected MCP writes, 17 REST receipt
-kinds, 14 protected browser mutations and 23 work-event types. See
+The current inventory is 38 MCP tools, 13 protected MCP writes, 18 REST receipt
+kinds, 15 protected browser mutations and 24 work-event types. See
 [code reviews](code-reviews.md) for client and deployment rules.
 
 ## Full running-stack check

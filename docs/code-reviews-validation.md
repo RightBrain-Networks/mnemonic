@@ -1,9 +1,12 @@
 # Code reviews implementation validation
 
-Implementation baseline: `513f543` (merged planning PR #49). This release is
-application/API/MCP/dashboard 0.12.0, Claude plugin 0.14.0 and Alembic
-`0023_code_reviews`. The merged baseline already had plugin 0.13.0; the plugin
-bump therefore reconciles the earlier planning catalog rather than reverting it.
+Implementation began at `513f543` (planning PR #49), then rebased onto `c71a0cb`
+(work-item moves, PR #50) before cold review. This release is application/API/MCP/
+dashboard 0.13.0, Claude plugin 0.14.0 and Alembic `0024_code_reviews`, following
+`0023_work_item_moves`. The integrated catalog is 38 MCP tools, 13 protected MCP
+writes, 18 REST receipt kinds, 15 protected browser mutations and 24 work events.
+The plugin baseline was already 0.13.0. Work with retained review-policy/history
+or remediation ancestry cannot move between projects.
 
 The implementation follows [the plan](code-reviews-implementation-plan.md).
 [Code reviews](code-reviews.md) documents the shipped workflow and operational
@@ -15,7 +18,7 @@ feature or migrate the operator's running database.
 - Migration/ORM parity, SQL transition/lineage attacks, downgrade guards and
   audit tests: 75 passed in the persistence validation run. Existing completion
   evidence and report/lease suites are also included in full backend validation.
-- All 15 pre-feature receipt kinds retain frozen request/response digests.
+- All 16 pre-feature receipt kinds retain frozen request/response digests.
   The two new kinds have their own frozen vectors; sparse historical responses
   do not acquire review fields.
 - A PostgreSQL 17 custom archive (636,767 bytes) was restored into a uniquely
@@ -70,6 +73,6 @@ here before the pull request is opened.
 Merge is not deployment. Before target deployment: back up and quiesce writers,
 migrate, install coordinated API/MCP/dashboard/plugin versions, run the read-only
 audit and both review-mode smoke checks, then resume traffic. Never run older
-writers against 0023. After policy changes or review facts exist, downgrade is
+writers against 0024. After policy changes or review facts exist, downgrade is
 blocked even when settings are reset; use a forward fix or an explicitly
 approved complete restore.

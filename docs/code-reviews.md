@@ -1,7 +1,7 @@
 # Code reviews
 
-Code reviews are first-class completion episodes in Mnemonic 0.12.0 (plugin
-0.14.0, migration `0023_code_reviews`). A review belongs to the original Done
+Code reviews are first-class completion episodes in Mnemonic 0.13.0 (plugin
+0.14.0, migration `0024_code_reviews`). A review belongs to the original Done
 work item; it is never a separate work item. A reviewer leases that original
 item. Done continues to resolve implementation blockers: a review is an
 assessment, not a merge/deployment approval or a guarantee of correctness.
@@ -183,7 +183,13 @@ and invalidates a review lease. Ordinary dashboard Active/Pending controls
 cannot release review leases. Unresolved obligations block deletion/merge.
 Resolved history and protected provenance survive permissible soft deletion.
 
-Back up and quiesce writers before `0023_code_reviews`, then deploy coordinated
+Work moves remain available for eligible items without review history. Any
+retained completion policy (even Never), question, review or remediation ancestry
+blocks movement between projects, including after reopen. This release does not
+reassign immutable review history. Historical pre-feature Done work with no review
+facts retains the existing move rules; completed old move receipts still replay.
+
+Back up and quiesce writers before `0024_code_reviews`, then deploy coordinated
 API/MCP/dashboard/plugin versions. Do not run older processes against this
 schema. Existing projects retain Never/Never/off; old receipts and history are
 not rewritten. Downgrade is refused after any review fact or policy change,

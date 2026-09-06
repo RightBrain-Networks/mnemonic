@@ -265,16 +265,14 @@ def test_moved_work_report_provenance_is_global_and_snapshot_paged(
 ):
     target = _project(api, "Provenance move destination")
     work = _work(api, project, work_payload, "Move report provenance")["work_item"]
-    completed = api.post(
-        _path(project, work) + "/complete",
+    completed = api.patch(
+        _path(project, work),
         json=reported(
             {
                 "expected_version": 1,
-                "checkpoint": {
-                    **checkpoint_fields,
-                    "source_session_id": "move-provenance-completion",
-                },
-            }
+                "status": "wont-do",
+            },
+            retirement=True,
         ),
     )
     assert completed.status_code == 200, completed.text
@@ -308,7 +306,7 @@ def test_moved_work_report_provenance_is_global_and_snapshot_paged(
 
     moved_source = api.post(
         _path(project, work) + "/move",
-        json=_move_payload(target, completion["work_item"]["version"]),
+        json=_move_payload(target, completion["version"]),
     )
     assert moved_source.status_code == 200, moved_source.text
     created_path = _path(target, work) + "/report-follow-ups"
@@ -724,8 +722,8 @@ def test_unkeyed_move_allows_omitted_actor(api, project, work_payload):
     assert all(event["actor_client"] is None for event in events)
 
 
-@pytest.mark.parametrize("status", ("pending", "deferred", "done", "wont-do", "promoted"))
-def test_move_preserves_every_stored_lifecycle_status(
+@pytest.mark.parametrize("status", ("pending", "deferred", "wont-do", "promoted"))
+def test_move_preserves_lifecycle_without_review_policy(
     api, project, work_payload, checkpoint_fields, status
 ):
     target = _project(api, f"{status} move destination")
@@ -738,22 +736,6 @@ def test_move_preserves_every_stored_lifecycle_status(
         )
         assert transitioned.status_code == 200, transitioned.text
         work = transitioned.json()
-    elif status == "done":
-        transitioned = api.post(
-            _path(project, work) + "/complete",
-            json=reported(
-                {
-                    "expected_version": 1,
-                    "checkpoint": {
-                        **checkpoint_fields,
-                        "source_session_id": "move-status-done",
-                    },
-                }
-            ),
-        )
-        assert transitioned.status_code == 200, transitioned.text
-        work = transitioned.json()["work_item"]
-        report = transitioned.json()["job_completion_report"]
     elif status in {"wont-do", "promoted"}:
         transitioned = api.patch(
             _path(project, work),
@@ -787,7 +769,7 @@ def test_move_preserves_every_stored_lifecycle_status(
         assert api.get(target_report).status_code == 404
 
 
-def test_move_preserves_sealed_done_episode_and_origin_report(
+def test_move_rejects_new_done_policy_preserving_episode_and_origin_report(
     api, project, work_payload, checkpoint_fields, postgres_engine
 ):
     target = _project(api, "Done move destination")
@@ -811,10 +793,10 @@ def test_move_preserves_sealed_done_episode_and_origin_report(
         _path(project, work) + "/move",
         json=_move_payload(target, completion["work_item"]["version"]),
     )
-    assert moved.status_code == 200, moved.text
-    assert moved.json()["preserved_status"] == "done"
-    assert moved.json()["work_item"]["id"] == work["id"]
-    evidence = api.get(_path(target, work) + "/completion-evidence").json()
+    assert moved.status_code == 409, moved.text
+    assert moved.json()["detail"]["code"] == "work_move_review_history_conflict"
+    assert api.get(_path(target, work)).status_code == 404
+    evidence = api.get(_path(project, work) + "/completion-evidence").json()
     assert evidence["total"] == 1
     assert evidence["current_completion_checkpoint_id"] == completion["checkpoint"]["id"]
     with postgres_engine.connect() as connection:
@@ -833,23 +815,21 @@ def test_origin_report_resolves_canonical_work_after_move_then_target_merge(
     source = _work(api, project, work_payload, "Reported work moved before merge")[
         "work_item"
     ]
-    completed = api.post(
-        _path(project, source) + "/complete",
+    completed = api.patch(
+        _path(project, source),
         json=reported(
             {
                 "expected_version": 1,
-                "checkpoint": {
-                    **checkpoint_fields,
-                    "source_session_id": "move-before-canonical-merge",
-                },
-            }
+                "status": "wont-do",
+            },
+            retirement=True,
         ),
     )
     assert completed.status_code == 200, completed.text
     report = completed.json()["job_completion_report"]
     moved = api.post(
         _path(project, source) + "/move",
-        json=_move_payload(target, completed.json()["work_item"]["version"]),
+        json=_move_payload(target, completed.json()["version"]),
     )
     assert moved.status_code == 200, moved.text
 
@@ -866,7 +846,7 @@ def test_origin_report_resolves_canonical_work_after_move_then_target_merge(
     assert detail.status_code == 200, detail.text
     assert detail.json()["source_work_state"] == {
         "work_item_id": source["id"],
-        "status": "done",
+        "status": "wont-do",
         "canonical_work_item_id": destination["id"],
         "deleted": False,
     }

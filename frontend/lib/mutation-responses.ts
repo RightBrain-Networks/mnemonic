@@ -178,6 +178,8 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "work_move_active_lease",
     "work_move_relationships",
     "work_move_duplicate_membership",
+    "work_move_review_history_conflict",
+    "code_review_provenance_relationship_protected",
     "work_gated",
     "gate_already_resolved",
     "gate_context_changed",

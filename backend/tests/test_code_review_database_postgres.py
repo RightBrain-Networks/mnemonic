@@ -15,10 +15,12 @@ from sqlalchemy.orm import Session
 from .code_review_database_fixtures import close_work, create_work, finish_review, policy
 from .code_review_fixtures import handoff
 from .conftest import BACKEND_DIR
+from .test_duplicate_merge_invariants_postgres import _create_project_with_work
 from .test_phase6_migration_postgres import (
     empty_phase6_migration_engine as empty_phase6_migration_engine,
 )
 from .test_phase12_database_postgres import _close, _project, _work
+from .test_work_item_move_migration_postgres import _move
 
 pytestmark = pytest.mark.postgres
 
@@ -200,7 +202,7 @@ def _migrate(engine: Engine, target: str, *, down: bool = False) -> None:
 
 def test_untouched_migration_round_trip_preserves_existing_settings(empty_phase6_migration_engine):
     engine = empty_phase6_migration_engine
-    _migrate(engine, "0022_external_references")
+    _migrate(engine, "0023_work_item_moves")
     project_id = uuid4()
     with engine.begin() as connection:
         connection.execute(
@@ -222,7 +224,7 @@ def test_untouched_migration_round_trip_preserves_existing_settings(empty_phase6
             ),
             {"id": project_id},
         ).one() == (100, 100, False, False)
-    _migrate(engine, "0022_external_references", down=True)
+    _migrate(engine, "0023_work_item_moves", down=True)
     with engine.connect() as connection:
         assert (
             connection.scalar(
@@ -251,7 +253,52 @@ def test_changed_then_reset_policy_prevents_downgrade(empty_phase6_migration_eng
                 {"n": threshold, "id": project_id},
             )
     with pytest.raises(RuntimeError, match="downgrade refused"):
-        _migrate(engine, "0022_external_references", down=True)
+        _migrate(engine, "0023_work_item_moves", down=True)
+
+
+def test_review_upgrade_and_unused_downgrade_preserve_existing_move_history(
+    empty_phase6_migration_engine,
+):
+    engine = empty_phase6_migration_engine
+    _migrate(engine, "0023_work_item_moves")
+    with engine.begin() as connection:
+        source, work = _create_project_with_work(connection, work_count=1)
+        target, _ = _create_project_with_work(connection, work_count=0)
+    with engine.begin() as connection:
+        move_id = _move(
+            connection, work_item_id=work[0][0], source_project_id=source, target_project_id=target
+        )
+    tables = ("work_items", "checkpoints", "work_events", "work_item_moves", "project_activity")
+    with engine.connect() as connection:
+        before = {
+            table: connection.scalar(
+                text(
+                    f"SELECT jsonb_agg(to_jsonb(row) ORDER BY to_jsonb(row)::text) FROM {table} row"
+                )
+            )
+            for table in tables
+        }
+    _migrate(engine, "head")
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM work_completion_review_policies")) == 0
+        assert connection.scalar(text("SELECT id FROM work_item_moves")) == move_id
+        assert (
+            connection.scalar(
+                text("SELECT count(*) FROM checkpoints WHERE requires_code_review_policy")
+            )
+            == 0
+        )
+    _migrate(engine, "0023_work_item_moves", down=True)
+    with engine.connect() as connection:
+        after = {
+            table: connection.scalar(
+                text(
+                    f"SELECT jsonb_agg(to_jsonb(row) ORDER BY to_jsonb(row)::text) FROM {table} row"
+                )
+            )
+            for table in tables
+        }
+    assert after == before
 
 
 @pytest.mark.parametrize("depart", [False, True])

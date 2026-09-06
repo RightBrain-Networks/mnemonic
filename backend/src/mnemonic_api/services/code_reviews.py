@@ -3,7 +3,7 @@
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.code_review_schemas import (
@@ -306,8 +306,14 @@ def answer_follow_up(
     question.state, question.answer_id = "answered", answer.id
     question.version += 1
     database.flush()
-    fields = {"code_review_request": review_read(review),
-              "code_review_handoff": payload.answer.code_review_handoff} if review else {}
+    fields = (
+        {
+            "code_review_request": review_read(review),
+            "code_review_handoff": payload.answer.code_review_handoff,
+        }
+        if review
+        else {}
+    )
     return WorkFollowUpResponseResult(
         follow_up=follow_up_read(question), answer=answer_read(answer), **fields
     )
@@ -333,6 +339,31 @@ def require_no_review_obligation(database: Session, work_id: UUID) -> None:
     if review is not None or question is not None:
         raise conflict(
             "code_review_obligation_outstanding", "Reopen explicitly to supersede review work."
+        )
+
+
+def require_no_review_history_for_move(database: Session, work: WorkItem) -> None:
+    """Review facts retain exact project ownership; moves cannot reparent that history."""
+    retained = database.scalar(
+        select(
+            or_(
+                exists().where(WorkCompletionReviewPolicy.work_item_id == work.id),
+                exists().where(WorkAgentFollowUp.work_item_id == work.id),
+                exists().where(CodeReview.work_item_id == work.id),
+                exists().where(
+                    or_(
+                        CodeReviewRemediation.source_work_item_id == work.id,
+                        CodeReviewRemediation.remediation_work_item_id == work.id,
+                    )
+                ),
+            )
+        )
+    )
+    if retained or work.remediation_depth > 0:
+        raise conflict(
+            "work_move_review_history_conflict",
+            "Work with retained review policy, questions, reviews or remediation "
+            "cannot move projects.",
         )
 
 

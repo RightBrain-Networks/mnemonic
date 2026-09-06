@@ -1,4 +1,4 @@
-"""Read-only aggregate integrity audit for schema 0023 code reviews.
+"""Read-only aggregate integrity audit for schema 0024 code reviews.
 
 Run with the backend virtual environment and private database access. Output
 contains counts only: no repository locators, prompts, findings, actors, tokens,
@@ -12,8 +12,16 @@ import os
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0023_code_reviews"
+HEAD = "0024_code_reviews"
 CHECKS = {
+    "review_work_ownership_mismatch": """
+        SELECT count(*) FROM (
+            SELECT project_id,work_item_id FROM work_completion_review_policies
+            UNION ALL SELECT project_id,work_item_id FROM work_agent_follow_ups
+            UNION ALL SELECT project_id,work_item_id FROM code_reviews
+        ) history LEFT JOIN work_items work ON work.id=history.work_item_id
+        WHERE work.id IS NULL OR work.project_id<>history.project_id
+    """,
     "missing_episode_policies": """
         SELECT count(*) FROM checkpoints checkpoint
         LEFT JOIN work_completion_review_policies policy

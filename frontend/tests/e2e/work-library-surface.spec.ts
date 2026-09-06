@@ -1195,6 +1195,7 @@ test("the work item ID copies from the pane header", async ({ page }, testInfo) 
 
     // The pane's primary pointer copy still produces a recall pointer.
     await pane.getByRole("button", { name: "Copy recall pointer", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("recall_work");
     const pointer = await page.evaluate(() => navigator.clipboard.readText());
     expect(pointer).toContain(work.id);
     expect(pointer).toContain("recall_work");

@@ -1,6 +1,6 @@
 # Operating Mnemonic
 
-For the coordinated 0.12.0 code-review release (plugin 0.14.0, migration 0023),
+For the coordinated 0.13.0 code-review release (plugin 0.14.0, migration 0024),
 see [code-review deployment and recovery](code-reviews.md#recovery-and-deployment).
 Back up and quiesce old writers; do not deploy older processes against the new
 schema or force a downgrade after review facts/settings changes. Defaults stay
@@ -113,6 +113,18 @@ and 24 work-event types. Keep older writers stopped: fresh closeouts now require
 a report and operation UUID, fresh work starts Pending, and settings use revision
 checks. Permanent historical receipts remain recoverable with their exact old
 request; do not manufacture missing reports or evidence for historical work.
+
+For 0024, take a verified backup with writers stopped, migrate and deploy all
+coordinated surfaces, then run `scripts/audit_code_reviews.py` against the exact
+new head. Rehearse restore and verify both review modes, defaults, lease-purpose
+isolation, one-remediation completion and permanent receipt replay before
+reopening traffic. Downgrade is blocked after review policy changes or facts,
+including a change subsequently reset to defaults.
+
+### Historical move boundary: 0022 to 0023
+
+The following intermediate-boundary commands remain useful for preflight and
+restore rehearsal at those explicit heads; they are not a 0024 certification.
 
 Migration 0023 enables identity-preserving cross-project moves. Quiesce every
 writer before upgrading because historical work-owned foreign keys and event

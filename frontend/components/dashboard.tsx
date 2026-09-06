@@ -2064,7 +2064,9 @@ export default function Dashboard({ view = "library", timeZone }: { view?: "libr
       });
       await showMovedWork(result, displayStatus);
     } catch (error) {
-      if (isDefinitiveWorkPlacementMiss(error)) {
+      if (error instanceof ApiError && error.code === "work_move_review_history_conflict") {
+        setNotice({ message: "This work has retained code review policy, recommendation or remediation history and must remain in its original project. Reopening does not erase that history.", error: true });
+      } else if (isDefinitiveWorkPlacementMiss(error)) {
         const requestId = ++recordRequest.current;
         exactContextTarget.current = null;
         setContext(null);

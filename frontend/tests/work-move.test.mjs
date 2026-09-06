@@ -80,6 +80,9 @@ test("move eligibility blocks every server guard, including canonical duplicate 
     readiness: { has_active_lease: false, has_dropped_lease: false, is_gated: true }
   }), false), /human question/);
   assert.equal(workMoveDisabledReason(context(), false), null);
+  for (const code_review_context of [{current_review:{id:work}},{pending_follow_up:{id:work}},{remediation_depth:1},{remediation_depth:2}]) {
+    assert.match(workMoveDisabledReason(context({code_review_context}),false), /original project/);
+  }
 });
 
 test("a committed move immediately replaces the source-scoped summary with the target", () => {

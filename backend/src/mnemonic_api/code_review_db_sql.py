@@ -1,4 +1,4 @@
-"""Frozen SQL contracts for the 0023 code-review migration.
+"""Frozen SQL contracts for the 0024 code-review migration.
 
 SQL uses an explicitly quoted schema substituted by the migration. All guards
 run with pg_catalog search_path and never trust session settings as witnesses.
@@ -299,6 +299,28 @@ BEGIN
 END $f$;
 CREATE TRIGGER review_work_guard BEFORE INSERT OR UPDATE OR DELETE ON SCHEMA.work_items
 FOR EACH ROW EXECUTE FUNCTION SCHEMA.mnemonic_code_review_work_guard();
+
+CREATE FUNCTION SCHEMA.mnemonic_code_review_move_guard()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $f$
+DECLARE work SCHEMA.work_items;
+BEGIN
+    SELECT * INTO work FROM SCHEMA.work_items WHERE id=NEW.work_item_id FOR UPDATE;
+    IF work.remediation_depth>0 OR work.completion_review_checkpoint_id IS NOT NULL OR EXISTS(
+        SELECT 1 FROM SCHEMA.work_completion_review_policies policy
+        WHERE policy.project_id=work.project_id AND policy.work_item_id=work.id
+    ) OR EXISTS(
+        SELECT 1 FROM SCHEMA.code_reviews review
+        WHERE review.project_id=work.project_id AND review.work_item_id=work.id
+    ) OR EXISTS(
+        SELECT 1 FROM SCHEMA.work_agent_follow_ups question
+        WHERE question.project_id=work.project_id AND question.work_item_id=work.id
+    ) THEN
+        RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='review history cannot change projects';
+    END IF;
+    RETURN NEW;
+END $f$;
+CREATE TRIGGER code_review_move_guard BEFORE INSERT ON SCHEMA.work_item_moves
+FOR EACH ROW EXECUTE FUNCTION SCHEMA.mnemonic_code_review_move_guard();
 
 CREATE FUNCTION SCHEMA.mnemonic_code_review_work_sealed()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $f$

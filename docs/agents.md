@@ -709,10 +709,11 @@ Copy the generic skill directories into the discovery location supported by the
 target client. Tool-name prefixes may differ, but the underlying canonical names
 stay the same. Setup does not modify other projects or user-global configuration.
 
-The dashboard protects fourteen browser-accessible mutations: create work, add a
+The dashboard protects fifteen browser-accessible mutations: create work, add a
 checkpoint, append progress, add a relationship, edit work, complete work,
 defer work, delete work, move work, remove a relationship, resolve a human gate, and
-permanently merge duplicate work, dismiss a report, and create a report follow-up.
+permanently merge duplicate work, dismiss a report, create a report follow-up,
+and answer an originating-human review recommendation question.
 Deferral, move, and resolution remain human-only actions with no MCP tools; the
 proxy intentionally denies gate creation. The dashboard creates one UUID and
 freezes one serialized request in a dashboard-owned, same-document registry.
@@ -726,7 +727,7 @@ process loss. If the document is lost while an intent is unresolved, do not
 invent a replacement key or claim the mutation is safe to repeat; inspect state
 and request direction. The dashboard intentionally exposes no claim, renewal,
 release, or lease-token route, so `release_claim` is protected through MCP/REST
-but is not one of the fourteen browser actions. Gate resolution freezes its reviewed
+but is not one of the fifteen browser actions. Gate resolution freezes its reviewed
 revision and answer in the same registry; a definite context-change rejection
 requires a fresh human review and new UUID, while an ambiguous outcome permits
 only the exact frozen retry. No question or answer is browser-persisted.

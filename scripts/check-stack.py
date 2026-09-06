@@ -1105,7 +1105,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.12.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.13.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         require(
             {"ExternalReference", "ExternalReferencesChange", "ExternalDuplicateCandidate",
@@ -1568,7 +1568,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.12.0",
+                    and initialized.serverInfo.version == "0.13.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()

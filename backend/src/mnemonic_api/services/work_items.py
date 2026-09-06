@@ -492,6 +492,7 @@ def move_work_record(
     payload: WorkMoveCreate,
 ) -> WorkItemMove:
     """Move one stable work identity while leaving immutable facts at their origins."""
+    from mnemonic_api.services.code_reviews import require_no_review_history_for_move
     from mnemonic_api.services.duplicates import (
         require_canonical_work_item,
         require_no_duplicate_membership,
@@ -504,13 +505,14 @@ def move_work_record(
         )
     require_canonical_work_item(database, work_item)
     require_version(work_item, payload.expected_version)
+    if work_item.status == "done":
+        require_sealed_completion_episode(database, work_item)
+    require_sealed_closeout_report(database, work_item)
+    require_no_review_history_for_move(database, work_item)
     require_no_duplicate_membership(database, work_item)
     require_no_relationships_for_move(database, source_project_id, work_item.id)
     require_no_unresolved_gates(database, work_item.id)
     require_no_active_lease_for_move(database, work_item.id)
-    if work_item.status == "done":
-        require_sealed_completion_episode(database, work_item)
-    require_sealed_closeout_report(database, work_item)
 
     mutation_time = database_now(database)
     move = WorkItemMove(
