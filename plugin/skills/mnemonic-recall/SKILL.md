@@ -223,6 +223,8 @@ person can give, do not stall in chat and do not guess:
 3. Call `request_human_input` with a self-contained, decision-ready question,
    truthful requester provenance, and a fresh `client_operation_id`; follow the
    `mnemonic-save` skill's "Request human input" section for the full procedure.
+   Use Markdown to make the decision and options easy to scan in Needs
+   Attention, following the shared report reference's formatting guidance.
 4. Keep the lease only for work that does not depend on the answer; otherwise
    `release_claim` (with its own retained UUID) and tell the user the item is
    waiting in the dashboard. Requesting never releases the lease for you.

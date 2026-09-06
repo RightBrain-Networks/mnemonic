@@ -4,6 +4,7 @@ import ExternalReferences from "@/components/external-references";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useRef, useState } from "react";
 import HumanGateResolution from "@/components/human-gate-resolution";
+import MarkdownContent from "@/components/markdown-content";
 import { SearchBreadcrumb } from "@/components/work-hierarchy";
 import {
   OperationalBadge,
@@ -161,7 +162,7 @@ export default function HumanAttentionList({
       </div>
       <h3>{item.summary.work_item.title}</h3>
       <ExternalReferences references={item.summary.work_item.external_references} />
-      <p className="attention-question">{item.gate.question}</p>
+      <MarkdownContent className="attention-question">{item.gate.question}</MarkdownContent>
       <dl className="attention-provenance">
         <div><dt>Requested through</dt><dd>{requestedThrough(item)}</dd></div>
         <div><dt>Requested</dt><dd><time dateTime={item.gate.created_at}>{formatDateTime(item.gate.created_at)}</time></dd></div>

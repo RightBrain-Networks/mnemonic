@@ -59,6 +59,33 @@ Preserve the authored order. Structural validation cannot establish truthful,
 concise prose or reliably count natural-language sentences; review these before
 submitting. The project prompt cannot waive the three-sentence FYI limit.
 
+## Format human-facing dashboard messages with Markdown
+
+Use Markdown when it makes human-facing messages easier to scan. The dashboard
+renders report `summary`, each `fyi_items` entry, and the `question` submitted
+through `request_human_input`, including the same question in work context.
+
+- In summaries and FYIs, use **bold** for the outcome or decision, *emphasis*
+  sparingly, backticks for literal names/commands, and descriptive links such as
+  `[review the change](https://example.com/review)`. For example:
+  `**Ready for review.** The dashboard now uses one consistent font.`
+- Keep the summary one paragraph and each FYI one separate array entry, with no
+  line breaks or leading bullet marker; the dashboard supplies the FYI bullets.
+  Markdown characters count toward the existing character and byte limits.
+- In Needs Attention questions, use short headings, blank lines, bullet or
+  numbered lists, blockquotes, fenced code, or tables when they clarify the
+  decision and its options. For example, a question can start with
+  `**Which rollout should we use?**`, followed by a blank line and one bullet
+  per option with its consequence. The complete question still fits 4,000
+  characters and remains understandable without the checkpoint or chat.
+
+Use Markdown syntax, not raw HTML; HTML is displayed literally and image
+embeds are disabled. Use a descriptive link when an image or attachment is
+relevant. Do not wrap the whole message in a code fence or escape all its
+Markdown. Plain prose is fine when extra formatting would not help. Formatting
+does not change authority, truthful reporting, or the exact bytes/UUID retained
+for an unknown-outcome retry.
+
 ## Freeze the closeout, then confirm it
 
 Recall sufficient current context and establish what actually happened. Keep

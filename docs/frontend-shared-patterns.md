@@ -54,6 +54,26 @@ receives immutable public summaries, never request bodies or operation IDs.
 The registry remains responsible for the frozen body/UUID, conflict checks at
 dispatch, unload warnings, and byte-identical retries.
 
+## Human-facing Markdown
+
+`frontend/lib/markdown.ts` converts Markdown to HTML using the vendored
+markdown-it browser build. `MarkdownContent` is the shared rendering boundary
+for completion-report summaries/FYIs and human questions in both the Needs
+Attention queue and work context. Shared `.markdown-content` styles keep lists,
+code, and tables readable in light/dark themes and narrow layouts.
+
+Raw HTML is escaped, unsafe link schemes are rejected by the parser, and image
+embeds are disabled. Only this configured converter supplies the component's
+HTML sink. Stored text, receipt bytes, report bounds, and API shapes are unchanged.
+Report summaries/FYIs retain their single-paragraph input contract; questions
+can use block Markdown. See the vendor README for upstream research, licenses,
+integrity records, and upgrade instructions.
+
+Synthetic browser examples, including deliberately escaped HTML and rejected
+links: [summary formatting](images/markdown-summaries-light.png),
+[questions in dark mode](images/markdown-attention-dark.png), and
+[questions on a narrow screen](images/markdown-attention-narrow.png).
+
 ## Regression coverage
 
 - `revision-codecs.test.mjs` and the existing domain/proxy/receipt suites cover
@@ -64,3 +84,7 @@ dispatch, unload warnings, and byte-identical retries.
 - The Phase 9 browser suite covers delayed/cleared searches in both pickers and
   exact merge-response recovery. The existing receipt and human-gate browser
   suites cover navigation restrictions, modal recovery, and frozen retries.
+- `markdown.test.mjs` covers formatting, escaping, links, image suppression,
+  per-message isolation, and vendor integrity. `markdown-messages.spec.ts`
+  exercises actual report/question writes, dashboard rendering, narrow/dark
+  layouts, and browser DOM safety.
