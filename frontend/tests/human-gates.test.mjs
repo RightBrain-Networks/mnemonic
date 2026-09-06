@@ -18,6 +18,7 @@ import {
 } from "../lib/human-gates.ts";
 
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
+const otherProject = "3e805646-8014-47df-9f53-27572bb1d85b";
 const work = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const gateId = "f1cf3691-7d28-4716-94a9-4867b341a685";
 const checkpoint = "1dfa9455-4a17-4cd4-938b-010ea17ccaf0";
@@ -148,6 +149,7 @@ function reviewedRelationship({
   targetWorkItemId,
   direction,
   counterpartId,
+  counterpartProjectId = project,
   projectId = project
 }) {
   return {
@@ -160,7 +162,7 @@ function reviewedRelationship({
     },
     relative_to_work_item_id: work,
     direction,
-    counterpart: { id: counterpartId }
+    counterpart: { id: counterpartId, project_id: counterpartProjectId }
   };
 }
 
@@ -318,7 +320,9 @@ test("relationship drift review is complete only when every directional count is
     sourceWorkItemId: incomingWork,
     targetWorkItemId: work,
     direction: "incoming",
-    counterpartId: incomingWork
+    counterpartId: incomingWork,
+    counterpartProjectId: otherProject,
+    projectId: otherProject
   });
   const outgoing = reviewedRelationship({
     id: outgoingRelationship,
@@ -358,7 +362,7 @@ test("relationship drift review is complete only when every directional count is
     ...complete,
     incoming_relationships: [{
       ...incoming,
-      relationship: { ...incoming.relationship, project_id: outgoingWork }
+      relationship: { ...incoming.relationship, project_id: "not-a-uuid" }
     }]
   }), false);
   assert.equal(hasCompleteRelationshipReview({
@@ -367,7 +371,10 @@ test("relationship drift review is complete only when every directional count is
   }), false);
   assert.equal(hasCompleteRelationshipReview({
     ...complete,
-    incoming_relationships: [{ ...incoming, counterpart: { id: outgoingWork } }]
+    incoming_relationships: [{
+      ...incoming,
+      counterpart: { id: outgoingWork, project_id: otherProject }
+    }]
   }), false);
   assert.equal(hasCompleteRelationshipReview({
     ...complete,

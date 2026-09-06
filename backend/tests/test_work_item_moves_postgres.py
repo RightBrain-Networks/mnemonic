@@ -1109,7 +1109,7 @@ def test_opposite_direction_moves_share_uuid_sorted_project_lock_order(
         assert api.get(_path(target, work)).status_code == 200
 
 
-def test_move_rejects_scope_version_lease_relationship_gate_and_duplicate_conflicts(
+def test_move_preserves_relationships_and_rejects_other_conflicts(
     api, project, work_payload, postgres_engine
 ):
     target = _project(api, "Guard move destination")
@@ -1194,12 +1194,52 @@ def test_move_rejects_scope_version_lease_relationship_gate_and_duplicate_confli
         },
     )
     assert edge.status_code == 200, edge.text
-    rejected_edge = api.post(
+    relationship = edge.json()["relationship"]
+    moved_related = api.post(
         _path(project, related) + "/move",
         json=_move_payload(target, 1),
     )
-    assert rejected_edge.status_code == 409
-    assert rejected_edge.json()["detail"]["code"] == "work_move_relationships"
+    assert moved_related.status_code == 200, moved_related.text
+    assert moved_related.json()["preserved_status"] == related["status"]
+
+    moved_context = api.get(_path(target, related) + "/context").json()
+    counterpart_context = api.get(_path(project, counterpart) + "/context").json()
+    assert moved_context["relationship_counts"]["total"] == 1
+    assert counterpart_context["relationship_counts"]["total"] == 1
+    moved_edge = moved_context["undirected_relationships"][0]
+    counterpart_edge = counterpart_context["undirected_relationships"][0]
+    assert moved_edge["relationship"] == relationship
+    assert moved_edge["counterpart"]["project_id"] == project["id"]
+    assert counterpart_edge["counterpart"]["project_id"] == target["id"]
+
+    guarded_delete = api.post(
+        _path(target, related) + "/delete", json={"expected_version": 2}
+    )
+    assert guarded_delete.status_code == 409
+    assert guarded_delete.json()["detail"]["code"] == "active_relationships"
+    removed = api.delete(
+        f"/api/v1/projects/{project['id']}/relationships/{relationship['id']}"
+    )
+    assert removed.status_code == 200, removed.text
+    assert removed.json()["removed"] is True
+    with postgres_engine.connect() as connection:
+        relationship_events = connection.execute(
+            text(
+                "SELECT work_item_id,project_id,event_type FROM work_events "
+                "WHERE relationship_id=:relationship_id ORDER BY event_type,work_item_id"
+            ),
+            {"relationship_id": relationship["id"]},
+        ).all()
+    event_facts = {
+        (str(item), str(event_project), event_type)
+        for item, event_project, event_type in relationship_events
+    }
+    assert event_facts == {
+        (related["id"], project["id"], "relationship_added"),
+        (counterpart["id"], project["id"], "relationship_added"),
+        (related["id"], target["id"], "relationship_removed"),
+        (counterpart["id"], project["id"], "relationship_removed"),
+    }
 
     gated = _work(api, project, work_payload, "Move gate guard")["work_item"]
     gate = api.post(

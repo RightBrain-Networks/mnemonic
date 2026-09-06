@@ -307,7 +307,12 @@ function TabBody({ context, isDuplicate, props }: { context: WorkContext; isDupl
             live-sync reload can turn the open source into a duplicate while its merge intent is
             still unresolved. The panel stays mounted so its recovery block and exact retry survive. */}
         {props.mergeOpen && <WorkMergePanel source={context} recoveryVisible={props.mergeRecoveryVisible} onClose={props.onCloseMerge} onMerged={props.onMerged} onSourceChanged={props.onMergeSourceChanged} />}
-        <RelationshipPanel context={context} onChanged={props.onRelationshipsChanged} />
+        <RelationshipPanel
+          context={context}
+          projects={props.projects}
+          onChanged={props.onRelationshipsChanged}
+          onOpenWork={props.onOpenCanonical}
+        />
       </>;
     case "questions":
       return <HumanGatePanel context={context} refreshSignal={props.eventRefreshSignal} onResolved={props.onGateResolved} />;

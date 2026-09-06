@@ -9,7 +9,9 @@ never remove its protected edge or merge remediation to erase depth. See
 relationship creation is not a findings fanout mechanism.
 
 Shared by the `mnemonic-save`, `mnemonic-search`, and `mnemonic-recall` skills.
-Relationships are project-local graph facts, never semantic guesses.
+Relationships are globally identified graph facts and may connect work in
+separate projects; they are never semantic guesses. Every edge retains its
+immutable creation project as the authority route even if an endpoint moves.
 
 ## Direction is source-to-target
 
@@ -26,7 +28,8 @@ Every directed edge reads source → target:
 ## Blockers and human gates are separate readiness facts
 
 An item is blocked only by an **incoming `blocks` edge whose source is not
-`done`**. `wont-do` and `promoted` blockers stay unresolved. `parent-child`,
+`done`**, including when that source currently belongs to another project.
+`wont-do` and `promoted` blockers stay unresolved. `parent-child`,
 `discovered-from`, a `duplicate-of` mark by itself, and `related` are descriptive and never
 make work ready or blocked. A permanent authoritative merge separately makes its source a frozen
 duplicate that is never ready. An unresolved human gate is a separate explicit fact: it
@@ -81,9 +84,13 @@ Only `parent-child` defines the human structural forest, and it is the only edge
 that has presentation consequences: it feeds every `ancestor_path` (root to
 parent, filled by every `search_work(view="full")` and
 `list_human_attention` row), the dashboard's collapsed root and child views,
-their branch counts, and `list_ready_work`'s `parent_work_item_id` filter. Each
-item has at most one parent, and the forest is acyclic. Sub-work saved without
-an incoming `parent-child` edge appears as an unrelated root.
+their branch counts, and `list_ready_work`'s `parent_work_item_id` filter.
+Each item has at most one parent globally, and the graph is acyclic. Project
+hierarchy presentation follows a parent-child edge only while both endpoints
+are currently colocated in that project. A cross-project parent remains visible
+in adjacency, but both endpoints appear as roots in their respective projects.
+Sub-work saved without an incoming `parent-child` edge appears as an unrelated
+root.
 
 `A discovered-from B` records that A was discovered while working from B-owned
 context; it never makes B A's parent. Mnemonic does not infer either fact from
@@ -139,9 +146,13 @@ chosen duplicate mark, are frozen and cannot be removed.
 ## Keep traversal shallow and pointer-only
 
 Use `list_relationships` with an explicit `direction` and `relationship_type`,
-paginating when needed, and `get_relationship` for one exact edge. Counterpart
-records stay pointer-only: never walk the graph recursively, and never pull a
-counterpart's checkpoint bodies into the current task.
+paginating when needed, and `get_relationship` for one exact edge. The edge
+`project_id` is its immutable authority route; the counterpart `project_id` is
+the current placement of the linked work. Use the former for
+`get_relationship` or `remove_relationship` and the latter when opening or
+recalling the counterpart.
+Counterpart records stay pointer-only: never walk the graph recursively, and
+never pull a counterpart's checkpoint bodies into the current task.
 
 ## Creating edges
 
@@ -154,22 +165,34 @@ context checkpoint. Either edge may legitimately exist without the other; never
 fabricate the missing fact.
 
 For a new work item whose decomposition or discovery links must succeed with
-it, pass up to ten `initial_relationships` to `create_work`. Each entry's
-`direction` is relative to the new item and names `other_work_item_id`. An
-initial `discovered-from` edge must be `outgoing` and must cite a checkpoint on
+it, pass up to ten `initial_relationships` to `create_work`; named counterparts
+may belong to other projects. Each entry's `direction` is relative to the new
+item and names `other_work_item_id`. An initial `discovered-from` edge must be `outgoing` and must cite a checkpoint on
 its originating target. These atomic edges inherit creator provenance from the
 initial checkpoint and are part of the immutable `create_work` intent. Prepare
 and retry that intent under the canonical rules in authority-and-provenance.md;
 reordering, adding, or removing an edge is a changed intent. Never include a fresh `duplicate-of`
 entry; authoritative deduplication is the separately reviewed `merge_work` operation above.
 
-For a non-duplicate fact connecting existing work, use `add_relationship` with the exact
-source, target, type, and real acting client/session provenance; removal with
-`remove_relationship` requires the real acting actor fields. Each add or remove
-is its own protected intent under the same shared rules; a replay returns the
-original `created`/`removed` result, so read the graph again for current state. Do not delete
-descriptive provenance merely because a blocker became `done`, and never put
-operation-control data into relationship context or history.
+For a non-duplicate fact connecting existing work, including work in separate
+projects, use `add_relationship` with the exact source, target, type, and real
+acting client/session provenance. The requested project must currently contain
+at least one endpoint. A duplicate natural-key add may return an existing edge
+owned by another project; retain the returned edge `project_id` and use it for
+`get_relationship` and `remove_relationship`. Removal requires the real acting
+actor fields. Each add or remove is its own protected intent under the same
+shared rules; a replay returns the original `created`/`removed` result, so read
+the graph again for current state. Each real change records one event in the
+current project of each endpoint. Do not delete descriptive provenance merely
+because a blocker became `done`, and never put operation-control data into relationship context or history.
+
+## Moving linked work
+
+A project move keeps the stable work UUID and every incident relationship. The
+edge authority project, source/target IDs, type, and context do not change; only
+the current project of the moved work and counterpart pointers change. Existing
+cross-project blockers continue to affect readiness. Never remove an edge
+merely to make a move possible.
 
 ## Report follow-up provenance is separate
 

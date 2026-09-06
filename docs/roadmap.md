@@ -24,18 +24,25 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 ## Delivery Snapshot
 
-Phases 1–12, identity-preserving work moves and first-class code reviews are
-implemented in the repository. The current release is application/API/MCP/dashboard
-`0.13.0`, plugin `0.14.0`, and migration `0024_code_reviews`. Reviews add project thresholds, durable optional
-questions, cold/warm review leases and one remediation with a hard ancestry
-ceiling; see [code reviews](code-reviews.md). Production-target preflight and cutover
-remain explicit operator gates. Phase 13 remains planned.
+Phases 1–12, identity-preserving work moves, cross-project relationships,
+and first-class code reviews are implemented in the repository. The current
+release is application/API/MCP/dashboard `0.16.0`, plugin `0.16.0`, and migration
+`0025_cross_project_relationships`. Reviews add project thresholds, durable
+optional questions, cold/warm review leases and one remediation with a hard
+ancestry ceiling; see [code reviews](code-reviews.md). Production-target
+preflight and cutover remain explicit operator gates. Migration 0025 requires a
+quiescent coordinated deployment. Downgrade is
+allowed only when every retained edge has both current endpoints in its
+immutable authority project and no immutable relationship/dependency event
+history for an edge spans projects. Removing a cross-project edge does not
+restore eligibility; otherwise fix forward or restore the full pre-0025
+backup. Phase 13 remains planned.
 
 | Roadmap element | Status | Implemented functionality |
 | --- | --- | --- |
 | Phase 1 — Work items and checkpoints | Shipped | Canonical durable work items, immutable checkpoints, bounded recall, and a provenance-preserving migration from legacy hand-offs. |
 | Phase 2 — Atomic work leases | Shipped | Server-timed TTL claims with atomic claim-and-recall, renewal, release, active-claim replay, expiry, and takeover. |
-| Phase 3 — Typed relationships | Shipped | Five project-local edge types, blocker and parent-cycle protection, one-parent enforcement, atomic linked creation, graph-aware recall, and hierarchy browsing. |
+| Phase 3 — Typed relationships | Shipped | Five globally identified edge types that may span projects, global blocker/parent cycle and one-parent protection, immutable edge authority, atomic linked creation, graph-aware recall, and project-local hierarchy browsing. |
 | Phase 4 — Ready-work discovery | Shipped | A deterministic, filtered REST/MCP ready queue derived from lifecycle, blockers, leases, and human gates, with claim-time revalidation. |
 | Phase 5 — Work event timeline | Shipped | Immutable typed per-work events, conservative historical backfill, atomic mutation events, explicit progress events, bounded recall, and a paged dashboard timeline. |
 | Phase 6 — Idempotent mutations | Shipped | Durable project-scoped success receipts established exact unknown-outcome recovery; Phase 9 extends the registry to 13 REST kinds, 11 canonical MCP writes, and 11 dashboard actions. |
@@ -334,14 +341,17 @@ Represent how work relates to other work without forcing every discovered item i
 
 ## Shipped implementation
 
-Migration `0008_work_relationships` and the relationship service implement all
-five edge types with project-local database constraints, normalized identity,
-indexed incoming/outgoing traversal, and transactional add/remove operations.
-Serialized checks reject self-links, cross-project edges, duplicate parents,
-and `blocks` or `parent-child` cycles; linked work and its initial relationships
-can be created atomically. Recall, search, MCP, and the dashboard expose graph
-context, while unresolved incoming blockers are enforced by readiness and every
-claim path. Only `done` resolves a blocker automatically.
+Migration `0008_work_relationships` originally introduced all five edge types
+with project-local database constraints, normalized identity, indexed
+incoming/outgoing traversal, and transactional add/remove operations. Migration
+`0025_cross_project_relationships` makes endpoint identity, natural edge
+identity, one-parent enforcement, and block/parent cycle checks global while
+retaining the creation project as immutable edge authority. A fresh authority
+project must contain at least one current endpoint. Linked work and its initial
+relationships can span projects and commit atomically; moves retain incident
+edges. Recall, search, MCP, and the dashboard expose cross-project adjacency,
+while unresolved incoming blockers are enforced by readiness and every claim
+path. Only `done` resolves a blocker automatically.
 
 ## Initial Relationship Types
 
@@ -353,7 +363,7 @@ duplicate-of
 related
 ```
 
-Only `blocks` should affect scheduler readiness initially.
+Only `blocks` affects readiness and claimability.
 
 ### `blocks`
 
@@ -390,15 +400,18 @@ Descriptive only.
 ## Cycle Protection
 
 The relationship model as a whole is a typed graph, not a DAG. Only the
-project-local `blocks` subgraph is the execution-dependency DAG.
+global `blocks` subgraph is the execution-dependency DAG.
 
 For a canonical edge `A -> B`, read the direction as "A blocks B." Adding an
 edge must atomically reject:
 
 - self-links;
-- duplicate links;
-- cross-project links;
-- any edge for which `B` can already reach `A` through `blocks` edges.
+- a second global parent;
+- a fresh authority project containing neither current endpoint;
+- any edge for which `B` can already reach `A` through global `blocks` edges.
+
+An identical global natural-key add returns the existing edge rather than
+creating a duplicate. Cross-project endpoints are valid.
 
 Cycle protection must ship in the same increment that first makes `blocks`
 relationships writable. Do not accept cyclic data temporarily and defer
@@ -1477,8 +1490,8 @@ The MCP interface should favor coarse-grained atomic operations over forcing age
 1. Introduce `WorkItem`.
 2. Convert existing hand-offs into immutable checkpoints.
 3. Add typed work relationships and traversal indexes.
-4. Enforce a project-local DAG for `blocks` and an acyclic parent hierarchy
-   from their first writable release.
+4. Enforce a global DAG for `blocks`, a global acyclic one-parent graph, and
+   project-local hierarchy presentation. **Shipped across 0008 and 0025.**
 5. Define and enforce blocker-resolution semantics.
 6. Add hierarchy support.
 7. Migrate existing data.
@@ -1541,7 +1554,7 @@ This improves trust in resumed and completed work.
 
 1. Resource reservations.
 2. Additional gate types.
-3. Cross-project relationships if necessary.
+3. Automatic cross-project scheduling and execution policy.
 4. Optional event streaming/webhooks.
 5. External orchestration hooks.
 

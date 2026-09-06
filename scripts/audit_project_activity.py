@@ -19,9 +19,11 @@ from typing import Any
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0024_code_reviews"
+HEAD = "0025_cross_project_relationships"
+REVIEW_HEAD = "0024_code_reviews"
+REVIEW_HEADS = (REVIEW_HEAD, HEAD)
 MOVE_HEAD = "0023_work_item_moves"
-MOVE_HEADS = (MOVE_HEAD, HEAD)
+MOVE_HEADS = (MOVE_HEAD, *REVIEW_HEADS)
 REFERENCE_HEAD = "0022_external_references"
 REPORT_HEAD = "0021_job_completion_reports"
 REPORT_HEADS = (REPORT_HEAD, REFERENCE_HEAD, *MOVE_HEADS)
@@ -518,6 +520,74 @@ _MOVE_FINDINGS = {
 }
 
 
+_CROSS_PROJECT_RELATIONSHIP_FINDINGS = {
+    "invalid_retained_relationship_facts": """
+        SELECT count(*)
+        FROM work_relationships relationship
+        LEFT JOIN LATERAL (
+            SELECT count(*) AS total,
+                   count(DISTINCT event.work_item_id) AS endpoints,
+                   count(*) FILTER (
+                       WHERE event.project_id=relationship.project_id
+                   ) AS authority_witnesses
+            FROM work_events event
+            WHERE event.relationship_id=relationship.id
+              AND event.event_type=CASE
+                  WHEN relationship.relationship_type='blocks'
+                      THEN 'dependency_added'
+                  ELSE 'relationship_added'
+              END
+              AND event.relationship_source_work_item_id
+                  =relationship.source_work_item_id
+              AND event.relationship_target_work_item_id
+                  =relationship.target_work_item_id
+              AND event.relationship_context_checkpoint_work_item_id
+                  IS NOT DISTINCT FROM relationship.context_checkpoint_work_item_id
+              AND event.relationship_context_checkpoint_id
+                  IS NOT DISTINCT FROM relationship.context_checkpoint_id
+              AND event.metadata->>'relationship_type'
+                  =relationship.relationship_type
+              AND event.created_at=relationship.created_at
+        ) evidence ON true
+        WHERE evidence.total<>2 OR evidence.endpoints<>2
+           OR evidence.authority_witnesses<1
+    """,
+    "invalid_relationship_event_pairs": """
+        SELECT count(*) FROM (
+            SELECT event.relationship_id,
+                   CASE
+                       WHEN event.event_type IN (
+                           'dependency_added','relationship_added'
+                       ) THEN 'added'
+                       ELSE 'removed'
+                   END AS action
+            FROM work_events event
+            WHERE event.event_type IN (
+                'dependency_added','dependency_removed',
+                'relationship_added','relationship_removed'
+            )
+            GROUP BY event.relationship_id,action
+            HAVING count(*)<>2
+                OR count(DISTINCT event.work_item_id)<>2
+                OR count(DISTINCT event.event_type)<>1
+                OR count(DISTINCT ROW(
+                    event.relationship_source_work_item_id,
+                    event.relationship_target_work_item_id,
+                    event.relationship_context_checkpoint_work_item_id,
+                    event.relationship_context_checkpoint_id,
+                    event.metadata,
+                    event.created_at,
+                    event.actor_kind,
+                    event.actor_client,
+                    event.actor_session_id,
+                    event.actor_model,
+                    event.origin
+                ))<>1
+        ) invalid
+    """,
+}
+
+
 def _event_project_matches_placement(
     work_item_id: str,
     event_id: str,
@@ -569,19 +639,47 @@ def _event_project_matches_placement(
     """
 
 
+def _work_existed_by_event(work_item_id: str, event_id: str) -> str:
+    """Return SQL proving a referenced endpoint already had its creation fact."""
+    return f"""
+        EXISTS (
+            SELECT 1 FROM work_items current_work
+            WHERE current_work.id={work_item_id}
+        )
+        AND EXISTS (
+            SELECT 1 FROM work_events creation
+            WHERE creation.work_item_id={work_item_id}
+              AND creation.event_type='work_created'
+              AND creation.id<={event_id}
+        )
+    """
+
+
 def _move_aware_prior_counts(
-    connection: Connection, counts: dict[str, int], previous: Any
+    connection: Connection,
+    counts: dict[str, int],
+    previous: Any,
+    *,
+    cross_project_relationships: bool,
 ) -> None:
-    """Replace old same-project owner checks with stable-identity checks at 0023."""
+    """Replace old same-project owner checks with stable-identity checks at 0023+."""
     primary_owner = _event_project_matches_placement(
         "event.work_item_id", "event.id", "event.project_id"
     )
-    source_owner = _event_project_matches_placement(
-        "event.relationship_source_work_item_id", "event.id", "event.project_id"
-    )
-    target_owner = _event_project_matches_placement(
-        "event.relationship_target_work_item_id", "event.id", "event.project_id"
-    )
+    if cross_project_relationships:
+        source_owner = _work_existed_by_event(
+            "event.relationship_source_work_item_id", "event.id"
+        )
+        target_owner = _work_existed_by_event(
+            "event.relationship_target_work_item_id", "event.id"
+        )
+    else:
+        source_owner = _event_project_matches_placement(
+            "event.relationship_source_work_item_id", "event.id", "event.project_id"
+        )
+        target_owner = _event_project_matches_placement(
+            "event.relationship_target_work_item_id", "event.id", "event.project_id"
+        )
     event_owner_query = """
         SELECT count(*) FROM work_events event
         WHERE NOT (__PRIMARY_OWNER__)
@@ -594,6 +692,16 @@ def _move_aware_prior_counts(
     event_owner_query = event_owner_query.replace("__SOURCE_OWNER__", source_owner)
     event_owner_query = event_owner_query.replace("__TARGET_OWNER__", target_owner)
     counts["event_owner_violations"] = connection.scalar(text(event_owner_query))
+    if cross_project_relationships:
+        counts["relationship_scope_violations"] = connection.scalar(text("""
+            SELECT count(*)
+            FROM work_relationships relationship
+            LEFT JOIN work_items source
+              ON source.id=relationship.source_work_item_id
+            LEFT JOIN work_items target
+              ON target.id=relationship.target_work_item_id
+            WHERE source.id IS NULL OR target.id IS NULL
+        """))
     counts["gate_owner_violations"] = connection.scalar(text("""
         SELECT count(*) FROM work_gates gate
         LEFT JOIN work_items work ON work.id=gate.work_item_id
@@ -675,8 +783,10 @@ def _head_findings(
         checks.update(_REFERENCE_FINDINGS)
     if expected_head in MOVE_HEADS:
         checks.update(_MOVE_FINDINGS)
-    if expected_head == HEAD:
+    if expected_head in REVIEW_HEADS:
         checks.update(_review_checks())
+    if expected_head == HEAD:
+        checks.update(_CROSS_PROJECT_RELATIONSHIP_FINDINGS)
     findings.update(
         {key: connection.scalar(text(sql)) for key, sql in checks.items()}
     )
@@ -703,7 +813,12 @@ def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[st
     counts.update(previous._repository_freshness_counts(connection))
     counts.update(previous._completion_evidence_counts(connection, schema))
     if expected_head in MOVE_HEADS:
-        _move_aware_prior_counts(connection, counts, previous)
+        _move_aware_prior_counts(
+            connection,
+            counts,
+            previous,
+            cross_project_relationships=expected_head == HEAD,
+        )
     findings = previous._blocking_counts(counts)
     findings.update(_head_findings(connection, expected_head, previous))
     findings = {key: value for key, value in findings.items() if value}
@@ -724,6 +839,16 @@ def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[st
         inventory["work_provenance_heads"] = connection.scalar(
             text("SELECT count(*) FROM work_report_provenance_heads")
         )
+    if expected_head == HEAD:
+        inventory["relationships"] = connection.scalar(
+            text("SELECT count(*) FROM work_relationships")
+        )
+        inventory["cross_project_relationships"] = connection.scalar(text("""
+            SELECT count(*) FROM work_relationships relationship
+            JOIN work_items source ON source.id=relationship.source_work_item_id
+            JOIN work_items target ON target.id=relationship.target_work_item_id
+            WHERE source.project_id<>target.project_id
+        """))
     return {
         "audit_version": "project-activity-v1",
         "expected_head": expected_head,

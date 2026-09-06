@@ -1,8 +1,16 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.14.0`, plugin `0.14.0`, and migration
-`0024_code_reviews`. The catalog has exactly 38 MCP tools, 13 protected
-MCP writes, 18 REST receipt kinds, 15 protected browser mutations and 24 work-event types.
+This is application/API/MCP/dashboard `0.16.0`, plugin `0.16.0`, and migration
+`0025_cross_project_relationships`. The catalog has exactly 38 MCP tools, 13
+protected MCP writes, 18 REST receipt kinds, 15 protected browser mutations and
+24 work-event types. Relationship identity and graph invariants are global;
+`relationship.project_id` remains immutable edge and read/removal route
+authority. Older processes are unsupported against this schema. Downgrade to
+0024 requires every retained edge to have both current endpoints in its
+immutable authority project and no immutable relationship/dependency event
+history for an edge spans projects. Removing a cross-project edge does not
+restore eligibility; otherwise fix forward or restore the full pre-0025 backup.
+
 [Code reviews](code-reviews.md) documents durable post-Done follow-ups,
 purpose-bound review leases, pinned cold/warm scope and single-item remediation.
 [Project activity and human reports](project-activity-and-reports.md) documents
@@ -28,8 +36,9 @@ Application errors use a stable sanitized envelope:
 ```
 
 FastAPI's structured list remains the validation-error format. Invalid input is
-422, missing or cross-project resources are 404, lifecycle/version conflicts are
-409, and bad or missing authorization is 401. Error context never contains
+422, missing resources or resources addressed through the wrong current/authority
+project are 404, lifecycle/version conflicts are 409, and bad or missing
+authorization is 401. Error context never contains
 checkpoint text, metadata, credentials, or request bodies.
 
 Lease conflicts use stable codes: `work_not_pending`, `lease_held`,
@@ -48,7 +57,11 @@ the refusal is a 409 rather than a retryable fault. `closeout_report_unsealed`
 likewise permanently refuses to move terminal work whose historical closeout
 has no sealed report.
 Self-edges and a missing discovery context fail strict request validation with
-422. Missing or cross-project endpoints/checkpoints use sanitized 404 codes.
+422. Missing endpoints or checkpoints use sanitized 404 codes. Cross-project
+relationship endpoints are valid; an add request whose path project currently
+contains neither endpoint uses a sanitized 404. An existing edge remains
+readable and removable through its immutable authority project after either or
+both endpoints move away.
 Error context never includes checkpoint content or non-allowlisted upstream values.
 Event validation failures are ordinary structured 422 errors; a request-known
 secret echo returns `event_secret_echo`, whose context identifies field
@@ -65,8 +78,8 @@ The typed `503 duplicate_graph_invalid` response is the exception: it is a
 definitive integrity stop, not an unknown write outcome, and must not be retried.
 
 Move-specific 409 conflicts are `work_move_same_project`,
-`work_move_active_lease`, `work_move_relationships`, and
-`work_move_duplicate_membership`. Moves also use the existing `work_gated`,
+`work_move_active_lease`, and `work_move_duplicate_membership`. Moves also use
+the existing `work_gated`,
 `work_duplicate`, `version_conflict`, `completion_episode_unsealed`, and
 `closeout_report_unsealed` conflicts where applicable. These are definitive
 fresh-domain refusals: correct or remove the stated blocker, reread the work,
@@ -273,10 +286,10 @@ It returns `{source_project_id,target_project_id,preserved_status,work_item}`.
 The returned work item has the same UUID, the requested target project, the
 unchanged stored lifecycle status, and `version=expected_version+1`. An expired
 retained lease is preserved, so the derived Dropped display state is preserved
-too. An active lease, an unresolved human gate, any current relationship or
-duplicate membership, an immutable duplicate alias, an unsealed legacy terminal
-report, or an unsealed legacy Done episode prevents the move. Source and target
-must differ and both projects must exist.
+too. An active lease, an unresolved human gate, duplicate membership, an
+immutable duplicate alias, an unsealed legacy terminal report, or an unsealed
+legacy Done episode prevents the move. Source and target must differ and both
+projects must exist.
 
 The receipt is permanently scoped to the source project and replays before
 fresh source visibility checks. An exact same-key retry therefore returns its
@@ -286,7 +299,9 @@ projects in UUID order, advances the work once, records one immutable
 target activity streams. Existing events, resolved gates, completion evidence,
 reports, and report provenance keep their original project-at-fact; per-work
 history reads authorize the item's current project and then follow its stable
-UUID across those historical facts.
+UUID across those historical facts. Relationships keep their stable IDs and
+immutable recording projects; moving an endpoint simply makes the edge
+cross-project.
 
 Move is exposed only by this REST endpoint and the dashboard's protected
 browser mutation. The MCP tool catalog and Claude plugin skills do not expose a
@@ -327,8 +342,9 @@ move write.
 
 `initial_relationships` is optional and contains at most ten entries expressed
 relative to the new work item: `{type, direction: incoming|outgoing,
-other_work_item_id, context_checkpoint_id?}`. An initial `discovered-from` must
-be outgoing and cite a checkpoint on its existing originating target. An
+other_work_item_id, context_checkpoint_id?}`. The counterpart may belong to
+another project. An initial `discovered-from` must be outgoing and cite a
+checkpoint on its existing originating target. An
 incoming `parent-child` makes the existing counterpart the parent; an incoming
 `blocks` makes it the prerequisite. The request also accepts the optional
 top-level `client_operation_id`. Work, checkpoint, and every requested edge
@@ -1474,9 +1490,11 @@ loss of every later write or a future append-only correction release.
 Project-level relationship routes are:
 
 - `POST /projects/{project_id}/relationships` to add one explicit edge;
-- `GET /projects/{project_id}/relationships/{relationship_id}` to read its
-  neutral stored direction and provenance;
-- `DELETE /projects/{project_id}/relationships/{relationship_id}` to remove it.
+- `GET /projects/{project_id}/relationships/{relationship_id}` through the edge's
+  immutable recording/authority project to read its neutral stored direction and
+  provenance;
+- `DELETE /projects/{project_id}/relationships/{relationship_id}` through that same
+  immutable authority project to remove it.
 
 Creation accepts:
 
@@ -1497,14 +1515,21 @@ The five types are `blocks`, `parent-child`, `discovered-from`,
 `source --type--> target`; `related` endpoints are UUID-normalized and returned
 as undirected adjacency. `discovered-from` requires a context checkpoint on its
 originating target. Other types may cite a checkpoint on either endpoint.
-Context is evidence, not an instruction. Self-edges, cross-project endpoints,
-block/parent cycles, and a second parent are rejected. An identical natural-key
-add returns the existing edge with `created=false`. The create request accepts
-optional top-level `client_operation_id`.
+Context is evidence, not an instruction. Self-edges, global block/parent cycles,
+and a second parent are rejected. Endpoints may belong to different projects.
+For every fresh request, the path project must currently contain at least one
+endpoint; a newly created edge retains it as the immutable recording and
+authority scope. The natural key is global across projects. An identical add
+returns the existing edge with `created=false`,
+preserving its original recording project even when the request is made through
+another endpoint project. Callers must use the returned edge `project_id` for
+later GET or DELETE requests. The create request accepts optional top-level
+`client_operation_id`.
 
-`RelationshipEdgeRead` contains the relationship/project/type, source and
-target IDs, optional context checkpoint composite, truthful creator
-client/session/model, and creation time. Project-scoped create returns
+`RelationshipEdgeRead` contains the relationship ID, immutable
+recording/authority project, type, source and target IDs, optional context
+checkpoint composite, truthful creator client/session/model, and creation
+time. Project-scoped create returns
 `{relationship, created}`. Delete returns
 `{project_id, relationship_id, removed}`; repeating it returns `removed=false`
 without affecting a different edge.
@@ -1527,14 +1552,14 @@ while removal returns `duplicate_relationship_frozen`.
 `direction=incoming|outgoing|undirected|both` (default `both`), optional `type`,
 `limit` (default 50, maximum 100), and `offset`. Each
 `AdjacentRelationshipRead` includes the neutral edge, the requested relative
-work ID, endpoint-relative direction, and a compact counterpart containing only
-ID, title, lifecycle status, and readiness. It never embeds checkpoint prompt
-or metadata.
+work ID, endpoint-relative direction, and a compact counterpart containing
+current project ID, work ID, title, optional external references, lifecycle
+status, and readiness. It never embeds checkpoint prompt or metadata.
 
 Only an unresolved incoming `blocks` edge changes readiness or claimability as
-a relationship. The other four relationship types remain descriptive; the
-separate authoritative merge ledger, not its supporting `duplicate-of` mark,
-makes an alias non-actionable.
+a relationship, including when its source belongs to another project. The other
+four relationship types remain descriptive; the separate authoritative merge
+ledger, not its supporting `duplicate-of` mark, makes an alias non-actionable.
 
 ## Work events
 
@@ -1598,7 +1623,10 @@ are unchanged.
 nullable body, typed checkpoint/lease/release/relationship references,
 endpoint-relative relationship direction/counterpart, metadata version 1 and
 its event-discriminated object, `origin=live|backfill`, and UTC creation time.
-Relationship events retain the complete source/target/context snapshot. A
+Relationship events retain the complete source/target/context snapshot. Add and
+removal each emit one event per endpoint in the current project of that
+endpoint, so a cross-project change appears once in each affected project
+activity stream. A
 checkpoint event references its checkpoint ID but never duplicates its body.
 One work item's public order is `created_at,id`; ID only breaks timestamp ties.
 Neither value promises transaction commit order or forms a resumable project

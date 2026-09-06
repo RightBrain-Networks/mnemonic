@@ -176,7 +176,6 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "active_relationships",
     "work_move_same_project",
     "work_move_active_lease",
-    "work_move_relationships",
     "work_move_duplicate_membership",
     "work_move_review_history_conflict",
     "code_review_provenance_relationship_protected",
@@ -556,7 +555,13 @@ function decodeSuccess<K extends MutationKind>(
       throw new Error("Mnemonic returned an invalid mutation response.");
     }
     decoded = {
-      relationship: decodeRelationship(result.relationship, path.projectId, body, undefined, result.created),
+      relationship: decodeRelationship(
+        result.relationship,
+        result.created ? path.projectId : undefined,
+        body,
+        undefined,
+        result.created
+      ),
       created: result.created
     };
   } else if (request.kind === "update_work") {

@@ -1,4 +1,4 @@
-"""Read-only aggregate integrity audit for schema 0024 code reviews.
+"""Read-only code-review integrity audit for supported schemas 0024 and 0025.
 
 Run with the backend virtual environment and private database access. Output
 contains counts only: no repository locators, prompts, findings, actors, tokens,
@@ -12,7 +12,9 @@ import os
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0024_code_reviews"
+HEAD = "0025_cross_project_relationships"
+REVIEW_HEAD = "0024_code_reviews"
+SUPPORTED_HEADS = (REVIEW_HEAD, HEAD)
 CHECKS = {
     "lifecycle_event_witness_mismatch": """
         SELECT count(*) FROM work_events event
@@ -160,8 +162,9 @@ CHECKS = {
 
 def audit(connection: Connection) -> dict:
     """Read counts within the caller's read-only coherent transaction."""
-    if connection.scalar(text("SELECT version_num FROM alembic_version")) != HEAD:
-        raise RuntimeError("Code-review audit requires the exact supported schema head")
+    schema_head = connection.scalar(text("SELECT version_num FROM alembic_version"))
+    if schema_head not in SUPPORTED_HEADS:
+        raise RuntimeError("Code-review audit requires a supported schema head")
     findings = {
         name: int(connection.scalar(text(query)) or 0) for name, query in CHECKS.items()
     }
@@ -179,7 +182,7 @@ def audit(connection: Connection) -> dict:
         ).all()
     )
     return {
-        "schema_head": HEAD,
+        "schema_head": schema_head,
         "ok": not any(findings.values()),
         "findings": findings,
         "operational_counts": counts,

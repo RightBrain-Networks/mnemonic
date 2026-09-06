@@ -12,6 +12,7 @@ import {
 } from "../lib/duplicate-handling.ts";
 
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
+const otherProject = "3e805646-8014-47df-9f53-27572bb1d85b";
 const work = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const destination = "f1cf3691-7d28-4716-94a9-4867b341a685";
 const root = "11111111-1111-4111-8111-111111111111";
@@ -194,6 +195,7 @@ function incomingRelationship(id, counterpartId, created_at = createdAt) {
     direction: "incoming",
     counterpart: {
       ...pointer(counterpartId),
+      project_id: project,
       readiness: readiness(counterpartId)
     }
   };
@@ -404,6 +406,27 @@ test("bounded context relationships preserve canonical timestamp and UUID order"
 
   value.incoming_relationships.reverse();
   assert.throws(() => decodeWorkContext(value, project, work), /relationship omissions/);
+});
+
+test("context relationships retain independent authority and endpoint projects", () => {
+  const value = context();
+  const edge = incomingRelationship(destination, root);
+  edge.relationship.project_id = otherProject;
+  edge.counterpart.project_id = otherProject;
+  value.incoming_relationships = [edge];
+  value.relationship_counts = { incoming: 1, outgoing: 0, undirected: 0, total: 1 };
+  value.duplicate_merge_eligibility.incident_blocks_count = 1;
+  const decoded = decodeWorkContext(value, project, work);
+  assert.equal(decoded.incoming_relationships[0].relationship.project_id, otherProject);
+  assert.equal(decoded.incoming_relationships[0].counterpart.project_id, otherProject);
+
+  const invalid = context();
+  const invalidEdge = incomingRelationship(destination, root);
+  invalidEdge.counterpart.project_id = "not-a-uuid";
+  invalid.incoming_relationships = [invalidEdge];
+  invalid.relationship_counts = { incoming: 1, outgoing: 0, undirected: 0, total: 1 };
+  invalid.duplicate_merge_eligibility.incident_blocks_count = 1;
+  assert.throws(() => decodeWorkContext(invalid, project, work), /relationship/);
 });
 
 test("merge review input is exact, retains rationale bytes, and never carries a lease token", () => {

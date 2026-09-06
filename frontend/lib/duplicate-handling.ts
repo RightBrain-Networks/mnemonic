@@ -52,7 +52,7 @@ const ELIGIBILITY_FIELDS = [
 const ADJACENT_FIELDS = [
   "relationship", "relative_to_work_item_id", "direction", "counterpart"
 ] as const;
-const WORK_POINTER_FIELDS = ["id", "title", "status", "readiness"] as const;
+const WORK_POINTER_FIELDS = ["id", "project_id", "title", "status", "readiness"] as const;
 const CONTEXT_FIELDS = [
   "work_item",
   "merge_review_revision",
@@ -288,7 +288,6 @@ function decodeEligibility(value: unknown): DuplicateMergeEligibility {
 
 function decodeAdjacent(
   value: unknown,
-  projectId: string,
   workItemId: string,
   direction: "incoming" | "outgoing" | "undirected"
 ): AdjacentRelationshipRead {
@@ -303,7 +302,7 @@ function decodeAdjacent(
     || !validSparseReferences(counterpart)
     || !exactKeys(counterpart, referenceKeys(counterpart, WORK_POINTER_FIELDS))
   ) throw new Error("Mnemonic returned an invalid adjacent relationship.");
-  const relationship = decodeRelationship(adjacent.relationship, projectId);
+  const relationship = decodeRelationship(adjacent.relationship, undefined);
   const pointer = decodeWorkIdentityPointer({
     id: counterpart.id,
     title: counterpart.title,
@@ -321,6 +320,7 @@ function decodeAdjacent(
     sourceIsFocal === targetIsFocal
     || direction !== actualDirection
     || !sameUuid(pointer.id, expectedCounterpart)
+    || !validUuid(counterpart.project_id)
   ) throw new Error("Mnemonic returned an incoherent adjacent relationship.");
   return {
     relationship,
@@ -328,6 +328,7 @@ function decodeAdjacent(
     direction,
     counterpart: {
       ...pointer,
+      project_id: counterpart.project_id,
       ...(Object.hasOwn(counterpart, "external_references") ? { external_references: counterpart.external_references as import("./types.ts").ExternalReference[] } : {}),
       readiness: decodeReadiness(counterpart.readiness, pointer.status, pointer.id)
     }
@@ -431,7 +432,7 @@ export function decodeWorkContext(
       throw new Error("Mnemonic returned an invalid relationship slice.");
     }
     const decoded = entries.map((entry) => (
-      decodeAdjacent(entry, projectId, workItem.id, direction)
+      decodeAdjacent(entry, workItem.id, direction)
     ));
     if (
       decoded.some((entry, index) => {

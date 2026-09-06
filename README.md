@@ -117,7 +117,17 @@ Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemon
 reachable remotely.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
-not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code. The current application/API/MCP release is `0.15.0`, with plugin version `0.15.0` and database head `0024_code_reviews`. Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
+not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code.
+
+The current application/API/MCP release is `0.16.0`, with plugin version
+`0.16.0` and database head `0025_cross_project_relationships`. Deploy those
+surfaces together after backup and writer quiescence. Downgrade to 0024 only
+when every retained relationship has both current
+endpoints in its immutable authority project and no immutable
+relationship/dependency event history for an edge spans projects. Removing a
+cross-project edge does not erase that history or restore eligibility. Otherwise,
+fix forward or restore the full pre-0025 backup.
+Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
 
 - **`mnemonic-save`** searches for existing work, explicitly compares a stable
   draft with grouped duplicate candidates while preserving Create anyway,
@@ -206,11 +216,14 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   recall, and the dashboard expose only safe holder/session/timing details; the
   capability token appears only in MCP/API claim receipts and JSON mutation
   bodies, never browser data, URLs, errors, or ordinary responses.
-- Stores explicit project-local `blocks`, `parent-child`, `discovered-from`,
-  `duplicate-of`, and `related` relationships. All directed edges use
-  `source --type--> target`; `related` is normalized and presented as
-  undirected. A historical `duplicate-of` mark is descriptive evidence only;
-  fresh marks are created only as part of an authoritative merge.
+- Stores explicit `blocks`, `parent-child`, `discovered-from`, `duplicate-of`,
+  and `related` relationships between globally identified work, including work
+  in different projects. Each edge keeps its immutable creation/authority
+  project while adjacency pointers identify the current project of the linked
+  item. All directed edges use `source --type--> target`; `related` is
+  normalized and presented as undirected. A historical `duplicate-of` mark is
+  descriptive evidence only; fresh marks are created only as part of an
+  authoritative merge.
 - Records an authoritative duplicate merge as one immutable
   `source --duplicate-of--> direct destination` decision. The source becomes a
   retained, non-actionable alias while keeping its lifecycle, checkpoints,
@@ -230,12 +243,14 @@ See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
   claims/releases, checkpoints, relationships, completion/reopen, deletion,
   explicit concise progress, human-gate requests/resolutions, and paired
   `work_merged` and `work_moved` audit facts. Authoritative
-  events commit with the mutation they describe; canonical idempotent replays
+  events commit with the mutation they describe; relationship changes appear in
+  the current project activity of each endpoint. Canonical idempotent replays
   and natural no-ops do not fabricate duplicates.
 - Moves one stable work UUID between projects through the REST/dashboard human
-  control plane while preserving its lifecycle status and project-at-fact
-  history. Active leases, unresolved gates, relationships, duplicate
-  membership, and unsealed terminal history block a fresh move.
+  control plane while preserving its lifecycle status, project-at-fact history,
+  and relationships. Existing edges stay attached and may become cross-project.
+  Active leases, unresolved gates, duplicate membership, and unsealed terminal
+  history block a fresh move.
 - Provides first-class human gates with exact question/answer history, asserted
   requester/resolver provenance, immutable request and resolution revisions,
   drift flags and a required reviewed revision, a cursor-paged Needs Attention queue, per-work history,

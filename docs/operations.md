@@ -106,26 +106,36 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.14.0`, plugin `0.14.0`,
-and Alembic `0024_code_reviews`. Inventory exactly 38 MCP tools,
+The current coordinated boundary is API/MCP/dashboard `0.16.0`, plugin `0.16.0`,
+and Alembic `0025_cross_project_relationships`. Inventory exactly 38 MCP tools,
 13 protected MCP writes, 18 REST receipt kinds, 15 protected browser mutations,
-and 24 work-event types. Keep older writers stopped: fresh closeouts now require
-a report and operation UUID, fresh work starts Pending, and settings use revision
-checks. Permanent historical receipts remain recoverable with their exact old
-request; do not manufacture missing reports or evidence for historical work.
+and 24 work-event types. Keep older writers stopped: fresh closeouts still
+require a report and operation UUID, fresh work starts Pending, settings use
+revision checks, and relationship endpoint identity, adjacency, graph guards,
+event attribution, and move eligibility now span projects. Permanent historical
+receipts remain recoverable with their exact old request; do not manufacture missing reports or evidence for historical work.
 
-For 0024, take a verified backup with writers stopped, migrate and deploy all
-coordinated surfaces, then run both `scripts/audit_project_activity.py` and
-`scripts/audit_code_reviews.py` against the exact
-new head. Rehearse restore and verify both review modes, defaults, lease-purpose
-isolation, one-remediation completion and permanent receipt replay before
-reopening traffic. Downgrade is blocked after review policy changes or facts,
-including a change subsequently reset to defaults.
+For 0025, take a verified backup with every writer stopped, then migrate and
+deploy all coordinated surfaces. The migration takes bounded exclusive locks
+while it changes relationship endpoint keys, global natural identity, and the
+move/event/duplicate guards; do not run 0.15.0 processes against that schema.
+Run both `scripts/audit_project_activity.py` and
+`scripts/audit_code_reviews.py` against the exact new head, rehearse restore,
+and verify cross-project add/list/remove, blocker readiness, endpoint-local
+activity, and a move that retains its edges before reopening traffic.
+
+Downgrade from 0025 to 0024 is allowed only when every retained relationship
+still has both current endpoints in its immutable authority project and no
+immutable relationship/dependency event history for an edge spans projects.
+Both checks run under exclusive locks and fail before DDL. Removing a
+cross-project edge does not erase its events or restore eligibility. Otherwise,
+fix forward or restore the full pre-0025 backup with matching binaries.
+Further downgrade past 0024 remains subject to the code-review history guards.
 
 ### Historical move boundary: 0022 to 0023
 
 The following intermediate-boundary commands remain useful for preflight and
-restore rehearsal at those explicit heads; they are not a 0024 certification.
+restore rehearsal at those explicit heads; they are not a 0025 certification.
 
 Migration 0023 enables identity-preserving cross-project moves. Quiesce every
 writer before upgrading because historical work-owned foreign keys and event
@@ -137,7 +147,7 @@ expired retained lease; it never rewrites the project recorded on older facts.
 Migration 0024 adds review policy and history that cannot move between projects.
 For its final cutover use the [code-review deployment rules](code-reviews.md#recovery-and-deployment)
 and both current-head audits. Older-head activity-audit commands below remain
-valid at their explicit preflight/restore heads, not as a 0024 certification.
+valid at their explicit preflight/restore heads, not as a 0025 certification.
 
 Before changing a production database, pin the coordinated artifacts, reserve a
 maintenance window, close ingress and quiesce every writer including direct
@@ -928,12 +938,12 @@ or weaken hierarchy constraints.
 
 ### Identifier-free aggregate monitoring
 
-At current head 0024, run `scripts/audit_project_activity.py` using the private
+At current head 0025, run `scripts/audit_project_activity.py` using the private
 `DATABASE_URL` environment variable. It composes the historical domain checks
 with activity/report, external-reference, move and review checks plus the exact
 supported guard catalog. `scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.13.0` clients and plugin `0.14.0` together.
+failure, and inventory deployed `0.16.0` clients and plugin `0.16.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 For the historical Phase 11 boundary, run `scripts/audit_duplicate_handling.py` with

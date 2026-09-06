@@ -580,6 +580,7 @@ def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
     watcher_context = api.get(f"{item_path(project, watcher)}/context")
     assert watcher_context.status_code == 200, watcher_context.text
     assert counterpart_from_context(watcher_context.json(), target["id"]) == {
+        "project_id": project["id"],
         "id": target["id"],
         "title": context["work_item"]["title"],
         "status": case.lifecycle,

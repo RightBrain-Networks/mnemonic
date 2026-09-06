@@ -700,7 +700,7 @@ class WorkLease(Base):
 
 
 class WorkRelationship(Base):
-    """An immutable, project-local structural fact between two work items."""
+    """An immutable structural fact between two globally identified work items."""
 
     __tablename__ = "work_relationships"
     __table_args__ = (
@@ -736,14 +736,20 @@ class WorkRelationship(Base):
             name="created_by_session_id_nonblank",
         ),
         ForeignKeyConstraint(
-            ["project_id", "source_work_item_id"],
-            ["work_items.project_id", "work_items.id"],
+            ["project_id"],
+            ["projects.id"],
+            name="fk_work_relationships_project",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_work_item_id"],
+            ["work_items.id"],
             name="fk_work_relationships_source_work_item",
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
-            ["project_id", "target_work_item_id"],
-            ["work_items.project_id", "work_items.id"],
+            ["target_work_item_id"],
+            ["work_items.id"],
             name="fk_work_relationships_target_work_item",
             ondelete="RESTRICT",
         ),
@@ -754,7 +760,6 @@ class WorkRelationship(Base):
             ondelete="RESTRICT",
         ),
         UniqueConstraint(
-            "project_id",
             "relationship_type",
             "source_work_item_id",
             "target_work_item_id",
@@ -790,15 +795,15 @@ class WorkRelationship(Base):
         ),
         Index(
             "ix_work_relationships_source",
-            "project_id",
             "source_work_item_id",
             "relationship_type",
+            "project_id",
         ),
         Index(
             "ix_work_relationships_target",
-            "project_id",
             "target_work_item_id",
             "relationship_type",
+            "project_id",
         ),
     )
 

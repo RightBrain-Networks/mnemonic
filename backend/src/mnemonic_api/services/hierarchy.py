@@ -126,8 +126,11 @@ def hierarchy_page(
               AND NOT EXISTS (
                   SELECT 1
                   FROM work_relationships AS parent_edge
-                  WHERE parent_edge.project_id = :project_id
-                    AND parent_edge.relationship_type = 'parent-child'
+                  JOIN work_items AS local_parent
+                    ON local_parent.id = parent_edge.source_work_item_id
+                   AND local_parent.project_id = :project_id
+                   AND local_parent.deleted_at IS NULL
+                  WHERE parent_edge.relationship_type = 'parent-child'
                     AND parent_edge.target_work_item_id = root.id
               )
         """
@@ -145,8 +148,7 @@ def hierarchy_page(
                  WHERE duplicate_merge.project_id = :project_id
                    AND duplicate_merge.source_work_item_id = child.id
              )
-            WHERE child_edge.project_id = :project_id
-              AND child_edge.relationship_type = 'parent-child'
+            WHERE child_edge.relationship_type = 'parent-child'
               AND child_edge.source_work_item_id = :parent_work_item_id
         """
 
@@ -230,8 +232,7 @@ def hierarchy_page(
                     subtree.visited_path || child_edge.target_work_item_id
                 FROM subtree
                 JOIN work_relationships AS child_edge
-                  ON child_edge.project_id = :project_id
-                 AND child_edge.relationship_type = 'parent-child'
+                  ON child_edge.relationship_type = 'parent-child'
                  AND child_edge.source_work_item_id = subtree.member_id
                 JOIN work_items AS visible_child
                   ON visible_child.project_id = :project_id
@@ -302,8 +303,7 @@ def hierarchy_page(
                     EXISTS (
                         SELECT 1
                         FROM work_relationships AS discovery_edge
-                        WHERE discovery_edge.project_id = :project_id
-                          AND discovery_edge.relationship_type = 'discovered-from'
+                        WHERE discovery_edge.relationship_type = 'discovered-from'
                           AND discovery_edge.source_work_item_id = member.id
                     ) AS is_discovered,
                     ({member_gate_count_sql}) AS unresolved_gate_count,
@@ -409,15 +409,17 @@ def hierarchy_page(
                     EXISTS (
                         SELECT 1
                         FROM work_relationships AS parent_edge
+                        JOIN work_items AS local_parent
+                          ON local_parent.id = parent_edge.source_work_item_id
+                         AND local_parent.project_id = :project_id
+                         AND local_parent.deleted_at IS NULL
                         JOIN work_relationships AS discovery_edge
-                          ON discovery_edge.project_id = parent_edge.project_id
-                         AND discovery_edge.relationship_type = 'discovered-from'
+                          ON discovery_edge.relationship_type = 'discovered-from'
                          AND discovery_edge.source_work_item_id =
                             parent_edge.target_work_item_id
                          AND discovery_edge.target_work_item_id =
                             parent_edge.source_work_item_id
-                        WHERE parent_edge.project_id = :project_id
-                          AND parent_edge.relationship_type = 'parent-child'
+                        WHERE parent_edge.relationship_type = 'parent-child'
                           AND parent_edge.target_work_item_id = paged.branch_id
                     ) AS discovered_from_parent,
                     aggregate.next_active_descendant_lease_expires_at,
@@ -627,16 +629,22 @@ def ancestor_paths(
             WITH RECURSIVE ancestors(work_item_id, ancestor_id, depth) AS (
                 SELECT edge.target_work_item_id, edge.source_work_item_id, 1
                 FROM work_relationships AS edge
-                WHERE edge.project_id = :project_id
-                  AND edge.relationship_type = 'parent-child'
+                JOIN work_items AS local_ancestor
+                  ON local_ancestor.id = edge.source_work_item_id
+                 AND local_ancestor.project_id = :project_id
+                 AND local_ancestor.deleted_at IS NULL
+                WHERE edge.relationship_type = 'parent-child'
                   AND edge.target_work_item_id = ANY(CAST(:work_item_ids AS uuid[]))
                 UNION ALL
                 SELECT ancestors.work_item_id, edge.source_work_item_id, ancestors.depth + 1
                 FROM ancestors
                 JOIN work_relationships AS edge
-                  ON edge.project_id = :project_id
-                 AND edge.relationship_type = 'parent-child'
+                  ON edge.relationship_type = 'parent-child'
                  AND edge.target_work_item_id = ancestors.ancestor_id
+                JOIN work_items AS local_ancestor
+                  ON local_ancestor.id = edge.source_work_item_id
+                 AND local_ancestor.project_id = :project_id
+                 AND local_ancestor.deleted_at IS NULL
                 WHERE ancestors.depth < 51
             )
             SELECT

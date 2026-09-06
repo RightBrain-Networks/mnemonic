@@ -192,6 +192,7 @@ def adjacent_relationship(relationship, readiness):
         "relative_to_work_item_id": WORK_ID,
         "direction": "incoming",
         "counterpart": {
+            "project_id": PROJECT_ID,
             "id": OTHER_WORK_ID,
             "title": "Prepare prerequisite",
             "status": "pending",

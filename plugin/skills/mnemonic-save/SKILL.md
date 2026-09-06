@@ -128,13 +128,16 @@ UUID or retained arguments in Mnemonic content, chat, or logs.
 
 ## Record explicit relationships
 
-Relationships are project-local facts, not semantic guesses. Read
+Relationships are globally identified facts that may connect work in separate
+projects, not semantic guesses. Every edge keeps its immutable creation project
+as the authority route. Read
 [work-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md) before creating
 any edge. Three facts decide what you record:
 
 - **Only `parent-child` shapes the human hierarchy.** It feeds `ancestor_path`,
   the dashboard's collapsed root and child views, and `list_ready_work`'s
-  `parent_work_item_id` filter; the edge's source is the parent. New sub-work of
+  `parent_work_item_id` filter while both endpoints are currently colocated in
+  that project; the edge's source is the parent. New sub-work of
   an existing objective therefore carries an incoming `parent-child` edge from
   that objective, or it appears as an unrelated root.
 - **`discovered-from` is provenance only.** It points from the newer finding to
@@ -142,16 +145,23 @@ any edge. Three facts decide what you record:
   parent. When newly discovered work is also sub-work of the current durable
   objective, persist both facts atomically: the incoming `parent-child` edge and
   the outgoing `discovered-from` edge. Either may legitimately exist alone.
-- **Only an unresolved incoming `blocks` edge changes readiness.** A dependency
-  stated only in prose does not keep the next session from claiming the item.
-  Never infer an edge from similar wording, adjacency, or search results.
+- **Only an unresolved incoming `blocks` edge changes readiness, even across
+  projects.** A dependency stated only in prose does not keep the next session
+  from claiming the item. Never infer an edge from similar wording, adjacency,
+  or search results.
 
 When a new work item and its links must succeed together, pass up to ten
 `initial_relationships` to `create_work` (each `direction` is relative to the
-new item). For a fact connecting existing work, use `add_relationship`.
+new item). For a fact connecting existing work, use `add_relationship`; the
+endpoints may belong to different projects, and the requested project must
+currently contain at least one of them. A duplicate add may return the globally
+existing edge with a different authority project. Always retain the returned
+`relationship.project_id` for later `get_relationship` or
+`remove_relationship`, and use the counterpart pointer `project_id` to open that
+work in its current project. A project move preserves every incident edge.
 Fresh generic `duplicate-of` use on either surface is closed and returns
-`duplicate_merge_required`; old calls remain parseable only for completed-receipt replay. Retained
-duplicate marks are evidence and do not establish a canonical
+`duplicate_merge_required`; old calls remain parseable only for completed-receipt
+replay. Retained duplicate marks are evidence and do not establish a canonical
 work item.
 
 ## Merge duplicates only after exact review

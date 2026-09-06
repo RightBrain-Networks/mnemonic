@@ -465,9 +465,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.15.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.15.0` install
-plus a `0.14.0 -> 0.15.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.16.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.16.0` install
+plus a `0.15.0 -> 0.16.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -791,26 +791,38 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.15.0`, plugin is `0.15.0`,
-and Alembic head is `0024_code_reviews`. Validate all surfaces together
-with the existing regression suites. Historical Phase 11 downgrade/catalog tests
-must seed valid historical shapes with offline SQL at 0019; never run current
-application writers against an older schema or strip reports from fresh receipts.
+Current application/API/MCP/dashboard versions are `0.16.0`, plugin is `0.16.0`,
+and Alembic head is `0025_cross_project_relationships`. Validate all surfaces
+together with the existing regression suites. Exercise a quiescent populated
+0024-to-0025 upgrade and deploy every surface before reopening writes. A
+0025-to-0024 downgrade must succeed only when every retained edge has both
+current endpoints in its immutable authority project and no immutable
+relationship/dependency event history for an edge spans projects. Under
+exclusive locks it must refuse before DDL when either condition fails, including
+after a cross-project edge is removed. Fix forward or restore the full pre-0025
+backup. Historical Phase 11 downgrade/catalog tests must seed valid
+historical shapes with offline SQL at 0019; never run current application
+writers against an older schema or strip reports from fresh receipts.
 
 Move coverage must prove same-UUID/status relocation for every stored lifecycle,
-Dropped lease retention, active lease/relationship/gate/duplicate rejection,
-dual-project lock ordering, paired activity witnesses, permanent retry replay,
-and current-project authorization of cross-project history. Browser coverage must
-exercise standalone Delete plus the accessible Move submenu in the Defer split
-menu, target-project ordering, hover and keyboard traversal, successful target
+Dropped lease retention, active lease/gate/duplicate rejection, preservation of
+every incident relationship, cross-project adjacency and blockers after the
+move, dual-project lock ordering, paired move activity witnesses, permanent
+retry replay, and current-project authorization of cross-project history.
+Browser coverage must exercise standalone Delete plus the accessible Move submenu
+in the Defer split menu, target-project ordering, hover and keyboard traversal, successful target
 navigation, strict proxy body validation, and exact ambiguous retry.
 
-Backend checks cover fresh and populated upgrades through 0020/0021, typed
-activity coverage, per-project ordering and stream changes, all three closeout
-seals, settings compare-and-set, report cursor snapshots, repeat dismissal,
-dual-provenance pending follow-ups, and exact receipt replay. Test direct SQL
-invariants, rollback at every aggregate step, races, bounded contention and
-privacy, populated audits, and preservation after restore/rebootstrap.
+Backend checks cover fresh and populated upgrades through 0025, global
+relationship natural identity, global block/parent invariants, immutable edge
+authority, current-project counterpart pointers, endpoint-local relationship
+events, colocated-only hierarchy presentation, and exact no-op replay from the
+original authority project. They also retain typed activity coverage,
+per-project ordering and stream changes, all three closeout seals, settings
+compare-and-set, report cursor snapshots, repeat dismissal, dual-provenance
+pending follow-ups, and exact receipt replay. Test direct SQL invariants,
+rollback at every aggregate step, races, bounded contention and privacy,
+populated audits, and preservation after restore/rebootstrap.
 
 Browser acceptance covers Summaries immediately below Needs Attention, its
 count/list/detail, standalone report prose and FYIs, dismissal, independent

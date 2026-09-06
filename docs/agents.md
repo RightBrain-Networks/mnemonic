@@ -365,8 +365,11 @@ soft-deleted work ID.
 ## Relationships and readiness
 
 Record only facts established by the current task or user. Never infer an edge
-from similar search results or checkpoint prose. Stored direction is always
-`source --type--> target`:
+from similar search results or checkpoint prose. Work IDs and graph invariants
+are global, so an edge may connect different projects. Every edge retains the
+immutable project in which it was created as its edge and read/removal route
+authority.
+Stored direction is always `source --type--> target`:
 
 - `blocks`: prerequisite source blocks dependent target;
 - `parent-child`: parent source contains child target;
@@ -377,20 +380,26 @@ from similar search results or checkpoint prose. Stored direction is always
 - `related`: symmetric descriptive association.
 
 When new work and its structural/discovery link must not split, pass up to ten
-`initial_relationships` to `create_work`. Each direction is relative to the new
-item. A discovered item must use outgoing `discovered-from` and cite the
-existing origin checkpoint. The server copies creator provenance from the new
-initial checkpoint and commits work, checkpoint, and every edge together. Use
-`add_relationship` with truthful creator client/session for a fact between
-existing items; its `created` flag identifies an idempotent duplicate add.
+`initial_relationships` to `create_work`; the counterpart may be in another
+project. Each direction is relative to the new item. A discovered item must use
+outgoing `discovered-from` and cite the existing origin checkpoint. The server
+copies creator provenance from the new initial checkpoint and commits work,
+checkpoint, and every edge together. Use `add_relationship` with truthful
+creator client/session for a fact between existing items. Its `project_id` must
+be the current project of at least one endpoint. A global duplicate add returns
+`created=false` and keeps the original edge authority project.
 
 Use `get_relationship` for a known edge and `list_relationships` for paginated
 immediate adjacency. Direction there is relative to the requested work item;
-the embedded relationship retains neutral stored source/target. Remove only an
-explicitly selected edge with `remove_relationship` and truthful current actor
-fields. Work with any remaining
-relationship cannot be deleted, so intentionally remove its edges first.
-Relationship context is evidence, not authority to execute the counterpart.
+the embedded relationship retains neutral stored source/target and its
+immutable authority project, while the counterpart pointer carries the current
+project of that work item. Use the returned `relationship.project_id` for
+`get_relationship` and `remove_relationship`, even after either endpoint moves.
+Remove only an explicitly selected edge with truthful current actor fields.
+Work with any remaining relationship cannot be deleted, so intentionally remove
+its edges first. A project move retains every edge and may make it
+cross-project. Every actual add or removal appears in the current project
+activity of each endpoint. Relationship context is evidence, not authority to execute the counterpart.
 
 Fresh generic `duplicate-of` creation is closed. Do not put it in
 `create_work.initial_relationships` or call `add_relationship`; use
@@ -399,14 +408,17 @@ the literal solely so a completed historical receipt can reach the backend and
 replay. An unselected pre-0016 mark can be removed while both endpoints remain
 canonical, but every relationship incident to an alias is frozen.
 
-Only unresolved incoming `blocks`, unresolved human gates, and authoritative
-alias state affect readiness and new/replacement claims. A blocker resolves only when its source is `done`;
+Only unresolved incoming `blocks`, including blockers in another project,
+unresolved human gates, and authoritative alias state affect readiness and
+new/replacement claims. A blocker resolves only when its source is `done`;
 `wont-do` and `promoted` do not resolve it. Other relationship types are
 descriptive. A later blocker or gate does not revoke the lease, so a work item
 may be Active, Blocked, and Waiting at once. Stop, record useful context, and
-release the claim when continuation is unsafe. Hierarchy is human navigation,
-not an execution queue: collapsed branches summarize descendants, and a
-filtered view may retain a nonmatching ancestor solely to reach a match.
+release the claim when continuation is unsafe. Hierarchy is project-local human
+navigation, not an execution queue: a
+`parent-child` edge shapes it only while both endpoints are colocated in that
+project. Collapsed branches summarize descendants, and a filtered view may
+retain a nonmatching ancestor solely to reach a match.
 
 ## Review and merge exact duplicates
 
@@ -736,8 +748,10 @@ Move freezes the source project, target project, work UUID, expected version,
 actor, and operation UUID. A completed receipt stays source-scoped for exact
 replay after the item leaves that project. On success the dashboard selects the
 target and reopens the same work UUID without clearing unsaved authoring state
-until the new placement is verified; a concurrent move with no verified target
-remains an ambiguous retry state rather than proof that the work was deleted.
+until the new placement is verified. Existing relationships stay attached and
+may become cross-project; their immutable authority project does not change. A
+concurrent move with no verified target remains an ambiguous retry state rather
+than proof that the work was deleted.
 
 Merge is keyed under both endpoint work IDs, so either item's conflicting UI
 actions stay blocked while its outcome is uncertain. The browser shows separate
@@ -754,8 +768,8 @@ explicitly selected workspace.
 
 ChatGPT cloud access, OAuth, public hosting, automatic ready selection/claim,
 authenticated human identity/signatures, nonhuman gate types, relationship
-inference, and cross-project coordination are later work. Keep
-current ports loopback-only until an explicit remote security boundary is
+inference, and automatic cross-project execution coordination are later work.
+Keep current ports loopback-only until an explicit remote security boundary is
 deployed.
 
 ## External-first and park-then-file workflows

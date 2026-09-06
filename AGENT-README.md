@@ -15,8 +15,8 @@ after writing configuration: start the stack and perform the validation in this 
 
 - `MNEMONIC_ROOT` means the absolute path of the cloned repository. Every repository command in
   this document MUST run from `MNEMONIC_ROOT` unless stated otherwise.
-- The work graph is Mnemonic's durable, project-scoped store of work items, immutable checkpoints,
-  events, leases, typed relationships, and human-decision gates.
+- The work graph is Mnemonic's durable store of project-placed work items, immutable
+  checkpoints, events, leases, cross-project typed relationships, and human-decision gates.
 - [`compose.yaml`](compose.yaml) is the authoritative local deployment. It defines `postgres`,
   `api`, `mcp`, `web`, and `backup`; the destructive `restore` service is disabled behind the
   `maintenance` profile. The `api` service runs database migrations during startup.
@@ -418,24 +418,37 @@ item separately:
 - An existing populated installation requires the upgrade or credential-rotation procedure in
   `docs/operations.md`; it MUST NOT be treated as a new installation.
 
-## Current code reviews release boundary
+## Current cross-project relationship release boundary
 
-Application/API/MCP/dashboard 0.14.0, plugin 0.14.0 and Alembic
-`0024_code_reviews` ship together: 38 MCP tools, 13 receipt-protected MCP writes,
+Application/API/MCP/dashboard 0.16.0, plugin 0.16.0 and Alembic
+`0025_cross_project_relationships` ship together: 38 MCP tools, 13
+receipt-protected MCP writes,
 18 REST receipt kinds, 15 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
-do not infer historical review requests. Quiesce old writers and back up before
-migration. Run both read-only `scripts/audit_project_activity.py` and
-`scripts/audit_code_reviews.py` at 0024; the activity audit also supports its
-explicit historical-head preflights. After any
-review policy change or fact, downgrade is forbidden even after resetting the
-settings. See [code reviews](docs/code-reviews.md) for deployment and recovery.
+do not infer historical review requests. Quiesce old writers, take a verified
+backup, migrate, and deploy every coordinated surface together. Run both
+read-only `scripts/audit_project_activity.py` and
+`scripts/audit_code_reviews.py` at 0025; the activity audit also supports its
+explicit historical-head preflights.
 
-Migration 0023 moves one stable work-item identity between projects without
-changing its lifecycle status. It leaves historical facts at their original
-project and records paired `work_moved` activity in the source and target. An
-active lease, unresolved gate, relationship, duplicate membership or alias, or
-unsealed terminal history blocks a fresh move. Move is a REST/dashboard action;
-review-policy/history or remediation ancestry also blocks a move in this release.
-there is no MCP write or plugin skill for it. Permanent source-scoped receipts
-remain the authority for exact unknown-outcome retries after the item has moved.
+Migration 0025 gives relationship endpoints global identity while retaining the
+creation project as immutable edge authority. It preserves incident edges when
+work moves, records relationship events in the current project of each
+endpoint, and keeps hierarchy presentation local to colocated endpoints.
+Downgrade to 0024 is allowed only when every retained edge still has both
+current endpoints in its immutable authority project and no immutable
+relationship/dependency event history for an edge spans projects. Removing a
+cross-project edge does not restore eligibility. Otherwise, fix forward or
+restore the full pre-0025 backup. Further downgrade remains subject to the
+code-review history guards. See
+[operations](docs/operations.md#current-coordinated-cutover) for cutover details.
+
+Migration 0023 introduced movement of one stable work-item identity between
+projects without changing its lifecycle status. It leaves historical facts at
+their original project and records paired `work_moved` activity in the source
+and target. At current head 0025, relationships remain attached to that stable
+identity and may span projects after a move. An active lease, unresolved gate,
+duplicate membership or alias, or unsealed terminal history blocks a fresh move.
+Move is a REST/dashboard action; review-policy/history or remediation ancestry also blocks a move in
+this release. There is no MCP write or plugin skill for it. Permanent
+source-scoped receipts remain the authority for exact unknown-outcome retries after the item has moved.

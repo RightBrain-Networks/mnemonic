@@ -183,9 +183,6 @@ export function workMoveDisabledReason(
   if (context.duplicate_member_total > 0) {
     return "A work item in a duplicate group cannot be moved.";
   }
-  if (context.relationship_counts.total > 0) {
-    return "Remove this work item’s relationships before moving it.";
-  }
   if (context.readiness.is_gated) {
     return "Resolve every human question before moving this work item.";
   }

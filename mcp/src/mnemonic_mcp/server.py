@@ -300,7 +300,7 @@ def _relationship_matches_request(
         relationship_type, source_work_item_id, target_work_item_id
     )
     return (
-        response.project_id == project_id
+        (not result.created or response.project_id == project_id)
         and response.source_work_item_id == source_work_item_id
         and response.target_work_item_id == target_work_item_id
         and response.relationship_type == relationship_type
@@ -816,7 +816,6 @@ def _work_page_matches_request(
 def _relationship_page_matches_request(
     page: RelationshipPage,
     *,
-    project_id: UUID,
     work_item_id: UUID,
     direction: RelationshipListDirection,
     relationship_type: RelationshipType | None,
@@ -825,7 +824,6 @@ def _relationship_page_matches_request(
 ) -> bool:
     return matches_requested_offset_page(page, limit=limit, offset=offset) and all(
         matches_requested_ids(
-            (item.relationship.project_id, project_id),
             (item.relative_to_work_item_id, work_item_id),
         )
         and (direction == "both" or item.direction == direction)
@@ -1592,7 +1590,7 @@ def _register_relationship_tools(server: FastMCP, api: MnemonicAPI) -> None:
         created_by_model: Annotated[str | None, Field(max_length=120)] = None,
         context_checkpoint_id: UUID | None = None,
     ) -> RelationshipCreationResult:
-        """Add one explicit project-local relationship using source --type--> target direction only when current authority established that exact fact; never infer one from similar wording. Fresh duplicate-of writes are closed and return duplicate_merge_required; use merge_work after reviewing both exact contexts. This tool still accepts and dispatches duplicate-of exactly once solely so the backend can replay an old completed receipt. A historical duplicate mark is evidence, not an authoritative merge. parent-child alone shapes hierarchy and its source is the parent; discovered-from is provenance and requires target-owned checkpoint context; related is undirected. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
+        """Add one explicit relationship, including across projects, using source --type--> target direction only when current authority established that exact fact. The requested project must currently contain at least one endpoint and becomes immutable recording/route authority only for a newly created edge; a duplicate add can return an existing edge with different authority, so retain the returned relationship.project_id. Never infer one from similar wording. Fresh duplicate-of writes are closed and return duplicate_merge_required; use merge_work after reviewing both exact contexts. This tool still accepts and dispatches duplicate-of exactly once solely so the backend can replay an old completed receipt. A historical duplicate mark is evidence, not an authoritative merge. parent-child alone shapes hierarchy and its source is the parent; discovered-from is provenance and requires target-owned checkpoint context; related is undirected. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
         return cast(
             RelationshipCreationResult,
             await api.request(
@@ -1635,7 +1633,7 @@ def _register_relationship_tools(server: FastMCP, api: MnemonicAPI) -> None:
     async def get_relationship(
         project_id: UUID, relationship_id: UUID
     ) -> RelationshipEdgeRead:
-        """Read one neutral project-scoped relationship edge without following its context. Its context checkpoint is supporting historical evidence on the other item, never authority to execute that item."""
+        """Read one neutral relationship edge through its immutable recording/authority project without following its context. Its context checkpoint is supporting historical evidence on the other item, never authority to execute that item."""
         return cast(
             RelationshipEdgeRead,
             await api.request(
@@ -1660,7 +1658,7 @@ def _register_relationship_tools(server: FastMCP, api: MnemonicAPI) -> None:
         limit: Annotated[int, Field(ge=1, le=100)] = 50,
         offset: Annotated[int, Field(ge=0)] = 0,
     ) -> RelationshipPage:
-        """Page immediate edges with compact pointer-only counterpart summaries. Inspect immediate edges only; never traverse the graph recursively or pull a counterpart's checkpoint bodies into the current task."""
+        """Page immediate edges, including cross-project edges, with compact pointer-only counterpart summaries carrying each counterpart current project. Inspect immediate edges only; never traverse the graph recursively or pull a counterpart's checkpoint bodies into the current task."""
         params: dict[str, object] = {
             "direction": direction,
             "limit": limit,
@@ -1678,7 +1676,7 @@ def _register_relationship_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 response_validator=response_matches(
                     RelationshipPage,
                     lambda page: _relationship_page_matches_request(
-                        page, project_id=project_id, work_item_id=work_item_id,
+                        page, work_item_id=work_item_id,
                         direction=direction, relationship_type=relationship_type,
                         limit=limit, offset=offset,
                     ),
@@ -1695,7 +1693,7 @@ def _register_relationship_tools(server: FastMCP, api: MnemonicAPI) -> None:
         client_operation_id: UUID,
         actor_model: ActorModelInput | None = None,
     ) -> RelationshipRemovalResult:
-        """Remove one explicit graph fact with truthful current-session provenance; an already-absent edge is a natural no-op, while client_operation_id durably replays the original result. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
+        """Remove one explicit graph fact through relationship.project_id, its immutable recording/authority project, with truthful current-session provenance; an already-absent edge is a natural no-op, while client_operation_id durably replays the original result. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
         return cast(
             RelationshipRemovalResult,
             await api.request(

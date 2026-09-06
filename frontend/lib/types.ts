@@ -356,6 +356,7 @@ export interface RelationshipEdgeRead {
 export interface WorkPointer {
   external_references?: ExternalReference[];
   id: string;
+  project_id: string;
   title: string;
   status: WorkStatus;
   readiness: Readiness;

@@ -237,7 +237,7 @@ function coherentReviewRelationship(
     || !validUuid(relationship.target_work_item_id)
     || !validUuid(adjacent.relative_to_work_item_id)
     || !validUuid(counterpart.id)
-    || !sameUuid(relationship.project_id, context.work_item.project_id)
+    || !validUuid(counterpart.project_id)
     || !sameUuid(adjacent.relative_to_work_item_id, context.work_item.id)
   ) return false;
 

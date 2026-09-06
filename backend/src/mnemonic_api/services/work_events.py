@@ -385,9 +385,25 @@ def stage_relationship_events(
         raise ValueError("Relationship event action must be added or removed")
     family = "dependency" if relationship.relationship_type == "blocks" else "relationship"
     event_type = f"{family}_{action}"
+    endpoint_ids = (
+        relationship.source_work_item_id,
+        relationship.target_work_item_id,
+    )
+    endpoint_projects = {
+        work_item_id: project_id
+        for work_item_id, project_id in database.execute(
+            select(WorkItem.id, WorkItem.project_id).where(WorkItem.id.in_(endpoint_ids))
+        )
+    }
+    if len(endpoint_projects) != len(endpoint_ids):
+        raise not_found("work_item_not_found", "Work item not found.")
+    placements = sorted(
+        ((work_item_id, endpoint_projects[work_item_id]) for work_item_id in endpoint_ids),
+        key=lambda placement: str(placement[1]),
+    )
     events = [
         _event(
-            project_id=relationship.project_id,
+            project_id=project_id,
             work_item_id=work_item_id,
             event_type=event_type,
             actor=actor,
@@ -396,10 +412,7 @@ def stage_relationship_events(
             relationship=relationship,
             created_for_duplicate_merge_id=created_for_duplicate_merge_id,
         )
-        for work_item_id in (
-            relationship.source_work_item_id,
-            relationship.target_work_item_id,
-        )
+        for work_item_id, project_id in placements
     ]
     database.add_all(events)
     return events
