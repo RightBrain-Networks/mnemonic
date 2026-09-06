@@ -29,6 +29,8 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema, WithJsonSchema
 
+from mnemonic_api.external_duplicate_schemas import ExternalCandidates, ExternalSuggestionFields
+from mnemonic_api.external_references import ExternalReferences, ExternalURL
 from mnemonic_api.phase12_schemas import (
     AuthoringPrompt,
     HumanDismissalRead,
@@ -1388,6 +1390,9 @@ class InitialRelationshipCreate(APIModel):
 
 
 class WorkItemCreate(APIModel):
+    external_references: ExternalReferences = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
     title: Title
     summary: Summary
     priority: Annotated[StrictInt, Field(ge=0, le=100)] = 0
@@ -1423,6 +1428,9 @@ class RelationshipCreate(APIModel):
 
 
 class WorkItemPatch(APIModel):
+    external_references: ExternalReferences | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     expected_version: Annotated[StrictInt, Field(ge=1)]
     title: Title | None = None
     summary: Summary | None = None
@@ -1784,6 +1792,9 @@ class HumanGateRead(APIModel):
 
 
 class WorkItemRead(Timestamps):
+    external_references: ExternalReferences = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
     id: UUID
     project_id: UUID
     title: str
@@ -2335,6 +2346,9 @@ class RelationshipEdgeRead(APIModel):
 
 
 class WorkPointer(APIModel):
+    external_references: ExternalReferences = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
     id: UUID
     title: str
     status: Status
@@ -2360,6 +2374,9 @@ class RelationshipRemovalResult(APIModel):
 
 
 class WorkItemPointer(APIModel):
+    external_references: ExternalReferences = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
     id: UUID
     title: str
     status: Status
@@ -2427,6 +2444,9 @@ class DuplicateSuggestionRequest(APIModel):
     initial_prompt: Prompt
     tags: Tags = Field(default_factory=list)
     exclude_work_item_id: UUID | None = None
+    external_candidates: ExternalCandidates = Field(
+        default_factory=list, exclude_if=lambda value: not value
+    )
     limit: Annotated[StrictInt, Field(ge=1, le=10)] = 5
 
     @field_validator("tags")
@@ -2436,6 +2456,9 @@ class DuplicateSuggestionRequest(APIModel):
 
 
 class DuplicateCandidateSummary(APIModel):
+    external_references: ExternalReferences = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
     work_item_id: UUID
     title: StoredTitle
     summary: StoredSummary
@@ -2481,7 +2504,7 @@ class DuplicateSuggestion(APIModel):
         return self
 
 
-class DuplicateSuggestionPage(APIModel):
+class DuplicateSuggestionPage(APIModel, ExternalSuggestionFields):
     items: list[DuplicateSuggestion] = Field(max_length=10)
     limit: Annotated[StrictInt, Field(ge=1, le=10)]
     mode: DuplicateSuggestionMode
@@ -2493,6 +2516,8 @@ class DuplicateSuggestionPage(APIModel):
 
     @model_validator(mode="after")
     def page_is_coherent(self) -> Self:
+        if self.external_items is not None and len(self.external_items) > self.limit:
+            raise ValueError("External suggestions cannot exceed the requested limit")
         self._require_rank_and_group_identity()
         self._require_semantic_mode()
         self._require_exact_lane()
@@ -2660,6 +2685,9 @@ class EmptyEventMetadata(APIModel):
 
 
 class WorkSnapshot(APIModel):
+    external_references: ExternalReferences = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
     title: Title
     summary: Summary
     status: EventCreateStatus
@@ -2691,7 +2719,13 @@ class StatusChange(APIModel):
     after: EventStatus
 
 
+class ExternalReferencesChange(APIModel):
+    before: ExternalReferences
+    after: ExternalReferences
+
+
 class WorkChangeSet(APIModel):
+    external_references: ExternalReferencesChange | None = None
     title: TitleChange | None = None
     summary: SummaryChange | None = None
     priority: PriorityChange | None = None
@@ -3058,6 +3092,11 @@ class WorkEventRead(APIModel):
 
     def _typed_metadata(self) -> WorkEventMetadata:
         payload = _event_metadata_payload(self.metadata)
+        limit = 131072 if self.event_type in {
+            "work_created", "work_updated", "work_status_changed", "work_reopened",
+        } else 16384
+        if len(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")) > limit:
+            raise ValueError("Event metadata exceeds its event-specific UTF-8 JSON bound")
         origin_shape = _ORIGIN_METADATA_TYPES.get((self.event_type, self.origin))
         if origin_shape is not None:
             return origin_shape.model_validate(payload)
@@ -3513,6 +3552,7 @@ class ProjectListQuery(APIModel):
 
 
 class WorkItemListQuery(APIModel):
+    external_url: ExternalURL | None = None
     q: Annotated[str, StringConstraints(max_length=500), AfterValidator(no_nul)] | None = None
     semantic: bool = False
     status: Literal[
@@ -3538,6 +3578,8 @@ class WorkItemListQuery(APIModel):
         query = (self.q or "").strip()
         if self.semantic and not query:
             raise ValueError("semantic=true requires a nonblank q")
+        if self.view == "roots" and self.external_url is not None:
+            raise ValueError("external_url requires view=full")
         if self.view == "roots" and query:
             raise ValueError("A nonblank q requires view=full")
         if self.view == "roots" and self.duplicate_scope != "canonical":

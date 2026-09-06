@@ -1104,6 +1104,17 @@ def validate_rest_contract(document: Any) -> None:
     try:
         require(document["info"]["version"] == "0.9.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
+        require(
+            {"ExternalReference", "ExternalReferencesChange", "ExternalDuplicateCandidate",
+             "ExternalCandidateReference", "ExternalDuplicateSuggestion"}.issubset(schemas)
+            and "external_references" in schemas["WorkItemRead"]["properties"]
+            and "external_references" in schemas["WorkItemCreate"]["properties"]
+            and "external_candidates" in schemas["DuplicateSuggestionRequest"]["properties"]
+            and {"external_items", "external_candidate_count", "external_scope"}.issubset(
+                schemas["DuplicateSuggestionPage"]["properties"]
+            ),
+            "REST external records lack coordinated canonical contracts.",
+        )
         endpoint_refs = {
             "/api/v1/projects/{project_id}/work-items": "#/components/schemas/WorkItemCreate",
             "/api/v1/projects/{project_id}/work-items/{work_item_id}/checkpoints": (

@@ -432,6 +432,7 @@ def prepare_client_operation(
             known_secret_values=known_secret_values,
         )
     reject_report_secret_substrings(payload, known_secret_values=known_secret_values)
+    reject_reference_secret_substrings(payload, known_secret_values=known_secret_values)
     forbidden_response_values = reject_client_operation_secret_echo(
         payload, known_secret_values=known_secret_values
     )
@@ -495,6 +496,29 @@ def reject_completion_evidence_secret_substrings(
             spelling in value.casefold() for spelling in uuid_spellings
         ):
             raise client_operation_secret_echo()
+
+
+def reject_reference_secret_substrings(
+    payload: APIModel, *, known_secret_values: Iterable[str] = (),
+) -> None:
+    references = getattr(payload, "external_references", None)
+    if not references:
+        return
+    secrets_to_check = {value for value in known_secret_values if value}
+    token = getattr(payload, "lease_token", None)
+    if token:
+        secrets_to_check.add(token)
+    operation_id = getattr(payload, "client_operation_id", None)
+    spellings: set[str] = set()
+    if operation_id is not None:
+        value = str(operation_id)
+        spellings = {value, value.replace("-", ""), "urn:uuid:" + value, "{" + value + "}"}
+    for reference in references:
+        for value in (reference.url, reference.label or ""):
+            if any(secret in value for secret in secrets_to_check) or any(
+                spelling in value.casefold() for spelling in spellings
+            ):
+                raise client_operation_secret_echo()
 
 
 def reject_report_secret_substrings(
@@ -844,6 +868,7 @@ def _create_work_matches(
         or work.summary != request.summary
         or work.priority != request.priority
         or work.status != request.status
+        or work.external_references != request.external_references
         or result.initial_checkpoint.work_item_id != work.id
         or result.initial_checkpoint.id != work.initial_checkpoint_id
         or result.initial_checkpoint.kind != "context"

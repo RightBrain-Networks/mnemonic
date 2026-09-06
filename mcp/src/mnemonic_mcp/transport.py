@@ -21,7 +21,10 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 MCP_REQUEST_MAX_BYTES = 1_048_576
 COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES = 3_145_728
-MCP_RESULT_MAX_BYTES = 12_582_912
+# Full context includes up to300 reference-bearing counterparts,22 full
+# checkpoints and20 events. The SDK emits both JSON text and structuredContent;
+# measured maximal fixtures exceed48MiB. See external-records performance evidence.
+MCP_RESULT_MAX_BYTES = 67_108_864
 MCP_STREAM_CHUNK_BYTES = 65_536
 
 _REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}", re.ASCII)

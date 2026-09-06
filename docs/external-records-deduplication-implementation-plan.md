@@ -10,6 +10,14 @@ its owner decisions in §10. This document is self-contained: that untracked
 evaluation is historical evidence, not a required runtime or implementation
 dependency. Its September 3 incident measurements have not been rerun here.
 
+Implementation amendment (2026-09-06): maximum-context rehearsal measured a
+full SDK JSON-RPC result above 48 MiB because it includes both text and structured
+copies. The original 12 MiB stdio result ceiling cannot carry this supported
+context. The implementation raises only the general result ceiling to 64 MiB;
+MCP request frames and permanent receipts remain 1 MiB, and the existing evidence
+response proof remains 12 MiB. No fields or histories are truncated. See
+[performance and recovery evidence](external-records-performance-and-recovery-evidence.md).
+
 ## 1. Outcome, scope, and baseline
 
 Implement the evaluation's Branch A in dependency order:

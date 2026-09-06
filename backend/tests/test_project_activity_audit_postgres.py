@@ -178,3 +178,134 @@ def test_audit_preserves_permission_and_fk_trigger_checks(
         assert report["blocking_findings"][f"catalog_{category}_drift"] > 0
     finally:
         reset_disposable_schema(postgres_engine)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "category"),
+    [
+        ("DROP INDEX ix_work_items_external_references", "indexes"),
+        ("ALTER TABLE work_items ALTER COLUMN external_references DROP NOT NULL", "columns"),
+        (
+            "ALTER TABLE work_items DROP CONSTRAINT ck_work_items_external_references_valid",
+            "constraints",
+        ),
+        ("ALTER FUNCTION mnemonic_external_references_is_valid(jsonb) VOLATILE", "functions"),
+        (
+            "ALTER TABLE work_events DROP CONSTRAINT ck_work_events_metadata_envelope_valid",
+            "constraints",
+        ),
+    ],
+)
+def test_external_reference_audit_rejects_new_guard_drift(postgres_engine, mutation, category):
+    reset_disposable_schema(postgres_engine)
+    try:
+        with postgres_engine.begin() as connection:
+            connection.execute(text(mutation))
+        report = _audit(postgres_engine)
+        assert report["result"] == "blocked"
+        assert report["blocking_findings"][f"catalog_{category}_drift"] > 0
+    finally:
+        reset_disposable_schema(postgres_engine)
+
+
+def test_external_reference_audit_finds_invalid_data_after_guard_restoration(postgres_engine):
+    reset_disposable_schema(postgres_engine)
+    with Session(postgres_engine) as database, database.begin():
+        project_id = _project(database)
+        work_id = _work(database, project_id).id
+    try:
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE work_items DROP CONSTRAINT ck_work_items_external_references_valid"
+                )
+            )
+            connection.execute(
+                text("UPDATE work_items SET external_references='[{}]'::jsonb WHERE id=:id"),
+                {"id": work_id},
+            )
+            connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+            connection.execute(
+                text(
+                    "ALTER TABLE work_items ADD CONSTRAINT ck_work_items_external_references_valid "
+                    "CHECK (mnemonic_external_references_is_valid(external_references)) NOT VALID"
+                )
+            )
+        report = _audit(postgres_engine)
+        assert report["blocking_findings"]["invalid_external_reference_lists"] == 1
+        assert report["blocking_findings"]["catalog_constraints_drift"] > 0
+    finally:
+        reset_disposable_schema(postgres_engine)
+
+
+def test_audit_preserves_explicit_report_head_support(postgres_engine):
+    from alembic import command
+    from alembic.config import Config
+
+    reset_disposable_schema(postgres_engine)
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
+    try:
+        with postgres_engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.downgrade(config, "0021_job_completion_reports")
+        with postgres_engine.connect() as connection:
+            connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+            report = audit["audit_snapshot"](connection, "0021_job_completion_reports")
+        assert report["result"] == "pass", report
+        assert "reports" in report["inventory"]
+        # Current-head mismatches fail before selecting new columns/functions.
+        with postgres_engine.connect() as connection:
+            connection.execute(text("SET TRANSACTION READ ONLY"))
+            current = audit["audit_snapshot"](connection)
+        assert current["blocking_findings"] == {"migration_head_mismatch": 1}
+    finally:
+        reset_disposable_schema(postgres_engine)
+
+
+def test_external_event_audit_validates_full_shape_after_function_restoration(postgres_engine):
+    import re
+
+    reset_disposable_schema(postgres_engine)
+    with Session(postgres_engine) as database, database.begin():
+        project_id = _project(database)
+        work_id = _work(database, project_id).id
+    try:
+        with postgres_engine.begin() as connection:
+            definition = connection.scalar(
+                text(
+                    "SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n "
+                    "ON n.oid=p.pronamespace WHERE n.nspname=current_schema() "
+                    "AND p.proname='mnemonic_work_event_metadata_v1_is_valid'"
+                )
+            )
+            relaxed = re.sub(
+                r"AS \$function\$.*\$function\$",
+                "AS $function$BEGIN RETURN true; END$function$",
+                definition,
+                flags=re.S,
+            )
+            assert relaxed != definition
+            connection.execute(text(relaxed))
+            connection.execute(
+                text("""
+                INSERT INTO work_events(project_id,work_item_id,event_type,actor_kind,
+                                        actor_client,actor_session_id,metadata)
+                VALUES (:p,:w,'work_updated','client','pytest','guard-restoration',
+                  CAST(:metadata AS jsonb))
+            """),
+                {
+                    "p": project_id,
+                    "w": work_id,
+                    "metadata": '{"work_version":2,"changes":{"external_references":'
+                    '{"before":[],"after":[],"extra":true}}}',
+                },
+            )
+            connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+            connection.execute(text(definition))
+        report = _audit(postgres_engine)
+        assert report["result"] == "blocked"
+        assert report["blocking_findings"]["invalid_external_event_metadata"] == 1
+        assert not any(key.startswith("catalog_") for key in report["blocking_findings"])
+    finally:
+        reset_disposable_schema(postgres_engine)

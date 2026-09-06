@@ -67,7 +67,7 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.deepEqual(allowedQueryKeys(`projects/${project}`, "PATCH"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/settings`, "GET"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/settings`, "PATCH"), []);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "GET"), ["q", "semantic", "status", "sort", "tag", "source_client", "source_session_id", "view", "duplicate_scope", "canonical_work_item_id", "limit", "offset"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "GET"), ["q", "semantic", "status", "sort", "tag", "source_client", "external_url", "source_session_id", "view", "duplicate_scope", "canonical_work_item_id", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "GET"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "PATCH"), []);

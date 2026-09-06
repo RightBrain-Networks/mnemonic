@@ -2,8 +2,10 @@
 
 import asyncio
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from time import monotonic
+from typing import Any
 from urllib.parse import parse_qsl
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -16,6 +18,7 @@ from mnemonic_api.errors import (
     request_body_too_large,
 )
 
+SUGGESTION_WORK_KEY = "duplicate_suggestion_owned_work"
 SUGGESTION_STATE_KEY = "duplicate_suggestion_inference_acquired"
 SUGGESTION_DEADLINE_KEY = "duplicate_suggestion_deadline"
 SEMANTIC_SEARCH_STATE_KEY = "semantic_search_inference_acquired"
@@ -24,6 +27,45 @@ _NO_STORE = (b"cache-control", b"no-store")
 
 class _ClientDisconnected(Exception):
     pass
+
+
+@dataclass(slots=True)
+class OwnedSuggestionWork:
+    """Completion handles survive response expiry; workers are never cancelled by awaiters.
+
+    At most one worker is started at a time per admitted request. Request capacity
+    therefore bounds the executor population, including late SQL/native inference.
+    """
+
+    tasks: list[asyncio.Task[Any]] = field(default_factory=list)
+
+    def start[T](self, operation: Callable[[], T]) -> asyncio.Task[T]:
+        task = asyncio.create_task(asyncio.to_thread(operation))
+        self.tasks.append(task)
+        task.add_done_callback(_observe_worker_completion)
+        return task
+
+    @property
+    def pending(self) -> bool:
+        return any(not task.done() for task in self.tasks)
+
+    async def finish(self) -> None:
+        if self.tasks:
+            await asyncio.gather(*self.tasks, return_exceptions=True)
+
+
+def _observe_worker_completion(task: asyncio.Task[Any]) -> None:
+    # A worker may fail just as its await budget expires. Retrieve the exception
+    # even when finalization sees an already-completed handle; never log its text.
+    if not task.cancelled():
+        task.exception()
+
+
+def suggestion_owned_work(scope: Scope) -> OwnedSuggestionWork:
+    owner = scope.get("state", {}).get(SUGGESTION_WORK_KEY)
+    if not isinstance(owner, OwnedSuggestionWork):
+        raise RuntimeError("Duplicate suggestion work ownership is unavailable")
+    return owner
 
 
 @dataclass(slots=True)
@@ -61,6 +103,7 @@ class DuplicateSuggestionResources:
         inference_acquired: bool,
         *,
         request_acquired: bool = True,
+        owned_work: OwnedSuggestionWork | None = None,
     ) -> None:
         drain = asyncio.create_task(
             _release_resources_when_done(
@@ -68,6 +111,7 @@ class DuplicateSuggestionResources:
                 self,
                 inference_acquired,
                 request_acquired=request_acquired,
+                owned_work=owned_work,
             )
         )
         self.draining_tasks.add(drain)
@@ -134,6 +178,7 @@ async def _serve_acquired_request(
     inference_acquired = False
     release_resources = True
     app_task: asyncio.Task[None] | None = None
+    owned_work = OwnedSuggestionWork()
     try:
         body = await asyncio.wait_for(
             _read_bounded_body(receive, resources.body_max_bytes),
@@ -156,6 +201,7 @@ async def _serve_acquired_request(
             inference_deadline,
         )
         state = scope.setdefault("state", {})
+        state[SUGGESTION_WORK_KEY] = owned_work
         state[SUGGESTION_STATE_KEY] = inference_acquired
         state[SUGGESTION_DEADLINE_KEY] = deadline
         buffered: list[Message] = []
@@ -171,7 +217,9 @@ async def _serve_acquired_request(
             (app_task,), timeout=_remaining_seconds(deadline)
         )
         if not done:
-            resources.retain_resources_until_done(app_task, inference_acquired)
+            resources.retain_resources_until_done(
+                app_task, inference_acquired, owned_work=owned_work
+            )
             release_resources = False
             await _send_error(
                 duplicate_suggestion_unavailable(), scope, receive, send
@@ -182,24 +230,41 @@ async def _serve_acquired_request(
             await send(message)
     except asyncio.CancelledError:
         release_resources = release_resources and _release_immediately_after_cancel(
-            resources, app_task, inference_acquired
+            resources, app_task, inference_acquired, owned_work
         )
         raise
     except TimeoutError:
         await _send_error(duplicate_suggestion_unavailable(), scope, receive, send)
     finally:
         if release_resources:
-            _release_resources(resources, inference_acquired)
+            _finalize_suggestion_resources(resources, app_task, inference_acquired, owned_work)
+
+
+def _finalize_suggestion_resources(
+    resources: DuplicateSuggestionResources,
+    app_task: asyncio.Task[None] | None,
+    inference_acquired: bool,
+    owned_work: OwnedSuggestionWork,
+) -> None:
+    if owned_work.pending and app_task is not None:
+        resources.retain_resources_until_done(
+            app_task, inference_acquired, owned_work=owned_work
+        )
+    else:
+        _release_resources(resources, inference_acquired)
 
 
 def _release_immediately_after_cancel(
     resources: DuplicateSuggestionResources,
     app_task: asyncio.Task[None] | None,
     inference_acquired: bool,
+    owned_work: OwnedSuggestionWork,
 ) -> bool:
-    if app_task is None or app_task.done():
+    if app_task is None or (app_task.done() and not owned_work.pending):
         return True
-    resources.retain_resources_until_done(app_task, inference_acquired)
+    resources.retain_resources_until_done(
+        app_task, inference_acquired, owned_work=owned_work
+    )
     return False
 
 
@@ -233,12 +298,15 @@ async def _release_resources_when_done(
     inference_acquired: bool,
     *,
     request_acquired: bool,
+    owned_work: OwnedSuggestionWork | None = None,
 ) -> None:
     try:
         await asyncio.shield(task)
     except (asyncio.CancelledError, Exception):
         pass
     finally:
+        if owned_work is not None:
+            await owned_work.finish()
         _release_resources(
             resources,
             inference_acquired,

@@ -188,6 +188,11 @@ class WorkItem(Base):
         ),
         CheckConstraint("priority BETWEEN 0 AND 100", name="priority_range"),
         CheckConstraint("version >= 1", name="version_positive"),
+        CheckConstraint("mnemonic_external_references_is_valid(external_references)",
+                        name="external_references_valid"),
+        Index("ix_work_items_external_references", "external_references",
+              postgresql_using="gin", postgresql_ops={"external_references": "jsonb_path_ops"},
+              postgresql_where=text("deleted_at IS NULL")),
         CheckConstraint(
             "completion_generation >= -9223372036854775806",
             name="completion_generation_range",
@@ -231,6 +236,9 @@ class WorkItem(Base):
     project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id", ondelete="RESTRICT"))
     title: Mapped[str] = mapped_column(String(200))
     summary: Mapped[str] = mapped_column(String(1000))
+    external_references: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb"),
+    )
     status: Mapped[WorkStatus] = mapped_column(
         String(20), default="pending", server_default="pending"
     )
@@ -1100,7 +1108,9 @@ class WorkEvent(Base):
         ),
         CheckConstraint("metadata_version = 1", name="metadata_version_valid"),
         CheckConstraint(
-            "jsonb_typeof(metadata) = 'object' AND octet_length(metadata::text) <= 16384",
+            "jsonb_typeof(metadata) = 'object' AND octet_length(metadata::text) <= "
+            "CASE WHEN event_type IN ('work_created', 'work_updated', "
+            "'work_status_changed', 'work_reopened') THEN 131072 ELSE 16384 END",
             name="metadata_envelope_valid",
         ),
         CheckConstraint(

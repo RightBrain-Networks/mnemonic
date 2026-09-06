@@ -1,5 +1,6 @@
 """Canonical work/checkpoint mutations without transaction-boundary commits."""
 
+from copy import deepcopy
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, update
@@ -122,6 +123,7 @@ def create_work_records(
         project_id=project_id,
         title=payload.title,
         summary=payload.summary,
+        external_references=[item.model_dump(mode="json") for item in payload.external_references],
         priority=payload.priority,
         status=payload.status,
         initial_checkpoint_id=initial_checkpoint_id,
@@ -253,12 +255,14 @@ def update_work_record(database: Session, work_item: WorkItem, payload: WorkItem
     require_canonical_work_item(database, work_item)
     require_version(work_item, payload.expected_version)
     changes = payload.model_dump(
+        mode="json",
         exclude_unset=True,
         exclude={"expected_version", "lease_token", "actor", "client_operation_id",
                  "job_completion_report"},
     )
     before = {
-        field: getattr(work_item, field) for field in ("title", "summary", "priority", "status")
+        field: deepcopy(getattr(work_item, field))
+        for field in ("title", "summary", "priority", "status", "external_references")
     }
     requested_status = changes.get("status")
     if requested_status is not None and requested_status != work_item.status:
@@ -339,7 +343,8 @@ def defer_work_record(
         )
     require_no_active_lease(database, work_item.id)
     before = {
-        field: getattr(work_item, field) for field in ("title", "summary", "priority", "status")
+        field: deepcopy(getattr(work_item, field))
+        for field in ("title", "summary", "priority", "status", "external_references")
     }
     mutation_time = database_now(database)
     work_item.status = "deferred"

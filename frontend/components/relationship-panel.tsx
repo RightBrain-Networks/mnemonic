@@ -1,5 +1,6 @@
 "use client";
 
+import ExternalReferences from "@/components/external-references";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useMemo, useState } from "react";
 import { OperationalBadge, StatusBadge, formatDate } from "@/components/work-item-card";
@@ -258,6 +259,7 @@ export default function RelationshipPanel({ context, onChanged }: Props) {
             <div className="relationship-counterpart">
               <div><strong>{relationship.counterpart.title}</strong><StatusBadge status={relationship.counterpart.status} readiness={relationship.counterpart.readiness} /><OperationalBadge readiness={relationship.counterpart.readiness} /></div>
               <span>Added {formatDate(relationship.relationship.created_at)} by {relationship.relationship.created_by_client}</span>
+              <ExternalReferences references={relationship.counterpart.external_references} />
               {relationship.relationship.context_checkpoint_id && <span className="mono" title={relationship.relationship.context_checkpoint_id}>Context checkpoint {relationship.relationship.context_checkpoint_id}</span>}
             </div>
             <button type="button" className="button button-secondary relationship-remove" aria-label={`Remove ${relationshipGroup(relationship)} relationship with ${relationship.counterpart.title}`} disabled={saving || Boolean(removingId) || mutationBlocked || relationship.counterpart.readiness.is_duplicate} title={mutationBlocked || relationship.counterpart.readiness.is_duplicate ? "Relationships incident to an immutable duplicate cannot be removed." : undefined} onClick={() => void removeRelationship(relationship)}>{removingId === relationship.relationship.id ? "Removing…" : "Remove"}</button>

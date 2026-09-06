@@ -1,3 +1,4 @@
+import { validExternalReferences, validSparseReferences, referenceKeys } from "./external-references.ts";
 import type {
   EventWorkStatus,
   MutationActor,
@@ -128,8 +129,8 @@ const EVENT_SECRET_KEYS = new Set([
 function nullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string";
 }
-function validEventMetadata(value: unknown): value is JsonObject {
-  return validBoundedMetadata(value, EVENT_SECRET_KEYS);
+function validEventMetadata(value: unknown, eventType: WorkEventType): value is JsonObject {
+  return validBoundedMetadata(value, EVENT_SECRET_KEYS, ["work_created", "work_updated", "work_status_changed", "work_reopened"].includes(eventType) ? 131_072 : 16_384);
 }
 
 
@@ -141,12 +142,13 @@ function validChangeSet(value: unknown): value is WorkEventChangeSet {
   const changes = objectValue(value);
   if (!changes) return false;
   const keys = Object.keys(changes);
-  if (!keys.length || keys.some((key) => !["title", "summary", "priority", "status"].includes(key))) {
+  if (!keys.length || keys.some((key) => !["title", "summary", "priority", "status", "external_references"].includes(key))) {
     return false;
   }
   return keys.every((key) => {
     const change = objectValue(changes[key]);
     if (!change || !exactKeys(change, ["before", "after"])) return false;
+    if (key === "external_references") return validExternalReferences(change.before, true) && validExternalReferences(change.after, true);
     if (key === "priority") {
       return finiteInteger(change.before) && Number(change.before) <= 100
         && finiteInteger(change.after) && Number(change.after) <= 100;
@@ -160,13 +162,14 @@ function validChangeSet(value: unknown): value is WorkEventChangeSet {
 function validMetadata(eventType: WorkEventType, origin: "live" | "backfill", value: unknown): boolean {
   if (origin === "backfill" && !BACKFILLABLE_EVENT_TYPES.has(eventType)) return false;
   const metadata = objectValue(value);
-  if (!metadata || !validEventMetadata(metadata)) return false;
+  if (!metadata || !validEventMetadata(metadata, eventType)) return false;
   if (eventType === "work_created") {
     if (origin === "backfill") return exactKeys(metadata, []);
     const initial = objectValue(metadata.initial);
     return exactKeys(metadata, ["initial"])
       && Boolean(initial)
-      && exactKeys(initial!, ["title", "summary", "status", "priority", "version"])
+      && validSparseReferences(initial!)
+      && exactKeys(initial!, referenceKeys(initial!, ["title", "summary", "status", "priority", "version"]))
       && boundedText(initial!.title, 200)
       && boundedText(initial!.summary, 1000)
       && ["open", "pending", "deferred", "wont-do", "promoted"].includes(
@@ -663,7 +666,7 @@ export function workEventDescription(event: WorkEventRead, counterpartTitle?: st
     }
     case "work_updated": {
       const changes = objectValue(metadata.changes);
-      const fields = changes ? Object.keys(changes).sort() : [];
+      const fields = changes ? Object.keys(changes).sort().map((field) => field === "external_references" ? "External references" : field) : [];
       return fields.length ? `Changed ${fields.join(", ")}.` : "Updated work fields.";
     }
     case "work_status_changed":

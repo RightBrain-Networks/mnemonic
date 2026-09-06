@@ -464,9 +464,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.11.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.11.0` install
-plus a `0.10.0 -> 0.11.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.12.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.12.0` install
+plus a `0.11.0 -> 0.12.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -788,8 +788,8 @@ remain server-only.
 
 ## Phase 12 acceptance additions
 
-Current application/API/MCP/dashboard versions are `0.9.0`, plugin is `0.11.0`,
-and Alembic head is `0021_job_completion_reports`. Validate all surfaces together
+Current application/API/MCP/dashboard versions are `0.9.0`, plugin is `0.12.0`,
+and Alembic head is `0022_external_references`. Validate all surfaces together
 with the existing regression suites. Historical Phase 11 downgrade/catalog tests
 must seed valid historical shapes with offline SQL at 0019; never run current
 application writers against an older schema or strip reports from fresh receipts.
@@ -1123,3 +1123,28 @@ key conflict remains blocked for investigation. Finally, reload an unresolved
 document and confirm the UI makes no recovery promise: no UUID or body was
 written to local storage, session storage, cookies, a URL, or a header, and a
 replacement UUID is not presented as a safe retry.
+
+## D1/D2 coordinated verification
+
+Use `tests/fixtures/external-record-contract-v1.json` across SQL/backend/MCP/browser
+for exact URL grammar, label Unicode and timestamp normalization. Focused suites
+exercise omitted versus explicit-empty PATCH, ordered receipt intent, sparse old
+response replay, all read pointers, large four-kind event metadata and unchanged
+progress limits, exact inverse search ownership, and strict request-bound external
+suggestions. The offline `examples/external-candidate-frame.py` fixtures check
+actual SDK JSON-RPC HTTP and stdio frame sizes, including escaping, multibyte text,
+large draft/envelope, count reduction, and an untransportable unchanged draft.
+
+Run the normal full backend PostgreSQL suite (not a skipped DB suite), MCP tests,
+Ruff/ty, frontend Node tests/typecheck/build and isolated Playwright stack. Generate
+OpenAPI and run consumer correspondence tests. The packaged plugin contains the
+same three skills plus shared `external-records.md`; validate exact fresh 0.12.0
+installation and 0.11.0-to-0.12.0 update with isolated offline CLI state. The example
+is a pure caller-side allocation/frame demonstration, not a provider daemon.
+
+Record migration/content/receipt preservation and restored-catalog audit evidence,
+index plus total route costs, worst-case event/receipt/context sizes, and actual
+model 1/16/64 candidate cold/warm/contention measurements separately from fake-vector
+regressions. Follow the explicit quiescent backup and pre/post/restored audit commands
+in [operations](operations.md#external-records-release-0021-to-0022). No test command
+here authorizes a live provider read or production cutover.

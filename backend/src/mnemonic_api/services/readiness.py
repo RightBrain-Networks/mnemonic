@@ -401,6 +401,7 @@ def ready_work_page(
                 SELECT
                     work_item.id,
                     work_item.title,
+                    work_item.external_references,
                     work_item.status,
                     work_item.priority,
                     work_item.version,
@@ -447,6 +448,7 @@ def ready_work_page(
                             'work_item', jsonb_build_object(
                                 'id', projected.id,
                                 'title', projected.title,
+                                    'external_references', projected.external_references,
                                 'status', projected.status,
                                 'priority', projected.priority,
                                 'version', projected.version,

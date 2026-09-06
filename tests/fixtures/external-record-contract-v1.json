@@ -1,0 +1,307 @@
+{
+  "version": 1,
+  "url_cases": [
+    {
+      "value": "https://github.com/Example/Project/issues/21",
+      "valid": true
+    },
+    {
+      "value": "HTTP://Example.COM:00080/a%2Fb?q=one%20two#note",
+      "valid": true
+    },
+    {
+      "value": "https://example.com",
+      "valid": true
+    },
+    {
+      "value": "https://example.com./",
+      "valid": true
+    },
+    {
+      "value": "http://localhost:0/",
+      "valid": true
+    },
+    {
+      "value": "https://[2001:0DB8::1]:65535/a",
+      "valid": true
+    },
+    {
+      "value": "https://example.com/?id=12&view=open",
+      "valid": true
+    },
+    {
+      "value": "https://example.com/a:@!$&'()*+,;=-._~/#/?",
+      "valid": true
+    },
+    {
+      "value": "https://user@example.com/",
+      "valid": false
+    },
+    {
+      "value": "https://user:pass@example.com/",
+      "valid": false
+    },
+    {
+      "value": "https://example.com/a b",
+      "valid": false
+    },
+    {
+      "value": "https://example.com/\\x",
+      "valid": false
+    },
+    {
+      "value": "https://example.com/%xx",
+      "valid": false
+    },
+    {
+      "value": "https://example.com/%1",
+      "valid": false
+    },
+    {
+      "value": "ftp://example.com/",
+      "valid": false
+    },
+    {
+      "value": "https://example.com:65536/",
+      "valid": false
+    },
+    {
+      "value": "https://example.com:/",
+      "valid": false
+    },
+    {
+      "value": "https://example.com/<x>",
+      "valid": false
+    },
+    {
+      "value": "https://example.com/a#b#c",
+      "valid": false
+    },
+    {
+      "value": "https://例え.com/",
+      "valid": false
+    },
+    {
+      "value": "https://-bad.com/",
+      "valid": false
+    },
+    {
+      "value": "https://bad..com/",
+      "valid": false
+    },
+    {
+      "value": "https://127.001.0.1/",
+      "valid": false
+    },
+    {
+      "value": "https://[gg::1]/",
+      "valid": false
+    },
+    {
+      "value": "https://example.com/\n",
+      "valid": false
+    },
+    {
+      "value": "https://example.com/",
+      "valid": false
+    },
+    {
+      "value": "//example.com/",
+      "valid": false
+    },
+    {
+      "value": "https://example.com/\"",
+      "valid": false
+    },
+    {
+      "value": "https://example.com/a[b]",
+      "valid": false
+    },
+    {
+      "value": "https://example.com/?a=|",
+      "valid": false
+    }
+  ],
+  "label_cases": [
+    {
+      "value": "project#21",
+      "valid": true
+    },
+    {
+      "value": "日本語の課題",
+      "valid": true
+    },
+    {
+      "value": "مرحبا",
+      "valid": true
+    },
+    {
+      "value": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "valid": true
+    },
+    {
+      "value": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "valid": true
+    },
+    {
+      "value": "",
+      "valid": false
+    },
+    {
+      "value": "  ",
+      "valid": false
+    },
+    {
+      "value": "x\ny",
+      "valid": false
+    },
+    {
+      "value": "x\ty",
+      "valid": false
+    },
+    {
+      "value": "x‮y",
+      "valid": false
+    },
+    {
+      "value": "x⁦y",
+      "valid": false
+    },
+    {
+      "value": "xy",
+      "valid": false
+    },
+    {
+      "value": "x y",
+      "valid": false
+    },
+    {
+      "value": "x\u0000y",
+      "valid": false
+    },
+    {
+      "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "valid": false
+    },
+    {
+      "value": "﻿",
+      "valid": true
+    },
+    {
+      "value": " ﻿ ",
+      "valid": true
+    }
+  ],
+  "timestamp_cases": [
+    {
+      "value": "2026-09-05T14:20:00Z",
+      "normalized": "2026-09-05T14:20:00Z"
+    },
+    {
+      "value": "2026-09-05T10:20:00.120000-04:00",
+      "normalized": "2026-09-05T14:20:00.12Z"
+    },
+    {
+      "value": "2026-09-05T14:20:00.123456Z",
+      "normalized": "2026-09-05T14:20:00.123456Z"
+    },
+    {
+      "value": "2026-09-05T14:20:00",
+      "normalized": null
+    },
+    {
+      "value": "2026-09-05",
+      "normalized": null
+    },
+    {
+      "value": "2026-09-05T14:20:00.1234567Z",
+      "normalized": null
+    },
+    {
+      "value": "2026-02-30T14:20:00Z",
+      "normalized": null
+    },
+    {
+      "value": "2026-09-05 14:20:00Z",
+      "normalized": null
+    },
+    {
+      "value": "2026-09-05T14:20:60Z",
+      "normalized": null
+    },
+    {
+      "value": "2026-09-05T14:20:00+24:00",
+      "normalized": null
+    },
+    {
+      "value": "2026-09-05T14:20:00+00:60",
+      "normalized": null
+    },
+    {
+      "value": "2026-09-05T14:20:00+01:99",
+      "normalized": null
+    }
+  ],
+  "limits": {
+    "references": 10,
+    "canonical_list_utf8_bytes": 32768,
+    "expanded_event_jsonb_bytes": 131072,
+    "ordinary_event_jsonb_bytes": 16384,
+    "timestamp_fraction_digits": 6
+  },
+  "title_key_unicode_version": "15.1",
+  "title_key_cases": [
+    {
+      "value": "  ＡＢＣ  ",
+      "key": "abc"
+    },
+    {
+      "value": "é",
+      "key": "é"
+    },
+    {
+      "value": "A B",
+      "key": "a b"
+    },
+    {
+      "value": "A",
+      "key": "a"
+    },
+    {
+      "value": "𜳖",
+      "key": "𜳖"
+    },
+    {
+      "value": "𜳖́",
+      "key": "𜳖́"
+    },
+    {
+      "value": "aࢗ̀̕",
+      "key": "aࢗ̀̕"
+    },
+    {
+      "value": "éࢗé",
+      "key": "éࢗé"
+    },
+    {
+      "value": "꟱",
+      "key": "꟱"
+    },
+    {
+      "value": "a̕᫏̀",
+      "key": "a̕᫏̀"
+    },
+    {
+      "value": "a̕᫝̀",
+      "key": "a̕᫝̀"
+    },
+    {
+      "value": "à̕",
+      "key": "à̕"
+    },
+    {
+      "value": "é􏿽Ａ",
+      "key": "é􏿽a"
+    }
+  ]
+}

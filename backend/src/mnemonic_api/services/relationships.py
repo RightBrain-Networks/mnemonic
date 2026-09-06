@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.database import begin_coherent_read
 from mnemonic_api.errors import conflict, duplicate_merge_required, not_found
+from mnemonic_api.external_references import ExternalReference
 from mnemonic_api.models import (
     Checkpoint,
     Project,
@@ -464,6 +465,8 @@ def _work_pointers(
         work_item.id: WorkPointer(
             id=work_item.id,
             title=work_item.title,
+            external_references=[ExternalReference.model_validate(item)
+                                 for item in work_item.external_references],
             status=work_item.status,
             readiness=readiness(
                 work_item,

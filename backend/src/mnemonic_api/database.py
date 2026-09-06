@@ -8,6 +8,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
 from mnemonic_api.config import Settings
+from mnemonic_api.pool_deadlines import DeadlineQueuePool
 
 
 def database_sqlstate(error: DBAPIError) -> str | None:
@@ -36,6 +37,7 @@ def build_engine(settings: Settings) -> Engine:
         settings.database_url.get_secret_value(),
         isolation_level="READ COMMITTED",
         pool_pre_ping=True,
+        poolclass=DeadlineQueuePool,
         pool_size=5,
         max_overflow=10,
         # A protected mutation has one end-to-end receipt-reservation budget.

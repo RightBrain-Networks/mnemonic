@@ -923,11 +923,13 @@ def test_atomic_completion_response_storage_and_history_projection(
         assert receipt.response_body == body
 
 
+@pytest.mark.parametrize("with_external_references", [False, True])
 def test_maximum_escaping_completion_representations_fit_896_kib(
     api: TestClient,
     project: dict[str, object],
     work_payload: dict[str, object],
     postgres_engine: Engine,
+    with_external_references: bool,
 ):
     work_control = "\x03"
     created = api.post(
@@ -937,6 +939,11 @@ def test_maximum_escaping_completion_representations_fit_896_kib(
             "title": work_control * 200,
             "summary": work_control * 1000,
             "priority": 100,
+            "external_references": [{
+                "url": f"https://example.com/{index}/" + "x" * 1978,
+                "kind": "tracked-by", "state": "closed", "label": "😀" * 120,
+                "state_observed_at": "9999-12-31T23:59:59.999999Z",
+            } for index in range(10)] if with_external_references else [],
         },
     )
     assert created.status_code == 201, created.text

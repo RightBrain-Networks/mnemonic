@@ -35,6 +35,13 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
+from .external_records import (
+    ExternalCandidates,
+    ExternalDuplicateSuggestion,
+    ExternalReferences,
+    OmissionOnlyExternalReferences,
+    validate_external_page,
+)
 from .phase12_models import JobCompletionReportRead, reject_null_report
 from .response_validation import validate_page_bounds, validate_page_items
 
@@ -898,6 +905,9 @@ class DuplicateSuggestionRequest(BaseModel):
     summary: DuplicateSuggestionSummary
     initial_prompt: DuplicateSuggestionPrompt
     tags: DuplicateSuggestionTags = Field(default_factory=list)
+    external_candidates: ExternalCandidates = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
     exclude_work_item_id: UUID | None = Field(default_factory=lambda: None)
     limit: StrictInt = Field(default=5, ge=1, le=10)
 
@@ -918,12 +928,15 @@ class EmptyEventMetadata(CanonicalResponse):
 
 
 class WorkSnapshot(CanonicalResponse):
+    external_references: ExternalReferences = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
+
     title: TitleEventText
     summary: SummaryEventText
     status: EventCreateStatus
     priority: int = Field(ge=0, le=100)
     version: Literal[1]
-
 
 class WorkCreatedLiveMetadata(CanonicalResponse):
     initial: WorkSnapshot
@@ -949,11 +962,17 @@ class StatusChange(CanonicalResponse):
     after: EventStatus
 
 
+class ExternalReferencesChange(CanonicalResponse):
+    before: ExternalReferences
+    after: ExternalReferences
+
+
 class WorkChangeSet(CanonicalResponse):
     title: TitleChange | None = None
     summary: SummaryChange | None = None
     priority: PriorityChange | None = None
     status: StatusChange | None = None
+    external_references: ExternalReferencesChange | None = None
 
     @model_validator(mode="after")
     def require_nonempty(self) -> Self:
@@ -1779,6 +1798,10 @@ def _expected_display_state(readiness: Readiness) -> DisplayState:
 
 
 class WorkItemRead(CanonicalResponse):
+    external_references: ExternalReferences = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
+
     id: UUID
     project_id: UUID
     title: str
@@ -1789,7 +1812,6 @@ class WorkItemRead(CanonicalResponse):
     version: int
     created_at: datetime
     updated_at: datetime
-
 
 class WorkUpdateRead(WorkItemRead):
     """Flattened update result; old receipts keep the report field absent."""
@@ -1821,13 +1843,16 @@ class WorkIdentityPointer(CanonicalResponse):
 
 
 class DuplicateCandidateSummary(CanonicalResponse):
+    external_references: ExternalReferences = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
+
     work_item_id: UUID
     title: TitleEventText
     summary: SummaryEventText
     status: Status
     updated_at: UTCDateTime
     duplicate_member_count: StrictInt = Field(ge=0)
-
 
 class DuplicateSuggestion(CanonicalResponse):
     canonical_work: DuplicateCandidateSummary
@@ -1864,6 +1889,31 @@ class DuplicateSuggestionPage(CanonicalResponse):
     composition_version: Literal["duplicate-suggestion-v1"]
     exact_title_group_total: StrictInt = Field(ge=0)
     omitted_exact_title_group_count: StrictInt = Field(ge=0)
+
+    external_items: Annotated[
+        list[ExternalDuplicateSuggestion] | SkipJsonSchema[None],
+        Field(max_length=10, json_schema_extra=_omit_default_from_json_schema),
+    ] = Field(default=None, exclude_if=lambda value: value is None)
+    external_candidate_count: Annotated[
+        StrictInt | SkipJsonSchema[None],
+        Field(ge=1, le=64, json_schema_extra=_omit_default_from_json_schema),
+    ] = Field(default=None, exclude_if=lambda value: value is None)
+    external_scope: Annotated[
+        Literal["hybrid", "lexical", "unavailable"] | SkipJsonSchema[None],
+        Field(json_schema_extra=_omit_default_from_json_schema),
+    ] = Field(default=None, exclude_if=lambda value: value is None)
+
+    @field_validator("external_items", "external_candidate_count", "external_scope", mode="before")
+    @classmethod
+    def reject_null_external_extension(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("External response fields cannot be null.")
+        return value
+
+    @model_validator(mode="after")
+    def enforce_external_contract(self) -> Self:
+        validate_external_page(self)
+        return self
 
     @model_validator(mode="after")
     def enforce_page_contract(self) -> Self:
@@ -1956,11 +2006,14 @@ class WorkPointer(CanonicalResponse):
 
     model_config = ConfigDict(extra="ignore")
 
+    external_references: ExternalReferences = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
+
     id: UUID
     title: str
     status: Status
     readiness: Readiness
-
 
 class RelationshipEdgeRead(CanonicalResponse):
     id: UUID
@@ -2167,13 +2220,16 @@ class HumanGatePage(CanonicalResponse):
 
 
 class WorkItemPointer(CanonicalResponse):
+    external_references: ExternalReferences = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
+
     id: UUID
     title: str
     status: Status
     priority: int
     version: int
     updated_at: datetime
-
 
 class WorkSummaryMinimal(CanonicalResponse):
     # Strict: a full WorkSummary must never validate as the minimal shape.
@@ -2638,6 +2694,11 @@ def _validated_other_event_metadata(
 
 def _validated_event_metadata(event: WorkEventRead) -> WorkEventMetadata:
     payload = _metadata_payload(event.metadata)
+    maximum_bytes = 131072 if event.event_type in {
+        "work_created", "work_updated", "work_status_changed", "work_reopened"
+    } else 16384
+    if len(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")) > maximum_bytes:
+        raise ValueError("Event metadata exceeds its event-specific byte bound.")
     if event.event_type in {"work_updated", "work_status_changed", "work_reopened"}:
         return _validated_status_metadata(event, payload)
     if event.event_type in _RELATIONSHIP_EVENT_TYPES:
@@ -3167,6 +3228,9 @@ class WorkChanges(BaseModel):
     summary: str | None = Field(default=None, min_length=1, max_length=1000)
     priority: int | None = Field(default=None, ge=0, le=100)
     status: UpdateStatus | None = None
+    external_references: OmissionOnlyExternalReferences = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def require_changes(self) -> WorkChanges:

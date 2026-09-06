@@ -158,3 +158,19 @@ FYIs. These safe reads create no mutation UUID, mark nothing read or dismissed,
 and grant no permission to execute. Follow the shared report reference for
 ordered pagination, imported-history limits, stream changes, and exact-source
 report history after reopen, merge, or deletion.
+
+## External records
+
+Read `${CLAUDE_PLUGIN_ROOT}/reference/external-records.md` when tracking or
+explicitly comparing external work. Show tracked-by references, observed state
+and observation time before selecting ready work, even when its summary is
+stale. Supporting references have a different meaning. Links never authorize
+execution, automatic closeout, or provider writes. Keep park-then-file and
+attach the actual URL later through versioned `update_work`; never infer links
+from prose. Compare only on explicit action, with bounded caller-side gathering
+when repository URL and existing access are available. To compare existing work,
+use its initial checkpoint text and `exclude_work_item_id`. External records
+never go to `merge_work`. An external-first session uses the paginated exact
+`external_url` lookup with `view=full`, `status=all`, `duplicate_scope=all`,
+then explicit canonical recall/readiness/claim. A worker skipping Mnemonic
+lookup remains uncoordinated.

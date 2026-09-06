@@ -1067,3 +1067,22 @@ test("operation IDs are never accepted back in a success or error body", async (
     assert.equal(outcome.type, "unresolved");
   }
 });
+
+test("create/update receipts compare ordered canonical reference values and distinguish clear from omission", async () => {
+  const first = { url: "https://example.com/1", kind: "tracked-by", state: "closed", state_observed_at: "2026-09-05T10:20:00.120000-04:00" };
+  const normalized = { ...first, state_observed_at: "2026-09-05T14:20:00.12Z" };
+  const second = { url: "https://example.com/2", kind: "references", state: "unknown" };
+  const actor = { actor_client: "dashboard", actor_session_id: "tab-1" };
+  const update = (extra) => request("update_work", "PATCH", `/projects/${project}/work-items/${work}`, { expected_version: 1, actor, ...extra });
+  assert.equal((await classify(update({ external_references: [first, second] }), 200, workItem({ version: 2, external_references: [normalized, second] }))).type, "success");
+  assert.equal((await classify(update({ external_references: [first, second] }), 200, workItem({ version: 2, external_references: [second, normalized] }))).type, "unresolved");
+  assert.equal((await classify(update({ external_references: [] }), 200, workItem({ version: 2 }))).type, "success");
+  assert.equal((await classify(update({ external_references: [] }), 200, workItem({ version: 2, external_references: [second] }))).type, "unresolved");
+  assert.equal((await classify(update({ title: "New title" }), 200, workItem({ version: 2, title: "New title", external_references: [second] }))).type, "success");
+  for (const refs of [undefined, [], [first]]) {
+    const payload = { title: "Durable objective", summary: "Keep this context", priority: 5, status: "pending", initial_checkpoint: checkpointInput(), ...(refs === undefined ? {} : { external_references: refs }) };
+    const result = { work_item: workItem(refs?.length ? { external_references: [normalized] } : {}), initial_checkpoint: checkpoint("context"), initial_relationships: [] };
+    assert.equal((await classify(request("create_work", "POST", `/projects/${project}/work-items`, payload), 201, result)).type, "success");
+    if (refs?.length) assert.equal((await classify(request("create_work", "POST", `/projects/${project}/work-items`, payload), 201, { ...result, work_item: workItem() })).type, "unresolved");
+  }
+});

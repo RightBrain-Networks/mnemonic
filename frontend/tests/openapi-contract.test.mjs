@@ -1,3 +1,4 @@
+import { EXTERNAL_REFERENCE_DECODER_FIELDS } from "../lib/external-references.ts";
 import { JOB_REPORT_DECODER_FIELDS } from "../lib/job-completion-reports.ts";
 import { PROJECT_ACTIVITY_DECODER_FIELDS } from "../lib/project-activity.ts";
 import { WORK_DECODER_FIELDS } from "../lib/work-codecs.ts";
@@ -18,6 +19,11 @@ import { COMPLETION_EVIDENCE_DECODER_FIELDS } from "../lib/completion-evidence.t
 
 const SNAPSHOT_URL = new URL("../../docs/openapi.json", import.meta.url);
 const DEFAULTED_RESPONSE_FIELDS = {
+  "frontend/lib/external-references.ts:decodeExternalReference": ["label", "state_observed_at"],
+  "frontend/lib/work-codecs.ts:decodeWorkItem": ["external_references"],
+  "frontend/lib/duplicate-handling.ts:decodeWorkPointer": ["external_references"],
+  "frontend/lib/duplicate-suggestions.ts:decodeDuplicateCandidateSummary": ["external_references"],
+  "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestionPage": ["external_items", "external_candidate_count", "external_scope"],
   "frontend/lib/checkpoint-codecs.ts:decodeCheckpoint": [
     "affected_paths"
   ],
@@ -62,6 +68,7 @@ test("strict frontend decoders match the committed OpenAPI component contracts",
   assert.ok(schemas, "OpenAPI snapshot must declare component schemas");
 
   const decoderFields = {
+    ...qualifiedFields("frontend/lib/external-references.ts", EXTERNAL_REFERENCE_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/job-completion-reports.ts", JOB_REPORT_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/project-activity.ts", PROJECT_ACTIVITY_DECODER_FIELDS),
     ...qualifiedFields("frontend/lib/work-codecs.ts", WORK_DECODER_FIELDS),

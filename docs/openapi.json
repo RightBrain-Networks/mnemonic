@@ -2573,6 +2573,14 @@
             "title": "Duplicate Member Count",
             "type": "integer"
           },
+          "external_references": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalReference"
+            },
+            "maxItems": 10,
+            "title": "External References",
+            "type": "array"
+          },
           "status": {
             "enum": [
               "pending",
@@ -2705,6 +2713,29 @@
             "title": "Exact Title Group Total",
             "type": "integer"
           },
+          "external_candidate_count": {
+            "maximum": 64.0,
+            "minimum": 1.0,
+            "title": "External Candidate Count",
+            "type": "integer"
+          },
+          "external_items": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalDuplicateSuggestion"
+            },
+            "maxLength": 10,
+            "title": "External Items",
+            "type": "array"
+          },
+          "external_scope": {
+            "enum": [
+              "hybrid",
+              "lexical",
+              "unavailable"
+            ],
+            "title": "External Scope",
+            "type": "string"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/DuplicateSuggestion"
@@ -2776,6 +2807,14 @@
             ],
             "title": "Exclude Work Item Id"
           },
+          "external_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalDuplicateCandidate"
+            },
+            "maxItems": 64,
+            "title": "External Candidates",
+            "type": "array"
+          },
           "initial_prompt": {
             "maxLength": 100000,
             "minLength": 1,
@@ -2824,6 +2863,188 @@
         "additionalProperties": false,
         "properties": {},
         "title": "EmptyEventMetadata",
+        "type": "object"
+      },
+      "ExternalCandidateReference": {
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "enum": [
+              "open",
+              "closed",
+              "merged",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "title",
+          "state"
+        ],
+        "title": "ExternalCandidateReference",
+        "type": "object"
+      },
+      "ExternalDuplicateCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 20000,
+            "title": "Body",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "closed",
+              "merged",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "title",
+          "state",
+          "body"
+        ],
+        "title": "ExternalDuplicateCandidate",
+        "type": "object"
+      },
+      "ExternalDuplicateSuggestion": {
+        "additionalProperties": false,
+        "properties": {
+          "rank": {
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/ExternalCandidateReference"
+          },
+          "signals": {
+            "items": {
+              "enum": [
+                "exact_title",
+                "lexical",
+                "semantic"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Signals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rank",
+          "signals",
+          "reference"
+        ],
+        "title": "ExternalDuplicateSuggestion",
+        "type": "object"
+      },
+      "ExternalReference": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "tracked-by",
+              "references"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "closed",
+              "merged",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "state_observed_at": {
+            "title": "State Observed At",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "kind",
+          "state"
+        ],
+        "title": "ExternalReference",
+        "type": "object"
+      },
+      "ExternalReferencesChange": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalReference"
+            },
+            "maxItems": 10,
+            "title": "After",
+            "type": "array"
+          },
+          "before": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalReference"
+            },
+            "maxItems": 10,
+            "title": "Before",
+            "type": "array"
+          }
+        },
+        "required": [
+          "before",
+          "after"
+        ],
+        "title": "ExternalReferencesChange",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -6024,6 +6245,16 @@
       "WorkChangeSet": {
         "additionalProperties": false,
         "properties": {
+          "external_references": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExternalReferencesChange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "priority": {
             "anyOf": [
               {
@@ -7053,6 +7284,14 @@
             "description": "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with the exact same operation and semantic arguments after an unknown outcome.",
             "title": "Client Operation Id"
           },
+          "external_references": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalReference"
+            },
+            "maxItems": 10,
+            "title": "External References",
+            "type": "array"
+          },
           "initial_checkpoint": {
             "$ref": "#/components/schemas/InitialCheckpointCreate"
           },
@@ -7150,6 +7389,14 @@
             "title": "Expected Version",
             "type": "integer"
           },
+          "external_references": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalReference"
+            },
+            "maxItems": 10,
+            "title": "External References",
+            "type": "array"
+          },
           "job_completion_report": {
             "$ref": "#/components/schemas/JobCompletionReportInput",
             "description": "Required for fresh Done/Won\u2019t do/Promoted closeouts. Sparse omission is accepted only to recover an already-completed historical receipt.",
@@ -7233,6 +7480,14 @@
       "WorkItemPointer": {
         "additionalProperties": false,
         "properties": {
+          "external_references": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalReference"
+            },
+            "maxItems": 10,
+            "title": "External References",
+            "type": "array"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -7283,6 +7538,14 @@
           "created_at": {
             "title": "Created At",
             "type": "string"
+          },
+          "external_references": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalReference"
+            },
+            "maxItems": 10,
+            "title": "External References",
+            "type": "array"
           },
           "id": {
             "format": "uuid",
@@ -7628,6 +7891,14 @@
       "WorkPointer": {
         "additionalProperties": false,
         "properties": {
+          "external_references": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalReference"
+            },
+            "maxItems": 10,
+            "title": "External References",
+            "type": "array"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -7791,6 +8062,14 @@
       "WorkSnapshot": {
         "additionalProperties": false,
         "properties": {
+          "external_references": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalReference"
+            },
+            "maxItems": 10,
+            "title": "External References",
+            "type": "array"
+          },
           "priority": {
             "maximum": 100.0,
             "minimum": 0.0,
@@ -7961,6 +8240,14 @@
           "created_at": {
             "title": "Created At",
             "type": "string"
+          },
+          "external_references": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalReference"
+            },
+            "maxItems": 10,
+            "title": "External References",
+            "type": "array"
           },
           "id": {
             "format": "uuid",
@@ -9328,6 +9615,24 @@
               "format": "uuid",
               "title": "Project Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "external_url",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "External Url"
             }
           },
           {
@@ -11604,11 +11909,15 @@
         "frontend/lib/duplicate-handling.ts:decodeCanonicalWorkProjection": "CanonicalWorkProjection",
         "frontend/lib/duplicate-handling.ts:decodeWorkContext": "WorkContext",
         "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": "WorkItemDetailRead",
+        "frontend/lib/duplicate-handling.ts:decodeWorkPointer": "WorkPointer",
         "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": "Page_Union_WorkSearchHit__HierarchySummary__",
         "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage:item": "WorkSearchHit",
         "frontend/lib/duplicate-suggestions.ts:decodeDuplicateCandidateSummary": "DuplicateCandidateSummary",
         "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestion:item": "DuplicateSuggestion",
         "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestionPage": "DuplicateSuggestionPage",
+        "frontend/lib/duplicate-suggestions.ts:decodeExternalCandidateReference": "ExternalCandidateReference",
+        "frontend/lib/duplicate-suggestions.ts:decodeExternalSuggestion": "ExternalDuplicateSuggestion",
+        "frontend/lib/external-references.ts:decodeExternalReference": "ExternalReference",
         "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage": "Page_Union_WorkSearchHit__HierarchySummary__",
         "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage:item": "HierarchySummary",
         "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPresentation": "HierarchyPresentation",
@@ -11634,6 +11943,7 @@
         "frontend/lib/revision-codecs.ts:decodeHumanGateRevision": "HumanGateContextRevision",
         "frontend/lib/revision-codecs.ts:decodeMergeReviewRevision": "MergeReviewRevision",
         "frontend/lib/work-codecs.ts:decodeWorkIdentityPointer": "WorkIdentityPointer",
+        "frontend/lib/work-codecs.ts:decodeWorkItem": "WorkItemRead",
         "frontend/lib/work-codecs.ts:decodeWorkSummary": "WorkSummary",
         "frontend/lib/work-events.ts:EVENT_FIELDS": "WorkEventRead",
         "frontend/lib/work-events.ts:decodeWorkEventPage": "WorkEventPage"

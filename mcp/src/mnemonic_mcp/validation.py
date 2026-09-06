@@ -16,6 +16,12 @@ from .transport import bounded_stdio_server
 # Reviewed in docs/validation-vocabulary.json; test_validation_vocabulary.py pins this subset.
 VALIDATION_FIELDS = frozenset(
     {
+        "external_candidates",
+        "external_references",
+        "external_url",
+        "state",
+        "state_observed_at",
+        "url",
         "name",
         "slug",
         "description",

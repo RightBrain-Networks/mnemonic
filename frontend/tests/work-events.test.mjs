@@ -414,3 +414,27 @@ test("strict decoders reject cross-work pages and invalid relationship reference
     relationship_context_checkpoint_id: relationship.relationship_id
   })).relationship_context_checkpoint_work_item_id, counterpart);
 });
+
+test("reference replacement events retain complete ordered arrays and explicit empty clear", () => {
+  const reference = { url: "https://example.com/1", kind: "tracked-by", state: "closed" };
+  const change = { before: [reference], after: [] };
+  const updated = event({ event_type: "work_updated", body: null, metadata: { changes: { external_references: change }, work_version: 2 } });
+  assert.deepEqual(decodeWorkEvent(updated).metadata.changes.external_references, change);
+  assert.match(workEventDescription(decodeWorkEvent(updated)), /External references/);
+  for (const invalid of [{ before: [reference] }, { before: null, after: [] }, { before: [], after: [{ ...reference, extra: true }] }]) {
+    assert.throws(() => decodeWorkEvent({ ...updated, metadata: { changes: { external_references: invalid }, work_version: 2 } }), /invalid work-event/);
+  }
+});
+
+test("expanded system events accept large reference arrays while progress keeps its original cap", () => {
+  const references = Array.from({ length: 10 }, (_, index) => ({ url: `https://example.com/${index}/` + "x".repeat(1900), kind: "references", label: "😀".repeat(120), state: "unknown" }));
+  const changes = { external_references: { before: references, after: [...references].reverse() }, title: { before: "a".repeat(200), after: "b".repeat(200) }, summary: { before: "\\".repeat(1000), after: "\"".repeat(1000) }, priority: { before: 0, after: 100 } };
+  for (const eventType of ["work_updated", "work_status_changed", "work_reopened"]) {
+    const metadata = eventType === "work_updated" ? { changes, work_version: 2 }
+      : { changes: { ...changes, status: { before: eventType === "work_reopened" ? "done" : "pending", after: eventType === "work_reopened" ? "pending" : "promoted" } }, from_status: eventType === "work_reopened" ? "done" : "pending", to_status: eventType === "work_reopened" ? "pending" : "promoted", work_version: 2 };
+    assert.equal(decodeWorkEvent(event({ event_type: eventType, body: null, metadata })).event_type, eventType);
+  }
+  const created = event({ event_type: "work_created", body: null, checkpoint_id: "1dfa9455-4a17-4cd4-938b-010ea17ccaf0", metadata: { initial: { title: "Some work", summary: "Some summary", status: "pending", priority: 0, version: 1, external_references: references } } });
+  assert.equal(decodeWorkEvent(created).metadata.initial.external_references.length, 10);
+  assert.throws(() => decodeWorkEvent(event({ metadata: { note: "x".repeat(17000) } })), /invalid work-event/);
+});

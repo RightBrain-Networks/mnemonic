@@ -1,7 +1,7 @@
 # Mnemonic architecture through Phase 12
 
-This architecture describes application/API/MCP `0.9.0`, Claude plugin `0.11.0`,
-and Alembic head `0021_job_completion_reports`. The longer-term
+This architecture describes application/API/MCP `0.9.0`, Claude plugin `0.12.0`,
+and Alembic head `0022_external_references`. The longer-term
 direction and later-phase boundaries are in [`roadmap.md`](roadmap.md).
 
 ## Phase 12 integration
@@ -804,3 +804,33 @@ evidence-relation privilege boundary.
 Operators must still copy
 backups off-machine and rehearse restores; a persistent Docker volume is not a
 backup.
+
+## External records boundary
+
+D1 adds `work_items.external_references` as a bounded ordered JSONB value with an
+immutable SQL validator and a live-row `jsonb_path_ops` GIN index. Migration
+`0022_external_references` initializes every historical row with the constant
+empty default, preserving versions, activity, completion records and permanent
+receipts. Exact-row ownership continues through frozen aliases and deletion;
+merges do not union lists. The full sparse list appears on work, discovery and
+relationship pointers, and is snapshotted by value before duplicate inference.
+No embedding or full-text composition includes this mutable context.
+
+The existing event ledger records creation snapshots and explicit ordered
+before/after replacements. Its active validators accept the expanded shapes
+while retaining historical ones. Only creation/update/status/reopen system-event
+metadata receives the 128 KiB bound; progress and unrelated events retain 16 KiB.
+The SQL insertion guard authenticates creation correspondence, while the mutation
+service captures update transitions. Ordinary diff shape validation does not
+prove historical transition truth or provider state. History-aware downgrade
+refuses feature-bearing rows, events or permanent receipts, including later clears.
+
+D2 compares bounded caller-supplied text within the existing explicit suggestion
+safe read. The server owns no provider credentials or fetch capability. It first
+retains the completed internal page, then executes external SQL and optional
+inference in owned workers under a five-second subdeadline, retaining permits
+until actual completion even if a fallback has already been sent. External
+ranking uses SQL exact title keys, OR lexical matching and ephemeral local
+embeddings with deterministic URL ties and separately ranked results. External
+failure cannot replace a useful internal page. Links are data, with no work
+identity, lifecycle, lease or authority to merge or close out work.

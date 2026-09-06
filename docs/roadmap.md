@@ -25,8 +25,8 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 ## Delivery Snapshot
 
 As of 2026-09-05, Phases 1–12 are shipped in the repository. The current release is
-application/API/MCP/dashboard `0.9.0`, plugin `0.11.0`, and migration
-`0021_job_completion_reports`. Production-target preflight and cutover
+application/API/MCP/dashboard `0.9.0`, plugin `0.12.0`, and migration
+`0022_external_references`. Production-target preflight and cutover
 remain explicit operator gates. Phase 13 remains planned.
 
 | Roadmap element | Status | Implemented functionality |
@@ -43,6 +43,7 @@ remain explicit operator gates. Phase 13 remains planned.
 | Phase 10 — Repository freshness verification | Shipped | Immutable ordered checkpoint dependency declarations plus a local, repository-selected, three-state Git assessment with fail-closed runtime, index, filter, normalization, race, privacy, and authority boundaries. |
 | Phase 11 — Completion evidence | Shipped | Optional caller-reported verification results and artifact references commit atomically with an exact completion episode, replay through its permanent receipt, and remain available through bounded REST, MCP, and dashboard history reads. |
 | Phase 12 — Project activity feed | Shipped | Durable commit-ordered activity, required human closeout reports, project-configurable authoring prompts, Summaries, dismissal, and manually linked pending follow-ups. SSE and webhooks remain future transports. |
+| D1/D2 — External records and comparison | Implemented | Ordered exact external references visible before work selection, inverse URL lookup, and bounded caller-supplied external suggestions. Provider indexing and cross-system locking remain deferred. |
 | Phase 13 — Resource reservations | Planned | Work-item leases exist; arbitrary resource-key reservations have not shipped. |
 
 ---

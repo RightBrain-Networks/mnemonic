@@ -1,5 +1,7 @@
 "use client";
 
+import ExternalCandidatesEditor from "@/components/external-candidates-editor";
+import ExternalReferences from "@/components/external-references";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { StatusBadge, formatDateTime } from "@/components/work-item-card";
 import { ApiError, api } from "@/lib/api";
@@ -7,7 +9,7 @@ import {
   decodeDuplicateSuggestionPage,
   duplicateSuggestionInputFromForm
 } from "@/lib/duplicate-suggestions";
-import type { DuplicateSuggestionPage, DuplicateSuggestionSignal } from "@/lib/types";
+import type { ExternalCandidate, DuplicateSuggestionPage, DuplicateSuggestionSignal } from "@/lib/types";
 
 type SuggestionState = {
   phase: "idle" | "invalid" | "loading" | "ready" | "empty" | "stale" | "error";
@@ -59,6 +61,9 @@ export default function DuplicateSuggestionPanel({
   disabled: boolean;
   onInspect: (workItemId: string) => void;
 }) {
+  const [candidates, setCandidates] = useState<ExternalCandidate[]>([]);
+  const [requestBytes, setRequestBytes] = useState(0);
+  const panel = useRef<HTMLElement | null>(null);
   const [state, setState] = useState<SuggestionState>(initialState);
   const controller = useRef<AbortController | null>(null);
   const requestGeneration = useRef(0);
@@ -75,6 +80,7 @@ export default function DuplicateSuggestionPanel({
       && observedProjectId.current === projectId
     ) return;
     const projectChanged = observedProjectId.current !== projectId;
+    if (projectChanged) setCandidates([]);
     observedDraftGeneration.current = draftGeneration;
     observedProjectId.current = projectId;
     requestGeneration.current += 1;
@@ -93,6 +99,24 @@ export default function DuplicateSuggestionPanel({
 
   useEffect(() => () => controller.current?.abort(), []);
 
+  useEffect(() => {
+    const form = panel.current?.closest("form");
+    if (!form) return;
+    const draft = duplicateSuggestionInputFromForm(new FormData(form));
+    setRequestBytes(new TextEncoder().encode(JSON.stringify({ ...draft, ...(candidates.length ? { external_candidates: candidates } : {}) })).length);
+  }, [draftGeneration, candidates, projectId]);
+
+  function changeCandidates(next: ExternalCandidate[]) {
+    requestGeneration.current += 1;
+    controller.current?.abort();
+    controller.current = null;
+    setCandidates(next);
+    setState((current) => current.phase === "idle" ? current : {
+      phase: "stale", page: current.page,
+      message: "External records changed. Check again for current results."
+    });
+  }
+
   async function checkExistingWork(event: MouseEvent<HTMLButtonElement>): Promise<void> {
     const form = event.currentTarget.form;
     if (!form || !form.reportValidity()) {
@@ -109,7 +133,14 @@ export default function DuplicateSuggestionPanel({
     controller.current = currentController;
     const generation = ++requestGeneration.current;
     const checkedDraftGeneration = draftGeneration;
-    const request = duplicateSuggestionInputFromForm(new FormData(form));
+    let request;
+    try {
+      request = duplicateSuggestionInputFromForm(new FormData(form), candidates);
+      if (new TextEncoder().encode(JSON.stringify(request)).length > 2_097_152) throw new Error("Comparison request exceeds 2 MiB. Reduce external record bodies or count.");
+    } catch (error) {
+      setState({ phase: "invalid", page: null, message: error instanceof Error ? error.message : "Invalid external records." });
+      return;
+    }
     setState({ phase: "loading", page: null, message: "Checking existing work…" });
     try {
       const value = await api<unknown>(
@@ -128,11 +159,13 @@ export default function DuplicateSuggestionPanel({
         || projectId !== latestProjectId.current
       ) return;
       setState({
-        phase: page.items.length ? "ready" : "empty",
+        phase: page.items.length || page.external_items?.length ? "ready" : "empty",
         page,
-        message: page.items.length
-          ? `${page.items.length} possible existing work ${page.items.length === 1 ? "group" : "groups"}.`
-          : "No possible existing work was found."
+        message: page.items.length || page.external_items?.length
+          ? `${page.items.length} possible existing work groups${page.external_items ? `; ${page.external_items.length} possible external records` : ""}.`
+          : page.external_scope === "unavailable"
+            ? "No possible existing work was found. External comparison is unavailable; the supplied records were not successfully compared."
+            : page.external_items ? "No possible existing work or supplied external records matched." : "No possible existing work was found. No external records were supplied."
       });
     } catch (error) {
       if (
@@ -149,6 +182,7 @@ export default function DuplicateSuggestionPanel({
 
   const stale = state.phase === "stale";
   return <section
+    ref={panel}
     className={`duplicate-suggestions ${stale ? "duplicate-suggestions-stale" : ""}`}
     aria-labelledby="duplicate-suggestion-heading"
     aria-busy={state.phase === "loading"}
@@ -165,6 +199,9 @@ export default function DuplicateSuggestionPanel({
         onClick={(event) => void checkExistingWork(event)}
       >{state.phase === "loading" ? "Checking…" : "Check existing work"}</button>
     </div>
+
+    <ExternalCandidatesEditor value={candidates} onChange={changeCandidates} disabled={disabled} />
+    <p className="field-hint" aria-live="polite">Comparison request: {requestBytes.toLocaleString()} / 2,097,152 UTF-8 bytes{requestBytes > 2_097_152 ? " · too large; reduce supplied text" : ""}. Create remains available.</p>
 
     {state.phase === "idle" && <p className="duplicate-suggestion-state">
       Check only when you want a fresh comparison; typing does not send draft content.
@@ -187,6 +224,7 @@ export default function DuplicateSuggestionPanel({
             : ""}
         </span>}
       </div>
+      <h4>Mnemonic work</h4>
       <ol className="duplicate-suggestion-list">
         {state.page.items.map((suggestion) => {
           const candidate = suggestion.canonical_work;
@@ -201,6 +239,7 @@ export default function DuplicateSuggestionPanel({
               </div>
               <h4 id={titleId}><bdi dir="auto">{candidate.title}</bdi></h4>
               <p className="duplicate-suggestion-summary"><bdi dir="auto">{candidate.summary}</bdi></p>
+              <ExternalReferences references={candidate.external_references} />
               <code className="duplicate-suggestion-canonical-id">{candidate.work_item_id}</code>
               <dl className="duplicate-suggestion-facts">
                 <div><dt>Last activity</dt><dd><time dateTime={candidate.updated_at}>{formatDateTime(candidate.updated_at)}</time></dd></div>
@@ -224,6 +263,18 @@ export default function DuplicateSuggestionPanel({
           </li>;
         })}
       </ol>
+      {state.page.external_items !== undefined && <section aria-label="External comparison results">
+        <h4>External records</h4>
+        <p>{state.page.external_candidate_count} supplied records; {state.page.external_scope === "unavailable" ? "comparison unavailable" : `${state.page.external_scope} comparison`}. These ranks are independent of Mnemonic work.</p>
+        {state.page.external_scope === "unavailable" ? <p>The supplied records were not successfully compared. You can check again or create this work.</p>
+          : !state.page.external_items.length ? <p>No supplied external records matched.</p> : null}
+        <ol className="duplicate-suggestion-list">{state.page.external_items.map((suggestion) => <li key={suggestion.reference.url}><article className="duplicate-suggestion-card">
+          <span>External suggestion {suggestion.rank} · caller supplied state: {suggestion.reference.state}</span>
+          <h4><a href={suggestion.reference.url} target="_blank" rel="noopener noreferrer"><bdi dir="auto">{suggestion.reference.title}</bdi><span className="sr-only"> (opens in a new tab)</span></a></h4>
+          <p className="break-all"><bdi dir="ltr">{suggestion.reference.url}</bdi></p>
+          <div className="duplicate-suggestion-signals" aria-label="Categorical match signals">{suggestion.signals.map((signal) => <span key={signal}>{signalLabels[signal]}</span>)}</div>
+        </article></li>)}</ol>
+      </section>}
     </>}
   </section>;
 }
