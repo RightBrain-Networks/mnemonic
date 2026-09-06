@@ -19,30 +19,37 @@ feature or migrate the operator's running database.
   audit tests: 82 passed in the persistence validation run, plus schema parity
   and a populated move-history upgrade/unused-downgrade round trip. Existing completion
   evidence and report/lease suites are also included in full backend validation.
+- Final persistence hardening passed 101 targeted PostgreSQL tests, including
+  ten new deferred-event, null-mode and corrupt-data audit regressions, existing
+  HTTP lifecycle tests, migration/ORM parity, moves and aggregate audits. The
+  frozen 0024 guard catalog contains 2,032 entries across nine categories and
+  matches both independently migrated and ACL-preserving restored databases.
 - All 16 pre-feature receipt kinds retain frozen request/response digests.
   The two new kinds have their own frozen vectors; sparse historical responses
   do not acquire review fields.
-- A PostgreSQL 17 custom archive (680,048 bytes) was restored into a uniquely
+- A PostgreSQL 17 custom archive (692,556 bytes) was restored into a uniquely
   named disposable database. Exact JSON-row digests matched for all 63 rows
-  across 31 tables. The 17-category read-only review audit passed with a
+  across 31 tables. The 18-category read-only review audit passed with a
   completed review, single remediation, pending optional question and an
-  activity stream rotation represented in the rehearsal.
+  activity stream rotation represented in the rehearsal. This was repeated
+  after the final deferred event-witness and nonnull lease-mode corrections.
 - A real completion with 100 findings and an exactly 65,536-byte serialized
-  result succeeded without truncation or fanout. Completion took 4,921.049 ms;
+  result succeeded without truncation or fanout. Completion took 3,678.203 ms;
   the permanent response was 113,891 bytes and review detail 68,665 bytes.
 - Four concurrent writers performed 40 real updates to distinct work items
-  in one project: p95 172.099 ms. Observed `FOR UPDATE` query p95 was 77.977 ms,
-  maximum 160.257 ms; database deadlock count did not increase. This is a
+  in one project: p95 168.493 ms. Observed `FOR UPDATE` query p95 was 87.542 ms,
+  maximum 172.200 ms; database deadlock count did not increase. This is a
   bounded contention probe, not proof for every mixed-operation workload.
 
-Queue measurements used 20-row pages, five warmups and 30 measured reads:
+The capacity/contention probes and queue measurements were repeated with the
+final database guards. Queues used 20-row pages, five warmups and 30 measured reads:
 
 | History size | Queue | p95 request | Page bytes | Explain execution |
 | --- | --- | --- | --- | --- |
-| 1,000 | Reviews | 21.301 ms | 13,080 | 0.660 ms |
-| 1,000 | Questions | 19.004 ms | 13,394 | 0.267 ms |
-| 100,000 | Reviews | 15.728 ms | 13,126 | 0.394 ms |
-| 100,000 | Questions | 25.288 ms | 13,439 | 0.286 ms |
+| 1,000 | Reviews | 13.607 ms | 13,080 | 0.741 ms |
+| 1,000 | Questions | 17.833 ms | 13,394 | 0.142 ms |
+| 100,000 | Reviews | 17.772 ms | 13,126 | 0.369 ms |
+| 100,000 | Questions | 13.150 ms | 13,439 | 0.174 ms |
 
 Both queues used their project/state/sequence indexes; large-history review
 joins used the work/lease primary keys and unique review-remediation index.
@@ -56,7 +63,8 @@ review aggregates.
 
 ## Regression and browser evidence
 
-- Full backend suite with PostgreSQL: 1,550 passed (no database-suite skips).
+- Full backend suite with PostgreSQL after final hardening: 1,560 passed
+  (no database-suite skips; 11 existing deprecation/schema-reflection warnings).
 - Full MCP suite: 982 passed, including strict wire/contracts, actual stdio/HTTP
   transport and authentic isolated offline Claude plugin fresh/update checks.
 - Frontend units: 352 passed; Node 24 typecheck and production build passed.
@@ -120,8 +128,32 @@ the fix. The corrected panel retains the same question/editor during refresh,
 while true identity changes and terminal/new questions clear the draft. All 14
 review cases then passed on a rebuilt desktop/narrow stack, including exact
 preserved rationale and handoff payloads. No other concrete client finding was
-established. The client's delta recheck and a third fresh persistence-focused
-cold review are still in progress.
+established. The reviewer independently rechecked `8271329..ab478b6`, confirmed
+the fix, terminal/new-question resets and independent frozen retry intent, and
+found no new actionable defect. That recheck was source-based; the author-side
+acceptance run supplies the browser execution evidence.
+
+A third fresh cold reviewer examined persistence at `c71a0cb..8271329`, covering
+migration/downgrade, ownership, immutable records, sealing, cardinality, lineage,
+lease witnesses and transaction ordering. It froze two P2 findings: lifecycle
+events lacked a deferred reverse witness check when inserted without their
+resource transition, and a nullable review lease mode could pass SQL CHECK's
+three-valued logic. Its supersession finding had an isolated reproduction; the
+continued review and null-mode finding were static-only. The temporary probe
+schema was removed and the reviewer changed no checkout files.
+
+Commit `73a148a` adds deferred exact event-to-resource witnesses for all six
+lifecycle events, explicitly rejects null review modes in migration/ORM, and
+extends the read-only audit. Tests demonstrate commit-time rejection after a
+successful event insert, duplicate-event rejection despite a valid transition,
+valid answer/request/supersession in one transaction, null-mode insert/update
+rejection, and detection of deliberately damaged isolated fixture data. The
+101-test focused verification passed. The reviewer independently rechecked
+`ab478b6..73a148a`, confirmed both findings resolved and the downgrade/catalog
+integration coherent, and found no remaining or new actionable defect. This
+recheck was static-only; the full 1,560-test backend rerun and repeated restore/
+capacity runs supply separate execution evidence. All five findings across the
+three independent cold reviews were fixed; none was waived.
 
 ## Deployment boundary
 
