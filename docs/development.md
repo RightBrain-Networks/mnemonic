@@ -80,6 +80,30 @@ In PowerShell, replace the export with:
 $env:TEST_DATABASE_URL = 'postgresql+psycopg://mnemonic_test:mnemonic_test_only@127.0.0.1:55432/mnemonic_test'
 ```
 
+Each test empties the shared per-worker disposable schema in place and only
+replays the migration chain when a catalog digest shows the schema's DDL moved,
+because a replay costs about 435 ms against about 30 ms to empty the tables.
+That digest is deliberately a superset of the operational audit's guard catalog
+in `scripts/audit_project_activity.py`: anything that audit would report as
+drift also moves the digest, so a schema a test damaged is rebuilt rather than
+quietly reused by a later audit test on the same worker. Damage the reset cannot
+see would survive every later in-place empty and make unrelated audit tests fail
+with catalog drift they did not cause.
+That superset is curated rather than structural, so
+`tests/test_schema_reset_postgres.py::test_reset_digest_notices_damage_the_operational_audit_can_see`
+pins it with a damage statement per audited category, each applied inside a
+transaction it rolls back, plus two same-name index replacements that change only
+an attribute `pg_get_indexdef` renders. A companion test freezes the category set
+so a tenth audit category cannot arrive without a case; an audit that starts
+reading a new attribute of an existing category still needs one added by hand.
+
+That guard catalog also digests every row a catalog name owns rather than
+whichever row a scan happens to yield last. A self-referencing foreign key gives
+one relation two internal triggers under one constraint with one `tgtype`, so
+the name is not unique and nothing orders the query; keeping the last row made
+the captured digest a query-plan decision and the audit reported drift against
+its own frozen fixture whenever the plan changed.
+
 The retained Phase 5 backend coverage verifies:
 
 The cross-version schema reference is pinned separately by

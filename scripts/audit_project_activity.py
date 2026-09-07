@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -65,98 +66,116 @@ def _digest(value: str, schema: str) -> str:
     return hashlib.sha256(normalized.encode()).hexdigest()
 
 
+def _category_digests(rows: Iterable[tuple[str, str]], schema: str) -> dict[str, str]:
+    """Digest every row a catalog name owns, so query row order cannot decide the answer.
+
+    A self-referencing foreign key gives one relation two internal triggers with the same
+    constraint and the same tgtype, so the name is not unique and nothing orders the query.
+    Digesting the sorted definitions leaves a single-row name byte-identical to the digest
+    already frozen, and makes a multi-row name independent of the plan PostgreSQL chooses.
+    """
+    owned: dict[str, list[str]] = {}
+    for name, definition in rows:
+        owned.setdefault(name, []).append(definition)
+    return {
+        name: _digest("\n".join(sorted(definitions)), schema)
+        for name, definitions in owned.items()
+    }
+
+
+CATALOG_STATEMENTS: dict[str, str] = {
+    "functions": """
+        SELECT p.proname||'('||pg_get_function_identity_arguments(p.oid)||')',
+               pg_get_functiondef(p.oid)
+        FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname=:schema AND p.prokind='f'
+    """,
+    "triggers": """
+        SELECT c.relname||'.'||t.tgname,
+               pg_get_triggerdef(t.oid)||' enabled='||t.tgenabled::text
+        FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname=:schema AND NOT t.tgisinternal
+    """,
+    "constraints": """
+        SELECT c.relname||'.'||k.conname,
+               pg_get_constraintdef(k.oid,true)||' validated='||k.convalidated::text
+        FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname=:schema AND k.contype<>'t' AND c.relname<>'alembic_version'
+    """,
+    "indexes": """
+        SELECT indexname,indexdef FROM pg_indexes
+        WHERE schemaname=:schema AND tablename<>'alembic_version'
+    """,
+    "function_permissions": """
+        SELECT p.proname||'('||pg_get_function_identity_arguments(p.oid)||')',
+               (p.proowner=(SELECT oid FROM pg_roles WHERE rolname=current_user))::text
+               ||'|'||coalesce((
+                   SELECT jsonb_agg(jsonb_build_array(
+                       a.grantee=0,a.grantee=p.proowner,a.grantor=p.proowner,
+                       a.privilege_type,a.is_grantable)
+                       ORDER BY a.grantee=0,a.grantee=p.proowner,a.grantor=p.proowner,
+                                a.privilege_type,a.is_grantable)::text
+                   FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+               ),'[]')
+        FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname=:schema AND p.prokind='f'
+    """,
+    "relation_state": """
+        SELECT c.relname,jsonb_build_array(c.relkind,c.relpersistence,c.relispartition,
+               c.relrowsecurity,c.relforcerowsecurity,c.relreplident,c.reloptions,
+               c.relowner=(SELECT oid FROM pg_roles WHERE rolname=current_user),
+               (SELECT jsonb_agg(jsonb_build_array(
+                   a.grantee=0,a.grantee=c.relowner,a.grantor=c.relowner,
+                   a.privilege_type,a.is_grantable)
+                   ORDER BY a.grantee=0,a.grantee=c.relowner,a.grantor=c.relowner,
+                            a.privilege_type,a.is_grantable)
+                FROM aclexplode(coalesce(c.relacl,acldefault(
+                    CASE WHEN c.relkind='S' THEN 's' ELSE 'r' END::"char",c.relowner))) a)
+               )::text
+        FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname=:schema AND c.relkind IN ('r','S','v','m','p')
+          AND c.relname<>'alembic_version'
+    """,
+    "column_permissions": """
+        SELECT c.relname||'.'||a.attname,(a.attacl IS NULL)::text
+        FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname=:schema AND c.relkind='r' AND c.relname<>'alembic_version'
+          AND a.attnum>0 AND NOT a.attisdropped
+    """,
+    "foreign_key_triggers": """
+        SELECT c.relname||'.'||k.conname||'.'||t.tgtype::text,
+               jsonb_build_array(t.tgenabled,t.tgdeferrable,t.tginitdeferred,
+                   t.tgconstrrelid::regclass::text,t.tgfoid::regprocedure::text,
+                   t.tgargs::text)::text
+        FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        JOIN pg_constraint k ON k.oid=t.tgconstraint
+        WHERE n.nspname=:schema AND t.tgisinternal AND k.contype='f'
+    """,
+    "columns": """
+        SELECT c.relname||'.'||a.attname,
+               format_type(a.atttypid,a.atttypmod)||'|'||a.attnotnull::text||'|'||a.attidentity::text
+               ||'|'||a.attgenerated::text||'|'||coalesce(pg_get_expr(d.adbin,d.adrelid),'')
+        FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+        WHERE n.nspname=:schema AND c.relkind='r' AND c.relname<>'alembic_version'
+          AND a.attnum>0 AND NOT a.attisdropped
+    """,
+}
+
+
 def catalog_snapshot(connection: Connection) -> dict[str, dict[str, str]]:
     """Capture deterministic definitions, including enabled modes and exact function bodies."""
     schema = connection.scalar(text("SELECT current_schema()"))
-    statements = {
-        "functions": """
-            SELECT p.proname||'('||pg_get_function_identity_arguments(p.oid)||')',
-                   pg_get_functiondef(p.oid)
-            FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname=:schema AND p.prokind='f'
-        """,
-        "triggers": """
-            SELECT c.relname||'.'||t.tgname,
-                   pg_get_triggerdef(t.oid)||' enabled='||t.tgenabled::text
-            FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
-            JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname=:schema AND NOT t.tgisinternal
-        """,
-        "constraints": """
-            SELECT c.relname||'.'||k.conname,
-                   pg_get_constraintdef(k.oid,true)||' validated='||k.convalidated::text
-            FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
-            JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname=:schema AND k.contype<>'t' AND c.relname<>'alembic_version'
-        """,
-        "indexes": """
-            SELECT indexname,indexdef FROM pg_indexes
-            WHERE schemaname=:schema AND tablename<>'alembic_version'
-        """,
-        "function_permissions": """
-            SELECT p.proname||'('||pg_get_function_identity_arguments(p.oid)||')',
-                   (p.proowner=(SELECT oid FROM pg_roles WHERE rolname=current_user))::text
-                   ||'|'||coalesce((
-                       SELECT jsonb_agg(jsonb_build_array(
-                           a.grantee=0,a.grantee=p.proowner,a.grantor=p.proowner,
-                           a.privilege_type,a.is_grantable)
-                           ORDER BY a.grantee=0,a.grantee=p.proowner,a.grantor=p.proowner,
-                                    a.privilege_type,a.is_grantable)::text
-                       FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
-                   ),'[]')
-            FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname=:schema AND p.prokind='f'
-        """,
-        "relation_state": """
-            SELECT c.relname,jsonb_build_array(c.relkind,c.relpersistence,c.relispartition,
-                   c.relrowsecurity,c.relforcerowsecurity,c.relreplident,c.reloptions,
-                   c.relowner=(SELECT oid FROM pg_roles WHERE rolname=current_user),
-                   (SELECT jsonb_agg(jsonb_build_array(
-                       a.grantee=0,a.grantee=c.relowner,a.grantor=c.relowner,
-                       a.privilege_type,a.is_grantable)
-                       ORDER BY a.grantee=0,a.grantee=c.relowner,a.grantor=c.relowner,
-                                a.privilege_type,a.is_grantable)
-                    FROM aclexplode(coalesce(c.relacl,acldefault(
-                        CASE WHEN c.relkind='S' THEN 's' ELSE 'r' END::"char",c.relowner))) a)
-                   )::text
-            FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname=:schema AND c.relkind IN ('r','S','v','m','p')
-              AND c.relname<>'alembic_version'
-        """,
-        "column_permissions": """
-            SELECT c.relname||'.'||a.attname,(a.attacl IS NULL)::text
-            FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
-            JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname=:schema AND c.relkind='r' AND c.relname<>'alembic_version'
-              AND a.attnum>0 AND NOT a.attisdropped
-        """,
-        "foreign_key_triggers": """
-            SELECT c.relname||'.'||k.conname||'.'||t.tgtype::text,
-                   jsonb_build_array(t.tgenabled,t.tgdeferrable,t.tginitdeferred,
-                       t.tgconstrrelid::regclass::text,t.tgfoid::regprocedure::text,
-                       t.tgargs::text)::text
-            FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
-            JOIN pg_namespace n ON n.oid=c.relnamespace
-            JOIN pg_constraint k ON k.oid=t.tgconstraint
-            WHERE n.nspname=:schema AND t.tgisinternal AND k.contype='f'
-        """,
-        "columns": """
-            SELECT c.relname||'.'||a.attname,
-                   format_type(a.atttypid,a.atttypmod)||'|'||a.attnotnull::text||'|'||a.attidentity::text
-                   ||'|'||a.attgenerated::text||'|'||coalesce(pg_get_expr(d.adbin,d.adrelid),'')
-            FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
-            JOIN pg_namespace n ON n.oid=c.relnamespace
-            LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
-            WHERE n.nspname=:schema AND c.relkind='r' AND c.relname<>'alembic_version'
-              AND a.attnum>0 AND NOT a.attisdropped
-        """,
-    }
     return {
-        category: {
-            name: _digest(definition, schema)
-            for name, definition in connection.execute(text(sql), {"schema": schema})
-        }
-        for category, sql in statements.items()
+        category: _category_digests(
+            connection.execute(text(sql), {"schema": schema}), schema
+        )
+        for category, sql in CATALOG_STATEMENTS.items()
     }
 
 

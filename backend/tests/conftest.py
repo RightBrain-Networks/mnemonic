@@ -65,6 +65,24 @@ _TRUNCATE_GUARDS_SQL = """
 # prosrc digests catch a same-named definition swapped underneath. Node trees
 # embed object OIDs, so this is comparable only within one built schema, which
 # is exactly the comparison a reset makes.
+#
+# The attribute list is deliberately a superset of the operational audit's
+# catalog_snapshot in scripts/audit_project_activity.py: anything that audit would
+# report as drift also moves this digest, so a schema a test damaged is rebuilt
+# rather than quietly reused by a later audit test. That superset is curated, not
+# structural, so it is pinned attribute by attribute in _AUDIT_VISIBLE_DAMAGE - the
+# index branch carries indcollation and indnullsnotdistinct only because
+# pg_get_indexdef renders both, and an audit that starts reading a new attribute
+# needs a case there too. Internal triggers are included
+# here, unlike in _TRUNCATE_GUARDS_SQL which must only cycle user TRUNCATE guards,
+# because the audit's foreign_key_triggers category reads exactly those rows. The
+# closing pg_depend branch is a membership tripwire for object kinds nobody
+# enumerated - a domain, a collation, a text-search dictionary - joining or
+# leaving the schema.
+#
+# Rejected, measured: reusing the audit's own nine queries on every reset is a
+# superset by construction rather than by curation, but costs +43% suite wall
+# (269.65 s against 188.58 s); widening this one query costs about +2.7 ms a call.
 _CATALOG_DIGEST_SQL = """
     WITH target AS (
         SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = :schema
@@ -73,6 +91,9 @@ _CATALOG_DIGEST_SQL = """
         SELECT pg_catalog.concat_ws(
                    '|', 'relation', relation.relname, relation.relkind,
                    relation.relpersistence, relation.relrowsecurity,
+                   relation.relforcerowsecurity, relation.relispartition,
+                   relation.relreplident, relation.relowner,
+                   relation.reltablespace, relation.relam,
                    COALESCE(CAST(relation.relacl AS text), ''),
                    COALESCE(CAST(relation.reloptions AS text), '')
                ) AS entry
@@ -82,20 +103,30 @@ _CATALOG_DIGEST_SQL = """
         SELECT pg_catalog.concat_ws(
                    '|', 'column', relation.relname, attribute.attname,
                    attribute.attnum, CAST(attribute.atttypid AS regtype),
-                   attribute.attnotnull, attribute.atthasdef,
+                   attribute.atttypmod, attribute.attnotnull, attribute.atthasdef,
                    attribute.attidentity, attribute.attgenerated,
-                   COALESCE(CAST(attribute.attacl AS text), '')
+                   COALESCE(CAST(attribute.attacl AS text), ''),
+                   pg_catalog.md5(COALESCE(CAST(default_row.adbin AS text), ''))
                )
         FROM pg_catalog.pg_attribute AS attribute
         JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid
         JOIN target ON target.oid = relation.relnamespace
+        LEFT JOIN pg_catalog.pg_attrdef AS default_row
+          ON default_row.adrelid = attribute.attrelid
+         AND default_row.adnum = attribute.attnum
         WHERE attribute.attnum > 0 AND NOT attribute.attisdropped
         UNION ALL
         SELECT pg_catalog.concat_ws(
                    '|', 'constraint', relation.relname, constraint_row.conname,
                    constraint_row.contype, constraint_row.convalidated,
                    constraint_row.condeferrable, constraint_row.condeferred,
+                   constraint_row.connoinherit, constraint_row.confupdtype,
+                   constraint_row.confdeltype, constraint_row.confmatchtype,
+                   CAST(constraint_row.confrelid AS regclass),
+                   CAST(constraint_row.conindid AS regclass),
                    COALESCE(CAST(constraint_row.conkey AS text), ''),
+                   COALESCE(CAST(constraint_row.confkey AS text), ''),
+                   COALESCE(CAST(constraint_row.conexclop AS text), ''),
                    pg_catalog.md5(COALESCE(CAST(constraint_row.conbin AS text), ''))
                )
         FROM pg_catalog.pg_constraint AS constraint_row
@@ -104,8 +135,13 @@ _CATALOG_DIGEST_SQL = """
         UNION ALL
         SELECT pg_catalog.concat_ws(
                    '|', 'index', index_relation.relname, index_row.indisunique,
-                   index_row.indisprimary, index_row.indisvalid,
-                   index_row.indisready, CAST(index_row.indkey AS text),
+                   index_row.indisprimary, index_row.indisexclusion,
+                   index_row.indisvalid, index_row.indisready,
+                   index_row.indnatts, index_row.indnkeyatts,
+                   CAST(index_row.indkey AS text), CAST(index_row.indclass AS text),
+                   CAST(index_row.indoption AS text),
+                   CAST(index_row.indcollation AS text),
+                   index_row.indnullsnotdistinct,
                    pg_catalog.md5(COALESCE(CAST(index_row.indexprs AS text), '')),
                    pg_catalog.md5(COALESCE(CAST(index_row.indpred AS text), ''))
                )
@@ -117,24 +153,45 @@ _CATALOG_DIGEST_SQL = """
         SELECT pg_catalog.concat_ws(
                    '|', 'trigger', relation.relname, trigger_row.tgname,
                    trigger_row.tgenabled, trigger_row.tgtype,
+                   trigger_row.tgisinternal, trigger_row.tgdeferrable,
+                   trigger_row.tginitdeferred,
+                   CAST(trigger_row.tgconstrrelid AS regclass),
                    CAST(trigger_row.tgfoid AS regprocedure),
+                   COALESCE(CAST(trigger_row.tgattr AS text), ''),
+                   COALESCE(trigger_row.tgoldtable, ''),
+                   COALESCE(trigger_row.tgnewtable, ''),
+                   pg_catalog.md5(COALESCE(CAST(trigger_row.tgqual AS text), '')),
                    pg_catalog.encode(trigger_row.tgargs, 'hex')
                )
         FROM pg_catalog.pg_trigger AS trigger_row
         JOIN pg_catalog.pg_class AS relation ON relation.oid = trigger_row.tgrelid
         JOIN target ON target.oid = relation.relnamespace
-        WHERE NOT trigger_row.tgisinternal
         UNION ALL
         SELECT pg_catalog.concat_ws(
                    '|', 'routine', routine.proname,
                    pg_catalog.oidvectortypes(routine.proargtypes),
-                   routine.provolatile, routine.prosecdef, routine.procost,
+                   routine.prokind, routine.provolatile, routine.proisstrict,
+                   routine.proretset, routine.proleakproof, routine.proparallel,
+                   routine.prosecdef, routine.procost, routine.prorows,
+                   routine.prolang, routine.proowner,
+                   CAST(routine.prorettype AS regtype),
+                   COALESCE(CAST(routine.proargnames AS text), ''),
+                   COALESCE(CAST(routine.proargmodes AS text), ''),
+                   COALESCE(CAST(routine.proargdefaults AS text), ''),
                    COALESCE(CAST(routine.proconfig AS text), ''),
                    COALESCE(CAST(routine.proacl AS text), ''),
                    pg_catalog.md5(COALESCE(routine.prosrc, ''))
                )
         FROM pg_catalog.pg_proc AS routine
         JOIN target ON target.oid = routine.pronamespace
+        UNION ALL
+        SELECT pg_catalog.concat_ws(
+                   '|', 'member', dependency.classid, dependency.objid,
+                   dependency.objsubid, dependency.deptype
+               )
+        FROM pg_catalog.pg_depend AS dependency
+        JOIN target ON target.oid = dependency.refobjid
+        WHERE dependency.refclassid = CAST('pg_catalog.pg_namespace' AS regclass)
     )
     SELECT pg_catalog.md5(pg_catalog.string_agg(entry, E'\n' ORDER BY entry))
     FROM entries

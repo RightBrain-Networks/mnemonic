@@ -76,7 +76,7 @@ def test_project_activity_audit_accepts_valid_populated_history(postgres_engine:
         project_id = _project(database)
         _close(database, _work(database, project_id), "done")
     report = _audit(postgres_engine)
-    assert report["result"] == "pass", report
+    assert report["result"] == "pass", report["blocking_findings"]
     assert report["inventory"]["reports"] == 1
     assert "The font request" not in str(report)
 
@@ -92,7 +92,7 @@ def test_project_activity_audit_accepts_review_events_and_checks_review_facts(
     question_work = create_work(api, project, work_payload)
     close_work(api, project, question_work, checkpoint_fields, review=False)
     report = _audit(postgres_engine)
-    assert report["result"] == "pass", report
+    assert report["result"] == "pass", report["blocking_findings"]
     assert report["expected_head"] == "0025_cross_project_relationships"
 
 
@@ -339,7 +339,7 @@ def test_audit_preserves_explicit_report_head_support(postgres_engine):
         with postgres_engine.connect() as connection:
             connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
             report = audit["audit_snapshot"](connection, "0021_job_completion_reports")
-        assert report["result"] == "pass", report
+        assert report["result"] == "pass", report["blocking_findings"]
         assert "reports" in report["inventory"]
         # Current-head mismatches fail before selecting new columns/functions.
         with postgres_engine.connect() as connection:
@@ -436,7 +436,7 @@ def test_project_activity_audit_accepts_valid_move_history(
 
     report = _audit(postgres_engine)
 
-    assert report["result"] == "pass", report
+    assert report["result"] == "pass", report["blocking_findings"]
     assert report["inventory"]["moves"] == 1
     assert report["prior_phase_counts"]["event_owner_violations"] == 0
     assert moved["work_item"]["project_id"] == target["id"]
@@ -484,7 +484,7 @@ def test_project_activity_audit_tracks_cross_project_relationship_authority(
 
     report = _audit(postgres_engine)
 
-    assert report["result"] == "pass", report
+    assert report["result"] == "pass", report["blocking_findings"]
     assert report["inventory"]["relationships"] == 1
     assert report["inventory"]["cross_project_relationships"] == 1
     assert report["prior_phase_counts"]["relationship_scope_violations"] == 0
@@ -571,7 +571,7 @@ def test_project_activity_audit_accepts_origin_receipts_after_move(
     assert second_move.status_code == 200, second_move.text
 
     report = _audit(postgres_engine)
-    assert report["result"] == "pass", report
+    assert report["result"] == "pass", report["blocking_findings"]
     with postgres_engine.connect() as connection:
         origin_kinds = set(
             connection.execute(
@@ -964,7 +964,7 @@ def test_project_activity_audit_accepts_moved_report_follow_up(
 
     report = _audit(postgres_engine)
 
-    assert report["result"] == "pass", report
+    assert report["result"] == "pass", report["blocking_findings"]
     assert "invalid_follow_up_provenance" not in report["blocking_findings"]
     assert "work_provenance_prefix_mismatch" not in report["blocking_findings"]
     assert report["inventory"]["work_provenance_heads"] == 3
@@ -1216,3 +1216,67 @@ def test_project_activity_audit_detects_move_corruption_after_guard_restoration(
         assert not any(key.startswith("catalog_") for key in report["blocking_findings"])
     finally:
         reset_disposable_schema(postgres_engine)
+
+
+def test_catalog_snapshot_keeps_both_internal_triggers_of_a_self_referencing_key(
+    postgres_engine: Engine,
+) -> None:
+    """A shared catalog name must fold both rows, not keep whichever scanned last.
+
+    ``code_review_remediations`` references itself, so PostgreSQL puts the
+    referenced-side action trigger and the referencing-side check trigger on one
+    relation under one constraint with one tgtype. Nothing orders the query, so
+    keeping the last row made the captured digest a query-plan decision and the
+    audit reported drift against its own frozen catalog whenever the plan changed.
+    """
+    reset_disposable_schema(postgres_engine)
+    audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
+    shared = "code_review_remediations.fk_code_review_remediations_parent.17"
+
+    with postgres_engine.connect() as connection:
+        schema = connection.scalar(text("SELECT current_schema()"))
+        head = connection.scalar(text("SELECT version_num FROM alembic_version"))
+        rows = list(
+            connection.execute(
+                text(audit["CATALOG_STATEMENTS"]["foreign_key_triggers"]), {"schema": schema}
+            )
+        )
+        captured = audit["catalog_snapshot"](connection)
+        drift = audit["_catalog_drift"](connection, head)
+
+    owned = sorted(definition for name, definition in rows if name == shared)
+    assert len(owned) == 2, owned
+    assert "RI_FKey_check_upd" in owned[0] and "RI_FKey_noaction_upd" in owned[1]
+    assert captured["foreign_key_triggers"][shared] == audit["_digest"]("\n".join(owned), schema)
+    assert not any(count for count in drift.values()), drift
+
+
+def test_catalog_snapshot_survives_any_order_a_scan_returns_catalog_rows_in(
+    postgres_engine: Engine,
+) -> None:
+    """The frozen catalog must match whichever order a scan yields the rows.
+
+    Forcing the planner off its index scan is a useful smoke test but not a
+    reliable one on its own: whether the collided pair actually reverses depends
+    on heap layout, so that half can pass without exercising anything. Folding
+    the schema's real rows in both directions always does.
+    """
+    reset_disposable_schema(postgres_engine)
+    audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
+
+    with postgres_engine.connect() as connection:
+        schema = connection.scalar(text("SELECT current_schema()"))
+        head = connection.scalar(text("SELECT version_num FROM alembic_version"))
+        rows = list(
+            connection.execute(
+                text(audit["CATALOG_STATEMENTS"]["foreign_key_triggers"]), {"schema": schema}
+            )
+        )
+        for setting in ("enable_indexscan", "enable_indexonlyscan", "enable_bitmapscan"):
+            connection.execute(text(f"SET {setting} = off"))
+        drift = audit["_catalog_drift"](connection, head)
+
+    assert audit["_category_digests"](rows, schema) == audit["_category_digests"](
+        list(reversed(rows)), schema
+    )
+    assert not any(count for count in drift.values()), drift
