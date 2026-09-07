@@ -37,6 +37,44 @@ CATALOG_PATH = (
 )
 
 
+# PostgreSQL renders catalog definitions through session settings, so an audit that
+# does not pin them reports the connecting session as if it were the schema.
+# ``bytea_output`` controls every ``bytea``-to-``text`` cast, ``DateStyle`` and
+# ``TimeZone`` control the timestamp literals inside a rendered constraint, and
+# ``quote_all_identifiers`` controls every ``pg_get_*def``, ``indexdef``, ``regclass``
+# and ``regprocedure`` rendering. These are the values the frozen catalog was captured
+# under; pinning them keeps a finding a statement about the schema alone, never about
+# how the server, the database or the connecting role happens to be configured.
+DETERMINISTIC_SESSION_SETTINGS = {
+    "bytea_output": "hex",
+    "DateStyle": "ISO, MDY",
+    "TimeZone": "UTC",
+    "quote_all_identifiers": "off",
+}
+
+
+def pin_session_settings(connection: Connection) -> None:
+    """Pin the render-affecting session settings for the caller's transaction.
+
+    Transaction-local, so the audit never mutates a session it was handed, and read
+    back afterwards: a ``SET LOCAL`` outside a transaction block is a silent no-op,
+    and a determinism guarantee that can quietly fail to apply is not one.
+    """
+    for name, value in DETERMINISTIC_SESSION_SETTINGS.items():
+        connection.execute(
+            text("SELECT pg_catalog.set_config(:name, :value, true)"),
+            {"name": name, "value": value},
+        )
+    applied = {
+        name: connection.scalar(
+            text("SELECT pg_catalog.current_setting(:name)"), {"name": name}
+        )
+        for name in DETERMINISTIC_SESSION_SETTINGS
+    }
+    if applied != DETERMINISTIC_SESSION_SETTINGS:
+        raise RuntimeError("Audit could not pin its deterministic session settings")
+
+
 def _legacy():
     path = Path(__file__).with_name("audit_duplicate_handling.py")
     spec = importlib.util.spec_from_file_location("mnemonic_prior_phase_audit", path)
@@ -170,6 +208,7 @@ CATALOG_STATEMENTS: dict[str, str] = {
 
 def catalog_snapshot(connection: Connection) -> dict[str, dict[str, str]]:
     """Capture deterministic definitions, including enabled modes and exact function bodies."""
+    pin_session_settings(connection)
     schema = connection.scalar(text("SELECT current_schema()"))
     return {
         category: _category_digests(
@@ -815,6 +854,8 @@ def _head_findings(
 def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[str, Any]:
     if connection.scalar(text("SHOW transaction_read_only")) != "on":
         raise RuntimeError("Audit requires a read-only transaction")
+    # Every count below, not only the catalog digests, is read under pinned settings.
+    pin_session_settings(connection)
     actual = (
         connection.execute(text("SELECT version_num FROM alembic_version"))
         .scalars()

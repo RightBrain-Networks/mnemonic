@@ -3376,3 +3376,42 @@ def test_audit_bigint_minimum_generation_corruption_fails_closed_without_overflo
             assert counts["completion_generation_violation_count"] == 1
         finally:
             transaction.rollback()
+
+
+# PostgreSQL renders ``pg_get_indexdef``, ``pg_get_constraintdef``, ``pg_get_expr`` and
+# ``pg_get_triggerdef`` through session settings, and this audit compares that output
+# against exact expected spellings. Before the audit pinned them, a session with
+# ``quote_all_identifiers = on`` reported three required functions missing on a pristine
+# schema. An operator reaches the setting with ``ALTER ROLE ... SET``.
+_RENDERING_SESSION_SETTINGS = (
+    ("bytea_output", "escape"),
+    ("DateStyle", "Postgres, DMY"),
+    ("TimeZone", "America/New_York"),
+    ("quote_all_identifiers", "on"),
+)
+
+
+@pytest.mark.parametrize(("name", "value"), _RENDERING_SESSION_SETTINGS)
+def test_audit_ignores_rendering_session_settings(postgres_engine, name, value):
+    """A pristine schema audits clean however the session renders catalog definitions."""
+    audit = _audit_module()
+    with postgres_engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            connection.execute(
+                text("SELECT pg_catalog.set_config(:name, :value, true)"),
+                {"name": name, "value": value},
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT pg_catalog.current_setting(:name)"), {"name": name}
+                )
+                == value
+            )
+            head_matches, _, _, catalog = audit._database_audit_snapshot(
+                connection, audit.FINAL_HEAD
+            )
+            assert head_matches is True
+            assert audit._catalog_blocking_counts(catalog) == {}
+        finally:
+            transaction.rollback()
