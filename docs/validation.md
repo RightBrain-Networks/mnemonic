@@ -1,5 +1,40 @@
 # Mnemonic validation record
 
+## Audit guard-catalog determinism — 2026-09-07
+
+`scripts/audit_project_activity.py` keyed its `foreign_key_triggers` catalog on
+relation, constraint and `tgtype` with nothing ordering the query. At head 0025
+that query returns 388 rows under 387 distinct names: `code_review_remediations`
+references itself, so its referenced-side `RI_FKey_noaction_upd` and
+referencing-side `RI_FKey_check_upd` triggers share one constraint and one
+`tgtype`. The snapshot kept whichever row arrived last, making the captured
+digest a query-plan decision. Measured on a pristine migrated schema with no DDL
+applied: the default index-scan plan produced the frozen digest and a clean
+audit, while the same schema with `enable_indexscan`, `enable_indexonlyscan` and
+`enable_bitmapscan` off produced `catalog_foreign_key_triggers_drift: 1` and
+nothing else. Migration `0024` introduced the collision; heads 0020-0023 have
+none.
+
+The snapshot now digests every row a name owns. Rebuilding all six frozen heads
+showed exactly two of the 8,793 frozen entries change, both the collided name at
+`0024` and `0025`; the 8,791 single-row names stay byte-identical, including
+`work_items.fk_work_items_remediation.17`, whose digest coincides with the
+collided name's former value. After the change the audit reports zero drift in
+all nine categories under both plan shapes.
+
+Separately measured on the same schema, the per-test reset digest in
+`backend/tests/conftest.py` was narrower than that guard catalog: of nine
+damage statements, one per audited category, four moved the audit's snapshot
+without moving the reset digest — `REPLICA IDENTITY FULL`, a column `SET
+DEFAULT`, `ALTER FUNCTION ... PARALLEL SAFE`, and disabling internal foreign-key
+triggers on `work_item_embeddings`, the only table with internal triggers and no
+user triggers. Damage in that gap survived an in-place empty. The widened digest
+moves for all nine. The backend suite is 1,585 tests, 1,570 before the fifteen
+added here, and ran in 187.9 s against a 188.6 s baseline at `-n 4`.
+
+These are repository checks against the disposable test database. No production
+audit was run and no cutover was performed.
+
 ## Code reviews implementation
 
 Application/API/MCP/dashboard 0.13.0, plugin 0.14.0 and migration

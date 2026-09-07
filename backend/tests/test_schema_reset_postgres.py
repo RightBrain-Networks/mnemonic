@@ -1,5 +1,6 @@
 """The per-test schema reset empties rows in place, and only replays on damage."""
 
+import runpy
 from uuid import uuid4
 
 import alembic.command
@@ -8,10 +9,38 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError
 
-from .conftest import _RESET_PLANS, PRESERVED_TABLES, reset_disposable_schema
+from .conftest import (
+    _RESET_PLANS,
+    BACKEND_DIR,
+    PRESERVED_TABLES,
+    _catalog_digest,
+    reset_disposable_schema,
+)
 from .report_fixtures import reported
 
 pytestmark = pytest.mark.postgres
+
+# One statement per category of the operational audit's guard catalog, each of
+# which that audit reports as drift. The reset digest is meant to be a superset of
+# what the audit inspects, so every one of these must also move the reset digest -
+# otherwise the damage survives an in-place TRUNCATE and every later audit test on
+# that worker's schema reports catalog drift it did not cause.
+_AUDIT_VISIBLE_DAMAGE = (
+    ("relation_state", "ALTER TABLE work_items REPLICA IDENTITY FULL"),
+    ("columns", "ALTER TABLE work_items ALTER COLUMN priority SET DEFAULT 99"),
+    ("functions", "ALTER FUNCTION mnemonic_reject_checkpoint_mutation() PARALLEL SAFE"),
+    # work_item_embeddings is the only table carrying internal foreign-key triggers
+    # and no user triggers, so this moves the foreign_key_triggers category alone.
+    ("foreign_key_triggers", "ALTER TABLE work_item_embeddings DISABLE TRIGGER ALL"),
+    ("triggers", "ALTER TABLE work_events DISABLE TRIGGER ALL"),
+    ("constraints", "ALTER TABLE work_items ADD CONSTRAINT ck_probe CHECK (version > 0)"),
+    ("indexes", "CREATE INDEX ix_probe ON work_items (version)"),
+    (
+        "function_permissions",
+        "REVOKE EXECUTE ON FUNCTION mnemonic_reject_checkpoint_mutation() FROM PUBLIC",
+    ),
+    ("column_permissions", "GRANT SELECT (title) ON work_items TO PUBLIC"),
+)
 
 _GUARDED_TABLES = (
     "work_completion_review_policies",
@@ -189,6 +218,9 @@ def test_reset_of_an_intact_schema_never_replays_the_migration_chain(
     monkeypatch.setattr(alembic.command, "upgrade", _refuse)
     monkeypatch.setattr(alembic.command, "downgrade", _refuse)
     reset_disposable_schema(postgres_engine)
+    # Twice, because a digest that is not stable across its own reset would replay
+    # on every test rather than only on the damaged ones.
+    reset_disposable_schema(postgres_engine)
 
 
 def test_reset_keeps_the_schema_and_its_relations_in_place(
@@ -270,3 +302,42 @@ def test_reset_replays_the_migrations_for_a_schema_a_test_damaged(
     assert ("work_events", "events_immutable") in _row_triggers(postgres_engine)
     assert _relation_oids(postgres_engine) != intact
     assert {table for table, _ in _truncate_guards(postgres_engine)} == set(_GUARDED_TABLES)
+
+
+@pytest.mark.parametrize(("category", "statement"), _AUDIT_VISIBLE_DAMAGE)
+def test_reset_digest_notices_damage_the_operational_audit_can_see(
+    api: TestClient, postgres_engine: Engine, category: str, statement: str
+) -> None:
+    """Damage the audit reports must also force a replay, never survive a TRUNCATE.
+
+    Each case runs its DDL inside a transaction it rolls back, so the schema is
+    pristine afterwards and no case provokes a real replay. Leaving the damage
+    committed would model exactly the poisoning this digest exists to prevent.
+    """
+    reset_disposable_schema(postgres_engine)
+    audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
+
+    with postgres_engine.connect() as connection:
+        schema = connection.scalar(text("SELECT current_schema()"))
+        intact_catalog = audit["catalog_snapshot"](connection)
+        intact_digest = _catalog_digest(connection, schema)
+    # Pin the comparison to the value reset_disposable_schema actually branches on.
+    assert intact_digest == _RESET_PLANS[schema].catalog_digest
+
+    with postgres_engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            connection.execute(text(statement))
+            damaged_catalog = audit["catalog_snapshot"](connection)
+            damaged_digest = _catalog_digest(connection, schema)
+        finally:
+            transaction.rollback()
+
+    assert damaged_catalog[category] != intact_catalog[category], category
+    assert damaged_digest != intact_digest, statement
+
+
+def test_the_reset_damage_table_covers_every_audited_catalog_category() -> None:
+    """A tenth audit category must not arrive without a reset-digest case for it."""
+    audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
+    assert set(audit["CATALOG_STATEMENTS"]) == {category for category, _ in _AUDIT_VISIBLE_DAMAGE}

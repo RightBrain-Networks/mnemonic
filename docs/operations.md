@@ -941,7 +941,14 @@ or weaken hierarchy constraints.
 At current head 0025, run `scripts/audit_project_activity.py` using the private
 `DATABASE_URL` environment variable. It composes the historical domain checks
 with activity/report, external-reference, move and review checks plus the exact
-supported guard catalog. `scripts/audit_code_reviews.py` additionally provides
+supported guard catalog. That guard catalog digests every row a catalog name
+owns, so the comparison does not depend on the plan PostgreSQL chooses for its
+catalog scans, and a `catalog_foreign_key_triggers_drift` finding is a real
+schema change rather than a scan-order artifact. Deploy
+`scripts/audit_project_activity.py` and `tests/fixtures/project-activity-catalog-v1.json`
+from the same revision: the frozen digests and the code that computes them are
+one unit, and a mismatched pair reports drift against an unchanged schema.
+`scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
 failure, and inventory deployed `0.20.1` clients and plugin `0.17.1` together.
 The historical audit below applies only to its explicitly named older heads.
