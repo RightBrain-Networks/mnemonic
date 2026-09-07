@@ -3382,8 +3382,12 @@ def test_audit_bigint_minimum_generation_corruption_fails_closed_without_overflo
 # ``pg_get_triggerdef`` through session settings, and this audit compares that output
 # against exact expected spellings. Before the audit pinned them, a session with
 # ``quote_all_identifiers = on`` reported three required functions missing on a pristine
-# schema. An operator reaches the setting with ``ALTER ROLE ... SET``.
+# schema. ``client_encoding`` reaches this audit from the other direction: its title-key
+# contract check binds fullwidth, dotted-capital-I and line-separator probes, so on a
+# LATIN1 session it died in the client with ``UnicodeEncodeError`` before the server saw
+# the statement. An operator reaches every one of them with ``ALTER ROLE ... SET``.
 _RENDERING_SESSION_SETTINGS = (
+    ("client_encoding", "LATIN1"),
     ("bytea_output", "escape"),
     ("DateStyle", "Postgres, DMY"),
     ("TimeZone", "America/New_York"),

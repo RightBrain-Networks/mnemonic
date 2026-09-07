@@ -39,8 +39,12 @@ def _audit(engine: Engine, expected_head: str | None = None):
 # ``bytea_output`` moved all 387 foreign-key trigger digests, ``DateStyle`` and
 # ``TimeZone`` moved the one constraint that renders timestamp literals, and
 # ``quote_all_identifiers`` moved 1,438 digests across seven of the nine categories.
+# ``client_encoding`` breaks the audit instead of moving a digest: migrated function
+# bodies hold characters LATIN1 cannot carry, so a pristine schema raised
+# ``UntranslatableCharacter`` and audited ``blocked`` with no findings at all.
 # An operator reaches every one of them with ``ALTER ROLE ... SET``.
 _RENDERING_SESSION_SETTINGS = (
+    ("client_encoding", "LATIN1"),
     ("bytea_output", "escape"),
     ("DateStyle", "Postgres, DMY"),
     ("TimeZone", "America/New_York"),
@@ -1374,6 +1378,7 @@ def test_operational_audits_pin_one_rendering_settings_map():
     }
     assert list(maps.values()) == [
         {
+            "client_encoding": "UTF8",
             "bytea_output": "hex",
             "DateStyle": "ISO, MDY",
             "TimeZone": "UTC",
@@ -1417,3 +1422,50 @@ def test_project_activity_audit_leaves_the_caller_session_settings_alone(
             } == dict(_RENDERING_SESSION_SETTINGS)
     finally:
         isolated.dispose()
+
+
+def test_project_activity_audit_survives_a_connection_born_in_another_encoding(
+    postgres_engine: Engine,
+):
+    """A role-level ``client_encoding`` reaches psycopg before the audit ever runs.
+
+    ``set_config`` inside the transaction cannot show this: there the connection was
+    born UTF8 and psycopg already holds a matching decoder. Here it is born LATIN1, the
+    way ``ALTER ROLE ... SET`` leaves it, so the pin has to flip the encoding libpq
+    reports mid-transaction and psycopg has to follow it. A ``pass`` is what proves it
+    decoded rather than merely survived: every digest still matches the frozen catalog,
+    and migrated function bodies hold characters LATIN1 cannot carry.
+
+    A dedicated engine keeps the encoding off the suite's shared pool.
+    """
+    reset_disposable_schema(postgres_engine)
+    audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
+    options = postgres_engine.url.query["options"]
+    latin1 = create_engine(
+        postgres_engine.url.update_query_dict(
+            {"options": f"{options} -c client_encoding=LATIN1"}
+        ),
+        hide_parameters=True,
+    )
+    try:
+        with latin1.connect() as connection:
+            connection.execute(
+                text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            )
+            assert (
+                connection.scalar(text("SELECT current_setting('client_encoding')"))
+                == "LATIN1"
+            )
+            report = audit["audit_snapshot"](connection)
+            connection.rollback()
+            assert report["result"] == "pass", report
+            # Transaction-local, so the rollback hands the session back in the encoding
+            # it arrived in, and the connection still decodes correctly under it.
+            assert (
+                connection.scalar(text("SELECT current_setting('client_encoding')"))
+                == "LATIN1"
+            )
+            assert connection.scalar(text("SELECT chr(233)")) == "é"
+            connection.rollback()
+    finally:
+        latin1.dispose()

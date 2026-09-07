@@ -167,6 +167,7 @@ CHECKS = {
 # identical to the Phase 12 audit's map; ``test_project_activity_audit_postgres.py``
 # asserts they never drift.
 DETERMINISTIC_SESSION_SETTINGS = {
+    "client_encoding": "UTF8",
     "bytea_output": "hex",
     "DateStyle": "ISO, MDY",
     "TimeZone": "UTC",
@@ -175,7 +176,7 @@ DETERMINISTIC_SESSION_SETTINGS = {
 
 
 def pin_session_settings(connection: Connection) -> None:
-    """Pin the render-affecting session settings for the caller's transaction.
+    """Pin the settings the catalog is read under for the caller's transaction.
 
     Transaction-local, so the audit never mutates a session it was handed, and read
     back afterwards: a ``SET LOCAL`` outside a transaction block is a silent no-op,

@@ -955,13 +955,21 @@ The historical audit below applies only to its explicitly named older heads.
 
 All three audits pin the PostgreSQL session settings that decide how the server
 renders a catalog definition — `bytea_output`, `DateStyle`, `TimeZone` and
-`quote_all_identifiers` — for their own transaction only, and read the values
-back rather than trust a `SET LOCAL` that may not have applied. A guard-catalog
-finding is therefore a statement about the schema alone. It never follows from a
-`postgresql.conf` value, a database default, or an `ALTER ROLE ... SET` on the
-connecting role, and the audit leaves the session it was handed unchanged.
-Treat any catalog finding as a real schema change and investigate it as one;
-never try to clear one by adjusting session settings.
+`quote_all_identifiers` — plus `client_encoding`, which decides whether the
+rendered definition can be transmitted at all. The pin covers their own
+transaction only, and the values are read back rather than trusted to a `SET
+LOCAL` that may not have applied. A guard-catalog finding is therefore a
+statement about the schema alone. It never follows from a `postgresql.conf`
+value, a database default, or an `ALTER ROLE ... SET` on the connecting role,
+and the audit leaves the session it was handed unchanged. Treat any catalog
+finding as a real schema change and investigate it as one; never try to clear
+one by adjusting session settings.
+
+One session setting still stops the audits before they can pin anything:
+`client_encoding = 'SQL_ASCII'` on the connecting role or database fails during
+client startup, and the audit reports `{"audit_runtime_failure": true, "result":
+"blocked"}`. That is a runtime failure to investigate as one, not a schema
+finding — clear the role setting and rerun.
 
 For the historical Phase 11 boundary, run `scripts/audit_duplicate_handling.py` with
 `--expected-head 0019_structured_completion_evidence` from a private environment

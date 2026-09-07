@@ -31,7 +31,9 @@ digest for `IntervalStyle` (`sql_standard`, `iso_8601`, `postgres_verbose`),
 `extra_float_digits` (`-3`, `3`), `lc_monetary`, `lc_numeric`, `lc_time`,
 `standard_conforming_strings`, `backslash_quote`, `timezone_abbreviations`, or a
 schema-first `search_path`; `TimeZone = 'GMT'` rendered identically to `UTC`.
-Only the four settings above are pinned.
+Those four are the only settings pinned for how a definition is *rendered*.
+`client_encoding` is pinned as well, for the separate reason recorded at the end
+of this entry.
 
 Digest parity was verified before shipping: each of the six migration heads the
 frozen catalog covers (`0020` through `0025`) was rebuilt in a fresh schema, and
@@ -49,17 +51,77 @@ which it already reads through `encode(tgargs, 'hex')`. The count-only checks in
 `scripts/audit_code_reviews.py` were unaffected by all four. All three now pin
 one identical map, and a test asserts the three copies never diverge.
 
-Fifteen new regression tests cover the settings individually, all four at once,
-the transaction-local scope of the pin, and the shared map. Ten of them fail
-against the `origin/main` audit scripts with the same test bodies. The five that
-pass are the four count-only code-review cases and the duplicate audit's
-`bytea_output` case, which `encode(tgargs, 'hex')` already made immune.
+Nineteen new regression tests cover the settings individually, all the
+rendering settings at once, a connection born in a foreign encoding, the
+transaction-local scope of the pin, and the shared map. Thirteen fail against
+the audit scripts at `965efc8`, before any of these settings were pinned. Six
+of those thirteen still fail with only the four rendering settings pinned: the
+`client_encoding` cases for the project-activity and duplicate audits, the
+shared map, the all-at-once case, the caller-session case, and the connection
+born in a foreign encoding. The count-only code-review audit is insensitive to
+`client_encoding` as it was to the other four, and the duplicate audit's
+`bytea_output` case stays immune through `encode(tgargs, 'hex')`.
 
-One boundary is recorded but not addressed here: `client_encoding = 'LATIN1'`,
-also reachable through `ALTER ROLE` and not overridden by psycopg3, makes the
-audit fail on an untranslatable character. That surfaces as
-`{"audit_runtime_failure": true}` with no blocking findings, so it does not
-imitate schema corruption the way the four settings above did.
+### `client_encoding`
+
+`client_encoding` is the fifth pinned setting and the only one that never
+fabricated a finding. Swept across eighteen client encodings against a pristine
+head-0025 catalog, every one either raised or returned all 2,040 digests
+byte-identical to the UTF8 baseline: twelve raised, and the six that completed —
+`UTF8`, `WIN1252`, `WIN1250`, `WIN1251`, `GBK` and `BIG5` — were identical
+without any pin. No client encoding moves a digest, so unlike the four above it
+cannot imitate schema corruption.
+
+What it does instead is break the audits outright on a pristine schema, and it
+breaks two of the three, by two different mechanisms:
+
+- `scripts/audit_project_activity.py` fails decoding. Two migrated function
+  bodies — `mnemonic_job_report_project_source` and
+  `mnemonic_guard_job_report_settings` — carry U+2013, U+2019, U+201C and U+201D
+  in their default prompt text, so the server refuses to send them and raises
+  `UntranslatableCharacter` on byte sequence `0xe2 0x80 0x93`. Eleven of the
+  eighteen encodings hit this.
+- `scripts/audit_duplicate_handling.py` fails encoding, before the server sees
+  the statement at all. Its title-key contract check binds fullwidth, dotted
+  capital I and line separator probes, which raise `UnicodeEncodeError` in the
+  client on a LATIN1 session.
+
+Both surface as `{"audit_runtime_failure": true, "result": "blocked"}` with no
+blocking findings — a pristine schema that audits `blocked`. `ALTER ROLE
+mnemonic_test SET client_encoding = 'LATIN1'` reaches a fresh psycopg3
+connection unchanged (`pgconn._encoding` reports `iso8859-1`), so this is
+reachable exactly the way the other four were.
+
+That psycopg3 tolerates the pin was measured rather than assumed, because a
+stale decoder would corrupt digests silently instead of raising.
+`set_config('client_encoding', 'UTF8', true)` changes what the server reports in
+its `ParameterStatus` message, psycopg3 reads that live from libpq when it builds
+each statement's decoder, and SQLAlchemy opens a fresh DBAPI cursor — and so a
+fresh psycopg `Transformer` — for every `execute()`. On a connection born
+`LATIN1` the audit returns `pass` with zero findings, the function bodies come
+back holding real U+2013 and U+201C rather than mojibake, and `connection
+.rollback()` hands the session back in `LATIN1` still able to decode. With the
+pin, seventeen of the eighteen swept encodings return baseline-identical digests
+instead of six, and eleven of the twelve that raised now complete.
+
+The hazard being avoided is real but out of reach here: psycopg's `TextLoader`
+snapshots the encoding when it is constructed, and a raw psycopg cursor that
+re-executes the *same* query object across the change does silently mis-decode
+(`'éx'` came back as `'Ã©x'`). Nothing in these audits holds a cursor across the
+pin.
+
+One residual boundary remains and a transaction-local pin cannot close it:
+`client_encoding = 'SQL_ASCII'`. psycopg3 returns `bytes` rather than `str` for
+text under `SQL_ASCII`, and SQLAlchemy's own dialect initialization fails at
+first connect with `TypeError: cannot use a string pattern on a bytes-like
+object`, before the audit has a transaction to pin anything in. `main()` catches
+it and reports `{"audit_runtime_failure": true, "result": "blocked"}`; it cannot
+fabricate a finding either.
+
+Digest parity was re-verified after adding the pin: all 8,793 digests across the
+six heads are byte-identical to the same functions at `origin/main`, with
+`_catalog_drift` reporting zero against the frozen fixture at every head, and
+`tests/fixtures/project-activity-catalog-v1.json` still unchanged.
 
 ## Audit guard-catalog determinism — 2026-09-07
 
