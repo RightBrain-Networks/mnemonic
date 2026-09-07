@@ -1,6 +1,6 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.20.0`, plugin `0.17.0`, and migration
+This is application/API/MCP/dashboard `0.20.1`, plugin `0.17.1`, and migration
 `0025_cross_project_relationships`. The catalog has exactly 38 MCP tools, 13
 protected MCP writes, 18 REST receipt kinds, 15 protected browser mutations and
 24 work-event types. Relationship identity and graph invariants are global;
@@ -1223,10 +1223,14 @@ Exactly `create_work`, `add_checkpoint`, `append_event`, `add_relationship`,
 `release_claim`, `request_human_input`, `merge_work`, `respond_to_work_follow_up`,
 and `complete_code_review` require a
 caller-generated `client_operation_id` and are annotated as idempotent
-mutations. Prepare the
-complete arguments once, retain them privately, and retry only that exact tool,
-UUID, and argument object after an unknown outcome. Project administration,
-claim acquisition/recovery, and renewal retain their separate contracts.
+mutations. Prepare the complete arguments once and retain them privately. After
+an unknown outcome, make at most one retry with that exact tool, UUID, and
+argument object. If that retry also has an unknown outcome, stop retrying and
+use applicable safe reads to reconcile observable state. Never generate or
+substitute a new UUID for the same intent, even when a read does not yet show
+its effect; request direction if the reads remain ambiguous. Project
+administration, claim acquisition/recovery, and renewal retain their separate
+contracts.
 
 Every fresh closeout also requires `job_completion_report`; authors first read
 `get_project_settings`. The report prompt assumes no other LLM output was read.
@@ -1279,8 +1283,10 @@ mode/scope/semantic state. It never exposes scores or turns a candidate into an
 automatic create, redirect, relationship, or merge.
 
 The `request_human_input` tool description requires its caller to check existing
-open questions and write supporting context first. It sends one attempt; after an unknown outcome, retry only the exact retained UUID
-and argument object, never a replacement. MCP exposes no resolution or withdrawal tool: agents
+open questions and write supporting context first. It sends one attempt; after
+an unknown outcome, its caller follows the one-retry ceiling above with the
+exact retained UUID and argument object, never a replacement. MCP exposes no
+resolution or withdrawal tool: agents
 direct a person to the dashboard and never infer, self-supply, or time out an
 answer. `list_human_attention` is the human queue, supports text-free `limit=0`,
 and requires a restart from the head before callers conclude a forward cursor

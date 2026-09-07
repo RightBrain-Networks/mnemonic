@@ -179,6 +179,11 @@ version, and any lease token. Make one tool call per attempt. A retry after a
 timeout, disconnect, malformed success, backend `5xx`, or
 `client_operation_unavailable` must reuse that UUID and the exact same tool
 arguments. Never rebuild the arguments from mutable drafts under an old UUID.
+Make at most one exact retry after an unknown outcome. If it returns the same
+unknown-outcome error, stop retrying and use applicable safe reads to reconcile
+observable state. Never generate or substitute a new UUID for the same intent,
+even when a read does not yet show its effect; request direction if the reads do
+not settle how to proceed.
 
 The typed `503 duplicate_graph_invalid` response is the exception to the
 generic `5xx` recovery rule. It is a definitive integrity stop, not an unknown

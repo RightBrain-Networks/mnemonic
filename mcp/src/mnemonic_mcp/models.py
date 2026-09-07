@@ -3432,9 +3432,10 @@ class WorkCompletion(CanonicalResponse):
     code_review_request: CodeReviewRead | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
-    agent_follow_ups: list[WorkFollowUpRead] | SkipJsonSchema[None] = Field(
-        default=None, exclude_if=lambda value: value is None, min_length=1, max_length=1,
-    )
+    agent_follow_ups: (
+        Annotated[list[WorkFollowUpRead], Field(min_length=1, max_length=1)]
+        | SkipJsonSchema[None]
+    ) = Field(default=None, exclude_if=lambda value: value is None)
     work_item: WorkItemRead
     checkpoint: CheckpointRead
     job_completion_report: Annotated[
@@ -3444,14 +3445,17 @@ class WorkCompletion(CanonicalResponse):
 
     _non_null_report = field_validator("job_completion_report", mode="before")(reject_null_report)
 
-    @field_validator("review_policy_decision", "code_review_request", "agent_follow_ups",
-                     "code_review_handoff",
-                     mode="before")
-    @classmethod
-    def reject_null_review_fields(cls, value: object) -> object:
-        if value is None:
+    @model_validator(mode="after")
+    def reject_null_review_fields(self) -> Self:
+        fields = (
+            "review_policy_decision",
+            "code_review_request",
+            "agent_follow_ups",
+            "code_review_handoff",
+        )
+        if any(name in self.model_fields_set and getattr(self, name) is None for name in fields):
             raise ValueError("Present review completion fields cannot be null.")
-        return value
+        return self
 
     @model_validator(mode="after")
     def review_correspondence(self) -> Self:

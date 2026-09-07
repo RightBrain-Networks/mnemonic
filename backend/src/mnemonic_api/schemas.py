@@ -3731,9 +3731,10 @@ class WorkCompletionRead(APIModel):
     code_review_request: CodeReviewRead | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
-    agent_follow_ups: list[WorkFollowUpRead] | SkipJsonSchema[None] = Field(
-        default=None, exclude_if=lambda value: value is None, min_length=1, max_length=1,
-    )
+    agent_follow_ups: (
+        Annotated[list[WorkFollowUpRead], Field(min_length=1, max_length=1)]
+        | SkipJsonSchema[None]
+    ) = Field(default=None, exclude_if=lambda value: value is None)
     job_completion_report: JobCompletionReportRead | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )

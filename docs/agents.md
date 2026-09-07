@@ -154,12 +154,15 @@ generates, substitutes, caches, or automatically retries an operation UUID.
 
 A timeout, disconnect, reset, EOF, malformed success response, backend/proxy
 `5xx`, or `client_operation_unavailable` means the result may have committed.
-Retry only by resending the retained UUID with the exact same tool and semantic
-arguments. Do not reconstruct the call from a later read, change an actor or
-default, or generate another UUID and describe it as a retry. If either the UUID
-or complete arguments are lost, stop, inspect current state where that is safe,
-and request direction; Mnemonic deliberately exposes no receipt lookup or
-argument-recovery tool.
+Make at most one exact retry by resending the retained UUID with the exact same
+tool and semantic arguments. Do not reconstruct the call from a later read,
+change an actor or default, or generate another UUID and describe it as a retry.
+If either the UUID or complete arguments are lost, stop, inspect current state
+where that is safe, and request direction; Mnemonic deliberately exposes no
+receipt lookup or argument-recovery tool. If that retry also has an unknown
+outcome, stop retrying and reconcile with the applicable safe reads. Never mint
+a new operation UUID for the same intent; request direction when the read
+remains ambiguous.
 
 The typed `503 duplicate_graph_invalid` response is different: it definitively
 reports a failed integrity guard rather than an unknown mutation outcome. Do
@@ -719,12 +722,15 @@ source that is already an alias. Source gates, structural edges, active-lease
 token mismatch, and depth have distinct merge errors. `duplicate_graph_invalid`
 is an integrity incident: stop authority-changing work and involve the operator.
 
-After an unknown outcome from one of the thirteen protected writes, use only its
-retained exact operation retry; search or recall cannot substitute for the
-receipt protocol. Claims use only their distinct same-request replay rule while
-the lease remains active. For excluded writes, reconcile their current state
-before deciding whether another action is a new intent. Never report success if
-the adapter reported an error. Keep credentials, lease tokens, operation UUIDs,
+After an unknown outcome from one of the thirteen protected writes, make at
+most one retry using only its retained exact operation; search or recall cannot
+substitute for a confirmed receipt response. If that retry also has an unknown
+outcome, stop retrying and use safe reads only to reconcile observable state
+before requesting direction. Claims use only their distinct same-request replay rule
+while the lease remains active. For excluded writes, reconcile their current
+state before deciding whether another action is a new intent. Never report that
+the adapter confirmed success when it reported an error. Keep credentials,
+lease tokens, operation UUIDs,
 frozen mutation arguments, private transcripts, and unrelated personal
 information out of checkpoints and metadata.
 
