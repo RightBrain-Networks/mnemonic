@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session
 
 from .code_review_database_fixtures import close_work, create_work, finish_review, policy
@@ -31,6 +31,38 @@ def _audit(engine: Engine, expected_head: str | None = None):
         if expected_head is None:
             return audit["audit_snapshot"](connection)
         return audit["audit_snapshot"](connection, expected_head)
+
+
+# PostgreSQL renders catalog definitions through these session settings, so an audit
+# that does not pin them reports the connecting session as if it were the schema. Each
+# value below made a pristine schema report catalog drift before the audits pinned them:
+# ``bytea_output`` moved all 387 foreign-key trigger digests, ``DateStyle`` and
+# ``TimeZone`` moved the one constraint that renders timestamp literals, and
+# ``quote_all_identifiers`` moved 1,438 digests across seven of the nine categories.
+# An operator reaches every one of them with ``ALTER ROLE ... SET``.
+_RENDERING_SESSION_SETTINGS = (
+    ("bytea_output", "escape"),
+    ("DateStyle", "Postgres, DMY"),
+    ("TimeZone", "America/New_York"),
+    ("quote_all_identifiers", "on"),
+)
+
+_OPERATIONAL_AUDIT_SCRIPTS = (
+    "audit_project_activity.py",
+    "audit_duplicate_handling.py",
+    "audit_code_reviews.py",
+)
+
+
+def _read_only_connection(engine: Engine, settings: tuple[tuple[str, str], ...]):
+    """Open a read-only audit transaction whose session renders definitions hostilely."""
+    connection = engine.connect()
+    connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+    for name, value in settings:
+        connection.execute(
+            text("SELECT set_config(:name, :value, true)"), {"name": name, "value": value}
+        )
+    return connection
 
 
 def _review_audit(engine: Engine):
@@ -1280,3 +1312,108 @@ def test_catalog_snapshot_survives_any_order_a_scan_returns_catalog_rows_in(
         list(reversed(rows)), schema
     )
     assert not any(count for count in drift.values()), drift
+
+
+@pytest.mark.parametrize(("name", "value"), _RENDERING_SESSION_SETTINGS)
+def test_project_activity_audit_ignores_rendering_session_settings(
+    postgres_engine: Engine, name: str, value: str
+):
+    """A pristine schema audits clean however the session renders catalog definitions."""
+    reset_disposable_schema(postgres_engine)
+    audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
+    connection = _read_only_connection(postgres_engine, ((name, value),))
+    try:
+        assert connection.scalar(text("SELECT current_setting(:name)"), {"name": name}) == value
+        report = audit["audit_snapshot"](connection)
+        connection.rollback()
+    finally:
+        connection.close()
+    assert report["result"] == "pass", report
+    assert not [key for key in report["blocking_findings"] if key.startswith("catalog_")]
+
+
+def test_project_activity_audit_ignores_every_rendering_setting_at_once(
+    postgres_engine: Engine,
+):
+    """No combination of the rendering settings can fabricate schema drift."""
+    reset_disposable_schema(postgres_engine)
+    audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
+    connection = _read_only_connection(postgres_engine, _RENDERING_SESSION_SETTINGS)
+    try:
+        report = audit["audit_snapshot"](connection)
+        connection.rollback()
+    finally:
+        connection.close()
+    assert report["result"] == "pass", report
+
+
+@pytest.mark.parametrize(("name", "value"), _RENDERING_SESSION_SETTINGS)
+def test_code_review_audit_ignores_rendering_session_settings(
+    postgres_engine: Engine, name: str, value: str
+):
+    """The code-review audit reads counts under the same pinned settings."""
+    reset_disposable_schema(postgres_engine)
+    audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_code_reviews.py"))
+    connection = _read_only_connection(postgres_engine, ((name, value),))
+    try:
+        report = audit["audit"](connection)
+        connection.rollback()
+    finally:
+        connection.close()
+    assert report["ok"] is True, report
+    assert not [key for key, count in report["findings"].items() if count]
+
+
+def test_operational_audits_pin_one_rendering_settings_map():
+    """Three standalone operator scripts carry the map; a copy that drifts is a false finding."""
+    maps = {
+        name: runpy.run_path(str(BACKEND_DIR.parent / "scripts" / name))[
+            "DETERMINISTIC_SESSION_SETTINGS"
+        ]
+        for name in _OPERATIONAL_AUDIT_SCRIPTS
+    }
+    assert list(maps.values()) == [
+        {
+            "bytea_output": "hex",
+            "DateStyle": "ISO, MDY",
+            "TimeZone": "UTC",
+            "quote_all_identifiers": "off",
+        }
+    ] * len(_OPERATIONAL_AUDIT_SCRIPTS), maps
+    assert {name for name, _ in _RENDERING_SESSION_SETTINGS} == set(
+        maps["audit_project_activity.py"]
+    )
+
+
+def test_project_activity_audit_leaves_the_caller_session_settings_alone(
+    postgres_engine: Engine,
+):
+    """The pin is transaction-local: a session default reaches the audit and survives it.
+
+    A dedicated engine keeps the session-level settings off the suite's shared pool.
+    """
+    reset_disposable_schema(postgres_engine)
+    audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
+    isolated = create_engine(postgres_engine.url, hide_parameters=True)
+    try:
+        with isolated.connect() as connection:
+            for name, value in _RENDERING_SESSION_SETTINGS:
+                connection.execute(
+                    text("SELECT set_config(:name, :value, false)"),
+                    {"name": name, "value": value},
+                )
+            connection.commit()
+            connection.execute(
+                text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            )
+            report = audit["audit_snapshot"](connection)
+            connection.rollback()
+            assert report["result"] == "pass", report
+            assert {
+                name: connection.scalar(
+                    text("SELECT current_setting(:name)"), {"name": name}
+                )
+                for name, _ in _RENDERING_SESSION_SETTINGS
+            } == dict(_RENDERING_SESSION_SETTINGS)
+    finally:
+        isolated.dispose()

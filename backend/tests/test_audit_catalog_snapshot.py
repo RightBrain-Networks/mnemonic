@@ -28,16 +28,28 @@ def _audit_module() -> dict:
 
 
 class _StubConnection:
-    """Answers the two calls catalog_snapshot makes, from a canned row table."""
+    """Answers the calls catalog_snapshot makes, from a canned row table.
+
+    It models a session for the render-affecting settings the audit pins, so the
+    pin's read-back sees the values it just wrote. Every other statement is still
+    rejected, which is what keeps these tests a statement about the catalog
+    queries alone.
+    """
 
     def __init__(self, rows: dict[str, list[tuple[str, str]]], statements: dict[str, str]) -> None:
         self._rows = rows
         self._statements = statements
+        self._settings: dict[str, str] = {}
 
-    def scalar(self, statement: object) -> str:
+    def scalar(self, statement: object, parameters: dict | None = None) -> str:
+        if "current_setting" in str(statement):
+            return self._settings[parameters["name"]]
         return SCHEMA
 
     def execute(self, statement: object, parameters: dict) -> list[tuple[str, str]]:
+        if "set_config" in str(statement):
+            self._settings[parameters["name"]] = parameters["value"]
+            return []
         for category, sql in self._statements.items():
             if str(statement) == sql:
                 return list(self._rows[category])

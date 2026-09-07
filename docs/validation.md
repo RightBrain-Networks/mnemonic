@@ -1,5 +1,66 @@
 # Mnemonic validation record
 
+## Operational audits pinned to deterministic session settings — 2026-09-07
+
+`scripts/audit_project_activity.py` rendered its guard catalog through PostgreSQL
+functions whose output depends on session settings, so a pristine schema could
+report catalog drift that looked exactly like corruption. Reproduced by replaying
+the Alembic chain into a disposable schema at head `0025_cross_project_relationships`
+and calling `_catalog_drift` on a read-only connection:
+
+- `bytea_output = 'escape'` moved every one of the 387 `foreign_key_triggers`
+  digests, because the statement renders `tgargs::text` from `bytea`.
+- `TimeZone = 'America/New_York'` and `DateStyle = 'Postgres, DMY'` each moved
+  one `constraints` digest —
+  `verification_results.ck_verification_results_observed_at_range`, the only
+  constraint whose `pg_get_constraintdef` renders timestamp literals.
+- `quote_all_identifiers = on` moved 1,438 digests across seven of the nine
+  categories: 387 `foreign_key_triggers`, 353 `constraints`, 189 `columns`, 157
+  `indexes`, 152 `functions`, 126 `triggers` and 74 `function_permissions`.
+  `relation_state` and `column_permissions` read raw catalog columns and stayed
+  at zero.
+
+All four are reachable from outside the audit process: with `ALTER ROLE ... SET`
+applied to the connecting role, a pristine schema reported `blocked` with 387,
+1, 1 and 1,438 blocking findings respectively. After the change each reports
+`pass` with zero findings, and the audit leaves the caller's session settings
+unchanged.
+
+A sweep of 21 candidate settings against a pristine head-0025 catalog moved no
+digest for `IntervalStyle` (`sql_standard`, `iso_8601`, `postgres_verbose`),
+`extra_float_digits` (`-3`, `3`), `lc_monetary`, `lc_numeric`, `lc_time`,
+`standard_conforming_strings`, `backslash_quote`, `timezone_abbreviations`, or a
+schema-first `search_path`; `TimeZone = 'GMT'` rendered identically to `UTC`.
+Only the four settings above are pinned.
+
+Digest parity was verified before shipping: each of the six migration heads the
+frozen catalog covers (`0020` through `0025`) was rebuilt in a fresh schema, and
+all 8,793 digests were byte-identical to the same functions at `origin/main`,
+with `_catalog_drift` reporting zero against the frozen fixture at every head.
+`tests/fixtures/project-activity-catalog-v1.json` is unchanged.
+
+The sibling audits were measured, not assumed. At its own 0019 boundary
+`scripts/audit_duplicate_handling.py` shared the exposure for `DateStyle`,
+`TimeZone` and `quote_all_identifiers` — its completion-evidence catalog renders
+that same timestamp constraint and compares `pg_get_indexdef` output against
+exact expected spellings — and reported three required functions missing on a
+pristine schema under `quote_all_identifiers`. It was immune to `bytea_output`,
+which it already reads through `encode(tgargs, 'hex')`. The count-only checks in
+`scripts/audit_code_reviews.py` were unaffected by all four. All three now pin
+one identical map, and a test asserts the three copies never diverge.
+
+Fifteen new regression tests cover the settings individually, all four at once,
+the transaction-local scope of the pin, and the shared map. Ten of them fail
+against the `origin/main` audit scripts with the same test bodies. The five that
+pass are the four count-only code-review cases and the duplicate audit's
+`bytea_output` case, which `encode(tgargs, 'hex')` already made immune.
+
+One boundary is recorded but not addressed here: `client_encoding = 'LATIN1'`,
+also reachable through `ALTER ROLE` and not overridden by psycopg3, makes the
+audit fail on an untranslatable character. That surfaces as
+`{"audit_runtime_failure": true}` with no blocking findings, so it does not
+imitate schema corruption the way the four settings above did.
+
 ## Audit guard-catalog determinism — 2026-09-07
 
 `scripts/audit_project_activity.py` keyed its `foreign_key_triggers` catalog on

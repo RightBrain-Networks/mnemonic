@@ -160,8 +160,45 @@ CHECKS = {
 }
 
 
+# PostgreSQL renders catalog definitions through session settings, so an audit that
+# does not pin them reports the connecting session as if it were the schema. This
+# audit's own checks are counts today and are not sensitive to any of these, so
+# pinning makes that a structural property rather than an incidental one. Kept
+# identical to the Phase 12 audit's map; ``test_project_activity_audit_postgres.py``
+# asserts they never drift.
+DETERMINISTIC_SESSION_SETTINGS = {
+    "bytea_output": "hex",
+    "DateStyle": "ISO, MDY",
+    "TimeZone": "UTC",
+    "quote_all_identifiers": "off",
+}
+
+
+def pin_session_settings(connection: Connection) -> None:
+    """Pin the render-affecting session settings for the caller's transaction.
+
+    Transaction-local, so the audit never mutates a session it was handed, and read
+    back afterwards: a ``SET LOCAL`` outside a transaction block is a silent no-op,
+    and a determinism guarantee that can quietly fail to apply is not one.
+    """
+    for name, value in DETERMINISTIC_SESSION_SETTINGS.items():
+        connection.execute(
+            text("SELECT pg_catalog.set_config(:name, :value, true)"),
+            {"name": name, "value": value},
+        )
+    applied = {
+        name: connection.scalar(
+            text("SELECT pg_catalog.current_setting(:name)"), {"name": name}
+        )
+        for name in DETERMINISTIC_SESSION_SETTINGS
+    }
+    if applied != DETERMINISTIC_SESSION_SETTINGS:
+        raise RuntimeError("Audit could not pin its deterministic session settings")
+
+
 def audit(connection: Connection) -> dict:
     """Read counts within the caller's read-only coherent transaction."""
+    pin_session_settings(connection)
     schema_head = connection.scalar(text("SELECT version_num FROM alembic_version"))
     if schema_head not in SUPPORTED_HEADS:
         raise RuntimeError("Code-review audit requires a supported schema head")

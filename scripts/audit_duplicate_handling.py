@@ -2582,7 +2582,43 @@ def _completion_evidence_catalog_failures(
     }
 
 
+# PostgreSQL renders catalog definitions through session settings, so an audit that
+# does not pin them reports the connecting session as if it were the schema. This
+# audit compares rendered ``pg_get_*def`` output against exact expected spellings,
+# which ``quote_all_identifiers`` rewrites wholesale. Kept identical to the Phase 12
+# audit's map; ``test_project_activity_audit_postgres.py`` asserts they never drift.
+DETERMINISTIC_SESSION_SETTINGS = {
+    "bytea_output": "hex",
+    "DateStyle": "ISO, MDY",
+    "TimeZone": "UTC",
+    "quote_all_identifiers": "off",
+}
+
+
+def pin_session_settings(connection: Connection) -> None:
+    """Pin the render-affecting session settings for the caller's transaction.
+
+    Transaction-local, so the audit never mutates a session it was handed, and read
+    back afterwards: a ``SET LOCAL`` outside a transaction block is a silent no-op,
+    and a determinism guarantee that can quietly fail to apply is not one.
+    """
+    for name, value in DETERMINISTIC_SESSION_SETTINGS.items():
+        connection.execute(
+            text("SELECT pg_catalog.set_config(:name, :value, true)"),
+            {"name": name, "value": value},
+        )
+    applied = {
+        name: connection.scalar(
+            text("SELECT pg_catalog.current_setting(:name)"), {"name": name}
+        )
+        for name in DETERMINISTIC_SESSION_SETTINGS
+    }
+    if applied != DETERMINISTIC_SESSION_SETTINGS:
+        raise RuntimeError("Audit could not pin its deterministic session settings")
+
+
 def _catalog(connection: Connection, expected_head: str) -> dict[str, int]:
+    pin_session_settings(connection)
     schema = connection.scalar(text("SELECT pg_catalog.current_schema()"))
     original_search_path = connection.scalar(
         text("SELECT pg_catalog.current_setting('search_path')")
@@ -3422,6 +3458,7 @@ def _database_audit_snapshot(
     connection: Connection, expected_head: str
 ) -> tuple[bool, int, dict[str, int], dict[str, int]]:
     """Collect every database fact under one trusted, transaction-local path."""
+    pin_session_settings(connection)
     audit_schema = connection.scalar(text("SELECT pg_catalog.current_schema()"))
     original_search_path = connection.scalar(
         text("SELECT pg_catalog.current_setting('search_path')")
