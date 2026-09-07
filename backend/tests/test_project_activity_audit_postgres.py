@@ -1251,17 +1251,32 @@ def test_catalog_snapshot_keeps_both_internal_triggers_of_a_self_referencing_key
     assert not any(count for count in drift.values()), drift
 
 
-def test_catalog_snapshot_survives_a_plan_that_returns_catalog_rows_in_heap_order(
+def test_catalog_snapshot_survives_any_order_a_scan_returns_catalog_rows_in(
     postgres_engine: Engine,
 ) -> None:
-    """The frozen catalog must match under any scan the planner may choose."""
+    """The frozen catalog must match whichever order a scan yields the rows.
+
+    Forcing the planner off its index scan is a useful smoke test but not a
+    reliable one on its own: whether the collided pair actually reverses depends
+    on heap layout, so that half can pass without exercising anything. Folding
+    the schema's real rows in both directions always does.
+    """
     reset_disposable_schema(postgres_engine)
     audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
 
     with postgres_engine.connect() as connection:
+        schema = connection.scalar(text("SELECT current_schema()"))
         head = connection.scalar(text("SELECT version_num FROM alembic_version"))
+        rows = list(
+            connection.execute(
+                text(audit["CATALOG_STATEMENTS"]["foreign_key_triggers"]), {"schema": schema}
+            )
+        )
         for setting in ("enable_indexscan", "enable_indexonlyscan", "enable_bitmapscan"):
             connection.execute(text(f"SET {setting} = off"))
         drift = audit["_catalog_drift"](connection, head)
 
+    assert audit["_category_digests"](rows, schema) == audit["_category_digests"](
+        list(reversed(rows)), schema
+    )
     assert not any(count for count in drift.values()), drift

@@ -29,8 +29,19 @@ without moving the reset digest — `REPLICA IDENTITY FULL`, a column `SET
 DEFAULT`, `ALTER FUNCTION ... PARALLEL SAFE`, and disabling internal foreign-key
 triggers on `work_item_embeddings`, the only table with internal triggers and no
 user triggers. Damage in that gap survived an in-place empty. The widened digest
-moves for all nine. The backend suite is 1,585 tests, 1,570 before the fifteen
-added here, and ran in 187.9 s against a 188.6 s baseline at `-n 4`.
+moves for all nine, and for two further index cases an independent review found
+it still missed: replacing an index under its own name changing only `COLLATE`
+or only `NULLS NOT DISTINCT` is rendered by `pg_get_indexdef`, so the audit sees
+it, and neither `indcollation` nor `indnullsnotdistinct` was digested until they
+were added.
+
+The widened query costs **+3.18 ms a call**, the median of 25 interleaved
+`EXPLAIN (ANALYZE, TIMING OFF)` samples on a freshly migrated head-0025 schema
+(9.79 ms against 12.98 ms). Full-suite wall time at `-n 4` was 187.9 s and
+185.5 s against a 188.6 s baseline, which is noise-dominated at this scale and
+neither confirms nor refutes a sub-second effect; the per-call figure is the one
+with the resolution to matter. The suite is 1,587 tests, 1,570 before the
+seventeen added here.
 
 These are repository checks against the disposable test database. No production
 audit was run and no cutover was performed.

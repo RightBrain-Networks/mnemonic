@@ -69,7 +69,11 @@ _TRUNCATE_GUARDS_SQL = """
 # The attribute list is deliberately a superset of the operational audit's
 # catalog_snapshot in scripts/audit_project_activity.py: anything that audit would
 # report as drift also moves this digest, so a schema a test damaged is rebuilt
-# rather than quietly reused by a later audit test. Internal triggers are included
+# rather than quietly reused by a later audit test. That superset is curated, not
+# structural, so it is pinned attribute by attribute in _AUDIT_VISIBLE_DAMAGE - the
+# index branch carries indcollation and indnullsnotdistinct only because
+# pg_get_indexdef renders both, and an audit that starts reading a new attribute
+# needs a case there too. Internal triggers are included
 # here, unlike in _TRUNCATE_GUARDS_SQL which must only cycle user TRUNCATE guards,
 # because the audit's foreign_key_triggers category reads exactly those rows. The
 # closing pg_depend branch is a membership tripwire for object kinds nobody
@@ -136,6 +140,8 @@ _CATALOG_DIGEST_SQL = """
                    index_row.indnatts, index_row.indnkeyatts,
                    CAST(index_row.indkey AS text), CAST(index_row.indclass AS text),
                    CAST(index_row.indoption AS text),
+                   CAST(index_row.indcollation AS text),
+                   index_row.indnullsnotdistinct,
                    pg_catalog.md5(COALESCE(CAST(index_row.indexprs AS text), '')),
                    pg_catalog.md5(COALESCE(CAST(index_row.indpred AS text), ''))
                )

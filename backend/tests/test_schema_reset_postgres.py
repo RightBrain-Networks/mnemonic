@@ -35,6 +35,23 @@ _AUDIT_VISIBLE_DAMAGE = (
     ("triggers", "ALTER TABLE work_events DISABLE TRIGGER ALL"),
     ("constraints", "ALTER TABLE work_items ADD CONSTRAINT ck_probe CHECK (version > 0)"),
     ("indexes", "CREATE INDEX ix_probe ON work_items (version)"),
+    # Replacing an index in place under its own name, changing only one attribute
+    # pg_get_indexdef renders. Adding or dropping an index moves the digest through
+    # the relation branch, so only a same-name swap exercises attribute parity.
+    (
+        "indexes",
+        "DROP INDEX ix_work_items_project_status_updated; "
+        "CREATE INDEX ix_work_items_project_status_updated ON work_items USING btree "
+        '(project_id, status COLLATE "C", updated_at DESC, id DESC) '
+        "WHERE (deleted_at IS NULL)",
+    ),
+    (
+        "indexes",
+        "DROP INDEX uq_work_events_gate_fact; "
+        "CREATE UNIQUE INDEX uq_work_events_gate_fact ON work_events USING btree "
+        "(work_item_id, gate_id, event_type) NULLS NOT DISTINCT "
+        "WHERE (gate_id IS NOT NULL)",
+    ),
     (
         "function_permissions",
         "REVOKE EXECUTE ON FUNCTION mnemonic_reject_checkpoint_mutation() FROM PUBLIC",
@@ -306,7 +323,7 @@ def test_reset_replays_the_migrations_for_a_schema_a_test_damaged(
 
 @pytest.mark.parametrize(("category", "statement"), _AUDIT_VISIBLE_DAMAGE)
 def test_reset_digest_notices_damage_the_operational_audit_can_see(
-    api: TestClient, postgres_engine: Engine, category: str, statement: str
+    postgres_engine: Engine, category: str, statement: str
 ) -> None:
     """Damage the audit reports must also force a replay, never survive a TRUNCATE.
 
@@ -327,7 +344,8 @@ def test_reset_digest_notices_damage_the_operational_audit_can_see(
     with postgres_engine.connect() as connection:
         transaction = connection.begin()
         try:
-            connection.execute(text(statement))
+            # exec_driver_sql, so a case may be a same-name drop-and-recreate pair.
+            connection.exec_driver_sql(statement)
             damaged_catalog = audit["catalog_snapshot"](connection)
             damaged_digest = _catalog_digest(connection, schema)
         finally:
