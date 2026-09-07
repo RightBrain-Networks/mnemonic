@@ -192,9 +192,11 @@ Do these in order:
    both unchanged `merge_review_revision` objects, a nonblank rationale, truthful
    `merged_by_client` and `merged_by_session_id`, optional known model, optional source lease token,
    and a fresh `client_operation_id`.
-5. Call `merge_work` once. On an unknown outcome, replay only the byte-equivalent retained call.
-   Any stale revision or changed field requires a fresh review and a new UUID; never edit arguments
-   under the old UUID.
+5. Call `merge_work` once. On an unknown outcome, make at most one byte-equivalent retry. If
+   that retry returns the same unknown-outcome error, stop retrying, use the applicable safe reads
+   to reconcile observable state, and request direction if the reads remain ambiguous.
+   Never generate or substitute a new UUID for the same intent. Any stale revision or changed field
+   requires a fresh review and a new UUID; never edit arguments under the old UUID.
 6. After success or replay, recall the exact source audit ID and destination separately. Continue
    only on the canonical destination when current authority calls for it. Never redirect silently,
    mutate the alias, remove an alias-incident relationship, or imply that an unmerge exists.
@@ -324,8 +326,12 @@ work_item_id, client_operation_id, kind="context", checkpoint={...})`. If only
 mutable work identity must change, freeze a separate `update_work` intent with
 its own UUID, the version just read, truthful flattened actor fields, and only
 the intended changes. On a definite version conflict, recall and compare, then
-use a new UUID for changed arguments. On an uncertain outcome, replay the
-retained call; search cannot substitute for it.
+use a new UUID for changed arguments. On an uncertain outcome, make at most one
+exact retry of the retained call. If it returns the same unknown-outcome error,
+stop retrying, reconcile with applicable safe reads, and request direction when
+the reads remain ambiguous.
+Never generate or substitute a new UUID for the same intent; search cannot
+substitute for receipt replay.
 
 Report the saved title, project, work-item ID, priority, resulting version and status,
 and any gate you recorded, only after a successful tool result. Saving ends
@@ -352,9 +358,14 @@ promote it without owner direction.
    `promoted`, carrying the nested `job_completion_report`. Neither retirement
    invents a completion checkpoint, external issue, or verification evidence.
 5. Confirm coherent success before reporting closure. Unknown outcomes retain
-   the exact full intent and UUID; a definitive `job_report_prompt_changed`
-   requires reread/review and a new intent. Historical report-free receipt
-   replay is not permission to execute a fresh report-free closeout.
+   the exact full intent and UUID for at most one exact retry. If that retry
+   returns the same unknown-outcome error, stop retrying, use `recall_work` to
+   inspect closeout state and event history, and request direction if the read
+   remains ambiguous.
+   Never generate or substitute a new UUID for the same intent. A definitive
+   `job_report_prompt_changed` requires reread/review and
+   a new intent. Historical report-free receipt replay is not permission to
+   execute a fresh report-free closeout.
 
 Reports are immutable. Reopen and close again only under current authority to
 correct a substantive closure. Dismissal and manual pending follow-ups belong

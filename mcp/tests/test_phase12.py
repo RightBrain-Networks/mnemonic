@@ -13,6 +13,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import TypeAdapter, ValidationError
 
 from mnemonic_mcp.api import UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME, MnemonicAPI
+from mnemonic_mcp.code_review_models import CodeReviewHandoffInput, scope_hash
 from mnemonic_mcp.models import WorkCompletion, WorkItemRead, WorkUpdateRead
 from mnemonic_mcp.phase12_models import (
     ActivityCursor,
@@ -26,6 +27,9 @@ from mnemonic_mcp.server import build_server
 
 STREAM_ID = "17780b88-6968-4717-983a-9b235962be13"
 REPORT_ID = "4aa58b4c-07b2-4869-a1d5-201912c67578"
+POLICY_ID = "f789a7fa-0dac-46ae-8921-aefa7e0fdf06"
+REVIEW_ID = "b0c4c411-3bb2-443c-b794-36b68dc371b4"
+QUESTION_ID = "ec07f427-cf2e-440d-b99b-fb638e01f883"
 AUTHORING_PROMPT = "Write concise summaries and useful FYIs for a multitasking human."
 REPORT_INPUT = {
     "summary": "The dashboard font is consistent and ready for review. It has not been deployed.",
@@ -369,18 +373,205 @@ def closeout_fixture(outcome, work_item, checkpoint, *, include_report=True):
     return tool, args, response
 
 
+def review_handoff():
+    return {
+        "scope": {
+            "repositories": [
+                {
+                    "repository_key": "main",
+                    "checkout_path": "/tmp/review-source",
+                    "object_format": "sha1",
+                    "base_commit": "a" * 40,
+                    "head_commit": "b" * 40,
+                }
+            ]
+        },
+        "handoff": {
+            "change_summary": "Review completion response validation.",
+            "decisions": ["Preserve strict canonical wire validation."],
+            "focus_areas": ["Nested review timestamps and receipt replay."],
+            "traps": [],
+            "validation_summary": "Focused adapter regressions pass.",
+        },
+    }
+
+
+def completion_review_fields(decision, response):
+    work_item = response["work_item"]
+    checkpoint = response["checkpoint"]
+    report_document = response["job_completion_report"]
+    thresholds = {
+        "not_requested": (100, 100),
+        "mandatory": (0, 100),
+        "ask_recommendation": (100, 0),
+    }
+    required_min_priority, optional_min_priority = thresholds[decision]
+    policy = {
+        "id": POLICY_ID, "project_id": PROJECT_ID, "work_item_id": WORK_ID,
+        "completion_checkpoint_id": CHECKPOINT_ID,
+        "completion_event_id": report_document["closeout_event_id"],
+        "settings_revision": report_document["prompt_revision"],
+        "required_min_priority": required_min_priority,
+        "optional_min_priority": optional_min_priority,
+        "allow_remediation_code_reviews": False,
+        "priority_at_closeout": work_item["priority"], "remediation_depth": 0,
+        "decision": decision, "created_at": NOW,
+    }
+    request_fields = {}
+    response_fields = {"review_policy_decision": policy}
+    if decision == "mandatory":
+        handoff = review_handoff()
+        parsed_handoff = CodeReviewHandoffInput.model_validate(handoff)
+        request_fields["code_review_handoff"] = handoff
+        response_fields.update({
+            "code_review_handoff": handoff,
+            "code_review_request": {
+                "id": REVIEW_ID, "project_id": PROJECT_ID, "work_item_id": WORK_ID,
+                "completion_checkpoint_id": CHECKPOINT_ID,
+                "completion_event_id": report_document["closeout_event_id"],
+                "policy_decision_id": POLICY_ID, "answer_id": None,
+                "request_reason": "mandatory", "schema_version": 1, "version": 1,
+                "state": "requested", "requesting_client": checkpoint["source_client"],
+                "requesting_session_id": checkpoint["source_session_id"],
+                "requesting_model": checkpoint["source_model"],
+                "scope_sha256": scope_hash(parsed_handoff.scope),
+                "created_event_id": "45", "created_sequence": "45",
+                "result_id": None, "superseded_by_event_id": None, "created_at": NOW,
+            },
+        })
+    elif decision == "ask_recommendation":
+        response_fields["agent_follow_ups"] = [{
+            "id": QUESTION_ID, "project_id": PROJECT_ID, "work_item_id": WORK_ID,
+            "trigger_event_id": report_document["closeout_event_id"],
+            "completion_checkpoint_id": CHECKPOINT_ID,
+            "kind": "code_review_recommendation", "schema_version": 1, "version": 1,
+            "audience": "origin_agent",
+            "question": "Do you recommend an adversarial review?",
+            "allowed_answers": ["yes", "no"],
+            "required_answer_fields": ["recommend_review", "rationale"],
+            "origin_client": checkpoint["source_client"],
+            "origin_session_id": checkpoint["source_session_id"],
+            "origin_model": checkpoint["source_model"],
+            "kind_data": {"policy_decision_id": POLICY_ID},
+            "state": "pending", "answer_id": None, "superseded_by_event_id": None,
+            "created_event_id": "45", "created_sequence": "45", "created_at": NOW,
+        }]
+    return request_fields, response_fields
+
+
 @pytest.mark.parametrize("outcome", ["done", "wont-do", "promoted"])
 async def test_all_closeouts_bind_exact_authored_report(settings, outcome, work_item, checkpoint):
     tool, args, response = closeout_fixture(outcome, work_item, checkpoint)
     calls = []
+
     def handler(request):
         calls.append(json.loads(request.content))
         return httpx.Response(200, json=response)
+
     server = build_server(settings, MnemonicAPI(settings, httpx.MockTransport(handler)))
     result = await server.call_tool(tool, args)
     assert (result[1] if isinstance(result, tuple) else result) == response
     assert calls[0]["job_completion_report"] == REPORT_INPUT
     assert calls[0]["client_operation_id"] == CLIENT_OPERATION_ID
+
+
+@pytest.mark.parametrize("decision", ["not_requested", "mandatory", "ask_recommendation"])
+async def test_complete_work_accepts_nested_review_timestamps(
+    settings, decision, work_item, checkpoint
+):
+    tool, args, response = closeout_fixture("done", work_item, checkpoint)
+    review_args, review_fields = completion_review_fields(decision, response)
+    args.update(review_args)
+    response.update(review_fields)
+
+    result = await call(settings, tool, response, args)
+
+    assert result == response
+
+
+async def test_complete_work_accepts_receipt_replay_after_transport_uncertainty(
+    settings, work_item, checkpoint
+):
+    tool, args, response = closeout_fixture("done", work_item, checkpoint)
+    _, review_fields = completion_review_fields("not_requested", response)
+    response.update(review_fields)
+    receipt_wire = json.dumps(response, separators=(",", ":")).encode()
+    requests = []
+
+    def handler(request):
+        requests.append(request.content)
+        if len(requests) == 1:
+            raise httpx.ReadTimeout("private transport diagnostics", request=request)
+        return httpx.Response(200, content=receipt_wire)
+
+    server = build_server(settings, MnemonicAPI(settings, httpx.MockTransport(handler)))
+    with pytest.raises(ToolError, match=UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME):
+        await server.call_tool(tool, args)
+
+    replay = await server.call_tool(tool, args)
+
+    # Backend receipt persistence and replay are exercised by the PostgreSQL suite.
+    assert (replay[1] if isinstance(replay, tuple) else replay) == response
+    assert len(requests) == 2
+    assert requests[0] == requests[1]
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("review_policy_decision", "code_review_request", "agent_follow_ups", "code_review_handoff"),
+)
+async def test_complete_work_rejects_explicit_null_review_fields(
+    settings, field, work_item, checkpoint
+):
+    tool, args, response = closeout_fixture("done", work_item, checkpoint, include_report=False)
+    response[field] = None
+
+    with pytest.raises(ToolError) as raised:
+        await call(settings, tool, response, args)
+
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME in str(raised.value)
+
+
+@pytest.mark.parametrize("count", [0, 2])
+async def test_complete_work_rejects_review_question_cardinality(
+    settings, count, work_item, checkpoint
+):
+    tool, args, response = closeout_fixture("done", work_item, checkpoint)
+    _, review_fields = completion_review_fields("ask_recommendation", response)
+    response.update(review_fields)
+    question = response["agent_follow_ups"][0]
+    response["agent_follow_ups"] = [copy.deepcopy(question) for _ in range(count)]
+
+    with pytest.raises(ToolError) as raised:
+        await call(settings, tool, response, args)
+
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("decision", "timestamp_field"),
+    [
+        ("not_requested", "review_policy_decision"),
+        ("mandatory", "code_review_request"),
+        ("ask_recommendation", "agent_follow_ups"),
+    ],
+)
+async def test_complete_work_rejects_noncanonical_nested_review_timestamps(
+    settings, decision, timestamp_field, work_item, checkpoint
+):
+    tool, args, response = closeout_fixture("done", work_item, checkpoint)
+    review_args, review_fields = completion_review_fields(decision, response)
+    args.update(review_args)
+    response.update(review_fields)
+    timestamp_owner = response[timestamp_field]
+    if timestamp_field == "agent_follow_ups":
+        timestamp_owner = timestamp_owner[0]
+    timestamp_owner["created_at"] = "2026-08-30T12:00:00+00:00"
+
+    with pytest.raises(ToolError) as raised:
+        await call(settings, tool, response, args)
+
+    assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME in str(raised.value)
 
 
 @pytest.mark.parametrize("outcome", ["done", "wont-do", "promoted"])

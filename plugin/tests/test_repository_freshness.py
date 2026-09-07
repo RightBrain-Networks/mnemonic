@@ -2081,7 +2081,7 @@ class PluginStaticTests(unittest.TestCase):
 
     def test_inventory_manifest_and_links(self) -> None:
         manifest = json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text())
-        self.assertEqual(manifest["version"], "0.17.0")
+        self.assertEqual(manifest["version"], "0.17.1")
         self.assertTrue(HELPER.is_file())
         self.assertTrue(HELPER.stat().st_mode & stat.S_IXUSR)
         self.assertEqual(
@@ -2111,6 +2111,18 @@ class PluginStaticTests(unittest.TestCase):
                 "repository-freshness.md",
             ):
                 self.assertIn(marker, content, skill)
+
+        authority = (PLUGIN_ROOT / "reference" / "authority-and-provenance.md").read_text()
+        reports = (PLUGIN_ROOT / "reference" / "job-completion-reports.md").read_text()
+        save = (PLUGIN_ROOT / "skills" / "mnemonic-save" / "SKILL.md").read_text()
+        for content in (authority, reports, save):
+            self.assertIn("at most one exact retry", content)
+            self.assertIn(
+                "Never generate or substitute a new UUID for the same intent",
+                content,
+            )
+            self.assertIn("safe read", content)
+            self.assertIn("request direction", content)
 
         evidence = (PLUGIN_ROOT / "reference" / "completion-evidence.md").read_text()
         for required in (

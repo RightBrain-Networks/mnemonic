@@ -174,10 +174,13 @@ UNKNOWN_CLAIM_OUTCOME = (
 )
 UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME = (
     "Mnemonic could not confirm this idempotent mutation response; the operation may already "
-    "have committed. Retry the same tool only if you still retain both its client_operation_id "
-    "and the complete exact tool argument object, with every argument unchanged. If either was "
-    "lost, or if any argument would change, do not generate or substitute a new UUID: stop, "
-    "inspect current state where safe, and request direction."
+    "have committed. Make at most one exact retry of the same tool, and only if you still retain "
+    "both its client_operation_id and the complete exact tool argument object, with every argument "
+    "unchanged. If that retry also has an unknown outcome, stop retrying and reconcile current "
+    "state with applicable "
+    "safe reads. Never generate or substitute a new UUID for the same intent, even when safe reads "
+    "do not yet show its effect. If either was lost, if any argument would change, or if "
+    "reconciliation remains ambiguous, stop and request direction."
 )
 _CLIENT_OPERATION_CONFLICT = (
     "Mnemonic rejected this client_operation_id because it is already bound to a different "

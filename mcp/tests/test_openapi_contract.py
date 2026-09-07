@@ -40,6 +40,25 @@ def test_strict_response_models_match_openapi_properties_and_required_sets():
         ), name
 
 
+def test_completion_follow_up_cardinality_uses_array_keywords_on_both_surfaces():
+    document = json.loads(
+        (REPOSITORY_ROOT / "docs" / "openapi.json").read_text(encoding="utf-8")
+    )
+    mcp_schema = response_models.WorkCompletion.model_json_schema()["properties"][
+        "agent_follow_ups"
+    ]
+    rest_schema = document["components"]["schemas"]["WorkCompletionRead"]["properties"][
+        "agent_follow_ups"
+    ]
+
+    for schema in (mcp_schema, rest_schema):
+        assert schema["type"] == "array"
+        assert schema["minItems"] == 1
+        assert schema["maxItems"] == 1
+        assert "minLength" not in schema
+        assert "maxLength" not in schema
+
+
 def test_duplicate_suggestion_request_matches_openapi_shape():
     document = json.loads(
         (REPOSITORY_ROOT / "docs" / "openapi.json").read_text(encoding="utf-8")

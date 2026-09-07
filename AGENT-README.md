@@ -423,7 +423,7 @@ item separately:
 
 ## Current cross-project relationship release boundary
 
-Application/API/MCP/dashboard 0.20.0, plugin 0.17.0 and Alembic
+Application/API/MCP/dashboard 0.20.1, plugin 0.17.1 and Alembic
 `0025_cross_project_relationships` ship together: 38 MCP tools, 13
 receipt-protected MCP writes,
 18 REST receipt kinds, 15 protected browser mutations, 24 event types and three

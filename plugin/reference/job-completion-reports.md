@@ -102,10 +102,15 @@ state, event, report, optional Done evidence, and its permanent receipt.
 Never complete first and try to append a report later: there is no separate
 report-write tool, report edit, or late-report endpoint.
 
-For timeout, disconnect, malformed success, or `client_operation_unavailable`,
-retry only with the same UUID and every argument unchanged. Do not regenerate
-text, reorder bullets, fetch a new revision into the frozen intent, or create
-a replacement UUID while the outcome remains unknown. Follow
+For timeout, disconnect, reset or EOF, malformed success, backend or proxy `5xx`,
+or `client_operation_unavailable`, make at most one exact retry with the same UUID
+and every argument unchanged. If
+that retry returns the same unknown-outcome error, stop retrying and use the
+safe read `recall_work` to inspect the closeout state and event history.
+Never generate or substitute a new UUID for the same intent, even when a read
+does not yet show its effect; request direction if the read remains ambiguous.
+Do not regenerate text,
+reorder bullets, or fetch a new revision into the frozen intent. Follow
 [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md)
 for private intent retention and lost-intent recovery.
 

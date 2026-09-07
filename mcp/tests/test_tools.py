@@ -597,6 +597,13 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
         "a required failed or inconclusive result, or skipped observation, normally means stop"
         in described["complete_work"].lower()
     )
+    for required in (
+        "make at most one exact retry",
+        "if that retry also has an unknown outcome, stop retrying",
+        "use recall_work and list_work_events",
+        "never generate or substitute a new uuid for the same intent",
+    ):
+        assert required in described["complete_work"].lower()
     assert (
         "restart once from the first page" in described["list_human_attention"].lower()
     )
@@ -2875,7 +2882,7 @@ async def test_append_event_validation_and_unknown_outcome_are_value_free(settin
             },
         )
     assert "every argument unchanged" in str(caught.value)
-    assert "do not generate or substitute a new UUID" in str(caught.value)
+    assert "Never generate or substitute a new UUID for the same intent" in str(caught.value)
     assert marker not in str(caught.value)
     assert len(requests) == 1
 
@@ -4089,8 +4096,12 @@ async def test_protected_unknown_outcomes_require_retained_key_and_exact_argumen
 
     message = str(caught.value)
     assert "every argument unchanged" in message
+    assert "Make at most one exact retry" in message
+    assert "If that retry also has an unknown outcome" in message
+    assert "reconcile current state with applicable safe reads" in message
+    assert "Never generate or substitute a new UUID for the same intent" in message
+    assert "even when safe reads do not yet show its effect" in message
     assert "If either was lost" in message
-    assert "do not generate or substitute a new UUID" in message
     assert CLIENT_OPERATION_ID not in message
     assert LEASE_TOKEN not in message
     assert private_marker not in message

@@ -7999,8 +7999,8 @@
             "items": {
               "$ref": "#/components/schemas/WorkFollowUpRead"
             },
-            "maxLength": 1,
-            "minLength": 1,
+            "maxItems": 1,
+            "minItems": 1,
             "title": "Agent Follow Ups",
             "type": "array"
           },
@@ -10458,7 +10458,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.20.0"
+    "version": "0.20.1"
   },
   "openapi": "3.1.0",
   "paths": {
