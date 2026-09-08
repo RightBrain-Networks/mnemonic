@@ -150,7 +150,7 @@ export async function seedMigratedHistoricalCompletion(): Promise<E2EState> {
   const composeProject = requireDisposableE2EComposeProject("Offline historical migration acceptance");
   const count = await queryDatabase(composeProject, "SELECT count(*) FROM projects;");
   if (count !== "0") throw new Error("Historical E2E setup requires a fresh disposable database with no projects.");
-  await runCompose(composeProject, ["stop", "web", "api"]);
+  await runCompose(composeProject, ["stop", "web", "backup", "api"]);
   try {
     await runCompose(composeProject, ["run", "--rm", "--no-deps", "api", "alembic", "downgrade", "0018_repository_freshness"]);
     const output = await runCompose(composeProject, [
@@ -213,6 +213,6 @@ export async function seedMigratedHistoricalCompletion(): Promise<E2EState> {
     const proof = parseMigrationProof(serializedProof);
     return { ...seed, historicalCompletion: { ...seed.historicalCompletion, ...proof } };
   } finally {
-    await runCompose(composeProject, ["up", "-d", "--wait", "api", "web"]);
+    await runCompose(composeProject, ["up", "-d", "--wait", "api", "backup", "web"]);
   }
 }

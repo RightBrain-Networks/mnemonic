@@ -172,6 +172,7 @@ def test_async_staging_deadline_retains_worker_ownership_until_cleanup(
     async def run():
         entered = asyncio.Event()
         loop = asyncio.get_running_loop()
+        deadline_scope = None
 
         def stalled(writer, *args):
             result = original(writer, *args) if operation == "__init__" else None
@@ -191,16 +192,21 @@ def test_async_staging_deadline_retains_worker_ownership_until_cleanup(
                 yield chunk
 
         async def upload():
+            nonlocal deadline_scope
             if deadline in {"asyncio", "repeated"}:
-                async with asyncio.timeout(0.03):
+                async with asyncio.timeout(None) as deadline_scope:
                     await storage.stage_async(uuid4(), uuid4(), "file", chunks())
             else:
-                with fail_after(0.03):
+                with fail_after(None) as deadline_scope:
                     await storage.stage_async(uuid4(), uuid4(), "file", chunks())
 
         task = asyncio.create_task(upload())
         try:
             await asyncio.wait_for(entered.wait(), timeout=1)
+            # Start the real cancellation deadline only once the selected worker
+            # operation owns its descriptors. Thread scheduling and fsync under
+            # parallel test load must not cancel staging before that operation.
+            _arm_staging_deadline(deadline_scope, deadline)
             await asyncio.sleep(0.06)
             if deadline == "repeated":
                 task.cancel()
@@ -221,6 +227,15 @@ def test_async_staging_deadline_retains_worker_ownership_until_cleanup(
     for descriptor in descriptors:
         with pytest.raises(OSError):
             os.fstat(descriptor)
+
+
+def _arm_staging_deadline(scope, deadline):
+    assert scope is not None
+    expires = asyncio.get_running_loop().time() + 0.03
+    if deadline in {"asyncio", "repeated"}:
+        scope.reschedule(expires)
+    else:
+        scope.deadline = expires
 
 
 def test_async_staging_cancels_a_pending_client_read_and_removes_partial_bytes(tmp_path):

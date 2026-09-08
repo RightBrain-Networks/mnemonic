@@ -88,6 +88,9 @@ services:
       MNEMONIC_ARTIFACT_MAX_BYTES: ${MNEMONIC_ARTIFACT_MAX_BYTES:-67108864}
       MNEMONIC_API_URL: http://api:8000
       MNEMONIC_API_KEY: ${MNEMONIC_API_KEY}
+      MNEMONIC_BACKUP_URL: http://backup:8002
+      MNEMONIC_BACKUP_TOKEN: ${MNEMONIC_BACKUP_TOKEN:?Configure the private dashboard backup token in .env}
+      MNEMONIC_BACKUP_MAX_BYTES: ${MNEMONIC_BACKUP_MAX_BYTES:-67108864}
       MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_DASHBOARD_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
     ports:
       - '127.0.0.1:${MNEMONIC_WEB_PORT:-3000}:3000'
@@ -105,45 +108,35 @@ services:
     security_opt: [no-new-privileges:true]
 
   backup:
-    image: postgres:17-alpine
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.backup
     environment:
-      PGHOST: postgres
-      PGPORT: 5432
-      PGDATABASE: mnemonic
-      PGUSER: mnemonic
-      PGPASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_URL: postgresql+psycopg://mnemonic:${POSTGRES_PASSWORD}@postgres:5432/mnemonic
+      MNEMONIC_BACKUP_TOKEN: ${MNEMONIC_BACKUP_TOKEN:?Configure the private dashboard backup token in .env}
+      MNEMONIC_BACKUP_ROOT: /backups
       MNEMONIC_BACKUP_INTERVAL_SECONDS: ${MNEMONIC_BACKUP_INTERVAL_SECONDS:-86400}
+      MNEMONIC_BACKUP_RETENTION_COUNT: ${MNEMONIC_BACKUP_RETENTION_COUNT:-7}
+      MNEMONIC_BACKUP_MAX_BYTES: ${MNEMONIC_BACKUP_MAX_BYTES:-67108864}
+      MNEMONIC_BACKUP_EXPANDED_MAX_BYTES: ${MNEMONIC_BACKUP_EXPANDED_MAX_BYTES:-268435456}
     volumes:
-      - ${MNEMONIC_BACKUP_DIR:-./backups}:/backups
-      - ./scripts/database:/opt/mnemonic:ro
-    entrypoint: [sh, /opt/mnemonic/backup.sh]
+      - type: bind
+        source: ${MNEMONIC_BACKUP_DIR:-./backups}
+        target: /backups
+        bind:
+          create_host_path: false
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: [CMD, sh, /opt/mnemonic/backup.sh, health]
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8002/healthz", timeout=3)']
       interval: 60s
       timeout: 5s
       retries: 3
       start_period: 60s
     init: true
     restart: unless-stopped
-
-  restore:
-    profiles: [maintenance]
-    image: postgres:17-alpine
-    environment:
-      PGHOST: postgres
-      PGPORT: 5432
-      PGDATABASE: mnemonic
-      PGUSER: mnemonic
-      PGPASSWORD: ${POSTGRES_PASSWORD}
-      MNEMONIC_RESTORE_FILE: ${MNEMONIC_RESTORE_FILE:-}
-      MNEMONIC_CONFIRM_RESTORE: ${MNEMONIC_CONFIRM_RESTORE:-}
-    volumes:
-      - ${MNEMONIC_BACKUP_DIR:-./backups}:/backups:ro
-      - ./scripts/database:/opt/mnemonic:ro
-    entrypoint: [sh, /opt/mnemonic/restore.sh]
+    security_opt: [no-new-privileges:true]
 
 volumes:
   mnemonic_data:

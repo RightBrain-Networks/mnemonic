@@ -47,26 +47,44 @@ export MNEMONIC_NGINX_E2E_URL="http://127.0.0.1:$MNEMONIC_NGINX_E2E_PORT"
 export MNEMONIC_DASHBOARD_ORIGINS="$MNEMONIC_NGINX_E2E_URL"
 export MNEMONIC_E2E_API_KEY
 MNEMONIC_E2E_API_KEY=$(openssl rand -hex 32)
+export MNEMONIC_E2E_BACKUP_TOKEN
+MNEMONIC_E2E_BACKUP_TOKEN=$(openssl rand -hex 32)
 
 test_tmp=$(mktemp -d)
 MNEMONIC_E2E_ARTIFACT_DIR=$(mktemp -d /tmp/mnemonic-nginx-e2e-artifacts.XXXXXXXX)
-export MNEMONIC_E2E_ARTIFACT_DIR
-docker run --rm --user 0 --mount "type=bind,source=$MNEMONIC_E2E_ARTIFACT_DIR,target=/artifacts" \
-  postgres:17-alpine chown 10001:10001 /artifacts
+MNEMONIC_E2E_BACKUP_DIR=$(mktemp -d /tmp/mnemonic-nginx-e2e-backups.XXXXXXXX)
+export MNEMONIC_E2E_ARTIFACT_DIR MNEMONIC_E2E_BACKUP_DIR
+
+clean_disposable_directory() {
+  local directory="$1"
+  if [[ ! "$directory" =~ ^/tmp/mnemonic-nginx-e2e-(artifacts|backups)\.[[:alnum:]]{8}$ ]] \
+    || [[ ! -d "$directory" || -L "$directory" ]]; then
+    echo "Refusing to clean an unexpected nginx E2E storage directory." >&2
+    return 2
+  fi
+  docker run --rm --user 0 --mount "type=bind,source=$directory,target=/storage" \
+    postgres:17-alpine sh -c 'find /storage -mindepth 1 -delete; chown "$1:$2" /storage' \
+    sh "$(id -u)" "$(id -g)" >/dev/null 2>&1 || true
+  rmdir -- "$directory" || true
+}
+
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
   docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$base_compose" -f "$nginx_compose" \
     down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
   rm -rf -- "$test_tmp"
-  docker run --rm --user 0 --mount "type=bind,source=$MNEMONIC_E2E_ARTIFACT_DIR,target=/artifacts" \
-    postgres:17-alpine sh -c 'find /artifacts -mindepth 1 -delete; chown "$1:$2" /artifacts' \
-    sh "$(id -u)" "$(id -g)" >/dev/null 2>&1 || true
-  rmdir -- "$MNEMONIC_E2E_ARTIFACT_DIR" || true
+  clean_disposable_directory "$MNEMONIC_E2E_ARTIFACT_DIR" || true
+  clean_disposable_directory "$MNEMONIC_E2E_BACKUP_DIR" || true
   exit "$status"
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
+
+docker run --rm --user 0 \
+  --mount "type=bind,source=$MNEMONIC_E2E_ARTIFACT_DIR,target=/artifacts" \
+  --mount "type=bind,source=$MNEMONIC_E2E_BACKUP_DIR,target=/backups" \
+  postgres:17-alpine chown 10001:10001 /artifacts /backups
 
 docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$base_compose" -f "$nginx_compose" \
   run --rm --no-deps nginx-stock-policy-check
