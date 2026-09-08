@@ -1,5 +1,6 @@
 """Independent, bounded artifact wire contracts; file content is always untrusted."""
 
+import json
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -42,6 +43,22 @@ class ArtifactToolStatus(ArtifactLibraryStatus):
     effective_upload_max_bytes: int
 
 
+class ArtifactExtraction(ArtifactModel):
+    status: Literal["pending", "processing", "ready", "failed", "superseded", "deleted"] = "pending"
+    metadata: dict[Annotated[str, Field(min_length=1, max_length=128)],
+                   Annotated[list[Annotated[str, Field(max_length=512)]],
+                             Field(max_length=8)]] = Field(default_factory=dict)
+    truncated: StrictBool = False
+    error_code: Annotated[str, Field(max_length=100)] | None = None
+    extracted_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def bounded_metadata(self) -> ArtifactExtraction:
+        if len(self.metadata) > 64 or len(json.dumps(self.metadata, ensure_ascii=True)) > 8192:
+            raise ValueError("Oversized extracted artifact metadata")
+        return self
+
+
 class ArtifactRead(ArtifactModel):
     id: UUID
     project_id: UUID
@@ -59,6 +76,7 @@ class ArtifactRead(ArtifactModel):
     modified_at: datetime
     deleted_at: datetime | None
     content_available: StrictBool
+    extraction: ArtifactExtraction = Field(default_factory=ArtifactExtraction)
 
 
 class ArtifactRevisionRead(ArtifactModel):
@@ -73,6 +91,7 @@ class ArtifactRevisionRead(ArtifactModel):
     actor_client: ArtifactClient | None
     related_work_item_ids: ArtifactStoredLinks
     created_at: datetime
+    extraction: ArtifactExtraction = Field(default_factory=ArtifactExtraction)
 
 
 class ArtifactAuditRead(ArtifactModel):
@@ -104,9 +123,33 @@ class ArtifactDownload(ArtifactModel):
     content_base64: ArtifactContent
 
 
+class ArtifactSearchMatch(ArtifactModel):
+    artifact: ArtifactRead
+    score: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
+    snippet: Annotated[str, Field(max_length=1000)] | None
+    matched_fields: Annotated[list[Literal["metadata", "content"]], Field(min_length=1, max_length=2)]
+
+    @model_validator(mode="after")
+    def unique_fields(self) -> ArtifactSearchMatch:
+        if len(set(self.matched_fields)) != len(self.matched_fields):
+            raise ValueError("Duplicate artifact match fields")
+        return self
+
+
+class ArtifactIndexingStatus(ArtifactModel):
+    pending: Annotated[StrictInt, Field(ge=0)]
+    failed: Annotated[StrictInt, Field(ge=0)]
+    ready: Annotated[StrictInt, Field(ge=0)]
+    truncated: Annotated[StrictInt, Field(ge=0)]
+
+
 class ArtifactContentSearch(ArtifactModel):
-    status: Literal["unimplemented"] = "unimplemented"
-    message: str = "Artifact content search is unimplemented. Use list_artifacts for metadata search."
+    items: Annotated[list[ArtifactSearchMatch], Field(max_length=100)]
+    total: Annotated[StrictInt, Field(ge=0)]
+    limit: ArtifactLimit
+    offset: ArtifactOffset
+    fulltext: StrictBool
+    indexing: ArtifactIndexingStatus
 
 
 class ArtifactToolRead(ArtifactRead):

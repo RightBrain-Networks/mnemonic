@@ -1884,6 +1884,61 @@ class ArtifactRevision(Base):
     )
 
 
+class ArtifactExtraction(Base):
+    """Durable extraction jobs and revision metadata; text exists only for current bytes."""
+
+    __tablename__ = "artifact_extractions"
+    __table_args__ = (
+        PrimaryKeyConstraint("artifact_id", "revision", name="artifact_extractions_pkey"),
+        ForeignKeyConstraint(
+            ["artifact_id", "revision"],
+            ["artifact_revisions.artifact_id", "artifact_revisions.revision"],
+            name="artifact_extractions_revision_fkey", ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'ready', 'failed', 'superseded', 'deleted')",
+            name=conv("artifact_extractions_status_check"),
+        ),
+        CheckConstraint("attempts >= 0", name=conv("artifact_extractions_attempts_check")),
+        CheckConstraint(
+            "jsonb_typeof(extracted_metadata) = 'object' "
+            "AND octet_length(extracted_metadata::text) <= 16384",
+            name=conv("artifact_extractions_metadata_check"),
+        ),
+        CheckConstraint(
+            "normalized_text IS NULL OR "
+            "(status = 'ready' AND char_length(normalized_text) <= 8000000)",
+            name=conv("artifact_extractions_text_check"),
+        ),
+        CheckConstraint(
+            "(status = 'processing' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL) "
+            "OR (status <> 'processing' AND lease_token IS NULL AND lease_expires_at IS NULL)",
+            name=conv("artifact_extractions_lease_check"),
+        ),
+        Index("ix_artifact_extractions_due", "status", "next_attempt_at"),
+    )
+
+    artifact_id: Mapped[UUID] = mapped_column(primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, primary_key=True)
+    status: Mapped[str] = mapped_column(String(20), server_default="pending")
+    normalized_text: Mapped[str | None] = mapped_column(Text, deferred=True)
+    extracted_metadata: Mapped[dict[str, list[str]]] = mapped_column(
+        JSONB, server_default=text("'{}'::jsonb")
+    )
+    truncated: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
+    extracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
+    lease_token: Mapped[UUID | None]
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ArtifactAudit(Base):
     __tablename__ = "artifact_audit"
     __table_args__ = (

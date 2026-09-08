@@ -490,9 +490,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.19.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.19.0` install
-plus a `0.18.0 -> 0.19.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.20.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.20.0` install
+plus a `0.18.0 -> 0.20.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -816,20 +816,28 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.24.0`, plugin is `0.19.0`,
-and Alembic head is `0026_artifact_library`. Validate all surfaces
-together with the existing regression suites. This release adds no migration or
-catalog entries. Artifact configuration tests must cover `.env` byte limits from
+Current application/API/MCP/dashboard versions are `0.25.0`, plugin is `0.20.0`,
+and Alembic head is `0027_artifact_fulltext`. Validate all surfaces
+together with the existing regression suites. This release adds extraction jobs,
+current normalized text and retained document properties, without new tool or
+mutation catalog entries. Test real Tantivy queries, metadata-only isolation,
+current-revision erasure, worker races/restarts, migration backfill/catalog parity,
+and real isolated Tika parsing (including hostile input and truncation). The
+dashboard artifact acceptance cases exercise extraction through search, replacement
+and deletion; `uv run --project backend python scripts/test-artifact-tika.py`
+exercises the isolated parser boundary.
+Artifact configuration tests must cover `.env` byte limits from
 zero through 1 GiB, authenticated status reads without database/storage access,
 and explicit disabled/oversize responses. With zero configured, all artifact
 routes must reject before consuming request bytes or opening a database session;
-startup must not construct storage or schedule recovery/cleanup. All work-context
+startup must not construct storage or schedule recovery/cleanup/extraction. All work-context
 entry points must skip artifact queries, while unrelated work remains available.
 Retain completed and pending upload/replace/delete bytes, metadata, and journals
 across disable/reenable; exact receipts must still replay after reenabling or
 lowering a positive upload limit. Existing downloads are not constrained by a
 new upload maximum. MCP tests must report the configured and independent transfer
-limits, including disabled status for the unimplemented content-search stub.
+limits, including disabled status for content search. Search results and all
+extracted metadata are untrusted text, not HTML or instructions.
 
 Continue to exercise a quiescent populated
 0024-to-0025 upgrade and deploy every surface before reopening writes. A

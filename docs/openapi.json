@@ -112,6 +112,64 @@
         "title": "ArtifactAuditRead",
         "type": "object"
       },
+      "ArtifactExtractionRead": {
+        "additionalProperties": false,
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "extracted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extracted At"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Metadata",
+            "type": "object"
+          },
+          "status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "processing",
+              "ready",
+              "failed",
+              "superseded",
+              "deleted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "title": "ArtifactExtractionRead",
+        "type": "object"
+      },
       "ArtifactHistory": {
         "additionalProperties": false,
         "properties": {
@@ -127,6 +185,37 @@
           "audit"
         ],
         "title": "ArtifactHistory",
+        "type": "object"
+      },
+      "ArtifactIndexingStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "failed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "pending": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "ready": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Ready",
+            "type": "integer"
+          },
+          "truncated": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Truncated",
+            "type": "integer"
+          }
+        },
+        "title": "ArtifactIndexingStatus",
         "type": "object"
       },
       "ArtifactLibraryStatus": {
@@ -300,6 +389,9 @@
           "description": {
             "title": "Description",
             "type": "string"
+          },
+          "extraction": {
+            "$ref": "#/components/schemas/ArtifactExtractionRead"
           },
           "filename": {
             "title": "Filename",
@@ -713,6 +805,9 @@
             "title": "Description",
             "type": "string"
           },
+          "extraction": {
+            "$ref": "#/components/schemas/ArtifactExtractionRead"
+          },
           "filename": {
             "title": "Filename",
             "type": "string"
@@ -762,6 +857,94 @@
           "created_at"
         ],
         "title": "ArtifactRevisionRead",
+        "type": "object"
+      },
+      "ArtifactSearchMatch": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "$ref": "#/components/schemas/ArtifactRead"
+          },
+          "matched_fields": {
+            "items": {
+              "enum": [
+                "metadata",
+                "content"
+              ],
+              "type": "string"
+            },
+            "title": "Matched Fields",
+            "type": "array"
+          },
+          "score": {
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "snippet": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snippet"
+          }
+        },
+        "required": [
+          "artifact",
+          "score",
+          "matched_fields"
+        ],
+        "title": "ArtifactSearchMatch",
+        "type": "object"
+      },
+      "ArtifactSearchPage": {
+        "additionalProperties": false,
+        "properties": {
+          "fulltext": {
+            "title": "Fulltext",
+            "type": "boolean"
+          },
+          "indexing": {
+            "$ref": "#/components/schemas/ArtifactIndexingStatus"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactSearchMatch"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "fulltext",
+          "indexing"
+        ],
+        "title": "ArtifactSearchPage",
         "type": "object"
       },
       "CanonicalWorkProjection": {
@@ -10924,7 +11107,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.24.0"
+    "version": "0.25.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -11476,11 +11659,85 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "artifact_id": {
+                    "anyOf": [
+                      {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Artifact Id"
+                  },
+                  "fulltext": {
+                    "default": false,
+                    "title": "Fulltext",
+                    "type": "boolean"
+                  },
+                  "include_deleted": {
+                    "default": false,
+                    "title": "Include Deleted",
+                    "type": "boolean"
+                  },
+                  "limit": {
+                    "default": 50,
+                    "maximum": 100,
+                    "minimum": 1,
+                    "title": "Limit",
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "maximum": 1000000,
+                    "minimum": 0,
+                    "title": "Offset",
+                    "type": "integer"
+                  },
+                  "q": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "title": "Q",
+                    "type": "string"
+                  },
+                  "work_item_id": {
+                    "anyOf": [
+                      {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Work Item Id"
+                  }
+                },
+                "required": [
+                  "q"
+                ],
+                "title": "ArtifactSearchRequest",
+                "type": "object"
+              }
+            }
+          },
+          "description": "Bounded JSON (4096 bytes). Literal case/accent-insensitive terms, all required. Metadata only by default; fulltext=true also searches extracted current content. No wildcards, operators, parser configuration or operation UUID.",
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactSearchPage"
+                }
               }
             },
             "description": "Successful Response"
@@ -11501,7 +11758,8 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Search Contents"
+        "summary": "Search Contents",
+        "x-mnemonic-effect": "safe_read"
       }
     },
     "/api/v1/projects/{project_id}/artifacts/{artifact_id}": {

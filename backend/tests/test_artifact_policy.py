@@ -66,6 +66,8 @@ def test_disabled_routes_never_open_storage_database_or_consume_content(tmp_path
 
     monkeypatch.setattr(application, "ArtifactStorage", forbidden)
     monkeypatch.setattr(application, "artifact_maintenance_loop", forbidden)
+    monkeypatch.setattr(application, "artifact_extraction_loop", forbidden)
+    monkeypatch.setattr(application, "TikaExtractor", forbidden)
     root = tmp_path / "nonexistent-artifacts"
     app = application.create_app(settings(artifact_root=root, artifact_max_bytes=0))
     app.state.session_factory = forbidden

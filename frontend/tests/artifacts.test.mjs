@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { artifactQueryKeys, artifactMaximumBytes, boundedArtifactStream, proxyArtifact, safeArtifactDisposition } from "../lib/artifact-proxy.ts";
 import { artifactMetadataHeader, dispatchArtifactMutation } from "../lib/artifact-mutations.ts";
-import { ARTIFACT_DISABLED_MESSAGE, artifactLibraryPath, artifactLocation, decodeArtifact, decodeArtifactLimitError, decodeArtifactPage, decodeArtifactStatus, fetchArtifactStatus } from "../lib/artifacts.ts";
+import { ARTIFACT_DISABLED_MESSAGE, artifactLibraryPath, artifactLocation, decodeArtifact, decodeArtifactLimitError, decodeArtifactPage, decodeArtifactSearchPage, decodeArtifactStatus, fetchArtifactStatus, validArtifactSearchRequest } from "../lib/artifacts.ts";
 
 const project = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const artifact = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
@@ -21,7 +21,7 @@ test("artifact proxy exposes only project-scoped operations and keeps provenance
   assert.deepEqual(artifactQueryKeys(`${path}/content`, "PUT"), []);
   assert.deepEqual(artifactQueryKeys(path, "DELETE"), []);
   assert.equal(artifactQueryKeys(`${root}/../../settings`, "GET"), null);
-  assert.equal(artifactQueryKeys(`${root}/search-content`, "POST"), null);
+  assert.deepEqual(artifactQueryKeys(`${root}/search-content`, "POST"), []);
   assert.equal(artifactQueryKeys(`artifacts/${artifact}`, "GET"), null);
   assert.equal(artifactMaximumBytes(), 64 * 1024 * 1024);
   assert.equal(artifactMaximumBytes("0"), 0);
@@ -94,6 +94,91 @@ test("artifact reads reject foreign project records, unbounded pages, and malfor
   assert.throws(() => decodeArtifact(metadata, artifact));
   assert.throws(() => decodeArtifact({ ...metadata, related_work_item_ids: ["bad"] }, project));
   assert.throws(() => decodeArtifactPage({ items: [metadata], total: 1, offset: 0, limit: 101 }, project));
+});
+
+function searchRequest(body, headers = {}) {
+  return new Request(`http://localhost:3000/api/artifacts/${root}/search-content`, { method: "POST", headers: { host: "localhost:3000", origin: "http://localhost:3000", "content-type": "application/json", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) });
+}
+
+test("artifact search POST is a bounded safe read with strict controls and no operation UUID", async () => {
+  const body = { q: "report", fulltext: true, work_item_id: operation, artifact_id: artifact, include_deleted: false, limit: 50, offset: 0 };
+  const response = await proxyArtifact(searchRequest(body), [...root.split("/"), "search-content"], environment, async (target, init) => {
+    assert.equal(new URL(target).pathname, `/api/v1/${root}/search-content`);
+    assert.equal(new URL(target).search, "");
+    assert.equal(init.headers.get("X-Client-Operation-ID"), null);
+    assert.equal(init.headers.get("X-Artifact-Metadata"), null);
+    assert.equal(init.headers.get("Content-Type"), "application/json");
+    assert.equal(init.headers.get("Accept-Encoding"), "identity");
+    assert.deepEqual(JSON.parse(init.body), body);
+    return Response.json({ items: [] }, { headers: { "X-Client-Operation-ID": operation } });
+  });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("cache-control"), /no-store/);
+  assert.equal(response.headers.get("X-Client-Operation-ID"), null);
+  let calls = 0;
+  for (const [input, status] of [
+    [searchRequest(body, { origin: "https://attacker.example" }), 403],
+    [searchRequest(body, { "X-Client-Operation-ID": operation }), 400],
+    [searchRequest(body, { "X-Artifact-Metadata": "{}" }), 400],
+    [searchRequest(body, { "X-Artifact-Expected-Revision": "1" }), 400],
+    [searchRequest(body, { "content-encoding": "gzip" }), 415],
+    [searchRequest(body, { "content-type": "text/plain" }), 415],
+    [searchRequest(body, { "content-length": "4097" }), 400],
+    [searchRequest({ q: "x".repeat(4097) }), 400],
+    [searchRequest({ ...body, client_operation_id: operation }), 400],
+    [searchRequest({ ...body, fulltext: "false" }), 400],
+    [searchRequest({ ...body, limit: 101 }), 400],
+    [searchRequest({ ...body, offset: -1 }), 400],
+    [searchRequest({ ...body, q: " " }), 400],
+    [searchRequest("{"), 400]
+  ]) assert.equal((await proxyArtifact(input, [...root.split("/"), "search-content"], environment, async () => { calls++; return Response.json({}); })).status, status);
+  assert.equal(calls, 0);
+  assert.equal(validArtifactSearchRequest({ q: "report" }), true);
+  assert.equal(validArtifactSearchRequest({ q: "report", artifact_id: "invalid" }), false);
+});
+
+test("artifact search validates scope, pagination, fields, counts and untrusted plain snippets", () => {
+  const match = { artifact: metadata, score: 1.5, snippet: "<script>untrusted text</script>", matched_fields: ["content"] };
+  const result = { items: [match], total: 1, limit: 50, offset: 0, fulltext: true, indexing: { ready: 1, pending: 0, failed: 0, truncated: 0 } };
+  assert.equal(decodeArtifactSearchPage(result, project, true).items[0].snippet, match.snippet);
+  for (const invalid of [
+    { ...result, fulltext: false }, { ...result, offset: 1 }, { ...result, total: 2 },
+    { ...result, items: [match, match], total: 2 },
+    { ...result, indexing: { ...result.indexing, pending: true } },
+    { ...result, items: [{ ...match, score: Infinity }] },
+    { ...result, items: [{ ...match, score: -1 }] },
+    { ...result, items: [{ ...match, snippet: "x".repeat(1001) }] },
+    { ...result, items: [{ ...match, artifact: { ...metadata, project_id: operation } }] },
+    { ...result, items: [{ ...match, artifact: { ...metadata, deleted_at: metadata.created_at } }] },
+    { ...result, items: [{ ...match, matched_fields: ["content", "content"] }] }
+  ]) assert.throws(() => decodeArtifactSearchPage(invalid, project, true));
+  assert.throws(() => decodeArtifactSearchPage({ ...result, fulltext: false }, project, false));
+  const safe = { ...result, fulltext: false, items: [{ ...match, snippet: null, matched_fields: ["metadata"] }] };
+  assert.equal(decodeArtifactSearchPage(safe, project, false).items[0].snippet, null);
+});
+
+test("artifact extraction metadata is independently bounded and extends current metadata", () => {
+  const extraction = { status: "ready", metadata: { title: ["A private document"], author: ["<b>Author</b>"] }, truncated: false, error_code: null, extracted_at: metadata.created_at };
+  assert.deepEqual(decodeArtifact({ ...metadata, extraction }, project).extraction, extraction);
+  assert.equal(decodeArtifact(metadata, project).extraction.status, "pending");
+  for (const invalid of [
+    { ...extraction, status: "unknown" }, { ...extraction, truncated: "false" },
+    { ...extraction, extracted_at: "invalid" }, { ...extraction, metadata: { title: ["x".repeat(513)] } },
+    { ...extraction, metadata: { title: Array(9).fill("title") } },
+    { ...extraction, metadata: Object.fromEntries(Array.from({ length: 65 }, (_, index) => [`key${index}`, []])) },
+    { ...extraction, metadata: { a: Array(8).fill("界".repeat(512)) } },
+    { ...extraction, metadata: { title: "not an array" } }
+  ]) assert.throws(() => decodeArtifact({ ...metadata, extraction: invalid }, project));
+});
+
+test("artifact history reserves a bounded envelope for both metadata pages", async () => {
+  const route = `${path}/history`;
+  const payload = { revisions: { metadata: "x".repeat(4 * 1024 * 1024) }, audit: {} };
+  const response = await proxyArtifact(request(route), route.split("/"), environment, async () => Response.json(payload));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).revisions.metadata.length, 4 * 1024 * 1024);
+  const rejected = await proxyArtifact(request(route), route.split("/"), environment, async () => Response.json({}, { headers: { "content-length": String(6 * 1024 * 1024 + 1) } }));
+  assert.equal(rejected.status, 502);
 });
 
 test("lost artifact responses retry identical bytes and UUIDs, and mismatched receipts remain unresolved", async () => {
@@ -216,7 +301,7 @@ test("status remains reachable with local zero and exposes only validated effect
 test("local zero disables every artifact data operation before upstream or body consumption", async () => {
   let calls = 0;
   let reads = 0;
-  for (const [route, method] of [[root, "GET"], [path, "GET"], [`${path}/content`, "GET"], [`${path}/history`, "GET"], [root, "POST"], [`${path}/content`, "PUT"], [path, "DELETE"]]) {
+  for (const [route, method] of [[root, "GET"], [path, "GET"], [`${path}/content`, "GET"], [`${path}/history`, "GET"], [`${root}/search-content`, "POST"], [root, "POST"], [`${path}/content`, "PUT"], [path, "DELETE"]]) {
     const body = method === "POST" || method === "PUT" ? new ReadableStream({ pull(controller) { reads++; controller.enqueue(new Uint8Array([1])); } }, { highWaterMark: 0 }) : undefined;
     const response = await proxyArtifact(request(route, method, {}, body), route.split("/"), { ...environment, MNEMONIC_ARTIFACT_MAX_BYTES: "0" }, async () => { calls++; throw new Error("Disabled operation was forwarded"); });
     assert.equal(response.status, 503);

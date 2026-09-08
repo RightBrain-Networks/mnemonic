@@ -1,4 +1,4 @@
-import { ARTIFACT_DEFAULT_MAX_BYTES, ARTIFACT_DISABLED_MESSAGE, decodeArtifactStatus, formatArtifactSize } from "./artifacts.ts";
+import { ARTIFACT_DEFAULT_MAX_BYTES, ARTIFACT_DISABLED_MESSAGE, decodeArtifactStatus, formatArtifactSize, validArtifactSearchRequest } from "./artifacts.ts";
 import { readBoundedBytes } from "./bounded-json.ts";
 import { configuredOrigins, forbiddenControlTransport, trustedRequest } from "./proxy-policy.ts";
 import { UUID_PATTERN, validUuid } from "./wire-guards.ts";
@@ -8,6 +8,7 @@ const COLLECTION = new RegExp(`^projects/${UUID}/artifacts$`);
 const ITEM = new RegExp(`^projects/${UUID}/artifacts/${UUID}$`);
 const CONTENT = new RegExp(`^projects/${UUID}/artifacts/${UUID}/content$`);
 const HISTORY = new RegExp(`^projects/${UUID}/artifacts/${UUID}/history$`);
+const SEARCH = new RegExp(`^projects/${UUID}/artifacts/search-content$`);
 const SECURITY_HEADERS = {
   "Cache-Control": "no-store, max-age=0, no-transform",
   "X-Content-Type-Options": "nosniff",
@@ -17,6 +18,7 @@ const SECURITY_HEADERS = {
 
 export function artifactQueryKeys(path: string, method: string): readonly string[] | null {
   if (path === "status" && method === "GET") return [];
+  if (SEARCH.test(path) && method === "POST") return [];
   if (COLLECTION.test(path)) {
     if (method === "GET") return ["q", "sort", "order", "limit", "offset", "include_deleted", "work_item_id"];
     if (method === "POST") return [];
@@ -98,7 +100,9 @@ export async function proxyArtifact(request: Request, path: string[], environmen
     if (!keys.includes(field) || query.getAll(field).length !== 1) return fail(400, "The artifact query contains an unsupported or repeated field.");
   }
   if (maximum === 0 && route !== "status") return limitFailure(0);
-  const mutation = request.method !== "GET";
+  const search = SEARCH.test(route) && request.method === "POST";
+  const mutation = request.method !== "GET" && !search;
+  if (search && (request.headers.has("X-Artifact-Metadata") || request.headers.has("X-Artifact-Expected-Revision"))) return fail(400, "Artifact search does not accept mutation headers.");
   const metadata = request.headers.get("X-Artifact-Metadata");
   if (mutation && metadata && (metadata.length > 16384 || /[^\x20-\x7e]/.test(metadata))) return fail(400, "Artifact metadata must be bounded ASCII JSON.");
   let parsedMetadata: Record<string, unknown> = {};
@@ -126,7 +130,7 @@ export async function proxyArtifact(request: Request, path: string[], environmen
     base = new URL(environment.MNEMONIC_API_URL ?? "http://api:8000");
     if (!["http:", "https:"].includes(base.protocol) || base.username || base.password || base.pathname !== "/" || base.search || base.hash) throw new Error();
   } catch { return fail(503, "Mnemonic's API address is not configured correctly."); }
-  const upload = request.method === "POST" || request.method === "PUT";
+  const upload = mutation && (request.method === "POST" || request.method === "PUT");
   // The API checks permanent receipts before its current positive upload limit.
   // A fixed transport ceiling permits an exact retry after that limit decreases.
   const transportMaximum = 1024 * 1024 * 1024;
@@ -135,6 +139,17 @@ export async function proxyArtifact(request: Request, path: string[], environmen
   if (upload && (typeof parsedMetadata.filename !== "string" || !parsedMetadata.filename)) return fail(400, "An artifact filename is required.");
   const encoding = request.headers.get("content-encoding");
   if (encoding && encoding.toLowerCase() !== "identity") return fail(415, "Encoded artifact request bodies are not supported.");
+  let searchBody: string | undefined;
+  if (search) {
+    if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") return fail(415, "Send artifact search as application/json.");
+    if (!request.body) return fail(400, "An artifact search request is required.");
+    try {
+      const bytes = await readBoundedBytes(new Response(request.body, { headers: request.headers }), 4096);
+      const body: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+      if (!validArtifactSearchRequest(body)) return fail(400, "The artifact search does not match the dashboard allowlist.");
+      searchBody = JSON.stringify(body);
+    } catch { return fail(400, "Artifact search must be valid JSON within 4096 bytes."); }
+  }
   try {
     const target = new URL(`/api/v1/${route === "status" ? "artifacts/status" : route}`, base);
     target.search = query.toString();
@@ -143,11 +158,13 @@ export async function proxyArtifact(request: Request, path: string[], environmen
     if (mutation && metadata) headers.set("X-Artifact-Metadata", metadata);
     if (revision && mutation) headers.set("X-Artifact-Expected-Revision", revision);
     if (upload) headers.set("Content-Type", "application/octet-stream");
+    if (search) headers.set("Content-Type", "application/json");
     const init: RequestInit & { duplex?: "half" } = {
       method: request.method, headers, cache: "no-store", redirect: "manual",
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(300000)])
     };
     if (upload && request.body) { init.body = boundedArtifactStream(request.body, transportMaximum); init.duplex = "half"; }
+    if (search) init.body = searchBody;
     const upstream = await fetcher(target, init);
     if (upstream.status >= 300 && upstream.status < 400) { await upstream.body?.cancel(); return fail(502, "Mnemonic's API returned an unexpected redirect."); }
     const contentEncoding = upstream.headers.get("content-encoding");
@@ -173,11 +190,12 @@ export async function proxyArtifact(request: Request, path: string[], environmen
       });
     }
     if (!upstream.headers.get("content-type")?.includes("application/json")) { await upstream.body?.cancel(); return fail(502, "Mnemonic's API returned an unexpected response."); }
-    const bytes = await readBoundedBytes(upstream, mutation ? 1024 * 1024 : 4 * 1024 * 1024);
+    const responseMaximum = mutation ? 1024 * 1024 : HISTORY.test(route) ? 6 * 1024 * 1024 : 4 * 1024 * 1024;
+    const bytes = await readBoundedBytes(upstream, responseMaximum);
     JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
     const responseHeaders = new Headers({ ...SECURITY_HEADERS, "Content-Type": "application/json" });
     const echoed = upstream.headers.get("X-Client-Operation-ID");
     if (mutation && echoed === operationId) responseHeaders.set("X-Client-Operation-ID", echoed!);
     return new Response(bytes, { status: upstream.status, headers: responseHeaders });
-  } catch { return fail(502, "The artifact request could not be completed. Retry the same pending action if its outcome is unknown."); }
+  } catch { return fail(502, search ? "Artifact search could not be completed. Try the search again." : "The artifact request could not be completed. Retry the same pending action if its outcome is unknown."); }
 }

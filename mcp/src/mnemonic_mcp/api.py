@@ -205,6 +205,7 @@ _SAFE_READ_FAILURE = (
     "Check service health and try again."
 )
 _EXTENDED_READ_TIMEOUT_SECONDS = 60.0
+_BOUNDED_SAFE_READ_RESPONSE_MAX_BYTES = 6 * 1024 * 1024
 
 
 class BoundedIdentityResponseViolation(ValueError):
@@ -686,10 +687,10 @@ class MnemonicAPI:
         if strict_wire_response and effect != TransportEffect.SAFE_READ:
             raise ValueError("Explicit strict wire validation requires a safe-read effect.")
         if bounded_identity_response and (
-            effect != TransportEffect.SAFE_READ or method != "GET"
+            effect != TransportEffect.SAFE_READ or method not in {"GET", "POST"}
         ):
-            raise ValueError("Bounded identity responses require an explicit safe GET.")
-        if not 1 <= response_max_bytes <= COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES:
+            raise ValueError("Bounded identity responses require an explicit safe GET or POST.")
+        if not 1 <= response_max_bytes <= _BOUNDED_SAFE_READ_RESPONSE_MAX_BYTES:
             raise ValueError("Invalid bounded response byte limit.")
         try:
             async with httpx.AsyncClient(

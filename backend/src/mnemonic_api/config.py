@@ -23,6 +23,26 @@ class Settings(BaseSettings):
         le=1_073_741_824,
         validation_alias=AliasChoices("MNEMONIC_ARTIFACT_MAX_BYTES", "artifact_max_bytes"),
     )
+    artifact_tika_url: str = Field(
+        default="http://tika:9998",
+        validation_alias=AliasChoices("MNEMONIC_ARTIFACT_TIKA_URL", "artifact_tika_url"),
+    )
+    artifact_extraction_timeout_seconds: int = Field(
+        default=60,
+        ge=5,
+        le=300,
+        validation_alias=AliasChoices(
+            "MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS", "artifact_extraction_timeout_seconds"
+        ),
+    )
+    artifact_extraction_max_chars: int = Field(
+        default=2_000_000,
+        ge=1,
+        le=8_000_000,
+        validation_alias=AliasChoices(
+            "MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS", "artifact_extraction_max_chars"
+        ),
+    )
     dashboard_origins: str = Field(
         default="http://localhost:3000,http://127.0.0.1:3000",
         validation_alias=AliasChoices("MNEMONIC_DASHBOARD_ORIGINS", "dashboard_origins"),
@@ -149,6 +169,32 @@ class Settings(BaseSettings):
             raise ValueError("DATABASE_URL must use the psycopg driver")
         url = url.set(drivername="postgresql+psycopg")
         return SecretStr(url.render_as_string(hide_password=False))
+
+    @field_validator("artifact_tika_url")
+    @classmethod
+    def tika_origin_only(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("MNEMONIC_ARTIFACT_TIKA_URL must be an HTTP origin") from exc
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or any(char.isspace() for char in value)
+        ):
+            raise ValueError(
+                "MNEMONIC_ARTIFACT_TIKA_URL must be an HTTP origin without credentials"
+            )
+        host = parsed.hostname
+        if ":" in host:
+            host = f"[{host}]"
+        return f"{parsed.scheme}://{host}" + (f":{port}" if port is not None else "")
 
     @field_validator("dashboard_origins")
     @classmethod

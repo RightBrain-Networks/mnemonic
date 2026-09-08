@@ -53,7 +53,7 @@ test("artifact directory supports upload, sorting, downloads, atomic replacement
   await page.getByRole("region", { name: "Artifact library", exact: true }).dispatchEvent("drop", { dataTransfer: transfer });
   await expect(page.getByRole("button", { name: dropped, exact: true })).toBeVisible();
 
-  await page.getByLabel("Search artifact metadata and audit history").fill(token);
+  await page.getByLabel("Search artifact metadata and content").fill(token);
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByRole("button", { name: filename, exact: true })).toBeVisible();
   await expect.poll(() => page.getByRole("region", { name: "Artifact library", exact: true }).evaluate((element) => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
@@ -72,6 +72,186 @@ test("artifact directory supports upload, sorting, downloads, atomic replacement
   await expect(page.getByRole("button", { name: filename, exact: true })).toBeVisible();
   await expect(row).toContainText("Deleted");
   await expect(row.getByRole("link", { name: `Download ${filename}` })).toBeHidden();
+});
+
+test("artifact search opts into Tika content, exposes document properties, and removes replaced and deleted text", async ({ page }, testInfo) => {
+  test.setTimeout(180000);
+  const token = `${state.runId.replaceAll("-", "").slice(0, 8)}${testInfo.project.name.replaceAll("-", "")}`;
+  const filename = `extracted-${token}.html`;
+  const needle = `contentneedle${token}`;
+  const replacementNeedle = `replacementneedle${token}`;
+  const title = `documenttitle${token}`;
+  const client = await request.newContext({
+    baseURL: process.env.MNEMONIC_E2E_API_URL,
+    extraHTTPHeaders: { Authorization: `Bearer ${process.env.MNEMONIC_E2E_API_KEY}` }
+  });
+  try {
+    await page.goto(`/artifacts?project=${state.projectId}`);
+    const fulltext = page.getByLabel("Search file contents too");
+    const search = page.getByLabel("Search artifact metadata and content");
+    await expect(fulltext).not.toBeChecked();
+    await page.getByLabel("Upload artifact files").setInputFiles({ name: filename, mimeType: "text/html", buffer: Buffer.from(`<!doctype html><html><head><title>${title}</title><meta name="author" content="Synthetic acceptance author"></head><body>A private research record describes ${needle} with matching context for the artifact library.</body></html>`) });
+    const name = page.getByRole("button", { name: filename, exact: true });
+    await expect(name).toBeVisible();
+    const listed = await client.get(`/api/v1/projects/${state.projectId}/artifacts`, { params: { q: filename } });
+    const artifactId = (await listed.json()).items[0].id as string;
+    const metadataPath = `/api/v1/projects/${state.projectId}/artifacts/${artifactId}`;
+    const waitReady = async (revision: number) => {
+      await expect.poll(async () => {
+        const response = await client.get(metadataPath);
+        const artifact = await response.json();
+        return { revision: artifact.revision, status: artifact.extraction.status };
+      }, { timeout: 90000, intervals: [500, 1000, 2000] }).toEqual({ revision, status: "ready" });
+    };
+    await waitReady(1);
+    await search.fill(needle);
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "No matching artifacts." })).toBeVisible();
+    await fulltext.check();
+    await expect(name).toBeVisible();
+    const row = page.getByRole("row").filter({ has: name });
+    await expect(row.locator(".artifact-search-excerpt")).toContainText(needle);
+    await expect(row).toContainText("Matched content");
+    await expect(page.getByText("Results ordered by relevance. Clear search to sort the directory.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Modified", exact: true })).toBeDisabled();
+    await name.click();
+    const details = page.getByRole("region", { name: `Metadata for ${filename}` });
+    await expect(details).toContainText(title);
+    await expect(details).toContainText("Synthetic acceptance author");
+    await expect(details).toContainText("Text extraction: ready");
+    await page.getByRole("button", { name: "Close details" }).click();
+    if (testInfo.project.name === "chromium-desktop") await page.setViewportSize({ width: 1280, height: 1000 });
+    await page.evaluate(() => { window.scrollTo(0, 0); if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
+    await page.screenshot({ path: testInfo.outputPath("artifact-fulltext-search.png"), fullPage: true });
+    await testInfo.attach("Artifact full-text search", { path: testInfo.outputPath("artifact-fulltext-search.png"), contentType: "image/png" });
+
+    await search.fill(title);
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await fulltext.uncheck();
+    await expect(name).toBeVisible();
+    await expect(row).toContainText("Matched metadata");
+    await expect(row.locator(".artifact-search-excerpt p")).toHaveCount(0);
+    await page.getByRole("button", { name: "Clear search" }).click();
+    await expect(page.getByRole("button", { name: "Modified", exact: false })).toBeEnabled();
+    page.once("dialog", (dialog) => dialog.accept());
+    await row.getByRole("button", { name: `Replace ${filename}` }).click();
+    await page.getByLabel("Replace artifact content").setInputFiles({ name: "replacement.html", mimeType: "text/html", buffer: Buffer.from(`<html><head><title>Replacement document</title></head><body>${replacementNeedle}</body></html>`) });
+    await waitReady(2);
+    await search.fill(needle);
+    await fulltext.check();
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "No matching artifacts." })).toBeVisible();
+    await search.fill(replacementNeedle);
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await expect(name).toBeVisible();
+    page.once("dialog", (dialog) => dialog.accept());
+    await row.getByRole("button", { name: `Delete ${filename}` }).click();
+    await expect(name).toBeHidden();
+    await page.getByLabel("Show deleted").check();
+    await expect(page.getByRole("heading", { name: "No matching artifacts." })).toBeVisible();
+    await search.fill(filename);
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await expect(name).toBeVisible();
+    await expect(row).toContainText("Deleted");
+    await expect(row.locator(".artifact-search-excerpt p")).toHaveCount(0);
+  } finally { await client.dispose(); }
+});
+
+for (const view of ["directory", "search"] as const) {
+  test(`open artifact details refresh completed extraction in the ${view}`, async ({ page }, testInfo) => {
+    const filename = `extraction-refresh-${view}-${state.runId.slice(0, 8)}-${testInfo.project.name}.txt`;
+    const collection = `/api/artifacts/projects/${state.projectId}/artifacts`;
+    let ready = false;
+    let held: Promise<void> | null = null;
+    let release = () => {};
+    let refreshRequests = 0;
+    await page.route((url) => url.pathname === collection || url.pathname === `${collection}/search-content`, async (route) => {
+      const search = new URL(route.request().url()).pathname.endsWith("/search-content");
+      if (!search && route.request().method() !== "GET") { await route.continue(); return; }
+      if (held) { refreshRequests++; await held; }
+      const response = await route.fetch();
+      const payload = await response.json();
+      for (const item of payload.items) {
+        const artifact = search ? item.artifact : item;
+        if (artifact.filename === filename) artifact.extraction = {
+          status: ready ? "ready" : "pending", metadata: ready ? { title: ["Automatically refreshed document title"] } : {},
+          truncated: false, error_code: null, extracted_at: ready ? "2026-09-08T12:00:00Z" : null
+        };
+      }
+      await route.fulfill({ response, json: payload });
+    });
+    await page.goto(`/artifacts?project=${state.projectId}`);
+    await page.getByLabel("Upload artifact files").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from("Extraction refresh regression") });
+    const name = page.getByRole("button", { name: filename, exact: true });
+    await expect(name).toBeVisible();
+    if (view === "search") {
+      await page.getByLabel("Search artifact metadata and content").fill(filename);
+      await page.getByRole("button", { name: "Search", exact: true }).click();
+      await expect(page.locator(".artifact-search-status")).toBeVisible();
+    }
+    await name.click();
+    const details = page.getByRole("region", { name: `Metadata for ${filename}` });
+    await expect(details).toContainText("Text extraction: pending");
+    await expect(details).toContainText("No extracted document properties available.");
+    const row = page.getByRole("row").filter({ has: name });
+    await row.evaluate((element) => element.setAttribute("data-stability-probe", "retained"));
+    if (view === "search") await page.locator(".artifact-search-status").evaluate((element) => element.setAttribute("data-stability-probe", "retained"));
+    ready = true;
+    held = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+      await expect.poll(() => refreshRequests).toBeGreaterThan(0);
+      await expect(row).toBeVisible();
+      await expect(row).toHaveAttribute("data-stability-probe", "retained");
+      await expect(page.locator(".loading-state")).toHaveCount(0);
+      if (view === "search") await expect(page.locator(".artifact-search-status")).toHaveAttribute("data-stability-probe", "retained");
+      await expect(details).toContainText("Text extraction: pending");
+    } finally { release(); held = null; }
+    await expect(details).toContainText("Text extraction: ready");
+    await expect(details).toContainText("Automatically refreshed document title");
+    await expect(details).not.toContainText("No extracted document properties available.");
+  });
+}
+
+test("artifact content matches survive background refresh but clear immediately when search scope changes", async ({ page }, testInfo) => {
+  const filename = `search-scope-${state.runId.slice(0, 8)}-${testInfo.project.name}.txt`;
+  const collection = `/api/artifacts/projects/${state.projectId}/artifacts`;
+  let held: Promise<void> | null = null;
+  let release = () => {};
+  let requests = 0;
+  await page.route((url) => url.pathname === `${collection}/search-content`, async (route) => {
+    if (held) { requests++; await held; }
+    const body = route.request().postDataJSON() as { fulltext: boolean };
+    const response = await route.fetch();
+    const payload = await response.json();
+    for (const item of payload.items) if (item.artifact.filename === filename && body.fulltext) {
+      item.snippet = "Untrusted content snippet retained during this scope.";
+      item.matched_fields = ["metadata", "content"];
+    }
+    await route.fulfill({ response, json: payload });
+  });
+  await page.goto(`/artifacts?project=${state.projectId}`);
+  await page.getByLabel("Upload artifact files").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from("Search refresh fixture") });
+  await expect(page.getByRole("button", { name: filename, exact: true })).toBeVisible();
+  await page.getByLabel("Search file contents too").check();
+  await page.getByLabel("Search artifact metadata and content").fill(filename);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  const snippet = page.locator(".artifact-search-excerpt p");
+  await expect(snippet).toHaveText("Untrusted content snippet retained during this scope.");
+  await snippet.evaluate((element) => element.setAttribute("data-stability-probe", "retained"));
+  held = new Promise<void>((resolve) => { release = resolve; });
+  try {
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect.poll(() => requests).toBe(1);
+    await expect(snippet).toBeVisible();
+    await expect(snippet).toHaveAttribute("data-stability-probe", "retained");
+    await page.getByLabel("Search file contents too").uncheck();
+    await expect.poll(() => requests).toBe(2);
+    await expect(snippet).toHaveCount(0);
+    await expect(page.getByRole("button", { name: filename, exact: true })).toHaveCount(0);
+  } finally { release(); held = null; }
+  await expect(page.getByRole("button", { name: filename, exact: true })).toBeVisible();
+  await expect(snippet).toHaveCount(0);
 });
 
 test("an artifact upload with a lost response preserves the file and receipt until an identical retry succeeds", async ({ page }, testInfo) => {

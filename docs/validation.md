@@ -1,5 +1,59 @@
 # Mnemonic validation record
 
+## Local artifact full-text search — 2026-09-08
+
+Release `0.25.0`, plugin `0.20.0` and migration `0027_artifact_fulltext`
+implement Apache Tika extraction into PostgreSQL and Tantivy search inside the
+API. The 46-tool/16-protected-MCP-write catalog is unchanged. Search defaults to
+metadata values only; `fulltext=true` includes current extracted content. Original
+artifact bytes remain on the host bind mount. Extracted properties are retained
+as metadata, while replace/delete removes old normalized body text and fences
+in-flight extraction. Backups now include sensitive extracted text.
+
+The complete PostgreSQL backend suite passed 1,912 tests with four isolated
+schema workers (244.59 seconds), including migration/catalog and restore parity,
+extraction races, metadata-only body-read isolation, and all cold-review fixes.
+The MCP suite passed 1,122 tests (205.27 seconds); both Python packages passed
+Ruff and typing. The generated OpenAPI snapshot is current. Integration preserves
+the concurrently shipped dashboard refresh stability: background refreshes retain
+loaded results, while query/scope changes clear stale results.
+The final `0.25.0` integration run passed 93 affected backend and 127 MCP tests.
+Frontend validation passed 395 unit tests, Node 24 type checking and production
+build.
+
+Real pinned Tika 4 tests passed for text, HTML properties, DOCX, PDF, embedded
+archive text, write-limit truncation and hostile XML. The disposable parser
+checks verify no public port, external route/DNS, host artifact mount, retained
+parser logs or writable root. Parser/container resources and response sizes are
+bounded; OCR is disabled. The nginx acceptance/security matrix and zero-disabled
+Compose configuration also passed. All test stacks used synthetic artifacts;
+no production schema, deployment, secrets, or artifact directory was changed.
+
+Twenty-seven browser acceptance cases passed across desktop/narrow projects and
+the incoming Firefox empty-view regression, including real
+Tika-to-Tantivy search, metadata-only exclusion of body text, current-revision
+replacement/deletion, and live refresh of already-open extraction details.
+Existing paste/drop, receipts, disabled mode and uncertain retry cases remain
+covered, along with retained snippets during refresh and immediate clearing on
+full-text opt-out. All six isolated backup-service acceptance groups also passed.
+Screenshots: [desktop](images/artifacts-search-desktop.png) and
+[narrow](images/artifacts-search-narrow.png).
+
+Two independent cold reviewers froze three confirmed P2 findings before fixes:
+serialized metadata labels/nulls produced false matches; a malformed parser 503
+status could terminate the extraction loop; and open details retained stale
+extraction metadata. All were fixed with regressions, including continued worker
+processing after malformed parser responses and unchanged open selections across
+directory/search refreshes. The client and backend focused review/fix suites
+passed. Mandatory gitleaks passed without bypasses; two synthetic parser-test
+keys were changed to explicit test-only placeholders rather than excluded from scanning.
+
+All three agent skills validate. Shared artifact guidance now distinguishes
+metadata/body matches, extraction coverage, untrusted excerpts, receipt retry
+rules and the privacy implications of retained properties/backups. Local plugin
+workflow tests ran 72 cases: 71 passed and one authentic macOS Bash 3.2 runtime
+case was skipped on Linux; the dedicated required CI job exercises that platform.
+
 ## Dashboard refresh stability and queue motion — 2026-09-08
 
 Release `0.24.0` keeps loaded dashboard content visible while websocket hints,
