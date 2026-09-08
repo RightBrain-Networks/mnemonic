@@ -1,5 +1,35 @@
 # Mnemonic validation record
 
+## MCP artifact search initialization guidance — 2026-09-08
+
+Release `0.27.0` removes the obsolete content-search-unimplemented sentence from
+MCP initialization instructions and the unused `artifact_search_unimplemented`
+error mapping. This corrects client-facing guidance for the search capability
+shipped in `0.25.0`; search behavior, the 46-tool catalog, plugin `0.20.0`, and
+migration `0027_artifact_fulltext` are unchanged. Per-tool guidance remains in
+the tool descriptions, and the 1,200-character instruction ceiling is unchanged.
+The earlier artifact-library validation narrative below remains historical.
+
+New HTTP and stdio initialization assertions failed against the old sentence,
+then passed after removal. The complete MCP suite passed 1,122 tests (162.78
+seconds), Ruff and typing. Final integrated frontend verification passed 396
+tests, Node 24 type checking and production build; backend OpenAPI snapshot,
+Ruff and typing passed.
+
+A temporary, isolated HTTP MCP server returned explicit HTTP 401 without a bearer
+token and HTTP 200 for authenticated `initialize` using protocol `2025-06-18`.
+Its final integrated response reported version `0.27.0`, 1,122 instruction
+characters and no unimplemented claim; `tools/list` still returned 46 tools with content matching
+opt-in (`fulltext=false` by default). The temporary server was stopped afterward.
+No production service was redeployed or probed with production credentials.
+Existing deployed processes retain the old instructions until redeployment, and
+already-connected clients must reconnect to receive the corrected guidance.
+
+An independent cold reviewer found no confirmed defects and independently passed
+83 affected MCP tests and four dashboard freshness tests before integration.
+The concurrent `0.26.0` dashboard release was preserved during rebase; dependency
+versions, plugin files, and every earlier validation record remain unchanged.
+
 ## Summary dismissal motion and primary action — 2026-09-08
 
 Release `0.26.0` fixes button-driven dismissal while the summaries queue is

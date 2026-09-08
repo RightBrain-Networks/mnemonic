@@ -1,6 +1,6 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.26.0`, plugin `0.20.0`, and migration
+Application/API/MCP/dashboard `0.27.0`, plugin `0.20.0`, and migration
 `0027_artifact_fulltext` support files outside Git and local full-text search. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
