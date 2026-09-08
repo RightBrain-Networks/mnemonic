@@ -47,6 +47,8 @@ type MotionOptions = {
   revision: unknown;
   snapshotSignal?: unknown;
   enabled?: boolean;
+  // Cursor inboxes can replace a visible row without changing the page length.
+  animateReplacements?: boolean;
 };
 
 function directWorkItems(list: HTMLElement): Map<string, HTMLElement> {
@@ -83,7 +85,8 @@ export function useWorkItemMotion<T extends HTMLElement>({
   viewKey,
   revision,
   snapshotSignal,
-  enabled = true
+  enabled = true,
+  animateReplacements = false
 }: MotionOptions): RefObject<T | null> {
   const listRef = useRef<T>(null);
   const snapshotRef = useRef<MotionSnapshot | null>(null);
@@ -158,7 +161,7 @@ export function useWorkItemMotion<T extends HTMLElement>({
     );
     const plan = list && total !== null && previous?.viewKey === viewKey
       && enabled && !reducedMotion
-      ? planWorkItemMotion(previous.itemIds, previous.total, itemIds, total)
+      ? planWorkItemMotion(previous.itemIds, previous.total, itemIds, total, animateReplacements)
       : null;
 
     cancelAnimations();
@@ -286,7 +289,7 @@ export function useWorkItemMotion<T extends HTMLElement>({
           });
       });
 
-  }, [enabled, itemIdsKey, revision, snapshotSignal, total, viewKey]);
+  }, [animateReplacements, enabled, itemIdsKey, revision, snapshotSignal, total, viewKey]);
 
   return listRef;
 }

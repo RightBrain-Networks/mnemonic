@@ -1263,7 +1263,6 @@ html[data-theme="dark"] :is(.evidence-outcome.is-inconclusive, .evidence-outcome
 .attention-authority-note, .attention-filter { margin: 0; padding: 12px 14px; border: 1px solid #e2c771; border-radius: 8px; color: #725a00; background: #fff8d8; font-size: 11px; line-height: 1.7; }
 .attention-filter { display: flex; align-items: center; justify-content: space-between; gap: 14px; border-color: #d8c5ff; color: #5b466f; background: var(--violet-soft); }
 .attention-items { display: grid; gap: 18px; }
-.attention-items[aria-busy="true"] { opacity: .7; }
 .attention-card { min-width: 0; padding: clamp(19px, 3vw, 28px); border: 1px solid #e7c4bb; border-left: 4px solid var(--accent); border-radius: 12px; background: var(--surface); box-shadow: 0 4px 20px #25113008; }
 .attention-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 9px 0 11px; color: var(--muted); font-size: 10px; }
 .attention-card-heading > div { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
@@ -2238,7 +2237,8 @@ html.theme-crossfade *::after {
 }
 
 /* Human report layout retains exact historical ownership. */
-.settings-stack, .job-report-list { display: grid; gap: 1.5rem; }
+.settings-stack, .job-report-list, .job-report-items { display: grid; gap: 1.5rem; }
+.job-report-items:empty { display: none; }
 .job-report-card { min-width: 0; padding: clamp(1rem, 3vw, 2rem); background: var(--surface); border: 1px solid var(--line); border-radius: 1rem; }
 .job-report-content > h3 { margin: .75rem 0; font-size: 1.25rem; overflow-wrap: anywhere; unicode-bidi: isolate; }
 .report-heading, .report-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
@@ -2356,7 +2356,7 @@ html[data-theme="dark"] .review-threshold output { color: #a2d7ad; }
 .review-inbox-filters > label { display: flex; align-items: center; gap: .5rem; }
 .review-inbox-filters .field { min-width: 15rem; }
 .review-queue-list { list-style: none; padding: 0; margin: 0; }
-.review-queue-list > li { padding: .75rem 0; border-bottom: 1px solid var(--line); }
+.review-queue-item { list-style: none; padding: .75rem 0; border-bottom: 1px solid var(--line); }
 .review-queue-link { border: 0; background: transparent; color: inherit; width: 100%; padding: .3rem 0; display: flex; align-items: center; justify-content: space-between; gap: .75rem; text-align: start; cursor: pointer; font: inherit; font-weight: 650; }
 .review-queue-pagination { display: flex; gap: .75rem; margin-top: 1rem; }
 @media (max-width: 650px) { .review-commit-fields { grid-template-columns: minmax(0, 1fr); } .review-queue-link { align-items: flex-start; flex-direction: column; } }
