@@ -30,13 +30,15 @@ export default function JobReportList({ projectId, refreshSignal, onChanged, onO
   const [created, setCreated] = useState<{ reportId: string; workId: string } | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [motionPage, setMotionPage] = useState(0);
+  const [motionCapture, setMotionCapture] = useState(0);
   const motionRef = useWorkItemMotion<HTMLDivElement>({
     itemIds: items.map((item) => item.report.id),
     total: page ? items.length : null,
     viewKey: `${projectId}:${motionPage}`,
     revision: items,
-    snapshotSignal: `${refreshSignal}:${reload}`,
-    animateReplacements: true
+    snapshotSignal: `${refreshSignal}:${reload}:${motionCapture}`,
+    animateReplacements: true,
+    reboundOnRemoval: true
   });
   const heading = useRef<HTMLHeadingElement>(null);
   const generation = useRef(0);
@@ -103,6 +105,7 @@ export default function JobReportList({ projectId, refreshSignal, onChanged, onO
   }), [registry, projectId, onChanged]);
   async function dismiss(item: JobReportEnvelope) {
     const report = item.report;
+    setMotionCapture((value) => value + 1);
     setActionError("");
     try {
       await registry.execute({
@@ -117,7 +120,7 @@ export default function JobReportList({ projectId, refreshSignal, onChanged, onO
       dismissed.current.add(report.id);
       setItems((current) => current.filter((value) => value.report.id !== report.id));
       setAnnouncement(`Summary for ${report.work_title_at_closeout} dismissed.`);
-      heading.current?.focus();
+      heading.current?.focus({ preventScroll: true });
       setReload((value) => value + 1);
       onChanged();
     } catch (failure) { if (alive.current) setActionError(errorMessage(failure)); }
@@ -149,8 +152,8 @@ export default function JobReportList({ projectId, refreshSignal, onChanged, onO
         <JobReportContent item={item} />
         <div className="report-card-actions">
           {!item.source_work_state.deleted && <button type="button" className="button button-secondary" onClick={() => void onOpenWork(item.report.work_item_id, item.report.project_id)}>Open original work</button>}
-          <button type="button" className="button button-secondary" disabled={blocked || formOpen} onClick={() => void dismiss(item)}>Dismiss</button>
-          <button type="button" className="button button-primary" disabled={blocked || followUpReport !== null} onClick={() => { setFollowUpReport(item); setCreated(null); }}>Create Follow-up</button>
+          <button type="button" className="button button-secondary" disabled={blocked || followUpReport !== null} onClick={() => { setFollowUpReport(item); setCreated(null); }}>Create Follow-up</button>
+          <button type="button" className="button button-primary" disabled={blocked || formOpen} onClick={() => void dismiss(item)}>Dismiss</button>
           {item.follow_up_count !== "0" && <span className="field-hint">{item.follow_up_count} follow-up{item.follow_up_count === "1" ? "" : "s"}</span>}
         </div>
         {created?.reportId === item.report.id && <div className="detail-notice" role="status"><p>Follow-up created in Pending.</p><button type="button" className="button button-secondary" onClick={() => void onOpenWork(created.workId, projectId)}>Open work</button></div>}

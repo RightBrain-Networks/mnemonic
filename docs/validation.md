@@ -1,5 +1,29 @@
 # Mnemonic validation record
 
+## Summary dismissal motion and primary action — 2026-09-08
+
+Release `0.26.0` fixes button-driven dismissal while the summaries queue is
+scrolled. Focusing the queue heading previously scrolled the departing overlay
+out of view, and the shared hook skipped upward offsets. The browser regression
+reproduced a 703-pixel displacement before the fix.
+
+Dismiss now takes the primary button position previously occupied by Create
+Follow-up. A successful dismissal fades its inert, hidden-from-assistive-technology
+overlay for 1,000 ms, then closes the gap using the existing 700 ms bounce curve.
+Focus moves without scrolling, and the list preserves its scroll range until the
+animation finishes, including the last card. A second dismissal continues an
+existing fade from its visible opacity. Reduced motion and explicit pagination
+retain their previous behavior.
+
+The frontend unit suite passes 396 tests. Type checking, the production build,
+the generated OpenAPI snapshot, 61 affected MCP tests, and pre-commit gitleaks
+also pass. Browser coverage clicks the real Dismiss button and checks visible
+exit geometry, fade-before-rebound ordering, the last card, consecutive dismissals,
+and the transposed primary/secondary actions.
+
+Screenshots: [primary Dismiss](images/summary-dismiss-motion/summary-dismiss-primary.png)
+and [midpoint of the exit fade](images/summary-dismiss-motion/summary-dismiss-fade.png).
+
 ## Local artifact full-text search — 2026-09-08
 
 Release `0.25.0`, plugin `0.20.0` and migration `0027_artifact_fulltext`
