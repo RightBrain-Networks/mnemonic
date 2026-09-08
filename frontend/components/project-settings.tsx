@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import CodeReviewSettingsPanel from "@/components/code-review-settings";
+import ProjectBackupsPanel from "@/components/project-backups";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import {
   DEFAULT_RECALL_POINTER_TEMPLATE,
@@ -19,6 +20,10 @@ type Props = {
   onSaved: (settings: ProjectSettings) => void;
   onProjectSaved: (project: Project) => void;
   onNotice: (message: string, error?: boolean) => void;
+  backupMaximumBytes: number;
+  backupRefreshSignal: number;
+  backupPending: boolean;
+  onBackupPendingChange: (pending: boolean) => void;
 };
 
 type PendingAction = "save" | "clear" | "report-save" | "report-reset" | null;
@@ -49,7 +54,11 @@ export default function ProjectSettingsPanel({
   onRetry,
   onSaved,
   onProjectSaved,
-  onNotice
+  onNotice,
+  backupMaximumBytes,
+  backupRefreshSignal,
+  backupPending,
+  onBackupPendingChange
 }: Props) {
   const [projectDetails, setProjectDetails] = useState(() => detailsFromProject(project));
   const storedTemplate = settings && project && settings.project_id === project.id
@@ -272,6 +281,7 @@ export default function ProjectSettingsPanel({
   }
 
   return <div className="settings-stack">
+    <div className="settings-stack" inert={backupPending}>
     <CodeReviewSettingsPanel key={selectedProject.id} projectId={selectedProject.id} settings={settings} loading={loading} onSaved={onSaved} onRetry={onRetry} onNotice={onNotice} />
     <section className="settings-card" aria-labelledby="project-details-title">
       <div className="settings-card-heading">
@@ -465,5 +475,7 @@ export default function ProjectSettingsPanel({
         <button type="button" className="button button-secondary" disabled={unavailable || pending !== null} onClick={() => void updateReportPrompt(true)}>{pending === "report-reset" ? "Resetting…" : "Reset to default"}</button>
       </div>
     </section>
+    </div>
+    <ProjectBackupsPanel key={selectedProject.id} project={selectedProject} maximumBytes={backupMaximumBytes} refreshSignal={backupRefreshSignal} onPendingChange={onBackupPendingChange} />
   </div>;
 }

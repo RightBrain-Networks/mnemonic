@@ -209,7 +209,8 @@ node_modules/
 *.tsbuildinfo
 .env.*
 !.env.example
-backups/
+/backups/
+*.json.bz2
 /artifacts/
 .local/
 test-results/
