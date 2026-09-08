@@ -1,4 +1,4 @@
-import { ARTIFACT_DEFAULT_MAX_BYTES } from "./artifacts.ts";
+import { ARTIFACT_DEFAULT_MAX_BYTES, ARTIFACT_DISABLED_MESSAGE, decodeArtifactStatus, formatArtifactSize } from "./artifacts.ts";
 import { readBoundedBytes } from "./bounded-json.ts";
 import { configuredOrigins, forbiddenControlTransport, trustedRequest } from "./proxy-policy.ts";
 import { UUID_PATTERN, validUuid } from "./wire-guards.ts";
@@ -16,6 +16,7 @@ const SECURITY_HEADERS = {
 };
 
 export function artifactQueryKeys(path: string, method: string): readonly string[] | null {
+  if (path === "status" && method === "GET") return [];
   if (COLLECTION.test(path)) {
     if (method === "GET") return ["q", "sort", "order", "limit", "offset", "include_deleted", "work_item_id"];
     if (method === "POST") return [];
@@ -35,7 +36,7 @@ export function artifactQueryKeys(path: string, method: string): readonly string
 export function artifactMaximumBytes(configured?: string): number {
   if (configured === undefined) return ARTIFACT_DEFAULT_MAX_BYTES;
   const size = Number(configured);
-  if (!Number.isSafeInteger(size) || size < 1 || size > 1024 * 1024 * 1024) throw new Error("Invalid artifact size configuration.");
+  if (!configured.trim() || !Number.isSafeInteger(size) || size < 0 || size > 1024 * 1024 * 1024) throw new Error("Invalid artifact size configuration.");
   return size;
 }
 
@@ -68,6 +69,15 @@ function fail(status: number, detail: string): Response {
   return Response.json({ detail }, { status, headers: SECURITY_HEADERS });
 }
 
+function limitFailure(maximum: number): Response {
+  const disabled = maximum === 0;
+  return Response.json({ detail: {
+    code: disabled ? "artifact_library_disabled" : "artifact_too_large",
+    message: disabled ? ARTIFACT_DISABLED_MESSAGE : `Artifact content exceeds the ${formatArtifactSize(maximum)} (${maximum.toLocaleString("en-US")} bytes) per-file limit.`,
+    context: { max_bytes: maximum }
+  } }, { status: disabled ? 503 : 413, headers: SECURITY_HEADERS });
+}
+
 type Environment = { MNEMONIC_DASHBOARD_ORIGINS?: string; MNEMONIC_API_KEY?: string; MNEMONIC_API_URL?: string; MNEMONIC_ARTIFACT_MAX_BYTES?: string };
 
 export async function proxyArtifact(request: Request, path: string[], environment: Environment, fetcher: typeof fetch = fetch): Promise<Response> {
@@ -87,6 +97,7 @@ export async function proxyArtifact(request: Request, path: string[], environmen
   for (const field of query.keys()) {
     if (!keys.includes(field) || query.getAll(field).length !== 1) return fail(400, "The artifact query contains an unsupported or repeated field.");
   }
+  if (maximum === 0 && route !== "status") return limitFailure(0);
   const mutation = request.method !== "GET";
   const metadata = request.headers.get("X-Artifact-Metadata");
   if (mutation && metadata && (metadata.length > 16384 || /[^\x20-\x7e]/.test(metadata))) return fail(400, "Artifact metadata must be bounded ASCII JSON.");
@@ -116,13 +127,16 @@ export async function proxyArtifact(request: Request, path: string[], environmen
     if (!["http:", "https:"].includes(base.protocol) || base.username || base.password || base.pathname !== "/" || base.search || base.hash) throw new Error();
   } catch { return fail(503, "Mnemonic's API address is not configured correctly."); }
   const upload = request.method === "POST" || request.method === "PUT";
-  if (upload && Number(request.headers.get("content-length")) > maximum) return fail(413, "Artifact content exceeds the configured size limit.");
+  // The API checks permanent receipts before its current positive upload limit.
+  // A fixed transport ceiling permits an exact retry after that limit decreases.
+  const transportMaximum = 1024 * 1024 * 1024;
+  if (upload && Number(request.headers.get("content-length")) > transportMaximum) return limitFailure(transportMaximum);
   if (upload && request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/octet-stream") return fail(415, "Send artifact bytes as application/octet-stream.");
   if (upload && (typeof parsedMetadata.filename !== "string" || !parsedMetadata.filename)) return fail(400, "An artifact filename is required.");
   const encoding = request.headers.get("content-encoding");
   if (encoding && encoding.toLowerCase() !== "identity") return fail(415, "Encoded artifact request bodies are not supported.");
   try {
-    const target = new URL(`/api/v1/${route}`, base);
+    const target = new URL(`/api/v1/${route === "status" ? "artifacts/status" : route}`, base);
     target.search = query.toString();
     const headers = new Headers({ Authorization: `Bearer ${key}`, "Accept-Encoding": "identity" });
     if (mutation) headers.set("X-Client-Operation-ID", operationId!);
@@ -133,14 +147,26 @@ export async function proxyArtifact(request: Request, path: string[], environmen
       method: request.method, headers, cache: "no-store", redirect: "manual",
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(300000)])
     };
-    if (upload && request.body) { init.body = boundedArtifactStream(request.body, maximum); init.duplex = "half"; }
+    if (upload && request.body) { init.body = boundedArtifactStream(request.body, transportMaximum); init.duplex = "half"; }
     const upstream = await fetcher(target, init);
     if (upstream.status >= 300 && upstream.status < 400) { await upstream.body?.cancel(); return fail(502, "Mnemonic's API returned an unexpected redirect."); }
     const contentEncoding = upstream.headers.get("content-encoding");
     if (contentEncoding && contentEncoding.toLowerCase() !== "identity") { await upstream.body?.cancel(); return fail(502, "Mnemonic's API returned an encoded artifact response."); }
+    if (route === "status") {
+      if (upstream.status !== 200 || !upstream.headers.get("content-type")?.includes("application/json")) {
+        await upstream.body?.cancel(); return fail(502, "Artifact status is unavailable.");
+      }
+      const bytes = await readBoundedBytes(upstream, 16 * 1024);
+      const status = decodeArtifactStatus(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
+      const effective = Math.min(maximum, status.max_bytes);
+      return Response.json({
+        enabled: effective > 0, max_bytes: effective,
+        message: effective === 0 ? ARTIFACT_DISABLED_MESSAGE : `Artifact library enabled. Up to ${formatArtifactSize(effective)} (${effective.toLocaleString("en-US")} bytes) per file.`
+      }, { headers: SECURITY_HEADERS });
+    }
     if (request.method === "GET" && CONTENT.test(route) && upstream.ok) {
       const length = upstream.headers.get("content-length");
-      if (upstream.status !== 200 || !length || !/^[0-9]+$/.test(length) || Number(length) > maximum || !upstream.body) { await upstream.body?.cancel(); return fail(502, "Mnemonic's API returned an invalid artifact response."); }
+      if (upstream.status !== 200 || !length || !/^[0-9]+$/.test(length) || Number(length) > transportMaximum || !upstream.body) { await upstream.body?.cancel(); return fail(502, "Mnemonic's API returned an invalid artifact response."); }
       return new Response(boundedArtifactStream(upstream.body, Number(length), true), {
         status: 200,
         headers: { ...SECURITY_HEADERS, "Content-Type": "application/octet-stream", "Content-Length": length, "Content-Disposition": safeArtifactDisposition(upstream.headers.get("content-disposition")) }

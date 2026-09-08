@@ -26,10 +26,12 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 Phases 1–12, identity-preserving work moves, cross-project relationships,
 first-class code reviews, and the artifact library are implemented in the repository. The current
-release is application/API/MCP/dashboard `0.21.0`, plugin `0.18.0`, and migration
+release is application/API/MCP/dashboard `0.22.0`, plugin `0.19.0`, and migration
 `0026_artifact_library`. [Artifacts](artifacts.md) add project-scoped file uploads,
 downloads, atomic replacement, retained audit metadata, and work discovery;
-actual artifact content search remains unimplemented. Reviews add project thresholds, durable
+the `.env` upload limit now supports zero to disable the subsystem while retaining
+all data, with explicit availability and limit reporting to agents. Actual artifact
+content search remains unimplemented. Reviews add project thresholds, durable
 optional questions, cold/warm review leases and one remediation with a hard
 ancestry ceiling; see [code reviews](code-reviews.md). Production-target
 preflight and cutover remain explicit operator gates. Migration 0025 requires a

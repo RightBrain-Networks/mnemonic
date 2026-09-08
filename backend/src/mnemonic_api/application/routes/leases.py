@@ -146,6 +146,7 @@ def claim_and_recall(
             work_item_id,
             recent_limit=5,
             coherent_read=False,
+            include_artifacts=settings_of(request).artifact_max_bytes > 0,
         )
         database.commit()
         return ClaimAndRecall(lease=receipt, context=context)

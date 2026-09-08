@@ -171,3 +171,114 @@ test("large escaped Unicode descriptions pass the artifact HTTP header envelope"
   await page.getByRole("button", { name: `Delete ${filename}`, exact: true }).click();
   await expect(page.getByRole("button", { name: filename, exact: true })).toBeHidden();
 });
+
+test("disabled artifacts stay visible without listing files or accepting clipboard and drop uploads", async ({ page }, testInfo) => {
+  const dataRequests: string[] = [];
+  page.on("request", (request) => { if (request.url().includes("/api/artifacts/projects/")) dataRequests.push(request.url()); });
+  await page.route("**/api/artifacts/status", (route) => route.fulfill({ json: { enabled: false, max_bytes: 0, message: "The artifact library is disabled. Stored files and metadata are preserved." } }));
+  await page.goto(`/artifacts?project=${state.projectId}`);
+  await expect(page.getByRole("heading", { name: "Artifact library disabled", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("link", { name: "Artifacts" })).toBeVisible();
+  await expect(page.getByLabel("Artifact library", { exact: true })).toContainText("0 bytes");
+  await expect(page.getByLabel("Artifact library", { exact: true })).toContainText("Existing files are preserved");
+  await expect(page.getByLabel("Upload artifact files")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Upload files", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Sortable artifact directory" })).toHaveCount(0);
+  const untouchedPaste = await page.evaluate(() => {
+    const data = new DataTransfer(); data.items.add(new File(["private bytes"], "disabled.txt"));
+    const paste = new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true });
+    document.dispatchEvent(paste);
+    document.querySelector('[aria-label="Artifact library"]')!.dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }));
+    return !paste.defaultPrevented;
+  });
+  expect(untouchedPaste).toBe(true);
+  expect(dataRequests).toEqual([]);
+  const screenshot = testInfo.outputPath("artifact-library-disabled.png");
+  await page.screenshot({ path: screenshot, fullPage: true });
+  await testInfo.attach("Disabled artifact library", { path: screenshot, contentType: "image/png" });
+  await page.goto(`/?work=${state.historicalCompletion.workItemId}`);
+  await expect(page.locator(".work-artifact-links")).toContainText("Artifact library disabled");
+  await expect(page.locator(".work-artifact-links")).not.toContainText("retry loading linked files");
+  await expect(page.locator(".work-artifact-links").getByRole("link", { name: "Open artifact library" })).toBeVisible();
+  expect(dataRequests).toEqual([]);
+});
+
+test("enabled artifacts display the configured per-file limit and reject oversized new selections", async ({ page }) => {
+  let mutations = 0;
+  page.on("request", (request) => { if (request.method() !== "GET" && request.url().includes("/api/artifacts/projects/")) mutations++; });
+  await page.route("**/api/artifacts/status", (route) => route.fulfill({ json: { enabled: true, max_bytes: 8, message: "Up to 8 bytes per file." } }));
+  await page.goto(`/artifacts?project=${state.projectId}`);
+  await expect(page.locator(".artifact-upload-hint")).toContainText("8 B (8 bytes) per file");
+  await page.getByLabel("Upload artifact files").setInputFiles({ name: "over-limit.txt", mimeType: "text/plain", buffer: Buffer.from("123456789") });
+  await expect(page.getByLabel("Artifact library", { exact: true }).getByRole("alert")).toContainText("exceeds the 8 B (8 bytes) per-file limit");
+  expect(mutations).toBe(0);
+});
+
+test("disabling artifacts preserves an uncertain file and UUID until an exact retry after re-enable", async ({ page }, testInfo) => {
+  const filename = `disabled-retry-${state.runId.slice(0, 8)}-${testInfo.project.name}.txt`;
+  let maximum = 64;
+  const attempts: { id: string | undefined; metadata: string | undefined; body: string | null }[] = [];
+  await page.route("**/api/artifacts/status", (route) => route.fulfill({ json: { enabled: maximum > 0, max_bytes: maximum, message: maximum ? `Up to ${maximum} bytes per file.` : "The artifact library is disabled. Stored files are preserved." } }));
+  await page.route(`**/api/artifacts/projects/${state.projectId}/artifacts`, async (route) => {
+    if (route.request().method() !== "POST") { await route.continue(); return; }
+    const headers = route.request().headers();
+    attempts.push({ id: headers["x-client-operation-id"], metadata: headers["x-artifact-metadata"], body: route.request().postData() });
+    const response = await route.fetch();
+    if (attempts.length === 1) { await route.abort("failed"); return; }
+    await route.fulfill({ response });
+  });
+  await page.goto(`/artifacts?project=${state.projectId}`);
+  await page.getByLabel("Upload artifact files").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from("Preserve these bytes") });
+  await expect(page.getByRole("button", { name: "Retry pending action" })).toBeEnabled();
+  maximum = 0;
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Artifact library disabled", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Artifact library", { exact: true }).getByRole("alert")).toContainText(filename);
+  await expect(page.getByLabel("Artifact library", { exact: true }).getByRole("alert")).toContainText(attempts[0].id!);
+  await expect(page.getByRole("button", { name: "Retry pending action" })).toBeDisabled();
+  await expect(page.locator("#project-select")).toBeDisabled();
+  expect(attempts).toHaveLength(1);
+  maximum = 1; // The preserved request is larger than the new positive selection limit.
+  await page.getByRole("button", { name: "Check artifact status", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Retry pending action" })).toBeEnabled();
+  await page.getByRole("button", { name: "Retry pending action" }).click();
+  await expect(page.getByRole("button", { name: filename, exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry pending action" })).toHaveCount(0);
+  expect(attempts).toHaveLength(2); expect(attempts[0]).toEqual(attempts[1]);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: `Delete ${filename}`, exact: true }).click();
+  await expect(page.getByRole("button", { name: filename, exact: true })).toBeHidden();
+});
+
+test("live artifact status re-enables a page opened with a zero server-rendered limit", async ({ page }, testInfo) => {
+  const token = `${state.runId.slice(0, 8)}-${testInfo.project.name}`;
+  const filenames = [`reenabled-a-${token}.txt`, `reenabled-b-${token}.txt`];
+  let maximum = 0;
+  let patchedInitialLimit = false;
+  await page.route(`**/artifacts?project=${state.projectId}`, async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    // Simulate the initial RSC prop retained by a tab opened before reconfiguration.
+    const patched = body.replace(/(\\?"artifactMaxBytes\\?":)\d+/g, (_match, prefix: string) => {
+      patchedInitialLimit = true; return `${prefix}0`;
+    });
+    const headers = { ...response.headers() };
+    delete headers["content-encoding"]; delete headers["content-length"];
+    await route.fulfill({ response, headers, body: patched });
+  });
+  await page.route("**/api/artifacts/status", (route) => route.fulfill({ json: { enabled: maximum > 0, max_bytes: maximum, message: maximum ? "Up to 64 bytes per file." : "The artifact library is disabled. Stored files are preserved." } }));
+  await page.goto(`/artifacts?project=${state.projectId}`);
+  await expect(page.getByRole("heading", { name: "Artifact library disabled", exact: true })).toBeVisible();
+  expect(patchedInitialLimit).toBe(true);
+  maximum = 64;
+  await page.getByRole("button", { name: "Check artifact status", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Upload files", exact: true })).toBeEnabled();
+  await expect(page.getByRole("region", { name: "Sortable artifact directory" })).toBeVisible();
+  await page.getByLabel("Upload artifact files").setInputFiles(filenames.map((name) => ({ name, mimeType: "text/plain", buffer: Buffer.from("Re-enabled upload") })));
+  for (const filename of filenames) await expect(page.getByRole("button", { name: filename, exact: true })).toBeVisible();
+  for (const filename of filenames) {
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: `Delete ${filename}`, exact: true }).click();
+    await expect(page.getByRole("button", { name: filename, exact: true })).toBeHidden();
+  }
+});

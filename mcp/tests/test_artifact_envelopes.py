@@ -59,7 +59,8 @@ async def test_http_artifact_uploads_admit_base64_larger_than_ordinary_envelope(
 async def test_large_content_does_not_expand_other_tools(name):
     calls, sent = await run_guard(artifact_call(name))
     assert calls == []
-    assert sent[0]["status"] == 413
+    assert sent[0]["status"] == 200
+    assert json.loads(sent[1]["body"])["result"]["isError"] is True
 
 
 @pytest.mark.parametrize("name", [None, [], {}])
@@ -86,7 +87,8 @@ async def test_base64_character_limit_is_checked_before_sdk(monkeypatch):
     monkeypatch.setattr(transport, "MCP_ARTIFACT_CONTENT_MAX_CHARS", 1024 * 1024)
     calls, sent = await run_guard(artifact_call())
     assert calls == []
-    assert sent[0]["status"] == 413
+    assert sent[0]["status"] == 200
+    assert json.loads(sent[1]["body"])["result"]["isError"] is True
 
 
 async def test_actual_received_bytes_enforce_global_cap(monkeypatch):
@@ -94,6 +96,86 @@ async def test_actual_received_bytes_enforce_global_cap(monkeypatch):
     calls, sent = await run_guard(artifact_call(), headers=[(b"content-length", b"1")])
     assert calls == []
     assert sent[0]["status"] == 413
+
+
+async def test_oversize_http_refusal_explains_protocol_and_library_limits_without_reflection():
+    marker = "UNTRUSTED_ARTIFACT_NAME_MUST_NOT_ESCAPE"
+    raw = artifact_call("list_artifacts", size=2 * 1024 * 1024, filename=marker)
+    calls, sent = await run_guard(raw)
+    assert calls == []
+    body = b"".join(message.get("body", b"") for message in sent)
+    assert sent[0]["status"] == 200
+    assert json.loads(body) == {
+        "jsonrpc": "2.0", "id": "bounded-artifact",
+        "result": {"content": [{"type": "text", "text": transport.MCP_SIZE_LIMIT_MESSAGE}],
+                   "isError": True},
+    }
+    assert marker.encode() not in body
+    assert "67108864 bytes" in transport.MCP_SIZE_LIMIT_MESSAGE
+    assert "disabled" in transport.MCP_SIZE_LIMIT_MESSAGE
+    assert "list_artifacts" in transport.MCP_SIZE_LIMIT_MESSAGE
+
+
+async def test_declared_oversize_http_refusal_explains_limits_before_reading():
+    sent = []
+
+    async def forbidden_receive():
+        raise AssertionError("oversized declared body must not be read")
+
+    async def forbidden_downstream(scope, receive, send):
+        raise AssertionError("oversized declared body must not dispatch")
+
+    async def send(message):
+        sent.append(message)
+
+    middleware = transport.BoundedMCPIngressMiddleware(forbidden_downstream)
+    maximum = transport.MCP_ARTIFACT_REQUEST_MAX_BYTES
+    await middleware(
+        scope([(b"content-length", str(maximum + 1).encode())]), forbidden_receive, send,
+    )
+    body = b"".join(message.get("body", b"") for message in sent)
+    assert sent[0]["status"] == 413
+    assert json.loads(body) == {"detail": transport.MCP_SIZE_LIMIT_MESSAGE}
+
+
+@pytest.mark.parametrize("has_newline", [True, False])
+async def test_stdio_oversize_emits_one_static_limit_error_and_discards_later_frames(
+    monkeypatch, has_newline,
+):
+    monkeypatch.setattr(transport, "MCP_ARTIFACT_REQUEST_MAX_BYTES", 1024 * 1024)
+    raw = artifact_call(filename="UNTRUSTED_FILENAME", api_key="UNTRUSTED_SECRET")
+    if has_newline:
+        raw += b'\n{"jsonrpc":"2.0","id":55,"method":"ping"}\n'
+    rendered = io.StringIO()
+    stdin, stdout = anyio.wrap_file(io.BytesIO(raw)), anyio.wrap_file(rendered)
+    with anyio.fail_after(5):
+        async with transport.bounded_stdio_server(stdin, stdout) as (incoming, outgoing):
+            messages = [message async for message in incoming]
+            await outgoing.aclose()
+    assert messages == []
+    assert json.loads(rendered.getvalue()) == {
+        "jsonrpc": "2.0", "id": None,
+        "error": {"code": -32600, "message": transport.MCP_SIZE_LIMIT_MESSAGE},
+    }
+    assert "UNTRUSTED" not in rendered.getvalue()
+
+
+async def test_stdio_parsed_envelope_refusal_is_explicit_and_never_dispatches():
+    raw = artifact_call("list_artifacts", filename="UNTRUSTED_FILENAME") + b"\n"
+    raw += b'{"jsonrpc":"2.0","id":55,"method":"ping"}\n'
+    rendered = io.StringIO()
+    with anyio.fail_after(5):
+        async with transport.bounded_stdio_server(
+            anyio.wrap_file(io.BytesIO(raw)), anyio.wrap_file(rendered),
+        ) as (incoming, outgoing):
+            messages = [message async for message in incoming]
+            assert len(messages) == 1 and messages[0].message.root.id == 55
+            await outgoing.aclose()
+    response = json.loads(rendered.getvalue())
+    assert response["id"] == "bounded-artifact"
+    assert response["result"]["isError"] is True
+    assert response["result"]["content"][0]["text"] == transport.MCP_SIZE_LIMIT_MESSAGE
+    assert "UNTRUSTED_FILENAME" not in rendered.getvalue()
 
 
 async def test_stdin_accepts_artifact_record_and_preserves_following_message():
@@ -205,3 +287,18 @@ def test_large_json_structure_cannot_reach_amplifying_decoder(monkeypatch):
     monkeypatch.setattr(transport.json, "loads", forbidden_decode)
     with pytest.raises(transport.MCPRequestTooLarge):
         transport.validated_jsonrpc_document(raw)
+    assert transport._correlated_size_rejection(raw) is None
+
+
+@pytest.mark.parametrize("replacement", [
+    b'"id":null', b'"id":true', b'"id":[]', b'"id":"unsafe id"',
+    b'"id":1,"id":2', b'"other":1',
+])
+def test_oversize_refusals_never_correlate_an_unvalidated_id(replacement):
+    raw = artifact_call().replace(b'"id": "bounded-artifact"', replacement)
+    assert transport._correlated_size_rejection(raw) is None
+
+
+@pytest.mark.parametrize("suffix", [b"trailing junk", b"}", b'\n{"id":3}'])
+def test_oversize_refusals_validate_the_complete_frame(suffix):
+    assert transport._correlated_size_rejection(artifact_call() + suffix) is None

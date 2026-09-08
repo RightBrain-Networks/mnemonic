@@ -48,27 +48,34 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        maintenance = asyncio.create_task(artifact_maintenance_loop(
-            app.state.session_factory, app.state.artifact_storage
-        ))
+        maintenance = None
+        if config.artifact_max_bytes > 0:
+            maintenance = asyncio.create_task(artifact_maintenance_loop(
+                app.state.session_factory, app.state.artifact_storage
+            ))
         try:
             yield
         finally:
-            maintenance.cancel()
-            with suppress(asyncio.CancelledError):
-                await maintenance
+            if maintenance is not None:
+                maintenance.cancel()
+                with suppress(asyncio.CancelledError):
+                    await maintenance
             if engine is None:
                 # Only an engine this factory built is this factory's to dispose.
                 connection_pool.dispose()
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.21.0",
+        version="0.22.0",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )
     app.state.settings = config
-    app.state.artifact_storage = ArtifactStorage(config.artifact_root, config.artifact_max_bytes)
+    app.state.artifact_storage = (
+        ArtifactStorage(config.artifact_root, config.artifact_max_bytes)
+        if config.artifact_max_bytes > 0
+        else None
+    )
     app.state.artifact_upload_slots = asyncio.Semaphore(4)
     app.state.session_factory = build_session_factory(connection_pool)
     app.state.semantic_embedder = semantic_embedder or FastembedEmbedder()

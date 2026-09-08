@@ -5,6 +5,31 @@ private documents, binaries, and scratch files. Bytes live on the API's private
 filesystem; PostgreSQL holds metadata, work links, revision metadata, and an
 append-only audit log. No artifact content is indexed or searched yet.
 
+## Availability and limits
+
+Every artifact tool checks the library's status first. Successful results add
+`artifact_library` with `enabled`, `max_bytes` (the configured upload limit),
+`mcp_transfer_max_bytes`, `effective_upload_max_bytes`, and an explicit message.
+Do not assume the default 64 MiB upload limit: the operator sets
+`MNEMONIC_ARTIFACT_MAX_BYTES` in `.env`. MCP also has a separate 64 MiB decoded
+transfer ceiling because base64 and SDK responses consume additional memory.
+Use the reported effective limit for new MCP uploads; larger configured files
+require the authenticated binary API/dashboard.
+Check with a metadata-only call before preparing a large transfer. Malformed or
+over-90-MiB protocol frames can be refused before tool dispatch; some clients
+surface only connection closure or HTTP 413 at that hard transport boundary.
+
+Zero disables all artifact operations, including metadata/history reads and the
+content-search stub. A tool error explicitly says disabled and `max_bytes=0`;
+existing files and history are retained, not deleted. Do not repeatedly attempt
+disabled operations or interpret missing work-context artifacts as deleted files.
+If status cannot be determined, the tool sends no artifact operation for that
+attempt. Neither disabled status nor a failed status check resolves an earlier
+unknown write: keep its original operation UUID and exact arguments/bytes until
+the library is enabled and reconciliation or the remaining exact retry is possible.
+Lowering a positive upload limit does not block existing downloads or completed
+receipt replay with larger original bytes; the MCP transfer ceiling still applies.
+
 ## Discover and read
 
 Resolve the project with `list_projects`. Ordinary `recall_work` context embeds

@@ -125,6 +125,7 @@ def assemble_work_context(
     *,
     focus_gate_id: UUID | None = None,
     coherent_read: bool = True,
+    include_artifacts: bool = True,
 ) -> WorkContext:
     """Read source-owned context and canonical projections from one pinned snapshot."""
     if coherent_read:
@@ -739,7 +740,9 @@ def assemble_work_context(
     }
     from mnemonic_api.services.code_review_reads import review_context
 
-    artifacts, artifact_total = work_artifacts(database, project_id, work_item_id)
+    artifacts, artifact_total = (
+        work_artifacts(database, project_id, work_item_id) if include_artifacts else ([], 0)
+    )
     return WorkContext(
         artifacts=artifacts,
         artifact_total=artifact_total,

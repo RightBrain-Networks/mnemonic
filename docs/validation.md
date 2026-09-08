@@ -1,5 +1,45 @@
 # Mnemonic validation record
 
+## Explicit artifact limits and disabled mode — 2026-09-08
+
+Release `0.22.0` and plugin `0.19.0` retain migration `0026_artifact_library`
+and the existing 46-tool, 16-protected-MCP-write catalog. The configured artifact
+byte maximum now accepts zero to disable the subsystem without deleting stored
+bytes or durable metadata. The authenticated status endpoint reports availability
+and limits; disabled operations and oversized uploads return explicit errors.
+
+The complete backend suite passed **1,737 tests** with four PostgreSQL workers,
+each using its own disposable schema, in 288.62 seconds. Ruff, typing, the generated
+OpenAPI snapshot, and the plugin's exact manifest/three-skill/nine-reference inventory
+check also passed. New regressions verify no disabled storage construction,
+maintenance task, database session, or request-body consumption; suppressed artifact
+queries in ordinary, gate-focused, and claim-and-recall contexts; unaffected work
+and health routes; unchanged files and complete journal/history records across
+disable/reenable; completed and pending upload/replace/delete receipt replay;
+configured-limit errors for declared and streamed oversize uploads; and existing
+downloads after the positive upload maximum is lowered. No production schema,
+artifact directory, or deployment was changed by these checks.
+
+Frontend validation passes 381 unit tests, Node 24 type checking and production
+build, and 16 desktop/narrow artifact acceptance cases. These include explicit
+zero-disabled states with no listing/paste/drop effects, configured selection
+limits, preservation of uncertain File/UUID requests across disable/reenable and
+a lowered limit, and reenabling an open tab with a stale zero-valued initial prop.
+The nginx acceptance matrix passes with the binary transport ceiling at 1 GiB;
+the API remains authoritative for the configured upload limit. Compose validation
+confirms zero reaches both API and web while keeping the host bind mount.
+All three skills pass validation; their shared artifact reference now explains
+status fields, disabled mode, effective MCP limits, and safe receipt reconciliation.
+
+An independent cold adversarial review found that generic transport rejections
+hid size guidance from the pinned MCP client. Real-client regression coverage
+accompanies the correction; the final full MCP suite passes 1,102 tests, Ruff,
+and typing. Review also confirmed the disabled guards and durable
+receipt/storage boundaries. Root integration review corrected a replacement-timeout
+path that lacked exact-receipt guidance and the stale browser setting noted above.
+Screenshots: [disabled desktop](images/artifacts-disabled-desktop.png) and
+[disabled narrow](images/artifacts-disabled-narrow.png).
+
 ## Project artifact library — 2026-09-08
 
 Release `0.21.0`, plugin `0.18.0`, and migration `0026_artifact_library` add

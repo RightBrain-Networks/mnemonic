@@ -354,6 +354,8 @@ def _safe_uuid(value: object) -> str | None:
 
 
 def _application_error_message(code: str, context: dict[str, object]) -> str | None:
+    if code in {"artifact_too_large", "artifact_library_disabled"}:
+        return _artifact_policy_error(code, context)
     if code == "work_duplicate":
         canonical_id = _safe_uuid(context.get("canonical_work_item_id"))
         if canonical_id is not None:
@@ -364,6 +366,21 @@ def _application_error_message(code: str, context: dict[str, object]) -> str | N
         return _APPLICATION_ERRORS[code]
     if code in {"lease_held", "work_move_active_lease"}:
         return _lease_contention_message(code, context)
+    return _APPLICATION_ERRORS.get(code)
+
+
+def _artifact_policy_error(code: str, context: dict[str, object]) -> str | None:
+    maximum = context.get("max_bytes")
+    if type(maximum) is not int or not 0 <= maximum <= 1024 * 1024 * 1024:
+        return _APPLICATION_ERRORS.get(code)
+    if code == "artifact_library_disabled" and maximum == 0:
+        return (
+            "Artifact library is disabled (MNEMONIC_ARTIFACT_MAX_BYTES=0; max_bytes=0). "
+            "Existing files and history are retained. Preserve the original operation UUID, "
+            "arguments and bytes for any earlier unknown write until the library is enabled."
+        )
+    if code == "artifact_too_large" and maximum > 0:
+        return f"Artifact exceeds the configured upload limit of {maximum} bytes (max_bytes)."
     return _APPLICATION_ERRORS.get(code)
 
 
@@ -399,7 +416,7 @@ def _lease_purpose_message(context: dict[str, object]) -> str:
 def _raise_request_error(method: str, *, effect: TransportEffect | None) -> NoReturn:
     if effect == TransportEffect.SAFE_READ:
         raise ToolError(_SAFE_READ_FAILURE) from None
-    if method not in {"POST", "PATCH", "DELETE"}:
+    if method not in {"POST", "PUT", "PATCH", "DELETE"}:
         raise ToolError(
             "Mnemonic API is unavailable. Check service health and try again."
         ) from None
@@ -421,6 +438,12 @@ def _raise_server_uncertainty(
 ) -> None:
     if response.status_code < 500:
         return
+    if application_error is not None and application_error[0] == "artifact_library_disabled":
+        message = _artifact_policy_error(*application_error)
+        if response.status_code == 503 and message is not None:
+            if effect == TransportEffect.RECEIPT_PROTECTED_WRITE:
+                message += " An earlier write may have committed. " + UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME
+            raise ToolError(message)
     if (
         effect == TransportEffect.RECEIPT_PROTECTED_WRITE
         and application_error is not None
