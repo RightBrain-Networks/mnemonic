@@ -257,3 +257,97 @@ test("summaries animate full-page replacements while Load more remains immediate
     expect(await page.evaluate(() => (window as typeof window & { queueMotion: MotionRecord[] }).queueMotion.length)).toBe(count);
   } finally { await api.dispose(); }
 });
+
+test("summary Dismiss preserves the visible exit and rebounds the following cards upward", async ({ page }, testInfo) => {
+  const { api, projectId } = await fixture();
+  try {
+    const reports: Item[] = [];
+    for (let index = 0; index < 6; index += 1) reports.push(await add(api, projectId, "summaries", `Dismissal report ${index + 1}`));
+    await open(page, projectId, "summaries");
+    await expect(page.locator(".job-report-items > article")).toHaveCount(6);
+    const target = reports[3];
+    const card = page.locator(`[data-work-item-id="${target.id}"]`);
+    const button = card.getByRole("button", { name: "Dismiss", exact: true });
+    await button.scrollIntoViewIfNeeded();
+    const before = await card.boundingBox();
+    const following = page.locator(`[data-work-item-id="${reports[2].id}"]`);
+    const followingBefore = await following.boundingBox();
+    await expect(button).toHaveClass("button button-primary");
+    await expect(card.getByRole("button", { name: "Create Follow-up", exact: true })).toHaveClass("button button-secondary");
+    expect(await card.locator(".report-card-actions button").allTextContents()).toEqual(["Open original work", "Create Follow-up", "Dismiss"]);
+    await page.screenshot({ path: testInfo.outputPath("summary-dismiss-primary.png"), fullPage: true });
+    await observeMotion(page);
+    await button.click();
+    const exiting = page.locator(`[data-work-item-exit-id="${target.id}"]`);
+    await expect(exiting).toHaveCSS("opacity", "0.5");
+    const during = await exiting.boundingBox();
+    expect(during!.y).toBeCloseTo(before!.y, 0);
+    expect(during!.height).toBeCloseTo(before!.height, 0);
+    await expect(exiting).toHaveAttribute("inert", "");
+    await expect(exiting).toHaveAttribute("aria-hidden", "true");
+    expect((await following.boundingBox())!.y).toBeCloseTo(followingBefore!.y, 0);
+    const rebound = await following.evaluate((element) => {
+      const animation = element.getAnimations().find((value) => value.effect instanceof KeyframeEffect && value.effect.getKeyframes().some((frame) => frame.transform));
+      if (!animation || !(animation.effect instanceof KeyframeEffect)) throw new Error("The upward rebound is missing.");
+      return { state: animation.playState, frames: animation.effect.getKeyframes().map((frame) => frame.transform), duration: animation.effect.getTiming().duration };
+    });
+    expect(rebound.state).toBe("paused");
+    expect(Number.parseFloat(String(rebound.frames[0]).slice("translateY(".length))).toBeGreaterThan(0);
+    expect(rebound.frames.at(-1)).toBe("translateY(0px)");
+    expect(rebound.duration).toBe(WORK_ITEM_SLIDE_DURATION_MS);
+    await page.screenshot({ path: testInfo.outputPath("summary-dismiss-fade.png"), fullPage: true });
+    await exiting.evaluate((element) => element.getAnimations().forEach((animation) => animation.finish()));
+    await expect.poll(() => following.evaluate((element) => element.getAnimations().some((animation) => animation.playState === "running"))).toBe(true);
+    await finishMotion(page);
+    await expect.poll(() => page.locator(".job-report-items").evaluate((element) => (element as HTMLElement).style.minHeight)).toBe("");
+  } finally { await api.dispose(); }
+});
+
+
+test("summary Dismiss fades the final card without losing it to scroll clamping", async ({ page }) => {
+  const { api, projectId } = await fixture();
+  try {
+    const item = await add(api, projectId, "summaries", "Last summary to dismiss");
+    await page.setViewportSize({ width: page.viewportSize()!.width, height: 550 });
+    await open(page, projectId, "summaries");
+    const card = page.locator(`[data-work-item-id="${item.id}"]`);
+    const button = card.getByRole("button", { name: "Dismiss", exact: true });
+    await button.scrollIntoViewIfNeeded();
+    const before = await card.boundingBox();
+    await observeMotion(page);
+    await button.click();
+    const exiting = page.locator(`[data-work-item-exit-id="${item.id}"]`);
+    await expect(exiting).toHaveCSS("opacity", "0.5");
+    expect((await exiting.boundingBox())!.y).toBeCloseTo(before!.y, 0);
+    await finishMotion(page);
+    await expect(page.getByRole("heading", { name: "You’re caught up." })).toBeVisible();
+    await expect(page.locator(".job-report-items")).toHaveCSS("display", "none");
+    await expect.poll(() => page.locator(".job-report-items").evaluate((element) => (element as HTMLElement).style.minHeight)).toBe("");
+  } finally { await api.dispose(); }
+});
+
+test("summary Dismiss continues an existing fade during a second dismissal", async ({ page }) => {
+  const { api, projectId } = await fixture();
+  try {
+    const items: Item[] = [];
+    for (let index = 0; index < 6; index += 1) items.push(await add(api, projectId, "summaries", `Rapid dismissal ${index + 1}`));
+    await open(page, projectId, "summaries");
+    await expect(page.locator(".job-report-items > article")).toHaveCount(6);
+    await observeMotion(page);
+    await page.locator(`[data-work-item-id="${items[4].id}"]`).getByRole("button", { name: "Dismiss", exact: true }).click();
+    const firstExit = page.locator(`[data-work-item-exit-id="${items[4].id}"]`);
+    await expect(firstExit).toHaveCSS("opacity", "0.5");
+    const next = page.locator(`[data-work-item-id="${items[3].id}"]`);
+    const button = next.getByRole("button", { name: "Dismiss", exact: true });
+    await button.scrollIntoViewIfNeeded();
+    const before = await next.boundingBox();
+    await button.click();
+    const secondExit = page.locator(`[data-work-item-exit-id="${items[3].id}"]`);
+    await expect(secondExit).toHaveCSS("opacity", "0.5");
+    expect((await secondExit.boundingBox())!.y).toBeCloseTo(before!.y, 0);
+    await expect(firstExit).toHaveCSS("opacity", "0.25");
+    await finishMotion(page);
+    await expect.poll(() => page.locator(".job-report-items").evaluate((element) => (element as HTMLElement).style.minHeight)).toBe("");
+    await expect(page.locator(".job-report-items > article")).toHaveCount(4);
+  } finally { await api.dispose(); }
+});

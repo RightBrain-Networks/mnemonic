@@ -89,3 +89,16 @@ test("inbox motion handles a full-page replacement without a total count change"
   assert.equal(planWorkItemMotion(["a", "b"], 2, ["b", "a"], 2, true), null);
   assert.equal(planWorkItemMotion(["a"], 1, ["a"], 1, true), null);
 });
+
+
+test("upward rebound mirrors the downward bounce and settles at the new position", () => {
+  const upward = workItemSlideKeyframes(120);
+  const downward = workItemSlideKeyframes(-120);
+  assert.deepEqual(upward[0], { transform: "translateY(120px)", offset: 0 });
+  assert.deepEqual(upward.at(-1), { transform: "translateY(0px)", offset: 1 });
+  upward.forEach((frame, index) => {
+    const distance = Number.parseFloat(frame.transform.slice("translateY(".length));
+    const mirrored = Number.parseFloat(downward[index].transform.slice("translateY(".length));
+    assert.ok(Math.abs(distance + mirrored) < 1e-10);
+  });
+});

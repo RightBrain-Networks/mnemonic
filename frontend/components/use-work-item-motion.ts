@@ -13,6 +13,7 @@ type ItemSnapshot = {
   element: HTMLElement;
   documentLeft: number;
   documentTop: number;
+  visualDocumentTop: number;
   width: number;
   height: number;
   opacity: string;
@@ -25,6 +26,7 @@ type MotionSnapshot = {
   items: Map<string, ItemSnapshot>;
   // The nearest scrolling ancestor of the list; positions are recorded relative to its content.
   scroller: HTMLElement | null;
+  height: number;
 };
 
 type EnteringState = {
@@ -35,6 +37,7 @@ type EnteringState = {
 };
 
 type ExitingState = {
+  deferSlide?: boolean;
   element: HTMLElement;
   reposition: () => void;
   scroller: HTMLElement | null;
@@ -49,6 +52,8 @@ type MotionOptions = {
   enabled?: boolean;
   // Cursor inboxes can replace a visible row without changing the page length.
   animateReplacements?: boolean;
+  // Hold the gap through the exit fade, then rebound surviving cards upward.
+  reboundOnRemoval?: boolean;
 };
 
 function directWorkItems(list: HTMLElement): Map<string, HTMLElement> {
@@ -86,7 +91,8 @@ export function useWorkItemMotion<T extends HTMLElement>({
   revision,
   snapshotSignal,
   enabled = true,
-  animateReplacements = false
+  animateReplacements = false,
+  reboundOnRemoval = false
 }: MotionOptions): RefObject<T | null> {
   const listRef = useRef<T>(null);
   const snapshotRef = useRef<MotionSnapshot | null>(null);
@@ -94,6 +100,7 @@ export function useWorkItemMotion<T extends HTMLElement>({
   const enteringRef = useRef(new Map<string, EnteringState>());
   const exitingRef = useRef(new Map<string, ExitingState>());
   const generationRef = useRef(0);
+  const exitLayoutRef = useRef<{ element: HTMLElement; minHeight: string; display: string } | null>(null);
   const itemIdsKey = itemIds.join("\u0000");
 
   function cancelAnimations() {
@@ -120,10 +127,20 @@ export function useWorkItemMotion<T extends HTMLElement>({
     exitingRef.current.clear();
   }
 
+  function releaseExitLayout() {
+    const layout = exitLayoutRef.current;
+    if (!layout) return;
+    layout.element.style.minHeight = layout.minHeight;
+    layout.element.style.display = layout.display;
+    exitLayoutRef.current = null;
+    if (snapshotRef.current) snapshotRef.current.height = layout.element.getBoundingClientRect().height;
+  }
+
   function cancelMotion() {
     cancelAnimations();
     releaseEntering();
     releaseExiting();
+    releaseExitLayout();
   }
 
   useLayoutEffect(() => {
@@ -151,21 +168,41 @@ export function useWorkItemMotion<T extends HTMLElement>({
     const motionActive = animationsRef.current.size > 0
       || enteringRef.current.size > 0
       || exitingRef.current.size > 0;
-    if (sameResult && motionActive && list && enabled && !reducedMotion) return;
+    if (sameResult && motionActive && list && enabled && !reducedMotion) {
+      for (const item of previous.items.values()) {
+        if (item.element.isConnected) item.visualDocumentTop = documentTop(item.element, previous.scroller);
+      }
+      return;
+    }
 
     const generation = ++generationRef.current;
+    const plan = list && total !== null && previous?.viewKey === viewKey
+      && enabled && !reducedMotion
+      ? planWorkItemMotion(previous.itemIds, previous.total, itemIds, total, animateReplacements)
+      : null;
+    if (list && previous && plan?.removedIds.length && reboundOnRemoval) {
+      exitLayoutRef.current ??= {
+        element: list, minHeight: list.style.minHeight, display: list.style.display
+      };
+      // Preserve the scroll range before any layout read can clamp it after deletion.
+      list.style.minHeight = `${previous.height}px`;
+      list.style.display = "grid";
+    }
     const scroller = list ? scrollingAncestor(list) : null;
     const elementsBeforeCancel = list ? directWorkItems(list) : new Map<string, HTMLElement>();
     const visualTops = new Map(
       [...elementsBeforeCancel].map(([id, element]) => [id, documentTop(element, scroller)])
     );
-    const plan = list && total !== null && previous?.viewKey === viewKey
-      && enabled && !reducedMotion
-      ? planWorkItemMotion(previous.itemIds, previous.total, itemIds, total, animateReplacements)
-      : null;
 
+    // A second dismissal must continue any existing fade from its visible opacity.
+    for (const state of exitingRef.current.values()) {
+      state.element.style.opacity = getComputedStyle(state.element).opacity;
+    }
     cancelAnimations();
-    releaseExiting();
+    if (!plan || !reboundOnRemoval) {
+      releaseExiting();
+      releaseExitLayout();
+    }
 
     if (!list || total === null) {
       releaseEntering();
@@ -175,7 +212,7 @@ export function useWorkItemMotion<T extends HTMLElement>({
 
     const elements = directWorkItems(list);
     const items = itemSnapshots(elements, scroller);
-    snapshotRef.current = { viewKey, itemIds: [...itemIds], total, items, scroller };
+    snapshotRef.current = { viewKey, itemIds: [...itemIds], total, items, scroller, height: list.getBoundingClientRect().height };
 
     if (!plan || !previous) {
       releaseEntering();
@@ -207,9 +244,13 @@ export function useWorkItemMotion<T extends HTMLElement>({
 
     for (const id of plan.removedIds) {
       const item = previous.items.get(id);
-      if (item) exitingRef.current.set(id, createExitingState(id, item, previous.scroller));
+      if (item) exitingRef.current.set(id, {
+        ...createExitingState(id, item, previous.scroller),
+        deferSlide: reboundOnRemoval && plan.addedIds.length === 0
+      });
     }
 
+    const fadeOutFirst = reboundOnRemoval && [...exitingRef.current.values()].some((state) => state.deferSlide);
     const slideAnimations: Animation[] = [];
     for (const id of plan.retainedIds) {
       const element = elements.get(id);
@@ -221,17 +262,37 @@ export function useWorkItemMotion<T extends HTMLElement>({
       // Remove the newest layout shift from the still-animated visual position.
       const layoutShift = currentTop - previousTop;
       const deltaY = visualTop - layoutShift - currentTop;
-      if (deltaY >= -0.5) continue;
+      if (Math.abs(deltaY) < 0.5 || (deltaY > 0 && !reboundOnRemoval)) continue;
       const animation = element.animate(workItemSlideKeyframes(deltaY), {
         duration: WORK_ITEM_SLIDE_DURATION_MS,
         easing: "linear",
         fill: "both"
       });
+      if (fadeOutFirst) { animation.pause(); animation.currentTime = 0; }
       animationsRef.current.add(animation);
       slideAnimations.push(animation);
     }
 
-    void Promise.all(slideAnimations.map((animation) => animation.finished.catch(() => undefined)))
+    const slidesFinished = Promise.all(slideAnimations.map((animation) => animation.finished.catch(() => undefined)));
+    const departures = fadeOutFirst ? [...exitingRef.current.entries()] : [];
+    const exitFades = departures.map(([, state]) => {
+      const animation = state.element.animate([
+        { opacity: getComputedStyle(state.element).opacity }, { opacity: 0 }
+      ], { duration: WORK_ITEM_FADE_DURATION_MS, easing: EASE_IN_OUT_QUINT, fill: "both" });
+      animationsRef.current.add(animation);
+      return animation;
+    });
+    void Promise.all(exitFades.map((animation) => animation.finished.catch(() => undefined)))
+      .then(() => {
+        if (generationRef.current !== generation) return;
+        for (const [id, state] of departures) {
+          removeExiting(state);
+          exitingRef.current.delete(id);
+        }
+        for (const animation of exitFades) { animationsRef.current.delete(animation); animation.cancel(); }
+        if (fadeOutFirst) for (const animation of slideAnimations) animation.play();
+        return slidesFinished;
+      })
       .then(() => {
         if (generationRef.current !== generation) return;
         for (const animation of slideAnimations) {
@@ -286,10 +347,11 @@ export function useWorkItemMotion<T extends HTMLElement>({
               animationsRef.current.delete(animation);
               animation.cancel();
             }
+            releaseExitLayout();
           });
       });
 
-  }, [animateReplacements, enabled, itemIdsKey, revision, snapshotSignal, total, viewKey]);
+  }, [animateReplacements, reboundOnRemoval, enabled, itemIdsKey, revision, snapshotSignal, total, viewKey]);
 
   return listRef;
 }
@@ -304,6 +366,7 @@ function itemSnapshots(
       element,
       documentLeft: rect.left + window.scrollX + (scroller?.scrollLeft ?? 0),
       documentTop: rect.top + window.scrollY + (scroller?.scrollTop ?? 0),
+      visualDocumentTop: rect.top + window.scrollY + (scroller?.scrollTop ?? 0),
       width: rect.width,
       height: rect.height,
       opacity: getComputedStyle(element).opacity
@@ -344,7 +407,7 @@ function createExitingState(
   const reposition = () => {
     element.style.transform = `translate(${
       snapshot.documentLeft - window.scrollX - (scroller?.scrollLeft ?? 0)
-    }px, ${snapshot.documentTop - window.scrollY - (scroller?.scrollTop ?? 0)}px)`;
+    }px, ${snapshot.visualDocumentTop - window.scrollY - (scroller?.scrollTop ?? 0)}px)`;
   };
   reposition();
   document.body.append(element);
