@@ -206,3 +206,36 @@ async def test_download_failures_keep_safe_read_semantics_without_implicit_retry
     assert "Last observed configuration" in message
     for forbidden in ("private upstream", "untrusted.invalid", "mutation outcome", "operation UUID"):
         assert forbidden not in message
+
+
+@pytest.mark.parametrize("field", ["agent_session_id", "actor_client"])
+async def test_download_secret_echo_is_a_sanitized_definite_read_rejection(settings, field):
+    requests = []
+    private_marker = "private download actor diagnostic"
+
+    def handler(request):
+        requests.append(request)
+        if not request.url.path.endswith("/content"):
+            return httpx.Response(200, json=artifact())
+        assert request.method == "GET"
+        assert json.loads(request.headers["x-artifact-metadata"])[field] == settings.api_key
+        assert "x-client-operation-id" not in request.headers
+        return httpx.Response(422, json={"detail": {
+            "code": "client_operation_secret_echo",
+            "message": f"{private_marker}: {settings.api_key}",
+            "context": {"private": private_marker, "credential": settings.api_key},
+        }})
+
+    with pytest.raises(ToolError) as raised:
+        await call(settings, "download_artifact", download_arguments(**{field: settings.api_key}),
+                   handler)
+    message = str(raised.value)
+    assert "rejected the safe read" in message
+    assert "caller context" in message
+    assert "Last observed configuration" in message
+    for forbidden in (
+        settings.api_key, private_marker, "mutation", "UUID", "client_operation_id",
+        "new intent", "unknown outcome",
+    ):
+        assert forbidden not in message
+    assert len(requests) == 2

@@ -36,6 +36,15 @@ download event. No production files, permissions, services or historical audit
 rows were changed. Deployment and client schema/plugin refresh are separate
 operator actions. Full MCP and required CI remain merge gates.
 
+The full MCP suite passed 1,236 tests in 177.16 seconds, including isolated
+plugin install/update checks. A cold adversarial review then independently
+passed 195 MCP and 31 PostgreSQL artifact tests and found that credential-echo
+rejection incorrectly instructed safe-read callers to generate a mutation UUID.
+Two public download regressions reproduced that message. A safe-read-only error
+branch corrected it without changing the protected-write rejection text; 117
+focused tests, Ruff and typing passed afterward. Required CI and the complete
+post-correction MCP suite remain merge gates.
+
 ## Actionable artifact storage faults — 2026-09-08
 
 Release `0.28.0` adds controlled filesystem causes to

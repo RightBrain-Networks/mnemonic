@@ -484,6 +484,11 @@ def _raise_application_error_response(
         and error_code == "client_operation_conflict"
     ):
         raise ToolError(_CLIENT_OPERATION_CONFLICT)
+    if effect == TransportEffect.SAFE_READ and error_code == "client_operation_secret_echo":
+        raise ToolError(
+            "Mnemonic rejected the safe read because credential or capability material appeared "
+            "in caller context. Remove it and retry with truthful caller context."
+        )
     message = _application_error_message(error_code, error_context)
     if message is not None:
         raise ToolError(message)
