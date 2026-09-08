@@ -2767,36 +2767,41 @@ def _catalog_on_pg_catalog_path(
             connection.scalars(
                 text(
                     """
-                    SELECT index_relation.relname
-                    FROM pg_catalog.pg_index AS index
-                    JOIN pg_catalog.pg_class AS index_relation
-                      ON index_relation.oid = index.indexrelid
-                    JOIN pg_catalog.pg_class AS table_relation
-                      ON table_relation.oid = index.indrelid
-                    JOIN pg_catalog.pg_namespace AS namespace
-                      ON namespace.oid = index_relation.relnamespace
-                    JOIN pg_catalog.pg_am AS access_method
-                      ON access_method.oid = index_relation.relam
-                    WHERE namespace.nspname = CAST(:audit_schema AS text)
-                      AND index_relation.relname = ANY(:names)
-                      AND table_relation.relname = 'work_items'
-                      AND access_method.amname = 'btree'
-                      AND index.indisvalid
-                      AND index.indisready
-                      AND NOT index.indisunique
-                      AND index.indnkeyatts = 3
-                      AND pg_catalog.pg_get_indexdef(index.indexrelid, 1, true)
+                    -- Scope OIDs before deparsing: unrelated schemas can undergo DDL.
+                    WITH scoped_indexes AS MATERIALIZED (
+                        SELECT index_relation.relname, index.indexrelid,
+                               index.indrelid, index.indpred
+                        FROM pg_catalog.pg_index AS index
+                        JOIN pg_catalog.pg_class AS index_relation
+                          ON index_relation.oid = index.indexrelid
+                        JOIN pg_catalog.pg_class AS table_relation
+                          ON table_relation.oid = index.indrelid
+                        JOIN pg_catalog.pg_namespace AS namespace
+                          ON namespace.oid = index_relation.relnamespace
+                        JOIN pg_catalog.pg_am AS access_method
+                          ON access_method.oid = index_relation.relam
+                        WHERE namespace.nspname = CAST(:audit_schema AS text)
+                          AND index_relation.relname = ANY(:names)
+                          AND table_relation.relname = 'work_items'
+                          AND access_method.amname = 'btree'
+                          AND index.indisvalid
+                          AND index.indisready
+                          AND NOT index.indisunique
+                          AND index.indnkeyatts = 3
+                    )
+                    SELECT relname FROM scoped_indexes
+                    WHERE pg_catalog.pg_get_indexdef(indexrelid, 1, true)
                           = 'project_id'
                       AND pg_catalog.replace(
-                          pg_catalog.pg_get_indexdef(index.indexrelid, 2, true),
+                          pg_catalog.pg_get_indexdef(indexrelid, 2, true),
                           pg_catalog.quote_ident(CAST(:audit_schema AS text))
                               OPERATOR(pg_catalog.||) '.',
                           ''
                       ) = 'mnemonic_duplicate_title_key_v1(title::text)'
-                      AND pg_catalog.pg_get_indexdef(index.indexrelid, 3, true)
+                      AND pg_catalog.pg_get_indexdef(indexrelid, 3, true)
                           = 'id'
                       AND pg_catalog.pg_get_expr(
-                          index.indpred, index.indrelid, true
+                          indpred, indrelid, true
                       ) IN ('deleted_at IS NULL', '(deleted_at IS NULL)')
                     """
                 ),
@@ -2878,42 +2883,47 @@ def _catalog_on_pg_catalog_path(
                                 'artifact_references', false, 2,
                                 'completion_checkpoint_id', 'id', NULL, '0 0', NULL
                             )
+                    -- Keep deparsers outside the scope-selection optimization fence.
+                    ), scoped_indexes AS MATERIALIZED (
+                        SELECT index_relation.relname, index.indexrelid,
+                               index.indrelid, index.indpred, expected.key_one,
+                               expected.key_two, expected.key_three, expected.predicate
+                        FROM expected
+                        JOIN pg_catalog.pg_class AS index_relation
+                          ON index_relation.relname = expected.index_name
+                        JOIN pg_catalog.pg_namespace AS namespace
+                          ON namespace.oid = index_relation.relnamespace
+                        JOIN pg_catalog.pg_index AS index
+                          ON index.indexrelid = index_relation.oid
+                        JOIN pg_catalog.pg_class AS table_relation
+                          ON table_relation.oid = index.indrelid
+                         AND table_relation.relname = expected.table_name
+                        JOIN pg_catalog.pg_am AS access_method
+                          ON access_method.oid = index_relation.relam
+                        WHERE namespace.nspname = CAST(:audit_schema AS text)
+                          AND access_method.amname = 'btree'
+                          AND index.indisvalid
+                          AND index.indisready
+                          AND index.indisunique = expected.is_unique
+                          AND index.indnkeyatts = expected.key_count
+                          AND index.indoption::text = expected.key_options
                     )
-                    SELECT index_relation.relname
-                    FROM expected
-                    JOIN pg_catalog.pg_class AS index_relation
-                      ON index_relation.relname = expected.index_name
-                    JOIN pg_catalog.pg_namespace AS namespace
-                      ON namespace.oid = index_relation.relnamespace
-                    JOIN pg_catalog.pg_index AS index
-                      ON index.indexrelid = index_relation.oid
-                    JOIN pg_catalog.pg_class AS table_relation
-                      ON table_relation.oid = index.indrelid
-                     AND table_relation.relname = expected.table_name
-                    JOIN pg_catalog.pg_am AS access_method
-                      ON access_method.oid = index_relation.relam
-                    WHERE namespace.nspname = CAST(:audit_schema AS text)
-                      AND access_method.amname = 'btree'
-                      AND index.indisvalid
-                      AND index.indisready
-                      AND index.indisunique = expected.is_unique
-                      AND index.indnkeyatts = expected.key_count
-                      AND index.indoption::text = expected.key_options
-                      AND pg_catalog.pg_get_indexdef(index.indexrelid, 1, true)
-                          = expected.key_one
-                      AND pg_catalog.pg_get_indexdef(index.indexrelid, 2, true)
-                          = expected.key_two
+                    SELECT relname FROM scoped_indexes
+                    WHERE pg_catalog.pg_get_indexdef(indexrelid, 1, true)
+                          = key_one
+                      AND pg_catalog.pg_get_indexdef(indexrelid, 2, true)
+                          = key_two
                       AND (
-                          expected.key_three IS NULL
-                          OR pg_catalog.pg_get_indexdef(index.indexrelid, 3, true)
-                              = expected.key_three
+                          key_three IS NULL
+                          OR pg_catalog.pg_get_indexdef(indexrelid, 3, true)
+                              = key_three
                       )
                       AND COALESCE(
                           pg_catalog.pg_get_expr(
-                              index.indpred, index.indrelid, true
+                              indpred, indrelid, true
                           ),
                           ''
-                      ) = COALESCE(expected.predicate, '')
+                      ) = COALESCE(predicate, '')
                     """
                 ),
                 {"audit_schema": audit_schema},
