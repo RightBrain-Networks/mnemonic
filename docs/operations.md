@@ -106,8 +106,8 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.24.0`, plugin `0.19.0`,
-and Alembic `0026_artifact_library`. Inventory exactly 46 MCP tools,
+The current coordinated boundary is API/MCP/dashboard `0.25.0`, plugin `0.20.0`,
+and Alembic `0027_artifact_fulltext`. Inventory exactly 46 MCP tools,
 16 protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
@@ -119,7 +119,11 @@ Before the artifact upgrade, create the private host bind directory and configur
 the shared API/dashboard upload limit as described in [artifact deployment](artifacts.md#deployment).
 Artifact receipts add three journal-backed kinds to the existing 18 REST kinds.
 Artifact content is outside PostgreSQL and outside the database backup job;
-replacement and deletion preserve metadata only.
+replacement and deletion preserve metadata only. Migration 0027 adds current
+normalized extracted text and durable Tika document properties; existing current
+files are queued automatically. Upgrade the private Tika service with the API,
+MCP and dashboard. Database backups now contain extracted text and must be treated
+as sensitive document copies. See [extraction configuration and retention](artifacts.md).
 
 `MNEMONIC_ARTIFACT_MAX_BYTES` in `.env` defaults to `67108864` (64 MiB); set it
 to `0` to disable all artifact operations without deleting retained files or
@@ -966,7 +970,7 @@ from the same revision: the frozen digests and the code that computes them are
 one unit, and a mismatched pair reports drift against an unchanged schema.
 `scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.24.0` clients and plugin `0.19.0` together.
+failure, and inventory deployed `0.25.0` clients and plugin `0.20.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 All three audits pin the PostgreSQL session settings that decide how the server
@@ -1208,7 +1212,8 @@ Only successful publication prunes older archives for that project:
 A failed backup retains previous successful archives.
 
 Archives include project database records, immutable histories, leases,
-relationships, settings, reports, artifact metadata and completed operation
+relationships, settings, reports, artifact metadata, normalized extracted text,
+retained Tika document properties and completed operation
 receipts. **Artifact file contents are excluded.** A separate backup system owns
 those files. No artifact storage directory is mounted in the backup container.
 

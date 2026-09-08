@@ -307,7 +307,7 @@ def test_project_scope_link_validation_search_and_sorting(api, project, work_pay
     assert api.get(collection(other_project) + "/" + first["id"]).status_code == 404
     assert api.get(collection(project), params={"limit": 101}).status_code == 422
     assert (
-        api.post(collection(project) + "/search-content", json={"q": "private"}).status_code == 501
+        api.post(collection(project) + "/search-content", json={"q": "private"}).status_code == 200
     )
 
 

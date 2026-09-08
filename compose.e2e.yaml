@@ -24,6 +24,7 @@ services:
       MNEMONIC_LEASE_TTL_SECONDS: 60
       MNEMONIC_ARTIFACT_ROOT: /var/lib/mnemonic/artifacts
       MNEMONIC_ARTIFACT_MAX_BYTES: 67108864
+      MNEMONIC_ARTIFACT_TIKA_URL: http://tika:9998
     volumes:
       - type: bind
         source: ${MNEMONIC_E2E_ARTIFACT_DIR:?Run through the isolated test runner}
@@ -32,6 +33,7 @@ services:
           create_host_path: false
     ports:
       - '127.0.0.1:${MNEMONIC_E2E_API_PORT:?Run through scripts/test-e2e.sh}:8000'
+    networks: [default, artifact_parser]
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,6 +46,30 @@ services:
     init: true
     restart: "no"
     security_opt: [no-new-privileges:true]
+
+  tika:
+    build: ./deploy/tika
+    networks: [artifact_parser]
+    dns: [127.0.0.1]
+    logging:
+      driver: none
+    healthcheck:
+      test: [CMD, bash, /opt/mnemonic-tika/healthcheck.sh]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      - /tmp:size=1280m,mode=1777,noexec,nosuid,nodev
+    mem_limit: 2g
+    memswap_limit: 2g
+    cpus: 2
+    pids_limit: 128
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    restart: "no"
 
   web:
     build: ./frontend
@@ -102,3 +128,7 @@ services:
     init: true
     restart: "no"
     security_opt: [no-new-privileges:true]
+
+networks:
+  artifact_parser:
+    internal: true

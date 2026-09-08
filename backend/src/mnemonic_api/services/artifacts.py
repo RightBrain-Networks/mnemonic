@@ -15,13 +15,14 @@ from datetime import UTC, datetime
 from typing import Any, BinaryIO, Literal
 from uuid import UUID
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import Text, cast, exists, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from mnemonic_api.artifact_schemas import (
     ArtifactActor,
     ArtifactAuditRead,
+    ArtifactExtractionRead,
     ArtifactHistory,
     ArtifactHistoryQuery,
     ArtifactListQuery,
@@ -35,6 +36,7 @@ from mnemonic_api.errors import ApplicationError, client_operation_conflict, con
 from mnemonic_api.models import (
     Artifact,
     ArtifactAudit,
+    ArtifactExtraction,
     ArtifactOperation,
     ArtifactRevision,
     ArtifactWorkLink,
@@ -95,7 +97,7 @@ def artifact_read(database: Session, artifact: Artifact) -> ArtifactRead:
     fields = {
         key: getattr(artifact, key)
         for key in ArtifactRead.model_fields
-        if key not in {"related_work_item_ids", "content_available"}
+        if key not in {"related_work_item_ids", "content_available", "extraction"}
     }
     return ArtifactRead(
         **fields,
@@ -103,7 +105,21 @@ def artifact_read(database: Session, artifact: Artifact) -> ArtifactRead:
             value for value in linked if value != artifact.originating_work_item_id
         ],
         content_available=artifact.revision > 0 and artifact.deleted_at is None,
+        extraction=extraction_read(database, artifact.id, artifact.revision),
     )
+
+
+def extraction_read(database: Session, artifact_id: UUID, revision: int) -> ArtifactExtractionRead:
+    extraction = database.get(ArtifactExtraction, (artifact_id, revision), populate_existing=True)
+    if extraction is None:
+        return ArtifactExtractionRead()
+    return ArtifactExtractionRead.model_validate({
+        "status": extraction.status,
+        "metadata": extraction.extracted_metadata,
+        "truncated": extraction.truncated,
+        "error_code": extraction.error_code,
+        "extracted_at": extraction.extracted_at,
+    })
 
 
 def _validate_links(database: Session, project_id: UUID, metadata: ArtifactUploadMetadata) -> None:
@@ -442,6 +458,16 @@ def _metadata_match(model: Any, query: str):
     return or_(*(column.icontains(query, autoescape=True) for column in columns))
 
 
+def _extraction_metadata_match(artifact_id, query: str, revision=None):
+    clauses = [
+        ArtifactExtraction.artifact_id == artifact_id,
+        cast(ArtifactExtraction.extracted_metadata, Text).icontains(query, autoescape=True),
+    ]
+    if revision is not None:
+        clauses.append(ArtifactExtraction.revision == revision)
+    return exists(select(ArtifactExtraction.artifact_id).where(*clauses))
+
+
 def list_artifacts(
     database: Session, project_id: UUID, filters: ArtifactListQuery
 ) -> ArtifactPage[ArtifactRead]:
@@ -469,7 +495,11 @@ def list_artifacts(
             )
             for model in (ArtifactRevision, ArtifactAudit)
         ]
-        clauses.append(or_(_metadata_match(Artifact, filters.q), *historical))
+        clauses.append(or_(
+            _metadata_match(Artifact, filters.q),
+            _extraction_metadata_match(Artifact.id, filters.q),
+            *historical,
+        ))
     total = database.scalar(select(func.count()).select_from(Artifact).where(*clauses)) or 0
     column = getattr(Artifact, filters.sort)
     ordering = column.desc() if filters.order == "desc" else column.asc()
@@ -499,7 +529,12 @@ def artifact_history(
     ):
         clauses = [model.artifact_id == artifact_id]
         if filters.q:
-            clauses.append(_metadata_match(model, filters.q))
+            match = _metadata_match(model, filters.q)
+            if model is ArtifactRevision:
+                match = or_(match, _extraction_metadata_match(
+                    ArtifactRevision.artifact_id, filters.q, ArtifactRevision.revision,
+                ))
+            clauses.append(match)
         total = database.scalar(select(func.count()).select_from(model).where(*clauses)) or 0
         rows = database.scalars(
             select(model)
@@ -509,12 +544,19 @@ def artifact_history(
             .offset(filters.offset)
         ).all()
         pages[name] = {
-            "items": [schema.model_validate(row) for row in rows],
+            "items": [_history_read(database, schema, row) for row in rows],
             "total": total,
             "limit": filters.limit,
             "offset": filters.offset,
         }
     return ArtifactHistory(**pages)
+
+
+def _history_read(database: Session, schema, row):
+    result = schema.model_validate(row)
+    if isinstance(result, ArtifactRevisionRead):
+        result.extraction = extraction_read(database, row.artifact_id, row.revision)
+    return result
 
 
 def work_artifacts(
@@ -559,8 +601,3 @@ def open_artifact(
         except BaseException:
             content.close()
             raise
-
-
-def search_artifact_contents() -> None:
-    """Reserved extension point. Untrusted artifact contents are not parsed or indexed."""
-    raise ApplicationError(501, "unimplemented", "Artifact content search is unimplemented.")

@@ -66,7 +66,7 @@ _AUDIT_VISIBLE_DAMAGE = (
 
 _GUARDED_TABLES = (
     "artifacts", "artifact_revisions", "artifact_audit",
-    "artifact_work_links", "artifact_operations",
+    "artifact_work_links", "artifact_operations", "artifact_extractions",
     "work_completion_review_policies",
     "work_agent_follow_ups",
     "work_agent_follow_up_answers",

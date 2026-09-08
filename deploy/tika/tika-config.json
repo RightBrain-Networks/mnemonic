@@ -1,0 +1,31 @@
+{
+  "server": {
+    "endpoints": ["rmeta", "version"],
+    "allowPipes": false,
+    "allowPerRequestConfig": false,
+    "maxRequestSizeBytes": 1073741824
+  },
+  "pipes": {
+    "numClients": 1,
+    "maxWaitForClientMillis": 1000,
+    "maxInlineBytes": 1048576,
+    "maxIpcPayloadBytes": 67108864,
+    "forkedJvmArgs": [
+      "-Xms32m", "-Xmx512m", "-XX:ActiveProcessorCount=2",
+      "-Djava.awt.headless=true", "-Djava.io.tmpdir=/tmp", "-Duser.home=/tmp"
+    ]
+  },
+  "parsers": [
+    {"default-parser": {}},
+    {"pdf-parser": {"ocr": {"strategy": "NO_OCR"}}},
+    {"tesseract-ocr-parser": {"skipOcr": true}}
+  ],
+  "parse-context": {
+    "output-limits": {"writeLimit": __MAX_CHARS__, "throwOnWriteLimit": true},
+    "embedded-limits": {"maxCount": 64, "maxDepth": 8},
+    "timeout-limits": {
+      "totalTaskTimeoutMillis": __TIMEOUT_MILLIS__,
+      "progressTimeoutMillis": __TIMEOUT_MILLIS__
+    }
+  }
+}

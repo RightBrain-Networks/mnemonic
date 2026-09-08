@@ -47,6 +47,14 @@ class ArtifactUploadMetadata(ArtifactActor):
         return value
 
 
+class ArtifactExtractionRead(ArtifactModel):
+    status: Literal["pending", "processing", "ready", "failed", "superseded", "deleted"] = "pending"
+    metadata: dict[str, list[str]] = Field(default_factory=dict)
+    truncated: bool = False
+    error_code: str | None = None
+    extracted_at: datetime | None = None
+
+
 class ArtifactRead(ArtifactModel):
     id: UUID
     project_id: UUID
@@ -64,6 +72,7 @@ class ArtifactRead(ArtifactModel):
     modified_at: datetime
     deleted_at: datetime | None
     content_available: bool
+    extraction: ArtifactExtractionRead = Field(default_factory=ArtifactExtractionRead)
 
 
 class ArtifactRevisionRead(ArtifactActor):
@@ -76,6 +85,7 @@ class ArtifactRevisionRead(ArtifactActor):
     mime_type: str | None
     related_work_item_ids: list[UUID] = Field(max_length=50)
     created_at: datetime
+    extraction: ArtifactExtractionRead = Field(default_factory=ArtifactExtractionRead)
 
 
 class ArtifactAuditRead(ArtifactActor):

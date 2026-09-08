@@ -28,6 +28,7 @@ from mnemonic_api.artifact_schemas import (
     ArtifactRead,
     ArtifactUploadMetadata,
 )
+from mnemonic_api.artifact_search_schemas import ArtifactSearchPage, ArtifactSearchRequest
 from mnemonic_api.artifact_storage import (
     ArtifactStorage,
     ArtifactTooLarge,
@@ -43,6 +44,7 @@ from mnemonic_api.errors import (
     client_operation_secret_echo,
 )
 from mnemonic_api.schemas import APIModel
+from mnemonic_api.services.artifact_search import ArtifactSearchIndex, search_artifact_contents
 from mnemonic_api.services.artifacts import (
     ArtifactMutation,
     artifact_history,
@@ -55,7 +57,6 @@ from mnemonic_api.services.artifacts import (
     recover_project_artifacts,
     replay_artifact_upload,
     require_artifact,
-    search_artifact_contents,
 )
 from mnemonic_api.services.client_operations import reject_client_operation_secret_echo
 
@@ -405,12 +406,66 @@ def get_artifacts(
     return list_artifacts(database, project_id, filters)
 
 
-@router.post("/projects/{project_id}/artifacts/search-content")
-def search_contents(project_id: UUID, database: Database) -> None:
-    from mnemonic_api.services.work_items import require_project
+@router.post(
+    "/projects/{project_id}/artifacts/search-content",
+    response_model=ArtifactSearchPage,
+    openapi_extra={
+        "x-mnemonic-effect": "safe_read",
+        "requestBody": {
+            "required": True,
+            "description": (
+                "Bounded JSON (4096 bytes). Literal case/accent-insensitive terms, all required. "
+                "Metadata only by default; fulltext=true also searches extracted current content. "
+                "No wildcards, operators, parser configuration or operation UUID."
+            ),
+            "content": {"application/json": {"schema": ArtifactSearchRequest.model_json_schema()}},
+        },
+    },
+)
+async def search_contents(
+    project_id: UUID, request: Request, response: Response, database: Database,
+) -> ArtifactSearchPage:
+    payload = await _search_payload(request)
+    response.headers["Cache-Control"] = "no-store"
 
-    require_project(database, project_id)
-    search_artifact_contents()
+    def search() -> ArtifactSearchPage:
+        with storage_errors(request):
+            recover_project_artifacts(database, storage_of(request), project_id)
+        database.rollback()
+        index = cast(ArtifactSearchIndex, request.app.state.artifact_search_index)
+        return search_artifact_contents(database, project_id, payload, index)
+
+    return await run_in_threadpool(search)
+
+
+async def _search_payload(request: Request) -> ArtifactSearchRequest:
+    # Enabled/auth guards run before consuming this bounded body. Safe search
+    # accepts neither operation UUIDs nor caller-controlled parser options.
+    if request.query_params or request.headers.get("content-encoding", "identity") != "identity":
+        raise ApplicationError(422, "artifact_search_invalid", "Use an unencoded JSON body.")
+    if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+        raise ApplicationError(415, "artifact_search_invalid", "Use an application/json body.")
+    body = bytearray()
+    try:
+        async with asyncio.timeout(10):
+            async for chunk in request.stream():
+                if len(body) + len(chunk) > 4096:
+                    raise ApplicationError(
+                        413, "artifact_search_too_large", "Search JSON exceeds 4096 bytes."
+                    )
+                body.extend(chunk)
+    except TimeoutError:
+        raise ApplicationError(
+            408, "artifact_search_timeout", "Search request timed out."
+        ) from None
+    try:
+        return ArtifactSearchRequest.model_validate(
+            json.loads(body, object_pairs_hook=_unique_object)
+        )
+    except ValueError, RecursionError:
+        raise ApplicationError(
+            422, "artifact_search_invalid", "Provide valid artifact search parameters."
+        ) from None
 
 
 @router.get("/projects/{project_id}/artifacts/{artifact_id}", response_model=ArtifactRead)

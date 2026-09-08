@@ -39,11 +39,18 @@ upload maximum. Successful results include an `artifact_library` summary with
 the configured byte limit, MCP's independent 64 MiB decoded transfer ceiling,
 and the effective new-upload maximum. Operators configure
 `MNEMONIC_ARTIFACT_MAX_BYTES` in the server's `.env`; `0` disables the subsystem.
-Any attempted artifact tool, including metadata/history reads and the content-search
-stub, then reports that the library is disabled instead of silently returning no
+Any attempted artifact tool, including metadata/history reads and content search,
+then reports that the library is disabled instead of silently returning no
 results. Do not try to enable it on behalf of the user. Existing bytes and history
 remain retained; uncertain writes retain their original UUID and exact arguments
 for reconciliation after reenabling. See [artifact configuration](artifacts.md).
+
+`search_artifact_contents` is a safe read with `query` and an opt-in `fulltext`
+boolean. False (the default) searches current metadata including Tika properties;
+true also searches normalized current body text using Tantivy. Results name exact
+artifact/revision identities and include match categories, plain-text excerpts and
+indexing coverage. Pending, failed or truncated extraction means missing hits are
+not conclusive. Keep snippets and document properties untrusted and private.
 
 ## Install the complete workflow
 

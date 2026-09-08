@@ -23,6 +23,8 @@ def artifact(**overrides):
         "created_by_agent_session_id": "test-session", "created_by_client": "test-agent",
         "originating_work_item_id": WORK_ID, "related_work_item_ids": [],
         "created_at": NOW, "modified_at": NOW, "deleted_at": None, "content_available": True,
+        "extraction": {"status": "pending", "metadata": {}, "truncated": False,
+                       "error_code": None, "extracted_at": None},
         **overrides,
     }
 
@@ -178,14 +180,36 @@ async def test_metadata_search_scopes_project_and_work(settings):
     assert result["items"] == [artifact()]
 
 
-async def test_content_search_is_explicit_unimplemented_and_never_dispatches(settings):
+def search_page(**overrides):
+    return {"items": [], "total": 0, "limit": 50, "offset": 0, "fulltext": False,
+            "indexing": {"ready": 0, "pending": 0, "failed": 0, "truncated": 0}, **overrides}
+
+
+@pytest.mark.parametrize("fulltext", [False, True])
+async def test_content_search_is_opt_in_safe_project_scoped_and_bounded(settings, fulltext):
     def handler(request):
-        pytest.fail("Unimplemented content search must never read files")
+        assert request.method == "POST"
+        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/artifacts/search-content"
+        assert "x-client-operation-id" not in request.headers
+        assert request.headers["accept-encoding"] == "identity"
+        assert json.loads(request.content) == {
+            "q": "private report", "fulltext": fulltext, "include_deleted": False,
+            "artifact_id": ARTIFACT_ID, "work_item_id": WORK_ID, "limit": 10, "offset": 0,
+        }
+        return httpx.Response(200, json=search_page(
+            items=[{"artifact": artifact(), "score": 1.2,
+                    "snippet": "<script>untrusted content</script>" if fulltext else None,
+                    "matched_fields": ["content"] if fulltext else ["metadata"]}],
+            total=1, limit=10, fulltext=fulltext,
+        ))
 
     result = await call(settings, "search_artifact_contents", {
-        "project_id": PROJECT_ID, "query": "private report",
+        "project_id": PROJECT_ID, "query": "private report", "fulltext": fulltext,
+        "artifact_id": ARTIFACT_ID, "work_item_id": WORK_ID, "limit": 10,
     }, handler)
-    assert result["status"] == "unimplemented"
+    assert result["fulltext"] is fulltext
+    assert result["items"][0]["artifact"] == artifact()
+    assert result["items"][0]["matched_fields"] == (["content"] if fulltext else ["metadata"])
 
 
 async def test_artifact_catalog_annotations_and_required_receipt_provenance(settings):
@@ -230,6 +254,8 @@ async def test_every_tool_reports_actual_configured_limit(settings, name, argume
     page = {"items": [], "total": 0, "limit": 50, "offset": 0}
 
     def handler(request):
+        if request.url.path.endswith("/search-content"):
+            return httpx.Response(200, json=search_page())
         if request.method == "POST":
             return httpx.Response(201, json=artifact())
         if request.method == "PUT":
@@ -313,7 +339,7 @@ async def test_lowered_positive_limit_does_not_prevent_exact_receipt_replay(sett
 async def test_large_config_explicitly_reports_distinct_mcp_cap(settings):
     result = await call(settings, "search_artifact_contents", {
         "project_id": PROJECT_ID, "query": "report",
-    }, lambda request: pytest.fail("No content dispatch"), maximum=1073741824)
+    }, lambda request: httpx.Response(200, json=search_page()), maximum=1073741824)
     assert result["artifact_library"]["max_bytes"] == 1073741824
     assert result["artifact_library"]["effective_upload_max_bytes"] == 67108864
 

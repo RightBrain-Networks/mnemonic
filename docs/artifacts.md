@@ -1,7 +1,7 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.24.0`, plugin `0.19.0`, and migration
-`0026_artifact_library` support files outside Git. Each artifact belongs permanently
+Application/API/MCP/dashboard `0.25.0`, plugin `0.20.0`, and migration
+`0027_artifact_fulltext` support files outside Git and local full-text search. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
 can have the same filename without colliding.
@@ -9,7 +9,8 @@ can have the same filename without colliding.
 PostgreSQL stores relative pointers, current metadata, SHA-256, confidently
 detected MIME, creator client/session, originating and related work IDs, immutable
 revision metadata, an append-only audit log, and durable mutation receipts. It
-does not store file bytes. Artifact links are durable and additive; the origin
+does not store original file bytes. It also stores normalized extracted text for
+the current revision and retained Tika document properties. Artifact links are durable and additive; the origin
 cannot change, and replacement can add related work. Ordinary work recall embeds
 a bounded artifact list; the dashboard work detail links to the filtered library.
 
@@ -36,8 +37,8 @@ the same setting to API and dashboard. Recreate these services after changing it
 MCP discovers the API's authoritative status before each artifact tool operation.
 
 Disabled mode rejects artifact reads, writes, downloads and even content-search
-stubs with `artifact_library_disabled` (HTTP 503, `context.max_bytes=0`). It does
-not initialize artifact storage, run recovery/cleanup, or include artifacts in
+requests with `artifact_library_disabled` (HTTP 503, `context.max_bytes=0`). It does
+not initialize artifact storage, run recovery/cleanup/extraction, or include artifacts in
 work context. Existing files, metadata, audit history, pending intents and receipts
 are retained unchanged and become available when reenabled. The Artifacts menu
 remains visible with an explicit disabled message. The Compose bind mount still
@@ -60,22 +61,59 @@ receipts with larger original bytes. Transfer-specific ceilings still apply.
 Disabling temporarily blocks even receipt replay; preserve uncertain operations'
 UUIDs and exact arguments/bytes until reenabling, rather than creating new intents.
 
-Quiesce and upgrade the API, MCP adapter, and dashboard together. The existing
-database backup job backs up artifact metadata only. It does not copy file bytes
+Quiesce and upgrade the API, MCP adapter, dashboard and Tika service together.
+Migration 0027 queues existing current artifacts for background extraction; no
+manual reupload is needed. The existing database backup job includes artifact
+metadata **and extracted text**, which may contain PII. It does not copy file bytes
 or preserve old content. A database restore does not restore files. Keep database
 and current filesystem state coordinated during operator restore procedures;
 missing or mismatched content is refused instead of silently serving another
 revision. No older application process should run against this schema.
+Downgrade from 0027 refuses once extraction rows exist, preserving retained
+document properties. Fix forward or restore a verified pre-upgrade database with
+coordinated artifact files; do not drop extraction history to force a downgrade.
+
+Compose builds a pinned Apache Tika 4 service on a private, internal-only network
+shared with the API. It has no published port, artifact/backup mount, database
+credentials or external route. Its filesystem is read-only except bounded tmpfs;
+it runs unprivileged, drops capabilities, and has 2 CPU, 2 GiB memory/no-swap and
+128-process limits. The parser uses one forked JVM with a 512 MiB heap and a
+256 MiB parent heap. Container logs are deliberately not retained because parser
+diagnostics can contain file content. Health uses `/version`; the API remains
+available during a parser outage and reports pending extraction with safe error codes.
+
+`.env` controls `MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS` (default 2,000,000;
+1–8,000,000) and `MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS` (default 60;
+5–300). Recreate API and Tika after changing either. These are extraction safety
+budgets, independent of the upload limit; existing completed extractions are not
+automatically rerun when settings change. Tika limits embedded files to 64 and
+depth to 8, and disables OCR. The client adds a bounded transport grace period
+to the parser time budget and bounds all response bytes. A non-Compose deployment
+may set `MNEMONIC_ARTIFACT_TIKA_URL` to an equally isolated Tika 4 origin; never
+point it at a hosted parser for private files or expose the parser publicly.
+
+Tika extracts common text, HTML, PDF, Office and container formats, subject to
+format support and safety limits. Scanned images without embedded text are not
+OCR-searchable. Binary or encrypted documents can yield no text or a failure;
+`ready` means parsing completed, not that text necessarily exists. Extraction is
+serial and durable: one worker claims a PostgreSQL job, opens a verified descriptor,
+releases database locks during parsing, and publishes only if its revision and
+claim remain current. Temporary service failures retry with backoff; permanent
+failures remain visible. A replacement creates a new extraction attempt.
 
 ## Retention and recovery
 
 Replacement requires the revision just read and the unchanged original filename.
 It atomically publishes new bytes, increments revision, and retains previous
-metadata. The previous file content is not retained. Deletion unlinks current
-content while retaining all metadata and audit history. There is no content undo,
+metadata. The previous file content is not retained. Replacement/deletion intents
+also clear extracted body text and invalidate in-flight extraction before publishing
+filesystem changes. Deletion unlinks current content while retaining all metadata,
+including extracted document properties, and audit history. There is no content undo,
 revision download, trash, or application-managed file backup. Filesystem snapshots,
 storage-device remanence, or bytes already downloaded by clients are outside these
-application retention guarantees.
+application retention guarantees. Database backups taken before replacement or
+deletion can retain extracted text until those archives expire; manage them as
+sensitive content, not metadata-only backups.
 
 The filesystem and PostgreSQL cannot share a transaction. The API first stages
 bounded bytes, commits a durable operation intent, then publishes and finalizes
@@ -132,13 +170,57 @@ Use a metadata-only artifact call to discover configuration before a large trans
 | `PUT /artifacts/{id}/content` | `replace_artifact` | Atomically replace bytes at an expected revision |
 | `GET /artifacts/{id}/content` | `download_artifact` | Download current content; optional `expected_revision` pins the read |
 | `DELETE /artifacts/{id}` | `delete_artifact` | Remove bytes and return retained metadata |
-| `POST /artifacts/search-content` | `search_artifact_contents` | Explicitly unimplemented; REST returns 501, MCP returns `status: unimplemented` |
+| `POST /artifacts/search-content` | `search_artifact_contents` | Ranked current metadata search; `fulltext=true` also searches extracted current content |
 
 List query parameters: `q` (up to 200 characters), `work_item_id`,
 `include_deleted`, `sort` (`filename`, `created_at`, `modified_at`, `size_bytes`,
 `revision`), `order` (`asc`/`desc`), `limit` (1–100), and `offset` (0–1,000,000).
 History accepts `q`, `limit`, and `offset`, returning independent `revisions` and
-`audit` pages. Search never parses or indexes file contents.
+`audit` pages. These directory/history reads include extracted metadata but never
+match body text.
+
+### Full-text search
+
+The safe-read search POST accepts a JSON body of at most 4096 bytes:
+
+```json
+{"q":"quarterly payroll","fulltext":true,"limit":50,"offset":0}
+```
+
+`q` is required (1–200 characters). `fulltext` defaults to **false**, matching only
+current filename, description, MIME, checksum, creator and extracted properties.
+True includes current extracted body text as well. Optional `artifact_id` and
+`work_item_id` narrow the project scope; `include_deleted` defaults false. Deleted
+artifacts can match retained metadata only. `limit` is 1–100 and `offset` is
+0–1,000,000. No operation UUID is used. MCP exposes the same request with `query`
+instead of `q` and includes the usual `artifact_library` policy summary.
+
+All query terms are required, with case/accent folding and punctuation as word
+boundaries. There is no wildcard, phrase, field-selector, regex or Boolean query
+language. Tantivy weights metadata matches more strongly; results are sorted by
+score descending with artifact UUID as the stable tie-breaker. This endpoint
+searches current metadata, not revision/audit history; use directory/history `q`
+for the latter. Changing directory column sort does not change relevance ranking.
+
+The response contains `items`, `total`, `limit`, `offset`, `fulltext` and `indexing`.
+Each item has `artifact` metadata, numerical `score`, `matched_fields` (`metadata`
+and/or `content`) and a plain-text `snippet` for content matches (otherwise null).
+The artifact and each history revision extend metadata with `extraction`:
+`status`, `metadata`, `truncated`, safe `error_code`, and `extracted_at`.
+Extracted properties are bounded to 8192 ASCII-escaped JSON bytes, 64 keys of at
+most 128 characters, and 8 values/key of at most 512 characters. Internal parser
+content/path/diagnostic fields are excluded. Other document properties are
+untrusted, potentially sensitive metadata, not authoritative facts.
+
+`indexing` counts pending (including processing), failed, ready and truncated
+extractions across the selected scope. A pending/failed/truncated corpus is not
+evidence of absent content. Text and metadata truncation both set `truncated`.
+Search uses a coherent database snapshot for metadata, bodies, links and snippets.
+Tantivy caches only one current corpus per API process in RAM, rebuilding from
+PostgreSQL when it changes. Metadata-only queries do not load body text. No Tantivy
+directory, service, volume, additional backup or artificial artifact-count limit
+is introduced. Concurrent rebuilds are bounded; a busy index returns a safe
+`artifact_search_busy` error rather than a false empty page.
 
 Binary mutations use `Content-Type: application/octet-stream`,
 `X-Client-Operation-ID: <UUID>`, and an ASCII JSON `X-Artifact-Metadata` header
@@ -164,9 +246,11 @@ limits even without a trustworthy Content-Length. MIME metadata uses bounded
 content signatures; a detected type does not establish safety.
 
 Downloads use `application/octet-stream`, attachment disposition, `nosniff`,
-and no-store headers. The application never executes files, extracts archives,
-renders documents inline, scans them with third-party services, or interprets
-their embedded instructions. These controls follow the relevant filename,
+and no-store headers. Tika parses untrusted documents and bounded embedded content
+in isolation; the application does not execute uploaded programs/macros, render
+documents inline, send them to third-party services, or interpret embedded
+instructions. Search snippets are plain quoted text, never trusted HTML. These
+controls follow the relevant filename,
 storage, permission, and size-limit guidance in the
 [OWASP file upload guidance](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html),
 while retaining arbitrary file types and safe original basenames as required.
@@ -178,13 +262,25 @@ boundary still applies: project scoping is not per-user authorization. Limit
 host access and dashboard access accordingly. There is no malware-safety claim
 or content-at-rest encryption supplied by this feature.
 
+Parser isolation follows Apache's [Tika security model](https://tika.apache.org/security-model.html)
+and [Tika 4 resource-limit guidance](https://tika.apache.org/docs/4.0.x/advanced/setting-limits.html).
+Tika is not itself a security boundary or a malware scanner. Keep its pinned image
+current through reviewed dependency upgrades.
+
 The dashboard's Artifacts item sits below Needs Attention. The directory supports
 upload, download, replacement, deletion, sortable columns, paging, dropping files,
 and clipboard file paste. Unknown mutation outcomes retain the exact selected
 File and intent for deliberate retry. Navigating away warns when that intent
 would be lost.
 
+A search field and opt-in full-text checkbox consume the same ranked API. Search
+shows extraction coverage and plain-text excerpts; clear the query to restore
+directory column sorting. Document properties and extraction state are visible
+on artifact rows. Existing drag/drop, paste, download and mutation controls remain.
+
 Validated directory layouts: [desktop](images/artifacts-desktop.png) and
 [narrow screen](images/artifacts-narrow.png).
 Disabled-state layouts: [desktop](images/artifacts-disabled-desktop.png) and
 [narrow screen](images/artifacts-disabled-narrow.png).
+Search layouts: [desktop](images/artifacts-search-desktop.png) and
+[narrow screen](images/artifacts-search-narrow.png).

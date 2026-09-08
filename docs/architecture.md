@@ -1,12 +1,20 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.24.0`, Claude plugin `0.19.0`,
-and Alembic head `0026_artifact_library`.
+This architecture describes application/API/MCP `0.25.0`, Claude plugin `0.20.0`,
+and Alembic head `0027_artifact_fulltext`.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
+An isolated Apache Tika 4 service extracts normalized current text and document
+properties into PostgreSQL. One background worker handles durable revision-bound
+jobs; Tantivy maintains a rebuildable, single-corpus RAM index inside the API.
+No broker, search service, search volume or second authoritative data store is
+needed. Metadata search is the default; content matching is an explicit opt-in.
+Replace/delete clears extracted body text and fences stale workers; revision
+properties remain durable. Database backups therefore include sensitive extracted
+text, although original artifact files remain outside the database.
 `MNEMONIC_ARTIFACT_MAX_BYTES` in `.env` controls the upload maximum. Zero disables
 the artifact subsystem without deleting data: the API constructs no storage object,
-starts no recovery/cleanup task, and omits artifact discovery from all work contexts.
+starts no recovery/cleanup/extraction task, and omits artifact discovery from all work contexts.
 The authenticated safe-read `/api/v1/artifacts/status` remains available, and artifact
 routes explicitly reject disabled access before opening the journal or consuming bytes.
 [Multi-client support](mcp-clients.md#survey-and-design-decision) keeps one full MCP

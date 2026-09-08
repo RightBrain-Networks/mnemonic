@@ -13,7 +13,7 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0026_artifact_library"
+HEAD = "0027_artifact_fulltext"
 TABLES = tuple(sorted(Base.metadata.tables))
 MAX_ARCHIVE_IDENTITY = 2**53 - 1
 IDENTITY_COLUMNS = tuple(
@@ -29,6 +29,7 @@ CHILD_OWNERS = {
     "code_review_findings": ("result_id", "code_review_results", "id"),
     "artifact_work_links": ("artifact_id", "artifacts", "id"),
     "artifact_revisions": ("artifact_id", "artifacts", "id"),
+    "artifact_extractions": ("artifact_id", "artifacts", "id"),
     "artifact_audit": ("artifact_id", "artifacts", "id"),
 }
 

@@ -122,7 +122,7 @@ docker run --rm --user 0 \
   --mount "type=bind,source=$MNEMONIC_E2E_BACKUP_DIR,target=/backups" \
   postgres:17-alpine chown 10001:10001 /artifacts /backups
 
-services=(api backup)
+services=(api backup tika)
 if [[ "$run_browser" == true ]]; then
   services+=(web)
 fi

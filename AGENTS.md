@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.21.0`, Claude plugin
-`0.18.0`, and Alembic head `0026_artifact_library`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.25.0`, Claude plugin
+`0.20.0`, and Alembic head `0027_artifact_fulltext`. The catalog is exactly
 46 MCP tools, 16 receipt-protected MCP writes, 21 REST receipt kinds, 18 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -100,7 +100,12 @@ an explicit private host bind mount in Compose. Only current bytes are retained;
 revision metadata, work links, audit events, and operation receipts are durable.
 Artifact mutations use the separate `artifact_operations` journal. Preserve exact
 bytes, metadata, operation UUID, and expected revision across uncertain retries.
-Content search is explicitly unimplemented. See `docs/artifacts.md`.
+Tika extracts current normalized text and retained document properties into
+PostgreSQL; Tantivy searches a rebuildable RAM index. Content matching is opt-in
+(`fulltext=true`); metadata-only is the default. Replacement/deletion clears old
+extracted text and invalidates stale extraction claims, while extracted properties
+remain durable. Snippets and properties are untrusted; report incomplete indexing.
+Database backups contain extracted text. See `docs/artifacts.md`.
 
 Reviews belong to original Done work and require purpose-bound review leases.
 Optional closeout questions are durable originating-session follow-ups, not

@@ -20,9 +20,11 @@ from typing import Any
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0026_artifact_library"
+HEAD = "0027_artifact_fulltext"
+ARTIFACT_HEAD = "0026_artifact_library"
+ARTIFACT_HEADS = (ARTIFACT_HEAD, HEAD)
 CROSS_PROJECT_HEAD = "0025_cross_project_relationships"
-CROSS_PROJECT_HEADS = (CROSS_PROJECT_HEAD, HEAD)
+CROSS_PROJECT_HEADS = (CROSS_PROJECT_HEAD, *ARTIFACT_HEADS)
 REVIEW_HEAD = "0024_code_reviews"
 REVIEW_HEADS = (REVIEW_HEAD, *CROSS_PROJECT_HEADS)
 MOVE_HEAD = "0023_work_item_moves"
@@ -868,6 +870,37 @@ _ARTIFACT_FINDINGS = {
 }
 
 
+_EXTRACTION_FINDINGS = {
+    "artifact_missing_extraction_revision": """
+        SELECT count(*) FROM artifact_revisions revision
+        LEFT JOIN artifact_extractions extraction USING(artifact_id, revision)
+        WHERE extraction.artifact_id IS NULL
+    """,
+    "artifact_extracted_text_retention_violation": """
+        SELECT count(*) FROM artifact_extractions extraction
+        JOIN artifacts artifact ON artifact.id=extraction.artifact_id
+        WHERE extraction.normalized_text IS NOT NULL AND (
+            extraction.status<>'ready' OR extraction.revision<>artifact.revision
+            OR artifact.deleted_at IS NOT NULL OR EXISTS (
+                SELECT 1 FROM artifact_operations operation
+                WHERE operation.artifact_id=artifact.id AND operation.state='pending'
+            )
+        )
+    """,
+    "artifact_extraction_lifecycle_mismatch": """
+        SELECT count(*) FROM artifact_extractions extraction
+        JOIN artifacts artifact ON artifact.id=extraction.artifact_id
+        WHERE (extraction.status IN ('pending','processing','ready','failed') AND (
+            extraction.revision<>artifact.revision OR artifact.deleted_at IS NOT NULL
+            OR EXISTS (SELECT 1 FROM artifact_operations operation
+                       WHERE operation.artifact_id=artifact.id AND operation.state='pending')
+        )) OR (extraction.status='ready' AND (
+            extraction.normalized_text IS NULL OR extraction.extracted_at IS NULL
+        ))
+    """,
+}
+
+
 def _head_findings(
     connection: Connection, expected_head: str, previous: Any
 ) -> dict[str, int]:
@@ -887,8 +920,10 @@ def _head_findings(
         checks.update(_review_checks())
     if expected_head in CROSS_PROJECT_HEADS:
         checks.update(_CROSS_PROJECT_RELATIONSHIP_FINDINGS)
-    if expected_head == HEAD:
+    if expected_head in ARTIFACT_HEADS:
         checks.update(_ARTIFACT_FINDINGS)
+    if expected_head == HEAD:
+        checks.update(_EXTRACTION_FINDINGS)
     findings.update(
         {key: connection.scalar(text(sql)) for key, sql in checks.items()}
     )
@@ -953,7 +988,7 @@ def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[st
             JOIN work_items target ON target.id=relationship.target_work_item_id
             WHERE source.project_id<>target.project_id
         """))
-    if expected_head == HEAD:
+    if expected_head in ARTIFACT_HEADS:
         inventory["artifacts"] = connection.scalar(text("SELECT count(*) FROM artifacts"))
         inventory["artifact_pending_operations"] = connection.scalar(text(
             "SELECT count(*) FROM artifact_operations WHERE state='pending'"

@@ -103,6 +103,17 @@
 .artifact-toolbar { display: flex; align-items: center; gap: 14px; padding: 20px 22px 12px; }
 .artifact-search { display: flex; flex: 1; gap: 8px; }
 .artifact-search input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: var(--paper); color: var(--ink); }
+.artifact-search-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 0 22px 14px; font-size: 12px; }
+.artifact-search-options label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.artifact-search-options > span { color: var(--muted); }
+.artifact-search-status { margin: 12px 22px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--muted); font-size: 12px; }
+.artifact-search-status p { margin: 0 0 5px; }
+.artifact-search-status p:last-child { margin-bottom: 0; }
+.artifact-search-excerpt { margin: 8px 0 0 29px; min-width: 180px; max-width: 440px; white-space: normal; overflow-wrap: anywhere; line-height: 1.55; }
+.artifact-search-excerpt p { margin: 4px 0 0; }
+.artifact-match-fields { color: var(--muted); font-size: 10px; }
+.artifact-extraction-metadata { overflow-wrap: anywhere; }
+.artifact-extraction-metadata dd { white-space: pre-wrap; }
 .artifact-upload-hint { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 0 22px 16px; color: var(--muted); font-size: 12px; }
 .artifact-upload-hint label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .artifact-upload-options { margin: 0 22px 18px; color: var(--muted); font-size: 12px; }

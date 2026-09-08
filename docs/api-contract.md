@@ -1,7 +1,7 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.24.0`, plugin `0.19.0`, and migration
-`0026_artifact_library`. The catalog has exactly 46 MCP tools, 16
+This is application/API/MCP/dashboard `0.25.0`, plugin `0.20.0`, and migration
+`0027_artifact_fulltext`. The catalog has exactly 46 MCP tools, 16
 protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations and
 24 work-event types. The 21 REST receipt kinds comprise 18 work operations and
 three artifact operations with filesystem recovery journals. See
@@ -1236,7 +1236,7 @@ The catalog is exactly 46 tools:
 
 Artifact tools: `list_artifacts`, `get_artifact`, `list_artifact_history`,
 `upload_artifact`, `replace_artifact`, `download_artifact`, `delete_artifact`,
-and the explicit unimplemented `search_artifact_contents` stub. The three artifact
+and `search_artifact_contents`. The three artifact
 writes use retained operation UUIDs and their own durable filesystem recovery receipts.
 All eight tools check the authenticated status endpoint before artifact access.
 Enabled results include `artifact_library` with `enabled`, `max_bytes`,
@@ -1244,8 +1244,13 @@ Enabled results include `artifact_library` with `enabled`, `max_bytes`,
 message. The effective new MCP upload maximum is the smaller of the configured
 limit and the 64 MiB decoded MCP transfer ceiling. Disabled calls fail explicitly;
 unavailable or malformed status is not treated as an empty library or permission
-to proceed. The content-search stub checks availability before reporting
-`unimplemented`.
+to proceed. Search checks availability, then returns structured Tantivy matches.
+`search_artifact_contents(project_id, query, fulltext=false, ...)` defaults to
+current metadata only; true also matches current extracted content. Optional exact
+artifact/work IDs, deleted-metadata inclusion and pagination are supported.
+Results include artifact metadata extended by Tika properties, relevance scores,
+plain-text content snippets, matched field categories and extraction coverage.
+Search takes no operation UUID. See the [full search contract](artifacts.md#full-text-search).
 
 ```text
 list_projects, create_project,

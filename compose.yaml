@@ -27,6 +27,9 @@ services:
       MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS: ${MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS:-10}
       MNEMONIC_ARTIFACT_ROOT: /var/lib/mnemonic/artifacts
       MNEMONIC_ARTIFACT_MAX_BYTES: ${MNEMONIC_ARTIFACT_MAX_BYTES:-67108864}
+      MNEMONIC_ARTIFACT_TIKA_URL: http://tika:9998
+      MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS: ${MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS:-2000000}
+      MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS: ${MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS:-60}
       MNEMONIC_DUPLICATE_SUGGESTION_BODY_MAX_BYTES: ${MNEMONIC_DUPLICATE_SUGGESTION_BODY_MAX_BYTES:-2097152}
       MNEMONIC_DUPLICATE_SUGGESTION_REQUEST_SLOTS: ${MNEMONIC_DUPLICATE_SUGGESTION_REQUEST_SLOTS:-4}
       MNEMONIC_DUPLICATE_SUGGESTION_REQUEST_WAIT_MS: ${MNEMONIC_DUPLICATE_SUGGESTION_REQUEST_WAIT_MS:-250}
@@ -44,6 +47,7 @@ services:
           create_host_path: false
     ports:
       - '127.0.0.1:${MNEMONIC_API_PORT:-8000}:8000'
+    networks: [default, artifact_parser]
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,6 +60,34 @@ services:
     init: true
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
+
+  tika:
+    build: ./deploy/tika
+    environment:
+      MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS: ${MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS:-2000000}
+      MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS: ${MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS:-60}
+    # No published port, artifact mount, database access, secrets or external route.
+    networks: [artifact_parser]
+    dns: [127.0.0.1]
+    logging:
+      driver: none
+    healthcheck:
+      test: [CMD, bash, /opt/mnemonic-tika/healthcheck.sh]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+    read_only: true
+    tmpfs:
+      - /tmp:size=1280m,mode=1777,noexec,nosuid,nodev
+    mem_limit: 2g
+    memswap_limit: 2g
+    cpus: 2
+    pids_limit: 128
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    restart: unless-stopped
 
   mcp:
     build: ./mcp
@@ -140,3 +172,7 @@ services:
 
 volumes:
   mnemonic_data:
+
+networks:
+  artifact_parser:
+    internal: true

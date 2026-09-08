@@ -27,12 +27,15 @@ from mnemonic_api.application.routes import api_router
 from mnemonic_api.application.routes.dashboard_sync import router as sync_router
 from mnemonic_api.application.routes.health import router as health_router
 from mnemonic_api.application.suggestion_resources import DuplicateSuggestionResources
+from mnemonic_api.artifact_extraction import artifact_extraction_loop
 from mnemonic_api.artifact_storage import ArtifactStorage
+from mnemonic_api.artifact_tika import TikaExtractor
 from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine, build_session_factory
 from mnemonic_api.live_sync import LiveSyncHub
 from mnemonic_api.schemas import COMPLETION_EVENT_ID_MAX
 from mnemonic_api.semantic import Embedder, FastembedEmbedder
+from mnemonic_api.services.artifact_search import ArtifactSearchIndex
 
 __all__ = ["create_app"]
 
@@ -49,24 +52,30 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         maintenance = None
+        extraction = None
         if config.artifact_max_bytes > 0:
             maintenance = asyncio.create_task(artifact_maintenance_loop(
                 app.state.session_factory, app.state.artifact_storage
             ))
+            extraction = asyncio.create_task(artifact_extraction_loop(
+                app.state.session_factory, app.state.artifact_storage,
+                TikaExtractor(config), config.artifact_extraction_timeout_seconds,
+            ))
         try:
             yield
         finally:
-            if maintenance is not None:
-                maintenance.cancel()
-                with suppress(asyncio.CancelledError):
-                    await maintenance
+            for task in (maintenance, extraction):
+                if task is not None:
+                    task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
             if engine is None:
                 # Only an engine this factory built is this factory's to dispose.
                 connection_pool.dispose()
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.24.0",
+        version="0.25.0",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )
@@ -77,6 +86,7 @@ def create_app(
         else None
     )
     app.state.artifact_upload_slots = asyncio.Semaphore(4)
+    app.state.artifact_search_index = ArtifactSearchIndex()
     app.state.session_factory = build_session_factory(connection_pool)
     app.state.semantic_embedder = semantic_embedder or FastembedEmbedder()
     app.state.duplicate_suggestion_resources = DuplicateSuggestionResources.from_settings(config)
