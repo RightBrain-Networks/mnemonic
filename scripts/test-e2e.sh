@@ -78,6 +78,12 @@ export MNEMONIC_DASHBOARD_ORIGINS="$MNEMONIC_E2E_WEB_URL"
 export MNEMONIC_E2E_API_KEY
 MNEMONIC_E2E_API_KEY=$(openssl rand -hex 32)
 
+# A fresh host bind for each acceptance run; never use production artifacts.
+MNEMONIC_E2E_ARTIFACT_DIR=$(mktemp -d /tmp/mnemonic-e2e-artifacts.XXXXXXXX)
+export MNEMONIC_E2E_ARTIFACT_DIR
+docker run --rm --user 0 --mount "type=bind,source=$MNEMONIC_E2E_ARTIFACT_DIR,target=/artifacts" \
+  postgres:17-alpine chown 10001:10001 /artifacts
+
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
@@ -85,6 +91,10 @@ cleanup() {
     docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" logs --no-color --tail 200 api web || true
   fi
   docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" down -v --remove-orphans >/dev/null 2>&1 || true
+  docker run --rm --user 0 --mount "type=bind,source=$MNEMONIC_E2E_ARTIFACT_DIR,target=/artifacts" \
+    postgres:17-alpine sh -c 'find /artifacts -mindepth 1 -delete; chown "$1:$2" /artifacts' \
+    sh "$(id -u)" "$(id -g)" >/dev/null 2>&1 || true
+  rmdir -- "$MNEMONIC_E2E_ARTIFACT_DIR" || true
   exit "$status"
 }
 trap cleanup EXIT

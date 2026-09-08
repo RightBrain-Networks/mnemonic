@@ -1,6 +1,6 @@
 # MCP clients and cooperating agents
 
-Mnemonic exposes the same 38 tools over Streamable HTTP and stdio to every MCP
+Mnemonic exposes the same 46 tools over Streamable HTTP and stdio to every MCP
 client. Claude Code retains its native plugin, including skill discovery, session
 substitution, and repository freshness helper. Codex, OpenCode, and other agents
 can use the complete workflow through portable skills. No vendor factory is used.

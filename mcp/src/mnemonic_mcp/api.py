@@ -34,6 +34,19 @@ class TransportEffect(StrEnum):
 
 
 _APPLICATION_ERRORS = {
+    "artifact_not_found": "Artifact not found in this project.",
+    "artifact_revision_conflict": "Artifact revision changed. Read its metadata before a new intent.",
+    "artifact_deleted": "Artifact bytes were deleted. Its metadata and audit history remain available.",
+    "artifact_content_unavailable": "Artifact bytes are unavailable; metadata and history remain readable.",
+    "artifact_filename_invalid": "Unsafe artifact filename. Use a safe original basename without paths or controls.",
+    "artifact_filename_unsafe": "Unsafe artifact filename. Use a safe original basename without paths or controls.",
+    "artifact_filename_immutable": "Replacement must use the artifact's unchanged original filename.",
+    "artifact_origin_immutable": "An artifact's originating work item cannot change.",
+    "artifact_link_limit": "An artifact supports at most 50 related work links.",
+    "artifact_too_large": "Artifact exceeds the configured upload size limit.",
+    "artifact_operation_conflict": "This artifact operation UUID belongs to different arguments. Stop this intent.",
+    "artifact_operation_unavailable": "Artifact outcome is unknown. Retry only the original UUID and exact bytes and arguments.",
+    "artifact_search_unimplemented": "Artifact content search is unimplemented; metadata search is available.",
     "code_review_handoff_required": "Mandatory review needs accurate pinned Git scope and handoff before Done.",
     "code_review_handoff_not_applicable": "This closeout policy does not accept a mandatory review handoff.",
     "work_follow_up_answer_invalid": "Supply the typed yes/no recommendation, rationale, and handoff only for yes.",
@@ -267,6 +280,8 @@ async def _dispatch_request(
 
 
 _NOT_FOUND_MESSAGES = {
+    "artifact_work_item_not_found": "A linked artifact work item is not in this project.",
+    "artifact_not_found": "Artifact not found in this project.",
     "job_completion_report_not_found": "Job completion report not found in this project.",
     "project_not_found": (
         "Project not found. Use list_projects to resolve the correct project_id."

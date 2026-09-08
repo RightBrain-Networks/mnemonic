@@ -29,6 +29,7 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema, WithJsonSchema
 
+from mnemonic_api.artifact_schemas import ArtifactRead
 from mnemonic_api.code_review_schemas import (
     CodeReviewContext,
     CodeReviewHandoffInput,
@@ -3582,6 +3583,9 @@ class WorkMergeResult(APIModel):
 
 
 class WorkContext(APIModel):
+    artifacts: list[ArtifactRead] = Field(default_factory=list, max_length=20)
+    artifact_total: int = Field(default=0, ge=0)
+    omitted_artifact_count: int = Field(default=0, ge=0)
     code_review_context: CodeReviewContext | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )

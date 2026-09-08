@@ -16,6 +16,7 @@ SKILL_FILES = {
     "mnemonic-recall": PLUGIN_ROOT / "skills" / "mnemonic-recall" / "SKILL.md",
 }
 REFERENCE_FILES = {
+    "artifacts.md",
     "code-reviews.md",
     "authority-and-provenance.md",
     "completion-evidence.md",
@@ -27,6 +28,7 @@ REFERENCE_FILES = {
 }
 BIN_FILES = {"mnemonic-repository-freshness"}
 PLUGIN_PAYLOAD_FILES = {
+    "reference/artifacts.md",
     "reference/code-reviews.md",
     ".claude-plugin/plugin.json",
     "bin/mnemonic-repository-freshness",
@@ -194,7 +196,7 @@ def _assert_installed_details(executable: str, config_directory: Path) -> None:
         "details",
         "mnemonic@mnemonic",
     ).stdout
-    assert "Mnemonic (mnemonic) 0.17.1" in output
+    assert "Mnemonic (mnemonic) 0.18.0" in output
     assert "Source: mnemonic@mnemonic" in output
     assert "Component inventory" in output
     assert re.search(
@@ -208,7 +210,7 @@ def _assert_installed_details(executable: str, config_directory: Path) -> None:
 def _assert_installed_component_inventory(root: Path) -> None:
     manifest = json.loads((root / ".claude-plugin" / "plugin.json").read_text())
     assert manifest["name"] == "mnemonic"
-    assert manifest["version"] == "0.17.1"
+    assert manifest["version"] == "0.18.0"
     assert {
         path.parent.name for path in (root / "skills").glob("*/SKILL.md")
     } == set(SKILL_FILES)
@@ -252,7 +254,7 @@ def test_plugin_manifest_and_inventory_are_exact():
     )
 
     assert inner["name"] == "mnemonic"
-    assert inner["version"] == "0.17.1"
+    assert inner["version"] == "0.18.0"
     assert "duplicate merges" in inner["description"]
     assert "declared repository scope" in inner["description"]
     assert marketplace["plugins"] == [
@@ -341,7 +343,7 @@ def test_authentic_sequential_and_fresh_plugin_installs_are_exact(tmp_path: Path
 
     synthetic_manifest_path = marketplace_plugin / ".claude-plugin" / "plugin.json"
     synthetic_manifest = json.loads(synthetic_manifest_path.read_text())
-    assert synthetic_manifest["version"] == "0.17.1"
+    assert synthetic_manifest["version"] == "0.18.0"
     synthetic_manifest["version"] = "0.17.0"
     synthetic_manifest_path.write_text(json.dumps(synthetic_manifest, indent=2) + "\n")
     (marketplace_plugin / "reference" / "priority.md").unlink()
@@ -382,7 +384,7 @@ def test_authentic_sequential_and_fresh_plugin_installs_are_exact(tmp_path: Path
         "user",
     )
 
-    upgraded_root = _active_plugin_root(executable, sequential_config, "0.17.1")
+    upgraded_root = _active_plugin_root(executable, sequential_config, "0.18.0")
     _assert_exact_payload(upgraded_root, expected_current)
     _assert_installed_component_inventory(upgraded_root)
     assert not (upgraded_root / stale_relative).exists()
@@ -390,7 +392,7 @@ def test_authentic_sequential_and_fresh_plugin_installs_are_exact(tmp_path: Path
 
     fresh_config = tmp_path / "fresh-config"
     _add_marketplace_and_install(executable, fresh_config, marketplace_root)
-    fresh_root = _active_plugin_root(executable, fresh_config, "0.17.1")
+    fresh_root = _active_plugin_root(executable, fresh_config, "0.18.0")
     _assert_exact_payload(fresh_root, expected_current)
     _assert_installed_component_inventory(fresh_root)
     assert not (fresh_root / stale_relative).exists()

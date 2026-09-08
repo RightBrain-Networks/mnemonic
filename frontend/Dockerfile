@@ -20,4 +20,4 @@ COPY --from=builder --chown=mnemonic:mnemonic /app/public ./public
 USER mnemonic
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 CMD node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "server.js"]
+CMD ["node", "--max-http-header-size=65536", "server.js"]

@@ -234,6 +234,13 @@ def postgres_engine() -> Iterator[Engine]:
 
 
 @pytest.fixture
+def pristine_postgres_engine(postgres_engine: Engine) -> Engine:
+    """Give direct SQL tests the current schema after any earlier worker-local downgrade."""
+    reset_disposable_schema(postgres_engine)
+    return postgres_engine
+
+
+@pytest.fixture
 def api(postgres_engine: Engine) -> Iterator[TestClient]:
     reset_disposable_schema(postgres_engine)
     settings = Settings(

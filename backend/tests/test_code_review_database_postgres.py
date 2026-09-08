@@ -176,6 +176,7 @@ def test_second_generation_is_unreviewable_and_lineage_is_permanent(
         ("checkout_path", "relative/repo"),
     ],
 )
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_sql_scope_validation_rejects_invalid_or_context_bearing_data(
     postgres_engine: Engine,
     field,

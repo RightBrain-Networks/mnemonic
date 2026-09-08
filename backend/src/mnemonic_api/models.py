@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     MetaData,
+    PrimaryKeyConstraint,
     SmallInteger,
     String,
     Table,
@@ -26,6 +27,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.schema import conv
 
 from mnemonic_api import code_review_db_tables as reviews
 from mnemonic_api import phase12_db_tables as phase12
@@ -1783,3 +1785,177 @@ class CodeReviewRemediation(Base):
     root_work_item_id: Mapped[UUID]
     depth: Mapped[int]
     created_at: Mapped[datetime]
+
+
+class Artifact(Base):
+    """Project identity and current content pointer; deleted identities remain durable."""
+
+    __tablename__ = "artifacts"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="artifacts_pkey"),
+        UniqueConstraint("project_id", "id", name="uq_artifacts_project_identity"),
+        CheckConstraint("revision >= 0", name=conv("artifacts_revision_check")),
+        CheckConstraint("size_bytes >= 0 AND size_bytes <= 1073741824",
+                        name=conv("artifacts_size_bytes_check")),
+        CheckConstraint("revision = 0 OR sha256 ~ '^[0-9a-f]{64}$'",
+                        name=conv("artifacts_check")),
+        CheckConstraint("filename <> '' AND filename NOT IN ('.', '..') "
+                        "AND position('/' in filename) = 0 AND position(chr(92) in filename) = 0",
+                        name=conv("artifacts_filename_check")),
+        CheckConstraint("relative_path = project_id::text || '/' || id::text || '/' || filename",
+                        name=conv("artifacts_check1")),
+        Index("ix_artifacts_project_modified", "project_id", "modified_at", "id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(ForeignKey(
+        "projects.id", ondelete="RESTRICT", name="artifacts_project_id_fkey"
+    ))
+    filename: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(String(4000), default="")
+    relative_path: Mapped[str] = mapped_column(String(400))
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    mime_type: Mapped[str | None] = mapped_column(String(120))
+    created_by_agent_session_id: Mapped[str | None] = mapped_column(String(200))
+    created_by_client: Mapped[str | None] = mapped_column(String(80))
+    originating_work_item_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("work_items.id", ondelete="RESTRICT",
+                   name="artifacts_originating_work_item_id_fkey")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
+    modified_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ArtifactWorkLink(Base):
+    __tablename__ = "artifact_work_links"
+    __table_args__ = (
+        PrimaryKeyConstraint("artifact_id", "work_item_id", name="artifact_work_links_pkey"),
+    )
+
+    artifact_id: Mapped[UUID] = mapped_column(
+        ForeignKey("artifacts.id", ondelete="RESTRICT",
+                   name="artifact_work_links_artifact_id_fkey"),
+        primary_key=True,
+    )
+    work_item_id: Mapped[UUID] = mapped_column(
+        ForeignKey("work_items.id", ondelete="RESTRICT",
+                   name="artifact_work_links_work_item_id_fkey"),
+        primary_key=True, index=True,
+    )
+
+
+class ArtifactRevision(Base):
+    """Immutable metadata only; no historic file contents are stored."""
+
+    __tablename__ = "artifact_revisions"
+    __table_args__ = (
+        PrimaryKeyConstraint("artifact_id", "revision", name="artifact_revisions_pkey"),
+        CheckConstraint("revision > 0", name=conv("artifact_revisions_revision_check")),
+        CheckConstraint("size_bytes >= 0 AND size_bytes <= 1073741824",
+                        name=conv("artifact_revisions_size_bytes_check")),
+        CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name=conv("artifact_revisions_sha256_check")),
+        CheckConstraint("jsonb_typeof(related_work_item_ids) = 'array' "
+                        "AND jsonb_array_length(related_work_item_ids) <= 51",
+                        name=conv("artifact_revisions_related_work_item_ids_check")),
+    )
+
+    artifact_id: Mapped[UUID] = mapped_column(
+        ForeignKey("artifacts.id", ondelete="RESTRICT", name="artifact_revisions_artifact_id_fkey"),
+        primary_key=True,
+    )
+    revision: Mapped[int] = mapped_column(Integer, primary_key=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(String(4000))
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
+    sha256: Mapped[str] = mapped_column(String(64))
+    mime_type: Mapped[str | None] = mapped_column(String(120))
+    agent_session_id: Mapped[str | None] = mapped_column(String(200))
+    actor_client: Mapped[str | None] = mapped_column(String(80))
+    related_work_item_ids: Mapped[list[str]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
+
+
+class ArtifactAudit(Base):
+    __tablename__ = "artifact_audit"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="artifact_audit_pkey"),
+        ForeignKeyConstraint(
+            ["artifact_id", "revision"],
+            ["artifact_revisions.artifact_id", "artifact_revisions.revision"],
+            name="artifact_audit_artifact_id_revision_fkey", ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "action IN ('uploaded', 'replaced', 'deleted', 'downloaded')",
+            name=conv("artifact_audit_action_check"),
+        ),
+        Index("ix_artifact_audit_artifact_created", "artifact_id", "created_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    artifact_id: Mapped[UUID] = mapped_column(ForeignKey(
+        "artifacts.id", ondelete="RESTRICT", name="artifact_audit_artifact_id_fkey"
+    ))
+    revision: Mapped[int] = mapped_column(Integer)
+    action: Mapped[str] = mapped_column(String(20))
+    filename: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(String(4000))
+    agent_session_id: Mapped[str | None] = mapped_column(String(200))
+    actor_client: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
+
+
+class ArtifactOperation(Base):
+    """Durable filesystem intent and permanent receipt, containing no artifact bytes."""
+
+    __tablename__ = "artifact_operations"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="artifact_operations_pkey"),
+        UniqueConstraint("project_id", "client_operation_id", name="uq_artifact_operations_scope"),
+        ForeignKeyConstraint(
+            ["project_id", "artifact_id"], ["artifacts.project_id", "artifacts.id"],
+            name="artifact_operations_project_id_artifact_id_fkey", ondelete="RESTRICT",
+        ),
+        CheckConstraint("kind IN ('upload', 'replace', 'delete')",
+                        name=conv("artifact_operations_kind_check")),
+        CheckConstraint("state IN ('pending', 'completed')",
+                        name=conv("artifact_operations_state_check")),
+        CheckConstraint("fingerprint ~ '^[0-9a-f]{64}$'",
+                        name=conv("artifact_operations_fingerprint_check")),
+        CheckConstraint("jsonb_typeof(intent) = 'object'",
+                        name=conv("artifact_operations_intent_check")),
+        CheckConstraint("(state = 'pending' AND response_body IS NULL AND completed_at IS NULL) "
+                        "OR (state = 'completed' AND jsonb_typeof(response_body) = 'object' "
+                        "AND response_body IS NOT NULL AND completed_at IS NOT NULL)",
+                        name=conv("artifact_operations_check")),
+        Index(
+            "ix_artifact_operations_pending", "artifact_id", unique=True,
+            postgresql_where=text("state = 'pending'"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(ForeignKey(
+        "projects.id", ondelete="RESTRICT", name="artifact_operations_project_id_fkey"
+    ))
+    client_operation_id: Mapped[UUID] = mapped_column()
+    artifact_id: Mapped[UUID] = mapped_column()
+    kind: Mapped[str] = mapped_column(String(10))
+    state: Mapped[str] = mapped_column(String(10), default="pending")
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    intent: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    response_body: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

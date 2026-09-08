@@ -42,6 +42,8 @@ from pydantic import AnyUrl, ValidationError
 from mcp import ClientSession
 
 CANONICAL_TOOLS = {
+    "list_artifacts", "get_artifact", "list_artifact_history", "download_artifact",
+    "search_artifact_contents", "upload_artifact", "replace_artifact", "delete_artifact",
     "list_code_reviews", "get_code_review", "complete_code_review",
     "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
     "get_activity",
@@ -78,6 +80,7 @@ CANONICAL_TOOLS = {
     "suggest_duplicate_work",
 }
 PROTECTED_MUTATION_TOOLS = {
+    "upload_artifact", "replace_artifact", "delete_artifact",
     "respond_to_work_follow_up", "complete_code_review",
     "create_work",
     "add_checkpoint",
@@ -99,6 +102,7 @@ EXCLUDED_MUTATION_TOOLS = {
 }
 READ_ONLY_TOOLS = CANONICAL_TOOLS - PROTECTED_MUTATION_TOOLS - EXCLUDED_MUTATION_TOOLS
 DESTRUCTIVE_TOOLS = {
+    "replace_artifact", "delete_artifact",
     "update_work",
     "complete_work",
     "delete_work",
@@ -1105,7 +1109,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.20.1", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.21.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         require(
             {"ExternalReference", "ExternalReferencesChange", "ExternalDuplicateCandidate",
@@ -1308,9 +1312,9 @@ def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
     require(
-        len(catalog.tools) == 38
-        and len(tools_by_name) == 38
-        and len(PROTECTED_MUTATION_TOOLS) == 13
+        len(catalog.tools) == 46
+        and len(tools_by_name) == 46
+        and len(PROTECTED_MUTATION_TOOLS) == 16
         and set(tools_by_name) == CANONICAL_TOOLS,
         "Unexpected MCP tool catalog.",
     )
@@ -1569,15 +1573,15 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.20.1",
+                    and initialized.serverInfo.version == "0.21.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.20.1 cross-project relationship contract shape, work-move, "
-                    "code-review contract, real MCP initialization, 38-tool catalog, "
+                    "PASS: REST 0.21.0 cross-project relationship contract shape, work-move, "
+                    "code-review contract, real MCP initialization, 46-tool catalog, "
                     "exact thirteen protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )

@@ -171,6 +171,7 @@ def test_duplicate_merge_trigger_catalog_is_exact(postgres_engine: Engine) -> No
     assert enabled_states == {"O"}
 
 
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_duplicate_merge_function_definitions_are_frozen(postgres_engine: Engine) -> None:
     with postgres_engine.connect() as connection:
         schema = connection.scalar(text("SELECT current_schema()"))

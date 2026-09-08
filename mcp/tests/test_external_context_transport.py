@@ -51,4 +51,5 @@ async def test_maximum_context_fits_both_sdk_representations(
         len(structured[name + "_relationships"]) == 100
         for name in ("incoming", "outgoing", "undirected")
     )
-    assert 50_000_000 < len(record) <= MCP_RESULT_MAX_BYTES == 67_108_864
+    assert 50_000_000 < len(record) <= 67_108_864
+    assert MCP_RESULT_MAX_BYTES == 192 * 1024 * 1024

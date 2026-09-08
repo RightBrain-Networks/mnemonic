@@ -35,6 +35,7 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
+from .artifact_models import ArtifactRead
 from .code_review_models import (
     CodeReviewContext,
     CodeReviewHandoffInput,
@@ -2875,6 +2876,15 @@ class WorkEventPage(CanonicalResponse):
 
 
 class WorkContext(CanonicalResponse):
+    artifacts: list[ArtifactRead] | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None, max_length=20,
+    )
+    artifact_total: StrictInt | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None, ge=0,
+    )
+    omitted_artifact_count: StrictInt | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None, ge=0,
+    )
     code_review_context: CodeReviewContext | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )

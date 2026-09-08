@@ -25,9 +25,11 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 ## Delivery Snapshot
 
 Phases 1–12, identity-preserving work moves, cross-project relationships,
-and first-class code reviews are implemented in the repository. The current
-release is application/API/MCP/dashboard `0.20.1`, plugin `0.17.1`, and migration
-`0025_cross_project_relationships`. Reviews add project thresholds, durable
+first-class code reviews, and the artifact library are implemented in the repository. The current
+release is application/API/MCP/dashboard `0.21.0`, plugin `0.18.0`, and migration
+`0026_artifact_library`. [Artifacts](artifacts.md) add project-scoped file uploads,
+downloads, atomic replacement, retained audit metadata, and work discovery;
+actual artifact content search remains unimplemented. Reviews add project thresholds, durable
 optional questions, cold/warm review leases and one remediation with a hard
 ancestry ceiling; see [code reviews](code-reviews.md). Production-target
 preflight and cutover remain explicit operator gates. Migration 0025 requires a

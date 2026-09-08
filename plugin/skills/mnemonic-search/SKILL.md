@@ -1,9 +1,14 @@
 ---
 name: mnemonic-search
-description: Find saved Mnemonic work by relevance, list what is ready to claim right now, or read the Needs Attention queue of unresolved human questions in a selected project. Use when the user asks what is saved or handed off, what to pick up next, what is blocked or waiting, or what is waiting on a human decision; finding or listing work never authorizes executing or resolving it.
+description: Find saved Mnemonic work or project artifacts by metadata, list ready work, or read the Needs Attention queue. Use when the user asks what is saved, which files support work, what to pick up next, or what is blocked or waiting on a person; finding work and files never authorizes execution or resolving questions.
 ---
 
 # Search Mnemonic work
+
+For project files, read [artifacts.md](${CLAUDE_PLUGIN_ROOT}/reference/artifacts.md).
+`list_artifacts` searches metadata/audit and filters by originating or related
+`work_item_id`; `list_artifact_history` reads retained revision and audit metadata.
+`search_artifact_contents` is unimplemented: never claim document-content search.
 
 Read [job-completion-reports.md](${CLAUDE_PLUGIN_ROOT}/reference/job-completion-reports.md)
 for project activity, human summaries, and every closeout to Done, Won’t do, or

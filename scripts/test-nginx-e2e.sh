@@ -49,12 +49,20 @@ export MNEMONIC_E2E_API_KEY
 MNEMONIC_E2E_API_KEY=$(openssl rand -hex 32)
 
 test_tmp=$(mktemp -d)
+MNEMONIC_E2E_ARTIFACT_DIR=$(mktemp -d /tmp/mnemonic-nginx-e2e-artifacts.XXXXXXXX)
+export MNEMONIC_E2E_ARTIFACT_DIR
+docker run --rm --user 0 --mount "type=bind,source=$MNEMONIC_E2E_ARTIFACT_DIR,target=/artifacts" \
+  postgres:17-alpine chown 10001:10001 /artifacts
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
   docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$base_compose" -f "$nginx_compose" \
     down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
   rm -rf -- "$test_tmp"
+  docker run --rm --user 0 --mount "type=bind,source=$MNEMONIC_E2E_ARTIFACT_DIR,target=/artifacts" \
+    postgres:17-alpine sh -c 'find /artifacts -mindepth 1 -delete; chown "$1:$2" /artifacts' \
+    sh "$(id -u)" "$(id -g)" >/dev/null 2>&1 || true
+  rmdir -- "$MNEMONIC_E2E_ARTIFACT_DIR" || true
   exit "$status"
 }
 trap cleanup EXIT
@@ -85,6 +93,32 @@ curl --fail --silent --show-error \
   --header "Accept-Encoding: br" \
   "$MNEMONIC_NGINX_E2E_URL/brotli-control"
 assert_single_content_encoding "$test_tmp/brotli-control.headers" br
+
+# A maximum accepted metadata header must traverse nginx and Node before the
+# binary proxy forwards it. Default buffers reject this valid request as431.
+python3 - <<'PY'
+import json
+import os
+import urllib.request
+from uuid import uuid4
+
+origin = os.environ["MNEMONIC_NGINX_E2E_URL"]
+metadata = {"filename": "header-probe.txt", "description": "é" * 2600}
+metadata["description"] += "a" * (16384 - len(json.dumps(metadata)))
+encoded = json.dumps(metadata)
+assert len(encoded) == 16384 and len(metadata["description"]) <= 4000
+request = urllib.request.Request(
+    origin + "/api/artifacts/projects/11111111-1111-4111-8111-111111111111/artifacts",
+    data=b"x",
+    headers={"Origin": origin, "Content-Type": "application/octet-stream",
+             "X-Artifact-Metadata": encoded, "X-Client-Operation-ID": str(uuid4())},
+    method="POST",
+)
+with urllib.request.urlopen(request, timeout=30) as response:
+    assert response.status == 200
+    assert json.load(response) == {"metadata_bytes": 16384}
+print("PASS: 16 KiB artifact metadata traverses nginx and Node unchanged")
+PY
 
 work_id=11111111-1111-4111-8111-111111111111
 route="/api/mnemonic/projects/11111111-1111-4111-8111-111111111111"

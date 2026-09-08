@@ -1,4 +1,5 @@
 import { validSparseReferences, referenceKeys } from "./external-references.ts";
+import { decodeArtifact } from "./artifacts.ts";
 import { decodeCodeReviewContext } from "./code-reviews.ts";
 import type {
   AdjacentRelationshipRead,
@@ -54,6 +55,9 @@ const ADJACENT_FIELDS = [
 ] as const;
 const WORK_POINTER_FIELDS = ["id", "project_id", "title", "status", "readiness"] as const;
 const CONTEXT_FIELDS = [
+  "artifacts",
+  "artifact_total",
+  "omitted_artifact_count",
   "work_item",
   "merge_review_revision",
   "canonical",
@@ -354,6 +358,17 @@ export function decodeWorkContext(
     workItemId,
     "Mnemonic returned an invalid work context."
   );
+  if (!Array.isArray(context.artifacts) || context.artifacts.length > 20
+    || !finiteInteger(context.artifact_total) || !finiteInteger(context.omitted_artifact_count)
+    || context.artifact_total !== context.artifacts.length + context.omitted_artifact_count) {
+    throw new Error("Mnemonic returned an invalid linked artifact slice.");
+  }
+  const artifacts = context.artifacts.map((entry) => decodeArtifact(entry, projectId));
+  if (new Set(artifacts.map((entry) => entry.id.toLowerCase())).size !== artifacts.length
+    || artifacts.some((entry) => entry.deleted_at !== null
+      || !sameUuid(entry.originating_work_item_id, workItemId) && !entry.related_work_item_ids.some((id) => sameUuid(id, workItemId)))) {
+    throw new Error("Mnemonic returned an incoherent linked artifact slice.");
+  }
   const canonical = decodeCanonicalWorkProjection(context.canonical, workItem);
   const readiness = decodeReadiness(context.readiness, workItem.status, workItem.id);
   const revision = decodeMergeReviewRevision(context.merge_review_revision);
@@ -550,6 +565,9 @@ export function decodeWorkContext(
 
   return {
     work_item: workItem,
+    artifacts,
+    artifact_total: context.artifact_total,
+    omitted_artifact_count: context.omitted_artifact_count,
     merge_review_revision: revision,
     ...(Object.hasOwn(context, "code_review_context") ? { code_review_context: decodeCodeReviewContext(context.code_review_context, projectId, workItemId) } : {}),
     canonical,

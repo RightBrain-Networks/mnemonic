@@ -45,6 +45,7 @@ from mnemonic_mcp.models import (
 from mnemonic_mcp.server import build_server, create_app
 from mnemonic_mcp.transport import (
     COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES,
+    MCP_ARTIFACT_REQUEST_MAX_BYTES,
     MCP_REQUEST_MAX_BYTES,
     BoundedMCPIngressMiddleware,
     _bounded_stdin_reader,
@@ -1637,7 +1638,7 @@ async def test_http_ingress_rejects_declared_oversize_before_receive():
         raise AssertionError("request was dispatched")
 
     middleware = BoundedMCPIngressMiddleware(downstream)
-    length = str(MCP_REQUEST_MAX_BYTES + 1).encode()
+    length = str(MCP_ARTIFACT_REQUEST_MAX_BYTES + 1).encode()
     await middleware(_scope([(b"content-length", length)]), receive, send)
     assert pulled is False
     assert sent[0]["status"] == 413
