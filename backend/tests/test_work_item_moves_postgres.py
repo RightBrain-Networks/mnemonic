@@ -475,9 +475,13 @@ def test_provenance_allocator_serializes_overlapping_origin_projects(
     postgres_engine,
 ):
     target = _project(api, "Second provenance origin")
-    source = _work(api, project, work_payload, "Cross-origin provenance source")[
-        "work_item"
+    endpoints = [
+        _work(api, project, work_payload, title)["work_item"]
+        for title in ("First provenance endpoint", "Second provenance endpoint")
     ]
+    # Choose the roles from their IDs so the lock order never depends on random sampling.
+    lower_work, source = sorted(endpoints, key=lambda work: UUID(work["id"]))
+    assert UUID(lower_work["id"]) < UUID(source["id"])
     first_completion = api.patch(
         _path(project, source),
         json=reported(
@@ -522,19 +526,6 @@ def test_provenance_allocator_serializes_overlapping_origin_projects(
     assert second_completion.status_code == 200, second_completion.text
     second_report = second_completion.json()["job_completion_report"]
 
-    source_uuid = UUID(source["id"])
-    lower_work = None
-    for index in range(64):
-        candidate = _work(
-            api,
-            project,
-            work_payload,
-            f"Lower provenance endpoint {index}",
-        )["work_item"]
-        if UUID(candidate["id"]) < source_uuid:
-            lower_work = candidate
-            break
-    assert lower_work is not None
     with postgres_engine.begin() as connection:
         allocator_definition = connection.scalar(
             text(
