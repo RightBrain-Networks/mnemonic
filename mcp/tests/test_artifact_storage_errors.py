@@ -2,10 +2,10 @@
 
 import httpx
 import pytest
-from conftest import CLIENT_OPERATION_ID, PROJECT_ID
+from conftest import CLIENT_OPERATION_ID
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import CallToolRequest, CallToolRequestParams
-from test_artifacts import ARTIFACT_ID, artifact, upload_arguments
+from test_artifacts import ARTIFACT_ID, artifact, download_arguments, upload_arguments
 
 from mnemonic_mcp.api import (
     UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME,
@@ -203,9 +203,9 @@ async def test_public_download_reports_storage_fault_without_write_claim(setting
             return response(context={"cause": "storage_integrity", "attempt_not_committed": False})
         return httpx.Response(200, json=artifact())
 
-    message, calls = await public_error(settings, "download_artifact", {
-        "project_id": PROJECT_ID, "artifact_id": ARTIFACT_ID,
-    }, handler, wire=wire)
+    message, calls = await public_error(
+        settings, "download_artifact", download_arguments(), handler, wire=wire,
+    )
     assert_storage_guidance(message, "storage_integrity")
     assert "Last observed configuration" in message
     for forbidden in ("mutation outcome", "operation UUID", "did not commit", "durable intent"):

@@ -490,9 +490,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.20.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.20.0` install
-plus a `0.18.0 -> 0.20.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.21.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.21.0` install
+plus a `0.18.0 -> 0.21.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -816,7 +816,7 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.28.0`, plugin is `0.20.0`,
+Current application/API/MCP/dashboard versions are `0.29.0`, plugin is `0.21.0`,
 and Alembic head is `0027_artifact_fulltext`. Validate all surfaces
 together with the existing regression suites. This release adds extraction jobs,
 current normalized text and retained document properties, without new tool or

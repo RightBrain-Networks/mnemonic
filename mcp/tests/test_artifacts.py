@@ -38,6 +38,14 @@ def upload_arguments(**overrides):
     }
 
 
+def download_arguments(**overrides):
+    return {
+        "project_id": PROJECT_ID, "artifact_id": ARTIFACT_ID,
+        "agent_session_id": "downloader-session", "actor_client": "downloader-client",
+        **overrides,
+    }
+
+
 async def call(settings, name, arguments, handler, *, maximum=67108864, status_response=None):
     def streamed(request):
         if request.url.path == "/api/v1/artifacts/status":
@@ -134,9 +142,7 @@ async def test_download_pins_metadata_revision_and_verifies_binary_hash(settings
             return httpx.Response(200, content=CONTENT)
         return httpx.Response(200, json=artifact())
 
-    result = await call(settings, "download_artifact", {
-        "project_id": PROJECT_ID, "artifact_id": ARTIFACT_ID,
-    }, handler)
+    result = await call(settings, "download_artifact", download_arguments(), handler)
     assert base64.b64decode(result["content_base64"]) == CONTENT
     assert result["artifact"] == artifact()
 
@@ -148,9 +154,7 @@ async def test_download_rejects_bytes_from_different_revision(settings):
         return httpx.Response(200, json=artifact())
 
     with pytest.raises(ToolError, match="requested revision"):
-        await call(settings, "download_artifact", {
-            "project_id": PROJECT_ID, "artifact_id": ARTIFACT_ID,
-        }, handler)
+        await call(settings, "download_artifact", download_arguments(), handler)
 
 
 async def test_delete_returns_metadata_tombstone(settings):
@@ -230,7 +234,7 @@ def artifact_calls():
     return [
         ("list_artifacts", {"project_id": PROJECT_ID}),
         ("get_artifact", identity), ("list_artifact_history", identity),
-        ("download_artifact", identity),
+        ("download_artifact", download_arguments()),
         ("search_artifact_contents", {"project_id": PROJECT_ID, "query": "report"}),
         ("upload_artifact", upload_arguments()),
         ("replace_artifact", upload_arguments(artifact_id=ARTIFACT_ID, expected_revision=1)),
