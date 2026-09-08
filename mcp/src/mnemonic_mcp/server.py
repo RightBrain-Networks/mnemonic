@@ -224,7 +224,7 @@ INSTRUCTIONS = (
     "arguments/UUIDs for retries. Identity: own actual client/native session, or one retained UUID; "
     "never another agent or transport ID. Model only if known. Honor leases. list_artifacts finds "
     "work-linked files; upload_artifact/download_artifact use base64. Replace/delete remove bytes "
-    "permanently; metadata remains. Content search unimplemented."
+    "permanently; metadata remains."
 )
 
 

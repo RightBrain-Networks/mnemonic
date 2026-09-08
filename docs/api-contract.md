@@ -1,6 +1,6 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.26.0`, plugin `0.20.0`, and migration
+This is application/API/MCP/dashboard `0.27.0`, plugin `0.20.0`, and migration
 `0027_artifact_fulltext`. The catalog has exactly 46 MCP tools, 16
 protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations and
 24 work-event types. The 21 REST receipt kinds comprise 18 work operations and

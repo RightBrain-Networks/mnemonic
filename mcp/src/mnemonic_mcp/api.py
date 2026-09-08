@@ -46,7 +46,6 @@ _APPLICATION_ERRORS = {
     "artifact_too_large": "Artifact exceeds the configured upload size limit.",
     "artifact_operation_conflict": "This artifact operation UUID belongs to different arguments. Stop this intent.",
     "artifact_operation_unavailable": "Artifact outcome is unknown. Retry only the original UUID and exact bytes and arguments.",
-    "artifact_search_unimplemented": "Artifact content search is unimplemented; metadata search is available.",
     "code_review_handoff_required": "Mandatory review needs accurate pinned Git scope and handoff before Done.",
     "code_review_handoff_not_applicable": "This closeout policy does not accept a mandatory review handoff.",
     "work_follow_up_answer_invalid": "Supply the typed yes/no recommendation, rationale, and handoff only for yes.",
