@@ -437,6 +437,7 @@ def test_database_readiness_is_public(api):
     assert response.json() == {"status": "ready"}
 
 
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_migration_matches_models_and_has_stored_gin_search(postgres_engine):
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     with postgres_engine.begin() as connection:

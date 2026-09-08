@@ -1068,6 +1068,7 @@ def test_context_relationship_projection_has_fixed_cap_and_exact_omissions(
     assert len(focused_body["undirected_relationships"]) == 100
 
 
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_relationship_model_parity_and_indexes(postgres_engine):
     with Session(postgres_engine) as database:
         constraints = set(

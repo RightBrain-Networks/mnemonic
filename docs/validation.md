@@ -26,7 +26,10 @@ migration test left revision 0019 behind, and SQL-only external-reference tests
 did not request the API fixture that normally restores the current schema. The
 exact ordered pair reproduced the missing-validator failure. Those four SQL test
 groups now request an explicit pristine-engine fixture; a regression verifies
-restoration of the migration head and both validators after a downgrade. Parallel
+restoration of the migration head and both validators after a downgrade. A bounded
+follow-up reproduced the same issue in 14 other current-head schema, ORM, and guard
+test functions, which now opt into that fixture too. Historical-head tests keep
+their intentional schema and every existing assertion is retained. Parallel
 execution and production migrations are unchanged.
 
 The MCP suite passes 1,060 tests plus Ruff and typing. Frontend verification passes

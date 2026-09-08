@@ -132,6 +132,7 @@ def _close(
 
 
 @pytest.mark.parametrize("outcome", ["done", "wont-do", "promoted"])
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_closeout_seals_exact_report_and_derived_review(postgres_engine: Engine, outcome: str):
     with Session(postgres_engine) as database, database.begin():
         project_id = _project(database)
@@ -178,6 +179,7 @@ def test_closeout_seals_exact_report_and_derived_review(postgres_engine: Engine,
         "work_items SET status='pending',version=version+1 WHERE id=:w",
     ],
 )
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_unsealed_or_fabricated_transition_rolls_back(postgres_engine: Engine, attack: str):
     with Session(postgres_engine) as database, database.begin():
         project_id = _project(database)
@@ -195,6 +197,7 @@ def test_unsealed_or_fabricated_transition_rolls_back(postgres_engine: Engine, a
 
 
 @pytest.mark.parametrize("source", ["deferred", "wont-do", "promoted"])
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_only_pending_can_enter_another_terminal_state(postgres_engine: Engine, source: str):
     with Session(postgres_engine) as database, database.begin():
         project_id = _project(database)
@@ -231,6 +234,7 @@ def test_only_pending_can_enter_another_terminal_state(postgres_engine: Engine, 
         "TRUNCATE job_completion_reports CASCADE",
     ],
 )
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_direct_history_and_derived_state_attacks_fail(postgres_engine: Engine, attack: str):
     with Session(postgres_engine) as database, database.begin():
         project_id = _project(database)
@@ -239,6 +243,7 @@ def test_direct_history_and_derived_state_attacks_fail(postgres_engine: Engine, 
         connection.execute(text(attack), {"p": project_id})
 
 
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_dismissal_is_monotonic_and_follow_up_retains_exact_provenance(postgres_engine: Engine):
     with Session(postgres_engine) as database, database.begin():
         project_id = _project(database)
@@ -311,6 +316,7 @@ def test_dismissal_is_monotonic_and_follow_up_retains_exact_provenance(postgres_
         )
 
 
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_settings_defaults_noop_changes_and_reset_independence(postgres_engine: Engine):
     with Session(postgres_engine) as database, database.begin():
         project_id = _project(database)
@@ -369,6 +375,7 @@ def test_settings_defaults_noop_changes_and_reset_independence(postgres_engine: 
 @pytest.mark.parametrize(
     "bad", [" ", "a\nb", "a\u2029b", "a\u202eb", "\u061ca", "a\x7fb", "a" * 2001]
 )
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_sql_report_text_policy_rejects_controls_and_bounds(postgres_engine: Engine, bad: str):
     with postgres_engine.connect() as connection:
         assert (
@@ -380,6 +387,7 @@ def test_sql_report_text_policy_rejects_controls_and_bounds(postgres_engine: Eng
 
 
 @pytest.mark.parametrize("rollback", [False, True])
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_counter_writer_waits_for_committed_prefix(postgres_engine: Engine, rollback: bool):
     with Session(postgres_engine) as database, database.begin():
         project_id = _project(database)
@@ -536,6 +544,7 @@ def _raw_activity_event(connection, project_id, work_id):
 
 
 @pytest.mark.parametrize("rollback", [False, True])
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_allocator_serializes_distinct_work_facts_without_project_row_lock(
     postgres_engine: Engine, rollback: bool
 ):
