@@ -8,7 +8,7 @@ Never/Never/off. The integrity audit is read-only and never repairs ancestry.
 
 ## Configuration
 
-`python scripts/setup.py` creates two independent random secrets in `.env`,
+`python scripts/setup.py` creates three independent random secrets in `.env`,
 refuses to overwrite an existing file, and never prints secrets. Keep that file
 private. On Unix it is created with mode 0600; on Windows use account-private
 filesystem access controls.
@@ -106,7 +106,7 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.22.0`, plugin `0.19.0`,
+The current coordinated boundary is API/MCP/dashboard `0.23.0`, plugin `0.19.0`,
 and Alembic `0026_artifact_library`. Inventory exactly 46 MCP tools,
 16 protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
@@ -234,22 +234,24 @@ pool or routing cutover. Upgrade the schema, API, MCP, dashboard, and plugin as
 one release boundary; do not deliberately restart an older writer against a
 newer contract.
 
-1. Confirm the current stack is healthy, then take and validate a fresh custom
-   dump while it is still serving:
+1. Confirm the current stack is healthy, then create fresh compressed project
+   database archives while it is still serving:
 
    ```sh
    docker compose ps
-   docker compose exec backup sh /opt/mnemonic/backup.sh once
+   docker compose exec backup python -m mnemonic_backup once
    docker compose logs --tail=20 backup
    ```
 
-   Copy the completed dump to a different device or backed-up location. A dump
-   on the same disk as the PostgreSQL volume is not a disaster-recovery copy.
+   Download and copy the completed project archives to another device or
+   backed-up location. Project archives restore only into a matching schema;
+   before a schema-changing upgrade, also arrange a separate PostgreSQL recovery
+   snapshot and matching binaries. Artifact files need their separate backup.
 2. Quiesce every writer. Stop the bundled entry points and stop any direct REST
    clients before proceeding:
 
    ```sh
-   docker compose stop web mcp api
+   docker compose stop web mcp api backup
    ```
 
 3. Optionally run migration as a separate visible step. API startup repeats it
@@ -964,7 +966,7 @@ from the same revision: the frozen digests and the code that computes them are
 one unit, and a mismatched pair reports drift against an unchanged schema.
 `scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.22.0` clients and plugin `0.19.0` together.
+failure, and inventory deployed `0.23.0` clients and plugin `0.19.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 All three audits pin the PostgreSQL session settings that decide how the server
@@ -1196,120 +1198,106 @@ authenticated approval signature.
 
 ## Backups
 
-The backup container starts after the API has migrated the database and become
-healthy. It runs a transactionally consistent custom-format `pg_dump` with
-`--no-owner`, checks that `pg_restore` can read its archive, and atomically
-renames the completed file into the backup directory. Ownership is intentionally
-rebound to the fixed application role on restore, but archived ACL commands for
-public-schema application objects are retained and replayed so Phase 11's
-`PUBLIC EXECUTE` revocations survive. Do not add `--no-acl` to a shipped archive:
-that can silently weaken existing application-object privileges and, at head
-0019, the audited function boundary. Failed partial dumps never become
-successful dumps.
-The interval defaults to 86400 seconds (24 hours). An unhealthy or restarting
-backup container needs attention; `docker compose ps` shows its state.
+Project PostgreSQL backups run at startup and every
+`MNEMONIC_BACKUP_INTERVAL_SECONDS` (default 86400). Each archive is a bounded,
+checksummed JSON-lines data export streamed through bzip2 before any archive
+bytes reach disk. Completed files appear atomically under
+`MNEMONIC_BACKUP_DIR/<project UUID>/project-<UTC timestamp>-<random ID>.json.bz2`.
+Only successful publication prunes older archives for that project:
+`MNEMONIC_BACKUP_RETENTION_COUNT` defaults to **7** (range 1–10000).
+A failed backup retains previous successful archives.
+
+Archives include project database records, immutable histories, leases,
+relationships, settings, reports, artifact metadata and completed operation
+receipts. **Artifact file contents are excluded.** A separate backup system owns
+those files. No artifact storage directory is mounted in the backup container.
+
+The service holds bounded database locks for a coherent export or transactional
+restore; active writers can briefly wait or receive their ordinary busy error.
+Pending durable operations must finish recovery first. Keep copies off-machine:
+retention on the database host does not protect against loss of that host.
+
+In the dashboard, select a project and open **Settings → Project backups** to
+inspect archive existence, creation time, age and size, create a backup, download
+an archive, or upload and restore one. Operations use the private backup service
+and a separate server-only credential. They are absent from the application REST
+contract, MCP tools, agent context and plugin skills.
+
+For operator access:
 
 ```sh
-docker compose exec backup sh /opt/mnemonic/backup.sh once
+docker compose exec backup python -m mnemonic_backup once
+docker compose exec backup python -m mnemonic_backup once --project PROJECT_UUID
 docker compose logs --tail=20 backup
 ```
 
-Files appear under `MNEMONIC_BACKUP_DIR` (`./backups` by default). They include
-canonical work, immutable checkpoint text and provenance including declared
-repository dependency scopes, retained leases, typed relationships,
-authoritative duplicate merges and their sequence/witnesses,
-immutable work events and their sequence, human gates and their attention
-identity sequence, private durable client-operation receipts, private
-completion/reopen generations, immutable verification results and artifact
-references, and migration state; treat them as private. Receipt
-rows include stored successful response bodies and salted fingerprints, so they
-receive the same confidentiality and integrity protection as canonical content.
-The backup service never deletes earlier dumps. Set a
-retention policy appropriate for available disk space, and copy successful dumps
-to another device or a backed-up location. The local PostgreSQL volume and a
-backup on the same disk can both be lost.
+The scheduler retries failures after 60 seconds. Container health reports whether
+a complete scheduled cycle has succeeded recently. Archives and receipts contain
+private project content; use private storage and keep downloads private.
 
-An archive listing check is not a restore drill. Periodically restore a dump
-into an isolated PostgreSQL instance and verify representative projects, work
-items, checkpoint history, exact relationship source/target/context/provenance,
-derived readiness, event count/max ID/content checksum and sequence ownership,
-all event and gate indexes plus immutability/completeness/fail-closed triggers,
-duplicate-forest depth and alias guards, exact merge/relationship event pairs,
-attention sequence state, receipt count/uniqueness/state plus its guards, exact
-replay of representative ordinary, gate, and merge successes, and the expected
-`alembic_version`. At head 0019, also verify exact scope order and case,
-empty-history sparse serialization, commit dependency, immutable rows,
-validator and constraint catalog definitions, representative scoped receipt
-replay, completion/reopen chronology and sequence state, evidence ownership,
-positions, record times, sealed-episode and immutable trigger hashes,
-representative evidence-bearing receipt replay, bounded history, absence from
-compact and derived projections, effective owner-only privileges on both
-evidence relations, and exact owner-only function ACLs with no `PUBLIC EXECUTE`.
-A pre-0019 archive contains no Phase 11 functions and remains migratable; 0019
-creates the reviewed privileges during that upgrade. Keep the PostgreSQL major
-version compatible with the dump
-tools.
+### Upgrading the backup service
+
+Add a fresh independently generated `MNEMONIC_BACKUP_TOKEN` of at least 32
+characters to the private `.env`, plus
+`MNEMONIC_BACKUP_RETENTION_COUNT=7`. New installations get the token from
+`python scripts/setup.py`; that command leaves an existing `.env` unchanged.
+Never reuse or distribute the application API key as the backup token.
+
+Stop the legacy backup container before removing legacy archives. Inspect the
+exact configured directory and delete only the intended old archives. The new
+service never executes or imports old `.dump` files and does not automatically
+delete arbitrary files in its root. Prepare the configured bind directory with
+owner/group 10001 and mode 0700; for the default path:
+
+```sh
+sudo install -d -m 0700 -o 10001 -g 10001 ./backups
+docker compose up -d --build --wait backup web
+```
+
+The compressed upload/archive limit defaults to 67108864 bytes (64 MiB);
+`MNEMONIC_BACKUP_EXPANDED_MAX_BYTES` defaults to 268435456 bytes (256 MiB).
+Both may be configured up to 1 GiB. Expanded records are held in memory during
+validation, so allow additional process memory when raising limits.
+For host nginx, install the updated `/api/backups/` location and match its
+`client_max_body_size` to `MNEMONIC_BACKUP_MAX_BYTES`.
 
 ## Restore
 
-Restore replaces the complete application-owned `public` schema, including
-objects that are newer than and therefore absent from the chosen backup. First
-take a fresh backup, identify the exact dump filename, and stop all writers.
-The dump path must already exist in the configured backup directory. Do not
-run a restore against a database you have not explicitly chosen to replace.
+Restoring replaces only the selected project's PostgreSQL records, preserving
+other projects and the installed schema/ACLs. The archive must match this
+release's schema and project UUID. Data is validated as data, never executed as
+SQL. A corrupt/truncated archive, schema mismatch, unresolved operation,
+cross-project dependency conflict, or failed integrity check rolls back the
+entire database restore. A project can be restored into an initialized database
+under its original UUID; dependent projects must already exist when referenced.
+A moved work item cannot be silently taken back from another project.
+
+The restored project's activity stream gets a new UUID to reject stale cursors.
+Global sequences are advanced when necessary and never rewound. Artifact metadata
+is restored, but the artifact filesystem is never read, written or deleted.
+Coordinate matching artifact content through its separate backup system when
+needed; older metadata may refer to absent or newer file bytes.
+
+Before replacing data, download a current backup. In Settings, choose the
+compressed archive and explicitly confirm the selected project. The dashboard
+reloads after success. If a connection drops, inspect the project before retrying:
+the server may already have committed the restore.
+
+The explicit operator equivalent is:
 
 ```sh
-docker compose exec backup sh /opt/mnemonic/backup.sh once
-docker compose stop web mcp api backup
-docker compose --profile maintenance run --rm -e MNEMONIC_RESTORE_FILE=mnemonic-YYYYMMDDTHHMMSSZ-SUFFIX.dump -e MNEMONIC_CONFIRM_RESTORE=replace-mnemonic-data restore
-# Keep ingress closed and direct clients stopped throughout these steps.
-docker compose run --rm api alembic upgrade head
-# Supply DATABASE_URL privately for this read-only operator command.
-uv run --project backend python scripts/audit_project_activity.py
-uv run --project backend python scripts/audit_code_reviews.py
-docker compose up -d --wait
-# Reopen traffic only after readiness and restored data checks pass.
+docker compose exec backup python -m mnemonic_backup restore \
+  --project PROJECT_UUID --confirm-project PROJECT_UUID \
+  --file /backups/PROJECT_UUID/ARCHIVE.json.bz2
 ```
 
-PostgreSQL must remain running during this sequence. The restore script refuses
-to run without the explicit confirmation value, rejects filenames containing
-directory paths, and uses a single transaction for schema replacement and
-archive loading so errors restore the original target. If the archive contains
-project activity, it also rotates every stream UUID inside that same transaction;
-a missing rotation function makes the restore fail closed. Sequences and source
-facts remain unchanged by rotation. An older archive receives new streams when
-0020 is applied. Never serve restored activity using its archived stream UUID:
-a rewind could otherwise make an acknowledged cursor silently skip later work. It replays archived ACL
-commands for public-schema application objects while rebinding ownership to the
-fixed current application role. Mnemonic does not use non-public application
-schemas or optional PostgreSQL extensions; the script
-refuses either unexpected layout instead of deleting outside its ownership
-boundary or producing a hybrid restore. The API applies every migration newer than the archive through the current head
-before becoming ready. Do not expose API, MCP, or dashboard traffic until
-readiness succeeds and the restored schema/data checks pass. Rehearse a restore
-from before a schema change on an isolated instance first. Restore is not a
-substitute for schema downgrade; downgrade is explicitly unsupported beginning
-with migration 0015 and remains unsupported for 0016. Downgrading 0017 only
-removes its derived suggestion function/index and leaves Core domain facts in
-place. Downgrading 0018 to 0017 is allowed only while every scope remains empty;
-its lock-protected guard refuses before DDL after any scoped use. Downgrading
-0019 to 0018 additionally requires empty evidence tables, no Phase 11 completion
-response, and reversible completion chronology under its exclusive locks. A pre-Phase-3
-archive cannot recover later graph facts, a
-pre-Phase-5 archive cannot recover later event history, a pre-Phase-6 archive
-cannot recover later client-operation receipts, and a pre-Phase-7 archive cannot
-recover later gates, gate events, attention order, or gate-operation receipts.
-A pre-Phase-9 archive cannot recover later authoritative merges, supporting
-witnesses, merge events, or merge receipts. Restoring such an archive after a
-merge discards that merge and every unrelated later write as one database-wide
-recovery boundary. A pre-Phase-10 archive likewise cannot recover later declared
-checkpoint scopes or the scoped receipt evidence that binds them.
-A pre-Phase-11 archive cannot recover later evidence rows, completion/reopen
-generation bindings, or evidence-bearing receipt responses. A pre-Phase-12
-archive cannot recover later reports, human dismissal decisions, follow-up
-associations, prompt edits, activity-only facts, or their receipts. Verify these
-facts, exact permanent receipt replay, automatic stream rotation, stale-cursor
-rejection, and the new-head aggregate audit in every current restore drill.
+This data-only project restore does not migrate or downgrade schemas. Historical
+migration recovery instructions elsewhere in this document refer to the
+whole-database archives and matching binaries of those historical releases.
+Periodically rehearse current project restores in throwaway containers. The
+isolated `scripts/test-e2e.sh` runner exercises HTTP and browser backup/restore,
+retention, project isolation, corrupt files, limits, concurrency and storage
+failures without using production database or backup paths.
 
 Deletion from the dashboard is a soft delete. No ordinary work/checkpoint/event
 API or MCP read can retrieve a deleted work item. The immutable rows remain
@@ -1322,8 +1310,8 @@ There is no supported in-place undelete or trash-management UI. Do not clear
 `work_items.deleted_at` manually: Phase 5 retains one immutable `work_deleted`
 fact and has no recovery event, so such a change would make the timeline false
 and can make a later canonical deletion violate the unique fact constraint.
-Recovery requires an operator-approved restore at the documented whole-database
-backup boundary. Checkpoint, event, evidence, and receipt rows and private
+Recovery requires an operator-approved restore at the documented project
+database backup boundary. Checkpoint, event, evidence, and receipt rows and private
 generation bindings must never be edited during recovery.
 
 ## Trust boundary and remote clients

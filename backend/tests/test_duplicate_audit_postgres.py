@@ -984,6 +984,46 @@ def test_whole_audit_uses_trusted_path_and_cannot_skip_core_counts(postgres_engi
             transaction.rollback()
 
 
+def test_index_audits_scope_relations_before_deparsing(postgres_engine):
+    audit = _audit_module()
+    statements = []
+
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        if "SELECT relname FROM scoped_indexes" in statement:
+            statements.append((statement, parameters))
+
+    with postgres_engine.connect() as connection:
+        event.listen(connection, "before_cursor_execute", capture)
+        try:
+            catalog = audit._catalog(connection, audit.FINAL_HEAD)
+        finally:
+            event.remove(connection, "before_cursor_execute", capture)
+        assert catalog["missing_index_count"] == 0
+        assert len(statements) == 2
+        for statement, parameters in statements:
+            plan = connection.exec_driver_sql(
+                "EXPLAIN (FORMAT JSON) " + statement, parameters
+            ).scalar_one()
+            _assert_deparsers_run_after_schema_scoping(plan[0]["Plan"])
+
+
+def _assert_deparsers_run_after_schema_scoping(plan):
+    nodes = [plan]
+    deparsers = []
+    while nodes:
+        node = nodes.pop()
+        nodes.extend(node.get("Plans", []))
+        expressions = " ".join(value for value in node.values() if isinstance(value, str))
+        if "pg_get_indexdef(" in expressions or "pg_get_expr(" in expressions:
+            deparsers.append(node)
+    assert deparsers
+    # SQL WHERE order does not constrain PostgreSQL's evaluation order. A real
+    # plan must put every deparser above the materialized schema/name selection,
+    # never on a pg_index scan that can encounter concurrently dropped schemas.
+    assert all(node["Node Type"] == "CTE Scan" for node in deparsers)
+    assert all(node["CTE Name"] == "scoped_indexes" for node in deparsers)
+
+
 def test_audit_requires_exact_repository_freshness_catalog(postgres_engine):
     audit = _audit_module()
     expected_zeroes = {

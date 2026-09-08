@@ -1,0 +1,22 @@
+FROM ghcr.io/astral-sh/uv:0.8.15 AS uv
+
+FROM python:3.14-slim
+COPY --from=uv /uv /uvx /bin/
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PATH="/app/backend/.venv/bin:$PATH"
+WORKDIR /app/backend
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+COPY backend/src ./src
+COPY backend/alembic ./alembic
+COPY backend/alembic.ini ./
+COPY scripts/audit_project_activity.py scripts/audit_duplicate_handling.py scripts/audit_code_reviews.py /app/scripts/
+RUN uv sync --frozen --no-dev && \
+    groupadd --gid 10001 mnemonic && \
+    useradd --uid 10001 --gid mnemonic --no-create-home mnemonic
+USER mnemonic
+EXPOSE 8002
+ENTRYPOINT ["python", "-m", "mnemonic_backup"]
+CMD ["serve"]

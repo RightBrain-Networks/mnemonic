@@ -1,6 +1,6 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.22.0`, plugin `0.19.0`, and migration
+Application/API/MCP/dashboard `0.23.0`, plugin `0.19.0`, and migration
 `0026_artifact_library` support files outside Git. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts

@@ -271,8 +271,9 @@ test("live artifact status re-enables a page opened with a zero server-rendered 
   await expect(page.getByRole("heading", { name: "Artifact library disabled", exact: true })).toBeVisible();
   expect(patchedInitialLimit).toBe(true);
   maximum = 64;
-  await page.getByRole("button", { name: "Check artifact status", exact: true }).click();
+  await page.locator(".page-heading").getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.getByRole("button", { name: "Upload files", exact: true })).toBeEnabled();
+  await expect(page.locator(".artifact-upload-hint")).toContainText("64 B (64 bytes) per file");
   await expect(page.getByRole("region", { name: "Sortable artifact directory" })).toBeVisible();
   await page.getByLabel("Upload artifact files").setInputFiles(filenames.map((name) => ({ name, mimeType: "text/plain", buffer: Buffer.from("Re-enabled upload") })));
   for (const filename of filenames) await expect(page.getByRole("button", { name: filename, exact: true })).toBeVisible();

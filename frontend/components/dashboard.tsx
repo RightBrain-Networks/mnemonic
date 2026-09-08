@@ -25,6 +25,7 @@ import AffectedPathsEditor from "@/components/affected-paths-editor";
 import DashboardViewChrome from "@/components/dashboard-view-chrome";
 import ThemeSelector from "@/components/theme-selector";
 import ProjectSettingsPanel from "@/components/project-settings";
+import { BACKUP_DEFAULT_MAX_BYTES } from "@/lib/backups";
 import DuplicateSuggestionPanel from "@/components/duplicate-suggestion-panel";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import JobReportList from "@/components/job-report-list";
@@ -288,13 +289,15 @@ type WorkContextScanResult =
   | { kind: "superseded" };
 type WorkDialogState = "closed" | "open" | "suspended";
 
-export default function Dashboard({ view = "library", timeZone, artifactMaxBytes = ARTIFACT_DEFAULT_MAX_BYTES }: { view?: "library" | "attention" | "summaries" | "settings" | "artifacts"; timeZone?: string | null; artifactMaxBytes?: number; }) {
+export default function Dashboard({ view = "library", timeZone, artifactMaxBytes = ARTIFACT_DEFAULT_MAX_BYTES, backupMaxBytes = BACKUP_DEFAULT_MAX_BYTES }: { view?: "library" | "attention" | "summaries" | "settings" | "artifacts"; timeZone?: string | null; artifactMaxBytes?: number; backupMaxBytes?: number; }) {
   setDisplayTimeZone(timeZone);
   const [mutationRegistry] = useState(() => new MutationIntentRegistry());
   const mutationIntents = useMutationIntents(mutationRegistry);
   useMutationUnloadWarning(mutationRegistry);
   const [retryingMutation, setRetryingMutation] = useState("");
   const [artifactPending, setArtifactPending] = useState(false);
+  const [backupPending, setBackupPending] = useState(false);
+  const backupPendingRef = useRef(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState("");
@@ -480,6 +483,9 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
         controller.signal
       );
       if (!all || !isCurrent()) return;
+      // Keep the active backup panel's identity and operation state intact even
+      // if a concurrent catalog refresh temporarily omits its project.
+      if (backupPendingRef.current) return;
       all.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
       setProjects(all);
       let saved = "";
@@ -824,6 +830,7 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
 
   function chooseProject(id: string) {
     if (artifactPending) { setNotice({ message: "Resolve the pending artifact action before switching projects.", error: true }); return; }
+    if (backupPending) { setNotice({ message: "Wait for the backup action to finish before switching projects.", error: true }); return; }
     if (
       id !== activeId
       && activeId
@@ -962,6 +969,12 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
       .sort((left, right) =>
         left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
       ));
+  }
+
+  function handleBackupPendingChange(pending: boolean) {
+    backupPendingRef.current = pending;
+    setBackupPending(pending);
+    if (!pending) setProjectsRefresh((value) => value + 1);
   }
 
   async function loadContext(
@@ -2667,6 +2680,7 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
 
   function blockNavigationWhilePending(event: MouseEvent<HTMLAnchorElement>): void {
     if (artifactPending) { event.preventDefault(); setNotice({ message: "Resolve the pending artifact action before leaving this page.", error: true }); return; }
+    if (backupPending) { event.preventDefault(); setNotice({ message: "Wait for the backup action to finish before leaving this page.", error: true }); return; }
     if (!mutationRegistry.hasDispatched()) {
       if (opened && !leavingOpenedWorkAllowed()) event.preventDefault();
       return;
@@ -2702,7 +2716,7 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
   }
 
   const activeProjectMutationBlocked = Boolean(
-    artifactPending || activeId && selectMutationScope(mutationIntents, { projectId: activeId }).blocked
+    artifactPending || backupPending || activeId && selectMutationScope(mutationIntents, { projectId: activeId }).blocked
   );
   const openedWorkKey = opened
     ? mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
@@ -2793,7 +2807,7 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
       <a href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={blockNavigationWhilePending}><Logo /><span>mnemonic<span className="brand-period">.</span></span></a>
       <div className="workspace-picker">
         <label className="section-label" htmlFor="project-select">YOUR WORKSPACE</label>
-        <div className="select-wrap"><select id="project-select" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={artifactPending || projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
+        <div className="select-wrap"><select id="project-select" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={artifactPending || backupPending || projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
           {!projects.length && <option value="">{projectsLoading ? "Loading projects…" : "Select a project"}</option>}
           {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select><span className="select-chevron" aria-hidden="true">⌄</span></div>
@@ -2830,8 +2844,8 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
               setSettingsRefresh((value) => value + 1);
             }}
           />
-          {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
-            projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
+          {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
+          {projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
             <ProjectSettingsPanel
               key={project?.id ?? "no-project"}
               project={project}
@@ -2842,6 +2856,10 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
               onSaved={handleProjectSettingsSaved}
               onProjectSaved={handleProjectSaved}
               onNotice={(message, error) => setNotice({ message, error })}
+              backupMaximumBytes={backupMaxBytes}
+              backupRefreshSignal={settingsRefresh}
+              backupPending={backupPending}
+              onBackupPendingChange={handleBackupPendingChange}
             />}
         </> : view === "summaries" ? <>
           <DashboardViewChrome eyebrow="WORK RESULTS FOR PEOPLE" title="Summaries"

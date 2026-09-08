@@ -148,11 +148,12 @@ sudo chmod 0640 /etc/nginx/mnemonic.htpasswd
 ```
 
 Use `-c` only when creating a new file; it overwrites an existing password file.
-Uncomment both `auth_basic` lines in **both** `location /` and
-`location ^~ /api/mnemonic/` in the repository config, install it again,
+Uncomment both `auth_basic` lines in every dashboard location: `location /`,
+`location ^~ /api/mnemonic/`, `location ^~ /api/artifacts/`, and
+`location ^~ /api/backups/` in the repository config, install it again,
 validate, and reload. Do not enable Basic auth at server level: MCP clients need
-their Authorization header for bearer auth. Enabling only one location leaves
-the other dashboard surface outside that optional password boundary.
+their Authorization header for bearer auth. Missing a dashboard location leaves
+that surface outside the optional password boundary.
 It does not turn Mnemonic into a multi-user application or enable public cloud
 MCP/OAuth integrations. Keep the network ACL even with a dashboard password.
 

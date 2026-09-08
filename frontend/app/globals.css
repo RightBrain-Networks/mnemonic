@@ -250,6 +250,19 @@ button { touch-action: manipulation; }
 .field .settings-template { min-height: 230px; padding: 17px; font-size: 12px; line-height: 1.8; tab-size: 2; }
 .settings-actions { display: flex; align-items: center; gap: 10px; margin: 17px 0 30px; }
 .settings-project-form .settings-actions { margin-bottom: 0; }
+.project-backups { min-width: 0; }
+.project-backups .settings-card-heading { flex-wrap: wrap; }
+.backup-actions { flex-wrap: wrap; margin-bottom: 20px; }
+.backup-list { list-style: none; margin: 0; padding: 0; }
+.backup-list > li { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 18px 0; border-top: 1px solid var(--line); }
+.backup-details { flex: 1 1 240px; min-width: 0; }
+.backup-filename { display: block; font: 12px/1.7 var(--mono); overflow-wrap: anywhere; }
+.backup-metadata { display: flex; flex-wrap: wrap; column-gap: 16px; row-gap: 4px; margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.backup-empty, .backup-notice { font-size: 13px; line-height: 1.7; }
+.backup-restore { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
+.backup-restore h3 { margin: 0; font: 700 17px/1.35 var(--display); }
+.backup-restore > p { margin: 0; }
+.backup-restore input[type="file"] { max-width: 100%; font-size: 12px; }
 .settings-loading { display: inline-flex; align-items: center; margin-left: 3px; color: var(--muted); font-size: 11px; }
 .macro-legend { padding-top: 27px; border-top: 1px solid var(--line); }
 .macro-legend h3 { margin: 7px 0 18px; font: 700 17px/1.35 var(--display); letter-spacing: -.2px; }

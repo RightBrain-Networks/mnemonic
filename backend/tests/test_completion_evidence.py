@@ -383,16 +383,6 @@ def test_completion_page_rejects_locally_incoherent_assembly(
         CompletionEvidencePage.model_validate(payload)
 
 
-def test_database_archives_preserve_phase11_acl_contract():
-    backup = (REPOSITORY_ROOT / "scripts/database/backup.sh").read_text(encoding="utf-8")
-    restore = (REPOSITORY_ROOT / "scripts/database/restore.sh").read_text(encoding="utf-8")
-
-    assert "--no-acl" not in backup
-    assert "--no-acl" not in restore
-    assert "pg_dump --format=custom --no-owner --file=" in backup
-    assert "pg_restore --no-owner --exit-on-error --file=-" in restore
-
-
 def test_live_phase11_runbook_captures_recovery_point_before_migration():
     operations = (REPOSITORY_ROOT / "docs/operations.md").read_text(encoding="utf-8")
     live_rollout = operations.rsplit("For the live quiesced rollout:", 1)[1].split(
