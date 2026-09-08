@@ -1,6 +1,6 @@
 # mnemonic
 
-> durable coordination across coding agent sessions -- without littering your repo with random Markdown docs or blowing up your issue tracker.
+> Multi-agent coordination across coding sessions -- without littering your repo with Markdown docs or blowing up your issue tracker.
 
 **`mnemonic`** is a self-hosted coordination plane for ephemeral LLM coding agents. Its core thesis: agent sessions are temporary and failure-prone, so durable work should live in a *work graph* that survives sessions, rather than in Markdown scratch files, suggested task chips, or an issue tracker flooded with AI-generated tickets.
 
@@ -10,11 +10,11 @@ Tested with Claude Code, OpenAI Codex, and OpenCode. Probably works with any sim
 
 ## Is `mnemonic` right for your project?
 
-- You build with Claude Code, OpenAI Codex, OpenCode or similar MCP client.
+- You build with Claude Code, OpenAI Codex, OpenCode and/or similar MCP client.
 
 - Important FYIs and follow-up tasks are getting overlooked because they're buried under verbose LLM output.
 
-- Dozens or hundreds of transient Markdown documents are cluttering your repo. Or, your issue tracker has so many AI-written issues that it's become nearly unusable.
+- Dozens of transient Markdown documents are cluttering your repo. Or, your issue tracker has so many AI-written issues that it's become nearly unusable.
 
 - Concurrent agents occasionally cause merge conflicts or reduplicate work, slowing progress and wasting tokens.
 
@@ -26,18 +26,20 @@ The included agent skills encourage the LLM to default to using `mnemonic` to sa
 
 Upon discovering something worth doing, but is out-of-scope of the current task, the agent will first search `mnemonic` for related work items using PostgreSQL keyword matching or semantic search (embeddings). If no matches are found, the agent opens a new work item in a "pending" state.
 
-The human (you, presumably) then click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh session. The LLM will then retrieve the work item and validate the stated premises. If the facts check-out, it requests a "work lease" of 15 minutes and then begins working. The lease is periodically renewed until the task is complete and then work item is marked as *Done*.
+The human (you, presumably) then click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh session. The LLM will then start a new session, retrieve the work item, and validate the stated premises. If the facts check-out, it requests a "work lease" of 15 minutes and then begins working. The lease is periodically renewed until the task is complete and then work item is marked as *Done*.
 
 The "human-required" copy-and-paste step is deliberate. It allows you to balance your weekly usage quota or API costs between your normal development work and working through the `mnemonic` backlog. If an agent hits a human-needed decision, the work is parked in *Needs Attention* and returns only after a person records an answer in the dashboard.
 
 ## Other features
- - **Code review agents** -- Projects can also require or invite an adversarial code review at configurable priority thresholds (both default to Never). Reviewers lease the original Done item and perform either a warm or cold code review. See [code reviews](docs/code-reviews.md) for the complete workflow.
+ - **Code review hand-offs** -- Projects can also require or invite an adversarial code review at configurable priority thresholds (both default to Never). Reviewers lease the original *Done* item and perform either a warm or cold code review. See [code reviews](docs/code-reviews.md) for the complete workflow.
 
 - **Cross-platform coordination** -- Claude Code, OpenAI Codex, OpenCode, et al. can all be used simultaneously in the same project and intelligently coordinate amongst themselves.
 
 - **Plain English work summaries** -- The "Summaries" inbox provides an easy-to-read, durable record of what each session did so you don't have to slog through every dense transcript.
 
-- **External trackers and duplicate comparison** -- Automatically finds duplicate tasks in your repo's GitHub Issues (or similar) and includes them by reference. Avoids two, conflicting homes for agent-to-agent coordination.
+- **External trackers and duplicate comparison** -- Automatically finds duplicate tasks in your repo's GitHub Issues (or similar) and includes them by reference. Mitigates two, conflicting homes for agent-to-agent coordination.
+
+- **Project artifact library** -- Some content shouldn't be committed in your repo (docs with PII, large binaries, etc). The project artifact library allows both agents and humans to upload, download, search, and reference these files stored in your local filesystem.
 
 ## Run it
 
