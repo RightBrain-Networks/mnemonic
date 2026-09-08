@@ -2,7 +2,7 @@
 
 > Single-user, multi-agent coordination across coding sessions -- without littering your repo with Markdown docs or blowing up your issue tracker.
 
-**`mnemonic`** is a single-user, self-hosted coordination plane for ephemeral LLM coding agents. Its core thesis: agent sessions are temporary and failure-prone, so durable work should live in a *work graph* that survives sessions, rather than in Markdown scratch files, suggested task chips, or an issue tracker flooded with AI-generated tickets.
+**`mnemonic`** is a single-user, self-hosted coordination plane for LLM coding agents. Its core thesis: agent sessions are temporary and failure-prone, so durable work should live in a *work graph* that survives sessions, rather than in Markdown scratch files, suggested task chips, or an issue tracker flooded with AI-generated tickets.
 
 The project is a Docker Compose stack that combines a durable backend (*PostgreSQL*) and a RESTful API (*FastAPI*). The API has two consumers: a human-facing, web browser-based dashboard (*Next.js*) and a LLM-facing MCP server. The MCP server ships with preconfigured agent skills so your agent can automatically discover how to interact with `mnemonic`. It is designed for a single, local (human) user and supports multiple, concurrent development projects.
 
@@ -24,11 +24,11 @@ Tested with Claude Code, OpenAI Codex, and OpenCode. Probably works with any sim
 
 The included agent skills encourage the LLM to default to using `mnemonic` to save hand-off prompts and self-discovered follow-up tasks. Markdown docs and your bug/issue tracker (if specified) are reserved for durable human-facing information. "Suggested task chips" are explicitly discouraged here since they live only in the ephemeral client and are easily lost.
 
-Upon discovering something worth doing, but is out-of-scope of the current task, the agent will first search `mnemonic` for related work items using PostgreSQL keyword matching or semantic search (embeddings). If no matches are found, the agent opens a new work item in a "pending" state.
+Upon discovering something worth doing, but is out-of-scope of the current task, the agent will first search `mnemonic` for related work items using PostgreSQL keyword matching or semantic search (embeddings). If no matches are found, the agent opens a new work item in a *Pending* state.
 
-The human (you, presumably) then click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh session. The LLM will then start a new session, retrieve the work item, and validate the stated premises. If the facts check-out, it requests a "work lease" of 15 minutes and then begins working. The lease is periodically renewed until the task is complete and then work item is marked as *Done*.
+**The human (you, presumably) then click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh session.** The LLM will then start a new session, retrieve the work item, and validate the stated premises. If the facts check-out, it requests a "work lease" of 15 minutes and then begins working. The lease is periodically renewed until the task is complete and then work item is marked as *Done*.
 
-The "human-required" copy-and-paste step is deliberate. It allows you to balance your weekly usage quota or API costs between your normal development work and working through the `mnemonic` backlog. If an agent hits a human-needed decision, the work is parked in *Needs Attention* and returns only after a person records an answer in the dashboard.
+**The "human-required" copy-and-paste step is deliberate.** It allows you to balance your weekly usage quota or API costs between your normal development work and working through the `mnemonic` backlog. If an agent hits a human-needed decision, the work is parked in *Needs Attention* and returns only after a person records an answer in the dashboard.
 
 ## Other features
  - **Code review hand-offs** -- Projects can also require or invite an adversarial code review at configurable priority thresholds (both default to Never). Reviewers lease the original *Done* item and perform either a warm or cold code review. See [code reviews](docs/code-reviews.md) for the complete workflow.
