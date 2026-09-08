@@ -100,6 +100,7 @@ def project_mutation(
     *,
     additional_project_ids: Iterable[UUID] = (),
     protected: bool = False,
+    domain_seconds: float | None = None,
 ) -> Iterator[None]:
     """Bound fresh execution through its commit and lock every project in UUID order.
 
@@ -120,7 +121,8 @@ def project_mutation(
             raise RuntimeError("A project mutation cannot change its project scope")
         yield
         return
-    budget = _DomainBudget(project_ids, time.monotonic() + DOMAIN_SECONDS)
+    duration = DOMAIN_SECONDS if domain_seconds is None else domain_seconds
+    budget = _DomainBudget(project_ids, time.monotonic() + duration)
     database.info[_STATE_KEY] = budget
     connection = None
     listener = None

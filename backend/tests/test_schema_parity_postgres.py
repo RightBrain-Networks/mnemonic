@@ -89,6 +89,7 @@ def _index_catalog(
     return catalog
 
 
+@pytest.mark.usefixtures("pristine_postgres_engine")
 def test_migrated_schema_matches_orm_metadata(postgres_engine: Engine):
     """Alembic head and Base.metadata agree on columns, CHECKs, FKs, and indexes."""
     with postgres_engine.connect() as connection:

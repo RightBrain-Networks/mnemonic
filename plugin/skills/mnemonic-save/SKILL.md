@@ -1,9 +1,15 @@
 ---
 name: mnemonic-save
-description: Save a hand-off, follow-up, or resume prompt to Mnemonic, append corrective context or a concise progress event to saved work, or record a question that a person must answer in the Mnemonic dashboard before work continues (a human gate). Use when the user wants something remembered for a later session, wants an owner decision left durably for later, or wants progress on saved work recorded, even if they do not say "mnemonic"; saving or asking never authorizes executing it.
+description: Save Mnemonic work, hand-offs, follow-ups, project artifact files outside Git, corrective context, progress, or a question for a person in the dashboard. Use when the user wants work remembered, files uploaded or replaced in the artifact library, or an owner decision recorded for later; saving or asking never authorizes executing it.
 ---
 
 # Save Mnemonic work
+
+For project files outside Git, read
+[artifacts.md](${CLAUDE_PLUGIN_ROOT}/reference/artifacts.md). Use `upload_artifact`
+with the originating and known related work IDs. `replace_artifact` and
+`delete_artifact` remove bytes permanently while retaining metadata and audit;
+freeze exact bytes, arguments, and operation UUID before each mutation.
 
 Read [code-reviews.md](${CLAUDE_PLUGIN_ROOT}/reference/code-reviews.md) for every
 Done closeout. Prepare mandatory pinned scope/handoff before `complete_work`,

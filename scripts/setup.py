@@ -26,6 +26,8 @@ def main() -> None:
     with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as output:
         output.write(content)
     print("Created .env with new local secrets. Do not commit or share it.")
+    print("Create the private artifact bind directory before starting Compose:")
+    print("  sudo install -d -m 0700 -o 10001 -g 10001 ./artifacts")
     print("Start Mnemonic: docker compose up --build -d --wait")
 
 

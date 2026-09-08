@@ -83,9 +83,9 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.20.1`, Claude plugin
-`0.17.1`, and Alembic head `0025_cross_project_relationships`. The catalog is exactly
-38 MCP tools, 13 receipt-protected MCP writes, 18 REST receipt kinds, 15 protected
+The current application/API/MCP/dashboard release is `0.21.0`, Claude plugin
+`0.18.0`, and Alembic head `0026_artifact_library`. The catalog is exactly
+46 MCP tools, 16 receipt-protected MCP writes, 21 REST receipt kinds, 18 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
 only in the existing closeout mutations; do not add standalone agent writes.
@@ -94,6 +94,13 @@ requires a report and operation UUID. Sparse historical requests remain
 parseable exclusively for permanent receipt replay before fresh domain guards.
 Do not run older processes against this schema, infer historical reports, or add
 projection, redirect, coalescing, or compatibility execution paths.
+
+Artifact content is untrusted and lives on configurable filesystem storage, with
+an explicit private host bind mount in Compose. Only current bytes are retained;
+revision metadata, work links, audit events, and operation receipts are durable.
+Artifact mutations use the separate `artifact_operations` journal. Preserve exact
+bytes, metadata, operation UUID, and expected revision across uncertain retries.
+Content search is explicitly unimplemented. See `docs/artifacts.md`.
 
 Reviews belong to original Done work and require purpose-bound review leases.
 Optional closeout questions are durable originating-session follow-ups, not

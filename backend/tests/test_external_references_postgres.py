@@ -18,8 +18,8 @@ ACTOR = {"actor_client": "pytest", "actor_session_id": "external-references"}
 
 
 @pytest.mark.parametrize("case", FIXTURE["url_cases"])
-def test_sql_url_shared_contract(postgres_engine, case):
-    with postgres_engine.connect() as connection:
+def test_sql_url_shared_contract(pristine_postgres_engine, case):
+    with pristine_postgres_engine.connect() as connection:
         assert (
             connection.scalar(
                 text("SELECT mnemonic_external_url_is_valid(:url)"), {"url": case["value"]}
@@ -29,10 +29,10 @@ def test_sql_url_shared_contract(postgres_engine, case):
 
 
 @pytest.mark.parametrize("case", FIXTURE["label_cases"])
-def test_sql_label_shared_contract(postgres_engine, case):
+def test_sql_label_shared_contract(pristine_postgres_engine, case):
     if "\x00" in case["value"]:
         return  # PostgreSQL JSONB itself rejects NUL before the validator.
-    with postgres_engine.connect() as connection:
+    with pristine_postgres_engine.connect() as connection:
         assert (
             connection.scalar(
                 text("SELECT mnemonic_external_references_is_valid(CAST(:refs AS jsonb))"),
@@ -59,8 +59,8 @@ def test_sql_label_shared_contract(postgres_engine, case):
         [{**REFERENCE, "unknown": "field"}],
     ],
 )
-def test_sql_validator_is_total_and_rejects_shapes(postgres_engine, value):
-    with postgres_engine.connect() as connection:
+def test_sql_validator_is_total_and_rejects_shapes(pristine_postgres_engine, value):
+    with pristine_postgres_engine.connect() as connection:
         assert (
             connection.scalar(
                 text("SELECT mnemonic_external_references_is_valid(CAST(:refs AS jsonb))"),
@@ -466,8 +466,8 @@ def test_sql_rejects_false_creation_snapshot_and_malformed_diffs(
 
 
 @pytest.mark.parametrize("case", FIXTURE["timestamp_cases"])
-def test_sql_observation_requires_canonical_utc_representation(postgres_engine, case):
-    with postgres_engine.connect() as connection:
+def test_sql_observation_requires_canonical_utc_representation(pristine_postgres_engine, case):
+    with pristine_postgres_engine.connect() as connection:
         raw = connection.scalar(
             text("SELECT mnemonic_external_references_is_valid(CAST(:refs AS jsonb))"),
             {"refs": json.dumps([{**REFERENCE, "state_observed_at": case["value"]}])},
@@ -537,7 +537,7 @@ def test_downgrade_waits_for_writer_before_checking_reference_history(
             result.result(timeout=3)
     with postgres_engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0025_cross_project_relationships"
+            "0026_artifact_library"
         )
         assert connection.scalar(
             text("SELECT external_references FROM work_items WHERE id=:id"), {"id": work["id"]}

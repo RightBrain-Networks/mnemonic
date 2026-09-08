@@ -656,6 +656,8 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {
+        "list_artifacts", "get_artifact", "list_artifact_history", "download_artifact",
+        "search_artifact_contents", "upload_artifact", "replace_artifact", "delete_artifact",
         "list_code_reviews", "get_code_review", "complete_code_review",
         "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
         "get_activity",
@@ -747,6 +749,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "merge_work",
     }
     protected |= {"respond_to_work_follow_up", "complete_code_review"}
+    protected |= {"upload_artifact", "replace_artifact", "delete_artifact"}
     mutating = protected | {
         "create_project",
         "claim_work",
@@ -754,13 +757,14 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "renew_claim",
     }
     destructive = {
+        "replace_artifact", "delete_artifact",
         "update_work",
         "complete_work",
         "delete_work",
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 38
+    assert len(tools) == 46
     for name in mutating:
         assert tools[name].annotations.idempotentHint is (name in protected)
     for name in tools.keys() - mutating:
@@ -785,6 +789,7 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}
     protected = {
+        "upload_artifact", "replace_artifact", "delete_artifact",
         "respond_to_work_follow_up", "complete_code_review",
         "create_work",
         "add_checkpoint",

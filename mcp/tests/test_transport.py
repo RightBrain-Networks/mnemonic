@@ -38,6 +38,8 @@ INITIALIZE = {
 }
 
 CANONICAL_TOOL_NAMES = {
+    "list_artifacts", "get_artifact", "list_artifact_history", "download_artifact",
+    "search_artifact_contents", "upload_artifact", "replace_artifact", "delete_artifact",
     "list_code_reviews", "get_code_review", "complete_code_review",
     "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
     "get_activity",
@@ -74,6 +76,7 @@ CANONICAL_TOOL_NAMES = {
     "suggest_duplicate_work",
 }
 PROTECTED_TOOL_NAMES = {
+    "upload_artifact", "replace_artifact", "delete_artifact",
     "respond_to_work_follow_up", "complete_code_review",
     "create_work",
     "add_checkpoint",
@@ -97,6 +100,7 @@ READ_ONLY_TOOL_NAMES = (
     CANONICAL_TOOL_NAMES - PROTECTED_TOOL_NAMES - UNPROTECTED_MUTATION_TOOL_NAMES
 )
 DESTRUCTIVE_TOOL_NAMES = {
+    "replace_artifact", "delete_artifact",
     "update_work",
     "complete_work",
     "delete_work",
@@ -108,7 +112,7 @@ DESTRUCTIVE_TOOL_NAMES = {
 def assert_serialized_tool_contract(tools: list[dict[str, object]]) -> None:
     """Assert the exact schema and annotation contract after transport serialization."""
     by_name = {tool["name"]: tool for tool in tools}
-    assert len(PROTECTED_TOOL_NAMES) == 13
+    assert len(PROTECTED_TOOL_NAMES) == 16
     assert set(by_name) == CANONICAL_TOOL_NAMES
 
     annotation_fields = {
@@ -153,7 +157,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         initialized = client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS)
         assert initialized.status_code == 200
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
-        assert initialized.json()["result"]["serverInfo"]["version"] == "0.20.1"
+        assert initialized.json()["result"]["serverInfo"]["version"] == "0.21.0"
         instructions = initialized.json()["result"]["instructions"]
         # Clients truncate this block, so it must stay short and lead with the
         # trigger condition. Per-tool doctrine lives in the tool descriptions.
@@ -176,7 +180,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
         listed_tools = listed.json()["result"]["tools"]
-        assert len(listed_tools) == 38
+        assert len(listed_tools) == 46
         assert_serialized_tool_contract(listed_tools)
         assert all(
             tool["inputSchema"].get("additionalProperties") is False
@@ -442,9 +446,9 @@ async def test_stdio_transport_handshake_and_catalog():
         ):
             initialized = await session.initialize()
             assert initialized.serverInfo.name == "Mnemonic"
-            assert initialized.serverInfo.version == "0.20.1"
+            assert initialized.serverInfo.version == "0.21.0"
             result = await session.list_tools()
-            assert len(result.tools) == 38
+            assert len(result.tools) == 46
             assert all(tool.outputSchema is not None for tool in result.tools)
             assert all(
                 tool.inputSchema.get("additionalProperties") is False

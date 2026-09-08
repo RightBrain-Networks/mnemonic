@@ -107,6 +107,9 @@ function summary(id = work, overrides = {}) {
 
 function context(id = work) {
   return {
+    artifacts: [],
+    artifact_total: 0,
+    omitted_artifact_count: 0,
     work_item: workItem(id),
     merge_review_revision: {
       work_version: 1,
@@ -175,6 +178,23 @@ function progressEvent(id, created_at) {
     created_at
   };
 }
+
+test("work context discovers project-scoped linked artifacts and rejects missing or incoherent slices", () => {
+  const row = {
+    id: "a6867ab7-201a-4f68-b213-67e5c8cb7811", project_id: project,
+    filename: "notes.txt", description: "", revision: 1, size_bytes: 3,
+    sha256: "a".repeat(64), mime_type: "text/plain", created_by_agent_session_id: "agent-1",
+    originating_work_item_id: work, related_work_item_ids: [],
+    created_at: "2026-09-01T00:00:00Z", modified_at: "2026-09-01T00:00:00Z",
+    deleted_at: null, content_available: true
+  };
+  const linked = { ...context(), artifacts: [row], artifact_total: 3, omitted_artifact_count: 2 };
+  assert.equal(decodeWorkContext(linked, project, work).artifacts[0].filename, "notes.txt");
+  assert.throws(() => decodeWorkContext({ ...linked, artifact_total: 2 }, project, work), /artifact slice/);
+  assert.throws(() => decodeWorkContext({ ...linked, artifacts: [{ ...row, originating_work_item_id: null }] }, project, work), /artifact slice/);
+  const missing = context(); delete missing.artifacts;
+  assert.throws(() => decodeWorkContext(missing, project, work), /work context/);
+});
 
 function incomingRelationship(id, counterpartId, created_at = createdAt) {
   return {

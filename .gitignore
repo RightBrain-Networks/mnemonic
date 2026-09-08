@@ -210,6 +210,7 @@ node_modules/
 .env.*
 !.env.example
 backups/
+/artifacts/
 .local/
 test-results/
 playwright-report/

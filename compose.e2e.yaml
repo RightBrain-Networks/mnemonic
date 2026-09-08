@@ -22,6 +22,14 @@ services:
       MNEMONIC_API_KEY: ${MNEMONIC_E2E_API_KEY:?Run through scripts/test-e2e.sh}
       MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_DASHBOARD_ORIGINS:?Run through scripts/test-e2e.sh}
       MNEMONIC_LEASE_TTL_SECONDS: 60
+      MNEMONIC_ARTIFACT_ROOT: /var/lib/mnemonic/artifacts
+      MNEMONIC_ARTIFACT_MAX_BYTES: 67108864
+    volumes:
+      - type: bind
+        source: ${MNEMONIC_E2E_ARTIFACT_DIR:?Run through the isolated test runner}
+        target: /var/lib/mnemonic/artifacts
+        bind:
+          create_host_path: false
     ports:
       - '127.0.0.1:${MNEMONIC_E2E_API_PORT:?Run through scripts/test-e2e.sh}:8000'
     depends_on:
@@ -41,6 +49,7 @@ services:
     build: ./frontend
     environment:
       TIMEZONE: ${TIMEZONE:-America/Detroit}
+      MNEMONIC_ARTIFACT_MAX_BYTES: 67108864
       MNEMONIC_API_URL: http://api:8000
       MNEMONIC_API_KEY: ${MNEMONIC_E2E_API_KEY:?Run through scripts/test-e2e.sh}
       MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_DASHBOARD_ORIGINS:?Run through scripts/test-e2e.sh}

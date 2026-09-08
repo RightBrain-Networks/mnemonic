@@ -1,6 +1,7 @@
 "use client";
 
 import ExternalReferences from "@/components/external-references";
+import { WorkArtifactLinks } from "@/components/artifact-library";
 import CodeReviewPanel from "@/components/code-review-panel";
 import WorkReportProvenance from "@/components/work-report-provenance";
 import JobReportEditor from "@/components/job-report-editor";
@@ -992,6 +993,7 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
       <h3 className="detail-title">{work.title}</h3>
       <p className="detail-summary">{work.summary}</p>
       <ExternalReferences references={work.external_references} />
+      <WorkArtifactLinks projectId={work.project_id} workItemId={work.id} />
       <dl className="detail-facts" aria-label="Work item facts">
         <div><dt>Priority</dt><dd>{work.priority}</dd></div>
         <div><dt>Checkpoints</dt><dd>{context?.checkpoint_total ?? opened.checkpoint_count}</dd></div>

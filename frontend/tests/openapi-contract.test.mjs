@@ -44,6 +44,9 @@ const DEFAULTED_RESPONSE_FIELDS = {
     "ancestor_path_truncated"
   ],
   "frontend/lib/duplicate-handling.ts:decodeWorkContext": [
+    "artifacts",
+    "artifact_total",
+    "omitted_artifact_count",
     "incoming_relationships",
     "omitted_relationship_counts",
     "outgoing_relationships",

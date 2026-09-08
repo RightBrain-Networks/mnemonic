@@ -88,6 +88,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlsplit(self.path)
+        if parsed.path.endswith("/artifacts"):
+            metadata = self.headers.get("X-Artifact-Metadata", "")
+            self._send(200, json.dumps({"metadata_bytes": len(metadata)}).encode())
+            return
         if not parsed.path.endswith("/complete"):
             self._send(404, b'{"detail":"not found"}')
             return
