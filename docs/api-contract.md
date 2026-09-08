@@ -1,6 +1,6 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.27.0`, plugin `0.20.0`, and migration
+This is application/API/MCP/dashboard `0.28.0`, plugin `0.20.0`, and migration
 `0027_artifact_fulltext`. The catalog has exactly 46 MCP tools, 16
 protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations and
 24 work-event types. The 21 REST receipt kinds comprise 18 work operations and
@@ -1251,6 +1251,15 @@ artifact/work IDs, deleted-metadata inclusion and pagination are supported.
 Results include artifact metadata extended by Tika properties, relevance scores,
 plain-text content snippets, matched field categories and extraction coverage.
 Search takes no operation UUID. See the [full search contract](artifacts.md#full-text-search).
+
+`503 artifact_storage_unavailable` includes a controlled `context.cause` and a
+strict boolean `context.attempt_not_committed`. Only upload/replacement staging
+sets the flag true; it describes this invocation, not an earlier or concurrent
+same-UUID attempt. Other storage boundaries make no non-commit assertion. MCP
+uses local cause/remedy text, names `MNEMONIC_ARTIFACT_ROOT` without its value,
+and halts automatic retries pending operator repair while retaining the exact
+original intent. Unknown/malformed causes and unrelated failures retain the
+ordinary uncertainty contract. See [storage fault semantics](artifacts.md#storage-faults-and-operator-repair).
 
 ```text
 list_projects, create_project,

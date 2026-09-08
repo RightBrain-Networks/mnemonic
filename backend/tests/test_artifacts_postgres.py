@@ -227,6 +227,14 @@ def test_crash_recovery_publishes_once_and_finishes_receipt(
     monkeypatch.setattr(artifact_storage, "publish", interrupt)
     failed = api.post(collection(project), content=b"recoverable", headers=request_headers)
     assert failed.status_code == 503, failed.text
+    assert failed.json()["detail"]["context"] == {
+        "cause": "storage_unavailable", "attempt_not_committed": False,
+    }
+    failed_replay = api.post(collection(project), content=b"recoverable", headers=request_headers)
+    assert failed_replay.status_code == 503, failed_replay.text
+    assert failed_replay.json()["detail"]["context"] == {
+        "cause": "storage_unavailable", "attempt_not_committed": False,
+    }
     monkeypatch.setattr(artifact_storage, "publish", original_publish)
     recovered = api.get(collection(project))
     assert recovered.status_code == 200, recovered.text
@@ -264,6 +272,9 @@ def test_replacement_and_delete_recover_after_filesystem_change(
         ),
     )
     assert response.status_code == 503
+    assert response.json()["detail"]["context"] == {
+        "cause": "storage_unavailable", "attempt_not_committed": False,
+    }
     assert [file.read_bytes() for file in actual_files(artifact_storage)] == [b"replacement"]
     monkeypatch.setattr(artifact_storage, "publish", publish)
     assert api.get(path).json()["revision"] == 2
@@ -274,7 +285,11 @@ def test_replacement_and_delete_recover_after_filesystem_change(
         raise OSError("crash after unlink")
 
     monkeypatch.setattr(artifact_storage, "delete", interrupted_delete)
-    assert api.delete(path, headers=headers(revision=2)).status_code == 503
+    failed_delete = api.delete(path, headers=headers(revision=2))
+    assert failed_delete.status_code == 503
+    assert failed_delete.json()["detail"]["context"] == {
+        "cause": "storage_unavailable", "attempt_not_committed": False,
+    }
     assert actual_files(artifact_storage) == []
     monkeypatch.setattr(artifact_storage, "delete", delete)
     assert api.get(path).json()["deleted_at"] is not None

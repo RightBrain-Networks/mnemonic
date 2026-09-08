@@ -12,6 +12,7 @@ import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import BaseModel, ValidationError
 
+from .artifact_errors import artifact_storage_message
 from .config import Settings
 from .transport import (
     COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES,
@@ -438,6 +439,14 @@ def _raise_server_uncertainty(
 ) -> None:
     if response.status_code < 500:
         return
+    storage_message = artifact_storage_message(
+        response.status_code,
+        application_error,
+        safe_read=effect is TransportEffect.SAFE_READ,
+        receipt_protected_write=effect is TransportEffect.RECEIPT_PROTECTED_WRITE,
+    )
+    if storage_message is not None:
+        raise ToolError(storage_message)
     if application_error is not None and application_error[0] == "artifact_library_disabled":
         message = _artifact_policy_error(*application_error)
         if response.status_code == 503 and message is not None:

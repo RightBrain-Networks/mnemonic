@@ -7,7 +7,13 @@ from fastapi import HTTPException
 SAFE_ERROR_CONTEXT_KEYS = frozenset(
     {
         "holder_client", "holder_session_id", "expires_at", "purpose", "code_review_id", "mode",
-        "canonical_work_item_id", "max_bytes",
+        "canonical_work_item_id", "max_bytes", "cause", "attempt_not_committed",
+    }
+)
+SAFE_STORAGE_CAUSES = frozenset(
+    {
+        "storage_owner_mismatch", "storage_permission_denied", "storage_full",
+        "storage_read_only", "storage_integrity", "storage_unavailable",
     }
 )
 SAFE_ERROR_FIELD_LOCATIONS = frozenset(
@@ -26,6 +32,11 @@ def _safe_context(context: dict[str, Any] | None) -> dict[str, Any]:
     if not context:
         return {}
     safe = {key: value for key, value in context.items() if key in SAFE_ERROR_CONTEXT_KEYS}
+    cause = safe.get("cause")
+    if not isinstance(cause, str) or cause not in SAFE_STORAGE_CAUSES:
+        safe.pop("cause", None)
+    if not isinstance(safe.get("attempt_not_committed"), bool):
+        safe.pop("attempt_not_committed", None)
     fields = context.get("fields")
     if isinstance(fields, list) and all(field in SAFE_ERROR_FIELD_LOCATIONS for field in fields):
         safe["fields"] = sorted(set(fields))
