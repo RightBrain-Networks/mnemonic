@@ -1,5 +1,6 @@
 "use client";
 
+import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import ExternalReferences from "@/components/external-references";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useRef, useState } from "react";
@@ -59,6 +60,14 @@ export default function HumanAttentionList({
   const titleRef = useRef<HTMLHeadingElement>(null);
   const pendingResolvedGateId = useRef<string | null>(null);
   const cursor = cursorStack[pageIndex] ?? null;
+  const motionRef = useWorkItemMotion<HTMLDivElement>({
+    itemIds: page?.items.map((item) => item.gate.id) ?? [],
+    total: page?.total ?? null,
+    viewKey: `${project?.id}:${workItemId}:${cursor}`,
+    revision: page,
+    snapshotSignal: `${refreshSignal}:${reload}`,
+    animateReplacements: true
+  });
 
   useEffect(() => {
     setWorkItemId(locationWorkFilter());
@@ -124,7 +133,6 @@ export default function HumanAttentionList({
   function refreshHead(): void {
     setCursorStack([null]);
     setPageIndex(0);
-    setPage(null);
     setResolutionStatus("");
     pendingResolvedGateId.current = null;
     setReload((value) => value + 1);
@@ -153,8 +161,8 @@ export default function HumanAttentionList({
     <p className="attention-authority-note">This queue contains only explicit durable questions. Recording an answer executes nothing and is not authenticated approval.</p>
     {loadError && <div className="error-notice" role="alert"><p>{loadError}</p><button type="button" className="button button-secondary" onClick={() => setReload((value) => value + 1)}>Try again</button></div>}
     {loading && !page && <div className="loading-state" role="status"><span className="spinner" />Loading explicit questions…</div>}
-    {!loading && page && !page.items.length && !loadError && <section className="empty-state attention-empty"><h2>No explicit human questions are waiting.</h2><p>This does not mean that every work item is ready; lifecycle holds, blockers, and active leases are separate facts.</p></section>}
-    {page?.items.length ? <div className="attention-items" aria-busy={loading}>{page.items.map((item) => <article className="attention-card" key={item.gate.id}>
+    {page && !page.items.length && !loadError && <section className="empty-state attention-empty"><h2>No explicit human questions are waiting.</h2><p>This does not mean that every work item is ready; lifecycle holds, blockers, and active leases are separate facts.</p></section>}
+    <div className="attention-items" ref={motionRef} aria-busy={loading}>{page?.items.map((item) => <article className="attention-card" key={item.gate.id} data-work-item-id={item.gate.id}>
       <SearchBreadcrumb summary={item.summary} />
       <div className="attention-card-heading">
         <div><StatusBadge status={item.summary.work_item.status} readiness={item.summary.readiness} /><OperationalBadge readiness={item.summary.readiness} /></div>
@@ -169,7 +177,7 @@ export default function HumanAttentionList({
       </dl>
       <button type="button" className="button button-secondary" onClick={() => onOpen(item.summary)}>Open work context</button>
       <HumanGateResolution gate={item.gate} onResolved={() => resolved(item.gate.id)} />
-    </article>)}</div> : null}
+    </article>)}</div>
     {page && page.total > 0 && <nav className="pagination attention-pagination" aria-label="Human attention pages">
       <span>Page {pageIndex + 1} · {page.items.length} shown · {page.total} currently unresolved</span>
       <div>

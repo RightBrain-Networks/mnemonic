@@ -48,14 +48,16 @@ export function planWorkItemMotion(
   previousIds: readonly string[],
   previousTotal: number,
   currentIds: readonly string[],
-  currentTotal: number
+  currentTotal: number,
+  animateReplacements = false
 ): WorkItemMotionPlan | null {
-  if (currentTotal === previousTotal) return null;
+  if (currentTotal === previousTotal && !animateReplacements) return null;
 
   const previousSet = new Set(previousIds);
   const currentSet = new Set(currentIds);
   const addedIds = currentIds.filter((id) => !previousSet.has(id));
   const removedIds = previousIds.filter((id) => !currentSet.has(id));
+  if (addedIds.length === 0 && removedIds.length === 0) return null;
   if (currentTotal > previousTotal && addedIds.length === 0) return null;
   if (currentTotal < previousTotal && removedIds.length === 0) return null;
 
