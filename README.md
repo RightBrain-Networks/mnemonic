@@ -1,8 +1,8 @@
 # mnemonic
 
-> Multi-agent coordination across coding sessions -- without littering your repo with Markdown docs or blowing up your issue tracker.
+> Single-user, multi-agent coordination across coding sessions -- without littering your repo with Markdown docs or blowing up your issue tracker.
 
-**`mnemonic`** is a self-hosted coordination plane for ephemeral LLM coding agents. Its core thesis: agent sessions are temporary and failure-prone, so durable work should live in a *work graph* that survives sessions, rather than in Markdown scratch files, suggested task chips, or an issue tracker flooded with AI-generated tickets.
+**`mnemonic`** is a single-user, self-hosted coordination plane for ephemeral LLM coding agents. Its core thesis: agent sessions are temporary and failure-prone, so durable work should live in a *work graph* that survives sessions, rather than in Markdown scratch files, suggested task chips, or an issue tracker flooded with AI-generated tickets.
 
 The project is a Docker Compose stack that combines a durable backend (*PostgreSQL*) and a RESTful API (*FastAPI*). The API has two consumers: a human-facing, web browser-based dashboard (*Next.js*) and a LLM-facing MCP server. The MCP server ships with preconfigured agent skills so your agent can automatically discover how to interact with `mnemonic`. It is designed for a single, local (human) user and supports multiple, concurrent development projects.
 
@@ -39,7 +39,7 @@ The "human-required" copy-and-paste step is deliberate. It allows you to balance
 
 - **External trackers and duplicate comparison** -- Automatically finds duplicate tasks in your repo's GitHub Issues (or similar) and includes them by reference. Mitigates two, conflicting homes for agent-to-agent coordination.
 
-- **Project artifact library** -- Some content shouldn't be committed in your repo (docs with PII, large binaries, etc). The project artifact library allows both agents and humans to upload, download, search, and reference these files stored in your local filesystem.
+- **Project artifact library** -- Some content shouldn't be committed in your repo (docs with PII, large binaries, etc). The project artifact library allows both agents and humans to upload, download, search, and reference these files stored in your local filesystem. The artifact library is a lightweight alternative to a traditional document management system (DMS) and can be optionally disabled in the project environment.
 
 ## Run it
 
