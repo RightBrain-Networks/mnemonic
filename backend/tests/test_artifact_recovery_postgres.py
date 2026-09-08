@@ -66,6 +66,9 @@ def test_failed_intent_does_not_block_unrelated_artifact_reads(
         response = api.get(failed_path + suffix)
         assert response.status_code == 503, response.text
         assert response.json()["detail"]["code"] == "artifact_storage_unavailable"
+        assert response.json()["detail"]["context"] == {
+            "cause": "storage_unavailable", "attempt_not_committed": False,
+        }
     for include_deleted in (False, True):
         for offset, expected in enumerate((healthy, last)):
             response = api.get(collection(project), params={

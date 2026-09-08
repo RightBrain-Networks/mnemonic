@@ -1,6 +1,6 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.27.0`, plugin `0.20.0`, and migration
+Application/API/MCP/dashboard `0.28.0`, plugin `0.20.0`, and migration
 `0027_artifact_fulltext` support files outside Git and local full-text search. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
@@ -137,6 +137,43 @@ intent. Replaying a completed receipt returns the original metadata, even after
 later changes. Revision conflicts are definitive and require a fresh read before
 preparing another intent. Artifact receipts use `artifact_operations`; existing
 work receipts remain in `client_operations`.
+
+### Storage faults and operator repair
+
+`503 artifact_storage_unavailable` carries a controlled `context.cause` and a
+boolean `context.attempt_not_committed`. MCP renders cause-specific guidance from
+local constants, not the upstream message, OS error text, or filesystem path.
+Guidance names `MNEMONIC_ARTIFACT_ROOT`; it does not disclose its configured value.
+
+| Cause | Operator action |
+| --- | --- |
+| `storage_owner_mismatch` | Ensure the configured storage directory is owned by the API service user. |
+| `storage_permission_denied` | Restore the service user's required storage access while keeping files private. |
+| `storage_full` | Free space or resolve the applicable storage quota. |
+| `storage_read_only` | Restore a writable artifact mount. |
+| `storage_integrity` | Investigate missing, unsafe, or mismatched stored content without bypassing integrity checks. |
+| `storage_unavailable` | Inspect the configured storage mount and host health. |
+
+For classified faults, stop automatic retries until an operator resolves the
+storage problem. Retain the original operation UUID, exact metadata, bytes and
+expected revision; never mint a replacement UUID for the same intent.
+
+`attempt_not_committed=true` means only that **this invocation** failed during
+upload/replacement staging before recording or publishing an artifact mutation.
+It does not establish the outcome of an earlier or concurrent invocation using
+the same UUID. The receipt lookup before staging is not a reservation: another
+request can commit afterward. A completed receipt normally bypasses fresh staging.
+
+For mutation/replay execution and recovery/read paths the flag is false: the
+handler makes no non-commit claim. A durable intent, published/deleted content,
+or completed receipt may already exist when a storage error occurs. An empty
+listing is not proof of non-commit because pending intents are omitted.
+Reads report the storage remedy without making claims about mutation outcomes.
+For writes, unclassified 5xx failures, malformed cause data, and lost responses
+retain their existing unknown-outcome contract. Read transport failures retain
+their safe-read behavior; a failed download stream cannot be replaced with a JSON
+error after response headers have been sent. A storage repair does not resolve
+an unknown receipt; reconcile using the same retained intent after repair.
 
 ## REST and MCP
 

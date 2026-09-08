@@ -50,6 +50,10 @@ class ArtifactContentUnavailable(OSError):
     """Artifact content is missing, unsafe, or fails its recorded integrity check."""
 
 
+class ArtifactStorageOwnerMismatch(ArtifactContentUnavailable):
+    """A storage directory or content file is not owned by the effective API user."""
+
+
 def validate_filename(filename: str) -> str:
     """Preserve safe original names verbatim; reject unsafe names without rewriting."""
     if not isinstance(filename, str) or not filename or filename != filename.strip():
@@ -144,7 +148,7 @@ def _verify_regular(descriptor: int) -> None:
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
         raise ArtifactContentUnavailable("Artifact content is not a private regular file.")
     if info.st_uid != os.geteuid():
-        raise ArtifactContentUnavailable("Artifact content has an unexpected owner.")
+        raise ArtifactStorageOwnerMismatch("Artifact content has an unexpected owner.")
 
 
 @contextmanager
@@ -277,7 +281,7 @@ class ArtifactStorage:
     @staticmethod
     def _secure_directory(descriptor: int) -> None:
         if os.fstat(descriptor).st_uid != os.geteuid():
-            raise ArtifactContentUnavailable("Artifact storage has an unexpected owner.")
+            raise ArtifactStorageOwnerMismatch("Artifact storage has an unexpected owner.")
         os.fchmod(descriptor, 0o700)
 
     @contextmanager

@@ -816,7 +816,7 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.27.0`, plugin is `0.20.0`,
+Current application/API/MCP/dashboard versions are `0.28.0`, plugin is `0.20.0`,
 and Alembic head is `0027_artifact_fulltext`. Validate all surfaces
 together with the existing regression suites. This release adds extraction jobs,
 current normalized text and retained document properties, without new tool or

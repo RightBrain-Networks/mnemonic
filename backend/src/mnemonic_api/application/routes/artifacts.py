@@ -1,6 +1,7 @@
 """Authenticated raw-byte transfer; bounded metadata travels in an ASCII JSON header."""
 
 import asyncio
+import errno
 import hashlib
 import json
 from collections.abc import AsyncIterator, Iterator
@@ -30,7 +31,9 @@ from mnemonic_api.artifact_schemas import (
 )
 from mnemonic_api.artifact_search_schemas import ArtifactSearchPage, ArtifactSearchRequest
 from mnemonic_api.artifact_storage import (
+    ArtifactContentUnavailable,
     ArtifactStorage,
+    ArtifactStorageOwnerMismatch,
     ArtifactTooLarge,
     InvalidArtifactFilename,
     StagedArtifact,
@@ -151,8 +154,22 @@ def storage_of(request: Request) -> ArtifactStorage:
     return cast(ArtifactStorage, request.app.state.artifact_storage)
 
 
+def _storage_failure_cause(error: OSError | UnsafeArtifactPath) -> str:
+    if isinstance(error, ArtifactStorageOwnerMismatch):
+        return "storage_owner_mismatch"
+    if isinstance(error, (ArtifactContentUnavailable, UnsafeArtifactPath)):
+        return "storage_integrity"
+    return {
+        errno.EACCES: "storage_permission_denied",
+        errno.EPERM: "storage_permission_denied",
+        errno.ENOSPC: "storage_full",
+        errno.EDQUOT: "storage_full",
+        errno.EROFS: "storage_read_only",
+    }.get(error.errno, "storage_unavailable")
+
+
 @contextmanager
-def storage_errors(request: Request) -> Iterator[None]:
+def storage_errors(request: Request, *, attempt_not_committed: bool = False) -> Iterator[None]:
     try:
         yield
     except ArtifactTooLarge:
@@ -168,9 +185,13 @@ def storage_errors(request: Request) -> Iterator[None]:
         raise ApplicationError(
             422, "artifact_filename_unsafe", "Provide a safe original basename."
         ) from None
-    except OSError, UnsafeArtifactPath:
+    except (OSError, UnsafeArtifactPath) as error:
         raise ApplicationError(
-            503, "artifact_storage_unavailable", "Artifact content storage is unavailable."
+            503, "artifact_storage_unavailable", "Artifact content storage is unavailable.",
+            context={
+                "cause": _storage_failure_cause(error),
+                "attempt_not_committed": attempt_not_committed,
+            },
         ) from None
 
 
@@ -327,7 +348,9 @@ async def _upload(
         await _verify_replay_bytes(request, replay)
         mutation = replace(mutation, content_sha256=replay[0], content_size_bytes=replay[1])
         return await run_in_threadpool(_mutation_response, request, database, mutation, True)
-    with storage_errors(request):
+    # This invocation has not entered mutation execution. The same operation UUID
+    # may already have a durable intent or receipt from another concurrent attempt.
+    with storage_errors(request, attempt_not_committed=True):
         validate_filename(metadata.filename)
         _check_length(request)
         staged = await _stage_upload(request, project_id, target, metadata.filename)

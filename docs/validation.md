@@ -1,5 +1,58 @@
 # Mnemonic validation record
 
+## Actionable artifact storage faults — 2026-09-08
+
+Release `0.28.0` adds controlled filesystem causes to
+`503 artifact_storage_unavailable` and renders cause-specific operator remedies
+in MCP. It names `MNEMONIC_ARTIFACT_ROOT`, never its configured path or an OS
+diagnostic. Classified faults stop automatic retries pending operator repair;
+the caller retains the original UUID, exact arguments and bytes. Existing generic
+unknown-outcome wording, initialization instructions, the 46-tool catalog,
+plugin `0.20.0`, and migration `0027_artifact_fulltext` remain unchanged.
+
+The non-commit flag describes only an upload/replacement staging invocation.
+Concurrent same-UUID commits, previously durable intents, publication/unlink
+failures and post-receipt duplicate-stage cleanup are explicitly not treated as
+proof that the operation UUID never committed. Storage ownership and integrity
+checks remain enforced; a typed owner exception replaces message-based inference.
+The parenthesized exception tuple is necessary solely to bind the caught error;
+the preceding unparenthesized Python 3.14 exception clause was valid.
+
+Tests-first runs observed 24 backend unit failures and 30 PostgreSQL failures
+for the missing context/type assertions, and 46 MCP failures for missing operator
+guidance. After implementation, all 103 focused backend scenarios and 77 new MCP
+regressions passed. The complete MCP suite passed 1,199 tests (173.49 seconds),
+Ruff and typing; its final ownership-wording refinement passed the 77 regressions
+again. All 396 frontend tests, Node 24 type checking and production build passed.
+Backend scoped Ruff and full typing also passed. The full local PostgreSQL-backed
+backend suite passed 2,008 tests with zero skipped in 812.19 seconds.
+
+The first parallel CI run exposed two existing hostile-default-privilege migration
+cases using the session engine without resetting earlier test data. An existing
+live-sync API mutation followed by those cases reproduced the same downgrade-guard
+failure without any new artifact tests (one passed, two failed). Switching that
+test to the existing pristine-engine fixture made the identical order pass all
+three cases. No production migration or downgrade guard was changed.
+
+Real disposable API/MCP containers exercised a private temporary host bind owned
+by a different UID from the API service. Mode `0755` produced the controlled owner
+mismatch; mode `0700` produced permission denial. Both API responses carried the
+staging-only flag, and authenticated MCP calls returned the cause, operator remedy,
+retry stop, original-intent retention and earlier/concurrent-attempt caveat.
+The isolated artifact, operation, revision and audit tables remained empty, as did
+the temporary artifact directory. Initialization retained 1,122 characters and
+46 tools. Assertions rejected test credentials, content and raw paths from output.
+No production ownership, permissions, artifacts, credentials or services were
+changed. Deployment remains a separate operator action.
+
+The final wording passed the isolated container probe again; all probe containers,
+tmpfs database, network, image tags and temporary files were removed. An independent
+cold reviewer froze no findings after tracing staging, receipt, recovery and
+transport boundaries, and independently passed 155 backend storage tests and
+77 MCP storage-error tests. The full PostgreSQL-enabled backend suite remains a
+required CI merge check; local focused and complete MCP/frontend results above
+do not substitute for that gate.
+
 ## MCP artifact search initialization guidance — 2026-09-08
 
 Release `0.27.0` removes the obsolete content-search-unimplemented sentence from

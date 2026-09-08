@@ -97,7 +97,7 @@ def required_arguments() -> dict[str, object]:
 
 
 def test_advisory_package_version_is_coordinated():
-    assert __version__ == "0.27.0"
+    assert __version__ == "0.28.0"
 
 
 async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
