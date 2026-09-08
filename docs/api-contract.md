@@ -1,6 +1,6 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.28.0`, plugin `0.20.0`, and migration
+This is application/API/MCP/dashboard `0.29.0`, plugin `0.21.0`, and migration
 `0027_artifact_fulltext`. The catalog has exactly 46 MCP tools, 16
 protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations and
 24 work-event types. The 21 REST receipt kinds comprise 18 work operations and
@@ -1238,6 +1238,12 @@ Artifact tools: `list_artifacts`, `get_artifact`, `list_artifact_history`,
 `upload_artifact`, `replace_artifact`, `download_artifact`, `delete_artifact`,
 and `search_artifact_contents`. The three artifact
 writes use retained operation UUIDs and their own durable filesystem recovery receipts.
+`download_artifact` requires the current caller's `agent_session_id` and
+`actor_client`, forwarded through `X-Artifact-Metadata` on the binary GET.
+The download audit records asserted caller context at content opening, not proof
+of delivery or authenticated identity. Downloads remain safe reads without an
+operation UUID. Old two-argument MCP calls must supply both actor fields; direct
+REST/browser attribution remains optional. See [download attribution](artifacts.md#download-attribution).
 All eight tools check the authenticated status endpoint before artifact access.
 Enabled results include `artifact_library` with `enabled`, `max_bytes`,
 `mcp_transfer_max_bytes`, `effective_upload_max_bytes`, and an explicit explanatory

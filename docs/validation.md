@@ -1,5 +1,50 @@
 # Mnemonic validation record
 
+## Attributed MCP artifact downloads — 2026-09-08
+
+Application `0.29.0` and plugin `0.21.0` require the current caller's
+`agent_session_id` and `actor_client` on MCP `download_artifact`. The adapter
+forwards both through ASCII-escaped JSON metadata on the revision-pinned binary
+GET. The existing backend records asserted caller context when opening content;
+this is neither authenticated identity nor proof of completed delivery. Direct
+REST/browser attribution remains optional, historical rows remain immutable,
+and the audit schema, 46-tool catalog, receipt counts and migration head are unchanged.
+
+The originating work item's retained audit was read through MCP: its upload and
+delete rows had actor context while its download row had neither field. Current
+source independently confirmed the missing MCP arguments/header and existing
+backend support. The local freshness helper reported unsupported Git rather than
+an unchanged assessment; the cited source paths were manually reinspected.
+
+Test-first MCP verification observed 42 failures and 118 passes before the fix.
+The corrected focused suite passed 161 cases, including required/bounded actor
+arguments, caller-versus-creator attribution, Unicode-safe headers, no implicit
+retry, and unchanged revision/size/checksum/transport safeguards. Backend tests
+observed attributed Unicode downloads and rejection of invalid/credential-echoing
+actors without an added audit row, while preserving anonymous direct REST reads.
+The full PostgreSQL-backed backend suite passed 2,018 tests with zero skipped
+in 237.11 seconds; Ruff and typing passed. All 396 frontend tests, Node 24 type
+checking and production build passed; the plugin helper suite passed 71 tests.
+
+A disposable real MCP-to-API-to-PostgreSQL lifecycle uploaded with one synthetic
+actor and downloaded with another. The returned bytes/revision/hash were correct;
+both MCP history and direct SQL showed the exact Unicode downloader on the
+download event while creator metadata stayed unchanged. Missing/invalid MCP actor
+arguments added no audit event. A deliberately anonymous direct REST read remained
+supported. Synthetic deletion removed current bytes and retained the attributed
+download event. No production files, permissions, services or historical audit
+rows were changed. Deployment and client schema/plugin refresh are separate
+operator actions. Full MCP and required CI remain merge gates.
+
+The full MCP suite passed 1,236 tests in 177.16 seconds, including isolated
+plugin install/update checks. A cold adversarial review then independently
+passed 195 MCP and 31 PostgreSQL artifact tests and found that credential-echo
+rejection incorrectly instructed safe-read callers to generate a mutation UUID.
+Two public download regressions reproduced that message. A safe-read-only error
+branch corrected it without changing the protected-write rejection text; 117
+focused tests, Ruff and typing passed afterward. Required CI and the complete
+post-correction MCP suite remain merge gates.
+
 ## Actionable artifact storage faults — 2026-09-08
 
 Release `0.28.0` adds controlled filesystem causes to

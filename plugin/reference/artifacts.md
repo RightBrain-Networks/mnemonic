@@ -75,11 +75,19 @@ report permanent failures and use an authorized download for missing details.
 OCR is disabled: scanned images may have no searchable text even when extraction
 is ready. Ready means extraction completed, not that every file has readable text.
 
-`download_artifact` returns current bytes as `content_base64` with metadata and
+`download_artifact(project_id, artifact_id, agent_session_id, actor_client)`
+requires your current agent session ID and actual client, just like artifact
+writes. Never substitute the artifact creator's identity, invent a placeholder,
+or send credentials as actor metadata. Both fields are asserted provenance, not
+authenticated identity. Older two-argument calls must supply these fields.
+The tool returns current bytes as `content_base64` with metadata and
 a validated SHA-256. Decode those bytes into a safe destination in the caller's
 workspace. The MCP server cannot write to the agent's local filesystem. Respect
 existing local files and choose a new path unless their replacement is intended.
-Downloads are audited. MCP transfers support up to 64 MiB; larger files, if enabled
+The audit records the caller when the server opens content, not proof of completed
+delivery. Downloads remain safe reads with no operation UUID; retries can create
+additional download audit events. Historical anonymous rows are not rewritten.
+MCP transfers support up to 64 MiB; larger files, if enabled
 by the operator, use the authenticated binary REST endpoint documented in
 `docs/artifacts.md` in the Mnemonic source repository. Never invent access credentials.
 

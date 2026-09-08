@@ -1,6 +1,6 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.28.0`, plugin `0.20.0`, and migration
+Application/API/MCP/dashboard `0.29.0`, plugin `0.21.0`, and migration
 `0027_artifact_fulltext` support files outside Git and local full-text search. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
@@ -215,6 +215,25 @@ List query parameters: `q` (up to 200 characters), `work_item_id`,
 History accepts `q`, `limit`, and `offset`, returning independent `revisions` and
 `audit` pages. These directory/history reads include extracted metadata but never
 match body text.
+
+### Download attribution
+
+MCP `download_artifact` requires `project_id`, `artifact_id`, `agent_session_id`
+and `actor_client`. Both actor fields describe the current caller, not the
+artifact's creator. They are asserted session/client context, not authenticated
+identity. This intentionally tightens the earlier two-argument MCP contract:
+refresh the client's tool schema and supply truthful actor fields. Required
+fields prevent MCP from silently creating an anonymous download audit entry.
+
+The binary GET sends an ASCII-escaped JSON `X-Artifact-Metadata` header containing
+those fields. REST still accepts omitted attribution for direct/browser callers;
+this release does not change their behavior or infer an identity for them.
+The backend's existing length, control-character and credential-echo checks apply.
+Audit insertion happens when current content is opened, before streaming, so it
+does not prove completed delivery. Download remains a safe read with no operation
+UUID; repeated requests can create additional audit entries. Old anonymous rows
+are immutable and are not backfilled. Revision pinning, transfer limits and
+checksum validation are unchanged.
 
 ### Full-text search
 

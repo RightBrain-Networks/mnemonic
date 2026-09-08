@@ -136,14 +136,18 @@ def _metadata_matches(result: ArtifactRead, metadata: dict[str, object], *, crea
     return set(requested_links) <= stored_links
 
 
-async def download_content(api: MnemonicAPI, artifact: ArtifactRead) -> bytes:
+async def download_content(
+    api: MnemonicAPI, artifact: ArtifactRead, *, agent_session_id: str, actor_client: str,
+) -> bytes:
     if not artifact.content_available or artifact.deleted_at is not None:
         raise ToolError("Artifact content is unavailable; only retained metadata can be read.")
     if artifact.size_bytes > MCP_ARTIFACT_MAX_BYTES:
         raise ToolError("MCP artifact transfers are limited to 64 MiB; use the binary REST API.")
     path = (f"projects/{artifact.project_id}/artifacts/{artifact.id}/content"
             f"?expected_revision={artifact.revision}")
-    response = await _request(api, "GET", path, headers={}, content=None,
+    encoded = json.dumps({"agent_session_id": agent_session_id, "actor_client": actor_client},
+                         ensure_ascii=True, separators=(",", ":"))
+    response = await _request(api, "GET", path, headers={"X-Artifact-Metadata": encoded}, content=None,
                               max_bytes=MCP_ARTIFACT_MAX_BYTES, effect=TransportEffect.SAFE_READ)
     if response.status_code != 200 or len(response.content) != artifact.size_bytes or (
         hashlib.sha256(response.content).hexdigest() != artifact.sha256

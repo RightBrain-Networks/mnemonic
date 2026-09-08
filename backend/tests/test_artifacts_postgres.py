@@ -61,6 +61,80 @@ def actual_files(storage: ArtifactStorage) -> list[Path]:
     return [path for path in storage.root.rglob("*") if path.is_file()]
 
 
+@pytest.mark.parametrize("actor", [
+    {"agent_session_id": "downloading-session-雪", "actor_client": "downloading-client-é"},
+    None,
+])
+def test_download_audit_records_caller_without_reusing_creator(api, project, actor):
+    artifact = upload(api, project)
+    path = collection(project) + "/" + artifact["id"]
+    request_headers = {"X-Artifact-Metadata": json.dumps(actor)} if actor is not None else {}
+
+    downloaded = api.get(
+        path + "/content", params={"expected_revision": 1}, headers=request_headers,
+    )
+
+    assert downloaded.status_code == 200, downloaded.text
+    assert downloaded.content == b"%PDF-original"
+    assert downloaded.headers["x-artifact-revision"] == "1"
+    history = api.get(path + "/history").json()
+    assert history["audit"]["total"] == 2
+    download, upload_event = history["audit"]["items"]
+    assert download["action"] == "downloaded"
+    assert download["artifact_id"] == artifact["id"]
+    assert download["revision"] == 1
+    assert {field: download[field] for field in ("agent_session_id", "actor_client")} == (
+        actor or {"agent_session_id": None, "actor_client": None}
+    )
+    assert upload_event["agent_session_id"] == "origin-session"
+    assert upload_event["actor_client"] == "pytest"
+    current = api.get(path).json()
+    assert current["created_by_agent_session_id"] == "origin-session"
+    assert current["created_by_client"] == "pytest"
+    assert current["revision"] == 1
+    assert history["revisions"]["total"] == 1
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("agent_session_id", " "), ("actor_client", ""),
+    ("agent_session_id", "session\nname"), ("actor_client", "client\tname"),
+    ("agent_session_id", "s" * 201), ("actor_client", "c" * 81),
+])
+def test_invalid_download_actor_does_not_append_audit(api, project, field, value):
+    artifact = upload(api, project)
+    path = collection(project) + "/" + artifact["id"]
+
+    response = api.get(path + "/content", headers={
+        "X-Artifact-Metadata": json.dumps({field: value}),
+    })
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "artifact_metadata_invalid"
+    history = api.get(path + "/history").json()
+    assert history["audit"]["total"] == 1
+    assert history["audit"]["items"][0]["action"] == "uploaded"
+
+
+@pytest.mark.parametrize("field", ["agent_session_id", "actor_client"])
+def test_secret_download_actor_does_not_append_audit(api, project, field):
+    key = str(uuid4())
+    api.app.state.settings.api_key = SecretStr(key)
+    api.headers["Authorization"] = f"Bearer {key}"
+    artifact = upload(api, project)
+    path = collection(project) + "/" + artifact["id"]
+
+    response = api.get(path + "/content", headers={
+        "X-Artifact-Metadata": json.dumps({field: key}),
+    })
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "client_operation_secret_echo"
+    assert key not in response.text
+    history = api.get(path + "/history").json()
+    assert history["audit"]["total"] == 1
+    assert history["audit"]["items"][0]["action"] == "uploaded"
+
+
 def test_lifecycle_retains_metadata_only_and_discovers_linked_work(
     api, project, work_payload, artifact_storage
 ):
