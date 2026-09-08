@@ -812,7 +812,7 @@ function decodeSuccess<K extends MutationKind>(
   return decoded as MutationResultByKind[K];
 }
 
-function safeError(value: unknown): {
+export function decodeMutationError(value: unknown): {
   message: string;
   code?: string;
   category: "string" | "validation" | "application";
@@ -912,7 +912,7 @@ export async function classifyMutationResponse<K extends MutationKind>(
       message: "Mnemonic returned an unexpected mutation status. Retry the same pending action."
     };
   }
-  const detail = safeError(value);
+  const detail = decodeMutationError(value);
   if (
     response.status === 503
     && detail?.category === "application"

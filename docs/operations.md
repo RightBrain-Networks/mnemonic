@@ -106,14 +106,20 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.20.1`, plugin `0.17.1`,
-and Alembic `0025_cross_project_relationships`. Inventory exactly 38 MCP tools,
-13 protected MCP writes, 18 REST receipt kinds, 15 protected browser mutations,
+The current coordinated boundary is API/MCP/dashboard `0.21.0`, plugin `0.18.0`,
+and Alembic `0026_artifact_library`. Inventory exactly 46 MCP tools,
+16 protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
 revision checks, and relationship endpoint identity, adjacency, graph guards,
 event attribution, and move eligibility now span projects. Permanent historical
 receipts remain recoverable with their exact old request; do not manufacture missing reports or evidence for historical work.
+
+Before the artifact upgrade, create the private host bind directory and configure
+the shared API/dashboard upload limit as described in [artifact deployment](artifacts.md#deployment).
+Artifact receipts add three journal-backed kinds to the existing 18 REST kinds.
+Artifact content is outside PostgreSQL and outside the database backup job;
+replacement and deletion preserve metadata only.
 
 For 0025, take a verified backup with every writer stopped, then migrate and
 deploy all coordinated surfaces. The migration takes bounded exclusive locks
@@ -950,7 +956,7 @@ from the same revision: the frozen digests and the code that computes them are
 one unit, and a mismatched pair reports drift against an unchanged schema.
 `scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.20.1` clients and plugin `0.17.1` together.
+failure, and inventory deployed `0.21.0` clients and plugin `0.18.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 All three audits pin the PostgreSQL session settings that decide how the server

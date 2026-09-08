@@ -1,5 +1,6 @@
 """Validated service configuration, with secrets kept out of repr/log output."""
 
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
@@ -12,6 +13,16 @@ class Settings(BaseSettings):
 
     database_url: SecretStr = Field(validation_alias=AliasChoices("DATABASE_URL", "database_url"))
     api_key: SecretStr = Field(validation_alias=AliasChoices("MNEMONIC_API_KEY", "api_key"))
+    artifact_root: Path = Field(
+        default=Path("/var/lib/mnemonic/artifacts"),
+        validation_alias=AliasChoices("MNEMONIC_ARTIFACT_ROOT", "artifact_root"),
+    )
+    artifact_max_bytes: int = Field(
+        default=67_108_864,
+        ge=1,
+        le=1_073_741_824,
+        validation_alias=AliasChoices("MNEMONIC_ARTIFACT_MAX_BYTES", "artifact_max_bytes"),
+    )
     dashboard_origins: str = Field(
         default="http://localhost:3000,http://127.0.0.1:3000",
         validation_alias=AliasChoices("MNEMONIC_DASHBOARD_ORIGINS", "dashboard_origins"),

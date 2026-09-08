@@ -1,5 +1,44 @@
 # Mnemonic validation record
 
+## Project artifact library — 2026-09-08
+
+Release `0.21.0`, plugin `0.18.0`, and migration `0026_artifact_library` add
+project-scoped files on configurable filesystem storage. Compose uses a private
+host bind directory; PostgreSQL retains metadata, work links, immutable revision
+and audit history, and recoverable operation intents, never file bytes.
+
+Verification used disposable PostgreSQL schemas and isolated Docker acceptance
+stacks, not the production database or artifact directory. Coverage includes
+atomic replacement and deletion, interrupted publication recovery, permanent
+receipt replay after changed limits, immutable history, work discovery, migration
+guard-catalog parity, unsafe paths/symlinks/hardlinks, streamed byte limits, and
+event-loop responsiveness and cancellation during filesystem staging.
+
+The final targeted backend run passes all 112 artifact/storage/audit tests, plus
+Ruff and typing. A full run passed 1,713 tests and exposed one existing randomized
+work-move fixture failure: its bounded UUID search could find no endpoint below
+the source. The fixture now creates two endpoints and orders them deterministically,
+retaining its concurrency assertions; the affected 18-test module is rerun before
+submission, and the full backend suite remains a required CI merge gate.
+
+The MCP suite passes 1,060 tests plus Ruff and typing. Frontend verification passes
+375 unit tests, typing, a Node 24 production build, and eight desktop/narrow artifact
+browser tests. Browser cases exercise upload, download, replacement, deletion,
+sorting, clipboard/drop, exact-intent recovery after lost and malformed responses,
+cross-tab project selection, and large Unicode metadata. A separate nginx
+acceptance run verifies a full 16 KiB metadata header traverses nginx and Node
+unchanged, alongside the existing encoding and ingress matrix. Plugin helper tests
+pass with the authentic macOS runtime case reserved for required CI.
+
+Dedicated security work and independent cold adversarial reviews identified and
+corrected credential echo in metadata, blocking filesystem staging, replay after
+limit changes, stale work discovery during pending operations, uncertain browser
+error handling, header envelope mismatches, project-link ambiguity, and recovery
+failures affecting unrelated artifacts or abandoned-stage cleanup. Content search
+is deliberately unimplemented. See [artifact operations and limits](artifacts.md)
+and the [desktop](images/artifacts-desktop.png)/[narrow](images/artifacts-narrow.png)
+directory screenshots.
+
 ## Operational audits pinned to deterministic session settings — 2026-09-07
 
 `scripts/audit_project_activity.py` rendered its guard catalog through PostgreSQL

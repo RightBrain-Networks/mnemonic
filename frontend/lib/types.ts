@@ -462,6 +462,9 @@ export interface HumanGateResolutionInput extends ClientOperationInput {
 }
 
 export interface WorkContext {
+  artifacts: import("./artifacts.ts").Artifact[];
+  artifact_total: number;
+  omitted_artifact_count: number;
   code_review_context?: CodeReviewContext;
   work_item: WorkItem;
   initial_checkpoint: Checkpoint;

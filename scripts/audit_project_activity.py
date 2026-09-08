@@ -20,9 +20,11 @@ from typing import Any
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0025_cross_project_relationships"
+HEAD = "0026_artifact_library"
+CROSS_PROJECT_HEAD = "0025_cross_project_relationships"
+CROSS_PROJECT_HEADS = (CROSS_PROJECT_HEAD, HEAD)
 REVIEW_HEAD = "0024_code_reviews"
-REVIEW_HEADS = (REVIEW_HEAD, HEAD)
+REVIEW_HEADS = (REVIEW_HEAD, *CROSS_PROJECT_HEADS)
 MOVE_HEAD = "0023_work_item_moves"
 MOVE_HEADS = (MOVE_HEAD, *REVIEW_HEADS)
 REFERENCE_HEAD = "0022_external_references"
@@ -826,6 +828,39 @@ def _move_aware_prior_counts(
     """))
 
 
+_ARTIFACT_FINDINGS = {
+    "artifact_current_revision_mismatch": """
+        SELECT count(*) FROM artifacts artifact
+        LEFT JOIN artifact_revisions revision
+          ON revision.artifact_id=artifact.id AND revision.revision=artifact.revision
+        WHERE artifact.revision>0 AND (revision.artifact_id IS NULL OR
+          ROW(artifact.filename,artifact.description,artifact.size_bytes,
+              artifact.sha256,artifact.mime_type)
+          IS DISTINCT FROM ROW(revision.filename,revision.description,revision.size_bytes,
+              revision.sha256,revision.mime_type))
+    """,
+    "artifact_revision_history_mismatch": """
+        SELECT count(*) FROM artifacts artifact
+        WHERE artifact.revision<>(SELECT count(*) FROM artifact_revisions revision
+                                  WHERE revision.artifact_id=artifact.id)
+    """,
+    "artifact_missing_mutation_audit": """
+        SELECT count(*) FROM artifact_revisions revision WHERE NOT EXISTS (
+            SELECT 1 FROM artifact_audit audit
+            WHERE audit.artifact_id=revision.artifact_id AND audit.revision=revision.revision
+              AND audit.action=CASE WHEN revision.revision=1 THEN 'uploaded' ELSE 'replaced' END
+        )
+    """,
+    "artifact_missing_deletion_audit": """
+        SELECT count(*) FROM artifacts artifact
+        WHERE artifact.deleted_at IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM artifact_audit audit WHERE audit.artifact_id=artifact.id
+              AND audit.revision=artifact.revision AND audit.action='deleted'
+        )
+    """,
+}
+
+
 def _head_findings(
     connection: Connection, expected_head: str, previous: Any
 ) -> dict[str, int]:
@@ -843,8 +878,10 @@ def _head_findings(
         checks.update(_MOVE_FINDINGS)
     if expected_head in REVIEW_HEADS:
         checks.update(_review_checks())
-    if expected_head == HEAD:
+    if expected_head in CROSS_PROJECT_HEADS:
         checks.update(_CROSS_PROJECT_RELATIONSHIP_FINDINGS)
+    if expected_head == HEAD:
+        checks.update(_ARTIFACT_FINDINGS)
     findings.update(
         {key: connection.scalar(text(sql)) for key, sql in checks.items()}
     )
@@ -877,7 +914,7 @@ def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[st
             connection,
             counts,
             previous,
-            cross_project_relationships=expected_head == HEAD,
+            cross_project_relationships=expected_head in CROSS_PROJECT_HEADS,
         )
     findings = previous._blocking_counts(counts)
     findings.update(_head_findings(connection, expected_head, previous))
@@ -899,7 +936,7 @@ def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[st
         inventory["work_provenance_heads"] = connection.scalar(
             text("SELECT count(*) FROM work_report_provenance_heads")
         )
-    if expected_head == HEAD:
+    if expected_head in CROSS_PROJECT_HEADS:
         inventory["relationships"] = connection.scalar(
             text("SELECT count(*) FROM work_relationships")
         )
@@ -909,6 +946,11 @@ def audit_snapshot(connection: Connection, expected_head: str = HEAD) -> dict[st
             JOIN work_items target ON target.id=relationship.target_work_item_id
             WHERE source.project_id<>target.project_id
         """))
+    if expected_head == HEAD:
+        inventory["artifacts"] = connection.scalar(text("SELECT count(*) FROM artifacts"))
+        inventory["artifact_pending_operations"] = connection.scalar(text(
+            "SELECT count(*) FROM artifact_operations WHERE state='pending'"
+        ))
     return {
         "audit_version": "project-activity-v1",
         "expected_head": expected_head,

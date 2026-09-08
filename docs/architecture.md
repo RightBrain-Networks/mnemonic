@@ -1,7 +1,9 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.20.1`, Claude plugin `0.17.1`,
-and Alembic head `0025_cross_project_relationships`.
+This architecture describes application/API/MCP `0.21.0`, Claude plugin `0.18.0`,
+and Alembic head `0026_artifact_library`.
+[Project artifacts](artifacts.md) store current bytes on a configurable filesystem
+and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
 [Multi-client support](mcp-clients.md#survey-and-design-decision) keeps one full MCP
 interface with portable workflow packaging and distinct per-agent provenance.
 [Code reviews](code-reviews.md) adds
@@ -30,7 +32,7 @@ derived Dropped state does not change.
 Migration `0025_cross_project_relationships` replaces project-composite endpoint
 ownership and per-project natural identity with global endpoint foreign keys and
 a global edge key. `WorkRelationship.project_id` remains immutable creation and
-route authority. Upgrade requires a quiescent coordinated 0.20.1 deployment
+route authority. Upgrade requires a quiescent coordinated 0.21.0 deployment
 because relationship, move, event, and duplicate guards change together.
 Downgrade to 0024 is guarded before DDL and succeeds only when both current
 endpoints of every retained edge remain in the immutable authority project of
@@ -325,11 +327,11 @@ routes. `routes/` has one module per concept: `projects`, `work_search`,
 `human_gates`, `completion_evidence`, `leases`, `duplicates`,
 `dashboard_sync`, and `health`.
 
-The MCP service is a typed HTTP adapter. Its thirteen protected mutation tools
+The MCP service is a typed HTTP adapter. Its sixteen protected mutation tools
 require the caller to prepare and retain one operation UUID plus the complete
 arguments; the adapter sends only one HTTP attempt. Its other tools use work,
 checkpoint, lease, relationship, human-gate, evidence, and duplicate terminology. Its exact
-38-tool
+46-tool
 catalog includes request, attention, and gate-history operations but deliberately
 no resolution, dismissal, or report-follow-up write tools; Phase 12 adds four safe
 reads for activity, project settings, report lists, and report detail,
@@ -338,7 +340,9 @@ while `suggest_duplicate_work` is an independently retryable safe read.
 Full checkpoint models transport non-empty `affected_paths` declarations;
 compact pointers remain scope-free. The adapter has no Git, subprocess,
 filesystem, repository-root, branch-resolution, or freshness-result surface.
-It also never executes evidence or dereferences artifacts. Bounded identity-only
+It never executes evidence or dereferences external completion-evidence URLs.
+The explicit `download_artifact` tool retrieves project-library bytes through
+the authenticated API and validates their revision/checksum. Bounded identity-only
 history transport and pre-SDK HTTP/stdio frame guards prevent content coding,
 oversized bodies, or unbounded caller IDs from defeating the result envelope.
 The dashboard calls only an exact same-origin proxy

@@ -12,19 +12,22 @@ Read the package from a request's point of view:
 - ``state``       typed access to what ``create_app`` stores on ``app.state``.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any, cast
 
 from fastapi import FastAPI
 from sqlalchemy.engine import Engine
 
+from mnemonic_api.application.artifact_maintenance import artifact_maintenance_loop
 from mnemonic_api.application.handlers import install_exception_handlers
 from mnemonic_api.application.middleware import install_middleware
 from mnemonic_api.application.routes import api_router
 from mnemonic_api.application.routes.dashboard_sync import router as sync_router
 from mnemonic_api.application.routes.health import router as health_router
 from mnemonic_api.application.suggestion_resources import DuplicateSuggestionResources
+from mnemonic_api.artifact_storage import ArtifactStorage
 from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine, build_session_factory
 from mnemonic_api.live_sync import LiveSyncHub
@@ -45,18 +48,28 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        yield
-        if engine is None:
-            # Only an engine this factory built is this factory's to dispose.
-            connection_pool.dispose()
+        maintenance = asyncio.create_task(artifact_maintenance_loop(
+            app.state.session_factory, app.state.artifact_storage
+        ))
+        try:
+            yield
+        finally:
+            maintenance.cancel()
+            with suppress(asyncio.CancelledError):
+                await maintenance
+            if engine is None:
+                # Only an engine this factory built is this factory's to dispose.
+                connection_pool.dispose()
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.20.1",
+        version="0.21.0",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )
     app.state.settings = config
+    app.state.artifact_storage = ArtifactStorage(config.artifact_root, config.artifact_max_bytes)
+    app.state.artifact_upload_slots = asyncio.Semaphore(4)
     app.state.session_factory = build_session_factory(connection_pool)
     app.state.semantic_embedder = semantic_embedder or FastembedEmbedder()
     app.state.duplicate_suggestion_resources = DuplicateSuggestionResources.from_settings(config)

@@ -1,10 +1,13 @@
-"""Which transports may carry a lease token or a client operation ID: JSON bodies.
+"""Control transports: JSON bodies, plus operation headers for raw artifact writes.
 
 A lease token is a capability and a client operation ID binds a receipt. Either
 one in a URL, header, or cookie would reach access logs, proxies, and browser
 history, so those transports get a sanitized 422 in FastAPI's own validation
-shape. Nothing here reads, echoes, or logs the rejected value.
+shape. The narrowly matched artifact byte routes accept their documented header.
+Nothing here reads, echoes, or logs the rejected value.
 """
+
+import re
 
 from fastapi import HTTPException, Request
 
@@ -39,15 +42,29 @@ def reject_lease_token_query(request: Request) -> None:
 
 
 def reject_client_operation_transport(request: Request) -> None:
-    """Reject operation IDs anywhere except a supported JSON request body."""
+    """Reject operation IDs outside supported JSON bodies and artifact write headers."""
     transports = (
         ("query", request.query_params),
         ("header", request.headers),
         ("cookie", request.cookies),
     )
     for location, names in transports:
-        if any(name.strip().casefold() in CLIENT_OPERATION_TRANSPORT_NAMES for name in names):
+        prohibited = {
+            name.strip().casefold() for name in names
+            if name.strip().casefold() in CLIENT_OPERATION_TRANSPORT_NAMES
+        }
+        if location == "header" and _artifact_binary_mutation(request):
+            prohibited.discard("x-client-operation-id")
+        if prohibited:
             raise transport_rejection(location, "client_operation_id", _OPERATION_ID_BODY_ONLY)
+
+
+def _artifact_binary_mutation(request: Request) -> bool:
+    """Only artifact byte transports accept their documented operation UUID header."""
+    prefix = r"/api/v1/projects/[0-9a-fA-F-]{36}/artifacts"
+    suffixes = {"POST": "", "PUT": r"/[0-9a-fA-F-]{36}/content", "DELETE": r"/[0-9a-fA-F-]{36}"}
+    suffix = suffixes.get(request.method)
+    return suffix is not None and re.fullmatch(prefix + suffix, request.url.path) is not None
 
 
 def reject_registered_mutation_query(request: Request) -> None:

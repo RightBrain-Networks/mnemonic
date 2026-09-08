@@ -22,6 +22,7 @@ from mnemonic_api.schemas import (
     WorkItemRead,
     WorkSummary,
 )
+from mnemonic_api.services.artifacts import work_artifacts
 from mnemonic_api.services.readiness import (
     readiness,
     readiness_inputs,
@@ -738,7 +739,11 @@ def assemble_work_context(
     }
     from mnemonic_api.services.code_review_reads import review_context
 
+    artifacts, artifact_total = work_artifacts(database, project_id, work_item_id)
     return WorkContext(
+        artifacts=artifacts,
+        artifact_total=artifact_total,
+        omitted_artifact_count=artifact_total - len(artifacts),
         code_review_context=review_context(database, work_item_id),
         work_item=work_item,
         merge_review_revision=MergeReviewRevision(

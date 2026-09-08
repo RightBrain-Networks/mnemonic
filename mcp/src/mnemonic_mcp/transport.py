@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
 from typing import Any, NoReturn
@@ -20,18 +20,28 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 MCP_REQUEST_MAX_BYTES = 1_048_576
+MCP_ARTIFACT_REQUEST_MAX_BYTES = 90 * 1024 * 1024
+MCP_ARTIFACT_CONTENT_MAX_CHARS = 4 * ((64 * 1024 * 1024 + 2) // 3)
+MCP_HTTP_REQUEST_SLOTS = 2
+MCP_HTTP_REQUEST_TIMEOUT_SECONDS = 180
 COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES = 3_145_728
 # Full context includes up to300 reference-bearing counterparts,22 full
 # checkpoints and20 events. The SDK emits both JSON text and structuredContent;
 # measured maximal fixtures exceed48MiB. See external-records performance evidence.
-MCP_RESULT_MAX_BYTES = 67_108_864
+# Artifact downloads contain up to64MiB base64 twice: text and structuredContent.
+MCP_RESULT_MAX_BYTES = 192 * 1024 * 1024
 MCP_STREAM_CHUNK_BYTES = 65_536
 
 _REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}", re.ASCII)
+_BASE64_LITERAL_PATTERN = re.compile(rb'"content_base64"\s*:\s*"([A-Za-z0-9+/=]*)"')
 
 
 class MCPTransportViolation(ValueError):
     """A pre-SDK frame violation whose caller-controlled content must not escape."""
+
+
+class MCPRequestTooLarge(MCPTransportViolation):
+    """The parsed method does not qualify for its request envelope size."""
 
 
 def _object_without_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -49,6 +59,9 @@ def _invalid_json_constant(value: str) -> NoReturn:
 
 def validated_jsonrpc_document(raw: bytes) -> dict[str, Any]:
     """Decode one bounded JSON-RPC object and validate its reflection-sensitive ID."""
+    if len(raw) > MCP_ARTIFACT_REQUEST_MAX_BYTES:
+        raise MCPRequestTooLarge("oversized MCP request")
+    _prevalidate_large_upload(raw)
     try:
         text = raw.decode("utf-8", errors="strict")
         document = json.loads(
@@ -64,7 +77,51 @@ def validated_jsonrpc_document(raw: bytes) -> dict[str, Any]:
         raise MCPTransportViolation("JSON-RPC top level must be one object")
     if "id" in document and not valid_jsonrpc_request_id(document["id"]):
         raise MCPTransportViolation("invalid JSON-RPC request ID")
+    _validate_method_envelope(raw, document)
     return document
+
+
+def _prevalidate_large_upload(raw: bytes) -> None:
+    """Exclude JSON object/array memory amplification before decoding large bodies."""
+    if len(raw) <= MCP_REQUEST_MAX_BYTES:
+        return
+    minimum_content = len(raw) - MCP_REQUEST_MAX_BYTES
+    for match in _BASE64_LITERAL_PATTERN.finditer(raw):
+        size = match.end(1) - match.start(1)
+        if minimum_content <= size <= MCP_ARTIFACT_CONTENT_MAX_CHARS:
+            return
+    raise MCPRequestTooLarge("large MCP bodies require bounded literal base64 content")
+
+
+def _artifact_transfer(document: dict[str, Any]) -> bool:
+    params = document.get("params")
+    if document.get("method") != "tools/call" or not isinstance(params, dict):
+        return False
+    name = params.get("name")
+    return isinstance(name, str) and name in {
+        "upload_artifact", "replace_artifact", "download_artifact",
+    }
+
+
+def _validate_method_envelope(raw: bytes, document: dict[str, Any]) -> None:
+    if len(raw) <= MCP_REQUEST_MAX_BYTES:
+        return
+    params = document.get("params")
+    if document.get("method") != "tools/call" or not isinstance(params, dict):
+        raise MCPRequestTooLarge("oversized ordinary MCP request")
+    name = params.get("name")
+    if not isinstance(name, str) or name not in {"upload_artifact", "replace_artifact"}:
+        raise MCPRequestTooLarge("oversized ordinary MCP request")
+    arguments = params.get("arguments")
+    if not isinstance(arguments, dict):
+        raise MCPRequestTooLarge("invalid artifact arguments")
+    content = arguments.get("content_base64")
+    if not isinstance(content, str) or len(content) > MCP_ARTIFACT_CONTENT_MAX_CHARS:
+        raise MCPRequestTooLarge("oversized artifact content")
+    # Count the original bytes, including padding and escaped encodings, so
+    # only actual base64 content receives the additional transfer allowance.
+    if len(raw) - len(content) > MCP_REQUEST_MAX_BYTES:
+        raise MCPRequestTooLarge("oversized artifact metadata")
 
 
 def valid_jsonrpc_request_id(value: object) -> bool:
@@ -109,7 +166,7 @@ async def _bounded_http_entity(receive: Receive) -> bytes:
         if message["type"] == "http.disconnect":
             raise anyio.EndOfStream
         chunk = message.get("body", b"")
-        if len(chunk) > MCP_REQUEST_MAX_BYTES - len(body):
+        if len(chunk) > MCP_ARTIFACT_REQUEST_MAX_BYTES - len(body):
             raise MCPTransportViolation("oversized MCP request")
         body.extend(chunk)
         if not message.get("more_body", False):
@@ -129,11 +186,20 @@ async def _static_rejection(
     )(scope, receive, send)
 
 
+def _ingress_header_rejection(headers: Headers) -> int | None:
+    if not identity_content_encoding(headers):
+        return 415
+    if declared_oversize(headers, MCP_ARTIFACT_REQUEST_MAX_BYTES):
+        return 413
+    return None
+
+
 class BoundedMCPIngressMiddleware:
     """Validate Streamable HTTP entities before FastMCP parses or dispatches them."""
 
     def __init__(self, app: ASGIApp):
         self.app = app
+        self._slots = anyio.Semaphore(MCP_HTTP_REQUEST_SLOTS)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if (
@@ -144,14 +210,42 @@ class BoundedMCPIngressMiddleware:
             await self.app(scope, receive, send)
             return
 
-        headers = Headers(scope=scope)
-        if not identity_content_encoding(headers):
-            await _static_rejection(scope, receive, send, status_code=415)
+        rejection = _ingress_header_rejection(Headers(scope=scope))
+        if rejection is not None:
+            await _static_rejection(scope, receive, send, status_code=rejection)
             return
-        if declared_oversize(headers, MCP_REQUEST_MAX_BYTES):
-            await _static_rejection(scope, receive, send, status_code=413)
+        try:
+            self._slots.acquire_nowait()
+        except anyio.WouldBlock:
+            await _static_rejection(scope, receive, send, status_code=429)
             return
+        response_started = False
+        slot_held = True
 
+        def release_slot() -> None:
+            nonlocal slot_held
+            if slot_held:
+                self._slots.release()
+                slot_held = False
+
+        async def tracked_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            with anyio.fail_after(MCP_HTTP_REQUEST_TIMEOUT_SECONDS):
+                await self._validated_request(scope, receive, tracked_send, release_slot)
+        except TimeoutError:
+            if not response_started:
+                await _static_rejection(scope, receive, send, status_code=408)
+        finally:
+            release_slot()
+
+    async def _validated_request(
+        self, scope: Scope, receive: Receive, send: Send, release_slot: Callable[[], None],
+    ) -> None:
         try:
             body = await _bounded_http_entity(receive)
         except anyio.EndOfStream:
@@ -160,18 +254,28 @@ class BoundedMCPIngressMiddleware:
             await _static_rejection(scope, receive, send, status_code=413)
             return
         try:
-            validated_jsonrpc_document(body)
-        except MCPTransportViolation:
-            await _static_rejection(scope, receive, send, status_code=400)
+            document = validated_jsonrpc_document(body)
+        except MCPRequestTooLarge:
+            await _static_rejection(scope, receive, send, status_code=413)
             return
+        except MCPTransportViolation:
+            status = 413 if len(body) > MCP_REQUEST_MAX_BYTES else 400
+            await _static_rejection(scope, receive, send, status_code=status)
+            return
+
+        retain_slot = _artifact_transfer(document)
+        del document
+        if not retain_slot:
+            release_slot()
 
         delivered = False
 
         async def buffered_receive() -> Message:
-            nonlocal delivered
+            nonlocal delivered, body
             if not delivered:
                 delivered = True
-                return {"type": "http.request", "body": body, "more_body": False}
+                content, body = body, b""
+                return {"type": "http.request", "body": content, "more_body": False}
             return await receive()
 
         await self.app(scope, buffered_receive, send)
@@ -212,7 +316,7 @@ async def _bounded_stdin_reader(
                     newline = chunk.find(b"\n", start)
                     end = len(chunk) if newline < 0 else newline
                     piece = chunk[start:end]
-                    if len(piece) > MCP_REQUEST_MAX_BYTES - len(buffer):
+                    if len(piece) > MCP_ARTIFACT_REQUEST_MAX_BYTES - len(buffer):
                         return
                     buffer.extend(piece)
                     if newline < 0:

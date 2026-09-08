@@ -1,9 +1,12 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.20.1`, plugin `0.17.1`, and migration
-`0025_cross_project_relationships`. The catalog has exactly 38 MCP tools, 13
-protected MCP writes, 18 REST receipt kinds, 15 protected browser mutations and
-24 work-event types. Relationship identity and graph invariants are global;
+This is application/API/MCP/dashboard `0.21.0`, plugin `0.18.0`, and migration
+`0026_artifact_library`. The catalog has exactly 46 MCP tools, 16
+protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations and
+24 work-event types. The 21 REST receipt kinds comprise 18 work operations and
+three artifact operations with filesystem recovery journals. See
+[artifact contracts](artifacts.md) for binary routes, retention and work discovery.
+Relationship identity and graph invariants are global;
 `relationship.project_id` remains immutable edge and read/removal route
 authority. Older processes are unsupported against this schema. Downgrade to
 0024 requires every retained edge to have both current endpoints in its
@@ -1202,7 +1205,12 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 38 tools:
+The catalog is exactly 46 tools:
+
+Artifact tools: `list_artifacts`, `get_artifact`, `list_artifact_history`,
+`upload_artifact`, `replace_artifact`, `download_artifact`, `delete_artifact`,
+and the explicit unimplemented `search_artifact_contents` stub. The three artifact
+writes use retained operation UUIDs and their own durable filesystem recovery receipts.
 
 ```text
 list_projects, create_project,
