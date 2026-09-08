@@ -3949,10 +3949,10 @@ def test_phase11_fresh_catalog_hash_is_independent_of_database_owner(
     ids=("permissive", "restrictive"),
 )
 def test_phase11_upgrade_normalizes_hostile_default_privileges(
-    postgres_engine: Engine,
+    pristine_postgres_engine: Engine,
     function_default_privilege: str,
 ):
-    with postgres_engine.begin() as connection:
+    with pristine_postgres_engine.begin() as connection:
         config = _alembic_config(connection)
         command.downgrade(config, "0018_repository_freshness")
         schema = connection.scalar(text("SELECT pg_catalog.current_schema()"))

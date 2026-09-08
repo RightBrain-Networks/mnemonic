@@ -24,7 +24,15 @@ guidance. After implementation, all 103 focused backend scenarios and 77 new MCP
 regressions passed. The complete MCP suite passed 1,199 tests (173.49 seconds),
 Ruff and typing; its final ownership-wording refinement passed the 77 regressions
 again. All 396 frontend tests, Node 24 type checking and production build passed.
-Backend scoped Ruff and full typing also passed.
+Backend scoped Ruff and full typing also passed. The full local PostgreSQL-backed
+backend suite passed 2,008 tests with zero skipped in 812.19 seconds.
+
+The first parallel CI run exposed two existing hostile-default-privilege migration
+cases using the session engine without resetting earlier test data. An existing
+live-sync API mutation followed by those cases reproduced the same downgrade-guard
+failure without any new artifact tests (one passed, two failed). Switching that
+test to the existing pristine-engine fixture made the identical order pass all
+three cases. No production migration or downgrade guard was changed.
 
 Real disposable API/MCP containers exercised a private temporary host bind owned
 by a different UID from the API service. Mode `0755` produced the controlled owner
