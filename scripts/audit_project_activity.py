@@ -47,7 +47,14 @@ CATALOG_PATH = (
 # and ``regprocedure`` rendering. These are the values the frozen catalog was captured
 # under; pinning them keeps a finding a statement about the schema alone, never about
 # how the server, the database or the connecting role happens to be configured.
+#
+# ``client_encoding`` is pinned first and for a different reason: it decides the bytes
+# the already-rendered definition travels in, not its spelling. Migrated function
+# bodies hold U+2013, U+2019, U+201C and U+201D, so on a session left in a narrower
+# encoding the server refuses to send them at all and the audit dies rather than
+# reporting drift. Pinning it makes that reachable failure unreachable.
 DETERMINISTIC_SESSION_SETTINGS = {
+    "client_encoding": "UTF8",
     "bytea_output": "hex",
     "DateStyle": "ISO, MDY",
     "TimeZone": "UTC",
@@ -56,7 +63,7 @@ DETERMINISTIC_SESSION_SETTINGS = {
 
 
 def pin_session_settings(connection: Connection) -> None:
-    """Pin the render-affecting session settings for the caller's transaction.
+    """Pin the settings the catalog is read under for the caller's transaction.
 
     Transaction-local, so the audit never mutates a session it was handed, and read
     back afterwards: a ``SET LOCAL`` outside a transaction block is a silent no-op,

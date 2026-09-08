@@ -2585,9 +2585,13 @@ def _completion_evidence_catalog_failures(
 # PostgreSQL renders catalog definitions through session settings, so an audit that
 # does not pin them reports the connecting session as if it were the schema. This
 # audit compares rendered ``pg_get_*def`` output against exact expected spellings,
-# which ``quote_all_identifiers`` rewrites wholesale. Kept identical to the Phase 12
-# audit's map; ``test_project_activity_audit_postgres.py`` asserts they never drift.
+# which ``quote_all_identifiers`` rewrites wholesale. ``client_encoding`` reaches this
+# audit from the other direction as well: the title-key contract check binds fullwidth,
+# dotted-capital-I and line-separator probes, which a narrower session encoding cannot
+# carry to the server at all. Kept identical to the Phase 12 audit's map;
+# ``test_project_activity_audit_postgres.py`` asserts they never drift.
 DETERMINISTIC_SESSION_SETTINGS = {
+    "client_encoding": "UTF8",
     "bytea_output": "hex",
     "DateStyle": "ISO, MDY",
     "TimeZone": "UTC",
@@ -2596,7 +2600,7 @@ DETERMINISTIC_SESSION_SETTINGS = {
 
 
 def pin_session_settings(connection: Connection) -> None:
-    """Pin the render-affecting session settings for the caller's transaction.
+    """Pin the settings the catalog is read under for the caller's transaction.
 
     Transaction-local, so the audit never mutates a session it was handed, and read
     back afterwards: a ``SET LOCAL`` outside a transaction block is a silent no-op,
