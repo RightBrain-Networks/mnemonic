@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
 MCP_ARTIFACT_MAX_BYTES = 64 * 1024 * 1024
 ArtifactContent = Annotated[str, Field(max_length=4 * ((MCP_ARTIFACT_MAX_BYTES + 2) // 3))]
@@ -23,6 +23,23 @@ ArtifactStoredLinks = Annotated[list[UUID], Field(max_length=51)]
 
 class ArtifactModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class ArtifactLibraryStatus(ArtifactModel):
+    enabled: StrictBool
+    max_bytes: Annotated[StrictInt, Field(ge=0, le=1024 * 1024 * 1024)]
+    message: Annotated[str, Field(max_length=500)]
+
+    @model_validator(mode="after")
+    def consistent_enabled(self) -> ArtifactLibraryStatus:
+        if self.enabled != (self.max_bytes > 0):
+            raise ValueError("Inconsistent artifact configuration")
+        return self
+
+
+class ArtifactToolStatus(ArtifactLibraryStatus):
+    mcp_transfer_max_bytes: int = MCP_ARTIFACT_MAX_BYTES
+    effective_upload_max_bytes: int
 
 
 class ArtifactRead(ArtifactModel):
@@ -90,3 +107,23 @@ class ArtifactDownload(ArtifactModel):
 class ArtifactContentSearch(ArtifactModel):
     status: Literal["unimplemented"] = "unimplemented"
     message: str = "Artifact content search is unimplemented. Use list_artifacts for metadata search."
+
+
+class ArtifactToolRead(ArtifactRead):
+    artifact_library: ArtifactToolStatus
+
+
+class ArtifactToolPage(ArtifactPage[ArtifactRead]):
+    artifact_library: ArtifactToolStatus
+
+
+class ArtifactToolHistory(ArtifactHistory):
+    artifact_library: ArtifactToolStatus
+
+
+class ArtifactToolDownload(ArtifactDownload):
+    artifact_library: ArtifactToolStatus
+
+
+class ArtifactToolContentSearch(ArtifactContentSearch):
+    artifact_library: ArtifactToolStatus

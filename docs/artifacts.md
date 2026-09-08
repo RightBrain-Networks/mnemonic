@@ -1,7 +1,7 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.21.0`, plugin `0.18.0`, and migration
-`0026_artifact_library` add files outside Git. Each artifact belongs permanently
+Application/API/MCP/dashboard `0.22.0`, plugin `0.19.0`, and migration
+`0026_artifact_library` support files outside Git. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
 can have the same filename without colliding.
@@ -28,16 +28,37 @@ no artifact Docker volume. Only the API mounts artifact storage. The application
 itself uses `MNEMONIC_ARTIFACT_ROOT` and accepts any suitable filesystem mount
 provided by its runtime; it does not test whether Docker used a bind or a volume.
 
-`MNEMONIC_ARTIFACT_MAX_BYTES` sets the streamed per-file limit, default 67,108,864
-bytes (64 MiB), configurable from 1 byte through 1,073,741,824 bytes (1 GiB).
-Compose forwards the same limit to the API and dashboard. The nginx example caps
-dashboard uploads at 64 MiB; raise its `/api/artifacts/` `client_max_body_size`
-together with the environment setting when enabling larger files. MCP transfers
-remain capped at 64 MiB decoded content and its example ingress permits 90 MiB
+Set `MNEMONIC_ARTIFACT_MAX_BYTES` in `.env` to the streamed upload limit, default
+67,108,864 bytes (64 MiB). Positive values from 1 through 1,073,741,824 bytes (1 GiB)
+enable the library; **0 disables the whole artifact subsystem**. Compose forwards
+the same setting to API and dashboard. Recreate these services after changing it
+(`docker compose up -d api web`); this is startup configuration, not a live setting.
+MCP discovers the API's authoritative status before each artifact tool operation.
+
+Disabled mode rejects artifact reads, writes, downloads and even content-search
+stubs with `artifact_library_disabled` (HTTP 503, `context.max_bytes=0`). It does
+not initialize artifact storage, run recovery/cleanup, or include artifacts in
+work context. Existing files, metadata, audit history, pending intents and receipts
+are retained unchanged and become available when reenabled. The Artifacts menu
+remains visible with an explicit disabled message. The Compose bind mount still
+requires its host directory to exist even when the application feature is disabled.
+
+The nginx example permits the 1 GiB binary transport ceiling without buffering;
+the API enforces the configured limit and disabled mode. MCP base64 transfers
+retain an independent 64 MiB decoded-content ceiling for memory safety, even if
+the upload setting is larger; use the binary API/dashboard above that ceiling.
+Its example ingress permits 90 MiB
 for base64/JSON overhead. MCP admits at most two concurrent artifact HTTP
 transfers and bounds their total duration; ordinary calls release their ingress
 slot after validation. Large transfers have base64 and SDK memory overhead; the
 binary REST endpoint is more efficient.
+
+Oversized fresh uploads report HTTP 413 `artifact_too_large` with the actual
+configured byte limit in the message and `context.max_bytes`. Lowering a positive
+upload limit does not prevent existing downloads or exact replay of completed
+receipts with larger original bytes. Transfer-specific ceilings still apply.
+Disabling temporarily blocks even receipt replay; preserve uncertain operations'
+UUIDs and exact arguments/bytes until reenabling, rather than creating new intents.
 
 Quiesce and upgrade the API, MCP adapter, and dashboard together. The existing
 database backup job backs up artifact metadata only. It does not copy file bytes
@@ -84,6 +105,23 @@ work receipts remain in `client_operations`.
 All REST paths below are relative to `/api/v1/projects/{project_id}` and require
 the existing Bearer API key. The dashboard uses its same-origin `/api/artifacts/`
 proxy, which validates origin and transport headers before forwarding credentials.
+
+The project-independent `GET /api/v1/artifacts/status` is authenticated and
+`no-store`, and remains available when disabled. It returns `enabled`, `max_bytes`
+and an explicit `message`. All eight MCP artifact tools preflight this status;
+disabled attempts produce an explicit tool error without accessing artifact data.
+Successful results retain their existing fields and add `artifact_library` with
+`enabled`, configured `max_bytes`, `mcp_transfer_max_bytes`,
+`effective_upload_max_bytes`, and a human-readable message. Errors also state the
+last observed limit when known. A failed status check sends no artifact operation
+but does not resolve an earlier unknown write. Complete MCP tool calls exceeding
+the content allowance receive a correlated error result with explicit limits,
+without dispatching the operation. Safe correlation requires a complete frame
+within the 90 MiB wire ceiling, a literal base64 field whose removal leaves at
+most 1 MiB of valid JSON, and a valid bounded tool request ID. Hard-cap, incomplete,
+malformed, or excessive-metadata frames receive static transport refusals; SDK
+clients may expose only connection closure or HTTP 413 for those invalid frames.
+Use a metadata-only artifact call to discover configuration before a large transfer.
 
 | REST endpoint | MCP tool | Behavior |
 | --- | --- | --- |
@@ -148,3 +186,5 @@ would be lost.
 
 Validated directory layouts: [desktop](images/artifacts-desktop.png) and
 [narrow screen](images/artifacts-narrow.png).
+Disabled-state layouts: [desktop](images/artifacts-disabled-desktop.png) and
+[narrow screen](images/artifacts-disabled-narrow.png).

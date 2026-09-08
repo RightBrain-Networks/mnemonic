@@ -15,6 +15,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from mnemonic_api.application.mutations import run_registered_mutation
+from mnemonic_api.application.state import settings_of
 from mnemonic_api.database import Database, begin_coherent_read
 from mnemonic_api.schemas import (
     ChildrenListQuery,
@@ -300,6 +301,7 @@ def delete_work(
 def recall_work(
     project_id: UUID,
     work_item_id: UUID,
+    request: Request,
     filters: Annotated[WorkContextQuery, Query()],
     database: Database,
 ) -> WorkContext:
@@ -310,6 +312,7 @@ def recall_work(
         work_item_id,
         filters.recent_limit,
         filters.recent_event_limit,
+        include_artifacts=settings_of(request).artifact_max_bytes > 0,
     )
 
 

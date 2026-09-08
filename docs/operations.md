@@ -106,7 +106,7 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.21.0`, plugin `0.18.0`,
+The current coordinated boundary is API/MCP/dashboard `0.22.0`, plugin `0.19.0`,
 and Alembic `0026_artifact_library`. Inventory exactly 46 MCP tools,
 16 protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
@@ -120,6 +120,14 @@ the shared API/dashboard upload limit as described in [artifact deployment](arti
 Artifact receipts add three journal-backed kinds to the existing 18 REST kinds.
 Artifact content is outside PostgreSQL and outside the database backup job;
 replacement and deletion preserve metadata only.
+
+`MNEMONIC_ARTIFACT_MAX_BYTES` in `.env` defaults to `67108864` (64 MiB); set it
+to `0` to disable all artifact operations without deleting retained files or
+history. Recreate API/web after changes. Authenticated `/api/v1/artifacts/status`
+and all artifact MCP tools explicitly report availability/limits. Positive values
+up to 1 GiB are supported by the binary API/dashboard; MCP retains a separate
+64 MiB decoded transfer ceiling. Disabled mode pauses maintenance and exact
+receipt replay too: preserve any uncertain operation UUID and bytes for reenabling.
 
 For 0025, take a verified backup with every writer stopped, then migrate and
 deploy all coordinated surfaces. The migration takes bounded exclusive locks
@@ -944,7 +952,7 @@ or weaken hierarchy constraints.
 
 ### Identifier-free aggregate monitoring
 
-At current head 0025, run `scripts/audit_project_activity.py` using the private
+At current head 0026, run `scripts/audit_project_activity.py` using the private
 `DATABASE_URL` environment variable. It composes the historical domain checks
 with activity/report, external-reference, move and review checks plus the exact
 supported guard catalog. That guard catalog digests every row a catalog name
@@ -956,7 +964,7 @@ from the same revision: the frozen digests and the code that computes them are
 one unit, and a mismatched pair reports drift against an unchanged schema.
 `scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.21.0` clients and plugin `0.18.0` together.
+failure, and inventory deployed `0.22.0` clients and plugin `0.19.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 All three audits pin the PostgreSQL session settings that decide how the server

@@ -34,6 +34,17 @@ domain operation is available as a tool, so clients without resource or prompt
 interfaces retain the full workflow. Client-specific tool prefixes are presentation;
 use the discovered tool corresponding to the canonical name in these instructions.
 
+Artifact calls automatically read the server's current availability and configured
+upload maximum. Successful results include an `artifact_library` summary with
+the configured byte limit, MCP's independent 64 MiB decoded transfer ceiling,
+and the effective new-upload maximum. Operators configure
+`MNEMONIC_ARTIFACT_MAX_BYTES` in the server's `.env`; `0` disables the subsystem.
+Any attempted artifact tool, including metadata/history reads and the content-search
+stub, then reports that the library is disabled instead of silently returning no
+results. Do not try to enable it on behalf of the user. Existing bytes and history
+remain retained; uncertain writes retain their original UUID and exact arguments
+for reconciliation after reenabling. See [artifact configuration](artifacts.md).
+
 ## Install the complete workflow
 
 For Claude Code, keep the marketplace/plugin installation documented in

@@ -15,7 +15,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from mnemonic_api.application.mutations import run_registered_mutation
-from mnemonic_api.application.state import api_key_of
+from mnemonic_api.application.state import api_key_of, settings_of
 from mnemonic_api.database import Database
 from mnemonic_api.schemas import (
     HumanAttentionListQuery,
@@ -126,6 +126,7 @@ def review_human_gate_context(
     project_id: UUID,
     work_item_id: UUID,
     gate_id: UUID,
+    request: Request,
     filters: Annotated[WorkContextQuery, Query()],
     database: Database,
 ) -> WorkContext:
@@ -137,4 +138,5 @@ def review_human_gate_context(
         filters.recent_limit,
         filters.recent_event_limit,
         focus_gate_id=gate_id,
+        include_artifacts=settings_of(request).artifact_max_bytes > 0,
     )

@@ -1,9 +1,14 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.21.0`, Claude plugin `0.18.0`,
+This architecture describes application/API/MCP `0.22.0`, Claude plugin `0.19.0`,
 and Alembic head `0026_artifact_library`.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
+`MNEMONIC_ARTIFACT_MAX_BYTES` in `.env` controls the upload maximum. Zero disables
+the artifact subsystem without deleting data: the API constructs no storage object,
+starts no recovery/cleanup task, and omits artifact discovery from all work contexts.
+The authenticated safe-read `/api/v1/artifacts/status` remains available, and artifact
+routes explicitly reject disabled access before opening the journal or consuming bytes.
 [Multi-client support](mcp-clients.md#survey-and-design-decision) keeps one full MCP
 interface with portable workflow packaging and distinct per-agent provenance.
 [Code reviews](code-reviews.md) adds
@@ -32,7 +37,7 @@ derived Dropped state does not change.
 Migration `0025_cross_project_relationships` replaces project-composite endpoint
 ownership and per-project natural identity with global endpoint foreign keys and
 a global edge key. `WorkRelationship.project_id` remains immutable creation and
-route authority. Upgrade requires a quiescent coordinated 0.21.0 deployment
+route authority. Upgrade requires a quiescent coordinated 0.22.0 deployment
 because relationship, move, event, and duplicate guards change together.
 Downgrade to 0024 is guarded before DDL and succeeds only when both current
 endpoints of every retained edge remain in the immutable authority project of
@@ -342,13 +347,19 @@ compact pointers remain scope-free. The adapter has no Git, subprocess,
 filesystem, repository-root, branch-resolution, or freshness-result surface.
 It never executes evidence or dereferences external completion-evidence URLs.
 The explicit `download_artifact` tool retrieves project-library bytes through
-the authenticated API and validates their revision/checksum. Bounded identity-only
+the authenticated API and validates their revision/checksum. Every artifact tool
+first checks the API's current availability and limit; enabled results expose an
+`artifact_library` policy summary, including the independent 64 MiB MCP transfer
+ceiling. Disabled or unreadable policy stops the attempt with an explicit error,
+not an empty artifact list. Positive upload-limit changes do not invalidate old
+receipts or prevent existing binary downloads. Bounded identity-only
 history transport and pre-SDK HTTP/stdio frame guards prevent content coding,
 oversized bodies, or unbounded caller IDs from defeating the result envelope.
 The dashboard calls only an exact same-origin proxy
 allowlist, including attention/history reads, gate resolution, event
 list/progress append, move, and actor-bearing work or relationship writes. A
-dashboard-lifetime in-memory registry owns fourteen frozen protected intents,
+dashboard-lifetime in-memory registries own eighteen frozen protected intents
+(fifteen work operations and three artifact operations),
 including a two-work-key merge intent and a source/target-keyed move intent,
 blocks overlapping conflicts while an outcome is unresolved, and never writes
 those bodies or UUIDs to browser storage. Its API key is server-only. Every

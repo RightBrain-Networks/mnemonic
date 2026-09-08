@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
 from typing import Any, NoReturn
@@ -31,6 +31,14 @@ COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES = 3_145_728
 # Artifact downloads contain up to64MiB base64 twice: text and structuredContent.
 MCP_RESULT_MAX_BYTES = 192 * 1024 * 1024
 MCP_STREAM_CHUNK_BYTES = 65_536
+MCP_SIZE_LIMIT_MESSAGE = (
+    "MCP request exceeds its transport limits: ordinary requests and artifact metadata "
+    "allow 1048576 bytes; artifact upload/replace content allows 67108864 bytes "
+    "(64 MiB) encoded as literal base64 within a 94371840-byte request. "
+    "The configured artifact library limit may be lower or the library may be disabled; "
+    "call list_artifacts without content to learn its current status. "
+    "Larger files require the binary REST API when the configured library limit permits."
+)
 
 _REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}", re.ASCII)
 _BASE64_LITERAL_PATTERN = re.compile(rb'"content_base64"\s*:\s*"([A-Za-z0-9+/=]*)"')
@@ -124,6 +132,37 @@ def _validate_method_envelope(raw: bytes, document: dict[str, Any]) -> None:
         raise MCPRequestTooLarge("oversized artifact metadata")
 
 
+def _correlated_size_rejection(raw: bytes) -> dict[str, Any] | None:
+    """Validate a bounded JSON skeleton before correlating a rejected tool call.
+
+    A literal base64 string cannot contain JSON structure. Removing only its
+    contents lets us validate the complete frame without decoding a large string
+    or an attacker-controlled large object graph. Frames above the transport cap,
+    or with more than the ordinary allowance outside that string, remain static
+    transport rejections because their request identity cannot be safely parsed.
+    """
+    if len(raw) > MCP_ARTIFACT_REQUEST_MAX_BYTES:
+        return None
+    for match in _BASE64_LITERAL_PATTERN.finditer(raw):
+        if len(raw) - (match.end(1) - match.start(1)) > MCP_REQUEST_MAX_BYTES:
+            continue
+        skeleton = raw[:match.start(1)] + raw[match.end(1):]
+        try:
+            document = validated_jsonrpc_document(skeleton)
+            request = mcp_types.JSONRPCRequest.model_validate(document)
+            mcp_types.CallToolRequest.model_validate(document)
+        except (MCPTransportViolation, ValueError):
+            return None
+        return {
+            "jsonrpc": "2.0", "id": request.id,
+            "result": {
+                "content": [{"type": "text", "text": MCP_SIZE_LIMIT_MESSAGE}],
+                "isError": True,
+            },
+        }
+    return None
+
+
 def valid_jsonrpc_request_id(value: object) -> bool:
     """Accept the bounded Phase 11 request-ID domain without coercion."""
     if isinstance(value, bool) or value is None:
@@ -181,7 +220,7 @@ async def _static_rejection(
     status_code: int,
 ) -> None:
     await JSONResponse(
-        {"detail": "Invalid MCP request."},
+        {"detail": MCP_SIZE_LIMIT_MESSAGE if status_code == 413 else "Invalid MCP request."},
         status_code=status_code,
     )(scope, receive, send)
 
@@ -256,7 +295,11 @@ class BoundedMCPIngressMiddleware:
         try:
             document = validated_jsonrpc_document(body)
         except MCPRequestTooLarge:
-            await _static_rejection(scope, receive, send, status_code=413)
+            rejection = _correlated_size_rejection(body)
+            if rejection is not None:
+                await JSONResponse(rejection)(scope, receive, send)
+            else:
+                await _static_rejection(scope, receive, send, status_code=413)
             return
         except MCPTransportViolation:
             status = 413 if len(body) > MCP_REQUEST_MAX_BYTES else 400
@@ -284,10 +327,17 @@ class BoundedMCPIngressMiddleware:
 async def _send_stdio_record(
     record: bytes,
     target: MemoryObjectSendStream[SessionMessage | Exception],
+    reject_oversize: Callable[[dict[str, Any] | None], Awaitable[None]] | None = None,
 ) -> bool:
     """Send one accepted object to the SDK, or stop on a transport violation."""
     try:
         document = validated_jsonrpc_document(record)
+    except MCPRequestTooLarge:
+        if reject_oversize is None:
+            raise
+        rejection = _correlated_size_rejection(record)
+        await reject_oversize(rejection)
+        return rejection is not None
     except MCPTransportViolation:
         return False
     try:
@@ -301,40 +351,60 @@ async def _send_stdio_record(
     return True
 
 
+async def _stdin_records(stdin: anyio.AsyncFile[bytes]) -> AsyncIterator[bytes]:
+    buffer = bytearray()
+    # BufferedReader.read(n) can wait for all n bytes on an interactive
+    # pipe. read1(n) returns the currently available bounded chunk.
+    while chunk := await stdin.read1(MCP_STREAM_CHUNK_BYTES):
+        start = 0
+        while start < len(chunk):
+            newline = chunk.find(b"\n", start)
+            end = len(chunk) if newline < 0 else newline
+            piece = chunk[start:end]
+            if len(piece) > MCP_ARTIFACT_REQUEST_MAX_BYTES - len(buffer):
+                raise MCPRequestTooLarge("oversized MCP request")
+            buffer.extend(piece)
+            if newline < 0:
+                break
+            yield bytes(buffer)
+            buffer.clear()
+            start = newline + 1
+    if buffer:
+        yield bytes(buffer)
+
+
 async def _bounded_stdin_reader(
     stdin: anyio.AsyncFile[bytes],
     target: MemoryObjectSendStream[SessionMessage | Exception],
+    reject_oversize: Callable[[dict[str, Any] | None], Awaitable[None]] | None = None,
 ) -> None:
-    buffer = bytearray()
-    try:
-        async with target:
-            # BufferedReader.read(n) can wait for all n bytes on an interactive
-            # pipe. read1(n) returns the currently available bounded chunk.
-            while chunk := await stdin.read1(MCP_STREAM_CHUNK_BYTES):
-                start = 0
-                while start < len(chunk):
-                    newline = chunk.find(b"\n", start)
-                    end = len(chunk) if newline < 0 else newline
-                    piece = chunk[start:end]
-                    if len(piece) > MCP_ARTIFACT_REQUEST_MAX_BYTES - len(buffer):
-                        return
-                    buffer.extend(piece)
-                    if newline < 0:
-                        break
-                    if not await _send_stdio_record(bytes(buffer), target):
-                        return
-                    buffer.clear()
-                    start = newline + 1
-            if buffer:
-                await _send_stdio_record(bytes(buffer), target)
-    except anyio.ClosedResourceError:  # pragma: no cover - SDK closed normally
-        await anyio.lowlevel.checkpoint()
+    async with target:
+        try:
+            async for record in _stdin_records(stdin):
+                if not await _send_stdio_record(record, target, reject_oversize):
+                    return
+        except MCPRequestTooLarge:
+            # Flush before closing the SDK's input stream, which ends its session.
+            if reject_oversize is not None:
+                await reject_oversize(None)
+        except anyio.ClosedResourceError:  # pragma: no cover - SDK closed normally
+            await anyio.lowlevel.checkpoint()
+
+
+async def _write_stdout_record(
+    stdout: anyio.AsyncFile[str], record: str, write_lock: anyio.Lock,
+) -> None:
+    async with write_lock:
+        await stdout.write(record)
+        await stdout.flush()
 
 
 async def _bounded_stdout_writer(
     stdout: anyio.AsyncFile[str],
     source: MemoryObjectReceiveStream[SessionMessage],
+    write_lock: anyio.Lock | None = None,
 ) -> None:
+    write_lock = write_lock or anyio.Lock()
     try:
         async with source:
             async for session_message in source:
@@ -345,8 +415,7 @@ async def _bounded_stdout_writer(
                 record = rendered + "\n"
                 if len(record.encode("utf-8")) > MCP_RESULT_MAX_BYTES:
                     raise RuntimeError("MCP result exceeds the bounded transport envelope.")
-                await stdout.write(record)
-                await stdout.flush()
+                await _write_stdout_record(stdout, record, write_lock)
     except anyio.ClosedResourceError:  # pragma: no cover - SDK closed normally
         await anyio.lowlevel.checkpoint()
 
@@ -368,8 +437,19 @@ async def bounded_stdio_server(
     write_receiver: MemoryObjectReceiveStream[SessionMessage]
     read_sender, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_receiver = anyio.create_memory_object_stream(0)
+    write_lock = anyio.Lock()
+
+    async def reject_oversize(rejection: dict[str, Any] | None) -> None:
+        # Complete, bounded tool calls receive a correlated tool error. For an
+        # unparseable frame only a static terminal transport error is possible;
+        # SDK clients may expose connection closure instead of its explanation.
+        record = json.dumps(rejection if rejection is not None else {
+            "jsonrpc": "2.0", "id": None,
+            "error": {"code": -32600, "message": MCP_SIZE_LIMIT_MESSAGE},
+        }) + "\n"
+        await _write_stdout_record(stdout, record, write_lock)
 
     async with anyio.create_task_group() as task_group:
-        task_group.start_soon(_bounded_stdin_reader, stdin, read_sender)
-        task_group.start_soon(_bounded_stdout_writer, stdout, write_receiver)
+        task_group.start_soon(_bounded_stdin_reader, stdin, read_sender, reject_oversize)
+        task_group.start_soon(_bounded_stdout_writer, stdout, write_receiver, write_lock)
         yield read_stream, write_stream

@@ -57,6 +57,7 @@ def api_router() -> APIRouter:
         ],
     )
     for router in (
+        artifacts.status_router,
         artifacts.router,
         projects.router,
         code_reviews.router,
