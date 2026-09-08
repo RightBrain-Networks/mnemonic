@@ -1,5 +1,33 @@
 # Mnemonic validation record
 
+## Dashboard refresh stability and queue motion — 2026-09-08
+
+Release `0.24.0` keeps loaded dashboard content visible while websocket hints,
+activity updates, and artifact polling refresh it. Initial loads still display
+loading indicators. Background reads retain empty states, report counts, question
+cards, review rows, and unsent answers without inserting loading rows or dimming
+whole queues.
+
+Summaries, human questions, and review rows reuse the work queue motion hook:
+700 ms bounce movement where existing cards move down, followed by 1,000 ms quint
+entry and exit fades. Motion follows report/gate/review identity, handles the first
+arrival and last departure, and respects reduced motion. Explicit pagination and
+project/filter changes establish a fresh baseline. Report arrivals can animate
+when a full page replaces its oldest visible report without changing its length.
+
+Regression coverage holds refresh responses open to check stable DOM identity,
+layout, opacity, empty states, and drafts. Real browser animation effects verify
+fade endpoints, easing, duration, inert arrivals/exits, repeated refreshes,
+reduced motion, project changes, and full-page report pagination.
+
+Frontend validation passes 391 unit tests, Node 24 type checking and production
+build. The coordinated version update also passes the generated OpenAPI snapshot
+and 61 affected MCP tests. Pre-commit gitleaks passes.
+
+Screenshots pause only the arriving card at the fade midpoint:
+[Summaries](images/dashboard-queue-motion/summaries-enter.png) and
+[Needs Attention](images/dashboard-queue-motion/attention-enter.png).
+
 ## Explicit artifact limits and disabled mode — 2026-09-08
 
 Release `0.22.0` and plugin `0.19.0` retain migration `0026_artifact_library`

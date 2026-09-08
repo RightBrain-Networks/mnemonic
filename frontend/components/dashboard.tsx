@@ -527,8 +527,10 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
   }, [activeId, activityReadyProjectId, attentionRefresh]);
 
   useEffect(() => {
-    setReportCount(null);
-    if (!activeId || activityReadyProjectId !== activeId) return;
+    if (!activeId || activityReadyProjectId !== activeId) {
+      setReportCount(null);
+      return;
+    }
     const controller = new AbortController();
     api<unknown>(`/projects/${activeId}/job-completion-reports/count`, { signal: controller.signal })
       .then((value) => { if (!controller.signal.aborted) setReportCount(decodeReportCount(value, activeId).undismissed_count); })

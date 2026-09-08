@@ -1,5 +1,6 @@
 "use client";
 
+import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import { useEffect, useState } from "react";
 import { api, errorMessage } from "@/lib/api";
 import {
@@ -23,10 +24,19 @@ export default function CodeReviewInbox({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
+  const motionRef = useWorkItemMotion<HTMLUListElement>({
+    itemIds: page?.items.map((row) => row.id) ?? [],
+    total: page ? page.items.length : null,
+    viewKey: `${projectId}:${kind}:${available}:${cursor}`,
+    revision: page,
+    snapshotSignal: `${refreshSignal}:${reload}`,
+    animateReplacements: true
+  });
   useEffect(() => {
     setCursor("");
     setPage(null);
-  }, [projectId, kind, available, refreshSignal]);
+  }, [projectId, kind, available]);
+  useEffect(() => { setCursor(""); }, [refreshSignal]);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -115,8 +125,8 @@ export default function CodeReviewInbox({
           {error}
         </p>
       )}
-      {loading && <p role="status">Loading review queue…</p>}
-      {!loading && page && page.items.length === 0 && (
+      {loading && !page && <p role="status">Loading review queue…</p>}
+      {page && page.items.length === 0 && (
         <p>
           No{" "}
           {kind === "reviews"
@@ -125,9 +135,9 @@ export default function CodeReviewInbox({
           on this page.
         </p>
       )}
-      <ul className="review-queue-list">
+      <ul className="review-queue-list" ref={motionRef} aria-busy={loading}>
         {page?.items.map((row) => (
-          <li key={row.id}>
+          <li className="review-queue-item" key={row.id} data-work-item-id={row.id}>
             <button
               type="button"
               className="review-queue-link"

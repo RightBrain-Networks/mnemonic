@@ -816,7 +816,7 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.23.0`, plugin is `0.19.0`,
+Current application/API/MCP/dashboard versions are `0.24.0`, plugin is `0.19.0`,
 and Alembic head is `0026_artifact_library`. Validate all surfaces
 together with the existing regression suites. This release adds no migration or
 catalog entries. Artifact configuration tests must cover `.env` byte limits from

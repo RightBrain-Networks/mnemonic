@@ -80,3 +80,12 @@ test("motion planning skips initial loads and unsafe list changes", () => {
   assert.equal(planWorkItemMotion(["old-a", "old-b"], 2, ["old-b"], 2), null);
   assert.equal(planWorkItemMotion(["old-a", "old-b"], 2, ["old-b", "new", "old-a"], 3), null);
 });
+
+test("inbox motion handles a full-page replacement without a total count change", () => {
+  assert.deepEqual(
+    planWorkItemMotion(["old-a", "old-b"], 2, ["new", "old-a"], 2, true),
+    { addedIds: ["new"], removedIds: ["old-b"], retainedIds: ["old-a"] }
+  );
+  assert.equal(planWorkItemMotion(["a", "b"], 2, ["b", "a"], 2, true), null);
+  assert.equal(planWorkItemMotion(["a"], 1, ["a"], 1, true), null);
+});

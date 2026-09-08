@@ -7,6 +7,7 @@ import { dashboardMutationActor } from "@/lib/work-events";
 import { mutationReportKey, useMutationIntentRegistry, useMutationIntents } from "@/lib/mutation-intent";
 import type { JobReportEnvelope, JobReportPage } from "@/lib/types";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
+import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import JobReportContent from "@/components/job-report-content";
 import JobReportFollowUpForm from "@/components/job-report-follow-up-form";
 
@@ -28,6 +29,15 @@ export default function JobReportList({ projectId, refreshSignal, onChanged, onO
   const [followUpReport, setFollowUpReport] = useState<JobReportEnvelope | null>(null);
   const [created, setCreated] = useState<{ reportId: string; workId: string } | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const [motionPage, setMotionPage] = useState(0);
+  const motionRef = useWorkItemMotion<HTMLDivElement>({
+    itemIds: items.map((item) => item.report.id),
+    total: page ? items.length : null,
+    viewKey: `${projectId}:${motionPage}`,
+    revision: items,
+    snapshotSignal: `${refreshSignal}:${reload}`,
+    animateReplacements: true
+  });
   const heading = useRef<HTMLHeadingElement>(null);
   const generation = useRef(0);
   const controller = useRef<AbortController | null>(null);
@@ -49,6 +59,8 @@ export default function JobReportList({ projectId, refreshSignal, onChanged, onO
       const raw = await api<unknown>(`/projects/${projectId}/job-completion-reports?${params}`, { signal: abort.signal });
       const next = decodeReportPage(raw, projectId, { previous: previous ?? undefined });
       if (request !== generation.current || abort.signal.aborted) return;
+      // Explicit pagination establishes a new baseline instead of animating old reports as arrivals.
+      if (more) setMotionPage((value) => value + 1);
       setPage(next);
       setItems((current) => {
         const candidates = more ? [...current, ...next.items] : next.items;
@@ -115,8 +127,8 @@ export default function JobReportList({ projectId, refreshSignal, onChanged, onO
     <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
     {error && <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" onClick={() => setReload((value) => value + 1)}>Reload reports</button></div>}
     {actionError && <p className="error-notice" role="alert">{actionError}</p>}
-    {loading && <p className="loading-state" role="status"><span className="spinner" />Loading summaries…</p>}
-    {!loading && !error && items.length === 0 && <div className="empty-state"><h3>You’re caught up.</h3><p>New closeout reports will appear here. Dismissed reports remain available through the API.</p></div>}
+    {loading && !page && <p className="loading-state" role="status"><span className="spinner" />Loading summaries…</p>}
+    {page && !error && items.length === 0 && <div className="empty-state"><h3>You’re caught up.</h3><p>New closeout reports will appear here. Dismissed reports remain available through the API.</p></div>}
     {followUpReport && <aside className="job-report-card" aria-label="Follow-up draft and original report">
       <JobReportContent item={followUpReport} />
       {followUpContextError && <div className="error-notice" role="alert"><p>{followUpContextError}</p><button type="button" onClick={() => setFollowUpContextReload((value) => value + 1)}>Retry original report context</button></div>}
@@ -130,10 +142,10 @@ export default function JobReportList({ projectId, refreshSignal, onChanged, onO
           onChanged(); setAnnouncement("Follow-up created in Pending. The original report is still available for review.");
         }} />
     </aside>}
-    {items.map((item) => {
+    <div className="job-report-items" ref={motionRef} aria-busy={loading}>{items.map((item) => {
       const blocked = registry.blocks([mutationReportKey(projectId, item.report.id)]);
       const formOpen = followUpReport?.report.id === item.report.id;
-      return <article className="job-report-card" key={item.report.id} aria-label={`Report for ${item.report.work_title_at_closeout}`}>
+      return <article className="job-report-card" key={item.report.id} data-work-item-id={item.report.id} aria-label={`Report for ${item.report.work_title_at_closeout}`}>
         <JobReportContent item={item} />
         <div className="report-card-actions">
           {!item.source_work_state.deleted && <button type="button" className="button button-secondary" onClick={() => void onOpenWork(item.report.work_item_id, item.report.project_id)}>Open original work</button>}
@@ -144,7 +156,7 @@ export default function JobReportList({ projectId, refreshSignal, onChanged, onO
         {created?.reportId === item.report.id && <div className="detail-notice" role="status"><p>Follow-up created in Pending.</p><button type="button" className="button button-secondary" onClick={() => void onOpenWork(created.workId, projectId)}>Open work</button></div>}
 
       </article>;
-    })}
+    })}</div>
     {page?.has_more && <button type="button" className="button button-secondary" disabled={loading} onClick={() => void load(true)}>Load more summaries</button>}
   </section>;
 }
