@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import alembic.command
 import pytest
+from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError
@@ -252,6 +253,38 @@ def test_reset_of_an_intact_schema_never_replays_the_migration_chain(
     # Twice, because a digest that is not stable across its own reset would replay
     # on every test rather than only on the damaged ones.
     reset_disposable_schema(postgres_engine)
+
+
+def test_pristine_engine_restores_validators_after_an_earlier_test_downgraded(
+    postgres_engine: Engine, request: pytest.FixtureRequest,
+) -> None:
+    """Direct SQL tests must not inherit a prior test's historical migration head."""
+    reset_disposable_schema(postgres_engine)
+    schema = _current_schema(postgres_engine)
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    with postgres_engine.begin() as connection:
+        head = connection.scalar(text("SELECT version_num FROM alembic_version"))
+        config.attributes["connection"] = connection
+        alembic.command.downgrade(config, "0021_job_completion_reports")
+        assert connection.scalar(text(
+            "SELECT to_regprocedure('mnemonic_external_url_is_valid(text)')"
+        )) is None
+        assert connection.scalar(text(
+            "SELECT to_regprocedure('mnemonic_external_references_is_valid(jsonb)')"
+        )) is None
+
+    restored = request.getfixturevalue("pristine_postgres_engine")
+
+    assert restored is postgres_engine
+    assert _current_schema(restored) == schema
+    with restored.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == head
+        assert connection.scalar(text(
+            "SELECT mnemonic_external_url_is_valid('https://example.com')"
+        )) is True
+        assert connection.scalar(text(
+            "SELECT mnemonic_external_references_is_valid('[]'::jsonb)"
+        )) is True
 
 
 def test_reset_keeps_the_schema_and_its_relations_in_place(

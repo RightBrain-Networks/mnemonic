@@ -21,6 +21,14 @@ the source. The fixture now creates two endpoints and orders them deterministica
 retaining its concurrency assertions; the affected 18-test module is rerun before
 submission, and the full backend suite remains a required CI merge gate.
 
+Parallel CI also exposed an existing worker-local schema dependency: a historical
+migration test left revision 0019 behind, and SQL-only external-reference tests
+did not request the API fixture that normally restores the current schema. The
+exact ordered pair reproduced the missing-validator failure. Those four SQL test
+groups now request an explicit pristine-engine fixture; a regression verifies
+restoration of the migration head and both validators after a downgrade. Parallel
+execution and production migrations are unchanged.
+
 The MCP suite passes 1,060 tests plus Ruff and typing. Frontend verification passes
 375 unit tests, typing, a Node 24 production build, and eight desktop/narrow artifact
 browser tests. Browser cases exercise upload, download, replacement, deletion,
