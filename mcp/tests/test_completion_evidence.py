@@ -47,6 +47,7 @@ from mnemonic_mcp.transport import (
     COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES,
     MCP_ARTIFACT_REQUEST_MAX_BYTES,
     MCP_REQUEST_MAX_BYTES,
+    MCP_SIZE_LIMIT_MESSAGE,
     BoundedMCPIngressMiddleware,
     _bounded_stdin_reader,
     _send_stdio_record,
@@ -1857,7 +1858,10 @@ def test_real_stdio_entrypoint_rejects_max_plus_one_and_later_record():
         env=_stdio_subprocess_environment(),
     )
     assert completed.returncode == 0
-    assert completed.stdout == b""
+    assert json.loads(completed.stdout) == {
+        "jsonrpc": "2.0", "id": None,
+        "error": {"code": -32600, "message": MCP_SIZE_LIMIT_MESSAGE},
+    }
 
 
 def test_real_stdio_preserves_frame_completed_before_terminal_violation():

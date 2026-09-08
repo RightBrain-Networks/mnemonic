@@ -10,17 +10,19 @@ from typing import Annotated, Any, BinaryIO, cast
 from urllib.parse import quote
 from uuid import UUID, uuid5
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
+from mnemonic_api.application.artifact_policy import artifact_status, require_artifacts_enabled
 from mnemonic_api.application.state import settings_of
 from mnemonic_api.artifact_schemas import (
     ArtifactActor,
     ArtifactHistory,
     ArtifactHistoryQuery,
+    ArtifactLibraryStatus,
     ArtifactListQuery,
     ArtifactPage,
     ArtifactRead,
@@ -57,7 +59,14 @@ from mnemonic_api.services.artifacts import (
 )
 from mnemonic_api.services.client_operations import reject_client_operation_secret_echo
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_artifacts_enabled)])
+status_router = APIRouter()
+
+
+@status_router.get("/artifacts/status", response_model=ArtifactLibraryStatus)
+def get_artifact_status(request: Request, response: Response) -> ArtifactLibraryStatus:
+    response.headers["Cache-Control"] = "no-store"
+    return artifact_status(request)
 
 
 class _ArtifactMetadataEnvelope(APIModel):
@@ -129,7 +138,9 @@ def _write_contract(*, content: bool, replacement: bool = False) -> dict:
                 "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
             },
             "description": (
-                "Raw file bytes, bounded by MNEMONIC_ARTIFACT_MAX_BYTES (default 64 MiB)."
+                "Raw file bytes, bounded by MNEMONIC_ARTIFACT_MAX_BYTES (default 64 MiB; "
+                "zero disables all artifact operations). GET /api/v1/artifacts/status "
+                "reports availability and the configured byte maximum."
             ),
         }
     return result
@@ -140,12 +151,17 @@ def storage_of(request: Request) -> ArtifactStorage:
 
 
 @contextmanager
-def storage_errors() -> Iterator[None]:
+def storage_errors(request: Request) -> Iterator[None]:
     try:
         yield
     except ArtifactTooLarge:
+        maximum = settings_of(request).artifact_max_bytes
         raise ApplicationError(
-            413, "artifact_too_large", "Artifact exceeds the upload limit."
+            413,
+            "artifact_too_large",
+            f"Artifact exceeds the configured maximum upload size of {maximum} bytes "
+            "(MNEMONIC_ARTIFACT_MAX_BYTES).",
+            context={"max_bytes": maximum},
         ) from None
     except InvalidArtifactFilename:
         raise ApplicationError(
@@ -272,7 +288,7 @@ async def _verify_replay_bytes(request: Request, expected: tuple[str, int]) -> N
 def _mutation_response(
     request: Request, database: Database, mutation: ArtifactMutation, replay_only: bool = False
 ) -> JSONResponse:
-    with storage_errors():
+    with storage_errors(request):
         execute = replay_artifact_upload if replay_only else mutate_artifact
         body, replayed = execute(database, storage_of(request), mutation)
     return JSONResponse(
@@ -310,7 +326,7 @@ async def _upload(
         await _verify_replay_bytes(request, replay)
         mutation = replace(mutation, content_sha256=replay[0], content_size_bytes=replay[1])
         return await run_in_threadpool(_mutation_response, request, database, mutation, True)
-    with storage_errors():
+    with storage_errors(request):
         validate_filename(metadata.filename)
         _check_length(request)
         staged = await _stage_upload(request, project_id, target, metadata.filename)
@@ -384,7 +400,7 @@ def get_artifacts(
     database: Database,
     filters: Annotated[ArtifactListQuery, Query()],
 ) -> ArtifactPage[ArtifactRead]:
-    with storage_errors():
+    with storage_errors(request):
         recover_project_artifacts(database, storage_of(request), project_id)
     return list_artifacts(database, project_id, filters)
 
@@ -401,7 +417,7 @@ def search_contents(project_id: UUID, database: Database) -> None:
 def get_artifact(
     project_id: UUID, artifact_id: UUID, request: Request, database: Database
 ) -> ArtifactRead:
-    with storage_errors():
+    with storage_errors(request):
         recover_artifact(database, storage_of(request), project_id, artifact_id)
     return artifact_read(database, require_artifact(database, project_id, artifact_id))
 
@@ -416,7 +432,7 @@ def get_artifact_history(
     database: Database,
     filters: Annotated[ArtifactHistoryQuery, Query()],
 ) -> ArtifactHistory:
-    with storage_errors():
+    with storage_errors(request):
         recover_artifact(database, storage_of(request), project_id, artifact_id)
     return artifact_history(database, project_id, artifact_id, filters)
 
@@ -439,7 +455,7 @@ def download_artifact(
 ) -> StreamingResponse:
     actor = metadata_of(request, ArtifactActor)
     _reject_metadata_echo(request, actor)
-    with storage_errors():
+    with storage_errors(request):
         metadata, content = open_artifact(
             database,
             storage_of(request),

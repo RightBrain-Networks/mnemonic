@@ -1,8 +1,47 @@
-import { boundedText, finiteInteger, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
+import { readBoundedJson } from "./bounded-json.ts";
+import { boundedText, exactKeys, finiteInteger, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
 
 export const ARTIFACT_DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
+export const ARTIFACT_STATUS_PATH = "/api/artifacts/status";
+export const ARTIFACT_DISABLED_MESSAGE = "The artifact library is disabled. Stored files and metadata are preserved.";
 export const ARTIFACT_SORTS = ["filename", "created_at", "modified_at", "size_bytes", "revision"] as const;
 export type ArtifactSort = typeof ARTIFACT_SORTS[number];
+
+export interface ArtifactStatus {
+  enabled: boolean;
+  max_bytes: number;
+  message: string;
+}
+
+export function decodeArtifactStatus(value: unknown): ArtifactStatus {
+  const status = objectValue(value);
+  if (!status || !exactKeys(status, ["enabled", "max_bytes", "message"])
+    || typeof status.enabled !== "boolean" || !finiteInteger(status.max_bytes, 0, 1024 * 1024 * 1024)
+    || status.enabled !== (status.max_bytes > 0) || !boundedText(status.message, 1000)) {
+    throw new Error("Mnemonic returned an invalid artifact status.");
+  }
+  return { enabled: status.enabled, max_bytes: status.max_bytes, message: status.message };
+}
+
+export async function fetchArtifactStatus(signal?: AbortSignal, fetcher: typeof fetch = fetch): Promise<ArtifactStatus> {
+  const response = await fetcher(ARTIFACT_STATUS_PATH, { cache: "no-store", signal });
+  if (response.status !== 200) throw new Error("Artifact status is unavailable. Refresh to check whether the library is enabled.");
+  return decodeArtifactStatus(await readBoundedJson(response, 16 * 1024));
+}
+
+export function decodeArtifactLimitError(value: unknown, status: number): { code: "artifact_library_disabled" | "artifact_too_large"; message: string; maxBytes: number } | null {
+  const root = objectValue(value);
+  const detail = objectValue(root?.detail);
+  const context = objectValue(detail?.context);
+  if (!root || !exactKeys(root, ["detail"]) || !detail || !exactKeys(detail, ["code", "message", "context"])
+    || !context || !exactKeys(context, ["max_bytes"]) || !boundedText(detail.message, 1000)
+    || !finiteInteger(context.max_bytes, 0, 1024 * 1024 * 1024)) return null;
+  if (status === 503 && detail.code === "artifact_library_disabled" && context.max_bytes === 0
+    || status === 413 && detail.code === "artifact_too_large" && context.max_bytes > 0) {
+    return { code: detail.code, message: detail.message, maxBytes: context.max_bytes };
+  }
+  return null;
+}
 
 export interface Artifact {
   id: string;

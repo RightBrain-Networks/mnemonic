@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { artifactQueryKeys, artifactMaximumBytes, boundedArtifactStream, proxyArtifact, safeArtifactDisposition } from "../lib/artifact-proxy.ts";
 import { artifactMetadataHeader, dispatchArtifactMutation } from "../lib/artifact-mutations.ts";
-import { artifactLibraryPath, artifactLocation, decodeArtifact, decodeArtifactPage } from "../lib/artifacts.ts";
+import { ARTIFACT_DISABLED_MESSAGE, artifactLibraryPath, artifactLocation, decodeArtifact, decodeArtifactLimitError, decodeArtifactPage, decodeArtifactStatus, fetchArtifactStatus } from "../lib/artifacts.ts";
 
 const project = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const artifact = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
@@ -24,7 +24,8 @@ test("artifact proxy exposes only project-scoped operations and keeps provenance
   assert.equal(artifactQueryKeys(`${root}/search-content`, "POST"), null);
   assert.equal(artifactQueryKeys(`artifacts/${artifact}`, "GET"), null);
   assert.equal(artifactMaximumBytes(), 64 * 1024 * 1024);
-  for (const value of ["0", "-1", "NaN", "1073741825", "0.5"]) assert.throws(() => artifactMaximumBytes(value));
+  assert.equal(artifactMaximumBytes("0"), 0);
+  for (const value of ["", " ", "-1", "NaN", "1073741825", "0.5"]) assert.throws(() => artifactMaximumBytes(value));
 });
 
 test("artifact proxy refuses cross-origin requests, unsupported metadata, credentials and oversized bodies before upstream", async () => {
@@ -32,7 +33,7 @@ test("artifact proxy refuses cross-origin requests, unsupported metadata, creden
   const fetcher = async () => { calls++; throw new Error("must not run"); };
   for (const [input, route, status] of [
     [request(root, "POST", { origin: "https://attacker.example" }, "abc"), root, 403],
-    [request(root, "POST", { "content-length": "17" }, "abc"), root, 413],
+    [request(root, "POST", { "content-length": "1073741825" }, "abc"), root, 413],
     [request(root, "POST", { "X-Artifact-Metadata": '{"filename":"x","lease_token":"secret"}' }, "abc"), root, 400],
     [request(root, "POST", { "X-Lease-Token": "secret" }, "abc"), root, 400],
     [request(root, "POST", { "X-Artifact-Metadata": "x".repeat(16385) }, "abc"), root, 400],
@@ -171,4 +172,95 @@ test("artifact work links carry project identity and refuse ambiguous or unbound
     assert.deepEqual(artifactLocation(query), { projectId: null, workItemId: null });
   }
   assert.deepEqual(artifactLocation(`?project=${project}&work=${artifact}&work=${operation}`), { projectId: project, workItemId: null });
+});
+
+test("artifact status validates enabled/zero consistency, bounds and exact fields", async () => {
+  const enabled = { enabled: true, max_bytes: 16, message: "Up to 16 bytes per file." };
+  const disabled = { enabled: false, max_bytes: 0, message: ARTIFACT_DISABLED_MESSAGE };
+  assert.deepEqual(decodeArtifactStatus(enabled), enabled);
+  assert.deepEqual(decodeArtifactStatus(disabled), disabled);
+  for (const malformed of [
+    { ...enabled, max_bytes: 0 }, { ...disabled, max_bytes: 1 }, { ...enabled, max_bytes: "16" },
+    { ...enabled, enabled: 1 }, { ...enabled, max_bytes: -1 }, { ...enabled, max_bytes: 1073741825 },
+    { ...enabled, max_bytes: 1.5 }, { ...enabled, message: "" }, { ...enabled, unknown: true }
+  ]) assert.throws(() => decodeArtifactStatus(malformed));
+  const controller = new AbortController();
+  assert.deepEqual(await fetchArtifactStatus(controller.signal, async (target, init) => {
+    assert.equal(target, "/api/artifacts/status"); assert.equal(init.signal, controller.signal);
+    assert.equal(init.cache, "no-store"); return Response.json(disabled);
+  }), disabled);
+  await assert.rejects(fetchArtifactStatus(undefined, async () => Response.json(enabled, { status: 503 })), /status is unavailable/);
+});
+
+test("status remains reachable with local zero and exposes only validated effective limits", async () => {
+  assert.deepEqual(artifactQueryKeys("status", "GET"), []);
+  assert.equal(artifactQueryKeys("status", "POST"), null);
+  for (const [local, backend, expected] of [[0, 16, 0], [16, 0, 0], [16, 8, 8], [8, 16, 8]]) {
+    let calls = 0;
+    const response = await proxyArtifact(request("status"), ["status"], { ...environment, MNEMONIC_ARTIFACT_MAX_BYTES: String(local) }, async (target, init) => {
+      calls++; assert.equal(new URL(target).pathname, "/api/v1/artifacts/status");
+      assert.equal(init.headers.get("authorization"), `Bearer ${environment.MNEMONIC_API_KEY}`);
+      return Response.json({ enabled: backend > 0, max_bytes: backend, message: "Configured status." });
+    });
+    assert.equal(calls, 1); assert.equal(response.status, 200);
+    const status = decodeArtifactStatus(await response.json());
+    assert.equal(status.enabled, expected > 0); assert.equal(status.max_bytes, expected);
+    assert.match(status.message, expected === 0 ? /disabled.*preserved/ : /bytes.*per file/);
+    assert.match(response.headers.get("cache-control"), /no-store/);
+  }
+  for (const value of [{ enabled: true, max_bytes: 0, message: "Invalid" }, { enabled: false, max_bytes: 0, message: "Valid", secret: "not allowed" }]) {
+    assert.equal((await proxyArtifact(request("status"), ["status"], environment, async () => Response.json(value))).status, 502);
+  }
+});
+
+test("local zero disables every artifact data operation before upstream or body consumption", async () => {
+  let calls = 0;
+  let reads = 0;
+  for (const [route, method] of [[root, "GET"], [path, "GET"], [`${path}/content`, "GET"], [`${path}/history`, "GET"], [root, "POST"], [`${path}/content`, "PUT"], [path, "DELETE"]]) {
+    const body = method === "POST" || method === "PUT" ? new ReadableStream({ pull(controller) { reads++; controller.enqueue(new Uint8Array([1])); } }, { highWaterMark: 0 }) : undefined;
+    const response = await proxyArtifact(request(route, method, {}, body), route.split("/"), { ...environment, MNEMONIC_ARTIFACT_MAX_BYTES: "0" }, async () => { calls++; throw new Error("Disabled operation was forwarded"); });
+    assert.equal(response.status, 503);
+    assert.deepEqual(decodeArtifactLimitError(await response.json(), 503), { code: "artifact_library_disabled", message: ARTIFACT_DISABLED_MESSAGE, maxBytes: 0 });
+  }
+  assert.equal(calls, 0); assert.equal(reads, 0);
+});
+
+test("enabled proxy allows API receipt decisions and existing downloads above a lowered positive limit", async () => {
+  const bytes = "a".repeat(32);
+  const oversizedError = { detail: { code: "artifact_too_large", message: "The per-file limit is 16 bytes.", context: { max_bytes: 16 } } };
+  for (const status of [201, 413]) {
+    const response = await proxyArtifact(request(root, "POST", { "content-length": "32" }, bytes), root.split("/"), environment, async (_target, init) => {
+      assert.equal(await new Response(init.body).text(), bytes);
+      assert.equal(init.headers.get("X-Client-Operation-ID"), operation);
+      return Response.json(status === 201 ? { ...metadata, size_bytes: 32 } : oversizedError, { status, headers: { "X-Client-Operation-ID": operation } });
+    });
+    assert.equal(response.status, status);
+    if (status === 413) assert.deepEqual(await response.json(), oversizedError);
+  }
+  const downloaded = await proxyArtifact(request(`${path}/content`), `${path}/content`.split("/"), environment, async () => new Response(bytes, { headers: { "content-length": "32" } }));
+  assert.equal(downloaded.status, 200); assert.equal(await downloaded.text(), bytes);
+});
+
+test("disabled responses preserve an uncertain file and UUID for the same retry after re-enable", async () => {
+  const file = new File(["abc"], "report.txt");
+  const intent = Object.freeze({ method: "POST", path: `/api/artifacts/${root}`, projectId: project, operationId: operation, metadata: artifactMetadataHeader({ filename: file.name }), file });
+  const attempts = [];
+  const fetcher = async (_target, init) => {
+    attempts.push({ id: init.headers.get("X-Client-Operation-ID"), metadata: init.headers.get("X-Artifact-Metadata"), file: init.body });
+    if (attempts.length === 1) throw new Error("Response lost");
+    if (attempts.length === 2) return Response.json({ detail: { code: "artifact_library_disabled", message: ARTIFACT_DISABLED_MESSAGE, context: { max_bytes: 0 } } }, { status: 503 });
+    return Response.json(metadata, { status: 201, headers: { "X-Client-Operation-ID": operation } });
+  };
+  assert.equal((await dispatchArtifactMutation(intent, fetcher)).type, "unresolved");
+  assert.deepEqual(await dispatchArtifactMutation(intent, fetcher), { type: "disabled", message: ARTIFACT_DISABLED_MESSAGE });
+  assert.equal((await dispatchArtifactMutation(intent, fetcher)).type, "success");
+  assert.deepEqual(attempts[0], attempts[1]); assert.deepEqual(attempts[0], attempts[2]);
+  assert.equal(attempts[0].file, file);
+  const excessive = await dispatchArtifactMutation(intent, async () => Response.json({ detail: { code: "artifact_too_large", message: "Limit: 2 bytes per file.", context: { max_bytes: 2 } } }, { status: 413 }));
+  assert.deepEqual(excessive, { type: "rejected", message: "Limit: 2 bytes per file." });
+});
+
+test("malformed disabled/size errors cannot claim authoritative status or clear a pending file", async () => {
+  const error = { detail: { code: "artifact_library_disabled", message: ARTIFACT_DISABLED_MESSAGE, context: { max_bytes: 0 } } };
+  for (const [value, status] of [[error, 500], [{ ...error, extra: true }, 503], [{ detail: { ...error.detail, context: { max_bytes: "0" } } }, 503], [{ detail: { ...error.detail, context: { max_bytes: 1 } } }, 503], [{ detail: { ...error.detail, context: { max_bytes: 0, extra: true } } }, 503]]) assert.equal(decodeArtifactLimitError(value, status), null);
 });

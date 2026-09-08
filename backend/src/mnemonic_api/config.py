@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     )
     artifact_max_bytes: int = Field(
         default=67_108_864,
-        ge=1,
+        ge=0,
         le=1_073_741_824,
         validation_alias=AliasChoices("MNEMONIC_ARTIFACT_MAX_BYTES", "artifact_max_bytes"),
     )

@@ -1,6 +1,6 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.21.0`, plugin `0.18.0`, and migration
+This is application/API/MCP/dashboard `0.22.0`, plugin `0.19.0`, and migration
 `0026_artifact_library`. The catalog has exactly 46 MCP tools, 16
 protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations and
 24 work-event types. The 21 REST receipt kinds comprise 18 work operations and
@@ -43,6 +43,33 @@ FastAPI's structured list remains the validation-error format. Invalid input is
 project are 404, lifecycle/version conflicts are 409, and bad or missing
 authorization is 401. Error context never contains
 checkpoint text, metadata, credentials, or request bodies.
+
+## Artifact availability and limits
+
+`GET /api/v1/artifacts/status` is an authenticated, project-independent safe read.
+It returns `{ "enabled": true, "max_bytes": 67108864, "message": "..." }`
+with `Cache-Control: no-store`. `enabled` is exactly `max_bytes > 0`, and the
+message explicitly identifies the maximum or disabled state. No artifact data,
+filesystem access, or database connection is needed to read this configuration.
+
+Set `MNEMONIC_ARTIFACT_MAX_BYTES` in `.env`: the default is 67,108,864 bytes
+(64 MiB), positive values up to 1,073,741,824 bytes configure the upload limit,
+and `0` disables the library. Restart the coordinated services after changing
+configuration. Zero rejects every artifact metadata, history, content, mutation,
+and content-search route with HTTP 503, code `artifact_library_disabled`, and
+`context: { "max_bytes": 0 }`. It also suspends recovery, cleanup, and work-context
+artifact discovery. Existing files, metadata, audit history, and receipts remain
+unchanged. Authentication still precedes availability disclosure.
+
+Oversized fresh uploads return HTTP 413, code `artifact_too_large`, and the
+configured numeric limit in `context.max_bytes` and the message. A lowered
+positive upload limit does not block existing binary downloads or exact
+permanent receipt replay. While disabled, even replay is unavailable; retain any
+uncertain operation's original UUID, metadata, bytes, and expected revision until
+the operator reenables access. Disabled status does not determine whether a
+previous attempt committed. There is no additional MCP tool or database migration.
+
+## Work and lease errors
 
 Lease conflicts use stable codes: `work_not_pending`, `lease_held`,
 `lease_expired`, `lease_token_mismatch`, `claim_request_expired`, and
@@ -1211,6 +1238,14 @@ Artifact tools: `list_artifacts`, `get_artifact`, `list_artifact_history`,
 `upload_artifact`, `replace_artifact`, `download_artifact`, `delete_artifact`,
 and the explicit unimplemented `search_artifact_contents` stub. The three artifact
 writes use retained operation UUIDs and their own durable filesystem recovery receipts.
+All eight tools check the authenticated status endpoint before artifact access.
+Enabled results include `artifact_library` with `enabled`, `max_bytes`,
+`mcp_transfer_max_bytes`, `effective_upload_max_bytes`, and an explicit explanatory
+message. The effective new MCP upload maximum is the smaller of the configured
+limit and the 64 MiB decoded MCP transfer ceiling. Disabled calls fail explicitly;
+unavailable or malformed status is not treated as an empty library or permission
+to proceed. The content-search stub checks availability before reporting
+`unimplemented`.
 
 ```text
 list_projects, create_project,

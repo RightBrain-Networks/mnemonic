@@ -1,4 +1,4 @@
-import { decodeArtifact, type Artifact } from "./artifacts.ts";
+import { decodeArtifact, decodeArtifactLimitError, type Artifact } from "./artifacts.ts";
 import { readBoundedJson } from "./bounded-json.ts";
 import { decodeMutationError } from "./mutation-responses.ts";
 import { sameUuid } from "./wire-guards.ts";
@@ -36,7 +36,7 @@ export function artifactMetadataHeader(metadata: object): string {
   return encoded;
 }
 
-export type ArtifactMutationOutcome = { type: "success"; artifact: Artifact } | { type: "rejected" | "unresolved" | "safety_conflict"; message: string };
+export type ArtifactMutationOutcome = { type: "success"; artifact: Artifact } | { type: "rejected" | "unresolved" | "safety_conflict" | "disabled"; message: string };
 
 export async function dispatchArtifactMutation(intent: ArtifactMutation, fetcher: typeof fetch = fetch): Promise<ArtifactMutationOutcome> {
   try {
@@ -49,6 +49,8 @@ export async function dispatchArtifactMutation(intent: ArtifactMutation, fetcher
     });
     const value: unknown = await readBoundedJson(response, 1024 * 1024);
     if (!response.ok) {
+      const limitError = decodeArtifactLimitError(value, response.status);
+      if (limitError) return { type: limitError.code === "artifact_library_disabled" ? "disabled" : "rejected", message: limitError.message };
       const detail = decodeMutationError(value);
       if (detail?.category === "application") {
         if (response.status === 409 && detail.code === "client_operation_conflict") {

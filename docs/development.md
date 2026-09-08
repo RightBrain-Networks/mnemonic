@@ -490,17 +490,17 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.18.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.18.0` install
-plus a `0.17.0 -> 0.18.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.19.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.19.0` install
+plus a `0.18.0 -> 0.19.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
 the inventory remains exactly three skills (`mnemonic-save`, `mnemonic-search`,
-and `mnemonic-recall`), eight shared references (`authority-and-provenance.md`,
+and `mnemonic-recall`), nine shared references (`authority-and-provenance.md`,
 `completion-evidence.md`, `external-records.md`, `job-completion-reports.md`,
 `priority.md`, `repository-freshness.md`,
-`code-reviews.md`, and `work-graph.md`), and
+`code-reviews.md`, `artifacts.md`, and `work-graph.md`), and
 one executable (`mnemonic-repository-freshness`).
 A compatibility copy of the old prerelease schema or workflow is not a valid
 substitute.
@@ -816,9 +816,22 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.21.0`, plugin is `0.18.0`,
+Current application/API/MCP/dashboard versions are `0.22.0`, plugin is `0.19.0`,
 and Alembic head is `0026_artifact_library`. Validate all surfaces
-together with the existing regression suites. Exercise a quiescent populated
+together with the existing regression suites. This release adds no migration or
+catalog entries. Artifact configuration tests must cover `.env` byte limits from
+zero through 1 GiB, authenticated status reads without database/storage access,
+and explicit disabled/oversize responses. With zero configured, all artifact
+routes must reject before consuming request bytes or opening a database session;
+startup must not construct storage or schedule recovery/cleanup. All work-context
+entry points must skip artifact queries, while unrelated work remains available.
+Retain completed and pending upload/replace/delete bytes, metadata, and journals
+across disable/reenable; exact receipts must still replay after reenabling or
+lowering a positive upload limit. Existing downloads are not constrained by a
+new upload maximum. MCP tests must report the configured and independent transfer
+limits, including disabled status for the unimplemented content-search stub.
+
+Continue to exercise a quiescent populated
 0024-to-0025 upgrade and deploy every surface before reopening writes. A
 0025-to-0024 downgrade must succeed only when every retained edge has both
 current endpoints in its immutable authority project and no immutable
