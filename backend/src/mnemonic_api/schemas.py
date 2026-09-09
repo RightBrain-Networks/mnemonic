@@ -185,11 +185,11 @@ Title = Annotated[
 ]
 Summary = Annotated[
     str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=1000),
+    StringConstraints(strip_whitespace=True, min_length=1),
     AfterValidator(nonblank),
 ]
 StoredTitle = Annotated[str, StringConstraints(min_length=1, max_length=200)]
-StoredSummary = Annotated[str, StringConstraints(min_length=1, max_length=1000)]
+StoredSummary = Annotated[str, StringConstraints(min_length=1)]
 Prompt = Annotated[
     str, StringConstraints(min_length=1, max_length=100000), AfterValidator(nonblank)
 ]

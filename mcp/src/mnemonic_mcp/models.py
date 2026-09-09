@@ -255,7 +255,7 @@ TitleEventText = Annotated[
 ]
 SummaryEventText = Annotated[
     str,
-    Field(min_length=1, max_length=1000),
+    Field(min_length=1),
     AfterValidator(_validated_event_text),
 ]
 RetainedClientName = Annotated[
@@ -902,7 +902,7 @@ DuplicateSuggestionTitle = Annotated[
 ]
 DuplicateSuggestionSummary = Annotated[
     str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=1000),
+    StringConstraints(strip_whitespace=True, min_length=1),
     AfterValidator(_validated_event_text),
 ]
 DuplicateSuggestionPrompt = Annotated[
@@ -3415,7 +3415,7 @@ class WorkChanges(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str | None = Field(default=None, min_length=1, max_length=200)
-    summary: str | None = Field(default=None, min_length=1, max_length=1000)
+    summary: str | None = Field(default=None, min_length=1)
     priority: int | None = Field(default=None, ge=0, le=100)
     status: UpdateStatus | None = None
     external_references: OmissionOnlyExternalReferences = Field(

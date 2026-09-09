@@ -7,7 +7,7 @@ from fastapi import HTTPException
 SAFE_ERROR_CONTEXT_KEYS = frozenset(
     {
         "holder_client", "holder_session_id", "expires_at", "purpose", "code_review_id", "mode",
-        "canonical_work_item_id", "max_bytes", "cause", "attempt_not_committed",
+        "canonical_work_item_id", "max_bytes", "max_chars", "cause", "attempt_not_committed",
     }
 )
 SAFE_STORAGE_CAUSES = frozenset(

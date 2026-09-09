@@ -47,6 +47,10 @@ from mnemonic_api.services.work_events import (
     stage_work_deleted,
     stage_work_moved_events,
 )
+from mnemonic_api.summary_limits import (
+    DEFAULT_WORK_SUMMARY_MAX_CHARS,
+    require_work_summary_length,
+)
 
 
 def require_project(database: Session, project_id: UUID, *, lock: bool = False) -> Project:
@@ -111,6 +115,10 @@ def create_work_records(
     remediation_id: UUID | None = None, remediation_depth: int = 0,
 ) -> tuple[WorkItem, Checkpoint, list[WorkRelationship]]:
     """Stage required work, context, and requested graph facts in one transaction."""
+    require_work_summary_length(
+        payload.summary,
+        database.info.get("work_summary_max_chars", DEFAULT_WORK_SUMMARY_MAX_CHARS),
+    )
     if payload.status != "pending":
         raise ApplicationError(422, "initial_status_must_be_pending", "New work must be pending.")
     if payload.initial_relationships:
@@ -281,6 +289,11 @@ def update_work_record(database: Session, work_item: WorkItem, payload: WorkItem
 
     require_canonical_work_item(database, work_item)
     require_version(work_item, payload.expected_version)
+    if payload.summary is not None and payload.summary != work_item.summary:
+        require_work_summary_length(
+            payload.summary,
+            database.info.get("work_summary_max_chars", DEFAULT_WORK_SUMMARY_MAX_CHARS),
+        )
     supersede_for_reopen(database, work_item, payload)
     changes = payload.model_dump(
         mode="json",

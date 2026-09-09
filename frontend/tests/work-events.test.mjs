@@ -504,3 +504,15 @@ test("expanded system events accept large reference arrays while progress keeps 
   assert.equal(decodeWorkEvent(created).metadata.initial.external_references.length, 10);
   assert.throws(() => decodeWorkEvent(event({ metadata: { note: "x".repeat(17000) } })), /invalid work-event/);
 });
+
+
+test("retained work events accept summaries beyond the current default limit", () => {
+  const changes = { summary: { before: "🧠".repeat(4096), after: "Shorter summary" } };
+  const updated = event({ event_type: "work_updated", body: null, metadata: { changes, work_version: 2 } });
+  assert.deepEqual(decodeWorkEvent(updated).metadata.changes, changes);
+  const created = event({ event_type: "work_created", body: null,
+    checkpoint_id: "1dfa9455-4a17-4cd4-938b-010ea17ccaf0",
+    metadata: { initial: { title: "Long summary", summary: changes.summary.before,
+      status: "pending", priority: 0, version: 1 } } });
+  assert.equal(decodeWorkEvent(created).metadata.initial.summary, changes.summary.before);
+});

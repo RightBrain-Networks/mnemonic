@@ -20,9 +20,11 @@ from typing import Any
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0027_artifact_fulltext"
+HEAD = "0028_work_summary_limit"
+EXTRACTION_HEAD = "0027_artifact_fulltext"
+EXTRACTION_HEADS = (EXTRACTION_HEAD, HEAD)
 ARTIFACT_HEAD = "0026_artifact_library"
-ARTIFACT_HEADS = (ARTIFACT_HEAD, HEAD)
+ARTIFACT_HEADS = (ARTIFACT_HEAD, *EXTRACTION_HEADS)
 CROSS_PROJECT_HEAD = "0025_cross_project_relationships"
 CROSS_PROJECT_HEADS = (CROSS_PROJECT_HEAD, *ARTIFACT_HEADS)
 REVIEW_HEAD = "0024_code_reviews"
@@ -922,7 +924,7 @@ def _head_findings(
         checks.update(_CROSS_PROJECT_RELATIONSHIP_FINDINGS)
     if expected_head in ARTIFACT_HEADS:
         checks.update(_ARTIFACT_FINDINGS)
-    if expected_head == HEAD:
+    if expected_head in EXTRACTION_HEADS:
         checks.update(_EXTRACTION_FINDINGS)
     findings.update(
         {key: connection.scalar(text(sql)) for key, sql in checks.items()}

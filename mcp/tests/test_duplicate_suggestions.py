@@ -97,7 +97,7 @@ def required_arguments() -> dict[str, object]:
 
 
 def test_advisory_package_version_is_coordinated():
-    assert __version__ == "0.29.0"
+    assert __version__ == "0.30.0"
 
 
 async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
@@ -124,7 +124,7 @@ async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
         "initial_prompt",
     }
     assert properties["title"]["maxLength"] == 200
-    assert properties["summary"]["maxLength"] == 1000
+    assert "maxLength" not in properties["summary"]
     assert properties["initial_prompt"]["maxLength"] == 100000
     assert properties["tags"]["maxItems"] == 20
     assert properties["tags"]["items"]["maxLength"] == 50

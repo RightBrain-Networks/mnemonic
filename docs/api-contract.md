@@ -1,7 +1,7 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.29.0`, plugin `0.21.0`, and migration
-`0027_artifact_fulltext`. The catalog has exactly 46 MCP tools, 16
+This is application/API/MCP/dashboard `0.30.0`, plugin `0.21.0`, and migration
+`0028_work_summary_limit`. The catalog has exactly 46 MCP tools, 16
 protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations and
 24 work-event types. The 21 REST receipt kinds comprise 18 work operations and
 three artifact operations with filesystem recovery journals. See
@@ -43,6 +43,35 @@ FastAPI's structured list remains the validation-error format. Invalid input is
 project are 404, lifecycle/version conflicts are 409, and bad or missing
 authorization is 401. Error context never contains
 checkpoint text, metadata, credentials, or request bodies.
+
+## Configurable work summaries
+
+New work and changed work summaries use `MNEMONIC_WORK_SUMMARY_MAX_CHARS`
+(default **2048** Unicode characters after trimming surrounding whitespace).
+The same policy covers report follow-ups and duplicate-suggestion drafts.
+A too-long summary returns HTTP **422**:
+
+```json
+{
+  "detail": {
+    "code": "work_summary_too_long",
+    "message": "Work summary exceeds the configured maximum of 2048 characters.",
+    "context": { "max_chars": 2048 }
+  }
+}
+```
+
+Both numbers reflect the deployed setting. MCP renders its error from the safe
+numeric `max_chars` context, including the setting name, without echoing submitted
+summary text or arbitrary upstream diagnostics. The adapter does not impose a
+separate fixed maximum, so remote clients use the API's configured value.
+
+Receipt lookup precedes this fresh-write policy. Stored work, event snapshots,
+duplicate candidates, and completed receipt replay are independent of today's
+limit; unchanged summaries can accompany unrelated edits. Input/output schemas
+therefore do not advertise a fixed `maxLength` for work summaries. Existing
+aggregate byte budgets remain in force. This setting does not change the initial
+checkpoint prompt or job-completion-report summary limits.
 
 ## Artifact availability and limits
 

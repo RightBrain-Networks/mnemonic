@@ -1,3 +1,4 @@
+import WorkSummaryInput from "@/components/work-summary-input";
 import ExternalReferencesEditor from "@/components/external-references-editor";
 import ExternalReferences from "@/components/external-references";
 import JobReportEditor from "@/components/job-report-editor";
@@ -61,7 +62,7 @@ export default function WorkItemEditor({
   return <form className="form-stack edit-form" onSubmit={onSubmit}>
     <p className="dialog-intro">Edit the durable objective. Existing checkpoint text and provenance cannot be changed.</p>
     <label className="field">Title<input required disabled={blocked} maxLength={200} value={draft.title} onChange={(event) => setDraft((value) => ({ ...value, title: event.target.value }))} /></label>
-    <label className="field">Summary<textarea required disabled={blocked} rows={4} maxLength={1000} value={draft.summary} onChange={(event) => setDraft((value) => ({ ...value, summary: event.target.value }))} /></label>
+    <label className="field">Summary<WorkSummaryInput unchangedValue={work.summary} required disabled={blocked} rows={4} value={draft.summary} onChange={(event) => setDraft((value) => ({ ...value, summary: event.target.value }))} /></label>
     <label className="field field-half">Priority<input type="number" disabled={blocked} min={0} max={100} value={draft.priority} onChange={(event) => setDraft((value) => ({ ...value, priority: Number(event.target.value) }))} /><span className="field-hint">0–100. Higher values are more important; ordinary search is not a scheduler.</span></label>
     <label className="field field-half">Lifecycle<select value={draft.status} disabled={blocked || reviewObligation} onChange={(event) => setDraft((value) => ({ ...value, status: event.target.value as WorkStatus }))}>
       {lifecycleOptions.map((status) => <option value={status} key={status}>{statusLabels[status]}</option>)}

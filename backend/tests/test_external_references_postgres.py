@@ -537,7 +537,7 @@ def test_downgrade_waits_for_writer_before_checking_reference_history(
             result.result(timeout=3)
     with postgres_engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0027_artifact_fulltext"
+            "0028_work_summary_limit"
         )
         assert connection.scalar(
             text("SELECT external_references FROM work_items WHERE id=:id"), {"id": work["id"]}

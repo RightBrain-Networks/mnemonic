@@ -591,6 +591,9 @@ def _create_remediation(
 
     policy = database.get(WorkCompletionReviewPolicy, review.policy_decision_id)
     assert policy is not None
+    from mnemonic_api.summary_limits import DEFAULT_WORK_SUMMARY_MAX_CHARS
+
+    summary_maximum = database.info.get("work_summary_max_chars", DEFAULT_WORK_SUMMARY_MAX_CHARS)
     association_id = uuid4()
     initial = InitialCheckpointCreate(
         prompt=_remediation_prompt(result.id, payload),
@@ -603,7 +606,10 @@ def _create_remediation(
         work.project_id,
         WorkItemCreate(
             title=("Remediate review: " + work.title)[:200],
-            summary="Fix all actionable findings from code review " + str(review.id) + ".",
+            # This server-authored label may be abbreviated; the checkpoint retains every finding.
+            summary=("Fix all actionable findings from code review " + str(review.id) + ".")[
+                :summary_maximum
+            ],
             priority=policy.priority_at_closeout,
             initial_checkpoint=initial,
         ),

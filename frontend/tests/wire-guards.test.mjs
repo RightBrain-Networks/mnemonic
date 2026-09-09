@@ -142,6 +142,8 @@ test("bounded metadata rejects secrets, cycles, invalid JSON values, and oversiz
 test("the shared work-item decoder enforces exact shape, scope, bounds, and timestamps", () => {
   const item = workItem();
   assert.equal(decodeWorkItem(item, project, work), item);
+  const longSummary = workItem({ summary: "🧠".repeat(4096) });
+  assert.equal(decodeWorkItem(longSummary, project, work), longSummary);
   assert.equal(decodeWorkItem(item, project.toUpperCase(), work.toUpperCase()), item);
 
   for (const invalid of [
@@ -149,7 +151,7 @@ test("the shared work-item decoder enforces exact shape, scope, bounds, and time
     workItem({ project_id: work }),
     workItem({ id: project }),
     workItem({ title: "   " }),
-    workItem({ summary: "x".repeat(1_001) }),
+    workItem({ summary: "bad\0summary" }),
     workItem({ status: "open" }),
     workItem({ priority: 101 }),
     workItem({ version: 0 }),

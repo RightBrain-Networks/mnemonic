@@ -167,7 +167,7 @@ function validChangeSet(value: unknown): value is WorkEventChangeSet {
     }
     if (key === "status") return isStatus(change.before) && isStatus(change.after);
     if (key === "title") return boundedText(change.before, 200) && boundedText(change.after, 200);
-    return boundedText(change.before, 1000) && boundedText(change.after, 1000);
+    return boundedText(change.before, Infinity) && boundedText(change.after, Infinity);
   });
 }
 
@@ -191,7 +191,7 @@ function validMetadata(eventType: WorkEventType, origin: "live" | "backfill", va
       && validSparseReferences(initial!)
       && exactKeys(initial!, referenceKeys(initial!, ["title", "summary", "status", "priority", "version"]))
       && boundedText(initial!.title, 200)
-      && boundedText(initial!.summary, 1000)
+      && boundedText(initial!.summary, Infinity)
       && ["open", "pending", "deferred", "wont-do", "promoted"].includes(
         String(initial!.status)
       )
