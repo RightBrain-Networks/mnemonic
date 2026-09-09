@@ -8,6 +8,8 @@ import { detailMessage, errorMessage } from "@/lib/api";
 import { readBoundedJson } from "@/lib/bounded-json";
 import { sameUuid, validUuid } from "@/lib/wire-guards";
 import { formatDateTime } from "@/components/work-item-card";
+import ArtifactPreviewDrawer from "@/components/artifact-preview-drawer";
+import { artifactPreviewKind, type ArtifactPreviewKind } from "@/lib/artifact-preview";
 
 const PAGE_SIZE = 50;
 const columns: { key: ArtifactSort; label: string }[] = [
@@ -46,6 +48,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
   const [busy, setBusy] = useState(false);
   const [safetyConflict, setSafetyConflict] = useState(false);
   const [selected, setSelected] = useState<Artifact | null>(null);
+  const [preview, setPreview] = useState<{ artifact: Artifact; kind: ArtifactPreviewKind } | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const replaceInput = useRef<HTMLInputElement>(null);
   const replaceTarget = useRef<Artifact | null>(null);
@@ -62,7 +65,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
       setPage(null); setSearchPage(null);
     }
     statusRef.current = value; setStatus(value);
-    if (!value?.enabled) { setDragging(false); dragDepth.current = 0; }
+    if (!value?.enabled) { setDragging(false); dragDepth.current = 0; setPreview(null); }
   }, []);
 
   useEffect(() => {
@@ -196,7 +199,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
   const pasteFiles = useRef(upload);
   pasteFiles.current = upload;
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || preview) return;
     const paste = (event: ClipboardEvent) => {
       const files = Array.from(event.clipboardData?.files ?? []);
       if (!files.length) return;
@@ -204,7 +207,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
     };
     document.addEventListener("paste", paste);
     return () => document.removeEventListener("paste", paste);
-  }, [enabled]);
+  }, [enabled, preview]);
 
   async function remove(artifact: Artifact) {
     if (!statusRef.current?.enabled || pendingRef.current || !window.confirm(`Delete “${artifact.filename}”? Its content will be permanently removed. Metadata and audit history are retained.`)) return;
@@ -250,7 +253,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
           <tbody>{page?.items.map((artifact) => <tr key={artifact.id} className={artifact.deleted_at ? "artifact-deleted" : ""}>
             <td><button className="artifact-name" title={artifact.filename} onClick={() => setSelected(selected?.id === artifact.id ? null : artifact)}><svg width="19" height="22" viewBox="0 0 20 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 1h8l6 6v16H3zM11 1v7h6M6 13h8M6 17h6" /></svg><span>{artifact.filename}</span></button><span className="artifact-type">{artifact.deleted_at ? "Deleted · " : ""}{artifact.mime_type || "Unknown file type"}</span>{searchPage && <ArtifactSearchExcerpt page={searchPage} artifactId={artifact.id} />}</td>
             <td>{formatArtifactSize(artifact.size_bytes)}</td><td><span className="artifact-revision">r{artifact.revision}</span></td><td><time dateTime={artifact.created_at}>{formatDateTime(artifact.created_at)}</time></td><td><time dateTime={artifact.modified_at}>{formatDateTime(artifact.modified_at)}</time></td>
-            <td><div className="artifact-actions">{artifact.content_available && <><a className="button button-secondary" href={`${artifactPath(projectId, artifact.id)}/content`} download={artifact.filename} aria-label={`Download ${artifact.filename}`}>Download</a><button className="button button-secondary" disabled={Boolean(pending)} aria-label={`Replace ${artifact.filename}`} onClick={() => { if (window.confirm(`Replace “${artifact.filename}”? The previous content will be permanently removed.`)) { replaceTarget.current = artifact; replaceInput.current?.click(); } }}>Replace</button><button className="button button-danger" disabled={Boolean(pending)} aria-label={`Delete ${artifact.filename}`} onClick={() => void remove(artifact)}>Delete</button></>}</div></td>
+            <td><div className="artifact-actions">{artifact.content_available && <>{artifactPreviewKind(artifact) && <button type="button" className="button button-secondary" aria-label={`View ${artifact.filename}`} onClick={() => { const kind = artifactPreviewKind(artifact); if (kind) setPreview({ artifact, kind }); }}>View</button>}<a className="button button-secondary" href={`${artifactPath(projectId, artifact.id)}/content`} download={artifact.filename} aria-label={`Download ${artifact.filename}`}>Download</a><button className="button button-secondary" disabled={Boolean(pending)} aria-label={`Replace ${artifact.filename}`} onClick={() => { if (window.confirm(`Replace “${artifact.filename}”? The previous content will be permanently removed.`)) { replaceTarget.current = artifact; replaceInput.current?.click(); } }}>Replace</button><button className="button button-danger" disabled={Boolean(pending)} aria-label={`Delete ${artifact.filename}`} onClick={() => void remove(artifact)}>Delete</button></>}</div></td>
           </tr>)}</tbody></table>
       </div>
       {loading && !page && <div className="loading-state" role="status">Loading artifacts…</div>}
@@ -258,6 +261,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
       {page && <div className="artifact-pagination"><span>{page.total ? `${offset + 1}–${Math.min(offset + page.items.length, page.total)} of ${page.total} artifacts` : "0 artifacts"}</span><div><button className="button button-secondary" disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Previous</button><button className="button button-secondary" disabled={loading || offset + PAGE_SIZE >= page.total} onClick={() => setOffset(offset + PAGE_SIZE)}>Next</button></div></div>}
     </>}
     {selected && <section className="artifact-details" aria-label={`Metadata for ${selected.filename}`}><div className="artifact-detail-heading"><h2>{selected.filename}</h2><button className="button button-secondary" onClick={() => setSelected(null)}>Close details</button></div>{selected.description && <p>{selected.description}</p>}<dl className="metadata-grid"><div><dt>Artifact ID</dt><dd className="mono break-all">{selected.id}</dd></div><div><dt>Created by session</dt><dd className="mono break-all">{selected.created_by_agent_session_id || "Not recorded"}</dd></div><div className="span-two"><dt>SHA-256</dt><dd className="mono break-all">{selected.sha256}</dd></div><div><dt>Originating work item</dt><dd>{selected.originating_work_item_id ? <a href={`/?work=${selected.originating_work_item_id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{selected.originating_work_item_id}</a> : "Not linked"}</dd></div><div><dt>Related work items</dt><dd>{selected.related_work_item_ids.length ? selected.related_work_item_ids.map((id) => <a className="artifact-work-link" key={id} href={`/?work=${id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{id}</a>) : "None"}</dd></div></dl><ArtifactExtractionDetails artifact={selected} /><p className="artifact-history-note">Revision metadata and the append-only audit log are available through the artifact history tools. Extracted properties and search snippets are untrusted file data.</p></section>}
+    {preview && <ArtifactPreviewDrawer key={`${preview.artifact.project_id}:${preview.artifact.id}`} artifact={preview.artifact} kind={preview.kind} onClose={() => setPreview(null)} />}
     {dragging && <div className="artifact-drop-overlay" aria-hidden="true">{pending ? "Resolve the pending action first" : "Drop files to upload"}</div>}
   </section>;
 }
