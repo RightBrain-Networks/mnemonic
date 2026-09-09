@@ -115,6 +115,13 @@ test("terminal actions wait for gates and report settings while Active also resp
   assert.equal(statusActionDisabledReason("pending", gated, false), null);
 });
 
+test("unclaimed review work requires explicit reopening before status changes", () => {
+  const review = readiness({ lifecycle_status: "done", is_terminal: true, is_ready: false, display_state: "to-review" });
+  for (const action of availableStatusActions("done", review)) {
+    assert.match(statusActionDisabledReason(action.value, review, true), /Reopen work/);
+  }
+});
+
 test("manual closeout records say exactly what the human action proves", () => {
   for (const status of ["done", "wont-do", "promoted"]) {
     const report = humanDecisionReport(work, status, "9");

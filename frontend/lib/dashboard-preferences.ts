@@ -20,6 +20,7 @@ export const libraryToolsInitializationScript = `(() => {
 const statusFilters = new Set<StatusFilter>([
   "pending",
   "active",
+  "to-review",
   "dropped",
   "deferred",
   "done",

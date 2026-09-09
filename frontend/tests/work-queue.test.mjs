@@ -31,7 +31,7 @@ test("the queue page size stays on the wire contract", () => {
 
 test("the filter row offers every labelled lifecycle filter exactly once", () => {
   assert.deepEqual(statusFilterOrder, [
-    "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
+    "pending", "active", "to-review", "dropped", "deferred", "done", "wont-do", "promoted", "all"
   ]);
   assert.deepEqual([...statusFilterOrder].sort(), Object.keys(statusFilterLabels).sort());
   assert.equal(new Set(statusFilterOrder).size, statusFilterOrder.length);

@@ -26,6 +26,8 @@ from mnemonic_api.services.artifacts import work_artifacts
 from mnemonic_api.services.readiness import (
     readiness,
     readiness_inputs,
+    review_obligation_clause,
+    review_obligation_ids,
     unresolved_blocker_count_clause,
     unresolved_gate_count_clause,
 )
@@ -85,6 +87,7 @@ def work_summaries(
         dropped_lease_ids,
         canonical_ids,
     ) = _summary_inputs(database, ids, as_of=as_of)
+    needs_review_ids = review_obligation_ids(database, ids)
     current_contexts = {
         checkpoint.work_item_id: checkpoint
         for checkpoint in database.scalars(
@@ -110,6 +113,7 @@ def work_summaries(
                 work_item.id in dropped_lease_ids,
                 gate_counts.get(work_item.id, 0),
                 canonical_work_item_id=canonical_ids.get(work_item.id, work_item.id),
+                needs_review=work_item.id in needs_review_ids,
             ),
         )
         for work_item in work_items
@@ -140,6 +144,8 @@ def assemble_work_context(
             )
         )
 
+    focal_review_sql = sql(review_obligation_clause(literal_column("w.id")))
+    counterpart_review_sql = sql(review_obligation_clause(literal_column("counterpart.id")))
     focal_blocker_count_sql = sql(
         unresolved_blocker_count_clause(
             literal_column("w.id"),
@@ -340,6 +346,7 @@ def assemble_work_context(
                     END AS counterpart_active_lease,
                     ({counterpart_blocker_count_sql}) AS counterpart_blocker_count,
                     ({counterpart_gate_count_sql}) AS counterpart_gate_count,
+                    ({counterpart_review_sql}) AS counterpart_needs_review,
                     EXISTS (
                         SELECT 1
                         FROM work_leases AS dropped_counterpart_lease
@@ -382,6 +389,7 @@ def assemble_work_context(
                             'external_references', adjacent.counterpart_external_references,
                             'status', adjacent.counterpart_status,
                             'readiness', jsonb_build_object(
+                                'needs_review', adjacent.counterpart_needs_review,
                                 'has_dropped_lease',
                                     adjacent.counterpart_has_dropped_lease,
                                 'active_lease', adjacent.counterpart_active_lease,
@@ -450,6 +458,7 @@ def assemble_work_context(
                 ) AS has_dropped_lease,
                 ({focal_blocker_count_sql}) AS unresolved_blocker_count,
                 ({focal_gate_count_sql}) AS unresolved_gate_total,
+                ({focal_review_sql}) AS needs_review,
                 COALESCE(
                     (
                         SELECT jsonb_agg(
@@ -719,6 +728,7 @@ def assemble_work_context(
                 canonical_work_item_id=counterpart_canonical_ids.get(
                     UUID(str(counterpart["id"])), UUID(str(counterpart["id"]))
                 ),
+                needs_review=bool(counterpart_inputs["needs_review"]),
             )
     blocker_count = int(row["unresolved_blocker_count"])
     materialized_ids = {initial.id, current.id, *(item.id for item in recent)}
@@ -771,6 +781,7 @@ def assemble_work_context(
             bool(row["has_dropped_lease"]),
             unresolved_gate_total,
             canonical_work_item_id=canonical.canonical_work_item.id,
+            needs_review=bool(row["needs_review"]),
         ),
         unresolved_gates=unresolved_gates,
         unresolved_gate_total=unresolved_gate_total,

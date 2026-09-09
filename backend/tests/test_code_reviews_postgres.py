@@ -7,6 +7,7 @@ import pytest
 
 from tests.code_review_fixtures import (
     actor,
+    assert_work_state,
     claim_review,
     close,
     configure,
@@ -128,8 +129,10 @@ def test_mandatory_review_atomic_result_and_exact_replay(
     assert completion["review_policy_decision"]["decision"] == "mandatory"
     assert completion["code_review_handoff"] == handoff()
     work = completion["work_item"]
+    assert_work_state(api, project, work, "to-review")
     base = f"/api/v1/projects/{project['id']}/work-items/{work['id']}"
     lease = claim_review(api, project, completion, checkpoint_fields)
+    assert_work_state(api, project, work, "to-review")
     assert "context" not in lease and lease["purpose"] == "code_review"
     payload = result_payload(completion, lease, findings=findings)
     url = result_url(project, completion)
@@ -137,6 +140,7 @@ def test_mandatory_review_atomic_result_and_exact_replay(
     assert response.status_code == 200, response.text
     result = response.json()
     assert result["review"]["state"] == "completed"
+    assert_work_state(api, project, work, "done")
     assert len(result["result"]["findings"]) == len(findings)
     assert (result["remediation"] is not None) == bool(findings)
     assert api.post(url, json=payload).json() == result
@@ -171,6 +175,7 @@ def test_optional_question_original_session_and_answer_replay(
     assert response.status_code == 200, response.text
     completion = response.json()
     question = completion["agent_follow_ups"][0]
+    assert_work_state(api, project, work, "to-review")
     base = f"/api/v1/projects/{project['id']}/work-items/{work['id']}"
     url = base + f"/agent-follow-ups/{question['id']}/answer"
     answer = {
@@ -202,6 +207,7 @@ def test_optional_question_original_session_and_answer_replay(
     result = response.json()
     assert result["follow_up"]["state"] == "answered"
     assert ("code_review_request" in result) == recommend
+    assert_work_state(api, project, work, "to-review" if recommend else "done")
     assert api.post(url, json=payload).json() == result
     assert api.post(base + "/complete", json=close_payload).json() == completion
     detail = api.get(url.removesuffix("/answer"))
@@ -248,6 +254,7 @@ def test_explicit_reopen_supersedes_obligation_and_preserves_history(
     reopened = api.patch(base, json=payload)
     assert reopened.status_code == 200, reopened.text
     assert reopened.json()["status"] == "pending"
+    assert_work_state(api, project, work, "pending")
     assert api.patch(base, json=payload).json() == reopened.json()
     detail = api.get(base + detail_suffix)
     assert detail.status_code == 200, detail.text

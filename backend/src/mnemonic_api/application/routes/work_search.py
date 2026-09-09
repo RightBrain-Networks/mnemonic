@@ -36,6 +36,7 @@ from mnemonic_api.semantic import (
 )
 from mnemonic_api.services.duplicates import canonical_projections
 from mnemonic_api.services.hierarchy import ancestor_paths, hierarchy_page
+from mnemonic_api.services.readiness import review_obligation_clause
 from mnemonic_api.services.work_context import work_summaries
 from mnemonic_api.services.work_items import missing_work_item, require_project
 
@@ -173,6 +174,9 @@ def status_conditions(status: str, as_of: datetime) -> list[ColumnElement[bool]]
         return [WorkItem.status == "pending", _lease_exists(WorkLease.expires_at <= as_of)]
     if status == "pending":
         return [WorkItem.status == "pending", ~_lease_exists()]
+    if status in {"to-review", "done"}:
+        obligation = review_obligation_clause(WorkItem.id)
+        return [WorkItem.status == "done", obligation if status == "to-review" else ~obligation]
     return [WorkItem.status == status]
 
 

@@ -50,7 +50,6 @@ const contrastFixture = `
           <span class="library-tools-chevron"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m6 15 6-6 6 6"></path></svg></span>
         </button>
         <div class="library-tools-region"><div class="library-tools-clip"><div class="library-tools-content">
-          <details class="review-inbox-disclosure"><summary>Code review queue and unanswered recommendations</summary></details>
           <div class="search-field"><input aria-label="Search" placeholder="Search work items"><kbd>/</kbd>
             <span class="search-mode-divider"></span>
             <button class="semantic-toggle selected"><span class="semantic-switch"><span></span></span><span>Semantic</span></button>
@@ -104,6 +103,7 @@ const contrastFixture = `
                     <div class="queue-card-topline">
                       <span class="status-badge status-pending">Pending</span>
                       <span class="status-badge status-active">Active</span>
+                      <span class="status-badge status-to-review">To review</span>
                       <span class="status-badge status-dropped">Dropped</span>
                       <span class="status-badge status-blocked">Blocked</span>
                       <span class="status-badge status-waiting">Waiting</span>

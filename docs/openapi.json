@@ -7222,6 +7222,7 @@
             "enum": [
               "pending",
               "active",
+              "to-review",
               "dropped",
               "blocked",
               "waiting",
@@ -10965,6 +10966,7 @@
             "enum": [
               "pending",
               "active",
+              "to-review",
               "dropped",
               "blocked",
               "waiting",
@@ -11099,7 +11101,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.31.0"
+    "version": "0.32.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -13414,6 +13416,7 @@
               "enum": [
                 "pending",
                 "active",
+                "to-review",
                 "dropped",
                 "deferred",
                 "done",
@@ -14225,6 +14228,7 @@
               "enum": [
                 "pending",
                 "active",
+                "to-review",
                 "dropped",
                 "deferred",
                 "done",

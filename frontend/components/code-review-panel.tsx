@@ -54,8 +54,9 @@ function ReviewResult({
         </p>
       )}
       <p className="field-hint">
-        Done records implementation completion. Review does not block
-        dependencies or approve a release.
+        {review.state === "requested"
+          ? "Implementation is complete. This work stays To review until the review is completed."
+          : "Review history is retained with the original work item."}
       </p>
       <details>
         <summary>Pinned repository scope</summary>

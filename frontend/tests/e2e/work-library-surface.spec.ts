@@ -1818,7 +1818,7 @@ test("the horizontal arrows walk the lifecycle filters", async ({ page }, testIn
     "The stacked layout below 900px has no divider for the same keys to yield to."
   );
   // The rendered order of the filter row, which the arrows follow.
-  const order = ["Pending", "Active", "Dropped", "Deferred", "Done", "Won’t do", "Promoted", "All"];
+  const order = ["Pending", "Active", "To review", "Dropped", "Deferred", "Done", "Won’t do", "Promoted", "All"];
   const filter = (name: string) => page.getByRole("button", { name, exact: true });
   const pressed = async (name: string) => {
     for (const label of order) {

@@ -34,6 +34,7 @@ from mnemonic_api.schemas import (
 from mnemonic_api.services.readiness import (
     readiness,
     readiness_inputs,
+    review_obligation_ids,
 )
 from mnemonic_api.services.work_events import database_now, source_actor, stage_relationship_events
 
@@ -544,6 +545,7 @@ def _work_pointers(
         dropped_lease_ids,
         canonical_ids,
     ) = readiness_inputs(database, work_item_ids, as_of=as_of)
+    needs_review_ids = review_obligation_ids(database, work_item_ids)
     return {
         work_item.id: WorkPointer(
             project_id=work_item.project_id,
@@ -559,6 +561,7 @@ def _work_pointers(
                 work_item.id in dropped_lease_ids,
                 gate_counts.get(work_item.id, 0),
                 canonical_work_item_id=canonical_ids.get(work_item.id, work_item.id),
+                needs_review=work_item.id in needs_review_ids,
             ),
         )
         for work_item in work_items

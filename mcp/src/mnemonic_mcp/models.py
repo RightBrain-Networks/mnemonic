@@ -65,7 +65,7 @@ EventStatus = Literal["open", "pending", "deferred", "done", "wont-do", "promote
 EventCreateStatus = Literal["open", "pending", "deferred", "wont-do", "promoted"]
 UpdateStatus = Literal["pending", "wont-do", "promoted"]
 SearchStatus = Literal[
-    "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
+    "pending", "active", "to-review", "dropped", "deferred", "done", "wont-do", "promoted", "all"
 ]
 SearchView = Literal["full", "roots"]
 DuplicateScope = Literal["canonical", "aliases", "all"]
@@ -77,6 +77,7 @@ DisplayState = Literal[
     "duplicate",
     "pending",
     "active",
+    "to-review",
     "dropped",
     "blocked",
     "waiting",
@@ -88,6 +89,7 @@ DisplayState = Literal[
 ReadyDisplayState = Literal[
     "pending",
     "active",
+    "to-review",
     "dropped",
     "blocked",
     "waiting",
@@ -1885,6 +1887,8 @@ def _validate_ready_state(readiness: Readiness) -> None:
 def _expected_display_state(readiness: Readiness) -> DisplayState:
     if readiness.is_duplicate:
         return "duplicate"
+    if readiness.lifecycle_status == "done" and readiness.display_state == "to-review":
+        return "to-review"
     if readiness.lifecycle_status != "pending":
         return readiness.lifecycle_status
     if readiness.is_gated:

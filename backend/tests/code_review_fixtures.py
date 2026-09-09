@@ -123,3 +123,20 @@ def result_url(project, completion):
         f"/api/v1/projects/{project['id']}/work-items/{review['work_item_id']}"
         f"/code-reviews/{review['id']}/complete"
     )
+
+
+def assert_work_state(api, project, work, state):
+    """The same work state is available through context, flat search, and hierarchy."""
+    base = f"/api/v1/projects/{project['id']}/work-items"
+    response = api.get(f"{base}/{work['id']}/context")
+    assert response.status_code == 200, response.text
+    assert response.json()["readiness"]["display_state"] == state
+    for view in ("full", "roots"):
+        for status in ("to-review", "done", "pending"):
+            response = api.get(base, params={"view": view, "status": status})
+            assert response.status_code == 200, response.text
+            rows = [row["summary"] for row in response.json()["items"]
+                    if row["summary"]["work_item"]["id"] == work["id"]]
+            assert bool(rows) == (status == state), (view, status, response.text)
+            if rows:
+                assert rows[0]["readiness"]["display_state"] == state

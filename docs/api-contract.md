@@ -1,6 +1,6 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.31.0`, plugin `0.21.0`, and migration
+This is application/API/MCP/dashboard `0.32.0`, plugin `0.21.0`, and migration
 `0028_work_summary_limit`. The catalog has exactly 46 MCP tools, 16
 protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations and
 24 work-event types. The 21 REST receipt kinds comprise 18 work operations and
@@ -628,7 +628,7 @@ Work list/search accepts:
 | --- | --- |
 | `q` | optional text, at most 500 characters |
 | `semantic` | false by default; true opts into hybrid retrieval |
-| `status` | `pending` by default; one lifecycle status, `active`, `dropped`, or `all` |
+| `status` | `pending` by default; one lifecycle status, `active`, `to-review`, `dropped`, or `all` |
 | `sort` | `updated` by default; `updated`, `created`, or `priority`, descending |
 | `tag` | matches any checkpoint |
 | `source_client` | matches any checkpoint |
@@ -646,6 +646,15 @@ Pending work with no retained lease, keeping Pending, Active, and Dropped
 visually distinct. `deferred` is a persisted lifecycle filter, and `all`
 includes every lifecycle and lease state. Dropped work records an unexpectedly
 terminated session; it has no active owner and may be ready for a new claim.
+
+`to-review` matches Done work with a requested code review or a pending originating-session
+review recommendation. These items use `readiness.display_state=to-review` in normal work
+summaries, hierarchy cards, relationships, and context; the `done` filter excludes them.
+The state persists while a reviewer holds a lease and after that lease expires. Completing
+the review or declining the recommendation returns the item to Done; explicit reopening
+supersedes the obligation and returns it to Pending. Stored implementation status and
+completion evidence remain Done until reopening. This derived state adds no mutation or
+migration and does not change implementation readiness or dependency resolution.
 
 `duplicate_scope=canonical` omits aliases as independent rows and groups matches
 from every visible member under its current root before offset pagination.
@@ -869,7 +878,8 @@ empty compact-summary path. `Readiness` contains lifecycle, terminal, active,
 dropped, blocked, and ready booleans, unresolved blocker and human-gate counts,
 `is_gated`, `is_duplicate`, `canonical_work_item_id`, display state, and an
 optional safe active lease. An alias has `is_ready=false`; display precedence
-is duplicate, non-Pending lifecycle, waiting, blocked, active, dropped, then Pending;
+is duplicate, To review for Done work with an outstanding review obligation,
+other non-Pending lifecycle, waiting, blocked, active, dropped, then Pending;
 independent flags remain authoritative because gated, lease, and blocked facts
 can overlap.
 

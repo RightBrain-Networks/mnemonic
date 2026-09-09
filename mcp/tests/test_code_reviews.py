@@ -22,7 +22,7 @@ from mnemonic_mcp.code_review_models import (
     review_policy,
     scope_hash,
 )
-from mnemonic_mcp.models import ClaimReceipt
+from mnemonic_mcp.models import ClaimReceipt, Readiness, SearchStatus
 from mnemonic_mcp.server import build_server
 
 REVIEW_ID = "a0000000-0000-4000-8000-000000000001"
@@ -32,6 +32,18 @@ ANSWER_ID = "a0000000-0000-4000-8000-000000000004"
 RESULT_ID = "a0000000-0000-4000-8000-000000000005"
 GENERATION_ID = "a0000000-0000-4000-8000-000000000006"
 ACTOR = {"actor_client": "review-test", "actor_session_id": "actual-session", "actor_model": None}
+
+
+def test_to_review_search_and_readiness_contract(readiness):
+    assert TypeAdapter(SearchStatus).validate_python("to-review") == "to-review"
+    value = {**readiness, "lifecycle_status": "done", "is_terminal": True,
+             "is_ready": False, "display_state": "to-review"}
+    assert Readiness.model_validate(value).display_state == "to-review"
+    for status in ("pending", "deferred", "wont-do", "promoted"):
+        with pytest.raises(ValidationError):
+            Readiness.model_validate({**value, "lifecycle_status": status})
+    with pytest.raises(ValidationError):
+        Readiness.model_validate({**value, "is_duplicate": True})
 
 
 def handoff():

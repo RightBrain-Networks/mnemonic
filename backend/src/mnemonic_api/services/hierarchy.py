@@ -23,6 +23,7 @@ from mnemonic_api.services.duplicates import (
 )
 from mnemonic_api.services.readiness import (
     readiness,
+    review_obligation_clause,
     unresolved_blocker_count_clause,
     unresolved_gate_count_clause,
 )
@@ -58,6 +59,12 @@ def _hierarchy_match_sql(
             "WHERE filter_lease.work_item_id = candidate.id"
             ")"
         )
+    elif filters.status in {"to-review", "done"}:
+        obligation = review_obligation_clause(literal_column("candidate.id"))
+        predicate = obligation if filters.status == "to-review" else ~obligation
+        conditions.append("candidate.status = 'done' AND (" + str(
+            predicate.compile(compile_kwargs={"literal_binds": True})
+        ) + ")")
     elif filters.status != "all":
         conditions.append("candidate.status = :filter_status")
         parameters["filter_status"] = filters.status
@@ -173,6 +180,7 @@ def hierarchy_page(
             )
         )
 
+    root_review_sql = sql(review_obligation_clause(literal_column("root.id")))
     member_blocker_count_sql = sql(
         unresolved_blocker_count_clause(
             literal_column("member.id"),
@@ -441,6 +449,7 @@ def hierarchy_page(
                     ) AS checkpoint_count,
                     ({root_blocker_count_sql}) AS unresolved_blocker_count,
                     ({root_gate_count_sql}) AS unresolved_gate_count,
+                    ({root_review_sql}) AS needs_review,
                     EXISTS (
                         SELECT 1
                         FROM work_leases AS dropped_lease
@@ -451,6 +460,9 @@ def hierarchy_page(
                     active_lease.holder_session_id AS active_holder_session_id,
                     active_lease.acquired_at AS active_acquired_at,
                     active_lease.renewed_at AS active_renewed_at,
+                    active_lease.purpose AS active_purpose,
+                    active_lease.code_review_id AS active_code_review_id,
+                    active_lease.mode AS active_mode,
                     active_lease.expires_at AS active_expires_at
                 FROM paged
                 JOIN branch_aggregates AS aggregate
@@ -516,11 +528,15 @@ def hierarchy_page(
                                         page_rows.current_checkpoint_created_at
                                 ),
                                 'readiness', jsonb_build_object(
+                                    'needs_review', page_rows.needs_review,
                                     'has_dropped_lease',
                                         page_rows.has_dropped_lease,
                                     'active_lease', CASE
                                         WHEN page_rows.active_expires_at IS NULL THEN NULL
                                         ELSE jsonb_build_object(
+                                            'purpose', page_rows.active_purpose,
+                                            'code_review_id', page_rows.active_code_review_id,
+                                            'mode', page_rows.active_mode,
                                             'holder_client',
                                                 page_rows.active_holder_client,
                                             'holder_session_id',
@@ -613,6 +629,7 @@ def hierarchy_page(
             bool(readiness_inputs["has_dropped_lease"]),
             int(readiness_inputs["unresolved_gate_count"]),
             canonical_work_item_id=UUID(str(summary["work_item"]["id"])),
+            needs_review=bool(readiness_inputs["needs_review"]),
         )
         items.append(HierarchySummary.model_validate(item))
     return items, int(row["total"])
