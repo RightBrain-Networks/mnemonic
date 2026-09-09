@@ -97,7 +97,7 @@ export function decodeDuplicateCandidateSummary(value: unknown): DuplicateCandid
     || !exactKeys(candidate, referenceKeys(candidate, CANDIDATE_FIELDS.filter((key) => key !== "external_references")))
     || !validUuid(candidate.work_item_id)
     || !boundedText(candidate.title, 200)
-    || !boundedText(candidate.summary, 1_000)
+    || !boundedText(candidate.summary, Infinity)
     || typeof candidate.status !== "string"
     || !WORK_STATUSES.has(candidate.status as WorkStatus)
     || !validUtcDateTime(candidate.updated_at)

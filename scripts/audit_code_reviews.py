@@ -1,4 +1,4 @@
-"""Read-only code-review integrity audit for supported schemas 0024 through 0027.
+"""Read-only code-review integrity audit for supported schemas 0024 through 0028.
 
 Run with the backend virtual environment and private database access. Output
 contains counts only: no repository locators, prompts, findings, actors, tokens,
@@ -12,9 +12,10 @@ import os
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0027_artifact_fulltext"
+HEAD = "0028_work_summary_limit"
 REVIEW_HEAD = "0024_code_reviews"
-SUPPORTED_HEADS = (REVIEW_HEAD, "0025_cross_project_relationships", "0026_artifact_library", HEAD)
+SUPPORTED_HEADS = (REVIEW_HEAD, "0025_cross_project_relationships", "0026_artifact_library",
+                   "0027_artifact_fulltext", HEAD)
 CHECKS = {
     "lifecycle_event_witness_mismatch": """
         SELECT count(*) FROM work_events event

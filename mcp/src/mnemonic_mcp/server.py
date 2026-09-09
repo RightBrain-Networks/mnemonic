@@ -933,7 +933,12 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
     async def create_work(
         project_id: UUID,
         title: Annotated[str, Field(min_length=1, max_length=200)],
-        summary: Annotated[str, Field(min_length=1, max_length=1000)],
+        summary: Annotated[str, Field(
+            min_length=1,
+            description="Concise searchable work summary. The API enforces "
+            "MNEMONIC_WORK_SUMMARY_MAX_CHARS (default 2048) and reports its configured limit "
+            "when exceeded. Put detailed instructions in initial_checkpoint.prompt.",
+        )],
         initial_checkpoint: CheckpointInput,
         client_operation_id: UUID,
         priority: Annotated[int, Field(ge=0, le=100)] = 0,

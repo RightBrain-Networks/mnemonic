@@ -1,7 +1,7 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.29.0`, Claude plugin `0.21.0`,
-and Alembic head `0027_artifact_fulltext`.
+This architecture describes application/API/MCP `0.30.0`, Claude plugin `0.21.0`,
+and Alembic head `0028_work_summary_limit`.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
 An isolated Apache Tika 4 service extracts normalized current text and document
@@ -110,6 +110,12 @@ flowchart LR
     Draft[Transient creation draft] -. explicit safe read .-> Suggestion[Grouped duplicate suggestions]
     Suggestion -. evidence only .-> WorkItem
 ```
+
+Fresh work summary length is an API deployment policy controlled by
+`MNEMONIC_WORK_SUMMARY_MAX_CHARS` (default 2048). Receipt replay precedes enforcement;
+retained text and event snapshots use no deployment-dependent character cap. The
+database stores summaries as text, and the dashboard receives the same setting
+at runtime. Remote MCP adapters rely on the API's numeric limit error.
 
 A work item owns only mutable identity and lifecycle: title, summary, status,
 priority, version, and timestamps. Checkpoints own exact prompt text, source

@@ -355,6 +355,8 @@ def _safe_uuid(value: object) -> str | None:
 
 
 def _application_error_message(code: str, context: dict[str, object]) -> str | None:
+    if code == "work_summary_too_long":
+        return _work_summary_limit_error(context)
     if code in {"artifact_too_large", "artifact_library_disabled"}:
         return _artifact_policy_error(code, context)
     if code == "work_duplicate":
@@ -368,6 +370,17 @@ def _application_error_message(code: str, context: dict[str, object]) -> str | N
     if code in {"lease_held", "work_move_active_lease"}:
         return _lease_contention_message(code, context)
     return _APPLICATION_ERRORS.get(code)
+
+
+def _work_summary_limit_error(context: dict[str, object]) -> str:
+    maximum = context.get("max_chars")
+    if type(maximum) is int and 1 <= maximum <= 2**53 - 1:
+        return (
+            f"Work summary exceeds the configured maximum of {maximum} characters "
+            "(MNEMONIC_WORK_SUMMARY_MAX_CHARS). Shorten the summary and put detailed "
+            "instructions in initial_checkpoint.prompt."
+        )
+    return "Work summary exceeds the API's configured character limit."
 
 
 def _artifact_policy_error(code: str, context: dict[str, object]) -> str | None:

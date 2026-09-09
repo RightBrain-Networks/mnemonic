@@ -23,6 +23,7 @@ services:
       MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_DASHBOARD_ORIGINS:?Run through scripts/test-e2e.sh}
       MNEMONIC_LEASE_TTL_SECONDS: 60
       MNEMONIC_ARTIFACT_ROOT: /var/lib/mnemonic/artifacts
+      MNEMONIC_WORK_SUMMARY_MAX_CHARS: ${MNEMONIC_E2E_WORK_SUMMARY_MAX_CHARS:-2048}
       MNEMONIC_ARTIFACT_MAX_BYTES: 67108864
       MNEMONIC_ARTIFACT_TIKA_URL: http://tika:9998
     volumes:
@@ -75,6 +76,7 @@ services:
     build: ./frontend
     environment:
       TIMEZONE: ${TIMEZONE:-America/Detroit}
+      MNEMONIC_WORK_SUMMARY_MAX_CHARS: ${MNEMONIC_E2E_WORK_SUMMARY_MAX_CHARS:-2048}
       MNEMONIC_ARTIFACT_MAX_BYTES: 67108864
       MNEMONIC_API_URL: http://api:8000
       MNEMONIC_API_KEY: ${MNEMONIC_E2E_API_KEY:?Run through scripts/test-e2e.sh}

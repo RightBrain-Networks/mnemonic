@@ -6,6 +6,32 @@ Back up and quiesce old writers; do not deploy older processes against the new
 schema or force a downgrade after review facts/settings changes. Defaults stay
 Never/Never/off. The integrity audit is read-only and never repairs ancestry.
 
+## Work summary length
+
+`MNEMONIC_WORK_SUMMARY_MAX_CHARS` is a positive integer in `.env`, defaulting to
+`2048`. Compose passes the same value to API and web. Recreate both services after
+changing it; changing this setting does not require rebuilding their images.
+Remote HTTP or stdio MCP adapters use the API's policy and need no separate copy.
+
+The limit counts Unicode characters after surrounding whitespace is trimmed. It
+applies to new work, changed summaries, report follow-ups, and duplicate-suggestion
+drafts. The initial checkpoint prompt retains its separate 100,000-character
+limit. Completion report summaries use their existing, separate contract.
+Request, event-metadata, and operation-receipt byte budgets still apply separately;
+this setting controls the summary character policy, not those transport budgets.
+
+Reducing the setting never truncates stored summaries, hides their history, or
+prevents replay of completed operation receipts. An unchanged existing summary may
+be retained when editing another field; a changed summary must fit the current
+limit. Server-generated remediation summaries fit the configured limit while their
+checkpoint retains the complete findings.
+
+Migration `0028_work_summary_limit` changes the work summary column to `text`,
+rebuilds its generated search vector/index, and removes the old character cap from
+immutable event validation. It takes an exclusive lock on work and event tables;
+recreate the API after applying it. Downgrade refuses to proceed when current or
+historical summaries exceed the former 1,000-character limit.
+
 ## Configuration
 
 `python scripts/setup.py` creates three independent random secrets in `.env`,
@@ -106,8 +132,8 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.29.0`, plugin `0.21.0`,
-and Alembic `0027_artifact_fulltext`. Inventory exactly 46 MCP tools,
+The current coordinated boundary is API/MCP/dashboard `0.30.0`, plugin `0.21.0`,
+and Alembic `0028_work_summary_limit`. Inventory exactly 46 MCP tools,
 16 protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
@@ -970,7 +996,7 @@ from the same revision: the frozen digests and the code that computes them are
 one unit, and a mismatched pair reports drift against an unchanged schema.
 `scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.29.0` clients and plugin `0.21.0` together.
+failure, and inventory deployed `0.30.0` clients and plugin `0.21.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 All three audits pin the PostgreSQL session settings that decide how the server

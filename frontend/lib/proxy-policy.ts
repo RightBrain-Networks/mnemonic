@@ -527,7 +527,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
         "title", "summary", "initial_prompt", "tags", "exclude_work_item_id", "limit", "external_candidates"
       ])
       || !boundedText(body.title, 200)
-      || !boundedText(body.summary, 1_000)
+      || !boundedText(body.summary, Infinity)
       || !boundedText(body.initial_prompt, 100_000)
       || !(body.tags === undefined || validStringArray(body.tags, 20, 50))
       || !(body.exclude_work_item_id === undefined
@@ -563,7 +563,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
         "initial_relationships", "external_references", CLIENT_OPERATION_FIELD
       ])
       || !boundedText(body.title, 200)
-      || !boundedText(body.summary, 1_000)
+      || !boundedText(body.summary, Infinity)
       || !finiteInteger(body.priority, 0, 100)
       || !["pending", "wont-do", "promoted"].includes(String(body.status))
       || !validCheckpointPayload(body.initial_checkpoint, false)
@@ -605,7 +605,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !["title", "summary", "priority", "status", "external_references"].some((key) => key in body)
       || (Object.hasOwn(body, "external_references") && !validExternalReferences(body.external_references))
       || (body.title !== undefined && !boundedText(body.title, 200))
-      || (body.summary !== undefined && !boundedText(body.summary, 1_000))
+      || (body.summary !== undefined && !boundedText(body.summary, Infinity))
       || (body.priority !== undefined && !finiteInteger(body.priority, 0, 100))
       || (body.status !== undefined
         && !["pending", "wont-do", "promoted"].includes(String(body.status)))
@@ -750,7 +750,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
     const actor = jsonObject(body.actor);
     const checkpoint = jsonObject(body.initial_checkpoint);
     if (!allowedKeys(body, ["title", "summary", "priority", "initial_checkpoint", "actor", CLIENT_OPERATION_FIELD])
-      || !boundedText(body.title, 200) || !boundedText(body.summary, 1_000)
+      || !boundedText(body.title, 200) || !boundedText(body.summary, Infinity)
       || !(body.priority === undefined || finiteInteger(body.priority, 0, 100))
       || !validActor(body.actor) || actor?.actor_client !== "dashboard"
       || !validCheckpointPayload(body.initial_checkpoint, false)

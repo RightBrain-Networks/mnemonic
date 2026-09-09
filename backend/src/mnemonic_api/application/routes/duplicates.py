@@ -31,6 +31,7 @@ from mnemonic_api.services.duplicate_suggestions import (
 )
 from mnemonic_api.services.duplicates import merge_work_records, reject_merge_secret_echo
 from mnemonic_api.services.external_duplicate_suggestions import extend_external_suggestions
+from mnemonic_api.summary_limits import require_work_summary_length
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -46,6 +47,7 @@ async def duplicate_suggestions(
     payload: DuplicateSuggestionRequest,
     request: Request,
 ) -> DuplicateSuggestionPage:
+    require_work_summary_length(payload.summary, settings_of(request).work_summary_max_chars)
     factory: sessionmaker[Session] = request.app.state.session_factory
     owner = suggestion_owned_work(request.scope)
     inference_permitted = suggestion_inference_acquired(request.scope)

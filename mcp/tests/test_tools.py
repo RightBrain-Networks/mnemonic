@@ -2465,7 +2465,7 @@ async def test_work_updated_event_allows_only_same_value_status_metadata(
         ("title", "   ", "After"),
         ("title", "Before", "T" * 201),
         ("summary", "   ", "After"),
-        ("summary", "Before", "S" * 1001),
+        ("summary", "Before", "bad\x00summary"),
     ),
 )
 def test_work_updated_text_changes_enforce_field_specific_bounds(
@@ -2481,7 +2481,7 @@ def test_work_updated_text_changes_enforce_field_specific_bounds(
         "metadata": {
             "changes": {
                 "title": {"before": "Before", "after": "T" * 200},
-                "summary": {"before": "Before", "after": "S" * 1000},
+                "summary": {"before": "Before", "after": "S" * 4096},
             },
             "work_version": 4,
         },

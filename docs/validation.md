@@ -1,5 +1,42 @@
 # Mnemonic validation record
 
+## Configurable work summary length — 2026-09-09
+
+Application/API/MCP/dashboard `0.30.0`, plugin `0.21.0`, and Alembic
+`0028_work_summary_limit` replace the fixed 1,000-character work-summary cap with
+`MNEMONIC_WORK_SUMMARY_MAX_CHARS` (default 2048). API and browser Compose settings
+share this value; remote MCP clients rely on the API. HTTP 422
+`work_summary_too_long` includes the configured maximum in its message and numeric
+`context.max_chars`; MCP renders that number without echoing submitted text or
+arbitrary upstream diagnostics.
+
+The migration preserves summaries as PostgreSQL text, rebuilds their generated
+search vector/index, and relaxes the immutable event validator's old character
+cap while retaining aggregate metadata budgets. It refreshes the source-fact
+guard to invalidate cached PL/pgSQL parameter plans after the type change. The
+new audit snapshot changes only the summary column, dependent search-vector and
+nonblank constraint definitions, and the event validator. Backup schema guards
+and the historical-completion acceptance proof target the new head. A downgrade
+refuses long current or historical summaries rather than truncating them.
+
+Boundary regressions cover 2048 characters by default, custom 32/4096 settings,
+Unicode characters, exact-limit acceptance, one-over rejection without a write,
+configured MCP errors and sanitized malformed error contexts, long stored work
+and event decoding, lower-limit receipt replay, unrelated edits, follow-up
+creation/replay, and server-generated remediation under a small limit.
+
+
+Validation passed: **2,028 backend tests** against real disposable PostgreSQL
+schemas, **1,248 MCP tests**, **399 frontend unit tests**, backend/MCP Ruff and ty,
+TypeScript, the dashboard production build, the OpenAPI snapshot, and gitleaks.
+**Five browser acceptance cases** passed with a runtime limit of 4096: exact-limit
+Unicode creation/editing and over-limit validation in desktop Chromium, narrow
+Chromium, and Firefox, plus the existing full work/checkpoint lifecycle on both
+Chromium viewports. The isolated backup transport/restore acceptance checks passed.
+
+The [form screenshot](images/work-summary-limit.png) shows the custom limit used
+for acceptance; the default remains 2048.
+
 ## Attributed MCP artifact downloads — 2026-09-08
 
 Application `0.29.0` and plugin `0.21.0` require the current caller's

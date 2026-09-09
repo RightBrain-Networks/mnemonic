@@ -1,4 +1,5 @@
 "use client";
+import WorkSummaryInput from "@/components/work-summary-input";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { JobReportEnvelope, JobReportFollowUpResult } from "@/lib/types";
 import { dashboardSessionId } from "@/lib/dashboard-session";
@@ -50,7 +51,7 @@ export default function JobReportFollowUpForm({ item, onCancel, onCreated }: {
     <h4>Create Follow-up</h4>
     <p>Write the change you want. This creates a new Pending work item linked to report <span className="mono">{report.id}</span> and original work <span className="mono">{report.work_item_id}</span>. No agent is assigned.</p>
     <label className="field">Title<input ref={titleRef} name="title" required maxLength={200} defaultValue={`Follow up: ${report.work_title_at_closeout}`.slice(0, 200)} disabled={blocked || saving} /></label>
-    <label className="field">Work summary<textarea name="summary" required rows={3} maxLength={1000} placeholder="Briefly describe the new objective." disabled={blocked || saving} /></label>
+    <label className="field">Work summary<WorkSummaryInput name="summary" required rows={3} placeholder="Briefly describe the new objective." disabled={blocked || saving} /></label>
     <label className="field field-half">Priority<input name="priority" type="number" min={0} max={100} defaultValue={0} disabled={blocked || saving} /></label>
     <label className="field">Initial context and requested change<textarea name="prompt" required rows={6} maxLength={100000} placeholder="Write standalone instructions, for example: Change the dashboard font from Arial to Comic Sans. Include the intended result and any constraints." disabled={blocked || saving} /></label>
     {error && <p className="error-notice" role="alert">{error}</p>}

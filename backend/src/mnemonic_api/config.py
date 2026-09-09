@@ -7,12 +7,22 @@ from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
+from mnemonic_api.summary_limits import DEFAULT_WORK_SUMMARY_MAX_CHARS
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
 
     database_url: SecretStr = Field(validation_alias=AliasChoices("DATABASE_URL", "database_url"))
     api_key: SecretStr = Field(validation_alias=AliasChoices("MNEMONIC_API_KEY", "api_key"))
+    work_summary_max_chars: int = Field(
+        default=DEFAULT_WORK_SUMMARY_MAX_CHARS,
+        ge=1,
+        le=2**53 - 1,
+        validation_alias=AliasChoices(
+            "MNEMONIC_WORK_SUMMARY_MAX_CHARS", "work_summary_max_chars"
+        ),
+    )
     artifact_root: Path = Field(
         default=Path("/var/lib/mnemonic/artifacts"),
         validation_alias=AliasChoices("MNEMONIC_ARTIFACT_ROOT", "artifact_root"),

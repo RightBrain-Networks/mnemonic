@@ -1,7 +1,11 @@
+import WorkSummaryLimitProvider from "@/components/work-summary-limit-provider";
+import { workSummaryMaxChars } from "@/lib/work-summary-limit";
 import type { Metadata } from "next";
 import { libraryToolsInitializationScript } from "@/lib/dashboard-preferences";
 import { themeInitializationScript } from "@/lib/theme-preference";
 import "./globals.css";
+
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Mnemonic — context worth keeping",
@@ -14,6 +18,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <script dangerouslySetInnerHTML={{ __html: themeInitializationScript }} />
       <script dangerouslySetInnerHTML={{ __html: libraryToolsInitializationScript }} />
     </head>
-    <body>{children}</body>
+    <body><WorkSummaryLimitProvider maximum={workSummaryMaxChars(process.env.MNEMONIC_WORK_SUMMARY_MAX_CHARS)}>{children}</WorkSummaryLimitProvider></body>
   </html>;
 }

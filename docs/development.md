@@ -816,8 +816,8 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.29.0`, plugin is `0.21.0`,
-and Alembic head is `0027_artifact_fulltext`. Validate all surfaces
+Current application/API/MCP/dashboard versions are `0.30.0`, plugin is `0.21.0`,
+and Alembic head is `0028_work_summary_limit`. Validate all surfaces
 together with the existing regression suites. This release adds extraction jobs,
 current normalized text and retained document properties, without new tool or
 mutation catalog entries. Test real Tantivy queries, metadata-only isolation,

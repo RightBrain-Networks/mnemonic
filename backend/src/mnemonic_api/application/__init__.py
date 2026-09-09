@@ -75,7 +75,7 @@ def create_app(
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.29.0",
+        version="0.30.0",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )
@@ -87,7 +87,9 @@ def create_app(
     )
     app.state.artifact_upload_slots = asyncio.Semaphore(4)
     app.state.artifact_search_index = ArtifactSearchIndex()
-    app.state.session_factory = build_session_factory(connection_pool)
+    app.state.session_factory = build_session_factory(
+        connection_pool, work_summary_max_chars=config.work_summary_max_chars
+    )
     app.state.semantic_embedder = semantic_embedder or FastembedEmbedder()
     app.state.duplicate_suggestion_resources = DuplicateSuggestionResources.from_settings(config)
     app.state.live_sync_hub = LiveSyncHub()

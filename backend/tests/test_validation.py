@@ -297,7 +297,6 @@ def test_shared_repository_scope_corpus_matches_backend_validator():
         ("title", " \n\t"),
         ("title", "x" * 201),
         ("summary", ""),
-        ("summary", "x" * 1001),
         ("prompt", "\r\n\t "),
         ("prompt", "x" * 100001),
         ("prompt", "NUL\x00byte"),

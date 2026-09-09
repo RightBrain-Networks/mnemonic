@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from mnemonic_api.config import Settings
 from mnemonic_api.pool_deadlines import DeadlineQueuePool
+from mnemonic_api.summary_limits import DEFAULT_WORK_SUMMARY_MAX_CHARS
 
 
 def database_sqlstate(error: DBAPIError) -> str | None:
@@ -58,8 +59,13 @@ def build_engine(settings: Settings) -> Engine:
     return engine
 
 
-def build_session_factory(engine: Engine) -> sessionmaker[Session]:
-    return sessionmaker(bind=engine, expire_on_commit=False)
+def build_session_factory(
+    engine: Engine, *, work_summary_max_chars: int = DEFAULT_WORK_SUMMARY_MAX_CHARS
+) -> sessionmaker[Session]:
+    return sessionmaker(
+        bind=engine, expire_on_commit=False,
+        info={"work_summary_max_chars": work_summary_max_chars},
+    )
 
 
 def get_session(request: Request) -> Iterator[Session]:

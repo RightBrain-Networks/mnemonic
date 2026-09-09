@@ -48,7 +48,7 @@ export function decodeWorkItem(
     || !sameUuid(item.project_id, projectId)
     || (workItemId !== undefined && !sameUuid(item.id, workItemId))
     || !boundedText(item.title, 200)
-    || !boundedText(item.summary, 1_000)
+    || !boundedText(item.summary, Infinity)
     || typeof item.status !== "string"
     || !WORK_STATUSES.has(item.status as WorkStatus)
     || !finiteInteger(item.priority, 0, 100)

@@ -268,7 +268,7 @@ class WorkItem(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id", ondelete="RESTRICT"))
     title: Mapped[str] = mapped_column(String(200))
-    summary: Mapped[str] = mapped_column(String(1000))
+    summary: Mapped[str] = mapped_column(Text)
     external_references: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, default=list, server_default=text("'[]'::jsonb"),
     )
