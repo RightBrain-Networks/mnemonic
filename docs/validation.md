@@ -1,5 +1,45 @@
 # Mnemonic validation record
 
+## Artifact text reads and client downloads — 2026-09-09
+
+Application/API/MCP/dashboard `0.33.0` and plugin `0.22.0` add the safe-read
+`get_artifact_text` tool and matching authenticated REST endpoint. The catalog
+is 47 MCP tools with the same 16 receipt-protected writes; Alembic remains
+`0028_work_summary_limit`. Each text page requires an expected revision and
+returns up to 20,000 Unicode characters. PostgreSQL slices only the requested
+page; pending/processing/failed extraction returns explicit status and null text,
+and parser truncation remains visible after pagination finishes. Replacement,
+deletion, failed recovery and unavailable storage cannot expose stale text.
+
+MCP search and download responses retain compact artifact identity and extraction
+state while omitting document properties and descriptions. A regression with
+45 extracted properties and a 306-character snippet produces a search hit under
+1,200 serialized bytes. Full metadata remains available through get/list/history;
+REST search still supplies the dashboard's existing metadata contract.
+
+The standard-library client helper streams original bytes outside model context,
+using an operator-provisioned API origin and credential environment. It verifies
+revision, ETag, size and SHA-256 before atomic publication to a new path. Tests
+use synthetic files and local HTTP fixtures; no private example artifact was
+downloaded and no production service was deployed. See the
+[client setup and platform requirements](artifact-download-client.md).
+
+Verified: **2,085 backend tests** against disposable PostgreSQL schemas with no
+skipped database tests; **1,292 MCP tests**; **403 frontend tests** under Node 24,
+TypeScript and the production build; backend/MCP Ruff and ty; operational-script
+Ruff; and the regenerated OpenAPI snapshot. The plugin unittest suite ran 72
+tests with one platform-specific Bash 3.2 skip on Linux; GitHub CI also runs its
+separate native macOS Bash check.
+
+Independent cold review found that the initial client deadline did not interrupt
+trickled response headers or chunk framing. POSIX interval-timer cancellation now
+covers request acquisition and reads, unwinds response/staging contexts, and is
+cancelled before destination publication. After that fix, all **41 client HTTP
+regressions** passed, including five added deadline/platform/publication cases;
+the reviewer independently reproduced prompt header/framing cancellation and
+passed those five cases with no remaining findings. Both script Ruff configurations
+and the required gitleaks check passed.
+
 ## Configurable work summary length — 2026-09-09
 
 Application/API/MCP/dashboard `0.30.0`, plugin `0.21.0`, and Alembic

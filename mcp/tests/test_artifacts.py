@@ -29,6 +29,18 @@ def artifact(**overrides):
     }
 
 
+def artifact_summary(**overrides):
+    return {
+        "id": ARTIFACT_ID, "project_id": PROJECT_ID, "filename": "private report.pdf",
+        "revision": 1, "size_bytes": len(CONTENT),
+        "sha256": hashlib.sha256(CONTENT).hexdigest(), "mime_type": "application/pdf",
+        "deleted_at": None, "content_available": True,
+        "extraction": {"status": "pending", "truncated": False,
+                       "error_code": None, "extracted_at": None},
+        **overrides,
+    }
+
+
 def upload_arguments(**overrides):
     return {
         "project_id": PROJECT_ID, "client_operation_id": CLIENT_OPERATION_ID,
@@ -144,7 +156,7 @@ async def test_download_pins_metadata_revision_and_verifies_binary_hash(settings
 
     result = await call(settings, "download_artifact", download_arguments(), handler)
     assert base64.b64decode(result["content_base64"]) == CONTENT
-    assert result["artifact"] == artifact()
+    assert result["artifact"] == artifact_summary()
 
 
 async def test_download_rejects_bytes_from_different_revision(settings):
@@ -212,7 +224,7 @@ async def test_content_search_is_opt_in_safe_project_scoped_and_bounded(settings
         "artifact_id": ARTIFACT_ID, "work_item_id": WORK_ID, "limit": 10,
     }, handler)
     assert result["fulltext"] is fulltext
-    assert result["items"][0]["artifact"] == artifact()
+    assert result["items"][0]["artifact"] == artifact_summary()
     assert result["items"][0]["matched_fields"] == (["content"] if fulltext else ["metadata"])
 
 

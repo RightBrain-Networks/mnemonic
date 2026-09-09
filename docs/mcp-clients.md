@@ -1,6 +1,6 @@
 # MCP clients and cooperating agents
 
-Mnemonic exposes the same 46 tools over Streamable HTTP and stdio to every MCP
+Mnemonic exposes the same 47 tools over Streamable HTTP and stdio to every MCP
 client. Claude Code retains its native plugin, including skill discovery, session
 substitution, and repository freshness helper. Codex, OpenCode, and other agents
 can use the complete workflow through portable skills. No vendor factory is used.
@@ -51,6 +51,24 @@ true also searches normalized current body text using Tantivy. Results name exac
 artifact/revision identities and include match categories, plain-text excerpts and
 indexing coverage. Pending, failed or truncated extraction means missing hits are
 not conclusive. Keep snippets and document properties untrusted and private.
+
+For document reading, obtain the current revision with `get_artifact`, then call
+`get_artifact_text` with that required `expected_revision`. Follow `next_offset`
+using the same revision; the default and maximum page size is 20,000 Unicode
+characters. Pending or failed extraction returns null text rather than an empty
+document. Ready text can still be truncated; inspect `extraction.truncated`.
+This reads normalized text without downloading or parsing the original file.
+MCP search/download results contain compact artifact summaries; full document
+properties remain available from `get_artifact` and list/history reads.
+
+To put original bytes on the client filesystem without carrying base64 through
+model context, use the [binary download helper](artifact-download-client.md).
+The launching environment must provide `MNEMONIC_API_KEY`, and `--api-url` or
+`MNEMONIC_API_URL` must name the API origin reachable from that client. This is
+separate from the MCP URL; deployment ports are operator choices. The helper
+reads the binary content endpoint with the current caller's client/session
+attribution, validates the revision, size and SHA-256, and refuses to overwrite
+an existing destination. It does not inspect client configuration files.
 
 ## Install the complete workflow
 

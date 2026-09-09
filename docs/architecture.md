@@ -1,6 +1,6 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.32.0`, Claude plugin `0.21.0`,
+This architecture describes application/API/MCP `0.33.0`, Claude plugin `0.22.0`,
 and Alembic head `0028_work_summary_limit`.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
@@ -353,7 +353,7 @@ The MCP service is a typed HTTP adapter. Its sixteen protected mutation tools
 require the caller to prepare and retain one operation UUID plus the complete
 arguments; the adapter sends only one HTTP attempt. Its other tools use work,
 checkpoint, lease, relationship, human-gate, evidence, and duplicate terminology. Its exact
-46-tool
+47-tool
 catalog includes request, attention, and gate-history operations but deliberately
 no resolution, dismissal, or report-follow-up write tools; Phase 12 adds four safe
 reads for activity, project settings, report lists, and report detail,
@@ -364,7 +364,14 @@ compact pointers remain scope-free. The adapter has no Git, subprocess,
 filesystem, repository-root, branch-resolution, or freshness-result surface.
 It never executes evidence or dereferences external completion-evidence URLs.
 The explicit `download_artifact` tool retrieves project-library bytes through
-the authenticated API and validates their revision/checksum. Every artifact tool
+the authenticated API and validates their revision/checksum. MCP download/search
+results expose compact artifact summaries; full metadata reads retain document
+properties. `get_artifact_text` pages existing normalized text with a required
+current revision on every page and explicit extraction coverage. A separate
+standard-library client helper streams authenticated binary REST downloads to
+its caller's filesystem with size/checksum validation and no overwrite. It uses
+an explicitly provisioned environment, and never runs inside the remote MCP
+adapter or accesses its host's private storage. Every artifact tool
 first checks the API's current availability and limit; enabled results expose an
 `artifact_library` policy summary, including the independent 64 MiB MCP transfer
 ceiling. Disabled or unreadable policy stops the attempt with an explicit error,

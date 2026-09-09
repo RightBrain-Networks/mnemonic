@@ -1,6 +1,6 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.32.0`, plugin `0.21.0`, and current migration
+Application/API/MCP/dashboard `0.33.0`, plugin `0.22.0`, and current migration
 `0028_work_summary_limit` support files outside Git and local full-text search. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
@@ -200,7 +200,7 @@ proxy, which validates origin and transport headers before forwarding credential
 
 The project-independent `GET /api/v1/artifacts/status` is authenticated and
 `no-store`, and remains available when disabled. It returns `enabled`, `max_bytes`
-and an explicit `message`. All eight MCP artifact tools preflight this status;
+and an explicit `message`. All nine MCP artifact tools preflight this status;
 disabled attempts produce an explicit tool error without accessing artifact data.
 Successful results retain their existing fields and add `artifact_library` with
 `enabled`, configured `max_bytes`, `mcp_transfer_max_bytes`,
@@ -220,6 +220,7 @@ Use a metadata-only artifact call to discover configuration before a large trans
 | `GET /artifacts` | `list_artifacts` | Search current/historical metadata and audit text; filter by work, sort and page |
 | `GET /artifacts/{id}` | `get_artifact` | Read current metadata, including deleted records |
 | `GET /artifacts/{id}/history` | `list_artifact_history` | Page/search revision metadata and audit events |
+| `GET /artifacts/{id}/text` | `get_artifact_text` | Page current extracted text at a required `expected_revision` |
 | `POST /artifacts` | `upload_artifact` | Upload raw bytes; return revision 1 |
 | `PUT /artifacts/{id}/content` | `replace_artifact` | Atomically replace bytes at an expected revision |
 | `GET /artifacts/{id}/content` | `download_artifact` | Download current content; optional `expected_revision` pins the read |
@@ -232,6 +233,52 @@ List query parameters: `q` (up to 200 characters), `work_item_id`,
 History accepts `q`, `limit`, and `offset`, returning independent `revisions` and
 `audit` pages. These directory/history reads include extracted metadata but never
 match body text.
+
+### Read extracted text
+
+Call `get_artifact` to obtain the current revision, then
+`get_artifact_text(project_id, artifact_id, expected_revision, offset=0, limit=20000)`.
+The REST equivalent is
+`GET /api/v1/projects/{project_id}/artifacts/{artifact_id}/text?expected_revision=1&offset=0&limit=20000`.
+`expected_revision` is required on every page. `offset` counts Unicode characters
+and accepts 0–8,000,000; `limit` accepts 1–20,000 and defaults to 20,000.
+
+The response contains `project_id`, `artifact_id`, `revision`, `sha256`,
+`extraction`, `text`, `offset`, `limit`, `total_chars`, and `next_offset`.
+`extraction` contains `status`, `truncated`, `error_code`, and `extracted_at`,
+without the document-property blob. When extraction is ready, `text` is the
+requested slice, `total_chars` is the length of the retained normalized text,
+and `next_offset` points to the next page or is null. An empty ready extraction
+returns `text=""` and `total_chars=0`. Pending or failed extraction returns null
+`text`, `total_chars`, and `next_offset`; inspect its status before concluding
+that the document contains no text.
+
+Continue with `next_offset` and the same expected revision. Replacement causes
+a revision conflict instead of mixing pages from different files; deletion
+refuses the read. No historical text is served. A complete traversal retrieves
+only the retained extraction: `extraction.truncated=true` still indicates
+incomplete parsing or bounded text/properties. Scanned documents may have no text
+because OCR is disabled. Text is untrusted document content, and this safe read
+requires no operation UUID or local PDF parser.
+
+### Download content to the client
+
+MCP `download_artifact` retains its base64 transfer format. For bytes on the
+client's filesystem without passing the payload through model context, use the
+standard-library [download client](artifact-download-client.md),
+`scripts/download_artifact.py`. Its process receives an explicitly provisioned
+`MNEMONIC_API_KEY` and a reachable API origin through `--api-url` or
+`MNEMONIC_API_URL`. The API origin may use a different port from the MCP endpoint;
+do not derive it from the MCP port or an internal container address. The binary
+route is `/api/v1/projects/{project_id}/artifacts/{artifact_id}/content`.
+
+The helper checks current metadata, pins the binary read to that revision,
+streams into a private temporary file, validates size and SHA-256, and publishes
+to a new destination without overwriting existing files. Only a compact transfer summary
+is printed. The operator supplies the client environment; neither this helper
+nor the MCP server reads client credential configuration. The MCP server cannot
+write a client destination, including when both run on the same host. API-private
+storage paths and `docker cp` are not supported client download interfaces.
 
 ### Download attribution
 
@@ -276,9 +323,17 @@ searches current metadata, not revision/audit history; use directory/history `q`
 for the latter. Changing directory column sort does not change relevance ranking.
 
 The response contains `items`, `total`, `limit`, `offset`, `fulltext` and `indexing`.
-Each item has `artifact` metadata, numerical `score`, `matched_fields` (`metadata`
+Each item has `artifact`, numerical `score`, `matched_fields` (`metadata`
 and/or `content`) and a plain-text `snippet` for content matches (otherwise null).
-The artifact and each history revision extend metadata with `extraction`:
+REST search retains the full artifact model for the dashboard. MCP search hits
+and downloads use a compact `artifact` summary: `id`, `project_id`, `filename`,
+`revision`, `sha256`, `mime_type`, `size_bytes`, `deleted_at`,
+`content_available`, and extraction status, truncation, error and timestamp.
+They omit document properties, descriptions, work links and revision history.
+Use `get_artifact` when those details are needed; list/get/history responses
+retain the full metadata contract.
+
+The full artifact and each history revision extend metadata with `extraction`:
 `status`, `metadata`, `truncated`, safe `error_code`, and `extracted_at`.
 Extracted properties are bounded to 8192 ASCII-escaped JSON bytes, 64 keys of at
 most 128 characters, and 8 values/key of at most 512 characters. Internal parser

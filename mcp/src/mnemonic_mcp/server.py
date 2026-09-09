@@ -223,8 +223,9 @@ INSTRUCTIONS = (
     "job_completion_report, required code_review_handoff; answer agent_follow_ups. Freeze exact "
     "arguments/UUIDs for retries. Identity: own actual client/native session, or one retained UUID; "
     "never another agent or transport ID. Model only if known. Honor leases. list_artifacts finds "
-    "work-linked files; upload_artifact/download_artifact use base64. Replace/delete remove bytes "
-    "permanently; metadata remains."
+    "linked files; get_artifact_text pages pinned text; scripts/download_artifact.py saves bytes "
+    "locally. MCP upload/download use base64. Replace/delete remove bytes permanently; "
+    "metadata remains."
 )
 
 

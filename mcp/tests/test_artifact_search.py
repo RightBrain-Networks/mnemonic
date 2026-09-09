@@ -97,3 +97,34 @@ async def test_history_accepts_two_full_pages_with_bounded_extracted_metadata(se
     }, lambda request: response)
     assert result["revisions"]["items"][0]["extraction"]["metadata"] == extraction["metadata"]
     assert len(result["audit"]["items"]) == 100
+
+
+async def test_search_omits_verbose_properties_but_preserves_identity_and_coverage(settings):
+    properties = {f"pdf:property-{index}": ["private document property " * 5] for index in range(45)}
+    extraction = {"status": "ready", "metadata": properties, "truncated": True,
+                  "error_code": None, "extracted_at": NOW}
+    source = artifact(description="private long description " * 100, extraction=extraction)
+    hit = {"artifact": source, "score": 2.5, "snippet": "Find this content " * 17,
+           "matched_fields": ["metadata", "content"]}
+    payload = search_page(items=[hit], total=1, fulltext=True)
+    payload["indexing"] = {"ready": 1, "pending": 0, "failed": 0, "truncated": 1}
+    result = await call(settings, "search_artifact_contents", {
+        "project_id": PROJECT_ID, "query": "content", "fulltext": True,
+    }, lambda request: httpx.Response(200, json=payload))
+    compact = result["items"][0]
+    assert len(json.dumps(compact)) < 1200
+    assert compact["artifact"]["id"] == ARTIFACT_ID
+    assert compact["artifact"]["project_id"] == PROJECT_ID
+    assert compact["artifact"]["revision"] == source["revision"]
+    assert compact["artifact"]["sha256"] == source["sha256"]
+    assert compact["artifact"]["extraction"]["truncated"] is True
+    assert result["indexing"]["truncated"] == 1
+    assert compact["snippet"] == hit["snippet"]
+    assert compact["matched_fields"] == hit["matched_fields"]
+    assert "metadata" not in compact["artifact"]["extraction"]
+    assert "description" not in compact["artifact"]
+    detail = await call(settings, "get_artifact", {
+        "project_id": PROJECT_ID, "artifact_id": ARTIFACT_ID,
+    }, lambda request: httpx.Response(200, json=source))
+    assert detail["extraction"]["metadata"] == properties
+    assert detail["description"] == source["description"]

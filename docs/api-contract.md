@@ -1,7 +1,7 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.32.0`, plugin `0.21.0`, and migration
-`0028_work_summary_limit`. The catalog has exactly 46 MCP tools, 16
+This is application/API/MCP/dashboard `0.33.0`, plugin `0.22.0`, and migration
+`0028_work_summary_limit`. The catalog has exactly 47 MCP tools, 16
 protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations and
 24 work-event types. The 21 REST receipt kinds comprise 18 work operations and
 three artifact operations with filesystem recovery journals. See
@@ -1271,11 +1271,11 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 46 tools:
+The catalog is exactly 47 tools:
 
 Artifact tools: `list_artifacts`, `get_artifact`, `list_artifact_history`,
 `upload_artifact`, `replace_artifact`, `download_artifact`, `delete_artifact`,
-and `search_artifact_contents`. The three artifact
+`get_artifact_text`, and `search_artifact_contents`. The three artifact
 writes use retained operation UUIDs and their own durable filesystem recovery receipts.
 `download_artifact` requires the current caller's `agent_session_id` and
 `actor_client`, forwarded through `X-Artifact-Metadata` on the binary GET.
@@ -1283,7 +1283,7 @@ The download audit records asserted caller context at content opening, not proof
 of delivery or authenticated identity. Downloads remain safe reads without an
 operation UUID. Old two-argument MCP calls must supply both actor fields; direct
 REST/browser attribution remains optional. See [download attribution](artifacts.md#download-attribution).
-All eight tools check the authenticated status endpoint before artifact access.
+All nine tools check the authenticated status endpoint before artifact access.
 Enabled results include `artifact_library` with `enabled`, `max_bytes`,
 `mcp_transfer_max_bytes`, `effective_upload_max_bytes`, and an explicit explanatory
 message. The effective new MCP upload maximum is the smaller of the configured
@@ -1293,9 +1293,29 @@ to proceed. Search checks availability, then returns structured Tantivy matches.
 `search_artifact_contents(project_id, query, fulltext=false, ...)` defaults to
 current metadata only; true also matches current extracted content. Optional exact
 artifact/work IDs, deleted-metadata inclusion and pagination are supported.
-Results include artifact metadata extended by Tika properties, relevance scores,
-plain-text content snippets, matched field categories and extraction coverage.
+MCP results include compact artifact identity/content/extraction state, relevance
+scores, plain-text content snippets, matched field categories and extraction
+coverage. Search and download results omit the Tika property blob; full
+`get_artifact`, list and history metadata retain it.
 Search takes no operation UUID. See the [full search contract](artifacts.md#full-text-search).
+
+`get_artifact_text(project_id, artifact_id, expected_revision, offset=0, limit=20000)`
+is a safe read of current normalized text. The corresponding authenticated REST
+route is `GET /api/v1/projects/{project_id}/artifacts/{artifact_id}/text`.
+Every page requires `expected_revision`; `offset` is 0–8,000,000 Unicode
+characters and `limit` is 1–20,000. Its response identifies the exact
+project/artifact/revision/checksum with compact `extraction`, `text`, `offset`,
+`limit`, `total_chars`, and `next_offset`. Follow the returned offset with the
+same revision. Non-ready extraction has null text/count/next offset; ready empty
+text is `""` with a zero count. Replacement conflicts and deletion refuses the
+read. Truncation still means incomplete extraction after the last page.
+See [extracted text](artifacts.md#read-extracted-text).
+
+The [client download helper](artifact-download-client.md) streams original bytes
+from the existing binary REST content route to a new local destination, with
+revision, size and checksum validation. It uses an explicitly provisioned client
+API origin and `MNEMONIC_API_KEY` environment variable. It adds no MCP filesystem
+write, credential lookup, pre-authenticated URL, or receipt-protected mutation.
 
 `503 artifact_storage_unavailable` includes a controlled `context.cause` and a
 strict boolean `context.attempt_not_committed`. Only upload/replacement staging

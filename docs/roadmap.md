@@ -26,13 +26,16 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 Phases 1–12, identity-preserving work moves, cross-project relationships,
 first-class code reviews, and the artifact library are implemented in the repository. The current
-release is application/API/MCP/dashboard `0.32.0`, plugin `0.21.0`, and migration
+release is application/API/MCP/dashboard `0.33.0`, plugin `0.22.0`, and migration
 `0028_work_summary_limit`. [Artifacts](artifacts.md) add project-scoped file uploads,
 downloads, atomic replacement, retained audit metadata, and work discovery;
 the `.env` upload limit now supports zero to disable the subsystem while retaining
 all data, with explicit availability and limit reporting to agents. Local Apache
 Tika extraction, PostgreSQL text/properties and Tantivy full-text search are shipped,
-with opt-in content matching in MCP and the dashboard. Reviews add project thresholds, durable
+with opt-in content matching in MCP and the dashboard. Revision-pinned text reads,
+compact MCP search/download summaries, and a client helper for direct binary
+transfer are available; see [artifact reads](artifacts.md#read-extracted-text).
+Reviews add project thresholds, durable
 optional questions, cold/warm review leases and one remediation with a hard
 ancestry ceiling; see [code reviews](code-reviews.md). Production-target
 preflight and cutover remain explicit operator gates. Migration 0025 requires a

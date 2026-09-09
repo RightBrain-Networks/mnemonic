@@ -23,12 +23,15 @@ from mnemonic_api.artifact_schemas import (
     ArtifactActor,
     ArtifactAuditRead,
     ArtifactExtractionRead,
+    ArtifactExtractionStatus,
     ArtifactHistory,
     ArtifactHistoryQuery,
     ArtifactListQuery,
     ArtifactPage,
     ArtifactRead,
     ArtifactRevisionRead,
+    ArtifactTextQuery,
+    ArtifactTextRead,
     ArtifactUploadMetadata,
 )
 from mnemonic_api.artifact_storage import ArtifactStorage, StagedArtifact, UnsafeArtifactPath
@@ -601,3 +604,69 @@ def open_artifact(
         except BaseException:
             content.close()
             raise
+
+
+def _artifact_text_page(
+    database: Session, artifact: Artifact, filters: ArtifactTextQuery,
+) -> ArtifactTextRead:
+    # PostgreSQL slices Unicode characters, matching Python code-point offsets.
+    # Neither the full normalized text nor extracted metadata leaves the database.
+    text_column = func.coalesce(ArtifactExtraction.normalized_text, "")
+    row = database.execute(select(
+        ArtifactExtraction.status,
+        ArtifactExtraction.truncated,
+        ArtifactExtraction.error_code,
+        ArtifactExtraction.extracted_at,
+        func.substring(text_column, filters.offset + 1, filters.limit).label("text"),
+        func.char_length(text_column).label("total_chars"),
+    ).where(
+        ArtifactExtraction.artifact_id == artifact.id,
+        ArtifactExtraction.revision == artifact.revision,
+    )).mappings().one_or_none()
+    extraction = ArtifactExtractionStatus() if row is None else ArtifactExtractionStatus(
+        **{key: row[key] for key in ArtifactExtractionStatus.model_fields},
+    )
+    ready = row is not None and extraction.status == "ready"
+    text_page = row["text"] if ready else None
+    total_chars = row["total_chars"] if ready else None
+    next_offset = None
+    if total_chars is not None and filters.offset + filters.limit < total_chars:
+        next_offset = filters.offset + filters.limit
+    return ArtifactTextRead(
+        project_id=artifact.project_id,
+        artifact_id=artifact.id,
+        revision=artifact.revision,
+        sha256=artifact.sha256,
+        extraction=extraction,
+        text=text_page,
+        offset=filters.offset,
+        limit=filters.limit,
+        total_chars=total_chars,
+        next_offset=next_offset,
+    )
+
+
+def read_artifact_text(
+    database: Session,
+    storage: ArtifactStorage,
+    project_id: UUID,
+    artifact_id: UUID,
+    filters: ArtifactTextQuery,
+) -> ArtifactTextRead:
+    """Read a bounded page from one current revision without adding download history."""
+    recover_artifact(database, storage, project_id, artifact_id)
+    with project_mutation(database, project_id, protected=True, domain_seconds=120):
+        artifact = require_artifact(database, project_id, artifact_id)
+        database.refresh(artifact)
+        pending = _pending_operation(database, artifact.id)
+        if pending is not None:
+            _finish_intent(database, storage, pending)
+        if artifact.deleted_at is not None:
+            raise ApplicationError(410, "artifact_deleted", "Artifact content has been deleted.")
+        if filters.expected_revision != artifact.revision:
+            raise conflict("artifact_revision_conflict", "The artifact revision changed.")
+        # Preserve the same current-content availability boundary as binary reads.
+        with storage.open(artifact.relative_path):
+            result = _artifact_text_page(database, artifact, filters)
+        database.commit()
+        return result
