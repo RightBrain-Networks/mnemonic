@@ -53,7 +53,7 @@ export function statusActionDisabledReason(
   readiness: Readiness,
   reportSettingsReady: boolean
 ): string | null {
-  if (readiness.active_lease?.purpose === "code_review") {
+  if (readiness.display_state === "to-review" || readiness.active_lease?.purpose === "code_review") {
     return "Use Reopen work to explicitly supersede this review before changing implementation status.";
   }
   if (action === "active" && readiness.is_gated) {

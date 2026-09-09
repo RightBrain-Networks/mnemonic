@@ -12,6 +12,7 @@ import {
 const DISPLAY_STATES = new Set([
   "pending", "deferred", "done", "wont-do", "promoted",
   "active",
+  "to-review",
   "dropped",
   "blocked",
   "waiting",
@@ -91,6 +92,8 @@ export function decodeReadiness(
     && readiness.unresolved_gate_count === 0;
   const displayState = readiness.is_duplicate
     ? "duplicate"
+    : status === "done" && readiness.display_state === "to-review"
+    ? "to-review"
     : status !== "pending"
     ? status
     : readiness.unresolved_gate_count > 0

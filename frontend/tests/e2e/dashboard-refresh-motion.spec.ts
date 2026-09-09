@@ -128,10 +128,7 @@ for (const view of ["summaries", "attention", "artifacts"]) {
       await expect(empty).toHaveAttribute("data-stability-probe", "retained");
       expect(await empty.boundingBox()).toEqual(bounds);
       await expect(page.locator(".loading-state")).toHaveCount(0);
-      if (view === "attention") {
-        await expect(page.getByText("No requested reviews on this page.")).toBeVisible();
-        await expect(page.getByText("Loading review queue…")).toHaveCount(0);
-      }
+      await expect(page.getByRole("region", { name: "Review queue" })).toHaveCount(0);
       release();
       await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
     } finally { release(); await api.dispose(); }

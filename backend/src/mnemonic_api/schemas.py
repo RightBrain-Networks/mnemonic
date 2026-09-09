@@ -2437,6 +2437,7 @@ class Readiness(APIModel):
     display_state: Literal[
         "pending",
         "active",
+        "to-review",
         "dropped",
         "blocked",
         "waiting",
@@ -2578,6 +2579,7 @@ class WorkSummaryMinimal(APIModel):
     display_state: Literal[
         "pending",
         "active",
+        "to-review",
         "dropped",
         "blocked",
         "waiting",
@@ -4014,7 +4016,8 @@ class WorkItemListQuery(APIModel):
     q: Annotated[str, StringConstraints(max_length=500), AfterValidator(no_nul)] | None = None
     semantic: bool = False
     status: Literal[
-        "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
+        "pending", "active", "to-review", "dropped", "deferred", "done",
+        "wont-do", "promoted", "all"
     ] = "pending"
     sort: Literal["updated", "created", "priority"] = "updated"
     tag: Tag | None = None
@@ -4064,7 +4067,8 @@ class RelationshipListQuery(APIModel):
 
 class ChildrenListQuery(APIModel):
     status: Literal[
-        "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
+        "pending", "active", "to-review", "dropped", "deferred", "done",
+        "wont-do", "promoted", "all"
     ] = "pending"
     sort: Literal["updated", "created", "priority"] = "updated"
     tag: Tag | None = None

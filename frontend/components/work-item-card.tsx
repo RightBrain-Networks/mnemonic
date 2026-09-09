@@ -19,17 +19,19 @@ function clientLabel(client: string) {
   } as Record<string, string>)[client] ?? client;
 }
 
-type CardStatus = WorkStatus | "active" | "dropped" | "blocked" | "waiting";
+type CardStatus = WorkStatus | "active" | "to-review" | "dropped" | "blocked" | "waiting";
 
 const cardStatusLabels: Record<CardStatus, string> = {
   ...statusLabels,
   active: "Active",
+  "to-review": "To review",
   dropped: "Dropped",
   blocked: "Blocked",
   waiting: "Needs attention"
 };
 
 function effectiveCardStatus(status: WorkStatus, readiness?: Readiness): CardStatus {
+  if (status === "done" && readiness?.display_state === "to-review") return "to-review";
   if (status !== "pending" || !readiness || readiness.is_duplicate) return status;
   if (readiness.is_gated) return "waiting";
   if (readiness.is_blocked) return "blocked";

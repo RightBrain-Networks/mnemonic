@@ -21,7 +21,7 @@ test("dashboard preferences use stable local-storage keys", () => {
 });
 
 test("dashboard preferences restore valid status and sort selections", () => {
-  for (const status of ["pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"]) {
+  for (const status of ["pending", "active", "to-review", "dropped", "deferred", "done", "wont-do", "promoted", "all"]) {
     assert.equal(dashboardStatusPreference(status), status);
   }
   assert.equal(dashboardStatusPreference("open"), "pending");

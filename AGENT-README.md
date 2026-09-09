@@ -423,12 +423,15 @@ item separately:
 
 ## Current artifact library release boundary
 
-Application/API/MCP/dashboard 0.31.0, plugin 0.21.0 and Alembic
+Application/API/MCP/dashboard 0.32.0, plugin 0.21.0 and Alembic
 `0028_work_summary_limit` ship together: 46 MCP tools, 16
 receipt-protected MCP writes,
 21 REST receipt kinds, 18 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
-do not infer historical review requests. Quiesce old writers, take a verified
+do not infer historical review requests. `search_work(status="to-review")` finds
+Done implementation with a requested review or pending recommendation; `done`
+excludes that work. The dashboard presents it through normal lifecycle surfaces.
+Quiesce old writers, take a verified
 backup, migrate, and deploy every coordinated surface together. Run both
 read-only `scripts/audit_project_activity.py` and
 `scripts/audit_code_reviews.py` at 0027; the activity audit also supports its

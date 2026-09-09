@@ -28,7 +28,7 @@ export type WorkStatus = "pending" | "deferred" | "done" | "wont-do" | "promoted
 export type EventWorkStatus = "open" | WorkStatus;
 export type EventCreateWorkStatus = Exclude<EventWorkStatus, "done">;
 export type MutableWorkStatus = "pending" | "wont-do" | "promoted";
-export type StatusFilter = WorkStatus | "active" | "dropped" | "all";
+export type StatusFilter = WorkStatus | "active" | "to-review" | "dropped" | "all";
 export type WorkSort = "updated" | "created" | "priority";
 export type DuplicateScope = "canonical" | "aliases" | "all";
 export type CheckpointKind = "context" | "progress" | "completion";
@@ -139,7 +139,7 @@ export interface Readiness {
   is_duplicate: boolean;
   canonical_work_item_id: string;
   is_ready: boolean;
-  display_state: WorkStatus | "active" | "dropped" | "blocked" | "waiting" | "duplicate";
+  display_state: WorkStatus | "active" | "to-review" | "dropped" | "blocked" | "waiting" | "duplicate";
 }
 
 export interface WorkIdentityPointer {

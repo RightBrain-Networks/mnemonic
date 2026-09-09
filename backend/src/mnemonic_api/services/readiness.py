@@ -5,12 +5,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import and_, false, func, literal, literal_column, select, text, true
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, false, func, literal, literal_column, or_, select, text, true
+from sqlalchemy.orm import InstrumentedAttribute, Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from mnemonic_api.errors import conflict, work_gated
 from mnemonic_api.models import (
+    CodeReview,
+    WorkAgentFollowUp,
     WorkDuplicateMerge,
     WorkGate,
     WorkItem,
@@ -37,6 +39,7 @@ def readiness(
     unresolved_gate_count: int = 0,
     *,
     canonical_work_item_id: UUID | None = None,
+    needs_review: bool = False,
 ) -> Readiness:
     """Project lifecycle, blocker, lease, and gate facts with fixed display precedence."""
     terminal = work_item.status in {"done", "wont-do", "promoted"}
@@ -48,6 +51,8 @@ def readiness(
     is_duplicate = canonical_id != work_item.id
     if is_duplicate:
         display_state = "duplicate"
+    elif work_item.status == "done" and needs_review:
+        display_state = "to-review"
     elif work_item.status != "pending":
         display_state = work_item.status
     elif is_gated:
@@ -81,6 +86,32 @@ def readiness(
         ),
         display_state=display_state,
     )
+
+
+def review_obligation_clause(
+    work_item_id: ColumnElement[UUID] | InstrumentedAttribute[UUID],
+) -> ColumnElement[bool]:
+    """Outstanding review work, including the originating author's recommendation."""
+    return or_(
+        select(CodeReview.id).where(
+            CodeReview.work_item_id == work_item_id,
+            CodeReview.state == "requested",
+        ).exists(),
+        select(WorkAgentFollowUp.id).where(
+            WorkAgentFollowUp.work_item_id == work_item_id,
+            WorkAgentFollowUp.state == "pending",
+        ).exists(),
+    )
+
+
+def review_obligation_ids(database: Session, work_item_ids: Sequence[UUID]) -> set[UUID]:
+    if not work_item_ids:
+        return set()
+    return set(database.scalars(select(WorkItem.id).where(
+        WorkItem.id.in_(work_item_ids),
+        WorkItem.status == "done",
+        review_obligation_clause(WorkItem.id),
+    )))
 
 
 def unresolved_blocker_counts(database: Session, work_item_ids: Sequence[UUID]) -> dict[UUID, int]:

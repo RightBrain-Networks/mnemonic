@@ -1,6 +1,6 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.31.0`, Claude plugin `0.21.0`,
+This architecture describes application/API/MCP `0.32.0`, Claude plugin `0.21.0`,
 and Alembic head `0028_work_summary_limit`.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
@@ -144,7 +144,10 @@ The live `WorkItem` lifecycle values are `pending`, `deferred`, `done`,
 Historical `WorkEvent` snapshots may retain legacy `open`, while new events use
 Pending/Deferred values. Pending means no session has started or work remains
 incomplete; Deferred is an intentional human-controlled hold outside the agent queue.
-`active`, `dropped`, `blocked`, `waiting`, and `duplicate` are derived facts. Active means an
+`active`, `to-review`, `dropped`, `blocked`, `waiting`, and `duplicate` are derived facts.
+To review means Done implementation has a requested code review or pending recommendation.
+It appears between Active and Dropped in the shared work library filters, using the same
+cards, search, hierarchy, and detail pane. Done excludes outstanding review work. Active means an
 unexpired lease exists; Dropped means the retained lease expired unexpectedly;
 Waiting means at least one unresolved human gate exists. Pending, visible work
 is ready only when it has no unexpired lease, unresolved incoming `blocks` edge,

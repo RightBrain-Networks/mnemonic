@@ -1,8 +1,8 @@
 """Work items: identity, lifecycle, bounded recall, and the ready queue.
 
 The status column holds only what a person decided: ``pending``, ``deferred``,
-``done``, ``wont-do``, ``promoted``. Active, dropped, blocked, and waiting are
-derived at read time from leases, ``blocks`` edges, and human gates, so nothing
+``done``, ``wont-do``, ``promoted``. Active, to-review, dropped, blocked, and waiting are
+derived at read time from reviews, leases, ``blocks`` edges, and human gates, so nothing
 here writes them. Identity and lifecycle edits carry the version last read.
 The receipt-protected writes run under ``mutations.run_registered_mutation``
 and contribute only their domain work.

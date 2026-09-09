@@ -14,6 +14,7 @@ export type WorkQueueItem = WorkSearchHit | HierarchySummary;
 export const statusFilterLabels: Record<StatusFilter, string> = {
   pending: "Pending",
   active: "Active",
+  "to-review": "To review",
   dropped: "Dropped",
   deferred: "Deferred",
   done: "Done",
@@ -25,7 +26,7 @@ export const statusFilterLabels: Record<StatusFilter, string> = {
 // The lifecycle filters in the order the filter row renders them. The left and right
 // arrow keys walk this same list, so the row and the shortcut can never disagree.
 export const statusFilterOrder: StatusFilter[] = [
-  "pending", "active", "dropped", "deferred", "done", "wont-do", "promoted", "all"
+  "pending", "active", "to-review", "dropped", "deferred", "done", "wont-do", "promoted", "all"
 ];
 
 export type StatusFilterStep = "previous" | "next";

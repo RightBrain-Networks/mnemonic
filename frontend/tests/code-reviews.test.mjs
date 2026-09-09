@@ -28,12 +28,27 @@ import {
 } from "../lib/proxy-policy.ts";
 import { classifyMutationResponse } from "../lib/mutation-responses.ts";
 import { decodeProjectSettings } from "../lib/job-completion-reports.ts";
+import { decodeReadiness } from "../lib/readiness-codecs.ts";
 import {
   currentManualStatusAction,
   statusActionDisabledReason,
 } from "../lib/work-status-actions.ts";
 import * as f from "./phase12-fixtures.mjs";
 import * as r from "./code-review-fixtures.mjs";
+
+test("To review accepts completed implementation and rejects other lifecycle states", () => {
+  const value = {
+    lifecycle_status: "done", is_terminal: true, is_duplicate: false,
+    canonical_work_item_id: f.work, has_active_lease: false, has_dropped_lease: false,
+    active_lease: null, unresolved_blocker_count: 0, is_blocked: false,
+    unresolved_gate_count: 0, is_gated: false, is_ready: false, display_state: "to-review"
+  };
+  assert.equal(decodeReadiness(value, "done", f.work).display_state, "to-review");
+  for (const status of ["pending", "deferred", "wont-do", "promoted"]) {
+    assert.throws(() => decodeReadiness({ ...value, lifecycle_status: status }, status, f.work));
+  }
+  assert.throws(() => decodeReadiness({ ...value, is_duplicate: true, canonical_work_item_id: f.followWork }, "done", f.work));
+});
 
 test("all priority/threshold/toggle/depth combinations obey sentinel, inclusive and structural precedence", () => {
   for (let required = 0; required <= 100; required += 5)

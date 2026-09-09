@@ -13,7 +13,7 @@ import type {
   WorkCreation as WorkCreationResult,
 } from "../../lib/types";
 import { reportForFixture, fillFixtureReport } from "./job-report-fixture";
-import { openTab, selectWork, workPane, closeDetail } from "./surface";
+import { openTab, selectWork, workPane, workCard, closeDetail } from "./surface";
 
 async function captureReviewScreen(page: Page, path: string, focus?: Locator) {
   const viewport = page.viewportSize();
@@ -31,7 +31,7 @@ async function captureReviewScreen(page: Page, path: string, focus?: Locator) {
       }),
     );
   if (focus) await focus.scrollIntoViewIfNeeded();
-  await page.screenshot({ path, fullPage: true });
+  await page.screenshot({ path, fullPage: true, animations: "disabled" });
   await page.setViewportSize(viewport);
   await page
     .locator(".page-content, .detail-scroll, .dialog-content")
@@ -345,7 +345,7 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
       .click();
     await expect(dialog).toBeHidden();
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText(
-      "Done",
+      "To review",
     );
     await expect(
       pane.getByRole("button", { name: "Copy cold review prompt" }),
@@ -414,11 +414,53 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
       .click();
     await expect(dialog).toBeHidden();
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText(
-      "Done",
+      "To review",
     );
     await expect(
       pane.getByRole("button", { name: "Copy cold review prompt" }),
     ).toBeVisible();
+  } finally {
+    await api.dispose();
+  }
+});
+
+test("To review uses the work lifecycle, search, and detail surfaces", async ({ page }, testInfo) => {
+  const api = await client();
+  try {
+    const p = await project(api);
+    await configure(api, p.id, { code_review_required_min_priority: 0 });
+    const work = await create(api, p.id, "Review the cache invalidation change");
+    const completion = await completeApi(api, p.id, work);
+    const pane = await open(page, p.id, work.title, "To review");
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("To review");
+    await expect(pane.getByRole("tab", { name: /^Code review/ })).toHaveAttribute("aria-selected", "true");
+    await expect(pane.getByRole("button", { name: "Copy cold review prompt" })).toBeVisible();
+    await closeDetail(page);
+    const filters = page.getByRole("group", { name: "Filter work items" });
+    const horizontalScroll = await page.locator(".main-content, .page-content").evaluateAll(
+      (elements) => elements.map((element) => element.scrollLeft),
+    );
+    expect(horizontalScroll).toEqual([0, 0]);
+    expect(await filters.getByRole("button").allTextContents()).toEqual([
+      "Pending", "Active", "To review", "Dropped", "Deferred", "Done", "Won’t do", "Promoted", "All"
+    ]);
+    await expect(page.getByText("Code review queue and unanswered recommendations", { exact: true })).toHaveCount(0);
+    await expect(workCard(page, work.title).locator(".status-badge")).toHaveText("To review");
+    await captureReviewScreen(page, testInfo.outputPath("to-review-lifecycle.png"));
+    await page.reload();
+    await closeDetail(page);
+    await expect(filters.getByRole("button", { name: "To review", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await filters.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(workCard(page, work.title)).toHaveCount(0);
+    await filters.getByRole("button", { name: "To review", exact: true }).click();
+    await page.getByRole("searchbox", { name: "Search work items" }).fill("cache invalidation");
+    await expect(workCard(page, work.title)).toBeVisible();
+    await reviewApi(api, completion.code_review_request!, 0);
+    await expect(workCard(page, work.title)).toHaveCount(0);
+    await filters.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(workCard(page, work.title).locator(".status-badge")).toHaveText("Done");
+    await selectWork(page, work.title);
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Done");
   } finally {
     await api.dispose();
   }
@@ -591,7 +633,7 @@ test("optional recommendation respects originating sessions, explicit supersessi
       "Resume the originating review recommendation",
     );
     await completeApi(api, p.id, work, false);
-    const pane = await open(page, p.id, work.title, "Done");
+    const pane = await open(page, p.id, work.title, "To review");
     await openTab(pane, "Code review");
     await expect(
       pane.getByText("The originating session must answer this question.", {

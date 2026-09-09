@@ -5,7 +5,6 @@ import ExternalReferencesEditor from "@/components/external-references-editor";
 import ArtifactLibrary from "@/components/artifact-library";
 import { ARTIFACT_DEFAULT_MAX_BYTES, artifactLibraryPath, artifactLocation } from "@/lib/artifacts";
 import CodeReviewHandoffEditor, { emptyReviewHandoff } from "@/components/code-review-handoff-editor";
-import CodeReviewInbox from "@/components/code-review-inbox";
 import JobReportEditor from "@/components/job-report-editor";
 import { codeReviewDecision } from "@/lib/code-review-policy";
 import { decodeCodeReviewDetail, validReviewHandoff, type CodeReviewHandoff } from "@/lib/code-reviews";
@@ -1028,6 +1027,7 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
   }
 
   function openWork(summary: WorkSummary) {
+    if (summary.readiness.display_state === "to-review") setTab("reviews");
     const requestId = ++recordRequest.current;
     exactContextTarget.current = null;
     setOpened(summary);
@@ -2900,22 +2900,13 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
                 setEventRefresh((value) => value + 1);
               }}
             />}
-          {project && activityReadyProjectId === project.id && <CodeReviewInbox key={`attention-reviews:${project.id}`} projectId={project.id} refreshSignal={attentionRefresh} onOpen={(workItemId) => {
-            if (mutationRegistry.hasDispatched()) { setNotice({ message: "Resolve pending mutations before leaving this dashboard.", error: true }); return; }
-            window.location.assign(`/?work=${encodeURIComponent(workItemId)}&review=1`);
-          }} />}
         </> : <>
           {projectsError ? <>{libraryChrome}<ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice></> :
             projectsLoading && !projects.length ? <>{libraryChrome}<div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div></> :
             !projects.length ? <>{libraryChrome}<section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">A DURABLE PLACE TO CONTINUE</div><h2>Create your first project.</h2><p>Projects hold stable objectives and the session checkpoints that move them forward.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}><Icon name="plus" size={17} />Create your first project</button></section></> : <>
               <WorkItemList
                 queuePaneRef={crossfade.queueRef}
-                introductoryContent={<>
-                  {libraryChrome}
-                  {project && activityReadyProjectId === project.id
-                    ? <details className="review-inbox-disclosure"><summary>Code review queue and unanswered recommendations</summary><CodeReviewInbox key={`library-reviews:${project.id}`} projectId={project.id} refreshSignal={eventRefresh + refresh} onOpen={(workItemId) => { void openExactWork(project.id, workItemId).then(() => setTab("reviews")); }} /></details>
-                    : undefined}
-                </>}
+                introductoryContent={libraryChrome}
                 libraryToolsOpen={libraryToolsOpen}
                 onLibraryToolsOpen={changeLibraryToolsOpen}
                 query={query}

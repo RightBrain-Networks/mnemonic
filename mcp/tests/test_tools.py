@@ -1017,6 +1017,7 @@ async def test_tool_catalog_mutation_and_relationship_schemas(settings):
     assert tools["search_work"].inputSchema["properties"]["status"]["enum"] == [
         "pending",
         "active",
+        "to-review",
         "dropped",
         "deferred",
         "done",
