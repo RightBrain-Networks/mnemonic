@@ -1,6 +1,6 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.30.0`, plugin `0.21.0`, and current migration
+Application/API/MCP/dashboard `0.31.0`, plugin `0.21.0`, and current migration
 `0028_work_summary_limit` support files outside Git and local full-text search. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
@@ -13,6 +13,23 @@ does not store original file bytes. It also stores normalized extracted text for
 the current revision and retained Tika document properties. Artifact links are durable and additive; the origin
 cannot change, and replacement can add related work. Ordinary work recall embeds
 a bounded artifact list; the dashboard work detail links to the filtered library.
+
+## Browser previews
+
+The `/artifacts` directory offers **View** immediately before **Download** for
+available plain text, Markdown, and supported image files. A drawer slides in
+from the browser's left edge at half the window width, with a dimmed background.
+Escape, the close button, or a click on the dimmed background dismisses it.
+
+Plain text uses a read-only text area in Atkinson Hyperlegible Mono. Markdown
+uses the dashboard's existing safe renderer in a vertically scrolling region;
+raw HTML remains inert and embedded remote images are disabled. Both offer a
+copy icon that copies the original file contents, including Markdown source.
+Images fit inside the drawer without enlarging small images and offer an
+**Open image in new tab** link. Unavailable or unsupported files have no View
+action; browser image-decoding failures show an error with download guidance.
+Previews fetch the current bytes through the existing download route. They add
+no API routes, migrations, configuration, or artifact mutations.
 
 ## Deployment
 
