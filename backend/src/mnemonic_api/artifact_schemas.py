@@ -47,12 +47,34 @@ class ArtifactUploadMetadata(ArtifactActor):
         return value
 
 
-class ArtifactExtractionRead(ArtifactModel):
+class ArtifactExtractionStatus(ArtifactModel):
     status: Literal["pending", "processing", "ready", "failed", "superseded", "deleted"] = "pending"
-    metadata: dict[str, list[str]] = Field(default_factory=dict)
     truncated: bool = False
     error_code: str | None = None
     extracted_at: datetime | None = None
+
+
+class ArtifactExtractionRead(ArtifactExtractionStatus):
+    metadata: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class ArtifactTextQuery(ArtifactModel):
+    expected_revision: int = Field(ge=1)
+    offset: int = Field(default=0, ge=0, le=8_000_000)
+    limit: int = Field(default=20_000, ge=1, le=20_000)
+
+
+class ArtifactTextRead(ArtifactModel):
+    project_id: UUID
+    artifact_id: UUID
+    revision: int = Field(ge=1)
+    sha256: str
+    extraction: ArtifactExtractionStatus
+    text: str | None = Field(max_length=20_000)
+    offset: int = Field(ge=0, le=8_000_000)
+    limit: int = Field(ge=1, le=20_000)
+    total_chars: int | None = Field(ge=0, le=8_000_000)
+    next_offset: int | None = Field(ge=0, le=8_000_000)
 
 
 class ArtifactRead(ArtifactModel):

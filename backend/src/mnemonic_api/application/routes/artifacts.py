@@ -27,6 +27,8 @@ from mnemonic_api.artifact_schemas import (
     ArtifactListQuery,
     ArtifactPage,
     ArtifactRead,
+    ArtifactTextQuery,
+    ArtifactTextRead,
     ArtifactUploadMetadata,
 )
 from mnemonic_api.artifact_search_schemas import ArtifactSearchPage, ArtifactSearchRequest
@@ -56,6 +58,7 @@ from mnemonic_api.services.artifacts import (
     mutate_artifact,
     open_artifact,
     prepare_upload_replay,
+    read_artifact_text,
     recover_artifact,
     recover_project_artifacts,
     replay_artifact_upload,
@@ -513,6 +516,30 @@ def get_artifact_history(
     with storage_errors(request):
         recover_artifact(database, storage_of(request), project_id, artifact_id)
     return artifact_history(database, project_id, artifact_id, filters)
+
+
+@router.get(
+    "/projects/{project_id}/artifacts/{artifact_id}/text",
+    response_model=ArtifactTextRead,
+    openapi_extra={"x-mnemonic-effect": "safe_read"},
+)
+def get_artifact_text(
+    project_id: UUID,
+    artifact_id: UUID,
+    request: Request,
+    response: Response,
+    database: Database,
+    filters: Annotated[ArtifactTextQuery, Query()],
+) -> ArtifactTextRead:
+    """Page untrusted current normalized text by Unicode character, pinned to a revision.
+
+    Pending, processing, and failed extractions return null text and counts. A ready
+    extraction may be empty or truncated at extraction time; total_chars describes
+    the retained normalized text, and next_offset indicates another available page.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    with storage_errors(request):
+        return read_artifact_text(database, storage_of(request), project_id, artifact_id, filters)
 
 
 def _file_chunks(content: BinaryIO) -> Iterator[bytes]:

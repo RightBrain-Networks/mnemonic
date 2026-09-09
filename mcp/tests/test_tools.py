@@ -656,7 +656,8 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {
-        "list_artifacts", "get_artifact", "list_artifact_history", "download_artifact",
+        "list_artifacts", "get_artifact", "get_artifact_text",
+        "list_artifact_history", "download_artifact",
         "search_artifact_contents", "upload_artifact", "replace_artifact", "delete_artifact",
         "list_code_reviews", "get_code_review", "complete_code_review",
         "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
@@ -698,6 +699,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         tool.inputSchema.get("additionalProperties") is False for tool in tools.values()
     )
     for name in (
+        "get_artifact_text",
         "list_projects",
         "search_work",
         "get_work",
@@ -764,7 +766,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 46
+    assert len(tools) == 47
     for name in mutating:
         assert tools[name].annotations.idempotentHint is (name in protected)
     for name in tools.keys() - mutating:

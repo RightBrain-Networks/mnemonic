@@ -43,14 +43,16 @@ class ArtifactToolStatus(ArtifactLibraryStatus):
     effective_upload_max_bytes: int
 
 
-class ArtifactExtraction(ArtifactModel):
+class ArtifactExtractionStatus(ArtifactModel):
     status: Literal["pending", "processing", "ready", "failed", "superseded", "deleted"] = "pending"
-    metadata: dict[Annotated[str, Field(min_length=1, max_length=128)],
-                   Annotated[list[Annotated[str, Field(max_length=512)]],
-                             Field(max_length=8)]] = Field(default_factory=dict)
     truncated: StrictBool = False
     error_code: Annotated[str, Field(max_length=100)] | None = None
     extracted_at: datetime | None = None
+
+class ArtifactExtraction(ArtifactExtractionStatus):
+    metadata: dict[Annotated[str, Field(min_length=1, max_length=128)],
+                   Annotated[list[Annotated[str, Field(max_length=512)]],
+                             Field(max_length=8)]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def bounded_metadata(self) -> ArtifactExtraction:
@@ -164,9 +166,39 @@ class ArtifactToolHistory(ArtifactHistory):
     artifact_library: ArtifactToolStatus
 
 
-class ArtifactToolDownload(ArtifactDownload):
+class ArtifactSummary(ArtifactModel):
+    id: UUID
+    project_id: UUID
+    filename: ArtifactFilename
+    revision: ArtifactRevision
+    sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    size_bytes: Annotated[StrictInt, Field(ge=0, le=1024 * 1024 * 1024)]
+    mime_type: Annotated[str, Field(max_length=100)] | None
+    deleted_at: datetime | None
+    content_available: StrictBool
+    extraction: ArtifactExtractionStatus
+
+    @classmethod
+    def from_artifact(cls, artifact: ArtifactRead) -> ArtifactSummary:
+        values = artifact.model_dump(include=set(cls.model_fields))
+        values["extraction"].pop("metadata")
+        return cls(**values)
+
+
+class ArtifactToolDownload(ArtifactModel):
+    artifact: ArtifactSummary
+    content_base64: ArtifactContent
     artifact_library: ArtifactToolStatus
 
 
-class ArtifactToolContentSearch(ArtifactContentSearch):
+class ArtifactToolSearchMatch(ArtifactModel):
+    artifact: ArtifactSummary
+    score: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
+    snippet: Annotated[str, Field(max_length=1000)] | None
+    matched_fields: Annotated[list[Literal["metadata", "content"]], Field(min_length=1, max_length=2)]
+
+
+class ArtifactToolContentSearch(ArtifactPage[ArtifactToolSearchMatch]):
+    fulltext: StrictBool
+    indexing: ArtifactIndexingStatus
     artifact_library: ArtifactToolStatus

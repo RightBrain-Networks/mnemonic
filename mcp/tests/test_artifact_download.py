@@ -7,7 +7,7 @@ import httpx
 import pytest
 from conftest import NOW
 from mcp.server.fastmcp.exceptions import ToolError
-from test_artifacts import CONTENT, artifact, call, download_arguments
+from test_artifacts import CONTENT, artifact, artifact_summary, call, download_arguments
 
 from mnemonic_mcp import artifact_transport
 from mnemonic_mcp.api import MnemonicAPI
@@ -117,7 +117,7 @@ async def test_download_sends_exact_ascii_actor_only_to_binary_get(
     ))
     assert isinstance(result, tuple)
     assert base64.b64decode(result[1]["content_base64"]) == CONTENT
-    assert result[1]["artifact"] == metadata
+    assert result[1]["artifact"] == artifact_summary()
     assert result[1]["artifact_library"]["max_bytes"] == 1
     assert len(requests) == 3
 
@@ -239,3 +239,22 @@ async def test_download_secret_echo_is_a_sanitized_definite_read_rejection(setti
     ):
         assert forbidden not in message
     assert len(requests) == 2
+
+
+async def test_download_omits_document_properties_and_description(settings):
+    source = artifact(description="Private description", extraction={
+        "status": "ready", "metadata": {"pdf:docinfo:subject": ["Private property"]},
+        "truncated": True, "error_code": None, "extracted_at": NOW,
+    })
+
+    def handler(request):
+        if request.url.path.endswith("/content"):
+            return httpx.Response(200, content=CONTENT)
+        return httpx.Response(200, json=source)
+
+    result = await call(settings, "download_artifact", download_arguments(), handler)
+    assert base64.b64decode(result["content_base64"]) == CONTENT
+    assert "description" not in result["artifact"]
+    assert "metadata" not in result["artifact"]["extraction"]
+    assert result["artifact"]["extraction"]["truncated"] is True
+    assert result["artifact"]["sha256"] == source["sha256"]

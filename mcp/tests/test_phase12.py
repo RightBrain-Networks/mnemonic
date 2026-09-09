@@ -712,9 +712,9 @@ async def test_report_input_errors_hide_prose_and_arbitrary_keys(settings, work_
     assert "private-" not in message
 
 
-async def test_catalog_is_46_tools_16_protected_and_report_omission_is_replay_only(settings):
+async def test_catalog_is_47_tools_16_protected_and_report_omission_is_replay_only(settings):
     tools = {tool.name: tool for tool in await build_server(settings).list_tools()}
-    assert len(tools) == 46
+    assert len(tools) == 47
     protected = [tool for tool in tools.values() if "client_operation_id" in tool.inputSchema["properties"]]
     assert len(protected) == 16
     assert "dismiss_job_completion_report" not in tools

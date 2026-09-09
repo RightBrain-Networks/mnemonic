@@ -414,7 +414,7 @@ uv run ruff check .
 uv run ty check src/mnemonic_mcp
 ```
 
-The MCP suite verifies the exact 46-tool canonical catalog, strict unknown-field
+The MCP suite verifies the exact 47-tool canonical catalog, strict unknown-field
 rejection, nested checkpoint request bodies, canonical/grouped search hits,
 compact ready results, bounded recall, deterministic checkpoint/event
 pagination, versioned mutation receipts, typed graph and lease behavior, the
@@ -490,9 +490,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.21.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.21.0` install
-plus a `0.18.0 -> 0.21.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.22.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.22.0` install
+plus a `0.18.0 -> 0.22.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -816,12 +816,17 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.32.0`, plugin is `0.21.0`,
+Current application/API/MCP/dashboard versions are `0.33.0`, plugin is `0.22.0`,
 and Alembic head is `0028_work_summary_limit`. Validate all surfaces
-together with the existing regression suites. This release adds extraction jobs,
-current normalized text and retained document properties, without new tool or
-mutation catalog entries. Test real Tantivy queries, metadata-only isolation,
-current-revision erasure, worker races/restarts, migration backfill/catalog parity,
+together with the existing regression suites. This release adds the safe
+`get_artifact_text` tool and REST read, compact MCP search/download results,
+and the standard-library client binary download helper. It adds no migration
+or protected mutation. Verify Unicode text pages, required revision pinning,
+unavailable versus ready-empty extraction, replacement/deletion boundaries,
+compact result properties, streamed checksum/size checks and destination
+no-overwrite behavior. Existing extraction coverage includes real Tantivy queries,
+metadata-only isolation, current-revision erasure, worker races/restarts,
+migration backfill/catalog parity,
 and real isolated Tika parsing (including hostile input and truncation). The
 dashboard artifact acceptance cases exercise extraction through search, replacement
 and deletion; `uv run --project backend python scripts/test-artifact-tika.py`
@@ -891,11 +896,11 @@ questions, cold/warm lease isolation, one atomic remediation and hard depth ceil
 exact historical and new receipt replay, protected lineage under direct SQL,
 bounded discovery/history, backup/restore audit, and both dashboard Done paths.
 Run `scripts/audit_code_reviews.py` read-only from a private database environment.
-The current inventory is 46 MCP tools, 16 protected MCP writes, 21 REST receipt
+The current inventory is 47 MCP tools, 16 protected MCP writes, 21 REST receipt
 kinds, 18 protected browser mutations and 24 work-event types. See
 [code reviews](code-reviews.md) for client and deployment rules.
 
-The [artifact library](artifacts.md) adds eight MCP tools, three durable
+The [artifact library](artifacts.md) exposes nine MCP tools, three durable
 filesystem mutation receipts and three protected browser file mutations.
 Run `tests/test_artifacts_postgres.py`, storage tests, MCP artifact/envelope tests,
 and `npm run test:e2e:stack -- artifacts.spec.ts` for its focused coverage. The
@@ -916,7 +921,7 @@ Run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 46-tool
+Read-only mode verifies REST/MCP health, authentication, the exact 47-tool
 catalog, the exact sixteen protected schemas and annotations, the absence of an MCP
 resolution tool, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, settings/activity/report read contracts, and the

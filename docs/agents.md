@@ -4,14 +4,17 @@ For code reviews, branch by temperature before ordinary recall: the
 [code-review protocol](code-reviews.md) governs mandatory handoff, durable
 originating-session recommendation answers, minimal cold coordination, warm
 adversarial review and one atomic remediation. Reviews are not implementation
-closeouts. The current catalog is 46 tools and sixteen protected writes.
+closeouts. The current catalog is 47 tools and sixteen protected writes.
 The [artifact library](artifacts.md) adds project file upload/download, atomic
 replacement, permanent content deletion, and searchable retained metadata/audit.
+Use `get_artifact_text` to page normalized text at a required current revision;
+use the [client download helper](artifact-download-client.md) to save original
+bytes locally without passing their base64 through model context.
 Link originating and related work during upload so ordinary recall discovers files.
 
 Mnemonic Phase 12 requires an agent-authored human report on every fresh Done,
 Won’t do, or Promoted closeout. Read current project settings before authoring,
-then submit the report inside the existing closeout intent. The 46-tool MCP
+then submit the report inside the existing closeout intent. The 47-tool MCP
 catalog adds four safe reads for settings, durable project activity, and report
 history; reviews add four reads and two protected writes, totaling sixteen. Human dismissal and manual
 follow-ups belong in the dashboard’s Summaries page, immediately below Needs
