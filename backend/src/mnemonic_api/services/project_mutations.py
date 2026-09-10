@@ -84,8 +84,13 @@ def _install_budget(connection: Connection, budget: _DomainBudget):
         remaining = budget.remaining_milliseconds()
         # Integer values originate exclusively in this module. DBAPI execution
         # avoids recursively invoking this same SQLAlchemy statement listener.
-        cursor.execute(f"SET LOCAL statement_timeout = '{remaining}ms'")
-        cursor.execute(f"SET LOCAL lock_timeout = '{min(LOCK_MILLISECONDS, remaining)}ms'")
+        # A streaming SELECT uses a named server cursor, which cannot execute SET.
+        # Set deadlines through a separate ordinary cursor on the same connection.
+        with cursor.connection.cursor() as deadline_cursor:
+            deadline_cursor.execute(f"SET LOCAL statement_timeout = '{remaining}ms'")
+            deadline_cursor.execute(
+                f"SET LOCAL lock_timeout = '{min(LOCK_MILLISECONDS, remaining)}ms'"
+            )
 
     remaining = budget.remaining_milliseconds()
     connection.exec_driver_sql(f"SET LOCAL transaction_timeout = '{remaining}ms'")

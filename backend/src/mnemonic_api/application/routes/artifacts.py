@@ -19,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 
 from mnemonic_api.application.artifact_policy import artifact_status, require_artifacts_enabled
 from mnemonic_api.application.state import settings_of
+from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
 from mnemonic_api.artifact_schemas import (
     ArtifactActor,
     ArtifactHistory,
@@ -29,6 +30,7 @@ from mnemonic_api.artifact_schemas import (
     ArtifactRead,
     ArtifactTextQuery,
     ArtifactTextRead,
+    ArtifactUpdateMetadata,
     ArtifactUploadMetadata,
 )
 from mnemonic_api.artifact_search_schemas import ArtifactSearchPage, ArtifactSearchRequest
@@ -69,6 +71,24 @@ from mnemonic_api.services.client_operations import reject_client_operation_secr
 router = APIRouter(dependencies=[Depends(require_artifacts_enabled)])
 status_router = APIRouter()
 
+_APPROVAL_RESPONSE: dict[int | str, dict[str, Any]] = {
+    428: {"description": (
+        "STOP: explicit human approval required for sensitive content. The response includes "
+        "a five-minute, single-use approval_token bound to artifact, revision, caller and "
+        "request. Ask the actual human and wait for an affirmative reply, then repeat the "
+        "exact request with approval_token and human_approved=true. Never auto-approve/retry."
+    )},
+}
+
+_ACCESS_HEADERS = {"parameters": [{
+    "name": "X-Artifact-Metadata", "in": "header", "required": False,
+    "schema": {"type": "string", "maxLength": 16384},
+    "description": (
+        "ASCII JSON: agent_session_id, actor_client, and (only after explicit human approval) "
+        "approval_token and strict boolean human_approved=true. Never put tokens in URLs."
+    ),
+}]}
+
 
 @status_router.get("/artifacts/status", response_model=ArtifactLibraryStatus)
 def get_artifact_status(request: Request, response: Response) -> ArtifactLibraryStatus:
@@ -85,7 +105,10 @@ def _reject_metadata_echo(
     request: Request, metadata: ArtifactActor, operation_id: UUID | None = None
 ) -> None:
     key = settings_of(request).api_key.get_secret_value()
-    values = metadata.model_dump(mode="json")
+    values = metadata.model_dump(mode="json", exclude={"client_operation_id"})
+    token = values.get("approval_token")
+    if token and token in {metadata.actor_client, metadata.agent_session_id}:
+        raise client_operation_secret_echo()
     if operation_id is None:
         if any(value == key for value in values.values()):
             raise client_operation_secret_echo()
@@ -435,6 +458,7 @@ def get_artifacts(
 @router.post(
     "/projects/{project_id}/artifacts/search-content",
     response_model=ArtifactSearchPage,
+    responses=_APPROVAL_RESPONSE,
     openapi_extra={
         "x-mnemonic-effect": "safe_read",
         "requestBody": {
@@ -452,6 +476,7 @@ async def search_contents(
     project_id: UUID, request: Request, response: Response, database: Database,
 ) -> ArtifactSearchPage:
     payload = await _search_payload(request)
+    _reject_metadata_echo(request, payload)
     response.headers["Cache-Control"] = "no-store"
 
     def search() -> ArtifactSearchPage:
@@ -459,7 +484,9 @@ async def search_contents(
             recover_project_artifacts(database, storage_of(request), project_id)
         database.rollback()
         index = cast(ArtifactSearchIndex, request.app.state.artifact_search_index)
-        return search_artifact_contents(database, project_id, payload, index)
+        return search_artifact_contents(
+            database, project_id, payload, index, human_dashboard=_human_dashboard(request),
+        )
 
     return await run_in_threadpool(search)
 
@@ -521,7 +548,8 @@ def get_artifact_history(
 @router.get(
     "/projects/{project_id}/artifacts/{artifact_id}/text",
     response_model=ArtifactTextRead,
-    openapi_extra={"x-mnemonic-effect": "safe_read"},
+    responses=_APPROVAL_RESPONSE,
+    openapi_extra={"x-mnemonic-effect": "safe_read", **_ACCESS_HEADERS},
 )
 def get_artifact_text(
     project_id: UUID,
@@ -538,8 +566,13 @@ def get_artifact_text(
     the retained normalized text, and next_offset indicates another available page.
     """
     response.headers["Cache-Control"] = "no-store"
+    access = metadata_of(request, ArtifactAccessRequest)
+    _reject_metadata_echo(request, access)
     with storage_errors(request):
-        return read_artifact_text(database, storage_of(request), project_id, artifact_id, filters)
+        return read_artifact_text(
+            database, storage_of(request), project_id, artifact_id, filters,
+            access=access, human_dashboard=_human_dashboard(request),
+        )
 
 
 def _file_chunks(content: BinaryIO) -> Iterator[bytes]:
@@ -550,7 +583,10 @@ def _file_chunks(content: BinaryIO) -> Iterator[bytes]:
         content.close()
 
 
-@router.get("/projects/{project_id}/artifacts/{artifact_id}/content")
+@router.get(
+    "/projects/{project_id}/artifacts/{artifact_id}/content",
+    responses=_APPROVAL_RESPONSE, openapi_extra=_ACCESS_HEADERS,
+)
 def download_artifact(
     project_id: UUID,
     artifact_id: UUID,
@@ -558,8 +594,11 @@ def download_artifact(
     database: Database,
     expected_revision: Annotated[int | None, Query(ge=1)] = None,
 ) -> StreamingResponse:
-    actor = metadata_of(request, ArtifactActor)
-    _reject_metadata_echo(request, actor)
+    access = metadata_of(request, ArtifactAccessRequest)
+    _reject_metadata_echo(request, access)
+    actor = ArtifactActor(
+        agent_session_id=access.agent_session_id, actor_client=access.actor_client,
+    )
     with storage_errors(request):
         metadata, content = open_artifact(
             database,
@@ -567,7 +606,7 @@ def download_artifact(
             project_id,
             artifact_id,
             expected_revision,
-            actor,
+            actor, access=access, human_dashboard=_human_dashboard(request),
         )
     return StreamingResponse(
         _file_chunks(content),
@@ -585,3 +624,25 @@ def download_artifact(
         },
         background=BackgroundTask(content.close),
     )
+
+
+def _human_dashboard(request: Request) -> bool:
+    # An asserted human UI context, deliberately not an authentication mechanism.
+    return _single_header(request, "x-artifact-access") == "human-dashboard"
+
+
+@router.patch("/projects/{project_id}/artifacts/{artifact_id}", response_model=ArtifactRead)
+def update_artifact_metadata(
+    project_id: UUID, artifact_id: UUID, payload: ArtifactUpdateMetadata,
+    request: Request, database: Database,
+) -> JSONResponse:
+    _reject_metadata_echo(request, payload, payload.client_operation_id)
+    mutation = ArtifactMutation(
+        project_id=project_id,
+        artifact_id=artifact_id,
+        client_operation_id=payload.client_operation_id,
+        kind="update",
+        metadata=payload,
+        expected_revision=payload.expected_revision,
+    )
+    return _mutation_response(request, database, mutation)

@@ -13,7 +13,7 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0028_work_summary_limit"
+HEAD = "0029_artifact_links_sensitive"
 TABLES = tuple(sorted(Base.metadata.tables))
 MAX_ARCHIVE_IDENTITY = 2**53 - 1
 IDENTITY_COLUMNS = tuple(
@@ -31,6 +31,7 @@ CHILD_OWNERS = {
     "artifact_revisions": ("artifact_id", "artifacts", "id"),
     "artifact_extractions": ("artifact_id", "artifacts", "id"),
     "artifact_audit": ("artifact_id", "artifacts", "id"),
+    "artifact_access_approvals": ("artifact_id", "artifacts", "id"),
 }
 
 
@@ -186,7 +187,21 @@ def replace_rows(connection: Connection, current: dict, restored: dict) -> None:
         if restored[name]:
             connection.execute(query, [{"row": canonical(row).decode()}
                                        for row in restored[name]])
+    _invalidate_restored_approvals(connection, restored)
     connection.execute(text("SET LOCAL session_replication_role = 'origin'"))
+
+
+def _invalidate_restored_approvals(connection: Connection, restored: dict) -> None:
+    # A snapshot can predate consumption. Restoring it must never revive an old
+    # permission assertion, even while its original five-minute expiry is future.
+    # Keep the immutable scope, audit history, and existing consumption timestamps.
+    token_hashes = [row["token_hash"] for row in restored["artifact_access_approvals"]]
+    if token_hashes:
+        connection.execute(text("""
+            UPDATE artifact_access_approvals
+            SET consumed_at = greatest(clock_timestamp(), created_at)
+            WHERE token_hash = ANY(CAST(:hashes AS text[])) AND consumed_at IS NULL
+        """), {"hashes": token_hashes})
 
 
 def validate_foreign_keys(connection: Connection) -> None:

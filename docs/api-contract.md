@@ -1,10 +1,10 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.33.0`, plugin `0.22.0`, and migration
-`0028_work_summary_limit`. The catalog has exactly 47 MCP tools, 16
-protected MCP writes, 21 REST receipt kinds, 18 protected browser mutations and
-24 work-event types. The 21 REST receipt kinds comprise 18 work operations and
-three artifact operations with filesystem recovery journals. See
+This is application/API/MCP/dashboard `0.34.0`, plugin `0.23.0`, and migration
+`0029_artifact_links_sensitive`. The catalog has exactly 48 MCP tools, 17
+protected MCP writes, 22 REST receipt kinds, 19 protected browser mutations and
+24 work-event types. The 22 REST receipt kinds comprise 18 work operations and
+four artifact operations with filesystem recovery journals. See
 [artifact contracts](artifacts.md) for binary routes, retention and work discovery.
 Relationship identity and graph invariants are global;
 `relationship.project_id` remains immutable edge and read/removal route
@@ -1271,11 +1271,11 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 47 tools:
+The catalog is exactly 48 tools:
 
 Artifact tools: `list_artifacts`, `get_artifact`, `list_artifact_history`,
 `upload_artifact`, `replace_artifact`, `download_artifact`, `delete_artifact`,
-`get_artifact_text`, and `search_artifact_contents`. The three artifact
+`get_artifact_text`, `update_artifact`, and `search_artifact_contents`. The four artifact
 writes use retained operation UUIDs and their own durable filesystem recovery receipts.
 `download_artifact` requires the current caller's `agent_session_id` and
 `actor_client`, forwarded through `X-Artifact-Metadata` on the binary GET.
@@ -1283,7 +1283,7 @@ The download audit records asserted caller context at content opening, not proof
 of delivery or authenticated identity. Downloads remain safe reads without an
 operation UUID. Old two-argument MCP calls must supply both actor fields; direct
 REST/browser attribution remains optional. See [download attribution](artifacts.md#download-attribution).
-All nine tools check the authenticated status endpoint before artifact access.
+All ten tools check the authenticated status endpoint before artifact access.
 Enabled results include `artifact_library` with `enabled`, `max_bytes`,
 `mcp_transfer_max_bytes`, `effective_upload_max_bytes`, and an explicit explanatory
 message. The effective new MCP upload maximum is the smaller of the configured
@@ -1296,7 +1296,9 @@ artifact/work IDs, deleted-metadata inclusion and pagination are supported.
 MCP results include compact artifact identity/content/extraction state, relevance
 scores, plain-text content snippets, matched field categories and extraction
 coverage. Search and download results omit the Tika property blob; full
-`get_artifact`, list and history metadata retain it.
+`get_artifact`, list and history metadata retain it for non-sensitive artifacts.
+Sensitive content requires the per-access human-approval challenge described in
+[the sensitive-content contract](artifacts.md#sensitive-content-and-explicit-human-approval).
 Search takes no operation UUID. See the [full search contract](artifacts.md#full-text-search).
 
 `get_artifact_text(project_id, artifact_id, expected_revision, offset=0, limit=20000)`

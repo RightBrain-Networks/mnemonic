@@ -15,10 +15,11 @@ from datetime import UTC, datetime
 from typing import Any, BinaryIO, Literal
 from uuid import UUID
 
-from sqlalchemy import Text, cast, exists, func, or_, select
+from sqlalchemy import Text, and_, cast, exists, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
+from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
 from mnemonic_api.artifact_schemas import (
     ArtifactActor,
     ArtifactAuditRead,
@@ -32,6 +33,7 @@ from mnemonic_api.artifact_schemas import (
     ArtifactRevisionRead,
     ArtifactTextQuery,
     ArtifactTextRead,
+    ArtifactUpdateMetadata,
     ArtifactUploadMetadata,
 )
 from mnemonic_api.artifact_storage import ArtifactStorage, StagedArtifact, UnsafeArtifactPath
@@ -40,15 +42,17 @@ from mnemonic_api.models import (
     Artifact,
     ArtifactAudit,
     ArtifactExtraction,
+    ArtifactLink,
     ArtifactOperation,
     ArtifactRevision,
     ArtifactWorkLink,
     WorkItem,
 )
+from mnemonic_api.services.artifact_approvals import require_sensitive_access
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.work_items import require_project
 
-type ArtifactOperationKind = Literal["upload", "replace", "delete"]
+type ArtifactOperationKind = Literal["upload", "replace", "delete", "update"]
 
 logger = logging.getLogger(__name__)
 _RECOVERY_ERRORS = (ApplicationError, OSError, SQLAlchemyError, UnsafeArtifactPath)
@@ -60,17 +64,24 @@ class ArtifactMutation:
     artifact_id: UUID
     client_operation_id: UUID
     kind: ArtifactOperationKind
-    metadata: ArtifactUploadMetadata | ArtifactActor
+    metadata: ArtifactUploadMetadata | ArtifactUpdateMetadata | ArtifactActor
     expected_revision: int | None = None
     staged: StagedArtifact | None = None
     content_sha256: str | None = None
     content_size_bytes: int | None = None
 
     def fingerprint(self) -> str:
+        metadata = self.metadata.model_dump(mode="json")
+        if isinstance(self.metadata, ArtifactUploadMetadata):
+            # Preserve fingerprints of permanent receipts issued before these fields existed.
+            if metadata["sensitive"] is None:
+                metadata.pop("sensitive")
+            if not metadata["related_artifact_ids"]:
+                metadata.pop("related_artifact_ids")
         body = {
             "kind": self.kind,
             "artifact_id": str(self.artifact_id),
-            "metadata": self.metadata.model_dump(mode="json"),
+            "metadata": metadata,
             "expected_revision": self.expected_revision,
             "sha256": self.staged.sha256 if self.staged else self.content_sha256,
             "size_bytes": self.staged.size_bytes if self.staged else self.content_size_bytes,
@@ -100,15 +111,20 @@ def artifact_read(database: Session, artifact: Artifact) -> ArtifactRead:
     fields = {
         key: getattr(artifact, key)
         for key in ArtifactRead.model_fields
-        if key not in {"related_work_item_ids", "content_available", "extraction"}
+        if key not in {
+            "related_work_item_ids", "related_artifact_ids", "content_available", "extraction",
+        }
     }
     return ArtifactRead(
         **fields,
         related_work_item_ids=[
             value for value in linked if value != artifact.originating_work_item_id
         ],
+        related_artifact_ids=related_artifact_ids(database, artifact.id),
         content_available=artifact.revision > 0 and artifact.deleted_at is None,
-        extraction=extraction_read(database, artifact.id, artifact.revision),
+        extraction=extraction_read(database, artifact.id, artifact.revision).model_copy(
+            update={"metadata": {}} if artifact.sensitive else {},
+        ),
     )
 
 
@@ -125,40 +141,90 @@ def extraction_read(database: Session, artifact_id: UUID, revision: int) -> Arti
     })
 
 
-def _validate_links(database: Session, project_id: UUID, metadata: ArtifactUploadMetadata) -> None:
-    ids = set(metadata.related_work_item_ids)
-    if metadata.work_item_id is not None:
-        ids.add(metadata.work_item_id)
-    found = set(
-        database.scalars(
-            select(WorkItem.id).where(
-                WorkItem.project_id == project_id,
-                WorkItem.id.in_(ids),
-                WorkItem.deleted_at.is_(None),
-            )
-        )
+def related_artifact_ids(database: Session, artifact_id: UUID) -> list[UUID]:
+    rows = database.execute(
+        select(ArtifactLink.artifact_id, ArtifactLink.related_artifact_id).where(or_(
+            ArtifactLink.artifact_id == artifact_id,
+            ArtifactLink.related_artifact_id == artifact_id,
+        ))
     )
+    return sorted((right if left == artifact_id else left for left, right in rows), key=str)
+
+
+def _validate_work_links(
+    database: Session, project_id: UUID, ids: set[UUID],
+) -> None:
+    found = set(database.scalars(select(WorkItem.id).where(
+        WorkItem.project_id == project_id, WorkItem.id.in_(ids), WorkItem.deleted_at.is_(None),
+    )))
     if ids != found:
         raise not_found(
-            "artifact_work_item_not_found", "A linked work item is not in this project."
+            "artifact_work_item_not_found", "A linked work item is not in this project.",
         )
 
 
-def _add_links(database: Session, artifact: Artifact, metadata: ArtifactUploadMetadata) -> None:
-    ids = set(metadata.related_work_item_ids)
+def _add_work_links(
+    database: Session, artifact: Artifact, ids: set[UUID],
+) -> None:
+    _validate_work_links(database, artifact.project_id, ids)
     if artifact.originating_work_item_id is not None:
         ids.add(artifact.originating_work_item_id)
-    existing = set(
-        database.scalars(
-            select(ArtifactWorkLink.work_item_id).where(ArtifactWorkLink.artifact_id == artifact.id)
-        )
-    )
+    existing = set(database.scalars(select(ArtifactWorkLink.work_item_id).where(
+        ArtifactWorkLink.artifact_id == artifact.id,
+    )))
     if len((ids | existing) - {artifact.originating_work_item_id}) > 50:
         raise ApplicationError(
-            422, "artifact_link_limit", "An artifact supports at most 50 related links."
+            422, "artifact_link_limit", "An artifact supports at most 50 related work links.",
         )
     for work_id in sorted(ids - existing, key=str):
         database.add(ArtifactWorkLink(artifact_id=artifact.id, work_item_id=work_id))
+
+
+def _add_artifact_links(
+    database: Session, artifact: Artifact, ids: set[UUID], actor: ArtifactActor,
+) -> None:
+    if artifact.id in ids:
+        raise ApplicationError(422, "artifact_self_link", "An artifact cannot link to itself.")
+    targets = list(database.scalars(select(Artifact).where(
+        Artifact.id.in_(ids), Artifact.project_id == artifact.project_id,
+        Artifact.deleted_at.is_(None), Artifact.revision > 0, ~_has_pending_operation(),
+    )))
+    if {target.id for target in targets} != ids:
+        raise not_found(
+            "artifact_related_artifact_not_found",
+            "A related artifact is not available in this project.",
+        )
+    existing = set(related_artifact_ids(database, artifact.id))
+    if len(existing | ids) > 50:
+        raise ApplicationError(422, "artifact_link_limit", "An artifact supports at most 50 links.")
+    for target in targets:
+        if target.id not in existing:
+            _add_artifact_pair(database, artifact, target, actor)
+
+
+def _add_artifact_pair(
+    database: Session, artifact: Artifact, target: Artifact, actor: ArtifactActor,
+) -> None:
+    if len(related_artifact_ids(database, target.id)) >= 50:
+        raise ApplicationError(
+            422, "artifact_link_limit", "A related artifact already has 50 artifact links.",
+        )
+    left, right = sorted((artifact.id, target.id), key=str)
+    database.add(ArtifactLink(
+        artifact_id=left, related_artifact_id=right, project_id=artifact.project_id,
+    ))
+    _audit(database, target, "linked", actor, {"related_artifact_id": str(artifact.id)})
+
+
+def _add_links(
+    database: Session, artifact: Artifact,
+    metadata: ArtifactUploadMetadata | ArtifactUpdateMetadata,
+) -> None:
+    work_ids = set(metadata.related_work_item_ids or [])
+    if isinstance(metadata, ArtifactUploadMetadata) and metadata.work_item_id is not None:
+        work_ids.add(metadata.work_item_id)
+    _add_work_links(database, artifact, work_ids)
+    _add_artifact_links(database, artifact, set(metadata.related_artifact_ids or []), metadata)
 
 
 def _validate_mutation(database: Session, artifact: Artifact, mutation: ArtifactMutation) -> None:
@@ -176,7 +242,7 @@ def _validate_mutation(database: Session, artifact: Artifact, mutation: Artifact
         origin = mutation.metadata.work_item_id
         if origin is not None and origin != artifact.originating_work_item_id:
             raise conflict("artifact_origin_immutable", "The originating work item cannot change.")
-        _validate_links(database, artifact.project_id, mutation.metadata)
+    if isinstance(mutation.metadata, (ArtifactUploadMetadata, ArtifactUpdateMetadata)):
         _add_links(database, artifact, mutation.metadata)
 
 
@@ -189,6 +255,7 @@ def _create_identity(database: Session, mutation: ArtifactMutation) -> Artifact:
         project_id=mutation.project_id,
         filename=metadata.filename,
         description=metadata.description or "",
+        sensitive=metadata.sensitive or False,
         relative_path=mutation.staged.relative_path,
         created_by_agent_session_id=metadata.agent_session_id,
         created_by_client=metadata.actor_client,
@@ -246,12 +313,16 @@ def replay_artifact_upload(
         return result, True
 
 
-def _audit(database: Session, artifact: Artifact, action: str, actor: ArtifactActor) -> None:
+def _audit(
+    database: Session, artifact: Artifact, action: str, actor: ArtifactActor,
+    details: dict[str, Any] | None = None,
+) -> None:
     database.add(
         ArtifactAudit(
             artifact_id=artifact.id,
             revision=artifact.revision,
             action=action,
+            details=details or {},
             filename=artifact.filename,
             description=artifact.description,
             agent_session_id=actor.agent_session_id,
@@ -272,7 +343,14 @@ def _publish_revision(
     artifact.mime_type = staged.mime_type
     if metadata.description is not None:
         artifact.description = metadata.description
+    if metadata.sensitive is not None:
+        artifact.sensitive = metadata.sensitive
     artifact.modified_at = datetime.now(UTC)
+    _record_revision(database, artifact, metadata)
+    _audit(database, artifact, "uploaded" if operation.kind == "upload" else "replaced", metadata)
+
+
+def _record_revision(database: Session, artifact: Artifact, actor: ArtifactActor) -> None:
     read = artifact_read(database, artifact)
     database.add(
         ArtifactRevision(
@@ -283,13 +361,32 @@ def _publish_revision(
             size_bytes=artifact.size_bytes,
             sha256=artifact.sha256,
             mime_type=artifact.mime_type,
-            agent_session_id=metadata.agent_session_id,
-            actor_client=metadata.actor_client,
+            agent_session_id=actor.agent_session_id,
+            actor_client=actor.actor_client,
             related_work_item_ids=[str(value) for value in read.related_work_item_ids],
+            related_artifact_ids=[str(value) for value in read.related_artifact_ids],
+            sensitive=artifact.sensitive,
         )
     )
     database.flush()
-    _audit(database, artifact, "uploaded" if operation.kind == "upload" else "replaced", metadata)
+
+
+def _publish_metadata_revision(
+    database: Session, artifact: Artifact, operation: ArtifactOperation,
+) -> None:
+    metadata = ArtifactUpdateMetadata.model_validate(operation.intent["metadata"])
+    if metadata.description is not None:
+        artifact.description = metadata.description
+    if metadata.sensitive is not None:
+        artifact.sensitive = metadata.sensitive
+    artifact.revision += 1
+    artifact.modified_at = datetime.now(UTC)
+    _record_revision(database, artifact, metadata)
+    _audit(database, artifact, "metadata_updated", metadata, {
+        "sensitive": artifact.sensitive,
+        "related_work_item_ids": [str(value) for value in metadata.related_work_item_ids or []],
+        "related_artifact_ids": [str(value) for value in metadata.related_artifact_ids or []],
+    })
 
 
 def _finish_intent(
@@ -307,6 +404,8 @@ def _finish_intent(
         artifact.deleted_at = deleted_at
         artifact.modified_at = deleted_at
         _audit(database, artifact, "deleted", actor)
+    elif operation.kind == "update":
+        _publish_metadata_revision(database, artifact, operation)
     else:
         _publish_revision(database, storage, artifact, operation)
     database.flush()
@@ -468,7 +567,12 @@ def _extraction_metadata_match(artifact_id, query: str, revision=None):
     ]
     if revision is not None:
         clauses.append(ArtifactExtraction.revision == revision)
-    return exists(select(ArtifactExtraction.artifact_id).where(*clauses))
+    historical = aliased(ArtifactRevision)
+    return exists(select(ArtifactExtraction.artifact_id).join(historical, and_(
+        historical.artifact_id == ArtifactExtraction.artifact_id,
+        historical.revision == ArtifactExtraction.revision,
+        historical.sensitive.is_(False),
+    )).where(*clauses))
 
 
 def list_artifacts(
@@ -500,7 +604,7 @@ def list_artifacts(
         ]
         clauses.append(or_(
             _metadata_match(Artifact, filters.q),
-            _extraction_metadata_match(Artifact.id, filters.q),
+            (Artifact.sensitive.is_(False) & _extraction_metadata_match(Artifact.id, filters.q)),
             *historical,
         ))
     total = database.scalar(select(func.count()).select_from(Artifact).where(*clauses)) or 0
@@ -524,7 +628,7 @@ def list_artifacts(
 def artifact_history(
     database: Session, project_id: UUID, artifact_id: UUID, filters: ArtifactHistoryQuery
 ) -> ArtifactHistory:
-    require_artifact(database, project_id, artifact_id)
+    artifact = require_artifact(database, project_id, artifact_id)
     pages: dict[str, Any] = {}
     for name, model, schema, order in (
         ("revisions", ArtifactRevision, ArtifactRevisionRead, ArtifactRevision.revision.desc()),
@@ -533,7 +637,7 @@ def artifact_history(
         clauses = [model.artifact_id == artifact_id]
         if filters.q:
             match = _metadata_match(model, filters.q)
-            if model is ArtifactRevision:
+            if model is ArtifactRevision and not artifact.sensitive:
                 match = or_(match, _extraction_metadata_match(
                     ArtifactRevision.artifact_id, filters.q, ArtifactRevision.revision,
                 ))
@@ -547,7 +651,7 @@ def artifact_history(
             .offset(filters.offset)
         ).all()
         pages[name] = {
-            "items": [_history_read(database, schema, row) for row in rows],
+            "items": [_history_read(database, schema, row, artifact.sensitive) for row in rows],
             "total": total,
             "limit": filters.limit,
             "offset": filters.offset,
@@ -555,10 +659,12 @@ def artifact_history(
     return ArtifactHistory(**pages)
 
 
-def _history_read(database: Session, schema, row):
+def _history_read(database: Session, schema, row, sensitive: bool):
     result = schema.model_validate(row)
     if isinstance(result, ArtifactRevisionRead):
         result.extraction = extraction_read(database, row.artifact_id, row.revision)
+        if sensitive or result.sensitive:
+            result.extraction.metadata = {}
     return result
 
 
@@ -585,6 +691,7 @@ def open_artifact(
     artifact_id: UUID,
     expected_revision: int | None,
     actor: ArtifactActor,
+    *, access: ArtifactAccessRequest | None = None, human_dashboard: bool = False,
 ) -> tuple[ArtifactRead, BinaryIO]:
     with project_mutation(database, project_id, protected=True, domain_seconds=120):
         artifact = require_artifact(database, project_id, artifact_id)
@@ -595,6 +702,11 @@ def open_artifact(
             raise ApplicationError(410, "artifact_deleted", "Artifact content has been deleted.")
         if expected_revision is not None and expected_revision != artifact.revision:
             raise conflict("artifact_revision_conflict", "The artifact revision changed.")
+        require_sensitive_access(
+            database, artifact, "download",
+            access or ArtifactAccessRequest(**actor.model_dump()),
+            {"expected_revision": expected_revision}, human_dashboard=human_dashboard,
+        )
         content = storage.open(artifact.relative_path)
         try:
             _audit(database, artifact, "downloaded", actor)
@@ -652,6 +764,7 @@ def read_artifact_text(
     project_id: UUID,
     artifact_id: UUID,
     filters: ArtifactTextQuery,
+    *, access: ArtifactAccessRequest | None = None, human_dashboard: bool = False,
 ) -> ArtifactTextRead:
     """Read a bounded page from one current revision without adding download history."""
     recover_artifact(database, storage, project_id, artifact_id)
@@ -665,6 +778,10 @@ def read_artifact_text(
             raise ApplicationError(410, "artifact_deleted", "Artifact content has been deleted.")
         if filters.expected_revision != artifact.revision:
             raise conflict("artifact_revision_conflict", "The artifact revision changed.")
+        require_sensitive_access(
+            database, artifact, "text", access or ArtifactAccessRequest(),
+            filters.model_dump(mode="json"), human_dashboard=human_dashboard,
+        )
         # Preserve the same current-content availability boundary as binary reads.
         with storage.open(artifact.relative_path):
             result = _artifact_text_page(database, artifact, filters)

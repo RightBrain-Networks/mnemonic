@@ -13,12 +13,16 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from .api import (
     MnemonicAPI,
+    ResponseValidator,
     TransportEffect,
+    _invalid_response_constant,
     _parse_success_response,
     _raise_for_response_error,
     _raise_request_error,
     _raise_unexpected_response,
+    _response_object_without_duplicate_keys,
 )
+from .artifact_approval import approval_metadata
 from .artifact_models import MCP_ARTIFACT_MAX_BYTES, ArtifactRead
 from .transport import declared_oversize_values, identity_content_encoding_values
 
@@ -88,16 +92,65 @@ async def mutate_artifact(
     effect = TransportEffect.RECEIPT_PROTECTED_WRITE
     response = await _request(api, method, path, headers=headers, content=content,
                               max_bytes=64 * 1024, effect=effect)
-    if response.status_code != (201 if method == "POST" else 200) or (
-        response.headers.get("X-Client-Operation-ID") != str(client_operation_id)
-    ):
-        _raise_unexpected_response(method, path, effect=effect)
-    result = cast(ArtifactRead, _parse_success_response(
-        response, ArtifactRead, method, path, effect=effect,
-        response_validator=None, strict_wire_response=False,
-    ))
+    result = parse_artifact_mutation_response(response, method, path, client_operation_id)
     _validate_mutation(result, project_id, artifact_id, method, expected_revision, metadata, content)
     return result
+
+
+def parse_artifact_mutation_response(
+    response: httpx.Response, method: str, path: str, client_operation_id: UUID,
+    response_validator: ResponseValidator | None = None,
+) -> ArtifactRead:
+    effect = TransportEffect.RECEIPT_PROTECTED_WRITE
+    if response.status_code != (201 if method == "POST" else 200) or (
+        response.headers.get_list("X-Client-Operation-ID") != [str(client_operation_id)]
+    ):
+        _raise_unexpected_response(method, path, effect=effect)
+    replay_values = response.headers.get_list("X-Artifact-Operation-Replayed")
+    if replay_values not in ([], ["true"], ["false"]):
+        _raise_unexpected_response(method, path, effect=effect)
+    if replay_values == ["true"] and method != "PATCH":
+        response = _historical_replay_response(response, method, path)
+    return cast(ArtifactRead, _parse_success_response(
+        response, ArtifactRead, method, path, effect=effect,
+        response_validator=response_validator, strict_wire_response=False,
+    ))
+
+
+def _historical_replay_response(
+    response: httpx.Response, method: str, path: str,
+) -> httpx.Response:
+    try:
+        body = json.loads(
+            response.content.decode("utf-8", errors="strict"),
+            object_pairs_hook=_response_object_without_duplicate_keys,
+            parse_constant=_invalid_response_constant,
+        )
+        if not isinstance(body, dict):
+            raise TypeError("Historical artifact receipt must be an object")
+        # Only permanent pre-0029 receipts may omit these fields. Never infer them
+        # for fresh execution or erase a supplied value that fails strict validation.
+        body.setdefault("sensitive", False)
+        body.setdefault("related_artifact_ids", [])
+    except (ValueError, TypeError, RecursionError):
+        _raise_unexpected_response(method, path, effect=TransportEffect.RECEIPT_PROTECTED_WRITE)
+    return httpx.Response(response.status_code, headers=response.headers,
+                          content=json.dumps(body).encode(), request=response.request)
+
+
+async def update_artifact_metadata(
+    api: MnemonicAPI, project_id: UUID, artifact_id: UUID, client_operation_id: UUID,
+    body: dict[str, object], response_validator: ResponseValidator,
+) -> ArtifactRead:
+    path = f"projects/{project_id}/artifacts/{artifact_id}"
+    headers = {"Content-Type": "application/json"}
+    response = await _request(
+        api, "PATCH", path, headers=headers, content=json.dumps(body, ensure_ascii=True).encode(),
+        max_bytes=64 * 1024, effect=TransportEffect.RECEIPT_PROTECTED_WRITE,
+    )
+    return parse_artifact_mutation_response(
+        response, "PATCH", path, client_operation_id, response_validator,
+    )
 
 
 def _validate_mutation(
@@ -133,11 +186,19 @@ def _metadata_matches(result: ArtifactRead, metadata: dict[str, object], *, crea
     stored_links = {str(value) for value in result.related_work_item_ids}
     if result.originating_work_item_id is not None:
         stored_links.add(str(result.originating_work_item_id))
-    return set(requested_links) <= stored_links
+    return (set(requested_links) <= stored_links
+            and _additional_metadata_matches(result, metadata))
+
+
+def _additional_metadata_matches(result: ArtifactRead, metadata: dict[str, object]) -> bool:
+    requested = cast(list[str], metadata.get("related_artifact_ids", []))
+    return (set(requested) <= {str(value) for value in result.related_artifact_ids}
+            and ("sensitive" not in metadata or result.sensitive == metadata["sensitive"]))
 
 
 async def download_content(
     api: MnemonicAPI, artifact: ArtifactRead, *, agent_session_id: str, actor_client: str,
+    approval_token: str | None = None, human_approved: bool = False,
 ) -> bytes:
     if not artifact.content_available or artifact.deleted_at is not None:
         raise ToolError("Artifact content is unavailable; only retained metadata can be read.")
@@ -145,8 +206,8 @@ async def download_content(
         raise ToolError("MCP artifact transfers are limited to 64 MiB; use the binary REST API.")
     path = (f"projects/{artifact.project_id}/artifacts/{artifact.id}/content"
             f"?expected_revision={artifact.revision}")
-    encoded = json.dumps({"agent_session_id": agent_session_id, "actor_client": actor_client},
-                         ensure_ascii=True, separators=(",", ":"))
+    metadata = approval_metadata(agent_session_id, actor_client, approval_token, human_approved)
+    encoded = json.dumps(metadata, ensure_ascii=True, separators=(",", ":"))
     response = await _request(api, "GET", path, headers={"X-Artifact-Metadata": encoded}, content=None,
                               max_bytes=MCP_ARTIFACT_MAX_BYTES, effect=TransportEffect.SAFE_READ)
     if response.status_code != 200 or len(response.content) != artifact.size_bytes or (

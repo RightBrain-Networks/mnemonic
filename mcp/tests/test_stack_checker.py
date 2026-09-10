@@ -216,3 +216,15 @@ def test_stack_checker_validates_exact_report_prose_outcome_and_ownership(work_i
     mismatched["job_completion_report"]["summary"] = "A different assertion."
     with pytest.raises(RuntimeError, match="authored text"):
         checker.require_job_report(mismatched, REPORT_INPUT, work_item["id"], "promoted")
+
+
+async def test_stack_checker_requires_artifact_links_and_explicit_human_approval():
+    checker = stack_checker()
+    tools = await build_server(Settings(api_key="x" * 32)).list_tools()
+    for name, field in (("update_artifact", "related_artifact_ids"),
+                        ("get_artifact_text", "human_approved")):
+        changed = copy.deepcopy(tools)
+        target = next(tool for tool in changed if tool.name == name)
+        del target.inputSchema["properties"][field]
+        with pytest.raises(RuntimeError, match="artifact links|explicit human approval"):
+            checker.validate_mcp_catalog(SimpleNamespace(tools=changed))

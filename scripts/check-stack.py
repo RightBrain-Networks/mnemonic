@@ -44,7 +44,7 @@ from mcp import ClientSession
 CANONICAL_TOOLS = {
     "list_artifacts", "get_artifact", "get_artifact_text",
     "list_artifact_history", "download_artifact",
-    "search_artifact_contents", "upload_artifact", "replace_artifact", "delete_artifact",
+    "search_artifact_contents", "upload_artifact", "replace_artifact", "delete_artifact", "update_artifact",
     "list_code_reviews", "get_code_review", "complete_code_review",
     "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
     "get_activity",
@@ -81,7 +81,7 @@ CANONICAL_TOOLS = {
     "suggest_duplicate_work",
 }
 PROTECTED_MUTATION_TOOLS = {
-    "upload_artifact", "replace_artifact", "delete_artifact",
+    "upload_artifact", "replace_artifact", "delete_artifact", "update_artifact",
     "respond_to_work_follow_up", "complete_code_review",
     "create_work",
     "add_checkpoint",
@@ -1110,7 +1110,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.33.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.34.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         require(
             {"ExternalReference", "ExternalReferencesChange", "ExternalDuplicateCandidate",
@@ -1309,13 +1309,40 @@ def validate_rest_contract(document: Any) -> None:
         raise RuntimeError("REST OpenAPI is missing the Phase 12 contract.") from error
 
 
+def validate_artifact_mcp_contract(tools: dict[str, Any]) -> None:
+    for name in ("upload_artifact", "replace_artifact", "update_artifact"):
+        properties = tools[name].inputSchema["properties"]
+        require(
+            {"sensitive", "related_artifact_ids", "related_work_item_ids"} <= properties.keys(),
+            f"MCP {name} lacks artifact links or sensitivity metadata.",
+        )
+    for name in ("download_artifact", "get_artifact_text", "search_artifact_contents"):
+        properties = tools[name].inputSchema["properties"]
+        require(
+            {"approval_token", "human_approved", "agent_session_id", "actor_client"}
+            <= properties.keys()
+            and properties["human_approved"].get("default") is False
+            and "HUMAN APPROVAL" in tools[name].description,
+            f"MCP {name} lacks explicit human approval for sensitive access.",
+        )
+    require(
+        "sensitive_content_withheld"
+        in tools["search_artifact_contents"].outputSchema["properties"],
+        "MCP artifact search does not report sensitive content withheld from coverage.",
+    )
+    require(
+        "expected_revision" in tools["update_artifact"].inputSchema["required"],
+        "MCP artifact metadata updates must pin the expected revision.",
+    )
+
+
 def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
     require(
-        len(catalog.tools) == 47
-        and len(tools_by_name) == 47
-        and len(PROTECTED_MUTATION_TOOLS) == 16
+        len(catalog.tools) == 48
+        and len(tools_by_name) == 48
+        and len(PROTECTED_MUTATION_TOOLS) == 17
         and set(tools_by_name) == CANONICAL_TOOLS,
         "Unexpected MCP tool catalog.",
     )
@@ -1432,6 +1459,7 @@ def validate_mcp_catalog(catalog: Any) -> None:
         "MCP completion evidence lacks its exact extended write and safe read.",
     )
     validate_phase12_mcp_catalog(tools_by_name)
+    validate_artifact_mcp_contract(tools_by_name)
     for name in ("search_work", "list_human_attention"):
         pointer = tools_by_name[name].outputSchema["$defs"]["CheckpointPointer"]
         require(
@@ -1574,15 +1602,15 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.33.0",
+                    and initialized.serverInfo.version == "0.34.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.33.0 cross-project relationship contract shape, work-move, "
-                    "code-review contract, real MCP initialization, 47-tool catalog, "
+                    "PASS: REST 0.34.0 cross-project relationship contract shape, work-move, "
+                    "code-review contract, real MCP initialization, 48-tool catalog, "
                     "exact sixteen protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )

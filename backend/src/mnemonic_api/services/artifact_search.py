@@ -10,6 +10,7 @@ import tantivy
 from sqlalchemy import and_, exists, select
 from sqlalchemy.orm import Session, defer
 
+from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
 from mnemonic_api.artifact_index import ArtifactSearchIndex, SearchDocument, SearchHit
 from mnemonic_api.artifact_search_schemas import (
     ArtifactIndexingStatus,
@@ -17,9 +18,10 @@ from mnemonic_api.artifact_search_schemas import (
     ArtifactSearchPage,
     ArtifactSearchRequest,
 )
-from mnemonic_api.database import begin_coherent_read
 from mnemonic_api.models import Artifact, ArtifactExtraction, ArtifactWorkLink
+from mnemonic_api.services.artifact_approvals import require_sensitive_access
 from mnemonic_api.services.artifacts import _has_pending_operation, artifact_read
+from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.work_items import require_project
 
 __all__ = ["ArtifactSearchIndex", "search_artifact_contents"]
@@ -61,7 +63,7 @@ def _metadata(artifact: Artifact, extraction: ArtifactExtraction | None) -> dict
         "sha256": artifact.sha256,
         "agent_session_id": artifact.created_by_agent_session_id,
         "actor_client": artifact.created_by_client,
-        "extracted": extraction.extracted_metadata if extraction else {},
+        "extracted": extraction.extracted_metadata if extraction and not artifact.sensitive else {},
     }
 
 
@@ -71,7 +73,7 @@ def _metadata_text(artifact: Artifact, extraction: ArtifactExtraction | None) ->
         value for value in _metadata(artifact, extraction).values()
         if isinstance(value, str) and value.strip()
     ]
-    if extraction is not None:
+    if extraction is not None and not artifact.sensitive:
         values.extend(
             value for property_values in extraction.extracted_metadata.values()
             for value in property_values if value.strip()
@@ -79,12 +81,15 @@ def _metadata_text(artifact: Artifact, extraction: ArtifactExtraction | None) ->
     return "\n".join(values)
 
 
-def _signature(project_id: UUID, corpus: Corpus, fulltext: bool) -> str:
+def _signature(
+    project_id: UUID, corpus: Corpus, fulltext: bool, approved: set[UUID],
+) -> str:
     digest = hashlib.sha256(f"{project_id}:{fulltext}".encode())
     for artifact, extraction in corpus:
         digest.update(json.dumps({
             "id": str(artifact.id), "revision": artifact.revision,
             "deleted": artifact.deleted_at is not None,
+            "sensitive": artifact.sensitive, "approved": artifact.id in approved,
             "metadata": _metadata(artifact, extraction),
             "extracted_at": str(extraction.extracted_at) if extraction else None,
             "status": extraction.status if extraction else "pending",
@@ -108,12 +113,15 @@ def _indexing(corpus: Corpus) -> ArtifactIndexingStatus:
     return counts
 
 
-def _documents(database: Session, corpus: Corpus, fulltext: bool) -> Iterator[SearchDocument]:
+def _documents(
+    database: Session, corpus: Corpus, fulltext: bool, approved: set[UUID],
+) -> Iterator[SearchDocument]:
     # Stream bodies separately from the lightweight cache fingerprint. A cache
     # hit and every metadata-only search avoid reading extracted content entirely.
     content_ids = {
         artifact.id for artifact, extraction in corpus
         if fulltext and artifact.deleted_at is None
+        and (not artifact.sensitive or artifact.id in approved)
         and extraction is not None and extraction.status == "ready"
     }
     by_id = {artifact.id: (artifact, extraction) for artifact, extraction in corpus}
@@ -165,18 +173,38 @@ def _match(
     )
 
 
-def search_artifact_contents(
+def _approved_contents(
+    database: Session, corpus: Corpus, filters: ArtifactSearchRequest, human_dashboard: bool,
+) -> set[UUID]:
+    approved: set[UUID] = set()
+    if not filters.fulltext:
+        return approved
+    access = ArtifactAccessRequest(
+        **filters.model_dump(include=set(ArtifactAccessRequest.model_fields)),
+    )
+    scope = filters.model_dump(mode="json", exclude=set(ArtifactAccessRequest.model_fields))
+    for artifact, _ in corpus:
+        if not artifact.sensitive or artifact.deleted_at is not None:
+            continue
+        if not human_dashboard and filters.artifact_id is None:
+            continue
+        require_sensitive_access(
+            database, artifact, "search", access, scope, human_dashboard=human_dashboard,
+        )
+        approved.add(artifact.id)
+    return approved
+
+
+def _search_page(
     database: Session, project_id: UUID, filters: ArtifactSearchRequest,
-    index: ArtifactSearchIndex,
+    index: ArtifactSearchIndex, human_dashboard: bool,
 ) -> ArtifactSearchPage:
-    # Caller has finished journal recovery and its transaction. Pin headers,
-    # bodies, work links, snippets and returned revisions to the same snapshot.
-    begin_coherent_read(database, read_only=True)
     require_project(database, project_id)
     corpus = _corpus(database, project_id, filters)
+    approved = _approved_contents(database, corpus, filters, human_dashboard)
     result = index.search(
-        _signature(project_id, corpus, filters.fulltext),
-        lambda: _documents(database, corpus, filters.fulltext),
+        _signature(project_id, corpus, filters.fulltext, approved),
+        lambda: _documents(database, corpus, filters.fulltext, approved),
         query=filters.q, fulltext=filters.fulltext, count=len(corpus),
     )
     identities = {str(artifact.id): artifact for artifact, _ in corpus}
@@ -187,4 +215,21 @@ def search_artifact_contents(
         ],
         total=len(result.hits), limit=filters.limit, offset=filters.offset,
         fulltext=filters.fulltext, indexing=_indexing(corpus),
+        sensitive_content_withheld=sum(
+            1 for artifact, _ in corpus if filters.fulltext and artifact.sensitive
+            and artifact.deleted_at is None and artifact.id not in approved
+        ),
     )
+
+
+def search_artifact_contents(
+    database: Session, project_id: UUID, filters: ArtifactSearchRequest,
+    index: ArtifactSearchIndex, *, human_dashboard: bool = False,
+) -> ArtifactSearchPage:
+    # Content mutations, sensitivity changes and extraction publication all hold
+    # this lock. Keep corpus, approval consumption, snippets and revisions coherent
+    # until the read and its audit commit; a concurrent token use must wait.
+    with project_mutation(database, project_id, protected=True, domain_seconds=120):
+        page = _search_page(database, project_id, filters, index, human_dashboard)
+        database.commit()
+        return page

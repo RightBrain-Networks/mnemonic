@@ -88,6 +88,7 @@ export default function ArtifactPreviewDrawer({ artifact, kind, onClose }: {
         </button>
       </div>
     </header>
+    {artifact.sensitive && <p className="artifact-preview-notice"><span className="artifact-sensitive-badge">Sensitive</span> Agents need explicit human approval for each content access.</p>}
     {copyStatus && <p className="artifact-preview-notice" role="status">{copyStatus}</p>}
     <div className="artifact-preview-body">
       {error ? <p className="error-notice" role="alert">{error}</p> : kind === "image" && imageUrl ? <>

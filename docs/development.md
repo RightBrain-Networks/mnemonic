@@ -414,14 +414,14 @@ uv run ruff check .
 uv run ty check src/mnemonic_mcp
 ```
 
-The MCP suite verifies the exact 47-tool canonical catalog, strict unknown-field
+The MCP suite verifies the exact 48-tool canonical catalog, strict unknown-field
 rejection, nested checkpoint request bodies, canonical/grouped search hits,
 compact ready results, bounded recall, deterministic checkpoint/event
 pagination, versioned mutation receipts, typed graph and lease behavior, the
 `resume_work` prompt, and the work-item resource across direct, Streamable HTTP,
 and real stdio transports.
 
-Exactly sixteen mutation tools require a canonical `client_operation_id` and
+Exactly seventeen mutation tools require a canonical `client_operation_id` and
 advertise truthful idempotency: `create_work`, `add_checkpoint`, `append_event`,
 `add_relationship`, `update_work`, `complete_work`, `delete_work`,
 `remove_relationship`, `release_claim`, `request_human_input`, `merge_work`,
@@ -490,9 +490,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.22.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.22.0` install
-plus a `0.18.0 -> 0.22.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.23.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.23.0` install
+plus a `0.18.0 -> 0.23.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -816,8 +816,8 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.33.0`, plugin is `0.22.0`,
-and Alembic head is `0028_work_summary_limit`. Validate all surfaces
+Current application/API/MCP/dashboard versions are `0.34.0`, plugin is `0.23.0`,
+and Alembic head is `0029_artifact_links_sensitive`. Validate all surfaces
 together with the existing regression suites. This release adds the safe
 `get_artifact_text` tool and REST read, compact MCP search/download results,
 and the standard-library client binary download helper. It adds no migration
@@ -896,8 +896,8 @@ questions, cold/warm lease isolation, one atomic remediation and hard depth ceil
 exact historical and new receipt replay, protected lineage under direct SQL,
 bounded discovery/history, backup/restore audit, and both dashboard Done paths.
 Run `scripts/audit_code_reviews.py` read-only from a private database environment.
-The current inventory is 47 MCP tools, 16 protected MCP writes, 21 REST receipt
-kinds, 18 protected browser mutations and 24 work-event types. See
+The current inventory is 48 MCP tools, 17 protected MCP writes, 22 REST receipt
+kinds, 19 protected browser mutations and 24 work-event types. See
 [code reviews](code-reviews.md) for client and deployment rules.
 
 The [artifact library](artifacts.md) exposes nine MCP tools, three durable
@@ -921,8 +921,8 @@ Run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 47-tool
-catalog, the exact sixteen protected schemas and annotations, the absence of an MCP
+Read-only mode verifies REST/MCP health, authentication, the exact 48-tool
+catalog, the exact seventeen protected schemas and annotations, the absence of an MCP
 resolution tool, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, settings/activity/report read contracts, and the
 shipped WOFF2 font assets. It does

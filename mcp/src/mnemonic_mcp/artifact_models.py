@@ -19,6 +19,7 @@ ArtifactClient = Annotated[str, Field(min_length=1, max_length=80)]
 ArtifactFilename = Annotated[str, Field(min_length=1, max_length=255)]
 ArtifactDescription = Annotated[str, Field(max_length=4000)]
 ArtifactLinks = Annotated[list[UUID], Field(max_length=50)]
+ArtifactApprovalToken = Annotated[str, Field(min_length=32, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")]
 ArtifactStoredLinks = Annotated[list[UUID], Field(max_length=51)]
 
 
@@ -74,11 +75,19 @@ class ArtifactRead(ArtifactModel):
     created_by_client: ArtifactClient | None
     originating_work_item_id: UUID | None
     related_work_item_ids: ArtifactStoredLinks
+    related_artifact_ids: ArtifactLinks
+    sensitive: StrictBool
     created_at: datetime
     modified_at: datetime
     deleted_at: datetime | None
     content_available: StrictBool
     extraction: ArtifactExtraction = Field(default_factory=ArtifactExtraction)
+
+    @model_validator(mode="after")
+    def sensitive_properties_withheld(self) -> ArtifactRead:
+        if self.sensitive and self.extraction.metadata:
+            raise ValueError("Sensitive artifact properties must be withheld")
+        return self
 
 
 class ArtifactRevisionRead(ArtifactModel):
@@ -92,15 +101,28 @@ class ArtifactRevisionRead(ArtifactModel):
     agent_session_id: ArtifactSession | None
     actor_client: ArtifactClient | None
     related_work_item_ids: ArtifactStoredLinks
+    related_artifact_ids: ArtifactLinks
+    sensitive: StrictBool
     created_at: datetime
     extraction: ArtifactExtraction = Field(default_factory=ArtifactExtraction)
+
+    @model_validator(mode="after")
+    def sensitive_properties_withheld(self) -> ArtifactRevisionRead:
+        if self.sensitive and self.extraction.metadata:
+            raise ValueError("Sensitive artifact properties must be withheld")
+        return self
 
 
 class ArtifactAuditRead(ArtifactModel):
     id: Annotated[StrictInt, Field(ge=1)]
     artifact_id: UUID
     revision: ArtifactRevision
-    action: Literal["uploaded", "replaced", "deleted", "downloaded"]
+    details: dict[str, object] = Field(default_factory=dict)
+    action: Literal[
+        "uploaded", "replaced", "deleted", "downloaded", "metadata_updated", "linked",
+        "approval_required", "approval_granted", "approval_rejected",
+        "sensitive_downloaded", "sensitive_text_read", "sensitive_searched",
+    ]
     agent_session_id: ArtifactSession | None
     actor_client: ArtifactClient | None
     filename: ArtifactFilename
@@ -152,6 +174,7 @@ class ArtifactContentSearch(ArtifactModel):
     offset: ArtifactOffset
     fulltext: StrictBool
     indexing: ArtifactIndexingStatus
+    sensitive_content_withheld: Annotated[StrictInt, Field(ge=0)]
 
 
 class ArtifactToolRead(ArtifactRead):
@@ -167,6 +190,7 @@ class ArtifactToolHistory(ArtifactHistory):
 
 
 class ArtifactSummary(ArtifactModel):
+    sensitive: StrictBool
     id: UUID
     project_id: UUID
     filename: ArtifactFilename
@@ -201,4 +225,5 @@ class ArtifactToolSearchMatch(ArtifactModel):
 class ArtifactToolContentSearch(ArtifactPage[ArtifactToolSearchMatch]):
     fulltext: StrictBool
     indexing: ArtifactIndexingStatus
+    sensitive_content_withheld: Annotated[StrictInt, Field(ge=0)]
     artifact_library: ArtifactToolStatus

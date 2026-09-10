@@ -56,6 +56,8 @@ export interface Artifact {
   modified_at: string;
   deleted_at: string | null;
   content_available: boolean;
+  sensitive: boolean;
+  related_artifact_ids: string[];
   created_by_agent_session_id: string | null;
   originating_work_item_id: string | null;
   related_work_item_ids: string[];
@@ -117,12 +119,14 @@ export interface ArtifactSearchPage {
   offset: number;
   fulltext: boolean;
   indexing: ArtifactIndexingStatus;
+  sensitive_content_withheld: number;
 }
 
 export function decodeArtifactSearchPage(value: unknown, projectId: string, fulltext: boolean, limit = 50, offset = 0): ArtifactSearchPage {
   const page = objectValue(value);
   const indexing = objectValue(page?.indexing);
-  if (!page || !exactKeys(page, ["items", "total", "limit", "offset", "fulltext", "indexing"])
+  if (!page || !exactKeys(page, ["items", "total", "limit", "offset", "fulltext", "indexing", "sensitive_content_withheld"])
+    || !finiteInteger(page.sensitive_content_withheld)
     || !Array.isArray(page.items) || !finiteInteger(page.total) || page.limit !== limit || page.offset !== offset
     || page.items.length !== Math.min(limit, Math.max(0, page.total - offset)) || page.fulltext !== fulltext
     || !indexing || !exactKeys(indexing, ["pending", "failed", "ready", "truncated"])
@@ -146,7 +150,7 @@ export function decodeArtifactSearchPage(value: unknown, projectId: string, full
     return { artifact, score: match.score, snippet: match.snippet, matched_fields: match.matched_fields as ("metadata" | "content")[] };
   });
   if (new Set(items.map((item) => item.artifact.id.toLowerCase())).size !== items.length) throw new Error("Mnemonic returned duplicate artifact search matches.");
-  return { items, total: page.total, limit, offset, fulltext, indexing: indexing as unknown as ArtifactIndexingStatus };
+  return { items, total: page.total, limit, offset, fulltext, indexing: indexing as unknown as ArtifactIndexingStatus, sensitive_content_withheld: page.sensitive_content_withheld };
 }
 
 export function validArtifactSearchRequest(value: unknown): boolean {
@@ -165,9 +169,10 @@ function timestamp(value: unknown): value is string {
   return typeof value === "string" && value.length <= 40 && Number.isFinite(Date.parse(value));
 }
 
-export function decodeArtifact(value: unknown, projectId: string): Artifact {
+export function decodeArtifact(value: unknown, projectId: string, expectedArtifactId?: string): Artifact {
   const row = objectValue(value);
   if (!row || !validUuid(row.id) || !sameUuid(row.project_id, projectId)
+    || expectedArtifactId !== undefined && !sameUuid(row.id, expectedArtifactId)
     || !boundedText(row.filename, 255) || !finiteInteger(row.revision, 1)
     || !finiteInteger(row.size_bytes) || typeof row.sha256 !== "string"
     || !/^[a-f0-9]{64}$/.test(row.sha256)
@@ -175,13 +180,17 @@ export function decodeArtifact(value: unknown, projectId: string): Artifact {
     || !(row.mime_type === null || boundedText(row.mime_type, 200))
     || !timestamp(row.created_at) || !timestamp(row.modified_at)
     || !(row.deleted_at === null || timestamp(row.deleted_at))
-    || typeof row.content_available !== "boolean"
+    || typeof row.content_available !== "boolean" || typeof row.sensitive !== "boolean"
+    || !Array.isArray(row.related_artifact_ids) || row.related_artifact_ids.length > 50
+    || !row.related_artifact_ids.every(validUuid)
+    || row.related_artifact_ids.some((id) => sameUuid(id, row.id))
     || !(row.created_by_agent_session_id === null || boundedText(row.created_by_agent_session_id, 200))
     || !(row.originating_work_item_id === null || validUuid(row.originating_work_item_id))
     || !Array.isArray(row.related_work_item_ids) || row.related_work_item_ids.length > 50
     || !row.related_work_item_ids.every(validUuid)) {
     throw new Error("Mnemonic returned invalid artifact metadata. Refresh and try again.");
   }
+  if (new Set(row.related_artifact_ids.map((id) => id.toLowerCase())).size !== row.related_artifact_ids.length) throw new Error("Mnemonic returned duplicate artifact links.");
   if (new Set(row.related_work_item_ids.map((id) => id.toLowerCase())).size !== row.related_work_item_ids.length) throw new Error("Mnemonic returned duplicate artifact work links.");
   return { ...row, extraction: decodeArtifactExtraction(row.extraction) } as unknown as Artifact;
 }

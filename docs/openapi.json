@@ -42,7 +42,15 @@
               "uploaded",
               "replaced",
               "deleted",
-              "downloaded"
+              "downloaded",
+              "metadata_updated",
+              "linked",
+              "approval_required",
+              "approval_granted",
+              "approval_rejected",
+              "sensitive_downloaded",
+              "sensitive_text_read",
+              "sensitive_searched"
             ],
             "title": "Action",
             "type": "string"
@@ -86,6 +94,11 @@
           "description": {
             "title": "Description",
             "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
           },
           "filename": {
             "title": "Filename",
@@ -483,6 +496,15 @@
             "title": "Project Id",
             "type": "string"
           },
+          "related_artifact_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Related Artifact Ids",
+            "type": "array"
+          },
           "related_work_item_ids": {
             "items": {
               "format": "uuid",
@@ -495,6 +517,11 @@
           "revision": {
             "title": "Revision",
             "type": "integer"
+          },
+          "sensitive": {
+            "default": false,
+            "title": "Sensitive",
+            "type": "boolean"
           },
           "sha256": {
             "title": "Sha256",
@@ -871,6 +898,15 @@
             ],
             "title": "Mime Type"
           },
+          "related_artifact_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Related Artifact Ids",
+            "type": "array"
+          },
           "related_work_item_ids": {
             "items": {
               "format": "uuid",
@@ -883,6 +919,11 @@
           "revision": {
             "title": "Revision",
             "type": "integer"
+          },
+          "sensitive": {
+            "default": false,
+            "title": "Sensitive",
+            "type": "boolean"
           },
           "sha256": {
             "title": "Sha256",
@@ -976,6 +1017,12 @@
           "offset": {
             "minimum": 0.0,
             "title": "Offset",
+            "type": "integer"
+          },
+          "sensitive_content_withheld": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Sensitive Content Withheld",
             "type": "integer"
           },
           "total": {
@@ -1084,6 +1131,108 @@
           "next_offset"
         ],
         "title": "ArtifactTextRead",
+        "type": "object"
+      },
+      "ArtifactUpdateMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_client": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Client"
+          },
+          "agent_session_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Session Id"
+          },
+          "client_operation_id": {
+            "format": "uuid",
+            "title": "Client Operation Id",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "related_artifact_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Related Artifact Ids"
+          },
+          "related_work_item_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Related Work Item Ids"
+          },
+          "sensitive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensitive"
+          }
+        },
+        "required": [
+          "client_operation_id",
+          "expected_revision"
+        ],
+        "title": "ArtifactUpdateMetadata",
         "type": "object"
       },
       "CanonicalWorkProjection": {
@@ -11240,7 +11389,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.33.0"
+    "version": "0.34.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -11798,6 +11947,46 @@
               "schema": {
                 "additionalProperties": false,
                 "properties": {
+                  "actor_client": {
+                    "anyOf": [
+                      {
+                        "maxLength": 80,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Actor Client"
+                  },
+                  "agent_session_id": {
+                    "anyOf": [
+                      {
+                        "maxLength": 200,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Agent Session Id"
+                  },
+                  "approval_token": {
+                    "anyOf": [
+                      {
+                        "maxLength": 128,
+                        "minLength": 32,
+                        "pattern": "^[A-Za-z0-9_-]+$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Approval Token"
+                  },
                   "artifact_id": {
                     "anyOf": [
                       {
@@ -11813,6 +12002,11 @@
                   "fulltext": {
                     "default": false,
                     "title": "Fulltext",
+                    "type": "boolean"
+                  },
+                  "human_approved": {
+                    "default": false,
+                    "title": "Human Approved",
                     "type": "boolean"
                   },
                   "include_deleted": {
@@ -11884,6 +12078,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "428": {
+            "description": "STOP: explicit human approval required for sensitive content. The response includes a five-minute, single-use approval_token bound to artifact, revision, caller and request. Ask the actual human and wait for an affirmative reply, then repeat the exact request with approval_token and human_approved=true. Never auto-approve/retry."
           }
         },
         "security": [
@@ -12030,6 +12227,69 @@
           }
         ],
         "summary": "Get Artifact"
+      },
+      "patch": {
+        "operationId": "update_artifact_metadata_api_v1_projects__project_id__artifacts__artifact_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArtifactUpdateMetadata"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Artifact Metadata"
       }
     },
     "/api/v1/projects/{project_id}/artifacts/{artifact_id}/content": {
@@ -12072,6 +12332,16 @@
               ],
               "title": "Expected Revision"
             }
+          },
+          {
+            "description": "ASCII JSON: agent_session_id, actor_client, and (only after explicit human approval) approval_token and strict boolean human_approved=true. Never put tokens in URLs.",
+            "in": "header",
+            "name": "X-Artifact-Metadata",
+            "required": false,
+            "schema": {
+              "maxLength": 16384,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -12092,6 +12362,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "428": {
+            "description": "STOP: explicit human approval required for sensitive content. The response includes a five-minute, single-use approval_token bound to artifact, revision, caller and request. Ask the actual human and wait for an affirmative reply, then repeat the exact request with approval_token and human_approved=true. Never auto-approve/retry."
           }
         },
         "security": [
@@ -12351,6 +12624,16 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "description": "ASCII JSON: agent_session_id, actor_client, and (only after explicit human approval) approval_token and strict boolean human_approved=true. Never put tokens in URLs.",
+            "in": "header",
+            "name": "X-Artifact-Metadata",
+            "required": false,
+            "schema": {
+              "maxLength": 16384,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -12373,6 +12656,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "428": {
+            "description": "STOP: explicit human approval required for sensitive content. The response includes a five-minute, single-use approval_token bound to artifact, revision, caller and request. Ask the actual human and wait for an affirmative reply, then repeat the exact request with approval_token and human_approved=true. Never auto-approve/retry."
           }
         },
         "security": [

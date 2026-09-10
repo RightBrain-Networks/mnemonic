@@ -5,10 +5,11 @@ from uuid import UUID
 
 from pydantic import Field, field_validator
 
+from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
 from mnemonic_api.artifact_schemas import ArtifactModel, ArtifactRead
 
 
-class ArtifactSearchRequest(ArtifactModel):
+class ArtifactSearchRequest(ArtifactAccessRequest):
     q: str = Field(min_length=1, max_length=200)
     fulltext: bool = False
     artifact_id: UUID | None = None
@@ -47,3 +48,4 @@ class ArtifactSearchPage(ArtifactModel):
     offset: int = Field(ge=0)
     fulltext: bool
     indexing: ArtifactIndexingStatus
+    sensitive_content_withheld: int = Field(default=0, ge=0)

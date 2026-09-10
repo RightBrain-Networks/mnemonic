@@ -6,6 +6,8 @@ from fastapi import HTTPException
 
 SAFE_ERROR_CONTEXT_KEYS = frozenset(
     {
+        "approval_token", "action", "artifact_id", "revision",
+        "human_approval_required", "instructions",
         "holder_client", "holder_session_id", "expires_at", "purpose", "code_review_id", "mode",
         "canonical_work_item_id", "max_bytes", "max_chars", "cause", "attempt_not_committed",
     }
