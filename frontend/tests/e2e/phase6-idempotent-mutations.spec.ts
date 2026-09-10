@@ -309,9 +309,9 @@ test("a committed work creation recovers its exact result without a duplicate", 
   try {
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
-    await expect(page.locator(".sync-status")).toHaveText("Live updates");
+    await expect(page.locator(".sync-status")).toHaveText("Live Updates");
 
-    await page.locator(".page-heading").getByRole("button", { name: "New work" }).click();
+    await page.locator(".topbar").getByRole("button", { name: "New work" }).click();
     const dialog = page.getByRole("dialog", { name: "Create durable work" });
     await dialog.getByLabel("Title").fill(title);
     await dialog.getByLabel("Summary").fill(`One durable creation for ${suffix}.`);
@@ -503,7 +503,7 @@ test("a malformed committed append retains its editor intent and reconciles newe
   try {
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
-    await expect(page.locator(".sync-status")).toHaveText("Live updates");
+    await expect(page.locator(".sync-status")).toHaveText("Live Updates");
     const pane = await openWork(page, title);
     const activity = pane.locator(".event-timeline");
     await openTab(pane, "Activity");
@@ -736,7 +736,7 @@ test("relationship and deletion recovery preserve true receipts and natural no-o
   try {
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
-    await expect(page.locator(".sync-status")).toHaveText("Live updates");
+    await expect(page.locator(".sync-status")).toHaveText("Live Updates");
     const pane = await openWork(page, title);
     // Queue cards are options too, so the counterpart picker is scoped to the Graph panel.
     const graph = await openTab(pane, "Graph");

@@ -226,7 +226,7 @@ async function mergeDirect(
 async function openDashboard(page: Page): Promise<void> {
   await page.goto("/");
   await page.locator("#project-select").selectOption(state.projectId);
-  await expect(page.locator(".sync-status")).toHaveText("Live updates");
+  await expect(page.locator(".sync-status")).toHaveText("Live Updates");
 }
 
 function resultFor(page: Page, workItemId: string): Locator {

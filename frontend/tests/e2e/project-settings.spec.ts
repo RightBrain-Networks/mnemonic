@@ -129,7 +129,10 @@ test("a background settings refresh cannot disable or overwrite a save", async (
   let holdNextGet = false;
   let patchCount = 0;
 
-  await page.routeWebSocket(/\/api\/mnemonic\/sync$/, () => {});
+  let sendSync: ((message: string) => void) | undefined;
+  await page.routeWebSocket(/\/api\/mnemonic\/sync$/, (socket) => {
+    sendSync = (message) => socket.send(message);
+  });
   await page.route(settingsURL, async (route) => {
     const method = route.request().method();
     if (method === "GET") {
@@ -197,7 +200,8 @@ test("a background settings refresh cannot disable or overwrite a save", async (
   await content.fill(newTemplate);
 
   holdNextGet = true;
-  await page.locator(".page-heading").getByRole("button", { name: "Refresh" }).click();
+  await expect.poll(() => Boolean(sendSync)).toBe(true);
+  sendSync!(JSON.stringify({ type: "invalidate", scope: "projects", revision: 1 }));
   await backgroundStarted.promise;
   await expect(content).toBeEnabled();
   await expect(save).toBeEnabled();

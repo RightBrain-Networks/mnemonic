@@ -389,7 +389,7 @@ const contrastFixture = `
       <div class="agent-hint"><span>Agent hint</span><p>Use a narrower search.</p></div>
     </section>
     <span class="sync-status">Connecting</span>
-    <span class="sync-status sync-status-live">Live updates</span>
+    <span class="sync-status sync-status-live">Live Updates</span>
     <span class="sync-status sync-status-retrying">Retrying</span>
     <dialog class="dialog dialog-wide" open>
       <header class="dialog-header"><h2>Create durable work</h2></header>

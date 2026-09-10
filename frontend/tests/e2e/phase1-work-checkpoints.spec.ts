@@ -207,8 +207,8 @@ test("external API writes appear through live browser sync", async ({ page }, te
 
     await page.goto("/");
     await page.locator("#project-select").selectOption(state.projectId);
-    await expect(page.locator(".sync-status")).toHaveText("Live updates");
-    await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
+    await expect(page.locator(".sync-status")).toHaveText("Live Updates");
+    await expect(page.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
 
     const searchbox = page.getByRole("searchbox", { name: "Search work items" });
     await searchbox.fill(emptySearchToken);
@@ -414,10 +414,6 @@ test("external API writes appear through live browser sync", async ({ page }, te
     await expect(enteringCard).toHaveAttribute("inert", "");
     await expect(enteringCard).toHaveCSS("opacity", "0");
 
-    await page.getByRole("button", { name: "Refresh" }).evaluate((button) => {
-      (button as HTMLButtonElement).click();
-    });
-
     await expect.poll(() => page.evaluate((targetTitles) => {
       const motionState = (window as typeof window & {
         __queueMotionTest?: QueueMotionState;
@@ -569,7 +565,7 @@ test("the library hero names the selected project in the vendored italic face", 
     weight: "400",
   });
   const color = (locator: Locator) => locator.evaluate((node) => getComputedStyle(node).color);
-  expect(await color(mark)).toBe(await color(page.locator(".topbar .small-mark")));
+  expect(await color(mark)).not.toBe(await color(subject));
   expect(await color(subject)).toBe(await color(heading));
 
   const painted = await subject.evaluate((node) => {
@@ -620,7 +616,7 @@ test("one work item groups immutable checkpoints through its full dashboard life
   await expect(page.getByRole("heading", { name: /^Work library[.:]/ })).toBeVisible();
   await page.locator("#project-select").selectOption(state.projectId);
 
-  await page.locator(".page-heading").getByRole("button", { name: "New work" }).click();
+  await page.locator(".topbar").getByRole("button", { name: "New work" }).click();
   const createDialog = page.getByRole("dialog", { name: "Create durable work" });
   await createDialog.getByLabel("Title").fill(title);
   await createDialog.getByLabel("Summary").fill("A single durable objective shared across session checkpoints.");

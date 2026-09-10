@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Mnemonic — context worth keeping",
-  description: "Durable work items and immutable session checkpoints. Keep your agents on the same page."
+  description: "Durable work items and immutable session checkpoints. Keeping your agents on the same page."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -377,7 +377,7 @@ test("completion evidence is accessible, replayable, lazy, paginated, and source
 
   try {
     let pane = await openFixture(page, title);
-    await expect(page.locator(".sync-status")).toHaveText("Live updates");
+    await expect(page.locator(".sync-status")).toHaveText("Live Updates");
     const context = await openTab(pane, "Context");
     await context.getByLabel("Checkpoint text").fill(
       "Completion whose structured evidence is committed and replayed atomically. "

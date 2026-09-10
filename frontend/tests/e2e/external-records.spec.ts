@@ -9,8 +9,8 @@ test.beforeAll(async () => { state = JSON.parse(await readFile(statePath, "utf8"
 async function openCreate(page: Page, title: string) {
   await page.goto("/");
   await page.locator("#project-select").selectOption(state.projectId);
-  await expect(page.locator(".sync-status")).toHaveText("Live updates");
-  await page.locator(".page-heading").getByRole("button", { name: "New work" }).click();
+  await expect(page.locator(".sync-status")).toHaveText("Live Updates");
+  await page.locator(".topbar").getByRole("button", { name: "New work" }).click();
   const dialog = page.getByRole("dialog", { name: "Create durable work" });
   await dialog.getByLabel("Title", { exact: true }).fill(title);
   await dialog.getByLabel("Summary", { exact: true }).fill("Not filed yet — deliberately stale summary.");
@@ -142,7 +142,7 @@ test("resuming a draft after inspecting suggestions preserves authored reference
   await expect(dialog).toBeHidden();
   await expect(workPane(page).locator(".detail-title")).toHaveText(work.title);
   await closeDetail(page);
-  await page.locator(".page-heading").getByRole("button", { name: "New work" }).click();
+  await page.locator(".topbar").getByRole("button", { name: "New work" }).click();
   await expect(dialog.getByLabel("Title", { exact: true })).toHaveValue(title);
   await expect(dialog.getByRole("group", { name: "Reference 1", exact: true }).getByLabel("URL", { exact: true })).toHaveValue(url);
   await dialog.getByRole("button", { name: "Create work and checkpoint" }).click();

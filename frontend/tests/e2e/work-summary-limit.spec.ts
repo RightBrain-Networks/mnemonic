@@ -14,7 +14,7 @@ test("configurable work summary limit preserves Unicode and validates creation a
   const title = `Summary limit ${testInfo.project.name} ${state.runId.slice(0, 8)}`;
   await page.goto("/");
   await page.locator("#project-select").selectOption(state.projectId);
-  await page.locator(".page-heading").getByRole("button", { name: "New work" }).click();
+  await page.locator(".topbar").getByRole("button", { name: "New work" }).click();
   const dialog = page.getByRole("dialog", { name: "Create durable work" });
   await dialog.getByLabel("Title", { exact: true }).fill(title);
   const summary = dialog.getByRole("textbox", { name: "Summary", exact: true });

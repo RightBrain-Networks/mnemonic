@@ -1,30 +1,15 @@
-import type { ReactNode } from "react";
-import type { LiveSyncStatus } from "@/lib/live-sync";
-
-const liveSyncLabels: Record<LiveSyncStatus, string> = {
-  live: "Live updates",
-  retrying: "Reconnecting…",
-  connecting: "Connecting…"
-};
-
 export default function DashboardViewChrome({
   eyebrow,
   title,
   subject,
   subjectDescription,
-  description,
-  liveSyncStatus,
-  onRefresh,
-  actions
+  description
 }: {
   eyebrow?: string;
   title: string;
   subject?: string;
   subjectDescription?: string;
   description?: string;
-  liveSyncStatus: LiveSyncStatus;
-  onRefresh: () => void;
-  actions?: ReactNode;
 }) {
   return <section className="page-heading">
     <div>
@@ -40,15 +25,6 @@ export default function DashboardViewChrome({
         </span></>}
       </h1>
       {description && <p>{description}</p>}
-    </div>
-    <div className="heading-actions">
-      <button className="button button-secondary" type="button" onClick={onRefresh}>Refresh</button>
-      {actions}
-      <div
-        className={`sync-status sync-status-${liveSyncStatus}`}
-        role="status"
-        aria-live="polite"
-      ><span className="sync-status-dot" />{liveSyncLabels[liveSyncStatus]}</div>
     </div>
   </section>;
 }

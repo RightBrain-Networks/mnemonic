@@ -10,8 +10,10 @@ test("theme choices persist and Auto follows the system", async ({ page }) => {
 
   await expect(auto).toBeChecked();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator(".theme-selector svg")).toHaveCount(3);
+  await expect(page.locator(".theme-selector")).not.toContainText(/Auto|Dark|Light/);
 
-  await page.getByText("Light", { exact: true }).click();
+  await page.locator(".theme-selector label").nth(2).click();
   await expect.poll(() => page.evaluate(() => document.getAnimations()
     .some((animation) => {
       const effect = animation.effect;
@@ -27,10 +29,10 @@ test("theme choices persist and Auto follows the system", async ({ page }) => {
   await expect(light).toBeChecked();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 
-  await page.getByText("Dark", { exact: true }).click();
+  await page.locator(".theme-selector label").nth(1).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
-  await page.getByText("Auto", { exact: true }).click();
+  await page.locator(".theme-selector label").nth(0).click();
   await page.emulateMedia({ colorScheme: "light" });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await expect.poll(() => page.evaluate(() => localStorage.getItem("mnemonic.theme")))

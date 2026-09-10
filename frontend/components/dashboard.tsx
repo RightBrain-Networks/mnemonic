@@ -133,6 +133,12 @@ import {
   type CompletionEvidenceIssue
 } from "@/lib/completion-evidence";
 
+const liveSyncLabels: Record<LiveSyncStatus, string> = {
+  live: "Live Updates",
+  retrying: "Reconnecting…",
+  connecting: "Connecting…"
+};
+
 const iconPaths = {
   search: "m21 21-4.4-4.4M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0Z",
   plus: "M12 5v14M5 12h14",
@@ -2793,15 +2799,6 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
     title="Work library"
     subject={project?.name}
     subjectDescription={project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}
-    liveSyncStatus={liveSyncStatus}
-    onRefresh={() => {
-      setProjectsRefresh((value) => value + 1);
-      setRefresh((value) => value + 1);
-      setCheckpointRefresh((value) => value + 1);
-      setEventRefresh((value) => value + 1);
-      setContextRefresh((value) => value + 1);
-    }}
-    actions={project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}
   />;
 
   return <MutationIntentProvider registry={mutationRegistry}><div className="app-shell">
@@ -2824,16 +2821,16 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
         <a className={`nav-item ${view === "artifacts" ? "active" : ""}`} href={activeId ? artifactLibraryPath(activeId) : "/artifacts"} aria-current={view === "artifacts" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="artifacts" /><span>Artifacts</span><Icon name="arrow" size={15} /></a>
         <a className={`nav-item ${view === "settings" ? "active" : ""}`} href="/settings" aria-current={view === "settings" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="settings" /><span>Project settings</span><Icon name="arrow" size={15} /></a>
       </nav>
-      <div className="sidebar-note"><img className="note-art" src="/img/robot.svg" alt="" width={115} height={115} aria-hidden="true" /><h2>Keep your agents on the same page.</h2><p>Work units are reserved and nothing is forgotten.</p></div>
+      <div className="sidebar-note"><h2>Keeping your agents on the same page.</h2></div>
       <div className="sidebar-footer"><span className="local-dot" /><span>Local workspace</span><ThemeSelector /></div>
     </aside>
 
     <main id="main-content" className="main-content">
-      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view !== "library" && <><span className="breadcrumb-slash">/</span><span>{view === "artifacts" ? "Artifacts" : view === "settings" ? "Project settings" : view === "summaries" ? "Summaries" : "Needs Attention"}</span></>}</div><span className="topbar-note"><span className="small-mark">m.</span>Context worth keeping</span></header>
+      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view !== "library" && <><span className="breadcrumb-slash">/</span><span>{view === "artifacts" ? "Artifacts" : view === "settings" ? "Project settings" : view === "summaries" ? "Summaries" : "Needs Attention"}</span></>}</div><div className="topbar-actions">{project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncLabels[liveSyncStatus]}</div></div></header>
       <div className={`page-content ${view === "library" ? "page-content-library" : ""}`}>
         {activity.error && <div className="error-notice" role="alert"><p>Activity updates: {activity.error}</p><button type="button" className="button button-secondary" onClick={activity.streamChanged ? activity.reloadSnapshot : activity.poll}>{activity.streamChanged ? "Reload current snapshot" : "Retry updates"}</button></div>}
         {view === "artifacts" ? <>
-          <DashboardViewChrome eyebrow="FILES THAT STAY WITH YOUR WORK" title="Artifacts" description={project ? `Documents, binaries and working files in “${project.name}”.` : "Choose a project to open its artifact library."} liveSyncStatus={liveSyncStatus} onRefresh={() => { setRefresh((value) => value + 1); setProjectsRefresh((value) => value + 1); }} />
+          <DashboardViewChrome eyebrow="FILES THAT STAY WITH YOUR WORK" title="Artifacts" description={project ? `Documents, binaries and working files in “${project.name}”.` : "Choose a project to open its artifact library."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
           {project ? <ArtifactLibrary key={project.id} projectId={project.id} maximumBytes={artifactMaxBytes} refreshSignal={refresh} onPendingChange={setArtifactPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to upload artifacts."}</div>}
         </> : view === "settings" ? <>
@@ -2841,11 +2838,6 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
             eyebrow="PROJECT CONFIGURATION"
             title="Project settings"
             description={project ? `Control how Mnemonic hands off work from “${project.name}”.` : "Choose a project, then configure how Mnemonic hands off its work."}
-            liveSyncStatus={liveSyncStatus}
-            onRefresh={() => {
-              setProjectsRefresh((value) => value + 1);
-              setSettingsRefresh((value) => value + 1);
-            }}
           />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
           {projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
@@ -2867,7 +2859,7 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
         </> : view === "summaries" ? <>
           <DashboardViewChrome eyebrow="WORK RESULTS FOR PEOPLE" title="Summaries"
             description={project ? `Closeout reports to review in “${project.name}”.` : "Choose a project to read its closeout reports."}
-            liveSyncStatus={liveSyncStatus} onRefresh={() => { setReportRefresh((value) => value + 1); activity.poll(); }} />
+          />
           {project && activityReadyProjectId === project.id
             ? <JobReportList key={project.id} projectId={project.id} refreshSignal={reportRefresh}
                 onChanged={() => { setReportRefresh((value) => value + 1); setRefresh((value) => value + 1); }}
@@ -2880,13 +2872,6 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
             eyebrow="EXPLICIT HUMAN OVERSIGHT"
             title="Needs Attention"
             description={project ? `Durable questions waiting in “${project.name}”.` : "Choose a project to review its explicit human questions."}
-            liveSyncStatus={liveSyncStatus}
-            onRefresh={() => {
-              setProjectsRefresh((value) => value + 1);
-              setAttentionRefresh((value) => value + 1);
-              setContextRefresh((value) => value + 1);
-              setEventRefresh((value) => value + 1);
-            }}
           />
           {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
             projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :

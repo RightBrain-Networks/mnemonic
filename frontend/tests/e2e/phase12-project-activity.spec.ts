@@ -133,7 +133,6 @@ test("report prompt and recall content save and reset independently with visible
     settings = await (await api.get(`/api/v1/projects/${project.id}/settings`)).json() as ProjectSettings;
     const competing = await api.patch(`/api/v1/projects/${project.id}/settings`, { data: { expected_revision: settings.revision, recall_pointer_template: "Another editor’s recall content." } });
     expect(competing.ok()).toBe(true);
-    await page.locator(".page-heading").getByRole("button", { name: "Refresh" }).click();
     await expect(page.getByText("Review the latest saved settings before applying your draft.", { exact: false })).toBeVisible();
     await expect(reports.getByRole("textbox")).toHaveValue("A human draft that must survive another settings change.");
     await expect(reports.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
