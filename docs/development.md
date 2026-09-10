@@ -816,7 +816,7 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.35.0`, plugin is `0.23.0`,
+Current application/API/MCP/dashboard versions are `0.35.1`, plugin is `0.23.0`,
 and Alembic head is `0029_artifact_links_sensitive`. Validate all surfaces
 together with the existing regression suites. This release adds the safe
 `get_artifact_text` tool and REST read, compact MCP search/download results,

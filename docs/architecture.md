@@ -1,6 +1,6 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.35.0`, Claude plugin `0.23.0`,
+This architecture describes application/API/MCP `0.35.1`, Claude plugin `0.23.0`,
 and Alembic head `0029_artifact_links_sensitive`.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
