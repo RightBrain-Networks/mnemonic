@@ -139,14 +139,14 @@ async function mergeAlias(
 async function openDashboard(page: Page): Promise<void> {
   await page.goto("/");
   await page.locator("#project-select").selectOption(state.projectId);
-  await expect(page.locator(".sync-status")).toHaveText("Live updates");
+  await expect(page.locator(".sync-status")).toHaveText("Live Updates");
 }
 
 async function fillCreateDraft(
   page: Page,
   draft: { title: string; summary: string; prompt: string; tags?: string }
 ) {
-  await page.locator(".page-heading").getByRole("button", { name: "New work" }).click();
+  await page.locator(".topbar").getByRole("button", { name: "New work" }).click();
   const dialog = page.getByRole("dialog", { name: "Create durable work" });
   await dialog.getByLabel("Title").fill(draft.title);
   await dialog.getByLabel("Summary").fill(draft.summary);
@@ -353,7 +353,7 @@ test("Advisory states stay optional, accessible, stale-safe, and bidi-isolated",
   });
 
   await openDashboard(page);
-  await page.locator(".page-heading").getByRole("button", { name: "New work" }).click();
+  await page.locator(".topbar").getByRole("button", { name: "New work" }).click();
   const dialog = page.getByRole("dialog", { name: "Create durable work" });
   const check = dialog.getByRole("button", { name: "Check existing work" });
   const create = dialog.getByRole("button", { name: "Create work and checkpoint" });

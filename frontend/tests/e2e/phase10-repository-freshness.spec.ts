@@ -43,7 +43,7 @@ async function deleteFixture(client: APIRequestContext, workId: string): Promise
 async function openDashboard(page: Page): Promise<void> {
   await page.goto("/");
   await page.locator("#project-select").selectOption(state.projectId);
-  await expect(page.locator(".sync-status")).toHaveText("Live updates");
+  await expect(page.locator(".sync-status")).toHaveText("Live Updates");
 }
 
 test("browser creates, displays, appends, completes, and refreshes declared scopes", async ({
@@ -70,7 +70,7 @@ test("browser creates, displays, appends, completes, and refreshes declared scop
 
   try {
     await openDashboard(page);
-    await page.locator(".page-heading").getByRole("button", { name: "New work" }).click();
+    await page.locator(".topbar").getByRole("button", { name: "New work" }).click();
     const create = page.getByRole("dialog", { name: "Create durable work" });
     await create.getByLabel("Title").fill(title);
     await create.getByLabel("Summary").fill("Exercise browser-only Phase 10 declarations.");
@@ -132,7 +132,7 @@ test("browser creates, displays, appends, completes, and refreshes declared scop
     expect(await longPath.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 
     await closeDetail(page);
-    await page.getByRole("button", { name: "Refresh" }).click();
+    await page.reload();
     pane = await selectWork(page, title);
     history = await openTab(pane, "History");
     await expect(history.locator("article.checkpoint")).toHaveCount(2);

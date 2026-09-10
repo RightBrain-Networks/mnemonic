@@ -407,16 +407,18 @@ test("activity pagination, refresh recovery, replay, and proxy denials stay cohe
     await expect(activity.locator(".event-pagination")).toContainText("21–25 of 25");
     await expect(activity.getByText("Unattributed earlier action", { exact: true })).toBeVisible();
 
-    // A manual Refresh must surface the externally appended event and reset the activity page.
-    // On the narrow project the sheet has to close before Refresh is reachable; on desktop the
-    // pane stays open beside the queue and the refresh signal resets the timeline in place.
-    const manualRefreshBody = "Manual refresh progress " + suffix;
-    await appendProgress(client, state.projectId, workId, manualRefreshBody, suffix + "-manual");
+    // A live update surfaces the externally appended event and resets the activity page.
+    const firstLiveBody = "First live progress " + suffix;
+    await appendProgress(client, state.projectId, workId, firstLiveBody, suffix + "-first-live");
     await closeDetail(page);
-    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    sendSync!(JSON.stringify({
+      type: "invalidate",
+      revision: 1,
+      scope: "work-items"
+    }));
     await selectWork(page, title);
     await openTab(pane, "Activity");
-    await expect(activity.locator("article.work-event").filter({ hasText: manualRefreshBody })).toHaveCount(1);
+    await expect(activity.locator("article.work-event").filter({ hasText: firstLiveBody })).toHaveCount(1);
     await expect(activity.locator(".event-pagination")).toContainText("1–20 of 26");
 
     await activity.getByRole("button", { name: "Older" }).click();
@@ -425,7 +427,7 @@ test("activity pagination, refresh recovery, replay, and proxy denials stay cohe
     await appendProgress(client, state.projectId, workId, liveResetBody, suffix + "-live");
     sendSync!(JSON.stringify({
       type: "invalidate",
-      revision: 1,
+      revision: 2,
       scope: "work-items"
     }));
     await expect(activity.locator("article.work-event").filter({ hasText: liveResetBody })).toHaveCount(1);

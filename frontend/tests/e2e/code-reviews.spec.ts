@@ -275,10 +275,6 @@ test("code review settings expose independent accessible sliders, endpoints and 
     await configure(api, p.id, {
       recall_pointer_template: "Independent recall edit.",
     });
-    await page
-      .locator(".page-heading")
-      .getByRole("button", { name: "Refresh" })
-      .click();
     await expect(
       card.getByText("Your draft has been kept.", { exact: false }),
     ).toBeVisible();

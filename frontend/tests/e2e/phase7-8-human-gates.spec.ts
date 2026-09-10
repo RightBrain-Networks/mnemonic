@@ -747,7 +747,7 @@ test("a deep attention cursor and sibling drafts survive refresh and resolution"
 
     await page.goto(`/attention?work_item_id=${workId}`);
     await page.locator("#project-select").selectOption(state.projectId);
-    await expect(page.getByText("Live updates", { exact: true })).toBeVisible();
+    await expect(page.getByText("Live Updates", { exact: true })).toBeVisible();
     const attentionList = page.locator(".attention-list");
     await expect(attentionList.getByRole("alert")).toContainText(
       "Injected attention page failure."
@@ -904,7 +904,7 @@ test("detail reconciliation preserves sibling gate drafts and restores focus", a
     });
     await page.goto(`/attention?work_item_id=${workId}`);
     await page.locator("#project-select").selectOption(state.projectId);
-    await expect(page.getByText("Live updates", { exact: true })).toBeVisible();
+    await expect(page.getByText("Live Updates", { exact: true })).toBeVisible();
     await page.locator("article.attention-card").first()
       .getByRole("button", { name: "Open work context" }).click();
     await expect(page).toHaveURL(/\?work=/);

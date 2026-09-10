@@ -84,10 +84,10 @@ test("the colon keeps the period's accent and the project name does not take it"
   // accent rule has to name the mark explicitly or the project name turns orange.
   assert.ok(!/\.page-heading h1 > span/.test(css), "an accent rule still matches any child span");
   assert.equal(declaration(".page-heading h1 > .heading-mark", "color"), "var(--accent)");
-  assert.equal(declaration(".small-mark, .eyebrow, .page-heading h1 > .heading-mark", "color"),
+  assert.equal(declaration(".eyebrow, .page-heading h1 > .heading-mark", "color"),
     "var(--accent)");
   assert.match(css,
-    /html\[data-theme="dark"\] :is\(\.small-mark, \.eyebrow, \.page-heading h1 > \.heading-mark\)/);
+    /html\[data-theme="dark"\] :is\(\.eyebrow, \.page-heading h1 > \.heading-mark\)/);
   for (const body of ruleBodies(".heading-subject-name")) {
     assert.ok(!/color:/.test(body), "the project name should inherit the heading's ink");
   }

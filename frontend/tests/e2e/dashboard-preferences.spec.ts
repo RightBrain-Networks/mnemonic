@@ -43,12 +43,9 @@ test("the complete library overview collapses with directional easing and persis
   const filters = page.getByRole("group", { name: "Filter work items" });
   const heading = page.getByRole("heading", { name: /^Work library[.:]/ });
   const pageHeading = page.locator(".page-heading");
-  const refresh = pageHeading.getByRole("button", { name: "Refresh" });
-  const newWork = pageHeading.getByRole("button", { name: "New work" });
-  const liveUpdates = pageHeading.getByText("Live updates", { exact: true });
-  const reviewQueue = page.getByText("Code review queue and unanswered recommendations", {
-    exact: true
-  });
+  const topbar = page.locator(".topbar");
+  const newWork = topbar.getByRole("button", { name: "New work" });
+  const liveUpdates = topbar.getByText("Live Updates", { exact: true });
   const search = page.getByRole("searchbox", { name: "Search work items" });
   const filterTop = async () => {
     const box = await filters.boundingBox();
@@ -57,13 +54,13 @@ test("the complete library overview collapses with directional easing and persis
   };
 
   await expect(panel.locator(".page-heading")).toHaveCount(1);
-  await expect(panel.locator(".sync-status")).toHaveCount(1);
+  await expect(panel.locator(".sync-status")).toHaveCount(0);
+  await expect(topbar.locator(".sync-status")).toHaveCount(1);
   await expect(page.getByText("Search and reviews", { exact: true })).toHaveCount(0);
   await expect(heading).toBeVisible();
-  await expect(refresh).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
   await expect(newWork).toBeVisible();
   await expect(liveUpdates).toBeVisible();
-  await expect(reviewQueue).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-library-tools", "open");
   await expect(toggle).toHaveAccessibleName("Collapse work library overview");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
@@ -94,8 +91,8 @@ test("the complete library overview collapses with directional easing and persis
   );
   await expect(panel).toHaveCSS("height", "0px");
   await expect(heading).toBeHidden();
-  await expect(refresh).toBeHidden();
-  await expect(newWork).toBeHidden();
+  await expect(newWork).toBeVisible();
+  await expect(liveUpdates).toBeVisible();
   await expect.poll(filterTop).toBeLessThan(expandedTop - 120);
   const collapsedTop = await filterTop();
   await expect.poll(() => page.evaluate(() =>

@@ -411,7 +411,7 @@ test("disabling artifacts preserves an uncertain file and UUID until an exact re
   await page.getByLabel("Upload artifact files").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from("Preserve these bytes") });
   await expect(page.getByRole("button", { name: "Retry pending action" })).toBeEnabled();
   maximum = 0;
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await expect(page.getByRole("heading", { name: "Artifact library disabled", exact: true })).toBeVisible();
   await expect(page.getByLabel("Artifact library", { exact: true }).getByRole("alert")).toContainText(filename);
   await expect(page.getByLabel("Artifact library", { exact: true }).getByRole("alert")).toContainText(attempts[0].id!);
@@ -451,7 +451,7 @@ test("live artifact status re-enables a page opened with a zero server-rendered 
   await expect(page.getByRole("heading", { name: "Artifact library disabled", exact: true })).toBeVisible();
   expect(patchedInitialLimit).toBe(true);
   maximum = 64;
-  await page.locator(".page-heading").getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await expect(page.getByRole("button", { name: "Upload files", exact: true })).toBeEnabled();
   await expect(page.locator(".artifact-upload-hint")).toContainText("64 B (64 bytes) per file");
   await expect(page.getByRole("region", { name: "Sortable artifact directory" })).toBeVisible();

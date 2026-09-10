@@ -15,6 +15,24 @@ const themeLabels: Record<ThemePreference, string> = {
   light: "Light"
 };
 
+function ThemeIcon({ preference }: { preference: ThemePreference }) {
+  if (preference === "auto") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="currentColor" stroke="none" />
+    </svg>;
+  }
+  if (preference === "dark") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M19.4 15.2A8.5 8.5 0 0 1 8.8 4.6a8.5 8.5 0 1 0 10.6 10.6Z" />
+    </svg>;
+  }
+  return <svg viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="3.5" />
+    <path d="M12 2v2.2M12 19.8V22M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M2 12h2.2M19.8 12H22M4.9 19.1l1.6-1.6M17.5 6.5l1.6-1.6" />
+  </svg>;
+}
+
 type ThemeTransitionDocument = Document & {
   startViewTransition?: (update: () => void) => unknown;
 };
@@ -101,10 +119,11 @@ export default function ThemeSelector() {
         type="radio"
         name="theme"
         value={option}
+        aria-label={themeLabels[option]}
         checked={preference === option}
         onChange={() => chooseTheme(option)}
       />
-      <span>{themeLabels[option]}</span>
+      <span><ThemeIcon preference={option} /></span>
     </label>)}
   </fieldset>;
 }

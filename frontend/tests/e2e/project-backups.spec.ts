@@ -225,6 +225,10 @@ for (const outcome of ["pending", "uncertain"] as const) {
     const released = new Promise<void>((resolve) => { release = resolve; });
     try {
       const project = await createProject(api, `Catalog outage during ${outcome} restore`);
+      let sendSync: ((message: string) => void) | undefined;
+      await page.routeWebSocket(/\/api\/mnemonic\/sync$/, (socket) => {
+        sendSync = (message) => socket.send(message);
+      });
       const archive = await downloadBackup(page, project);
       const changed = await api.patch(`/api/v1/projects/${project.id}`, { data: { description: "Changed after archive" } });
       expect(changed.ok(), await changed.text()).toBe(true);
@@ -255,7 +259,8 @@ for (const outcome of ["pending", "uncertain"] as const) {
       const originalPanel = await panel.elementHandle();
 
       catalogMode = "error";
-      await page.locator(".page-heading").getByRole("button", { name: "Refresh", exact: true }).click();
+      await expect.poll(() => Boolean(sendSync)).toBe(true);
+      sendSync!(JSON.stringify({ type: "invalidate", scope: "projects", revision: 1 }));
       await expect(page.getByText("Injected project catalog outage", { exact: true })).toBeVisible();
       await expect(panel).toBeVisible();
       await expect(panel.getByRole("button", { name: "Back up now" })).toBeDisabled();
