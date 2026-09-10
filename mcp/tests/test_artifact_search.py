@@ -85,8 +85,9 @@ async def test_history_accepts_two_full_pages_with_bounded_extracted_metadata(se
               "agent_session_id": "🗎" * 200, "actor_client": "🗎" * 80, "created_at": NOW}
     revisions = [{**common, "revision": revision, "size_bytes": 2, "sha256": "a" * 64,
                   "mime_type": "text/plain", "related_work_item_ids": [],
+                  "related_artifact_ids": [], "sensitive": False,
                   "extraction": extraction} for revision in range(1, 101)]
-    audit = [{**common, "id": revision, "revision": revision, "action": "replaced"}
+    audit = [{**common, "id": revision, "revision": revision, "action": "replaced", "details": {}}
              for revision in range(1, 101)]
     payload = {"revisions": {"items": revisions, "total": 100, "limit": 100, "offset": 0},
                "audit": {"items": audit, "total": 100, "limit": 100, "offset": 0}}

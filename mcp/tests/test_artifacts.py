@@ -22,6 +22,7 @@ def artifact(**overrides):
         "sha256": hashlib.sha256(CONTENT).hexdigest(), "mime_type": "application/pdf",
         "created_by_agent_session_id": "test-session", "created_by_client": "test-agent",
         "originating_work_item_id": WORK_ID, "related_work_item_ids": [],
+        "related_artifact_ids": [], "sensitive": False,
         "created_at": NOW, "modified_at": NOW, "deleted_at": None, "content_available": True,
         "extraction": {"status": "pending", "metadata": {}, "truncated": False,
                        "error_code": None, "extracted_at": None},
@@ -34,7 +35,7 @@ def artifact_summary(**overrides):
         "id": ARTIFACT_ID, "project_id": PROJECT_ID, "filename": "private report.pdf",
         "revision": 1, "size_bytes": len(CONTENT),
         "sha256": hashlib.sha256(CONTENT).hexdigest(), "mime_type": "application/pdf",
-        "deleted_at": None, "content_available": True,
+        "deleted_at": None, "content_available": True, "sensitive": False,
         "extraction": {"status": "pending", "truncated": False,
                        "error_code": None, "extracted_at": None},
         **overrides,
@@ -69,6 +70,8 @@ async def call(settings, name, arguments, handler, *, maximum=67108864, status_r
             response = handler(request)
         if "X-Client-Operation-ID" in request.headers:
             response.headers["X-Client-Operation-ID"] = request.headers["X-Client-Operation-ID"]
+        elif request.method == "PATCH" and "/artifacts/" in request.url.path:
+            response.headers["X-Client-Operation-ID"] = json.loads(request.content)["client_operation_id"]
         return httpx.Response(response.status_code, headers=response.headers,
                               stream=httpx.ByteStream(response.content))
 
@@ -198,6 +201,7 @@ async def test_metadata_search_scopes_project_and_work(settings):
 
 def search_page(**overrides):
     return {"items": [], "total": 0, "limit": 50, "offset": 0, "fulltext": False,
+            "sensitive_content_withheld": 0,
             "indexing": {"ready": 0, "pending": 0, "failed": 0, "truncated": 0}, **overrides}
 
 

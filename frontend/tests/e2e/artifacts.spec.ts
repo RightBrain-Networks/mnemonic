@@ -313,13 +313,13 @@ test("artifact work links restore their project after another tab changes it and
     await link.click();
     await expect(page.locator("#project-select")).toHaveValue(state.projectId);
     await expect(page.locator(".artifact-filter-note")).toContainText(workId);
-    await page.getByText("Upload description and work links", { exact: true }).click();
+    await page.getByText("Upload description, links and sensitivity", { exact: true }).click();
     await expect(page.getByLabel("Originating work item ID", { exact: true })).toHaveValue(workId);
 
     await page.locator("#project-select").selectOption(destination.id);
     await expect(page).toHaveURL(new RegExp(`/artifacts\\?project=${destination.id}$`));
     await expect(page.locator(".artifact-filter-note")).toBeHidden();
-    await page.getByText("Upload description and work links", { exact: true }).click();
+    await page.getByText("Upload description, links and sensitivity", { exact: true }).click();
     await expect(page.getByLabel("Originating work item ID", { exact: true })).toHaveValue("");
     await expect(page.getByLabel("Related work item IDs", { exact: true })).toHaveValue("");
     const filename = `project-switch-${token}.txt`;
@@ -338,7 +338,7 @@ test("large escaped Unicode descriptions pass the artifact HTTP header envelope"
   const description = "é".repeat(2600);
   await page.goto(`/artifacts?project=${state.projectId}`);
   await expect(page.locator("#project-select")).toHaveValue(state.projectId);
-  await page.getByText("Upload description and work links", { exact: true }).click();
+  await page.getByText("Upload description, links and sensitivity", { exact: true }).click();
   await page.getByLabel("Description", { exact: true }).fill(description);
   const uploaded = page.waitForRequest((request) => request.method() === "POST" && request.url().includes(`/projects/${state.projectId}/artifacts`));
   await page.getByLabel("Upload artifact files").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from("Unicode metadata") });

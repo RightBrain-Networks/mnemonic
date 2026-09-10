@@ -1,7 +1,7 @@
 import { ARTIFACT_DEFAULT_MAX_BYTES, ARTIFACT_DISABLED_MESSAGE, decodeArtifactStatus, formatArtifactSize, validArtifactSearchRequest } from "./artifacts.ts";
 import { readBoundedBytes } from "./bounded-json.ts";
 import { configuredOrigins, forbiddenControlTransport, trustedRequest } from "./proxy-policy.ts";
-import { UUID_PATTERN, validUuid } from "./wire-guards.ts";
+import { boundedText, finiteInteger, objectValue, sameUuid, UUID_PATTERN, validUuid } from "./wire-guards.ts";
 
 const UUID = UUID_PATTERN.source.slice(1, -1);
 const COLLECTION = new RegExp(`^projects/${UUID}/artifacts$`);
@@ -25,7 +25,7 @@ export function artifactQueryKeys(path: string, method: string): readonly string
   }
   if (ITEM.test(path)) {
     if (method === "GET") return [];
-    if (method === "DELETE") return [];
+    if (method === "DELETE" || method === "PATCH") return [];
   }
   if (CONTENT.test(path)) {
     if (method === "GET") return [];
@@ -100,9 +100,10 @@ export async function proxyArtifact(request: Request, path: string[], environmen
     if (!keys.includes(field) || query.getAll(field).length !== 1) return fail(400, "The artifact query contains an unsupported or repeated field.");
   }
   if (maximum === 0 && route !== "status") return limitFailure(0);
+  const update = request.method === "PATCH";
   const search = SEARCH.test(route) && request.method === "POST";
   const mutation = request.method !== "GET" && !search;
-  if (search && (request.headers.has("X-Artifact-Metadata") || request.headers.has("X-Artifact-Expected-Revision"))) return fail(400, "Artifact search does not accept mutation headers.");
+  if ((search || update) && (request.headers.has("X-Artifact-Metadata") || request.headers.has("X-Artifact-Expected-Revision"))) return fail(400, "JSON artifact requests do not accept binary metadata headers.");
   const metadata = request.headers.get("X-Artifact-Metadata");
   if (mutation && metadata && (metadata.length > 16384 || /[^\x20-\x7e]/.test(metadata))) return fail(400, "Artifact metadata must be bounded ASCII JSON.");
   let parsedMetadata: Record<string, unknown> = {};
@@ -111,7 +112,7 @@ export async function proxyArtifact(request: Request, path: string[], environmen
       const parsed: unknown = JSON.parse(metadata);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
       parsedMetadata = parsed as Record<string, unknown>;
-      const allowed = request.method === "DELETE" ? ["agent_session_id", "actor_client"] : ["filename", "description", "agent_session_id", "actor_client", "work_item_id", "related_work_item_ids"];
+      const allowed = request.method === "DELETE" ? ["agent_session_id", "actor_client"] : ["filename", "description", "agent_session_id", "actor_client", "work_item_id", "related_work_item_ids", "sensitive", "related_artifact_ids"];
       if (Object.keys(parsedMetadata).some((field) => !allowed.includes(field))) throw new Error();
     } catch { return fail(400, "Artifact metadata does not match the dashboard allowlist."); }
   }
@@ -139,6 +140,16 @@ export async function proxyArtifact(request: Request, path: string[], environmen
   if (upload && (typeof parsedMetadata.filename !== "string" || !parsedMetadata.filename)) return fail(400, "An artifact filename is required.");
   const encoding = request.headers.get("content-encoding");
   if (encoding && encoding.toLowerCase() !== "identity") return fail(415, "Encoded artifact request bodies are not supported.");
+  let updateBody: string | undefined;
+  if (update) {
+    if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") return fail(415, "Send artifact changes as application/json.");
+    if (!request.body) return fail(400, "Artifact changes are required.");
+    try {
+      const bytes = await readBoundedBytes(new Response(request.body, { headers: request.headers }), 32768);
+      updateBody = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      if (!validArtifactUpdateRequest(JSON.parse(updateBody), operationId!)) return fail(400, "The artifact changes do not match the dashboard allowlist.");
+    } catch { return fail(400, "Artifact changes must be valid JSON within 32768 bytes."); }
+  }
   let searchBody: string | undefined;
   if (search) {
     if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") return fail(415, "Send artifact search as application/json.");
@@ -154,17 +165,19 @@ export async function proxyArtifact(request: Request, path: string[], environmen
     const target = new URL(`/api/v1/${route === "status" ? "artifacts/status" : route}`, base);
     target.search = query.toString();
     const headers = new Headers({ Authorization: `Bearer ${key}`, "Accept-Encoding": "identity" });
-    if (mutation) headers.set("X-Client-Operation-ID", operationId!);
+    if (mutation && !update) headers.set("X-Client-Operation-ID", operationId!);
     if (mutation && metadata) headers.set("X-Artifact-Metadata", metadata);
     if (revision && mutation) headers.set("X-Artifact-Expected-Revision", revision);
     if (upload) headers.set("Content-Type", "application/octet-stream");
-    if (search) headers.set("Content-Type", "application/json");
+    if (search || update) headers.set("Content-Type", "application/json");
+    if (search || request.method === "GET") headers.set("X-Artifact-Access", "human-dashboard");
     const init: RequestInit & { duplex?: "half" } = {
       method: request.method, headers, cache: "no-store", redirect: "manual",
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(300000)])
     };
     if (upload && request.body) { init.body = boundedArtifactStream(request.body, transportMaximum); init.duplex = "half"; }
     if (search) init.body = searchBody;
+    if (update) init.body = updateBody;
     const upstream = await fetcher(target, init);
     if (upstream.status >= 300 && upstream.status < 400) { await upstream.body?.cancel(); return fail(502, "Mnemonic's API returned an unexpected redirect."); }
     const contentEncoding = upstream.headers.get("content-encoding");
@@ -195,7 +208,23 @@ export async function proxyArtifact(request: Request, path: string[], environmen
     JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
     const responseHeaders = new Headers({ ...SECURITY_HEADERS, "Content-Type": "application/json" });
     const echoed = upstream.headers.get("X-Client-Operation-ID");
-    if (mutation && echoed === operationId) responseHeaders.set("X-Client-Operation-ID", echoed!);
+    if (mutation && echoed === operationId) {
+      responseHeaders.set("X-Client-Operation-ID", echoed!);
+      if (upstream.headers.get("X-Artifact-Operation-Replayed") === "true") responseHeaders.set("X-Artifact-Operation-Replayed", "true");
+    }
     return new Response(bytes, { status: upstream.status, headers: responseHeaders });
   } catch { return fail(502, search ? "Artifact search could not be completed. Try the search again." : "The artifact request could not be completed. Retry the same pending action if its outcome is unknown."); }
+}
+
+function validArtifactUpdateRequest(value: unknown, operationId: string): boolean {
+  const body = objectValue(value);
+  if (!body || Object.keys(body).some((key) => !["client_operation_id", "expected_revision", "sensitive", "related_artifact_ids", "related_work_item_ids", "description", "agent_session_id", "actor_client"].includes(key))
+    || !sameUuid(body.client_operation_id, operationId) || !finiteInteger(body.expected_revision, 1, 2147483647)
+    || body.sensitive !== undefined && typeof body.sensitive !== "boolean"
+    || body.description !== undefined && body.description !== null && !boundedText(body.description, 4000)
+    || body.agent_session_id !== undefined && !boundedText(body.agent_session_id, 200)
+    || body.actor_client !== undefined && body.actor_client !== "dashboard") return false;
+  return [body.related_artifact_ids, body.related_work_item_ids].every((ids) => ids === undefined
+    || Array.isArray(ids) && ids.length <= 50 && ids.every(validUuid)
+      && new Set(ids.map((id: string) => id.toLowerCase())).size === ids.length);
 }

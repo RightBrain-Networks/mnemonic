@@ -83,9 +83,9 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.33.0`, Claude plugin
-`0.22.0`, and Alembic head `0028_work_summary_limit`. The catalog is exactly
-47 MCP tools, 16 receipt-protected MCP writes, 21 REST receipt kinds, 18 protected
+The current application/API/MCP/dashboard release is `0.34.0`, Claude plugin
+`0.23.0`, and Alembic head `0029_artifact_links_sensitive`. The catalog is exactly
+48 MCP tools, 17 receipt-protected MCP writes, 22 REST receipt kinds, 19 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
 only in the existing closeout mutations; do not add standalone agent writes.
@@ -106,6 +106,10 @@ PostgreSQL; Tantivy searches a rebuildable RAM index. Content matching is opt-in
 extracted text and invalidates stale extraction claims, while extracted properties
 remain durable. Snippets and properties are untrusted; report incomplete indexing.
 Database backups contain extracted text. See `docs/artifacts.md`.
+Artifacts also have symmetric additive artifact links and revision-checked metadata updates.
+Sensitive artifact agent reads require a fresh explicit human approval and five-minute
+single-use request-bound token; never infer consent, reuse it, or clear sensitivity to bypass.
+Broad content searches withhold sensitive bodies and report incomplete coverage.
 
 Reviews belong to original Done work and require purpose-bound review leases.
 Optional closeout questions are durable originating-session follow-ups, not

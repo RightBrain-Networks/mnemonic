@@ -1,5 +1,28 @@
 # Mnemonic validation record
 
+## Artifact links and sensitive content (0.34.0)
+
+Application/API/MCP/dashboard `0.34.0`, plugin `0.23.0`, and migration
+`0029_artifact_links_sensitive` add symmetric artifact links, metadata-only updates,
+dashboard linking in both work/artifact directions, and per-access human-approval
+challenges for sensitive content. The catalog is 48 MCP tools, 17 protected MCP
+writes, 22 REST receipt kinds and 19 protected browser mutations.
+
+Regression coverage includes request/caller/revision-bound expiring tokens,
+concurrent single-use consumption, per-page/query approval, sensitive body and
+property search exclusions, historical property redaction, secret-free audit
+attribution, exact mutation replay, cross-project/self-link rejection, both-endpoint
+link limits, crash recovery, and restore invalidation of previously issued tokens.
+Browser acceptance covers both linking directions, symmetric artifact navigation,
+sensitivity changes, direct human access, and exact retry after a lost PATCH response.
+
+Validation used disposable PostgreSQL schemas and the isolated browser acceptance
+stack, with 34 desktop/narrow artifact scenarios and six backup acceptance groups
+passing. Backend and MCP Ruff/ty, frontend unit tests, TypeScript and production
+build are required alongside the complete backend/MCP CI suites. No production
+migration was run. See [artifact contracts](artifacts.md) and
+[UI screenshots](images/artifact-links-sensitive/desktop-artifacts.png).
+
 ## Artifact text reads and client downloads — 2026-09-09
 
 Application/API/MCP/dashboard `0.33.0` and plugin `0.22.0` add the safe-read

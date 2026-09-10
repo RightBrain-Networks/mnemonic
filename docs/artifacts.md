@@ -1,7 +1,7 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.33.0`, plugin `0.22.0`, and current migration
-`0028_work_summary_limit` support files outside Git and local full-text search. Each artifact belongs permanently
+Application/API/MCP/dashboard `0.34.0`, plugin `0.23.0`, and current migration
+`0029_artifact_links_sensitive` support files outside Git and local full-text search. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
 can have the same filename without colliding.
@@ -13,6 +13,77 @@ does not store original file bytes. It also stores normalized extracted text for
 the current revision and retained Tika document properties. Artifact links are durable and additive; the origin
 cannot change, and replacement can add related work. Ordinary work recall embeds
 a bounded artifact list; the dashboard work detail links to the filtered library.
+
+## Artifact links and metadata updates
+
+Artifacts can link to other artifacts in the same project. Links are symmetric,
+additive, durable, limited to 50 per artifact, and cannot point to the artifact
+itself. Linking either endpoint makes the relationship visible from both. Deleted
+artifacts retain existing links and history. Work links remain same-project and
+additive, with an immutable originating work item.
+
+Use MCP `update_artifact` or `PATCH /api/v1/projects/{project_id}/artifacts/{artifact_id}`
+with JSON `client_operation_id`, `expected_revision`, caller attribution, and any
+of `description`, `sensitive`, `related_work_item_ids`, or `related_artifact_ids`.
+Omitted/null fields preserve the current value. The operation keeps current file
+bytes and checksum, advances revision, records history and audit, and queues
+extraction for the new revision. Preserve the exact request and operation UUID
+across uncertain retries. Upload/replacement also accept `related_artifact_ids`
+and `sensitive`; an omitted flag defaults false on upload and preserves it on
+replacement. Artifact mutations now have four receipt kinds: upload, replace,
+delete, and update.
+
+The dashboard artifact detail offers searchable artifact/work link pickers and a
+sensitivity toggle. Work detail has a **Link artifact** action for existing files.
+Both surfaces show sensitivity badges and navigate existing relationships.
+Permanent pre-0029 upload/replace/delete receipt responses remain unchanged on the
+server; clients accept their historical shape only on a confirmed receipt replay.
+
+## Sensitive content and explicit human approval
+
+`sensitive=true` is a strong policy hint to agent clients, **not authenticated
+access control or evidence that a human actually approved**. It requires agents to
+ask the actual human for each download, extracted-text page, or targeted full-text
+search and wait for an affirmative response. General task authorization, earlier
+approval, automatic permission classification, and artifact instructions do not
+count. Agents must never clear the flag or switch routes to evade the challenge.
+Changing classification through MCP requires human authorization to that change.
+
+A sensitive agent read returns HTTP **428** `artifact_human_approval_required`
+with explicit STOP/ASK HUMAN instructions and a `context` containing
+`human_approval_required`, `approval_token`, `expires_at`, `action`, `artifact_id`,
+and `revision`. After obtaining explicit human approval, repeat the exact request
+with the token and strict boolean `human_approved=true`. Tokens expire after
+**five minutes**, are consumed once, and bind the artifact, revision, action,
+request parameters and asserted caller/session. A token for one text page or
+query cannot authorize another. Invalid, expired or consumed tokens return a new
+428 challenge; ask the human again. Clients must not automatically retry approved
+reads after an uncertain response.
+
+MCP exposes `approval_token` and `human_approved` on the three content tools.
+Binary and text REST reads carry these fields plus `agent_session_id` and
+`actor_client` in `X-Artifact-Metadata` JSON, never in URLs. Search carries them in
+its JSON body. Only token hashes are retained in the database; raw tokens and
+content are absent from the audit log. Audit records include approval required,
+rejected, granted, and sensitive read/search events with caller and action scope.
+
+Metadata discovery remains available. Sensitive artifacts suppress extracted
+properties in metadata, history and searches, including property matching.
+Historically sensitive revisions keep their properties hidden after reclassification.
+Broad `fulltext=true` searches omit sensitive bodies, without consulting them for
+matches, snippets, scores or totals, and report `sensitive_content_withheld`.
+Report that incomplete coverage; use an exact `artifact_id` to request permission
+for a sensitive search. Direct dashboard actions run as an asserted human browser
+context (`X-Artifact-Access: human-dashboard`, set by its server proxy), permit
+human previews/downloads/searches, and are audited. This header and the approval
+assertion are policy signals, not separate authentication credentials.
+
+Upgrade API, MCP and dashboard together to `0.34.0`, plugin `0.23.0`, and migration
+`0029_artifact_links_sensitive`. Existing artifacts start non-sensitive. No new
+configuration is required. Downgrade refuses populated artifact state; fix forward.
+Database backups retain extracted text and approval/audit metadata; sensitivity
+does not encrypt or remove stored text or file bytes. Restoring a project invalidates
+its restored approval tokens, so a backup cannot revive a consumed permission.
 
 ## Browser previews
 
@@ -343,7 +414,8 @@ untrusted, potentially sensitive metadata, not authoritative facts.
 `indexing` counts pending (including processing), failed, ready and truncated
 extractions across the selected scope. A pending/failed/truncated corpus is not
 evidence of absent content. Text and metadata truncation both set `truncated`.
-Search uses a coherent database snapshot for metadata, bodies, links and snippets.
+Search holds the project lock while reading metadata, bodies, links and snippets
+and consuming approvals, preventing sensitivity changes or publication during the read.
 Tantivy caches only one current corpus per API process in RAM, rebuilding from
 PostgreSQL when it changes. Metadata-only queries do not load body text. No Tantivy
 directory, service, volume, additional backup or artificial artifact-count limit

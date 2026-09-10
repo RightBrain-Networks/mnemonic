@@ -10,7 +10,7 @@ const operation = "91b9168a-37d1-4a6a-aa1f-bb538b65cb55";
 const root = `projects/${project}/artifacts`;
 const path = `${root}/${artifact}`;
 const environment = { MNEMONIC_API_KEY: "a".repeat(64), MNEMONIC_API_URL: "http://api:8000", MNEMONIC_ARTIFACT_MAX_BYTES: "16" };
-const metadata = { id: artifact, project_id: project, filename: "report.txt", description: null, revision: 1, size_bytes: 3, sha256: "b".repeat(64), mime_type: "text/plain", created_at: "2026-09-01T00:00:00Z", modified_at: "2026-09-01T00:00:00Z", deleted_at: null, content_available: true, created_by_agent_session_id: "tab-1", originating_work_item_id: null, related_work_item_ids: [] };
+const metadata = { id: artifact, project_id: project, filename: "report.txt", description: null, revision: 1, size_bytes: 3, sha256: "b".repeat(64), mime_type: "text/plain", created_at: "2026-09-01T00:00:00Z", modified_at: "2026-09-01T00:00:00Z", deleted_at: null, content_available: true, created_by_agent_session_id: "tab-1", originating_work_item_id: null, related_work_item_ids: [], sensitive: false, related_artifact_ids: [] };
 
 function request(route = root, method = "GET", headers = {}, body) {
   return new Request(`http://localhost:3000/api/artifacts/${route}`, { method, headers: { host: "localhost:3000", ...(method !== "GET" ? { origin: "http://localhost:3000", "content-type": "application/octet-stream", "X-Client-Operation-ID": operation, "X-Artifact-Metadata": artifactMetadataHeader({ filename: "report.txt" }) } : {}), ...headers }, body, ...(body instanceof ReadableStream ? { duplex: "half" } : {}) });
@@ -139,7 +139,7 @@ test("artifact search POST is a bounded safe read with strict controls and no op
 
 test("artifact search validates scope, pagination, fields, counts and untrusted plain snippets", () => {
   const match = { artifact: metadata, score: 1.5, snippet: "<script>untrusted text</script>", matched_fields: ["content"] };
-  const result = { items: [match], total: 1, limit: 50, offset: 0, fulltext: true, indexing: { ready: 1, pending: 0, failed: 0, truncated: 0 } };
+  const result = { items: [match], total: 1, limit: 50, offset: 0, fulltext: true, sensitive_content_withheld: 0, indexing: { ready: 1, pending: 0, failed: 0, truncated: 0 } };
   assert.equal(decodeArtifactSearchPage(result, project, true).items[0].snippet, match.snippet);
   for (const invalid of [
     { ...result, fulltext: false }, { ...result, offset: 1 }, { ...result, total: 2 },
@@ -348,4 +348,101 @@ test("disabled responses preserve an uncertain file and UUID for the same retry 
 test("malformed disabled/size errors cannot claim authoritative status or clear a pending file", async () => {
   const error = { detail: { code: "artifact_library_disabled", message: ARTIFACT_DISABLED_MESSAGE, context: { max_bytes: 0 } } };
   for (const [value, status] of [[error, 500], [{ ...error, extra: true }, 503], [{ detail: { ...error.detail, context: { max_bytes: "0" } } }, 503], [{ detail: { ...error.detail, context: { max_bytes: 1 } } }, 503], [{ detail: { ...error.detail, context: { max_bytes: 0, extra: true } } }, 503]]) assert.equal(decodeArtifactLimitError(value, status), null);
+});
+
+test("artifact metadata updates preserve exact JSON and receipt identity through the proxy", async () => {
+  const body = JSON.stringify({ client_operation_id: operation, expected_revision: 1, sensitive: true, related_artifact_ids: [operation], related_work_item_ids: [project], actor_client: "dashboard", agent_session_id: "tab-1" });
+  const updateRequest = (body, headers = {}) => new Request(`http://localhost:3000/api/artifacts/${path}`, { method: "PATCH", headers: { host: "localhost:3000", origin: "http://localhost:3000", "Content-Type": "application/json", "X-Client-Operation-ID": operation, ...headers }, body });
+  assert.deepEqual(artifactQueryKeys(path, "PATCH"), []);
+  let calls = 0;
+  const response = await proxyArtifact(updateRequest(body), path.split("/"), environment, async (_target, init) => {
+    calls++; assert.equal(init.method, "PATCH"); assert.equal(init.body, body);
+    assert.equal(init.headers.get("X-Client-Operation-ID"), null);
+    assert.equal(init.headers.get("X-Artifact-Metadata"), null);
+    assert.equal(init.headers.get("Content-Type"), "application/json");
+    return Response.json({ ...metadata, revision: 2, sensitive: true, related_artifact_ids: [operation], related_work_item_ids: [project] }, { headers: { "X-Client-Operation-ID": operation } });
+  });
+  assert.equal(response.status, 200); assert.equal(calls, 1);
+  assert.equal(response.headers.get("X-Client-Operation-ID"), operation);
+  const parsed = JSON.parse(body);
+  for (const invalid of [
+    { ...parsed, client_operation_id: artifact }, { ...parsed, expected_revision: 0 },
+    { ...parsed, sensitive: "true" }, { ...parsed, related_artifact_ids: ["invalid"] },
+    { ...parsed, related_artifact_ids: [operation, operation] },
+    { ...parsed, approval_token: "not-browser-input" }, { ...parsed, actor_client: "agent" }
+  ]) assert.equal((await proxyArtifact(updateRequest(JSON.stringify(invalid)), path.split("/"), environment, async () => { throw new Error("must not forward"); })).status, 400);
+  assert.equal((await proxyArtifact(updateRequest(body, { origin: "https://untrusted.example" }), path.split("/"), environment)).status, 403);
+});
+
+test("sensitive human dashboard reads use server-owned context without forwarding caller policy headers", async () => {
+  for (const input of [request(`${path}/content`, "GET", { "X-Artifact-Access": "arbitrary", "X-Artifact-Approval": "untrusted" }), searchRequest({ q: "report", fulltext: true }, { "X-Artifact-Access": "arbitrary" })]) {
+    const route = input.method === "GET" ? `${path}/content` : `${root}/search-content`;
+    await proxyArtifact(input, route.split("/"), environment, async (_target, init) => {
+      assert.equal(init.headers.get("X-Artifact-Access"), "human-dashboard");
+      assert.equal(init.headers.get("X-Artifact-Approval"), null);
+      return input.method === "GET" ? new Response("abc", { headers: { "content-length": "3" } }) : Response.json({ items: [] });
+    });
+  }
+});
+
+test("sensitive metadata and artifact links fail closed on invalid flags, self-links and duplicate identities", () => {
+  assert.equal(decodeArtifact({ ...metadata, sensitive: true, related_artifact_ids: [operation] }, project).sensitive, true);
+  for (const invalid of [
+    { ...metadata, sensitive: "false" }, { ...metadata, sensitive: undefined },
+    { ...metadata, related_artifact_ids: [artifact] }, { ...metadata, related_artifact_ids: ["bad"] },
+    { ...metadata, related_artifact_ids: [operation, operation.toUpperCase()] }
+  ]) assert.throws(() => decodeArtifact(invalid, project));
+});
+
+test("uncertain metadata updates retry unchanged and verify the changed flag and durable links", async () => {
+  const body = JSON.stringify({ client_operation_id: operation, expected_revision: 1, sensitive: true, related_artifact_ids: [operation], related_work_item_ids: [project] });
+  const intent = Object.freeze({ method: "PATCH", path: `/api/artifacts/${path}`, projectId: project, artifactId: artifact, expectedRevision: 1, operationId: operation, metadata: body });
+  const successful = { ...metadata, revision: 2, sensitive: true, related_artifact_ids: [operation], related_work_item_ids: [project] };
+  let attempts = 0;
+  const fetcher = async (_target, init) => {
+    attempts++; assert.equal(init.method, "PATCH"); assert.equal(init.body, body);
+    assert.equal(init.headers.get("X-Artifact-Metadata"), null);
+    assert.equal(init.headers.get("X-Artifact-Expected-Revision"), null);
+    assert.equal(init.headers.get("X-Client-Operation-ID"), operation);
+    if (attempts === 1) throw new Error("Response lost after commit");
+    return Response.json(successful, { headers: { "X-Client-Operation-ID": operation } });
+  };
+  assert.equal((await dispatchArtifactMutation(intent, fetcher)).type, "unresolved");
+  assert.equal((await dispatchArtifactMutation(intent, fetcher)).type, "success");
+  for (const invalid of [{ ...successful, sensitive: false }, { ...successful, revision: 1 }, { ...successful, related_artifact_ids: [] }, { ...successful, related_work_item_ids: [] }]) {
+    assert.equal((await dispatchArtifactMutation(intent, async () => Response.json(invalid, { headers: { "X-Client-Operation-ID": operation } }))).type, "unresolved");
+  }
+});
+
+
+test("an artifact work-link receipt can satisfy a requested link through immutable originating work", async () => {
+  const intent = Object.freeze({ method: "PATCH", path: `/api/artifacts/${path}`, projectId: project, artifactId: artifact, expectedRevision: 1, operationId: operation, metadata: JSON.stringify({ related_work_item_ids: [project] }) });
+  const outcome = await dispatchArtifactMutation(intent, async () => Response.json({ ...metadata, revision: 2, originating_work_item_id: project }, { headers: { "X-Client-Operation-ID": operation } }));
+  assert.equal(outcome.type, "success");
+});
+
+
+test("pre-0029 receipts retain original bytes and normalize absent fields only on an authenticated receipt replay", async () => {
+  const { sensitive: _sensitive, related_artifact_ids: _relatedArtifacts, ...historical } = metadata;
+  const file = new File(["abc"], "report.txt");
+  const intent = Object.freeze({ method: "POST", path: `/api/artifacts/${root}`, projectId: project, operationId: operation, metadata: artifactMetadataHeader({ filename: "report.txt" }), file });
+  for (const replayed of [null, "false", "true"]) {
+    const headers = { "X-Client-Operation-ID": operation, ...(replayed ? { "X-Artifact-Operation-Replayed": replayed } : {}) };
+    const upstream = () => Response.json(historical, { status: 201, headers });
+    const proxied = await proxyArtifact(request(root, "POST", {}, "abc"), root.split("/"), environment, upstream);
+    assert.deepEqual(await proxied.clone().json(), historical);
+    assert.equal(proxied.headers.get("X-Artifact-Operation-Replayed"), replayed === "true" ? "true" : null);
+    const outcome = await dispatchArtifactMutation(intent, async () => proxied);
+    assert.equal(outcome.type, replayed === "true" ? "success" : "unresolved");
+    if (outcome.type === "success") { assert.equal(outcome.artifact.sensitive, false); assert.deepEqual(outcome.artifact.related_artifact_ids, []); }
+  }
+  assert.throws(() => decodeArtifact(historical, project));
+  const patch = { ...intent, method: "PATCH", artifactId: artifact, expectedRevision: 1, metadata: "{}" };
+  assert.equal((await dispatchArtifactMutation(patch, async () => Response.json({ ...historical, revision: 2 }, { headers: { "X-Client-Operation-ID": operation, "X-Artifact-Operation-Replayed": "true" } }))).type, "unresolved");
+});
+
+
+test("related artifact metadata is bound to the identity requested for the durable link", () => {
+  assert.equal(decodeArtifact(metadata, project, artifact.toUpperCase()).id, artifact);
+  assert.throws(() => decodeArtifact(metadata, project, operation));
 });

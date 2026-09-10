@@ -20,9 +20,9 @@ from typing import Any
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0028_work_summary_limit"
+HEAD = "0029_artifact_links_sensitive"
 EXTRACTION_HEAD = "0027_artifact_fulltext"
-EXTRACTION_HEADS = (EXTRACTION_HEAD, HEAD)
+EXTRACTION_HEADS = (EXTRACTION_HEAD, "0028_work_summary_limit", HEAD)
 ARTIFACT_HEAD = "0026_artifact_library"
 ARTIFACT_HEADS = (ARTIFACT_HEAD, *EXTRACTION_HEADS)
 CROSS_PROJECT_HEAD = "0025_cross_project_relationships"
@@ -859,7 +859,8 @@ _ARTIFACT_FINDINGS = {
         SELECT count(*) FROM artifact_revisions revision WHERE NOT EXISTS (
             SELECT 1 FROM artifact_audit audit
             WHERE audit.artifact_id=revision.artifact_id AND audit.revision=revision.revision
-              AND audit.action=CASE WHEN revision.revision=1 THEN 'uploaded' ELSE 'replaced' END
+              AND ((revision.revision=1 AND audit.action='uploaded')
+                   OR (revision.revision>1 AND audit.action IN ('replaced', 'metadata_updated')))
         )
     """,
     "artifact_missing_deletion_audit": """

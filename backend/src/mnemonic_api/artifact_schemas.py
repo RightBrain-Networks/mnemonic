@@ -33,9 +33,11 @@ class ArtifactActor(ArtifactModel):
 
 class ArtifactUploadMetadata(ArtifactActor):
     filename: str = Field(min_length=1, max_length=255)
+    sensitive: bool | None = None
     description: str | None = Field(default=None, max_length=4000)
     work_item_id: UUID | None = None
     related_work_item_ids: list[UUID] = Field(default_factory=list, max_length=50)
+    related_artifact_ids: list[UUID] = Field(default_factory=list, max_length=50)
 
     @field_validator("description")
     @classmethod
@@ -45,6 +47,20 @@ class ArtifactUploadMetadata(ArtifactActor):
         if value is not None and "\x00" in value:
             raise ValueError("Description cannot contain NUL")
         return value
+
+
+class ArtifactUpdateMetadata(ArtifactActor):
+    client_operation_id: UUID
+    expected_revision: int = Field(ge=1)
+    sensitive: bool | None = None
+    description: str | None = Field(default=None, max_length=4000)
+    related_work_item_ids: list[UUID] | None = Field(default=None, max_length=50)
+    related_artifact_ids: list[UUID] | None = Field(default=None, max_length=50)
+
+    @field_validator("description")
+    @classmethod
+    def no_nul(cls, value: str | None) -> str | None:
+        return ArtifactUploadMetadata.no_nul(value)
 
 
 class ArtifactExtractionStatus(ArtifactModel):
@@ -90,6 +106,8 @@ class ArtifactRead(ArtifactModel):
     created_by_client: str | None
     originating_work_item_id: UUID | None
     related_work_item_ids: list[UUID] = Field(max_length=50)
+    related_artifact_ids: list[UUID] = Field(default_factory=list, max_length=50)
+    sensitive: bool = False
     created_at: datetime
     modified_at: datetime
     deleted_at: datetime | None
@@ -106,6 +124,8 @@ class ArtifactRevisionRead(ArtifactActor):
     sha256: str
     mime_type: str | None
     related_work_item_ids: list[UUID] = Field(max_length=50)
+    related_artifact_ids: list[UUID] = Field(default_factory=list, max_length=50)
+    sensitive: bool = False
     created_at: datetime
     extraction: ArtifactExtractionRead = Field(default_factory=ArtifactExtractionRead)
 
@@ -114,7 +134,12 @@ class ArtifactAuditRead(ArtifactActor):
     id: int
     artifact_id: UUID
     revision: int
-    action: Literal["uploaded", "replaced", "deleted", "downloaded"]
+    action: Literal[
+        "uploaded", "replaced", "deleted", "downloaded", "metadata_updated", "linked",
+        "approval_required", "approval_granted", "approval_rejected", "sensitive_downloaded",
+        "sensitive_text_read", "sensitive_searched",
+    ]
+    details: dict = Field(default_factory=dict)
     filename: str
     description: str
     created_at: datetime

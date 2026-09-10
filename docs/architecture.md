@@ -1,7 +1,7 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.33.0`, Claude plugin `0.22.0`,
-and Alembic head `0028_work_summary_limit`.
+This architecture describes application/API/MCP `0.34.0`, Claude plugin `0.23.0`,
+and Alembic head `0029_artifact_links_sensitive`.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
 An isolated Apache Tika 4 service extracts normalized current text and document
@@ -349,11 +349,11 @@ routes. `routes/` has one module per concept: `projects`, `work_search`,
 `human_gates`, `completion_evidence`, `leases`, `duplicates`,
 `dashboard_sync`, and `health`.
 
-The MCP service is a typed HTTP adapter. Its sixteen protected mutation tools
+The MCP service is a typed HTTP adapter. Its seventeen protected mutation tools
 require the caller to prepare and retain one operation UUID plus the complete
 arguments; the adapter sends only one HTTP attempt. Its other tools use work,
 checkpoint, lease, relationship, human-gate, evidence, and duplicate terminology. Its exact
-47-tool
+48-tool
 catalog includes request, attention, and gate-history operations but deliberately
 no resolution, dismissal, or report-follow-up write tools; Phase 12 adds four safe
 reads for activity, project settings, report lists, and report detail,
@@ -383,7 +383,7 @@ The dashboard calls only an exact same-origin proxy
 allowlist, including attention/history reads, gate resolution, event
 list/progress append, move, and actor-bearing work or relationship writes. A
 dashboard-lifetime in-memory registries own eighteen frozen protected intents
-(fifteen work operations and three artifact operations),
+(fifteen work operations and four artifact operations),
 including a two-work-key merge intent and a source/target-keyed move intent,
 blocks overlapping conflicts while an outcome is unresolved, and never writes
 those bodies or UUIDs to browser storage. Its API key is server-only. Every

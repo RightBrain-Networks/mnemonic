@@ -57,5 +57,28 @@ inherited interval timer. Its timer is cancelled after response verification and
 before publishing the destination. Metadata is limited to 64 KiB, and bytes to
 the API's 1 GiB maximum. A disabled library, missing content, revision race, invalid
 response or failed verification leaves the destination unpublished. Errors
-report a safe diagnostic without response bodies or artifact content. The script
+report a safe diagnostic without arbitrary response bodies or artifact content.
+A sensitive-access HTTP 428 exposes only the validated approval challenge fields
+needed for the explicit approval protocol below. The script
 does not parse or execute downloaded files; their bytes remain untrusted input.
+
+
+Sensitive artifacts require a new explicit approval from the actual human for
+each agent download. The helper stops on HTTP 428 with **HUMAN APPROVAL REQUIRED**
+and a bounded challenge containing `approval_token`, `expires_at`, `artifact_id`,
+`revision`, and `action=download`. It never retries or affirms approval itself.
+A token, prior approval, general task, or automated permissions classifier does
+not constitute human permission for this access.
+
+After the human explicitly approves that exact download, repeat the same command
+with `--approval-token TOKEN --human-approved`. Keep the same project, artifact,
+revision and caller identity. The helper sends the token and assertion only in
+`X-Artifact-Metadata` on the content request, never in the URL or metadata GET.
+Do not persist the token in artifact metadata, checkpoints, or scripts.
+
+The token expires after five minutes and is consumed once, including when the
+transfer later fails. Another download or retry requires a new challenge and
+another human approval. Challenge, rejection, approval assertion and sensitive
+access events are audited without retaining the raw token. This is an explicit
+LLM policy hint; the assertion is not authenticated proof of human consent.
+Never unset sensitivity or switch routes to bypass the approval requirement.

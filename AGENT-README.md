@@ -423,10 +423,10 @@ item separately:
 
 ## Current artifact library release boundary
 
-Application/API/MCP/dashboard 0.33.0, plugin 0.22.0 and Alembic
-`0028_work_summary_limit` ship together: 47 MCP tools, 16
+Application/API/MCP/dashboard 0.34.0, plugin 0.23.0 and Alembic
+`0029_artifact_links_sensitive` ship together: 48 MCP tools, 17
 receipt-protected MCP writes,
-21 REST receipt kinds, 18 protected browser mutations, 24 event types and three
+22 REST receipt kinds, 19 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
 do not infer historical review requests. `search_work(status="to-review")` finds
 Done implementation with a requested review or pending recommendation; `done`

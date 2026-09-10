@@ -1813,6 +1813,7 @@ class Artifact(Base):
     ))
     filename: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(String(4000), default="")
+    sensitive: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     relative_path: Mapped[str] = mapped_column(String(400))
     revision: Mapped[int] = mapped_column(Integer, default=0)
     size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
@@ -1831,6 +1832,33 @@ class Artifact(Base):
         DateTime(timezone=True), server_default=func.clock_timestamp()
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ArtifactLink(Base):
+    """One canonical pair exposes a durable, symmetric relation within a project."""
+
+    __tablename__ = "artifact_links"
+    __table_args__ = (
+        PrimaryKeyConstraint("artifact_id", "related_artifact_id", name="artifact_links_pkey"),
+        ForeignKeyConstraint(
+            ["project_id", "artifact_id"], ["artifacts.project_id", "artifacts.id"],
+            name="artifact_links_artifact_fkey", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "related_artifact_id"], ["artifacts.project_id", "artifacts.id"],
+            name="artifact_links_related_artifact_fkey", ondelete="RESTRICT",
+        ),
+        CheckConstraint("artifact_id < related_artifact_id",
+                        name=conv("artifact_links_order_check")),
+        Index("ix_artifact_links_related_artifact_id", "related_artifact_id"),
+    )
+
+    artifact_id: Mapped[UUID] = mapped_column(primary_key=True)
+    related_artifact_id: Mapped[UUID] = mapped_column(primary_key=True)
+    project_id: Mapped[UUID]
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
 
 
 class ArtifactWorkLink(Base):
@@ -1864,6 +1892,9 @@ class ArtifactRevision(Base):
         CheckConstraint("jsonb_typeof(related_work_item_ids) = 'array' "
                         "AND jsonb_array_length(related_work_item_ids) <= 51",
                         name=conv("artifact_revisions_related_work_item_ids_check")),
+        CheckConstraint("jsonb_typeof(related_artifact_ids) = 'array' "
+                        "AND jsonb_array_length(related_artifact_ids) <= 50",
+                        name=conv("artifact_revisions_related_artifact_ids_check")),
     )
 
     artifact_id: Mapped[UUID] = mapped_column(
@@ -1879,6 +1910,10 @@ class ArtifactRevision(Base):
     agent_session_id: Mapped[str | None] = mapped_column(String(200))
     actor_client: Mapped[str | None] = mapped_column(String(80))
     related_work_item_ids: Mapped[list[str]] = mapped_column(JSONB)
+    related_artifact_ids: Mapped[list[str]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
+    sensitive: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.clock_timestamp()
     )
@@ -1949,9 +1984,13 @@ class ArtifactAudit(Base):
             name="artifact_audit_artifact_id_revision_fkey", ondelete="RESTRICT",
         ),
         CheckConstraint(
-            "action IN ('uploaded', 'replaced', 'deleted', 'downloaded')",
+            "action IN ('uploaded', 'replaced', 'deleted', 'downloaded', 'metadata_updated', "
+            "'linked', 'approval_required', 'approval_granted', 'approval_rejected', "
+            "'sensitive_downloaded', 'sensitive_text_read', 'sensitive_searched')",
             name=conv("artifact_audit_action_check"),
         ),
+        CheckConstraint("jsonb_typeof(details) = 'object' AND octet_length(details::text) <= 8192",
+                        name=conv("artifact_audit_details_check")),
         Index("ix_artifact_audit_artifact_created", "artifact_id", "created_at", "id"),
     )
 
@@ -1960,7 +1999,8 @@ class ArtifactAudit(Base):
         "artifacts.id", ondelete="RESTRICT", name="artifact_audit_artifact_id_fkey"
     ))
     revision: Mapped[int] = mapped_column(Integer)
-    action: Mapped[str] = mapped_column(String(20))
+    action: Mapped[str] = mapped_column(String(32))
+    details: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     filename: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(String(4000))
     agent_session_id: Mapped[str | None] = mapped_column(String(200))
@@ -1981,7 +2021,7 @@ class ArtifactOperation(Base):
             ["project_id", "artifact_id"], ["artifacts.project_id", "artifacts.id"],
             name="artifact_operations_project_id_artifact_id_fkey", ondelete="RESTRICT",
         ),
-        CheckConstraint("kind IN ('upload', 'replace', 'delete')",
+        CheckConstraint("kind IN ('upload', 'replace', 'delete', 'update')",
                         name=conv("artifact_operations_kind_check")),
         CheckConstraint("state IN ('pending', 'completed')",
                         name=conv("artifact_operations_state_check")),
@@ -2014,3 +2054,38 @@ class ArtifactOperation(Base):
         DateTime(timezone=True), server_default=func.clock_timestamp()
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ArtifactAccessApproval(Base):
+    """A hashed challenge for one explicitly approved content request, with durable consumption."""
+
+    __tablename__ = "artifact_access_approvals"
+    __table_args__ = (
+        PrimaryKeyConstraint("token_hash", name="artifact_access_approvals_pkey"),
+        CheckConstraint("token_hash ~ '^[0-9a-f]{64}$'",
+                        name=conv("artifact_access_approvals_token_hash_check")),
+        CheckConstraint("request_hash ~ '^[0-9a-f]{64}$'",
+                        name=conv("artifact_access_approvals_request_hash_check")),
+        CheckConstraint("revision > 0", name=conv("artifact_access_approvals_revision_check")),
+        CheckConstraint("action IN ('download', 'text', 'search')",
+                        name=conv("artifact_access_approvals_action_check")),
+        CheckConstraint("expires_at > created_at",
+                        name=conv("artifact_access_approvals_expiry_check")),
+        CheckConstraint("consumed_at IS NULL OR consumed_at >= created_at",
+                        name=conv("artifact_access_approvals_consumption_check")),
+    )
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    artifact_id: Mapped[UUID] = mapped_column(ForeignKey(
+        "artifacts.id", ondelete="RESTRICT", name="artifact_access_approvals_artifact_id_fkey",
+    ))
+    revision: Mapped[int] = mapped_column(Integer)
+    action: Mapped[str] = mapped_column(String(32))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    agent_session_id: Mapped[str | None] = mapped_column(String(200))
+    actor_client: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(),
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

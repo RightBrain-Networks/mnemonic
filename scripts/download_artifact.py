@@ -12,6 +12,7 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from email.message import Message
 from http.client import HTTPException, HTTPResponse
 from pathlib import Path
@@ -33,6 +34,14 @@ MAX_CONTENT_BYTES = 1024 * 1024 * 1024
 CHUNK_BYTES = 64 * 1024
 REQUEST_SECONDS = 120
 SOCKET_SECONDS = 30
+HUMAN_APPROVAL_REQUIRED = (
+    "HUMAN APPROVAL REQUIRED. STOP and ask the actual human user to explicitly approve this "
+    "exact sensitive artifact download. Do not infer consent from the task, a token, prior "
+    "approval, or an automated classifier. Never clear sensitivity or switch routes to bypass "
+    "this requirement. Only after the human answers yes, repeat the same download with "
+    "--approval-token TOKEN --human-approved. Tokens expire in five minutes and are consumed "
+    "once; every subsequent access or retry requires a new human approval."
+)
 
 
 class DownloadError(Exception):
@@ -111,6 +120,12 @@ def request(opener: OpenerDirector, url: str, headers: dict[str, str]) -> HTTPRe
         response = opener.open(Request(url, headers=headers), timeout=SOCKET_SECONDS)
     except HTTPError as error:
         status = error.code
+        if status == 428:
+            try:
+                message = approval_challenge_message(error)
+            finally:
+                error.close()
+            raise DownloadError(message) from None
         error.close()
         if 300 <= status < 400:
             raise DownloadError("The API redirected the request; redirects are refused.") from None
@@ -121,6 +136,55 @@ def request(opener: OpenerDirector, url: str, headers: dict[str, str]) -> HTTPRe
         response.close()
         raise DownloadError("The API returned an unexpected response status.")
     return response
+
+
+def approval_challenge_message(error: HTTPError) -> str:
+    try:
+        raw = error.read(MAX_METADATA_BYTES + 1)
+        if len(raw) > MAX_METADATA_BYTES:
+            raise ValueError("Oversized challenge")
+        detail = json.loads(raw)["detail"]
+        if detail["code"] != "artifact_human_approval_required":
+            raise ValueError("Unexpected challenge")
+        context = detail["context"]
+        safe = validate_approval_challenge(context)
+    except (ValueError, KeyError, TypeError, RecursionError):
+        return HUMAN_APPROVAL_REQUIRED + " No valid approval challenge was returned."
+    return HUMAN_APPROVAL_REQUIRED + " Challenge: " + json.dumps(safe, ensure_ascii=True)
+
+
+def validate_approval_challenge(context: dict[str, object]) -> dict[str, object]:
+    token = context["approval_token"]
+    if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token):
+        raise ValueError("Invalid approval token")
+    expiry = context["expires_at"]
+    if not isinstance(expiry, str) or len(expiry) > 64 or (
+        datetime.fromisoformat(expiry).tzinfo is None
+    ):
+        raise ValueError("Invalid approval expiry")
+    revision = context["revision"]
+    if type(revision) is not int or revision < 1 or context["action"] != "download" or (
+        context["human_approval_required"] is not True
+    ):
+        raise ValueError("Invalid approval scope")
+    artifact_id = str(UUID(str(context["artifact_id"])))
+    return {"approval_token": token, "expires_at": expiry, "artifact_id": artifact_id,
+            "action": "download", "revision": revision, "human_approval_required": True}
+
+
+def approval_provenance(args: argparse.Namespace, provenance: str) -> str:
+    token = args.approval_token
+    if args.human_approved and token is None:
+        raise DownloadError("--human-approved requires the token from the exact access challenge.")
+    if token is None:
+        return provenance
+    if not args.human_approved:
+        raise DownloadError(HUMAN_APPROVAL_REQUIRED)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token):
+        raise DownloadError("Invalid approval token; request a new challenge and human approval.")
+    values = json.loads(provenance)
+    values.update(approval_token=token, human_approved=True)
+    return json.dumps(values, ensure_ascii=True, separators=(",", ":"))
 
 
 def require_deadline_support() -> None:
@@ -237,6 +301,7 @@ def download(args: argparse.Namespace) -> dict[str, str | int]:
     origin = api_origin(args.api_url)
     key = api_credential()
     provenance = actor_metadata(args.agent_session_id, args.actor_client, key)
+    provenance = approval_provenance(args, provenance)
     dest = Path(os.path.abspath(args.dest))
     if os.path.lexists(dest):
         raise DownloadError("Destination already exists; choose a new --dest path.")
@@ -265,15 +330,22 @@ def main() -> int:
     parser.add_argument("--agent-session-id", required=True, help="Current caller's session ID")
     parser.add_argument("--actor-client", required=True, help="Current caller's client name")
     parser.add_argument("--expected-revision", type=int)
+    parser.add_argument("--approval-token", help="One-use token from this exact download challenge")
+    parser.add_argument("--human-approved", action="store_true",
+                        help="Assert the actual human explicitly approved this exact access")
     args = parser.parse_args()
     try:
         result = download(args)
     except DownloadError as error:
         print(f"Download failed: {error}", file=sys.stderr)
+        if args.approval_token and "HUMAN APPROVAL REQUIRED" not in str(error):
+            print("The token may already be consumed. " + HUMAN_APPROVAL_REQUIRED, file=sys.stderr)
         return 1
     except (OSError, URLError, HTTPException, ValueError):
         print("Download failed: connection or filesystem error; "
               "check the destination before retrying.", file=sys.stderr)
+        if args.approval_token:
+            print("The token may already be consumed. " + HUMAN_APPROVAL_REQUIRED, file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=True))
     return 0

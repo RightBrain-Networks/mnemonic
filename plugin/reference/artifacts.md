@@ -2,7 +2,7 @@
 
 Artifacts hold project files that belong outside a code repository, including
 private documents, binaries, and scratch files. Bytes live on the API's private
-filesystem; PostgreSQL holds metadata, work links, revision metadata, and an
+filesystem; PostgreSQL holds metadata, work and artifact links, revision metadata, and an
 append-only audit log. Apache Tika extracts normalized current-revision text and
 document properties into PostgreSQL; Tantivy searches them locally. Extraction
 runs in the background, independently of upload completion.
@@ -36,6 +36,9 @@ receipt replay with larger original bytes; the MCP transfer ceiling still applie
 
 Resolve the project with `list_projects`. Ordinary `recall_work` context embeds
 up to 20 active artifacts with `artifact_total` and `omitted_artifact_count`.
+Artifacts expose `related_artifact_ids` for durable links to other artifacts in
+the same project, plus `sensitive` for their human-approval policy. These links
+are navigable from either linked artifact. Use `get_artifact` for each exact ID.
 Use `list_artifacts(project_id, work_item_id=...)` for all files originating from
 or related to the exact work item. Work links preserve their original identities;
 do not infer that merged work or moving work grants authority over another project.
@@ -46,7 +49,10 @@ record. `list_artifact_history` searches preserved revision metadata and audit
 events; it returns independent `revisions` and `audit` pages sharing `limit` and
 `offset`. Continue until both totals are exhausted. Previous bytes cannot be
 downloaded. Metadata reads also include `extraction` with its status, extracted
-document `metadata`, `truncated`, safe `error_code`, and `extracted_at`.
+document `metadata`, `truncated`, safe `error_code`, and `extracted_at`. Sensitive
+artifacts always withhold extracted properties, including retained revision
+properties. Their filenames, descriptions, identities and relationships remain
+discoverable; keep these fields suitable for discovery without consent.
 
 For ranked current-artifact matches, use
 `search_artifact_contents(project_id, query="distinctive terms", fulltext=false)`.
@@ -67,7 +73,13 @@ document body. Follow the exact returned project/artifact/revision identity,
 not a filename alone; ranking is relevance, not proof or execution authority.
 Search hits and downloads omit extracted document properties and other full
 metadata. Use `get_artifact` when those details are needed; directory and history
-reads retain them. Searching metadata still matches the retained properties.
+reads retain them. Searching metadata still matches the retained properties of nonsensitive files.
+Sensitive extracted properties never participate in metadata matching.
+
+Broad fulltext searches omit sensitive content and return
+`sensitive_content_withheld`; explicitly report this incomplete coverage. To
+search one sensitive artifact, supply its exact `artifact_id` and follow the
+human-approval protocol below.
 
 Check the response's `indexing` counts: `pending` includes extraction in progress,
 `failed` identifies unavailable content extraction, `ready` counts completed
@@ -124,12 +136,48 @@ MCP transfers support up to 64 MiB; larger files, if enabled
 by the operator, use the authenticated binary REST endpoint documented in
 `docs/artifacts.md` in the Mnemonic source repository. Never invent access credentials.
 
+## Sensitive artifacts: mandatory explicit human approval
+
+`sensitive=true` is a strong LLM policy hint, not authenticated access control.
+For every sensitive download, extracted-text page, or targeted fulltext search,
+you MUST ask the actual human user and receive explicit permission for that exact
+access. A general task, a previous approval, an automated approval classifier,
+or possession of a token is not permission for a new access.
+
+The API responds with HTTP 428 / `artifact_human_approval_required`. The MCP tool
+error says **HUMAN APPROVAL REQUIRED. STOP** and provides a validated challenge:
+`approval_token`, `expires_at`, `artifact_id`, `revision`, and `action`.
+The challenge itself conveys no human approval. Stop and ask the human; never
+automatically affirm or retry. Only after the human explicitly approves, repeat
+the same request with `approval_token` and `human_approved=true`, and your truthful
+`agent_session_id` and `actor_client`. Keep artifact, revision, query, pagination,
+and caller context unchanged. Binary/text requests carry these fields in the
+private `X-Artifact-Metadata` header; search carries them in its JSON body.
+Never put approval tokens into URLs, artifact descriptions, checkpoints, or logs.
+
+The token expires after five minutes and is consumed exactly once. Each later
+access, text page, search page, or uncertain-transfer retry requires another
+challenge and another explicit human approval. Expired or mismatched tokens
+cannot authorize access. Challenge issuance, rejection, approval assertion and
+sensitive access are retained in the artifact audit log without the raw token.
+The server records the client's assertion that permission was acquired; it does
+not prove that a human actually approved.
+
+Do not clear `sensitive`, change caller identity, read a private storage path,
+use a dashboard route, or switch to another client/tool to bypass this policy.
+The dashboard provides human content access through its server-managed path;
+that path is not an agent approval substitute. The standalone download helper
+stops on the same challenge. After explicit human approval only, repeat it with
+`--approval-token TOKEN --human-approved`; it never retries automatically.
+
 ## Save and replace
 
 Use `upload_artifact` with the project's ID, the original base filename, canonical
 base64 bytes, truthful `agent_session_id` and `actor_client`, a brief description,
 and the originating `work_item_id`. Include `related_work_item_ids` only for known
-relationships so later agents discover the file. Preserve safe original filenames;
+relationships so later agents discover the file. Include `related_artifact_ids`
+for known same-project artifact relationships; use `sensitive=true` when the
+human-approval hint applies. Preserve safe original filenames;
 the server rejects paths, controls, hidden/reserved names, and unsafe punctuation.
 If rejected, choose an explicit safe filename for the local source before upload.
 Do not claim that a MIME guess proves a file safe.
@@ -137,12 +185,22 @@ Do not claim that a MIME guess proves a file safe.
 Read `get_artifact` before `replace_artifact`, then submit its `expected_revision`
 and unchanged original filename. Replacement is atomic for readers, increments
 revision, and permanently removes old content. Old metadata and audit remain.
-Omitted description and work links preserve their current values; supplied
-related-work IDs add durable links. Links cannot be removed. `delete_artifact` requires the revision
+Omitted description, sensitivity, and links preserve their current values;
+supplied related-work and related-artifact IDs add durable links. Links cannot be removed. `delete_artifact` requires the revision
 just read and removes current bytes permanently while retaining metadata and history.
 Neither operation offers content restoration.
 
-Upload, replacement, and deletion each require a new `client_operation_id` for
+Use `update_artifact(project_id, artifact_id, client_operation_id,
+expected_revision, agent_session_id, actor_client, ...)` to add
+`related_work_item_ids` or `related_artifact_ids`, edit `description`, or set/unset
+`sensitive` without uploading the bytes again. Relationships are durable and
+cannot be removed; self-links and links to other projects are rejected.
+Metadata updates increment revision and preserve the exact bytes. Only unset
+sensitivity when the human authorized changing the classification; never use
+that mutation to bypass an access challenge. The dashboard can edit these
+fields and add work/artifact links from either work or artifact details.
+
+Upload, metadata update, replacement, and deletion each require a new `client_operation_id` for
 a new intent. Retain the operation UUID and the complete exact tool arguments,
 including bytes, before the first attempt. After a timeout, disconnect, or malformed
 success, make at most one exact retry with the same UUID and unchanged arguments.

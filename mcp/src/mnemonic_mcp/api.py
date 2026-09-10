@@ -12,6 +12,7 @@ import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import BaseModel, ValidationError
 
+from .artifact_approval import artifact_approval_message
 from .artifact_errors import artifact_storage_message
 from .config import Settings
 from .transport import (
@@ -42,8 +43,9 @@ _APPLICATION_ERRORS = {
     "artifact_filename_invalid": "Unsafe artifact filename. Use a safe original basename without paths or controls.",
     "artifact_filename_unsafe": "Unsafe artifact filename. Use a safe original basename without paths or controls.",
     "artifact_filename_immutable": "Replacement must use the artifact's unchanged original filename.",
+    "artifact_self_link": "An artifact cannot link to itself. Choose a different artifact in this project.",
     "artifact_origin_immutable": "An artifact's originating work item cannot change.",
-    "artifact_link_limit": "An artifact supports at most 50 related work links.",
+    "artifact_link_limit": "An artifact supports at most 50 related work links and 50 related artifact links.",
     "artifact_too_large": "Artifact exceeds the configured upload size limit.",
     "artifact_operation_conflict": "This artifact operation UUID belongs to different arguments. Stop this intent.",
     "artifact_operation_unavailable": "Artifact outcome is unknown. Retry only the original UUID and exact bytes and arguments.",
@@ -281,6 +283,7 @@ async def _dispatch_request(
 
 
 _NOT_FOUND_MESSAGES = {
+    "artifact_related_artifact_not_found": "A linked artifact is unavailable in this project. Verify its exact ID and current metadata.",
     "artifact_work_item_not_found": "A linked artifact work item is not in this project.",
     "artifact_not_found": "Artifact not found in this project.",
     "job_completion_report_not_found": "Job completion report not found in this project.",
@@ -355,6 +358,8 @@ def _safe_uuid(value: object) -> str | None:
 
 
 def _application_error_message(code: str, context: dict[str, object]) -> str | None:
+    if code.startswith("artifact_human_approval"):
+        return artifact_approval_message(code, context)
     if code == "work_summary_too_long":
         return _work_summary_limit_error(context)
     if code in {"artifact_too_large", "artifact_library_disabled"}:
@@ -704,6 +709,7 @@ class MnemonicAPI:
         strict_wire_response: bool = False,
         bounded_identity_response: bool = False,
         response_max_bytes: int = COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES,
+        headers: dict[str, str] | None = None,
     ) -> ResponseModel | None:
         # A request-scoped client avoids sharing event-loop state across SDK
         # stateless HTTP sessions or stdio clients. No automatic write retries.
@@ -721,7 +727,7 @@ class MnemonicAPI:
         try:
             async with httpx.AsyncClient(
                 base_url=f"{self.settings.api_url.rstrip('/')}/api/v1/",
-                headers={"Authorization": f"Bearer {self.settings.api_key}"},
+                headers={**(headers or {}), "Authorization": f"Bearer {self.settings.api_key}"},
                 # The first opt-in semantic query can populate the API's derived
                 # embedding cache. Ordinary reads and writes keep the shorter timeout.
                 timeout=httpx.Timeout(

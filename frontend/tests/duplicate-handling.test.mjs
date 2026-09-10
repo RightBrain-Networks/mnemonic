@@ -184,7 +184,7 @@ test("work context discovers project-scoped linked artifacts and rejects missing
     id: "a6867ab7-201a-4f68-b213-67e5c8cb7811", project_id: project,
     filename: "notes.txt", description: "", revision: 1, size_bytes: 3,
     sha256: "a".repeat(64), mime_type: "text/plain", created_by_agent_session_id: "agent-1",
-    originating_work_item_id: work, related_work_item_ids: [],
+    originating_work_item_id: work, related_work_item_ids: [], sensitive: false, related_artifact_ids: [],
     created_at: "2026-09-01T00:00:00Z", modified_at: "2026-09-01T00:00:00Z",
     deleted_at: null, content_available: true
   };

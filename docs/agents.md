@@ -4,7 +4,7 @@ For code reviews, branch by temperature before ordinary recall: the
 [code-review protocol](code-reviews.md) governs mandatory handoff, durable
 originating-session recommendation answers, minimal cold coordination, warm
 adversarial review and one atomic remediation. Reviews are not implementation
-closeouts. The current catalog is 47 tools and sixteen protected writes.
+closeouts. The current catalog is 48 tools and seventeen protected writes.
 The [artifact library](artifacts.md) adds project file upload/download, atomic
 replacement, permanent content deletion, and searchable retained metadata/audit.
 Use `get_artifact_text` to page normalized text at a required current revision;
@@ -14,7 +14,7 @@ Link originating and related work during upload so ordinary recall discovers fil
 
 Mnemonic Phase 12 requires an agent-authored human report on every fresh Done,
 Won’t do, or Promoted closeout. Read current project settings before authoring,
-then submit the report inside the existing closeout intent. The 47-tool MCP
+then submit the report inside the existing closeout intent. The 48-tool MCP
 catalog adds four safe reads for settings, durable project activity, and report
 history; reviews add four reads and two protected writes, totaling sixteen. Human dismissal and manual
 follow-ups belong in the dashboard’s Summaries page, immediately below Needs
@@ -731,7 +731,7 @@ source that is already an alias. Source gates, structural edges, active-lease
 token mismatch, and depth have distinct merge errors. `duplicate_graph_invalid`
 is an integrity incident: stop authority-changing work and involve the operator.
 
-After an unknown outcome from one of the sixteen protected writes, make at
+After an unknown outcome from one of the seventeen protected writes, make at
 most one retry using only its retained exact operation; search or recall cannot
 substitute for a confirmed receipt response. If that retry also has an unknown
 outcome, stop retrying and use safe reads only to reconcile observable state
