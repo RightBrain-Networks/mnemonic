@@ -423,7 +423,7 @@ item separately:
 
 ## Current artifact library release boundary
 
-Application/API/MCP/dashboard 0.35.0, plugin 0.23.0 and Alembic
+Application/API/MCP/dashboard 0.35.1, plugin 0.23.0 and Alembic
 `0029_artifact_links_sensitive` ship together: 48 MCP tools, 17
 receipt-protected MCP writes,
 22 REST receipt kinds, 19 protected browser mutations, 24 event types and three
