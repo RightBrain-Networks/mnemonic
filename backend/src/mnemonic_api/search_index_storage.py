@@ -100,7 +100,12 @@ class SearchIndexStorage:
         self.open()
         if self._read(".key") != key.encode():
             return False
-        self._check_snapshot()
+        try:
+            self._check_snapshot()
+        except FileNotFoundError:
+            # A retained key cannot make an incomplete cache authoritative.
+            # Keep ownership, permissions and symlink failures explicit.
+            return False
         return True
 
     def _check_snapshot(self) -> None:

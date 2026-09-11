@@ -148,6 +148,24 @@ class ArtifactSearchIndex:
             self._key = None
             self._index = self._load_or_build(key, documents)
             self._key = key
+        try:
+            return self._query(tokens, fulltext, count)
+        except (OSError, ValueError):
+            if self._storage is None:
+                raise
+            # Some segment failures are detected only when querying. Rebuild
+            # once from the current database snapshot, then fail without looping.
+            self._clear_locked()
+            self._index = self._load_or_build(key, documents)
+            self._key = key
+            try:
+                return self._query(tokens, fulltext, count)
+            except (OSError, ValueError):
+                self._clear_locked()
+                raise
+
+    def _query(self, tokens: list[str], fulltext: bool, count: int) -> IndexSearchResult:
+        assert self._index is not None
         searcher = self._index.searcher()
         matches = searcher.search(_literal_query(self._schema, tokens, fulltext), limit=count)
         metadata_ids = _identities(searcher, _any_terms(self._schema, "metadata", tokens), count)
@@ -173,7 +191,11 @@ class ArtifactSearchIndex:
         storage_key = f"{version('tantivy')}:schema1:{key}"
         if self._storage is not None and self._storage.reusable(storage_key):
             try:
-                index = tantivy.Index(self._schema, path=self._storage.path, reuse=True)
+                # The constructor's reuse=True also creates an empty index
+                # when metadata is missing. Open only an existing snapshot.
+                index = tantivy.Index.open(self._storage.path)
+                if index.schema != self._schema:
+                    raise ValueError("Cached search schema differs")
                 index.config_reader(reload_policy="Manual")
                 index.register_tokenizer("artifact", self._analyzer)
                 return index

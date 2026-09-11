@@ -1,6 +1,7 @@
 """Real disk-index persistence, containment, failure cleanup and exclusive ownership."""
 
 import os
+import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -91,16 +92,44 @@ def test_failed_build_is_never_reused_and_next_search_recovers(index, directory,
                   fulltext=True).hits
 
 
-def test_corrupt_completed_index_rebuilds_from_current_database_documents(index, directory):
+@pytest.mark.parametrize("damage", [
+    "metadata", "missing_snapshot", "missing_metadata", "pos", "term", "store",
+])
+def test_corrupt_completed_index_rebuilds_from_current_database_documents(index, directory, damage):
     docs = [SearchDocument("one", "report", "needle")]
     assert search(index, docs, "needle", fulltext=True).hits
     index.close()
-    (directory / "snapshot" / "meta.json").write_text("broken derived index")
+    if damage == "metadata":
+        (directory / "snapshot" / "meta.json").write_text("broken derived index")
+    elif damage == "missing_snapshot":
+        shutil.rmtree(directory / "snapshot")
+    elif damage == "missing_metadata":
+        (directory / "snapshot" / "meta.json").unlink()
+    else:
+        next((directory / "snapshot").glob(f"*.{damage}")).write_bytes(b"")
+    assert (directory / ".key").is_file()
+    loads = []
+
+    def reload_documents():
+        loads.append(True)
+        return docs
+
     recovered = ArtifactSearchIndex(directory)
     try:
-        assert search(recovered, docs, "needle", fulltext=True).hits
+        result = recovered.search("project:revision", reload_documents, query="needle",
+                                  fulltext=True, count=1)
+        assert [hit.identity for hit in result.hits] == ["one"]
+        assert loads == [True]
+        assert recovered.search("project:revision", no_load, query="needle", fulltext=True,
+                                count=1).hits == result.hits
     finally:
         recovered.close()
+    reopened = ArtifactSearchIndex(directory)
+    try:
+        assert reopened.search("project:revision", no_load, query="needle", fulltext=True,
+                               count=1).hits
+    finally:
+        reopened.close()
 
 
 @pytest.mark.parametrize("condition", ["missing", "file", "symlink", "public", "occupied"])
@@ -202,3 +231,23 @@ def test_publicly_writable_ancestor_is_rejected_before_index_creation(tmp_path):
     with pytest.raises(ApplicationError):
         index.start()
     assert list(directory.iterdir()) == []
+
+
+def test_persistent_query_failure_rebuilds_at_most_once(index, directory, monkeypatch):
+    original_query = index._query
+    attempts = []
+
+    def unavailable(*_args):
+        attempts.append(True)
+        raise OSError("private storage error")
+
+    monkeypatch.setattr(index, "_query", unavailable)
+    with pytest.raises(ApplicationError) as rejected:
+        search(index, [SearchDocument("one", "needle")], "needle")
+    assert rejected.value.detail["code"] == "transcript_index_unavailable"
+    assert "private storage error" not in str(rejected.value.detail)
+    assert len(attempts) == 2
+    assert not (directory / ".key").exists()
+    assert not (directory / "snapshot").exists()
+    monkeypatch.setattr(index, "_query", original_query)
+    assert search(index, [SearchDocument("one", "needle")], "needle").hits
