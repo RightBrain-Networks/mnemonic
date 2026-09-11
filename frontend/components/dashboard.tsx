@@ -25,6 +25,8 @@ import AffectedPathsEditor from "@/components/affected-paths-editor";
 import DashboardViewChrome from "@/components/dashboard-view-chrome";
 import ThemeSelector from "@/components/theme-selector";
 import ProjectSettingsPanel from "@/components/project-settings";
+import ProjectSettingsNav from "@/components/project-settings-nav";
+import { settingsSections, type SettingsSection } from "@/lib/settings-navigation";
 import { BACKUP_DEFAULT_MAX_BYTES } from "@/lib/backups";
 import DuplicateSuggestionPanel from "@/components/duplicate-suggestion-panel";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
@@ -295,7 +297,7 @@ type WorkContextScanResult =
   | { kind: "superseded" };
 type WorkDialogState = "closed" | "open" | "suspended";
 
-export default function Dashboard({ view = "library", timeZone, artifactMaxBytes = ARTIFACT_DEFAULT_MAX_BYTES, backupMaxBytes = BACKUP_DEFAULT_MAX_BYTES }: { view?: "library" | "attention" | "summaries" | "settings" | "artifacts"; timeZone?: string | null; artifactMaxBytes?: number; backupMaxBytes?: number; }) {
+export default function Dashboard({ view = "library", settingsSection = "workspace", timeZone, artifactMaxBytes = ARTIFACT_DEFAULT_MAX_BYTES, backupMaxBytes = BACKUP_DEFAULT_MAX_BYTES }: { view?: "library" | "attention" | "summaries" | "settings" | "artifacts"; settingsSection?: SettingsSection; timeZone?: string | null; artifactMaxBytes?: number; backupMaxBytes?: number; }) {
   setDisplayTimeZone(timeZone);
   const [mutationRegistry] = useState(() => new MutationIntentRegistry());
   const mutationIntents = useMutationIntents(mutationRegistry);
@@ -2795,6 +2797,8 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
       : undefined
   );
 
+  const settingsPage = settingsSections.find(({ id }) => id === settingsSection)!;
+
   const libraryChrome = <DashboardViewChrome
     title="Work library"
     subject={project?.name}
@@ -2819,14 +2823,14 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
         <a className={`nav-item ${view === "summaries" ? "active" : ""}`} href="/summaries" aria-current={view === "summaries" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="box" /><span>Summaries</span>{reportCount !== null && reportCount !== "0" && <span className="summary-nav-count" aria-label={`${reportCount} undismissed summaries`}>{reportCount}</span>}<Icon name="arrow" size={15} /></a>
         <a className={`nav-item ${view === "attention" ? "active" : ""}`} href="/attention" aria-current={view === "attention" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="attention" /><span>Needs Attention</span>{attentionCount !== null && attentionCount > 0 && <span className="attention-nav-count" aria-label={`${attentionCount} unresolved human question${attentionCount === 1 ? "" : "s"}`}>{attentionCount}</span>}<Icon name="arrow" size={15} /></a>
         <a className={`nav-item ${view === "artifacts" ? "active" : ""}`} href={activeId ? artifactLibraryPath(activeId) : "/artifacts"} aria-current={view === "artifacts" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="artifacts" /><span>Artifacts</span><Icon name="arrow" size={15} /></a>
-        <a className={`nav-item ${view === "settings" ? "active" : ""}`} href="/settings" aria-current={view === "settings" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="settings" /><span>Project settings</span><Icon name="arrow" size={15} /></a>
+        <ProjectSettingsNav section={view === "settings" ? settingsSection : undefined} icon={<Icon name="settings" />} onNavigate={blockNavigationWhilePending} />
       </nav>
       <div className="sidebar-note"><h2>Keeping your agents on the same page.</h2></div>
       <div className="sidebar-footer"><span className="local-dot" /><span>Local workspace</span><ThemeSelector /></div>
     </aside>
 
     <main id="main-content" className="main-content">
-      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view !== "library" && <><span className="breadcrumb-slash">/</span><span>{view === "artifacts" ? "Artifacts" : view === "settings" ? "Project settings" : view === "summaries" ? "Summaries" : "Needs Attention"}</span></>}</div><div className="topbar-actions">{project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncLabels[liveSyncStatus]}</div></div></header>
+      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view !== "library" && <><span className="breadcrumb-slash">/</span><span>{view === "artifacts" ? "Artifacts" : view === "settings" ? settingsPage.label : view === "summaries" ? "Summaries" : "Needs Attention"}</span></>}</div><div className="topbar-actions">{project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncLabels[liveSyncStatus]}</div></div></header>
       <div className={`page-content ${view === "library" ? "page-content-library" : ""}`}>
         {activity.error && <div className="error-notice" role="alert"><p>Activity updates: {activity.error}</p><button type="button" className="button button-secondary" onClick={activity.streamChanged ? activity.reloadSnapshot : activity.poll}>{activity.streamChanged ? "Reload current snapshot" : "Retry updates"}</button></div>}
         {view === "artifacts" ? <>
@@ -2836,13 +2840,14 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
         </> : view === "settings" ? <>
           <DashboardViewChrome
             eyebrow="PROJECT CONFIGURATION"
-            title="Project settings"
-            description={project ? `Control how Mnemonic hands off work from “${project.name}”.` : "Choose a project, then configure how Mnemonic hands off its work."}
+            title={settingsPage.label}
+            description={settingsPage.description}
           />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
           {projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
             <ProjectSettingsPanel
-              key={project?.id ?? "no-project"}
+              key={`${project?.id ?? "no-project"}:${settingsSection}`}
+              section={settingsSection}
               project={project}
               settings={projectSettings}
               loading={settingsLoading}
@@ -2853,7 +2858,6 @@ export default function Dashboard({ view = "library", timeZone, artifactMaxBytes
               onNotice={(message, error) => setNotice({ message, error })}
               backupMaximumBytes={backupMaxBytes}
               backupRefreshSignal={settingsRefresh}
-              backupPending={backupPending}
               onBackupPendingChange={handleBackupPendingChange}
             />}
         </> : view === "summaries" ? <>

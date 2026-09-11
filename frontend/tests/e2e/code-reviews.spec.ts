@@ -250,7 +250,7 @@ test("code review settings expose independent accessible sliders, endpoints and 
   const api = await client();
   try {
     const p = await project(api);
-    await page.goto("/settings");
+    await page.goto("/settings/code-reviews");
     await page.locator("#project-select").selectOption(p.id);
     const card = page.locator(".settings-card").filter({
       has: page.getByRole("heading", { name: "Code reviews", exact: true }),

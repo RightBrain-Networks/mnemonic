@@ -1,8 +1,8 @@
 # Mnemonic validation record
 
-## Artifact links and sensitive content (0.35.1)
+## Artifact links and sensitive content (0.36.0)
 
-Application/API/MCP/dashboard `0.35.1`, plugin `0.23.0`, and migration
+Application/API/MCP/dashboard `0.36.0`, plugin `0.23.0`, and migration
 `0029_artifact_links_sensitive` add symmetric artifact links, metadata-only updates,
 dashboard linking in both work/artifact directions, and per-access human-approval
 challenges for sensitive content. The catalog is 48 MCP tools, 17 protected MCP
