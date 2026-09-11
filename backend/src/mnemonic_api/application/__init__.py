@@ -37,6 +37,7 @@ from mnemonic_api.schemas import COMPLETION_EVENT_ID_MAX
 from mnemonic_api.semantic import Embedder, FastembedEmbedder
 from mnemonic_api.services.artifact_search import ArtifactSearchIndex
 from mnemonic_api.transcript_indexing import transcript_indexing_loop
+from mnemonic_api.transcript_storage import check_transcript_source
 
 __all__ = ["create_app"]
 
@@ -52,6 +53,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        check_transcript_source(config.transcript_source_dir, config.transcript_allowed_roots)
         app.state.transcript_search_index.start()
         maintenance = None
         extraction = None

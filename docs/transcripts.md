@@ -173,6 +173,23 @@ bytes, filesystem quota, or process memory. Tantivy still uses writer memory and
 memory-mapped pages when its files are stored on disk. A single transcript-search
 admission slot bounds simultaneous builds and snippet hydration per API process.
 
+### Recovery after correcting shared folders
+
+Starting with 0.45.0, the worker automatically retries stored
+`transcript_path_not_allowed` failures whose exact paths now fall beneath an allowed
+root. This includes nested subagent and workflow transcripts recorded before the
+shared mount was configured. Existing IDs and enrollment provenance are preserved;
+no reimport or project-wide rebuild is needed. Paused projects and active lease
+generations still wait. Outside-root paths remain rejected, and symlinks remain
+forbidden. Missing files, parser errors and other terminal failures still require
+correcting the source and using **Rebuild index**.
+
+Base Compose forwards `MNEMONIC_TRANSCRIPT_SOURCE_DIR` even if an overlay is
+accidentally omitted. The API rejects startup when that configured source is absent
+from its allowlist or cannot be opened as a real directory. Explicit `docker compose
+-f ...` flags override `COMPOSE_FILE`; include every saved overlay when using them.
+Prefer ordinary `docker compose` commands with the full list saved in `.env`.
+
 ### Generated index location
 
 Both operator settings are in `.env`:

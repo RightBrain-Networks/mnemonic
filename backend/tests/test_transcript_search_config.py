@@ -41,3 +41,24 @@ def test_transcript_index_directory_rejects_ambiguous_roots(monkeypatch, value):
     monkeypatch.setenv("MNEMONIC_TRANSCRIPT_INDEX_DIR", value)
     with pytest.raises(ValidationError, match="MNEMONIC_TRANSCRIPT_INDEX_DIR"):
         settings()
+
+
+def test_configured_source_requires_its_allowlist_even_when_overlay_is_omitted(
+    monkeypatch, tmp_path,
+):
+    import json
+
+    monkeypatch.setenv("MNEMONIC_TRANSCRIPT_SOURCE_DIR", str(tmp_path))
+    monkeypatch.setenv("MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS", "[]")
+    with pytest.raises(ValidationError, match="explicit Compose -f flags override COMPOSE_FILE"):
+        settings()
+    monkeypatch.setenv("MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS", json.dumps([str(tmp_path)]))
+    assert settings().transcript_source_dir == tmp_path
+    monkeypatch.setenv("MNEMONIC_TRANSCRIPT_SOURCE_DIR", "")
+    assert settings().transcript_source_dir is None
+
+
+def test_transcript_index_directory_rejects_nul():
+    with pytest.raises(ValidationError, match="absolute dedicated paths"):
+        Settings(database_url="postgresql+psycopg://test:test@localhost/test",
+                 api_key="synthetic-test-key" * 3, transcript_index_dir="/private/invalid\x00path")

@@ -1,6 +1,6 @@
 # Mnemonic validation record
 
-## Configurable transcript index storage (0.45.0)
+## Configurable transcript index storage and source recovery (0.45.0)
 
 `MNEMONIC_TRANSCRIPT_INDEX_DIR` selects both the generated index directory and its
 private read-write API bind in base Compose. The existing
@@ -19,6 +19,17 @@ The production Compose mount harness uses only synthetic sources and isolated
 containers. It verifies both environment settings, private on-disk indexing,
 owner-only transcript reads, read-only source mounts and containment. The isolated
 browser stack likewise provisions a separate private index bind for each run.
+The mount harness also loads `COMPOSE_FILE` from a saved environment file, exercises
+nested workflow subagents, and proves an explicit command omitting the source overlay
+is rejected. Recovery tests cover prior primary/subagent failures, stable enrollment
+IDs, active generations, paused projects, exact root boundaries, path aliases,
+symlink rejection and terminal errors that must not be retried.
+
+An independent cold reviewer identified three persistent-cache recovery gaps:
+missing snapshots, missing metadata, and corruption detected during querying. All
+three were corrected and independently reproduced as recovering with one body load,
+followed by cache reuse. The reviewer passed 104 focused checks on the corrections.
+
 Dashboard validation includes 432 tests, typecheck and build; MCP validation includes
 121 read/transport/version regressions. Backend/MCP Ruff and ty pass.
 

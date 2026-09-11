@@ -139,7 +139,10 @@ no index directory retain a RAM cache. Rebuilds have their own
 Workspace imports recursively discover existing Claude Code JSONL beneath allowed roots.
 Imports are project-owned, deduplicated by normalized source path against enrolled sources,
 and reused by later enrollment. Import receipts retain exact folders and operation UUIDs.
-The API only reads regular files beneath operator-configured allowed roots. See
+The API only reads regular files beneath operator-configured allowed roots. Corrected
+roots automatically retry earlier path-not-allowed failures while retaining lease
+and pause guards. Compose rejects a configured source with an omitted allowlist or
+unavailable mount at API startup. See
 `docs/transcripts.md` for the read-only shared-filesystem mount and workspace settings.
 
 Reviews belong to original Done work and require purpose-bound review leases.

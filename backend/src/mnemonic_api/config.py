@@ -1,9 +1,10 @@
 """Validated service configuration, with secrets kept out of repr/log output."""
 
 from pathlib import Path
+from typing import Self
 from urllib.parse import urlsplit
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -60,6 +61,22 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices(
             "MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS", "transcript_allowed_roots"),
     )
+    transcript_source_dir: Path | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MNEMONIC_TRANSCRIPT_SOURCE_DIR", "transcript_source_dir"),
+    )
+
+    @model_validator(mode="after")
+    def transcript_source_has_allowlist(self) -> Self:
+        if (self.transcript_source_dir is not None
+                and self.transcript_source_dir not in self.transcript_allowed_roots):
+            raise ValueError(
+                "MNEMONIC_TRANSCRIPT_SOURCE_DIR requires the same path in "
+                "MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS. Include compose.transcripts.yaml; "
+                "explicit Compose -f flags override COMPOSE_FILE."
+            )
+        return self
+
     transcript_max_bytes: int = Field(
         default=67_108_864, ge=1, le=268_435_456,
         validation_alias=AliasChoices("MNEMONIC_TRANSCRIPT_MAX_BYTES", "transcript_max_bytes"),
@@ -69,15 +86,16 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("MNEMONIC_TRANSCRIPT_INDEX_DIR", "transcript_index_dir"),
     )
 
-    @field_validator("transcript_index_dir", mode="before")
+    @field_validator("transcript_index_dir", "transcript_source_dir", mode="before")
     @classmethod
-    def transcript_index_directory(cls, value):
+    def transcript_directory(cls, value):
         if value is None or value == "":
             return None
         directory = Path(value)
         if (not directory.is_absolute() or directory == Path("/")
-                or ".." in directory.parts or str(directory).startswith("//")):
-            raise ValueError("The transcript index directory must be an absolute dedicated path")
+                or ".." in directory.parts or str(directory).startswith("//")
+                or "\x00" in str(directory)):
+            raise ValueError("Transcript directories must be absolute dedicated paths")
         return directory
 
     transcript_search_max_bytes: int = Field(

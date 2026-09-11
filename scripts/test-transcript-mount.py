@@ -24,8 +24,9 @@ from mnemonic_api.artifact_index import ArtifactSearchIndex, SearchDocument
 from mnemonic_api.artifact_tika import ExtractionError
 from mnemonic_api.config import Settings
 from mnemonic_api.transcript_discovery import discover_transcripts
-from mnemonic_api.transcript_storage import read_transcript
+from mnemonic_api.transcript_storage import check_transcript_source, read_transcript
 settings = Settings()
+check_transcript_source(settings.transcript_source_dir, settings.transcript_allowed_roots)
 root = settings.transcript_allowed_roots[0]
 assert os.geteuid() == int(os.environ["EXPECTED_UID"]) > 0
 assert os.getegid() == int(os.environ["EXPECTED_GID"]) > 0
@@ -125,7 +126,8 @@ def exercise(compose: list[str], env: dict[str, str], source: Path) -> None:
     other_uid = "10001" if os.getuid() != 10001 else "10002"
     print(command([*run, "--user", f"{other_uid}:{other_uid}", "api", "-"],
                   env=env, content=DENIED_PROBE).stdout.strip())
-    for filename in ("existing.jsonl", "session/subagents/new.jsonl"):
+    for filename in ("existing.jsonl", "session/subagents/new.jsonl",
+                     "session/subagents/workflows/wf-synthetic/agent.jsonl"):
         path = source / filename
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         path.write_bytes(b"synthetic transcript\n")
@@ -133,6 +135,12 @@ def exercise(compose: list[str], env: dict[str, str], source: Path) -> None:
         args = [*run, "-e", f"EXPECTED_UID={os.getuid()}", "-e", f"EXPECTED_GID={os.getgid()}",
                 "-e", f"PROBE_SOURCE={filename}", "api", "-"]
         print(command(args, env=env, content=PROBE).stdout.strip())
+    omitted = [*compose, "-f", str(ROOT / "compose.yaml"), "-f", str(ROOT / "compose.tls.yaml")]
+    result = command([*omitted, "run", "--rm", "--no-deps", "-T", "--entrypoint", "python",
+                      "api", "-c", "from mnemonic_api.config import Settings; Settings()"],
+                     env=env, succeeds=False)
+    assert "explicit Compose -f flags override COMPOSE_FILE" in result.stderr, result.stderr
+    print("PASS: explicitly omitting the saved transcript overlay fails configuration")
     missing = source / "does-not-exist"
     result = command([*run, "api", "-c", "raise AssertionError('missing source was mounted')"],
                      env={**env, "MNEMONIC_TRANSCRIPT_SOURCE_DIR": str(missing)}, succeeds=False)
@@ -173,7 +181,9 @@ def main() -> None:
             "MNEMONIC_API_KEY": "synthetic-mount-test-key-long-enough",
             "MNEMONIC_BACKUP_TOKEN": "synthetic-mount-test-backup-long-enough",
         })
-        compose = ["docker", "compose", "--env-file", "/dev/null", "-p", project]
+        env_file = directory / "compose.env"
+        env_file.write_text("COMPOSE_FILE=" + json.dumps(env.pop("COMPOSE_FILE")) + "\n")
+        compose = ["docker", "compose", "--env-file", str(env_file), "-p", project]
         try:
             exercise(compose, env, source)
         finally:
