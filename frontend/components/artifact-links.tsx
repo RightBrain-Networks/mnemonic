@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { artifactPath, decodeArtifact, decodeArtifactPage, type Artifact } from "@/lib/artifacts";
+import { artifactSearchRequest, decodeUnifiedArtifactSearchPage, unifiedSearchPath } from "@/lib/unified-search";
 import { artifactUpdateIntent, dispatchArtifactMutation, type ArtifactMutation } from "@/lib/artifact-mutations";
 import { readBoundedJson } from "@/lib/bounded-json";
 import { dashboardSessionId } from "@/lib/dashboard-session";
@@ -19,10 +20,16 @@ export function ArtifactPicker({ projectId, excludedIds, disabled, onSelect, wor
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const params = new URLSearchParams({ ...(query.trim() ? { q: query.trim() } : {}), limit: "10", sort: "filename", order: "asc" });
-        const response = await fetch(`${artifactPath(projectId)}?${params}`, { cache: "no-store", signal: controller.signal });
+        const search = query.trim();
+        const params = new URLSearchParams({ limit: "10", sort: "filename", order: "asc" });
+        const response = search ? await fetch(`/api/mnemonic${unifiedSearchPath(projectId)}`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(artifactSearchRequest(search, false, false, 10, 0)), cache: "no-store", signal: controller.signal
+        }) : await fetch(`${artifactPath(projectId)}?${params}`, { cache: "no-store", signal: controller.signal });
         if (!response.ok) throw new Error("Unable to find artifacts. Try another search.");
-        const page = decodeArtifactPage(await readBoundedJson(response, 1024 * 1024), projectId);
+        const value = await readBoundedJson(response, 1024 * 1024);
+        const matches = search ? decodeUnifiedArtifactSearchPage(value, projectId, false, 10, 0) : null;
+        const page = matches ? { ...matches, items: matches.items.map((match) => match.artifact) } : decodeArtifactPage(value, projectId);
         if (!controller.signal.aborted) setState({ scope, items: page.items, total: page.total, error: "" });
       } catch (cause) { if (!controller.signal.aborted) setState({ scope, items: [], total: 0, error: errorMessage(cause) }); }
     }, 250);

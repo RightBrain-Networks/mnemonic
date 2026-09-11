@@ -240,8 +240,9 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError("Cannot reach Mnemonic. Check that the application is running, then try again.", 0);
   }
   const reviewRead = /\/(code-reviews|work-agent-follow-ups|agent-follow-ups)(?:[/?]|$)/.test(path);
-  const phase12 = reviewRead || /\/(activity|job-completion-reports|report-follow-ups|settings)(?:[/?]|$)/.test(path);
-  const maximumBytes = reviewRead ? /\/agent-follow-ups\//.test(path) ? 65_536
+  const searchRead = /\/search$/.test(path);
+  const phase12 = searchRead || reviewRead || /\/(activity|job-completion-reports|report-follow-ups|settings)(?:[/?]|$)/.test(path);
+  const maximumBytes = searchRead ? 16 * 1024 * 1024 : reviewRead ? /\/agent-follow-ups\//.test(path) ? 65_536
     : /\/code-reviews\//.test(path) ? 786_432 : 524_288
     : path.includes("/activity") ? 524_288
     : /job-completion-reports\/count(?:\?|$)/.test(path) ? 1_024

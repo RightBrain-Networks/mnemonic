@@ -36,6 +36,7 @@ from mnemonic_api.application.routes import (
     project_reports,
     projects,
     relationships,
+    search,
     transcripts,
     work_items,
     work_search,
@@ -58,6 +59,7 @@ def api_router() -> APIRouter:
         ],
     )
     for router in (
+        search.router,
         transcripts.router,
         artifacts.status_router,
         artifacts.router,

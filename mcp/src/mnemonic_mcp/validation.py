@@ -16,6 +16,22 @@ from .transport import bounded_stdio_server
 # Reviewed in docs/validation-vocabulary.json; test_validation_vocabulary.py pins this subset.
 VALIDATION_FIELDS = frozenset(
     {
+        "facets",
+        "facet",
+        "facet_order",
+        "filters",
+        "work_items",
+        "artifacts",
+        "transcripts",
+        "sort",
+        "by",
+        "fulltext",
+        "artifact_id",
+        "include_deleted",
+        "sensitive",
+        "mime_type",
+        "created_by_agent_session_id",
+        "agent_session_id",
         "external_candidates",
         "session_transcript",
         "subagent_transcripts",

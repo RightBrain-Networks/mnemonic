@@ -56,6 +56,7 @@ CANONICAL_TOOLS = {
     "list_projects",
     "create_project",
     "create_work",
+    "search",
     "search_work",
     "list_ready_work",
     "get_work",
@@ -1123,8 +1124,17 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.42.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.43.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
+        unified_search = document["paths"]["/api/v1/projects/{project_id}/search"]["post"]
+        require(
+            unified_search.get("x-mnemonic-effect") == "safe_read"
+            and unified_search["responses"]["200"]["content"]["application/json"]["schema"]
+            == {"$ref": "#/components/schemas/SearchPage"}
+            and {"items", "total", "limit", "offset", "facet_totals", "coverage",
+                 "indexing_incomplete"}.issubset(schemas["SearchPage"]["properties"]),
+            "REST unified search lacks its safe-read and coverage contract.",
+        )
         require(
             {"ExternalReference", "ExternalReferencesChange", "ExternalDuplicateCandidate",
              "ExternalCandidateReference", "ExternalDuplicateSuggestion"}.issubset(schemas)
@@ -1350,8 +1360,8 @@ def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
     require(
-        len(catalog.tools) == 53
-        and len(tools_by_name) == 53
+        len(catalog.tools) == 54
+        and len(tools_by_name) == 54
         and len(PROTECTED_MUTATION_TOOLS) == 17
         and set(tools_by_name) == CANONICAL_TOOLS,
         "Unexpected MCP tool catalog.",
@@ -1389,6 +1399,15 @@ def validate_mcp_catalog(catalog: Any) -> None:
                 "client_operation_id" not in properties and "client_operation_id" not in required,
                 f"MCP {name} unexpectedly exposes a client operation ID.",
             )
+    search_properties = tools_by_name["search"].inputSchema["properties"]
+    require(
+        {"project_id", "q", "facets", "fulltext", "filters", "sort", "facet_order",
+         "limit", "offset"}.issubset(search_properties)
+        and search_properties["fulltext"].get("default") is False
+        and search_properties["limit"].get("default") == 50
+        and search_properties["offset"].get("default") == 0,
+        "MCP unified search lacks its default, facet, ordering or pagination contract.",
+    )
     scoped_tools = {
         name
         for name, entry in tools_by_name.items()
@@ -1612,15 +1631,15 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.42.0",
+                    and initialized.serverInfo.version == "0.43.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.42.0 cross-project relationship contract shape, work-move, "
-                    "code-review contract, real MCP initialization, 53-tool catalog, "
+                    "PASS: REST 0.43.0 cross-project relationship contract shape, work-move, "
+                    "code-review contract, real MCP initialization, 54-tool catalog, "
                     "exact seventeen protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )

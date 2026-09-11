@@ -1388,10 +1388,13 @@ test("the queue appends pages on scroll while the result count shows the total",
       })));
     }
 
-    const pageRequests: string[] = [];
+    const pageRequests: { limit: number; offset: number }[] = [];
     page.on("request", (sent) => {
       const url = sent.url();
-      if (url.includes("/work-items?") && url.includes(`q=${token}`)) pageRequests.push(url);
+      if (url.endsWith(`/projects/${state.projectId}/search`) && sent.method() === "POST") {
+        const body = sent.postDataJSON();
+        if (body.q === token) pageRequests.push(body);
+      }
     });
 
     await openDashboard(page);
@@ -1417,13 +1420,13 @@ test("the queue appends pages on scroll while the result count shows the total",
     // Every card is a distinct record and nothing beyond the total was requested.
     const ids = await cards.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-queue-option")));
     expect(new Set(ids).size).toBe(total);
-    await expect.poll(() => pageRequests.some((url) => url.includes("offset=40"))).toBe(true);
+    await expect.poll(() => pageRequests.some((body) => body.offset === 40)).toBe(true);
     await scrollQueueToEnd(page);
     await expect(cards).toHaveCount(total);
     await expect(count).toHaveText(`${total} work records`);
     await expect(page.getByRole("status", { name: "Loading more work items" })).toHaveCount(0);
-    expect(pageRequests.some((url) => url.includes("offset=60"))).toBe(false);
-    for (const url of pageRequests) expect(url).toContain(`limit=${WORK_PAGE_SIZE}`);
+    expect(pageRequests.some((body) => body.offset === 60)).toBe(false);
+    for (const body of pageRequests) expect(body.limit).toBe(WORK_PAGE_SIZE);
   } finally {
     await client.dispose();
   }

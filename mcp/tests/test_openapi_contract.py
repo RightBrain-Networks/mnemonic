@@ -109,3 +109,30 @@ def test_external_nested_contracts_match_openapi_properties_and_required_sets():
         expected = document["components"]["schemas"][model.__name__]
         assert set(actual["properties"]) == set(expected["properties"]), model.__name__
         assert set(actual["required"]) == set(expected["required"]), model.__name__
+
+
+def test_unified_search_models_match_published_openapi_shape():
+    from mnemonic_mcp import search_models
+
+    document = json.loads((REPOSITORY_ROOT / "docs/openapi.json").read_text())
+    request = document["paths"]["/api/v1/projects/{project_id}/search"]["post"][
+        "requestBody"
+    ]["content"]["application/json"]["schema"]
+    properties = request["properties"]
+    components = {
+        **document["components"]["schemas"], "SearchRequest": request,
+        "SearchSort": properties["sort"], "FacetOrder": properties["facet_order"]["items"],
+        "SearchFilters": properties["filters"],
+        **{schema["title"]: schema for schema in properties["filters"]["properties"].values()},
+    }
+    components["SearchArtifactMatch"] = components["ArtifactSearchMatch"]
+    for name in (
+        "SearchArtifactMatch", "SearchSort", "FacetOrder", "WorkSearchFilters", "ArtifactSearchFilters",
+        "TranscriptSearchFilters", "SearchFilters", "SearchRequest", "WorkFacetHit",
+        "ArtifactFacetHit", "TranscriptFacetHit", "FacetTotals", "ArtifactSearchCoverage",
+        "TranscriptSearchCoverage", "SearchCoverage", "SearchPage",
+    ):
+        schema = getattr(search_models, name).model_json_schema()
+        assert name in components, name
+        assert set(schema.get("properties", {})) == set(components[name].get("properties", {})), name
+        assert set(schema.get("required", [])) == set(components[name].get("required", [])), name

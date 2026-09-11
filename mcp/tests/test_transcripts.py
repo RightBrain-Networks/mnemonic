@@ -247,7 +247,7 @@ async def test_new_tools_are_safe_reads_with_no_sensitive_option(settings):
         assert tools[name].annotations.readOnlyHint
         assert "sensitive" not in tools[name].inputSchema["properties"]
         assert "client_operation_id" not in tools[name].inputSchema["properties"]
-    assert len(tools) == 53
+    assert len(tools) == 54
 
 
 def _historical_closeout_case(kind, work_item, checkpoint, relationship, progress_event, human_gate):

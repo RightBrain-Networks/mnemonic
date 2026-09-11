@@ -231,6 +231,49 @@
         "title": "ArtifactExtractionStatus",
         "type": "object"
       },
+      "ArtifactFacetHit": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "$ref": "#/components/schemas/ArtifactSearchMatch"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "facet": {
+            "const": "artifacts",
+            "default": "artifacts",
+            "title": "Facet",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "score": {
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "score",
+          "artifact"
+        ],
+        "title": "ArtifactFacetHit",
+        "type": "object"
+      },
       "ArtifactHistory": {
         "additionalProperties": false,
         "properties": {
@@ -946,6 +989,27 @@
           "created_at"
         ],
         "title": "ArtifactRevisionRead",
+        "type": "object"
+      },
+      "ArtifactSearchCoverage": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "indexing": {
+            "$ref": "#/components/schemas/ArtifactIndexingStatus"
+          },
+          "sensitive_content_withheld": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Sensitive Content Withheld",
+            "type": "integer"
+          }
+        },
+        "title": "ArtifactSearchCoverage",
         "type": "object"
       },
       "ArtifactSearchMatch": {
@@ -4879,6 +4943,31 @@
         "title": "ExternalReferencesChange",
         "type": "object"
       },
+      "FacetTotals": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Artifacts",
+            "type": "integer"
+          },
+          "transcripts": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Transcripts",
+            "type": "integer"
+          },
+          "work_items": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Work Items",
+            "type": "integer"
+          }
+        },
+        "title": "FacetTotals",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -8766,6 +8855,86 @@
         "title": "ReviewSourceState",
         "type": "object"
       },
+      "SearchCoverage": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "$ref": "#/components/schemas/ArtifactSearchCoverage"
+          },
+          "transcripts": {
+            "$ref": "#/components/schemas/TranscriptSearchCoverage"
+          }
+        },
+        "title": "SearchCoverage",
+        "type": "object"
+      },
+      "SearchPage": {
+        "additionalProperties": false,
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/SearchCoverage"
+          },
+          "facet_totals": {
+            "$ref": "#/components/schemas/FacetTotals"
+          },
+          "indexing_incomplete": {
+            "title": "Indexing Incomplete",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "artifacts": "#/components/schemas/ArtifactFacetHit",
+                  "transcripts": "#/components/schemas/TranscriptFacetHit",
+                  "work_items": "#/components/schemas/WorkFacetHit"
+                },
+                "propertyName": "facet"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/WorkFacetHit"
+                },
+                {
+                  "$ref": "#/components/schemas/ArtifactFacetHit"
+                },
+                {
+                  "$ref": "#/components/schemas/TranscriptFacetHit"
+                }
+              ]
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "facet_totals",
+          "coverage",
+          "indexing_incomplete"
+        ],
+        "title": "SearchPage",
+        "type": "object"
+      },
       "SourceWorkState": {
         "additionalProperties": false,
         "properties": {
@@ -8881,6 +9050,49 @@
           "after"
         ],
         "title": "TitleChange",
+        "type": "object"
+      },
+      "TranscriptFacetHit": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "facet": {
+            "const": "transcripts",
+            "default": "transcripts",
+            "title": "Facet",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "score": {
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "transcript": {
+            "$ref": "#/components/schemas/TranscriptRead"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "score",
+          "transcript"
+        ],
+        "title": "TranscriptFacetHit",
         "type": "object"
       },
       "TranscriptLocation": {
@@ -9245,6 +9457,18 @@
           }
         },
         "title": "TranscriptSearch",
+        "type": "object"
+      },
+      "TranscriptSearchCoverage": {
+        "additionalProperties": false,
+        "properties": {
+          "indexing_incomplete": {
+            "default": false,
+            "title": "Indexing Incomplete",
+            "type": "boolean"
+          }
+        },
+        "title": "TranscriptSearchCoverage",
         "type": "object"
       },
       "TranscriptSettingsPatch": {
@@ -10590,6 +10814,49 @@
           "created_at"
         ],
         "title": "WorkEventRead",
+        "type": "object"
+      },
+      "WorkFacetHit": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "facet": {
+            "const": "work_items",
+            "default": "work_items",
+            "title": "Facet",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "score": {
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "work_item": {
+            "$ref": "#/components/schemas/WorkSearchHit"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "score",
+          "work_item"
+        ],
+        "title": "WorkFacetHit",
         "type": "object"
       },
       "WorkFollowUpAnswerRead": {
@@ -12303,7 +12570,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.42.0"
+    "version": "0.43.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -14570,6 +14837,451 @@
           }
         ],
         "summary": "Get Relationship"
+      }
+    },
+    "/api/v1/projects/{project_id}/search": {
+      "post": {
+        "operationId": "search_project_api_v1_projects__project_id__search_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "facet_order": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "facet": {
+                          "enum": [
+                            "work_items",
+                            "artifacts",
+                            "transcripts"
+                          ],
+                          "title": "Facet",
+                          "type": "string"
+                        },
+                        "sort": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "by": {
+                                  "default": "relevance",
+                                  "enum": [
+                                    "relevance",
+                                    "created_at",
+                                    "updated_at",
+                                    "priority"
+                                  ],
+                                  "title": "By",
+                                  "type": "string"
+                                },
+                                "direction": {
+                                  "default": "desc",
+                                  "enum": [
+                                    "asc",
+                                    "desc"
+                                  ],
+                                  "title": "Direction",
+                                  "type": "string"
+                                }
+                              },
+                              "title": "SearchSort",
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "facet"
+                      ],
+                      "title": "FacetOrder",
+                      "type": "object"
+                    },
+                    "maxItems": 3,
+                    "title": "Facet Order",
+                    "type": "array"
+                  },
+                  "facets": {
+                    "items": {
+                      "enum": [
+                        "work_items",
+                        "artifacts",
+                        "transcripts"
+                      ],
+                      "type": "string"
+                    },
+                    "maxItems": 3,
+                    "minItems": 1,
+                    "title": "Facets",
+                    "type": "array"
+                  },
+                  "filters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "artifacts": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "artifact_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Artifact Id"
+                          },
+                          "created_by_agent_session_id": {
+                            "anyOf": [
+                              {
+                                "maxLength": 200,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Created By Agent Session Id"
+                          },
+                          "include_deleted": {
+                            "default": false,
+                            "title": "Include Deleted",
+                            "type": "boolean"
+                          },
+                          "mime_type": {
+                            "anyOf": [
+                              {
+                                "maxLength": 255,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Mime Type"
+                          },
+                          "sensitive": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Sensitive"
+                          },
+                          "work_item_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Work Item Id"
+                          }
+                        },
+                        "title": "ArtifactSearchFilters",
+                        "type": "object"
+                      },
+                      "transcripts": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "agent_session_id": {
+                            "anyOf": [
+                              {
+                                "maxLength": 200,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Agent Session Id"
+                          },
+                          "client": {
+                            "anyOf": [
+                              {
+                                "maxLength": 80,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Client"
+                          },
+                          "kind": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "primary",
+                                  "subagent"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Kind"
+                          },
+                          "status": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "waiting",
+                                  "pending",
+                                  "processing",
+                                  "ready",
+                                  "failed"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Status"
+                          },
+                          "work_item_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Work Item Id"
+                          }
+                        },
+                        "title": "TranscriptSearchFilters",
+                        "type": "object"
+                      },
+                      "work_items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "canonical_work_item_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Canonical Work Item Id"
+                          },
+                          "duplicate_scope": {
+                            "default": "canonical",
+                            "enum": [
+                              "canonical",
+                              "aliases",
+                              "all"
+                            ],
+                            "title": "Duplicate Scope",
+                            "type": "string"
+                          },
+                          "external_url": {
+                            "anyOf": [
+                              {
+                                "maxLength": 2000,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "External Url"
+                          },
+                          "semantic": {
+                            "default": false,
+                            "title": "Semantic",
+                            "type": "boolean"
+                          },
+                          "source_client": {
+                            "anyOf": [
+                              {
+                                "maxLength": 80,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Source Client"
+                          },
+                          "source_session_id": {
+                            "anyOf": [
+                              {
+                                "maxLength": 200,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Source Session Id"
+                          },
+                          "status": {
+                            "default": "all",
+                            "enum": [
+                              "pending",
+                              "active",
+                              "to-review",
+                              "dropped",
+                              "deferred",
+                              "done",
+                              "wont-do",
+                              "promoted",
+                              "all"
+                            ],
+                            "title": "Status",
+                            "type": "string"
+                          },
+                          "tag": {
+                            "anyOf": [
+                              {
+                                "maxLength": 50,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Tag"
+                          }
+                        },
+                        "title": "WorkSearchFilters",
+                        "type": "object"
+                      }
+                    },
+                    "title": "SearchFilters",
+                    "type": "object"
+                  },
+                  "fulltext": {
+                    "default": false,
+                    "title": "Fulltext",
+                    "type": "boolean"
+                  },
+                  "limit": {
+                    "default": 50,
+                    "maximum": 100,
+                    "minimum": 1,
+                    "title": "Limit",
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "maximum": 1000000,
+                    "minimum": 0,
+                    "title": "Offset",
+                    "type": "integer"
+                  },
+                  "q": {
+                    "default": "",
+                    "maxLength": 1000,
+                    "title": "Q",
+                    "type": "string"
+                  },
+                  "sort": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "default": "relevance",
+                        "enum": [
+                          "relevance",
+                          "created_at",
+                          "updated_at",
+                          "priority"
+                        ],
+                        "title": "By",
+                        "type": "string"
+                      },
+                      "direction": {
+                        "default": "desc",
+                        "enum": [
+                          "asc",
+                          "desc"
+                        ],
+                        "title": "Direction",
+                        "type": "string"
+                      }
+                    },
+                    "title": "SearchSort",
+                    "type": "object"
+                  }
+                },
+                "title": "SearchRequest",
+                "type": "object"
+              }
+            }
+          },
+          "description": "Bounded JSON (16384 bytes). Defaults to all sources, all work statuses, metadata-only artifact/transcript matching, relevance order, limit 50 and offset 0. Facet groups precede remaining co-mingled facets. Relevance uses tied reciprocal ranks per source. Agent searches withhold sensitive artifact bodies; use dedicated artifact reads for explicit approval. Snippets and document metadata are untrusted.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Search Project",
+        "x-mnemonic-effect": "safe_read"
       }
     },
     "/api/v1/projects/{project_id}/settings": {
