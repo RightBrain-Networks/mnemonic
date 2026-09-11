@@ -29,7 +29,7 @@ async function createWork(api: APIRequestContext, project: Project, title: strin
 }
 
 async function openBackups(page: Page, project: Project) {
-  await page.goto("/settings");
+  await page.goto("/settings/backups");
   await page.locator("#project-select").selectOption(project.id);
   const panel = page.getByRole("region", { name: "Project backups", exact: true });
   await panel.scrollIntoViewIfNeeded();
@@ -166,7 +166,10 @@ test("a lost backup response blocks duplicate actions until the user reloads and
     await expect(panel.getByRole("button", { name: "Back up now" })).toBeDisabled();
     await expect(page.locator("#project-select")).toBeDisabled();
     await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("link", { name: "Work library" }).click();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings\/backups$/);
+    const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
+    await navigation.getByRole("link", { name: "Prompts", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings\/backups$/);
     await panel.getByRole("button", { name: "Refresh backups" }).click();
     await expect(panel.getByRole("listitem")).toHaveCount(1);
     expect(attempts).toBe(1);
@@ -199,7 +202,7 @@ test("changing projects clears the chosen restore file and ignores a late archiv
       } catch { /* The project switch aborts this stale request. */ }
       finally { settled(); }
     });
-    await page.goto("/settings");
+    await page.goto("/settings/backups");
     await page.locator("#project-select").selectOption(source.id);
     await requested;
     let panel = page.getByRole("region", { name: "Project backups", exact: true });

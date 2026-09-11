@@ -132,7 +132,7 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.35.1`, plugin `0.23.0`,
+The current coordinated boundary is API/MCP/dashboard `0.36.0`, plugin `0.23.0`,
 and Alembic `0029_artifact_links_sensitive`. Inventory exactly 48 MCP tools,
 17 protected MCP writes, 22 REST receipt kinds, 19 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
@@ -996,7 +996,7 @@ from the same revision: the frozen digests and the code that computes them are
 one unit, and a mismatched pair reports drift against an unchanged schema.
 `scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.35.1` clients and plugin `0.23.0` together.
+failure, and inventory deployed `0.36.0` clients and plugin `0.23.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 All three audits pin the PostgreSQL session settings that decide how the server

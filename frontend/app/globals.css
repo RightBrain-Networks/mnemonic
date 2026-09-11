@@ -2411,3 +2411,40 @@ html[data-theme="dark"] .review-policy-summary, html[data-theme="dark"] .review-
 .artifact-metadata-editor .text-button, .work-artifact-links > .text-button { padding: 0; border: 0; border-radius: 2px; background: none; color: var(--accent-deep); font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; cursor: pointer; }
 .artifact-metadata-editor .text-button:focus-visible, .work-artifact-links > .text-button:focus-visible { outline: 2px solid var(--accent-deep); outline-offset: 3px; }
 .artifact-metadata-editor .text-button:disabled, .work-artifact-links > .text-button:disabled { opacity: .55; cursor: default; }
+
+/* Settings disclosure: https://easings.net/#easeOutExpo and #easeInExpo. */
+.settings-nav {
+  --settings-easing: cubic-bezier(0.7, 0, 0.84, 0);
+  --settings-duration: 300ms;
+  min-width: 0;
+}
+.settings-nav[data-expanded="true"] { --settings-easing: cubic-bezier(0.16, 1, 0.3, 1); }
+.settings-nav-toggle { width: 100%; border: 0; background: transparent; text-align: left; }
+.settings-nav-chevron { flex-shrink: 0; transition: transform var(--settings-duration) var(--settings-easing); }
+.settings-nav[data-expanded="true"] .settings-nav-chevron { transform: rotate(90deg); }
+.settings-nav-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition: grid-template-rows var(--settings-duration) var(--settings-easing), visibility 0s var(--settings-duration);
+}
+.settings-nav[data-expanded="true"] .settings-nav-collapse { grid-template-rows: 1fr; visibility: visible; transition-delay: 0s; }
+.settings-nav-leaves { min-height: 0; overflow: hidden; margin: 0; padding: 0; list-style: none; }
+.settings-nav .settings-nav-leaf { margin-left: 21px; padding-left: 20px; }
+.settings-nav[data-ready="false"] :is(.settings-nav-collapse, .settings-nav-chevron) { transition: none; }
+@media (min-width: 801px) {
+  .sidebar { overflow-y: auto; }
+}
+@media (max-width: 800px) {
+  .sidebar nav { align-items: flex-start; }
+  .settings-nav { flex: 1; }
+  .settings-nav .settings-nav-leaf { margin-left: 0; padding-left: 13px; }
+}
+@media (max-width: 580px) {
+  .settings-nav { grid-column: span 2; }
+  .sidebar nav .settings-nav-toggle > .settings-nav-chevron { display: block; }
+  .sidebar nav .settings-nav-leaf { margin-left: 13px; padding-left: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-nav :is(.settings-nav-collapse, .settings-nav-chevron) { transition: none; }
+}

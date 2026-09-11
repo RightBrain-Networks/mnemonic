@@ -816,7 +816,7 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.35.1`, plugin is `0.23.0`,
+Current application/API/MCP/dashboard versions are `0.36.0`, plugin is `0.23.0`,
 and Alembic head is `0029_artifact_links_sensitive`. Validate all surfaces
 together with the existing regression suites. This release adds the safe
 `get_artifact_text` tool and REST read, compact MCP search/download results,
@@ -877,7 +877,7 @@ populated audits, and preservation after restore/rebootstrap.
 
 Browser acceptance covers Summaries immediately below Needs Attention, its
 count/list/detail, standalone report prose and FYIs, dismissal, independent
-manual follow-ups, current prompt editing at `/settings`, and all three
+manual follow-ups, current prompt editing at `/settings/prompts`, and all three
 closeout editors. Retain exact report drafts and UUIDs across ambiguous results,
 block conflicting actions for their full scope, and recover once in the correct
 pane or global area. Prove activity polling/reconnect catches external writes
@@ -1239,3 +1239,17 @@ model 1/16/64 candidate cold/warm/contention measurements separately from fake-v
 regressions. Follow the explicit quiescent backup and pre/post/restored audit commands
 in [operations](operations.md#external-records-release-0021-to-0022). No test command
 here authorizes a live provider read or production cutover.
+
+### Project settings navigation
+
+Project settings is a collapsible sidebar group with Workspace
+(`/settings/workspace`), Prompts (`/settings/prompts`), Code reviews
+(`/settings/code-reviews`), and Backups (`/settings/backups`), in that order.
+The previous `/settings` page no longer exists and returns 404 without a redirect.
+The browser stores the disclosure preference in `mnemonic.settings-menu` as
+`open` or `closed`. With no saved preference, settings pages expand the group;
+other pages start collapsed. Opening uses easeOutExpo and closing uses easeInExpo
+from easings.net over 300 ms. Reduced-motion preferences disable these transitions.
+This release requires no migration or configuration changes.
+
+![Expanded Project settings navigation](images/project-settings-navigation.png)

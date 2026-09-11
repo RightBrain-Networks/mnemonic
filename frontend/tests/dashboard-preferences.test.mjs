@@ -16,6 +16,7 @@ test("dashboard preferences use stable local-storage keys", () => {
     status: "mnemonic.status",
     sort: "mnemonic.sort",
     libraryTools: "mnemonic.library-tools",
+    settingsMenu: "mnemonic.settings-menu",
     workSplit: "mnemonic.work-split"
   });
 });

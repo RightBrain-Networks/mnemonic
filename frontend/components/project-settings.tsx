@@ -9,9 +9,11 @@ import {
   RECALL_POINTER_MACROS
 } from "@/lib/work-recall-pointer";
 import { decodeProjectSettings, validReportPrompt } from "@/lib/job-completion-reports";
+import type { SettingsSection } from "@/lib/settings-navigation";
 import type { Project, ProjectSettings } from "@/lib/types";
 
 type Props = {
+  section: SettingsSection;
   project?: Project;
   settings: ProjectSettings | null;
   loading: boolean;
@@ -22,7 +24,6 @@ type Props = {
   onNotice: (message: string, error?: boolean) => void;
   backupMaximumBytes: number;
   backupRefreshSignal: number;
-  backupPending: boolean;
   onBackupPendingChange: (pending: boolean) => void;
 };
 
@@ -47,6 +48,7 @@ function detailsFromProject(project?: Project): ProjectDetailsDraft {
 const validSlug = (slug: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
 
 export default function ProjectSettingsPanel({
+  section,
   project,
   settings,
   loading,
@@ -57,7 +59,6 @@ export default function ProjectSettingsPanel({
   onNotice,
   backupMaximumBytes,
   backupRefreshSignal,
-  backupPending,
   onBackupPendingChange
 }: Props) {
   const [projectDetails, setProjectDetails] = useState(() => detailsFromProject(project));
@@ -281,9 +282,8 @@ export default function ProjectSettingsPanel({
   }
 
   return <div className="settings-stack">
-    <div className="settings-stack" inert={backupPending}>
-    <CodeReviewSettingsPanel key={selectedProject.id} projectId={selectedProject.id} settings={settings} loading={loading} onSaved={onSaved} onRetry={onRetry} onNotice={onNotice} />
-    <section className="settings-card" aria-labelledby="project-details-title">
+    {section === "code-reviews" && <CodeReviewSettingsPanel key={selectedProject.id} projectId={selectedProject.id} settings={settings} loading={loading} onSaved={onSaved} onRetry={onRetry} onNotice={onNotice} />}
+    {section === "workspace" && <section className="settings-card" aria-labelledby="project-details-title">
       <div className="settings-card-heading">
         <div>
           <span className="section-label">WORKSPACE DETAILS</span>
@@ -375,7 +375,8 @@ export default function ProjectSettingsPanel({
           </button>
         </div>
       </form>
-    </section>
+    </section>}
+    {section === "prompts" && <>
     {conflictRevision && <section className="error-notice" role="alert">
       <p>Review the latest saved settings before applying your draft. Your edits have been kept.</p>
       <details><summary>Current saved values</summary><p className="job-report-prompt">{effectiveTemplate}</p><p className="job-report-prompt">{effectiveReportPrompt}</p></details>
@@ -475,7 +476,7 @@ export default function ProjectSettingsPanel({
         <button type="button" className="button button-secondary" disabled={unavailable || pending !== null} onClick={() => void updateReportPrompt(true)}>{pending === "report-reset" ? "Resetting…" : "Reset to default"}</button>
       </div>
     </section>
-    </div>
-    <ProjectBackupsPanel key={selectedProject.id} project={selectedProject} maximumBytes={backupMaximumBytes} refreshSignal={backupRefreshSignal} onPendingChange={onBackupPendingChange} />
+    </>}
+    {section === "backups" && <ProjectBackupsPanel key={selectedProject.id} project={selectedProject} maximumBytes={backupMaximumBytes} refreshSignal={backupRefreshSignal} onPendingChange={onBackupPendingChange} />}
   </div>;
 }

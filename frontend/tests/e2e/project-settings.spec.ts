@@ -47,7 +47,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-test("project details can be edited above recall pointer content", async ({ page }) => {
+test("project details can be edited on the Workspace settings route", async ({ page }) => {
   const updatedName = `Renamed project ${state.runId.slice(0, 8)}`;
   const updatedSlug = `renamed-${state.runId.slice(0, 8)}`;
   const updatedDescription = "Updated from the project settings page.";
@@ -75,17 +75,13 @@ test("project details can be edited above recall pointer content", async ({ page
     });
   });
 
-  await page.goto("/settings");
+  await page.goto("/settings/workspace");
   await page.locator("#project-select").selectOption(state.projectId);
 
   const cards = page.locator(".settings-card");
-  await expect(cards.nth(0).getByRole("heading", { name: "Code reviews", exact: true })).toBeVisible();
+  await expect(cards).toHaveCount(1);
   const details = cards.filter({ has: page.getByRole("heading", { name: "Project details", exact: true }) });
-  await expect(cards.nth(1).getByRole("heading", { name: "Project details" })).toBeVisible();
-  await expect(cards.nth(2).getByRole("heading", {
-    name: "Recall pointer content",
-    exact: true
-  })).toBeVisible();
+  await expect(details).toBeVisible();
 
   const name = page.getByLabel("Project name", { exact: true });
   const slug = page.getByLabel("Project slug", { exact: true });
@@ -191,7 +187,7 @@ test("a background settings refresh cannot disable or overwrite a save", async (
     await route.abort();
   });
 
-  await page.goto("/settings");
+  await page.goto("/settings/prompts");
   await page.locator("#project-select").selectOption(state.projectId);
   const content = page.getByLabel("Recall pointer content");
   const save = page.locator(".settings-card").filter({ has: page.getByRole("heading", { name: "Recall pointer content", exact: true }) }).getByRole("button", { name: "Save", exact: true });
@@ -263,9 +259,12 @@ test("project recall pointer settings drive card and detail clipboard content", 
     await page.locator("#project-select").selectOption(state.projectId);
     const workspaceNavigation = page.getByRole("navigation", { name: "Workspace navigation" });
     await expect(workspaceNavigation.getByRole("link", { name: "Work library" })).toBeVisible();
-    await workspaceNavigation.getByRole("link", { name: "Project settings" }).click();
-    await expect(page).toHaveURL(/\/settings$/);
-    await expect(page.getByRole("heading", { name: /^Project settings\.?$/ })).toBeVisible();
+    if (await workspaceNavigation.getByRole("button", { name: "Project settings" }).getAttribute("aria-expanded") === "false") {
+      await workspaceNavigation.getByRole("button", { name: "Project settings" }).click();
+    }
+    await workspaceNavigation.getByRole("link", { name: "Prompts", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings\/prompts$/);
+    await expect(page.getByRole("heading", { name: /^Prompts\.?$/ })).toBeVisible();
     await page.locator("#project-select").selectOption(state.projectId);
 
     const content = page.getByLabel("Recall pointer content");
@@ -317,8 +316,11 @@ test("project recall pointer settings drive card and detail clipboard content", 
     // On the narrow project the open pane is a sheet over the navigation; desktop is a no-op.
     await closeDetail(page);
 
-    await workspaceNavigation.getByRole("link", { name: "Project settings" }).click();
-    await expect(page).toHaveURL(/\/settings$/);
+    if (await workspaceNavigation.getByRole("button", { name: "Project settings" }).getAttribute("aria-expanded") === "false") {
+      await workspaceNavigation.getByRole("button", { name: "Project settings" }).click();
+    }
+    await workspaceNavigation.getByRole("link", { name: "Prompts", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings\/prompts$/);
     await page.locator("#project-select").selectOption(state.projectId);
     await expect(page.getByLabel("Recall pointer content")).toHaveValue(customTemplate);
     const clearResponse = page.waitForResponse((response) => {

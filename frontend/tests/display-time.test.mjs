@@ -8,7 +8,7 @@ import {
 } from "../lib/display-time.ts";
 
 test("dashboard routes read TIMEZONE at request time", async () => {
-  for (const route of ["app/page.tsx", "app/settings/page.tsx"]) {
+  for (const route of ["app/page.tsx", ...["workspace", "prompts", "code-reviews", "backups"].map((section) => `app/settings/${section}/page.tsx`)]) {
     const source = await readFile(new URL(`../${route}`, import.meta.url), "utf8");
     assert.match(source, /export const dynamic = ["']force-dynamic["'];/);
     assert.match(source, /timeZone=\{process\.env\.TIMEZONE\}/);

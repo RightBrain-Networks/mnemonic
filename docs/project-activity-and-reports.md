@@ -81,7 +81,7 @@ optional override; null report prompt restores the stored canonical default.
 Effective changes increment revision once; no-ops do not create activity.
 Concurrent edits fail with `project_settings_changed` until reviewed.
 
-The `/settings` dashboard contains both prompt editors. `/summaries` sits
+The `/settings/prompts` dashboard contains both prompt editors. `/summaries` sits
 immediately below Needs Attention and displays undismissed reports. Report text
 renders Markdown through the shared dashboard renderer as of `0.15.0`, as do
 FYIs and Needs Attention questions. Summaries and individual FYIs remain single

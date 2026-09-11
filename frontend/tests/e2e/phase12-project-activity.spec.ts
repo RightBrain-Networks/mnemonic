@@ -69,7 +69,7 @@ test("all closeout outcomes appear in Summaries and a human follow-up retains bo
     await card.getByRole("button", { name: "Create Follow-up", exact: true }).click();
     const form = page.getByRole("form", { name: "Create Follow-up" });
     await form.getByLabel("Title", { exact: true }).fill("Use Comic Sans on the dashboard");
-    await form.getByLabel("Work summary", { exact: true }).fill("Replace Arial with Comic Sans throughout the dashboard.");
+    await form.getByRole("textbox", { name: "Work summary", exact: true }).fill("Replace Arial with Comic Sans throughout the dashboard.");
     await form.getByLabel("Initial context and requested change", { exact: true }).fill("Change the dashboard font from Arial to Comic Sans across the main pages. Preserve readable text sizes and check narrow screens.");
     await page.screenshot({ path: testInfo.outputPath("follow-up-form.png"), fullPage: true });
     await form.getByRole("button", { name: "Create pending work" }).click();
@@ -110,7 +110,7 @@ test("report prompt and recall content save and reset independently with visible
     const project = await createProject(api);
     const initial = await (await api.get(`/api/v1/projects/${project.id}/settings`)).json() as ProjectSettings;
     expect(initial.job_completion_report_prompt).toContain("only LLM output");
-    await page.goto("/settings");
+    await page.goto("/settings/prompts");
     await page.locator("#project-select").selectOption(project.id);
     const recall = page.locator(".settings-card").filter({ has: page.getByRole("heading", { name: "Recall pointer content", exact: true }) });
     const reports = page.locator(".settings-card").filter({ has: page.getByRole("heading", { name: "Job completion report prompt", exact: true }) });
@@ -207,12 +207,12 @@ test("recovering another report action preserves an unrelated follow-up draft", 
     await page.getByRole("article", {name:"Report for Dashboard font done",exact:true}).getByRole("button", {name:"Create Follow-up",exact:true}).click();
     const form=page.getByRole("form", {name:"Create Follow-up"});
     await form.getByLabel("Title", {exact:true}).fill("Keep this separate font decision");
-    await form.getByLabel("Work summary", {exact:true}).fill("This draft belongs to the other report.");
+    await form.getByRole("textbox", { name: "Work summary", exact: true }).fill("This draft belongs to the other report.");
     await page.getByRole("button", {name:"Retry exact request",exact:true}).click();
     await expect.poll(() => attempts).toBe(2);
     await expect(page.locator(".mutation-recovery-global")).toHaveCount(0);
     await expect(form.getByLabel("Title", {exact:true})).toHaveValue("Keep this separate font decision");
-    await expect(form.getByLabel("Work summary", {exact:true})).toHaveValue("This draft belongs to the other report.");
+    await expect(form.getByRole("textbox", { name: "Work summary", exact: true })).toHaveValue("This draft belongs to the other report.");
     expect(attempts).toBe(2);
   } finally { await api.dispose(); }
 });
@@ -397,7 +397,7 @@ test("open follow-up and originating-report context stay fresh while their draft
     const draft = page.getByRole("complementary", { name: "Follow-up draft and original report" });
     const form = draft.getByRole("form", { name: "Create Follow-up" });
     await form.getByLabel("Title", { exact: true }).fill("Preserve my exact font request");
-    await form.getByLabel("Work summary", { exact: true }).fill("Replace Arial with Comic Sans.");
+    await form.getByRole("textbox", { name: "Work summary", exact: true }).fill("Replace Arial with Comic Sans.");
     await form.getByLabel("Initial context and requested change", { exact: true }).fill("Change the font consistently and review the narrow layout.");
     const reopened = await api.patch(`/api/v1/projects/${project.id}/work-items/${source.workId}`, { data: {
       expected_version: 2, status: "pending", actor: { actor_client: "playwright-api", actor_session_id: "phase12" }
@@ -405,7 +405,7 @@ test("open follow-up and originating-report context stay fresh while their draft
     expect(reopened.ok(), await reopened.text()).toBe(true);
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(draft.locator(".report-source-state")).toContainText("The work is now Pending.");
-    await expect(form.getByLabel("Work summary", { exact: true })).toHaveValue("Replace Arial with Comic Sans.");
+    await expect(form.getByRole("textbox", { name: "Work summary", exact: true })).toHaveValue("Replace Arial with Comic Sans.");
     await expect(form.getByLabel("Initial context and requested change", { exact: true })).toHaveValue("Change the font consistently and review the narrow layout.");
     await form.getByRole("button", { name: "Create pending work", exact: true }).click();
     await expect(page.getByText("Follow-up created in Pending.", { exact: true })).toBeVisible();
@@ -460,7 +460,7 @@ test("a source merge refreshes both an open follow-up draft and an already-open 
     const card = summaries.getByRole("article", { name: "Report for Dashboard font done", exact: true });
     await card.getByRole("button", { name: "Create Follow-up", exact: true }).click();
     const draft = summaries.getByRole("complementary", { name: "Follow-up draft and original report" });
-    await draft.getByLabel("Work summary", { exact: true }).fill("Keep this request through the source merge.");
+    await draft.getByRole("textbox", { name: "Work summary", exact: true }).fill("Keep this request through the source merge.");
     const [sourceContext, destinationContext] = await Promise.all([
       api.get(`/api/v1/projects/${project.id}/work-items/${source.workId}/context`).then((response) => response.json()),
       api.get(`/api/v1/projects/${project.id}/work-items/${destination.id}/context`).then((response) => response.json())
@@ -478,7 +478,7 @@ test("a source merge refreshes both an open follow-up draft and an already-open 
     await summaries.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(card.locator(".report-source-state")).toContainText("The original work has since been merged");
     await expect(draft.locator(".report-source-state")).toContainText("The original work has since been merged");
-    await expect(draft.getByLabel("Work summary", { exact: true })).toHaveValue("Keep this request through the source merge.");
+    await expect(draft.getByRole("textbox", { name: "Work summary", exact: true })).toHaveValue("Keep this request through the source merge.");
     await page.bringToFront();
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(stored.locator(".report-source-state")).toContainText("The original work has since been merged");
