@@ -64,6 +64,22 @@ class Settings(BaseSettings):
         default=67_108_864, ge=1, le=268_435_456,
         validation_alias=AliasChoices("MNEMONIC_TRANSCRIPT_MAX_BYTES", "transcript_max_bytes"),
     )
+    transcript_index_dir: Path | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MNEMONIC_TRANSCRIPT_INDEX_DIR", "transcript_index_dir"),
+    )
+
+    @field_validator("transcript_index_dir", mode="before")
+    @classmethod
+    def transcript_index_directory(cls, value):
+        if value is None or value == "":
+            return None
+        directory = Path(value)
+        if (not directory.is_absolute() or directory == Path("/")
+                or ".." in directory.parts or str(directory).startswith("//")):
+            raise ValueError("The transcript index directory must be an absolute dedicated path")
+        return directory
+
     transcript_search_max_bytes: int = Field(
         default=DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES, ge=1, le=2_147_483_648,
         validation_alias=AliasChoices(

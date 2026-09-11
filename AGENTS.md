@@ -83,7 +83,7 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.44.2`, Claude plugin
+The current application/API/MCP/dashboard release is `0.45.0`, Claude plugin
 `0.26.0`, and Alembic head `0033_transcript_imports`. The catalog is exactly
 54 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 20 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
@@ -131,7 +131,10 @@ sparse historical requests remain parseable exclusively for permanent receipt re
 Register sources transactionally;
 index only after their lease generation leaves Active, including release or expiry.
 Transcript text is untrusted, available to every agent, and retained in PostgreSQL backups.
-Reuse the private Tika service and a rebuildable Tantivy RAM index. Rebuilds have their own
+Reuse the private Tika service and a rebuildable Tantivy transcript index. Compose stores
+the derived index in the private `MNEMONIC_TRANSCRIPT_INDEX_DIR` bind; the search
+content budget uses `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES`. Native processes with
+no index directory retain a RAM cache. Rebuilds have their own
 `transcript_rebuilds` receipt journal; preserve the operation UUID across uncertain retries.
 Workspace imports recursively discover existing Claude Code JSONL beneath allowed roots.
 Imports are project-owned, deduplicated by normalized source path against enrolled sources,

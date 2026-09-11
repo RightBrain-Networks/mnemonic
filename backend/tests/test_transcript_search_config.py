@@ -25,3 +25,19 @@ def test_transcript_search_budget_rejects_invalid_limits(monkeypatch, value):
     monkeypatch.setenv("MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES", value)
     with pytest.raises(ValidationError, match="MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES"):
         settings()
+
+
+def test_transcript_index_directory_environment_and_memory_default(monkeypatch, tmp_path):
+    monkeypatch.delenv("MNEMONIC_TRANSCRIPT_INDEX_DIR", raising=False)
+    assert settings().transcript_index_dir is None
+    monkeypatch.setenv("MNEMONIC_TRANSCRIPT_INDEX_DIR", str(tmp_path / "private index"))
+    assert settings().transcript_index_dir == tmp_path / "private index"
+    monkeypatch.setenv("MNEMONIC_TRANSCRIPT_INDEX_DIR", "")
+    assert settings().transcript_index_dir is None
+
+
+@pytest.mark.parametrize("value", ["/", "relative/index", "/private/../source", "//host/index"])
+def test_transcript_index_directory_rejects_ambiguous_roots(monkeypatch, value):
+    monkeypatch.setenv("MNEMONIC_TRANSCRIPT_INDEX_DIR", value)
+    with pytest.raises(ValidationError, match="MNEMONIC_TRANSCRIPT_INDEX_DIR"):
+        settings()

@@ -3,13 +3,15 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This architecture describes application/API/MCP `0.44.2`, Claude plugin `0.26.0`,
+This architecture describes application/API/MCP `0.45.0`, Claude plugin `0.26.0`,
 and Alembic head `0033_transcript_imports`.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
 An isolated Apache Tika 4 service extracts normalized current text and document
 properties into PostgreSQL. One background worker handles durable revision-bound
-jobs; Tantivy maintains a rebuildable, single-corpus RAM index inside the API.
+jobs; Tantivy maintains one rebuildable corpus per library inside the API. Artifact
+indexes remain in RAM; transcript indexes use the configured private directory in
+Compose and can reopen a matching snapshot after restart.
 No broker, search service, search volume or second authoritative data store is
 needed. Metadata search is the default; content matching is an explicit opt-in.
 Replace/delete clears extracted body text and fences stale workers; revision

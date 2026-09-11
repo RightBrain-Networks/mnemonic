@@ -1,5 +1,27 @@
 # Mnemonic validation record
 
+## Configurable transcript index storage (0.45.0)
+
+`MNEMONIC_TRANSCRIPT_INDEX_DIR` selects both the generated index directory and its
+private read-write API bind in base Compose. The existing
+`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` remains the content-corpus budget. Completed
+disk snapshots reopen only for the matching database fingerprint and engine/schema
+version; artifacts retain their RAM index. No schema migration is introduced.
+
+Real Tantivy tests cover private modes, path and owner rejection, exclusive locks
+across processes, restart reuse without body loading, changed-corpus eviction,
+failed-build cleanup, corrupt-cache recovery, pinned old searchers and bounded
+rebuild contention. PostgreSQL API tests exercise the configured directory with a
+36.8 MB corpus, startup/restart, page-only body reads, budget changes on a cached
+corpus, metadata-only reads, and rebuild retaining its configured storage.
+
+The production Compose mount harness uses only synthetic sources and isolated
+containers. It verifies both environment settings, private on-disk indexing,
+owner-only transcript reads, read-only source mounts and containment. The isolated
+browser stack likewise provisions a separate private index bind for each run.
+Dashboard validation includes 432 tests, typecheck and build; MCP validation includes
+121 read/transport/version regressions. Backend/MCP Ruff and ty pass.
+
 ## Large transcript content search (0.44.2)
 
 Content search separates its configurable 512 MiB body budget from the existing
