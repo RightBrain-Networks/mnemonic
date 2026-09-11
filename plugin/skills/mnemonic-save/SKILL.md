@@ -221,12 +221,13 @@ Do these in order:
    `unresolved_gates`; page `list_human_attention(project_id, work_item_id=...)`
    when `omitted_unresolved_gate_count` is nonzero. If an open question already
    covers the decision, do not ask again; point the user at it.
-2. **Write the supporting context first.** A request anchors the item's newest
-   `context` checkpoint, its work version, and its relationship history. A
-   checkpoint appended after the request makes the gate "drifted", and the
-   person must then review the changed state before answering. So
-   append the checkpoint that explains the options and their consequences, then
-   request.
+2. **Keep the question current.** After updating this work or related work,
+   inspect affected open questions. If the facts or options changed, use
+   `request_human_input` with the original `gate_id`, its current
+   `expected_question_version`, and a new operation UUID to rewrite the complete
+   question. Summarize the current decision, facts, options, and recommendation
+   in that prose. Do not make the human reconcile checkpoints or superseding
+   decisions. Earlier wording is retained in horizontal version tabs.
 3. **Freeze and send.** One self-contained, decision-ready question (at most
    4,000 characters), the exact project and work IDs, truthful
    `requested_by_client` and `requested_by_session_id` (optional
@@ -242,10 +243,13 @@ Do these in order:
    not revoked: keep it only for work that does not depend on the answer;
    otherwise `release_claim`. Tell the user the question
    is in the dashboard's Needs Attention queue and report the work-item ID.
-5. **A request cannot be withdrawn or edited by an agent.** If later evidence
-   makes the question moot, append a `kind="context"` checkpoint explaining what
-   answered it and why it is no longer needed, then tell the user that a person
-   must still resolve the gate as "No longer needed" before the item can move.
+5. **Revise when the situation changes.** Keep the original question ID and
+   queue position. If the decision is no longer needed, rewrite the question
+   to explain why and ask the human to close it. A revision does not resolve
+   a gate. On `gate_question_changed`, reread and submit the revised prose
+   against the latest version with a new operation UUID; after an uncertain
+   outcome, retry the exact frozen arguments and original UUID.
+
 
 An agent must never infer, time out, self-approve, or resolve a gate. No
 canonical MCP tool resolves one; a person answers in the dashboard, and that

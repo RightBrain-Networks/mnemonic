@@ -2447,3 +2447,10 @@ html[data-theme="dark"] .review-policy-summary, html[data-theme="dark"] .review-
 @media (prefers-reduced-motion: reduce) {
   .settings-nav :is(.settings-nav-collapse, .settings-nav-chevron) { transition: none; }
 }
+
+.question-versions { min-width: 0; }
+.question-version-tabs { display: flex; gap: .25rem; overflow-x: auto; border-bottom: 1px solid var(--line); margin: 1rem 0; padding-bottom: 0; }
+.question-version-tabs button { flex: 0 0 auto; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); padding: .65rem .9rem; cursor: pointer; font: inherit; font-size: .85rem; }
+.question-version-tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
+.question-version-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.question-history-note { color: var(--muted); font-size: .85rem; }

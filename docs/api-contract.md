@@ -1,7 +1,7 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.36.0`, plugin `0.23.0`, and migration
-`0029_artifact_links_sensitive`. The catalog has exactly 48 MCP tools, 17
+This is application/API/MCP/dashboard `0.37.0`, plugin `0.24.0`, and migration
+`0030_question_versions`. The catalog has exactly 48 MCP tools, 17
 protected MCP writes, 22 REST receipt kinds, 19 protected browser mutations and
 24 work-event types. The 22 REST receipt kinds comprise 18 work operations and
 four artifact operations with filesystem recovery journals. See
@@ -128,7 +128,7 @@ Error context never includes checkpoint content or non-allowlisted upstream valu
 Event validation failures are ordinary structured 422 errors; a request-known
 secret echo returns `event_secret_echo`, whose context identifies field
 locations, never caller values. Human-gate operations use `work_gated`,
-`gate_not_found`, `gate_already_resolved`, `gate_context_changed`,
+`gate_not_found`, `gate_already_resolved`, `gate_context_changed`, `gate_question_changed`,
 `gate_secret_echo`, and `invalid_cursor`. A malformed, foreign-scope, or
 filter-mismatched cursor returns `422 invalid_cursor`; restart at the first page.
 Their messages and context never echo a question, answer, reviewed revision,
@@ -1188,12 +1188,12 @@ operation UUID, private chain-of-thought, and unnecessary transcript out of a
 question or answer.
 
 A new request locks the work, freezes its three-part revision, inserts one
-immutable gate with a monotonic `attention_sequence`, appends exactly one
+gate with a monotonic `attention_sequence`, appends exactly one
 `human_attention_requested` event, advances activity without consuming a work
 version, and completes its optional receipt atomically. Completed receipt
 replay and UUID conflict handling occur before current-state lookup.
 
-Every `HumanGateRead` contains the immutable request and provenance, the nested
+Every `HumanGateRead` contains the latest question and requester provenance, the nested
 `requested_context_revision` (`work_version`, `context_checkpoint_id`, and
 `relationship_event_count`), status, `current_context_revision`, and four
 backend-computed drift booleans. `context_changed_since_request` is the OR of the
@@ -1206,11 +1206,21 @@ persisted. Clients validate these fields and their status-dependent nullability;
 they do not reconstruct the server-owned drift values. The response has no
 acknowledgement field.
 
+To rewrite an unresolved question, POST to the same `/gates` collection with
+`gate_id` and `expected_question_version` together, the complete rewritten
+`question`, requester provenance, and a new operation UUID. The response retains
+the gate ID and queue position and returns the next `question_version` plus
+chronological `previous_questions`. Each prior version retains its exact prose,
+author, time, and context anchor. Agents updating related work must also refresh
+affected question prose; the server does not generate prose. See
+[Needs Attention](attention.md) for the workflow and migration boundary.
+
 `POST .../gates/{gate_id}/resolve` accepts:
 
 ```json
 {
   "resolution": "Use the staged rollout policy.",
+  "expected_question_version": 1,
   "resolved_by_client": "mnemonic-dashboard",
   "resolved_by_session_id": "opaque-dashboard-session",
   "resolved_by_model": null,
@@ -1224,12 +1234,13 @@ acknowledgement field.
 ```
 
 `reviewed_context_revision` is required on every resolution, even when no drift
-occurred. The person first loads the unresolved gate's one-snapshot review
-context, reviews the exact work version, newest context checkpoint, and complete
-relationship set, then submits that exact tuple. Resolution locks and
-revalidates it. Intervening drift returns `409 gate_context_changed` and rolls
-back the new receipt reservation; changed reviewed state is a new intent and
-requires a new operation UUID. Success changes the gate exactly once, appends
+occurred. The dashboard supplies its displayed current revision and
+`expected_question_version` (default 1), while the person reads and answers the
+current prose. No checkpoint or relationship review is required. Resolution
+locks and revalidates both values. Intervening changes return
+`409 gate_context_changed` or `409 gate_question_changed` and roll back the new
+receipt reservation. The browser preserves the answer draft, refreshes the
+question, and uses a new operation UUID on the next submission. Success changes the gate exactly once, appends
 one `human_attention_resolved` event, and advances activity without changing the
 work version. A resolved gate is immutable; another new intent returns
 `409 gate_already_resolved`, while an exact completed receipt replay still
@@ -1506,7 +1517,7 @@ and values equal to the server bearer are rejected without echo.
 Frozen protected requests live only in dashboard memory. Timeout, network, 5xx,
 and malformed-success outcomes permit only exact retry. A definite
 `gate_context_changed` makes the reviewed revision obsolete: keep only the
-editable answer draft, reload the current gate review, and prepare a new UUID
+editable answer draft, refresh the question, and prepare a new UUID
 and complete body. Reload or tab close can lose an uncertain intent, so the UI
 warns before unloading; it never stores gate text, mutation bodies, UUIDs, or
 credentials in browser storage.

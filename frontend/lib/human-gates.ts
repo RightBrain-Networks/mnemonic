@@ -1,13 +1,11 @@
 import { decodeHumanGateRevision } from "./revision-codecs.ts";
 import { decodeWorkSummary } from "./work-codecs.ts";
 import type {
-  AdjacentRelationshipRead,
   HumanAttentionItem,
   HumanAttentionPage,
   HumanGatePage,
   HumanGateRead,
-  HumanGateStatus,
-  WorkContext
+  HumanGateStatus
 } from "@/lib/types";
 import {
   boundedText,
@@ -21,6 +19,7 @@ import {
 } from "./wire-guards.ts";
 const GATE_FIELDS = [
   "id", "project_id", "work_item_id", "gate_type", "question",
+  "question_version", "previous_questions",
   "requested_by_client", "requested_by_session_id", "requested_by_model",
   "requested_context_revision", "created_at", "status",
   "current_context_revision", "work_changed_since_request",
@@ -41,6 +40,7 @@ export const HUMAN_GATE_DECODER_FIELDS = {
 
 export function humanGateProjectionKey(gate: HumanGateRead): string {
   return [
+    gate.question_version,
     gate.requested_context_revision.work_version,
     gate.requested_context_revision.context_checkpoint_id.toLowerCase(),
     gate.requested_context_revision.relationship_event_count,
@@ -67,6 +67,9 @@ export function decodeHumanGate(
     || !validUuid(gate.work_item_id)
     || gate.gate_type !== "human"
     || !boundedText(gate.question, 4_000)
+    || !finiteInteger(gate.question_version, 1)
+    || !Array.isArray(gate.previous_questions)
+    || gate.previous_questions.length !== Number(gate.question_version) - 1
     || !boundedText(gate.requested_by_client, 80)
     || !boundedText(gate.requested_by_session_id, 200)
     || !nullableBoundedText(gate.requested_by_model, 120)
@@ -82,6 +85,21 @@ export function decodeHumanGate(
     || expected?.status !== undefined && gate.status !== expected.status
   ) throw new Error("Mnemonic returned an invalid human gate.");
 
+  let previousTime = Date.parse(String(gate.created_at));
+  for (const [index, value] of (gate.previous_questions as unknown[]).entries()) {
+    const version = objectValue(value);
+    if (!version || !exactKeys(version, ["version", "question", "created_at",
+      "requested_by_client", "requested_by_session_id", "requested_by_model", "context_revision"])
+      || version.version !== index + 1 || !boundedText(version.question, 4_000)
+      || !validUtcDateTime(version.created_at) || Date.parse(version.created_at) < previousTime
+      || !boundedText(version.requested_by_client, 80)
+      || !boundedText(version.requested_by_session_id, 200)
+      || !nullableBoundedText(version.requested_by_model, 120)) {
+      throw new Error("Mnemonic returned invalid question history.");
+    }
+    decodeHumanGateRevision(version.context_revision);
+    previousTime = Date.parse(version.created_at);
+  }
   decodeHumanGateRevision(gate.requested_context_revision);
   decodeHumanGateRevision(gate.current_context_revision);
 
@@ -214,105 +232,6 @@ export function humanGateHistorySearchParams(input: {
 export function humanGatePath(projectId: string, workItemId: string, gateId?: string): string {
   const base = `/projects/${encodeURIComponent(projectId)}/work-items/${encodeURIComponent(workItemId)}/gates`;
   return gateId ? `${base}/${encodeURIComponent(gateId)}` : base;
-}
-
-function coherentReviewRelationship(
-  context: Pick<WorkContext, "work_item">,
-  value: unknown,
-  expectedDirection: "incoming" | "outgoing" | "undirected",
-  seenIds: Set<string>
-): value is AdjacentRelationshipRead {
-  const adjacent = objectValue(value);
-  const relationship = objectValue(adjacent?.relationship);
-  const counterpart = objectValue(adjacent?.counterpart);
-  if (
-    !adjacent
-    || !relationship
-    || !counterpart
-    || !validUuid(context.work_item.id)
-    || !validUuid(context.work_item.project_id)
-    || !validUuid(relationship.id)
-    || !validUuid(relationship.project_id)
-    || !validUuid(relationship.source_work_item_id)
-    || !validUuid(relationship.target_work_item_id)
-    || !validUuid(adjacent.relative_to_work_item_id)
-    || !validUuid(counterpart.id)
-    || !validUuid(counterpart.project_id)
-    || !sameUuid(adjacent.relative_to_work_item_id, context.work_item.id)
-  ) return false;
-
-  const sourceIsFocal = sameUuid(relationship.source_work_item_id, context.work_item.id);
-  const targetIsFocal = sameUuid(relationship.target_work_item_id, context.work_item.id);
-  if (sourceIsFocal === targetIsFocal) return false;
-  const relationshipType = relationship.relationship_type;
-  const actualDirection = relationshipType === "related"
-    ? "undirected"
-    : targetIsFocal ? "incoming" : "outgoing";
-  const counterpartId = sourceIsFocal
-    ? relationship.target_work_item_id
-    : relationship.source_work_item_id;
-  const normalizedId = relationship.id.toLowerCase();
-  if (
-    adjacent.direction !== expectedDirection
-    || actualDirection !== expectedDirection
-    || !sameUuid(counterpart.id, counterpartId)
-    || seenIds.has(normalizedId)
-  ) return false;
-  seenIds.add(normalizedId);
-  return true;
-}
-
-export function hasCompleteRelationshipReview(context: Pick<
-  WorkContext,
-  "work_item" | "incoming_relationships" | "outgoing_relationships"
-    | "undirected_relationships" | "relationship_counts" | "omitted_relationship_counts"
->): boolean {
-  const incoming = context.incoming_relationships;
-  const outgoing = context.outgoing_relationships;
-  const undirected = context.undirected_relationships;
-  const counts = context.relationship_counts;
-  const omitted = context.omitted_relationship_counts;
-  if (
-    !Array.isArray(incoming)
-    || !Array.isArray(outgoing)
-    || !Array.isArray(undirected)
-    || !counts
-    || !omitted
-    || !finiteInteger(counts.incoming)
-    || !finiteInteger(counts.outgoing)
-    || !finiteInteger(counts.undirected)
-    || !finiteInteger(counts.total)
-    || !finiteInteger(omitted.incoming)
-    || !finiteInteger(omitted.outgoing)
-    || !finiteInteger(omitted.undirected)
-    || !finiteInteger(omitted.total)
-    || counts.incoming !== incoming.length + omitted.incoming
-    || counts.outgoing !== outgoing.length + omitted.outgoing
-    || counts.undirected !== undirected.length + omitted.undirected
-    || counts.total !== incoming.length + outgoing.length + undirected.length + omitted.total
-    || omitted.total !== omitted.incoming + omitted.outgoing + omitted.undirected
-  ) return false;
-  const seenIds = new Set<string>();
-  return incoming.every((item) => (
-    coherentReviewRelationship(context, item, "incoming", seenIds)
-  )) && outgoing.every((item) => (
-    coherentReviewRelationship(context, item, "outgoing", seenIds)
-  )) && undirected.every((item) => (
-    coherentReviewRelationship(context, item, "undirected", seenIds)
-  ));
-}
-
-export function humanGateChangedLabels(gate: HumanGateRead): string[] {
-  return [
-    ...(gate.work_changed_since_request ? ["work fields"] : []),
-    ...(gate.context_checkpoint_changed_since_request ? ["current context checkpoint"] : []),
-    ...(gate.relationships_changed_since_request ? ["relationships"] : [])
-  ];
-}
-
-export function humanGateCurrentDriftMessage(gate: HumanGateRead): string | null {
-  if (gate.status !== "unresolved" || !gate.context_changed_since_request) return null;
-  return `Current drift: ${humanGateChangedLabels(gate).join(", ")}.`;
 }
 
 export function humanGateOmissionSentence(

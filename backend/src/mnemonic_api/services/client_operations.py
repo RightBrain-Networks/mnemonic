@@ -402,6 +402,11 @@ def _canonical_payload(spec: OperationSpec, payload: APIModel) -> dict[str, Any]
         if target < source:
             dumped["source_work_item_id"] = target
             dumped["target_work_item_id"] = source
+    if spec.kind == "request_human_input" and dumped["gate_id"] is None:
+        dumped.pop("gate_id")
+        dumped.pop("expected_question_version")
+    if spec.kind == "resolve_human_input" and dumped["expected_question_version"] == 1:
+        dumped.pop("expected_question_version")
     return dumped
 
 
@@ -1229,6 +1234,8 @@ def _request_human_input_matches(
     return (
         result.project_id == project_id
         and str(result.work_item_id) == target_envelope.get("work_item_id")
+        and (request.gate_id is None or result.id == request.gate_id)
+        and result.question_version == (request.expected_question_version or 0) + 1
         and result.gate_type == request.gate_type
         and result.question == request.question
         and result.requested_by_client == request.requested_by_client
@@ -1265,6 +1272,7 @@ def _resolve_human_input_matches(
         and result.resolved_by_model == request.resolved_by_model
         and resolved_revision is not None
         and result.current_context_revision == resolved_revision
+        and result.question_version == request.expected_question_version
         and request.reviewed_context_revision == resolved_revision
     )
 

@@ -4,8 +4,7 @@ import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import ExternalReferences from "@/components/external-references";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useRef, useState } from "react";
-import HumanGateResolution from "@/components/human-gate-resolution";
-import MarkdownContent from "@/components/markdown-content";
+import HumanGateQuestion from "@/components/human-gate-question";
 import { SearchBreadcrumb } from "@/components/work-hierarchy";
 import {
   OperationalBadge,
@@ -158,7 +157,7 @@ export default function HumanAttentionList({
       <span>Filtered to work item <span className="mono">{workItemId}</span></span>
       <a href="/attention" className="text-link">Show every question</a>
     </div>}
-    <p className="attention-authority-note">This queue contains only explicit durable questions. Recording an answer executes nothing and is not authenticated approval.</p>
+    <p className="attention-authority-note">Read the current question and record your answer. Earlier versions are available in the tabs.</p>
     {loadError && <div className="error-notice" role="alert"><p>{loadError}</p><button type="button" className="button button-secondary" onClick={() => setReload((value) => value + 1)}>Try again</button></div>}
     {loading && !page && <div className="loading-state" role="status"><span className="spinner" />Loading explicit questions…</div>}
     {page && !page.items.length && !loadError && <section className="empty-state attention-empty"><h2>No explicit human questions are waiting.</h2><p>This does not mean that every work item is ready; lifecycle holds, blockers, and active leases are separate facts.</p></section>}
@@ -170,13 +169,12 @@ export default function HumanAttentionList({
       </div>
       <h3>{item.summary.work_item.title}</h3>
       <ExternalReferences references={item.summary.work_item.external_references} />
-      <MarkdownContent className="attention-question">{item.gate.question}</MarkdownContent>
+      <HumanGateQuestion gate={item.gate} onResolved={() => resolved(item.gate.id)} onRefresh={() => setReload((value) => value + 1)} />
       <dl className="attention-provenance">
-        <div><dt>Requested through</dt><dd>{requestedThrough(item)}</dd></div>
-        <div><dt>Requested</dt><dd><time dateTime={item.gate.created_at}>{formatDateTime(item.gate.created_at)}</time></dd></div>
+        <div><dt>Current question by</dt><dd>{requestedThrough(item)}</dd></div>
+        <div><dt>First requested</dt><dd><time dateTime={item.gate.created_at}>{formatDateTime(item.gate.created_at)}</time></dd></div>
       </dl>
       <button type="button" className="button button-secondary" onClick={() => onOpen(item.summary)}>Open work context</button>
-      <HumanGateResolution gate={item.gate} onResolved={() => resolved(item.gate.id)} />
     </article>)}</div>
     {page && page.total > 0 && <nav className="pagination attention-pagination" aria-label="Human attention pages">
       <span>Page {pageIndex + 1} · {page.items.length} shown · {page.total} currently unresolved</span>

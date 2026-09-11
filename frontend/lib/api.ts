@@ -45,6 +45,7 @@ export const SAFE_VALIDATION_LOCATION_PARTS: ReadonlySet<string> = new Set([
   "answer",
   "follow_up_id",
   "expected_follow_up_version",
+  "expected_question_version",
   "expected_review_version",
   "review_id",
   "scope_sha256",

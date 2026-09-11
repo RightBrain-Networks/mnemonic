@@ -5187,6 +5187,59 @@
         "title": "HumanGatePage",
         "type": "object"
       },
+      "HumanGateQuestionVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "context_revision": {
+            "$ref": "#/components/schemas/HumanGateContextRevision"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "requested_by_client": {
+            "title": "Requested By Client",
+            "type": "string"
+          },
+          "requested_by_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By Model"
+          },
+          "requested_by_session_id": {
+            "title": "Requested By Session Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "question",
+          "created_at",
+          "requested_by_client",
+          "requested_by_session_id",
+          "requested_by_model",
+          "context_revision"
+        ],
+        "title": "HumanGateQuestionVersion",
+        "type": "object"
+      },
       "HumanGateRead": {
         "additionalProperties": false,
         "properties": {
@@ -5236,6 +5289,13 @@
             "title": "Id",
             "type": "string"
           },
+          "previous_questions": {
+            "items": {
+              "$ref": "#/components/schemas/HumanGateQuestionVersion"
+            },
+            "title": "Previous Questions",
+            "type": "array"
+          },
           "project_id": {
             "format": "uuid",
             "title": "Project Id",
@@ -5244,6 +5304,12 @@
           "question": {
             "title": "Question",
             "type": "string"
+          },
+          "question_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Question Version",
+            "type": "integer"
           },
           "relationships_changed_since_request": {
             "readOnly": true,
@@ -5400,6 +5466,30 @@
             "description": "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with the exact same operation and semantic arguments after an unknown outcome.",
             "title": "Client Operation Id"
           },
+          "expected_question_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Question Version"
+          },
+          "gate_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gate Id"
+          },
           "gate_type": {
             "const": "human",
             "default": "human",
@@ -5461,6 +5551,12 @@
             ],
             "description": "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with the exact same operation and semantic arguments after an unknown outcome.",
             "title": "Client Operation Id"
+          },
+          "expected_question_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Expected Question Version",
+            "type": "integer"
           },
           "resolution": {
             "maxLength": 4000,
@@ -11389,7 +11485,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.36.0"
+    "version": "0.37.0"
   },
   "openapi": "3.1.0",
   "paths": {

@@ -733,12 +733,13 @@ export function invalidMutationBody(path: string, method: string, value: unknown
     if (
       !allowedKeys(body, [
         "resolution", "resolved_by_client", "resolved_by_session_id", "resolved_by_model",
-        "reviewed_context_revision", CLIENT_OPERATION_FIELD
+        "reviewed_context_revision", "expected_question_version", CLIENT_OPERATION_FIELD
       ])
       || !boundedText(body.resolution, 4_000)
       || body.resolved_by_client !== "dashboard"
       || !boundedText(body.resolved_by_session_id, 200)
       || !(body.resolved_by_model === undefined || body.resolved_by_model === null)
+      || (body.expected_question_version !== undefined && !finiteInteger(body.expected_question_version, 1))
       || !validHumanGateRevision(body.reviewed_context_revision)
     ) return DEFINITIVE_PROXY_ERRORS.invalidHumanGateResolution.detail;
   }

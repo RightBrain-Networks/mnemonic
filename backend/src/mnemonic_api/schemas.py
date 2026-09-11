@@ -1756,6 +1756,8 @@ class RelationshipRemovalCreate(APIModel):
 
 
 class HumanGateRequestCreate(APIModel):
+    gate_id: UUID | None = None
+    expected_question_version: Annotated[StrictInt, Field(ge=1)] | None = None
     gate_type: Literal["human"] = "human"
     question: GateText
     requested_by_client: ClientName
@@ -1764,6 +1766,12 @@ class HumanGateRequestCreate(APIModel):
     client_operation_id: UUID | None = Field(
         default=None, repr=False, description=CLIENT_OPERATION_ID_DESCRIPTION
     )
+
+    @model_validator(mode="after")
+    def paired_revision_target(self) -> Self:
+        if (self.gate_id is None) != (self.expected_question_version is None):
+            raise ValueError("gate_id and expected_question_version must be supplied together")
+        return self
 
 
 class HumanGateContextRevision(APIModel):
@@ -1801,6 +1809,7 @@ class WorkMergeCreate(WorkMergeRequest):
 
 
 class HumanGateResolutionCreate(APIModel):
+    expected_question_version: Annotated[StrictInt, Field(ge=1)] = 1
     resolution: GateText
     resolved_by_client: ClientName
     resolved_by_session_id: SessionID
@@ -1811,12 +1820,28 @@ class HumanGateResolutionCreate(APIModel):
     )
 
 
+class HumanGateQuestionVersion(APIModel):
+    version: Annotated[StrictInt, Field(ge=1)]
+    question: GateText
+    created_at: datetime
+    requested_by_client: str
+    requested_by_session_id: str
+    requested_by_model: str | None
+    context_revision: HumanGateContextRevision
+
+    @field_serializer("created_at")
+    def utc_question_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 class HumanGateRead(APIModel):
     id: UUID
     project_id: UUID
     work_item_id: UUID
     gate_type: Literal["human"]
     question: str
+    question_version: Annotated[StrictInt, Field(ge=1)] = 1
+    previous_questions: list[HumanGateQuestionVersion] = Field(default_factory=list)
     requested_by_client: str
     requested_by_session_id: str
     requested_by_model: str | None
@@ -1870,6 +1895,30 @@ class HumanGateRead(APIModel):
         if self.resolved_context_revision is None:
             return None
         return self.resolved_context_revision != self.requested_context_revision
+
+    @model_serializer(mode="wrap")
+    def preserve_historical_receipt_shape(self, handler):
+        serialized = handler(self)
+        for name in ("question_version", "previous_questions"):
+            if name not in self.model_fields_set:
+                serialized.pop(name)
+        return serialized
+
+    @model_validator(mode="after")
+    def ordered_question_versions(self) -> Self:
+        if ("question_version" in self.model_fields_set) != (
+            "previous_questions" in self.model_fields_set
+        ):
+            raise ValueError("Question version and history must be supplied together")
+        if len(self.previous_questions) != self.question_version - 1:
+            raise ValueError("Every prior question version must be retained")
+        previous_time = self.created_at
+        for index, version in enumerate(self.previous_questions, start=1):
+            if (version.version != index or version.created_at.tzinfo is None
+                    or version.created_at < previous_time):
+                raise ValueError("Question versions must be ordered")
+            previous_time = version.created_at
+        return self
 
     @model_validator(mode="after")
     def enforce_gate_contract(self) -> Self:

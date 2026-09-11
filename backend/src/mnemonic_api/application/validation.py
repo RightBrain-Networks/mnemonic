@@ -23,7 +23,7 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     target_work_item_id other_work_item_id context_checkpoint_id created_by_client
     created_by_session_id created_by_model holder_client holder_session_id
     claim_request_id client_operation_id lease_token actor actor_client actor_session_id
-    actor_model metadata gate_id gate_type question resolution
+    actor_model metadata gate_id gate_type question resolution expected_question_version
     requested_by_client requested_by_session_id requested_by_model
     resolved_by_client resolved_by_session_id resolved_by_model
     reviewed_context_revision current_context_revision

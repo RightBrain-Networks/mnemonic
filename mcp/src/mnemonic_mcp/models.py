@@ -2231,12 +2231,24 @@ class MergeReviewRevision(CanonicalResponse):
     work_event_count: StrictInt = Field(ge=1)
 
 
+class HumanGateQuestionVersion(CanonicalResponse):
+    version: StrictInt = Field(ge=1)
+    question: HumanGateText
+    created_at: UTCDateTime
+    requested_by_client: RetainedClientName
+    requested_by_session_id: RetainedSessionID
+    requested_by_model: RetainedModelName | None
+    context_revision: HumanGateContextRevision
+
+
 class HumanGateRead(CanonicalResponse):
     id: UUID
     project_id: UUID
     work_item_id: UUID
     gate_type: Literal["human"]
     question: HumanGateText
+    question_version: StrictInt = Field(default=1, ge=1)
+    previous_questions: list[HumanGateQuestionVersion] = Field(default_factory=list)
     requested_by_client: RetainedClientName
     requested_by_session_id: RetainedSessionID
     requested_by_model: RetainedModelName | None
@@ -2255,6 +2267,29 @@ class HumanGateRead(CanonicalResponse):
     resolved_by_model: RetainedModelName | None
     resolved_context_revision: HumanGateContextRevision | None
     context_changed_at_resolution: StrictBool | None
+
+    @model_serializer(mode="wrap")
+    def preserve_historical_receipt_shape(self, handler):
+        serialized = handler(self)
+        for name in ("question_version", "previous_questions"):
+            if name not in self.model_fields_set:
+                serialized.pop(name)
+        return serialized
+
+    @model_validator(mode="after")
+    def ordered_question_versions(self) -> Self:
+        if ("question_version" in self.model_fields_set) != (
+            "previous_questions" in self.model_fields_set
+        ):
+            raise ValueError("Question version and history must be supplied together")
+        if len(self.previous_questions) != self.question_version - 1:
+            raise ValueError("Every prior question version must be retained")
+        previous_time = self.created_at
+        for index, version in enumerate(self.previous_questions, start=1):
+            if version.version != index or version.created_at < previous_time:
+                raise ValueError("Question versions must be ordered")
+            previous_time = version.created_at
+        return self
 
     @model_validator(mode="after")
     def enforce_gate_contract(self) -> Self:

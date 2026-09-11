@@ -1,5 +1,18 @@
 # Mnemonic validation record
 
+## Question versions (0.37.0)
+
+The queue shows current prose with horizontal tabs for every prior version.
+Coverage verifies one stable queue entry, exact prior wording, concurrent
+rewrites, stale answers, preserved browser drafts, keyboard navigation, and
+desktop/narrow layouts. Historical receipt vectors still replay exactly.
+Migration tests cover original-data preservation, safe pre-use rollback, and
+refusal to discard saved revisions or new receipts. See [Needs Attention](attention.md).
+
+Run the backend PostgreSQL suite, MCP suite, frontend unit/type/build checks,
+and `npm run test:e2e:stack -- phase7-8-human-gates.spec.ts`. The acceptance stack
+also verifies project backup and restore.
+
 ## Artifact links and sensitive content (0.36.0)
 
 Application/API/MCP/dashboard `0.36.0`, plugin `0.23.0`, and migration

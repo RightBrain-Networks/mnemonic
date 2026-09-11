@@ -1,7 +1,7 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.36.0`, Claude plugin `0.23.0`,
-and Alembic head `0029_artifact_links_sensitive`.
+This architecture describes application/API/MCP `0.37.0`, Claude plugin `0.24.0`,
+and Alembic head `0030_question_versions`.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
 An isolated Apache Tika 4 service extracts normalized current text and document
@@ -925,3 +925,15 @@ ranking uses SQL exact title keys, OR lexical matching and ephemeral local
 embeddings with deterministic URL ties and separately ranked results. External
 failure cannot replace a useful internal page. Links are data, with no work
 identity, lifecycle, lease or authority to merge or close out work.
+
+## Question versions
+
+`0030_question_versions` adds an append-only JSONB revision history to each
+human gate. Original request fields and audit events remain intact. The current
+read returns the latest authored question and its context anchor, plus all
+prior versions. Rewriting uses the existing receipt-protected request mutation
+with an explicit gate ID and expected question version; work and gate locks
+serialize rewrites and answers. Database guards reject replacement, removal,
+or reordering of retained history and reject changes after resolution.
+The dashboard shows version tabs and a direct answer form. Agents supply revised
+prose when related facts change; no background text generator is configured.

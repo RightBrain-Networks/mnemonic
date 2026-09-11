@@ -19,6 +19,7 @@ import { COMPLETION_EVIDENCE_DECODER_FIELDS } from "../lib/completion-evidence.t
 
 const SNAPSHOT_URL = new URL("../../docs/openapi.json", import.meta.url);
 const DEFAULTED_RESPONSE_FIELDS = {
+  "frontend/lib/human-gates.ts:GATE_FIELDS": ["question_version", "previous_questions"],
   "frontend/lib/readiness-codecs.ts:decodeLease": ["purpose", "code_review_id", "mode"],
   "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": ["code_review_context"],
   "frontend/lib/work-events.ts:EVENT_FIELDS": ["code_review_id", "code_review_result_id", "work_follow_up_id", "work_follow_up_answer_id"],

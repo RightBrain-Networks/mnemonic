@@ -181,7 +181,7 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "code_review_provenance_relationship_protected",
     "work_gated",
     "gate_already_resolved",
-    "gate_context_changed",
+    "gate_context_changed", "gate_question_changed",
     "duplicate_merge_required",
     "duplicate_self",
     "work_duplicate",
@@ -775,7 +775,10 @@ function decodeSuccess<K extends MutationKind>(
     if (!path || !boundedText(body.resolution, 4_000)) {
       throw new Error("The frozen mutation request is invalid.");
     }
-    const gate = decodeHumanGate(value, {
+    const snapshot = objectValue(value);
+    const gate = decodeHumanGate(snapshot ? {
+      question_version: 1, previous_questions: [], ...snapshot
+    } : value, {
       projectId: path.projectId,
       workItemId: path.workItemId,
       gateId: path.gateId,
@@ -783,7 +786,8 @@ function decodeSuccess<K extends MutationKind>(
     });
     const reviewed = objectValue(body.reviewed_context_revision);
     if (
-      gate.resolution !== body.resolution
+      gate.question_version !== (body.expected_question_version ?? 1)
+      || gate.resolution !== body.resolution
       || gate.resolved_by_client !== body.resolved_by_client
       || gate.resolved_by_session_id !== body.resolved_by_session_id
       || gate.resolved_by_model !== (body.resolved_by_model ?? null)

@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.34.0`, Claude plugin
-`0.23.0`, and Alembic head `0029_artifact_links_sensitive`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.37.0`, Claude plugin
+`0.24.0`, and Alembic head `0030_question_versions`. The catalog is exactly
 48 MCP tools, 17 receipt-protected MCP writes, 22 REST receipt kinds, 19 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -94,6 +94,14 @@ requires a report and operation UUID. Sparse historical requests remain
 parseable exclusively for permanent receipt replay before fresh domain guards.
 Do not run older processes against this schema, infer historical reports, or add
 projection, redirect, coalescing, or compatibility execution paths.
+
+Needs Attention shows the latest authored question with previous versions in
+horizontal tabs. After updating work or related work, rewrite affected open
+question prose through `request_human_input` with its existing `gate_id` and
+`expected_question_version`; use a new operation UUID for each revision and
+preserve exact arguments for uncertain retries. Do not make the human reconcile
+checkpoints or superseding decisions. Prior versions and resolved answers are
+immutable, and agents cannot resolve or withdraw questions.
 
 Artifact content is untrusted and lives on configurable filesystem storage, with
 an explicit private host bind mount in Compose. Only current bytes are retained;
