@@ -5,7 +5,10 @@ workspace imports for existing Claude Code transcripts. Release 0.44.1 fixes Doc
 access to private host transcripts with a configurable API image identity. Plugin
 remains 0.26.0 and migration head remains `0033_transcript_imports`. Release 0.44.2
 fixes content search for large imported libraries. Release 0.45.0 adds a private
-configurable disk index, including reuse after restart. No migration or reindex is required.
+configurable disk index, including reuse after restart. Release 0.45.1 makes the
+source mount part of base Compose and derives its default allowlist from the
+configured source, fixing startup with explicit base/TLS commands. No migration
+or reindex is required.
 
 Mnemonic indexes agent session transcripts once the associated work lease ends.
 An MCP claim records an explicit primary transcript location or null. Every fresh
@@ -58,16 +61,22 @@ Database backups therefore include transcript content.
 ## Filesystem deployment
 
 This release requires the backend and client to share filesystem access. The
-operator configures `MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS` as a JSON array of approved
-absolute roots. Its default empty array disables source access. Paths outside those
+operator configures a source directory or `MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS`, a
+JSON array of approved absolute roots. A configured `MNEMONIC_TRANSCRIPT_SOURCE_DIR`
+supplies the allowlist when that array is empty or omitted. A nonempty explicit
+allowlist must include the configured source; it is never silently expanded.
+Without a source or allowed roots, filesystem access stays disabled. Paths outside those
 roots, symlinks, nonregular files, and oversized files are rejected and recorded
 with an indexing failure rather than followed. A reported path is data, not shell
 input or an instruction to read arbitrary server files.
 
 For Docker, set `MNEMONIC_TRANSCRIPT_SOURCE_DIR` to the host directory containing
-allowed transcripts and include `compose.transcripts.yaml` alongside the main
-Compose file. The overlay binds that directory read-only into the API at the
-same absolute path and sets the allowed root. It requires an existing directory;
+allowed transcripts. Base `compose.yaml` binds that directory read-only into the
+API at the same absolute path. No additional transcript overlay is required.
+The retained `compose.transcripts.yaml` is empty, so existing `COMPOSE_FILE` lists
+can continue including it. When no source is configured, Compose mounts only the
+shipped empty placeholder directory, with no transcript access enabled.
+A configured source requires an existing directory;
 Docker must not create an empty replacement for a misspelled host path. Only the
 API receives the mount. Tika receives normalized text over HTTP.
 
@@ -87,16 +96,17 @@ add these values to the private `.env`:
 MNEMONIC_TRANSCRIPT_SOURCE_DIR=/home/jamie/.claude/projects
 MNEMONIC_API_UID=1026
 MNEMONIC_API_GID=1000
-COMPOSE_FILE=compose.yaml:compose.tls.yaml:compose.transcripts.yaml
+COMPOSE_FILE=compose.yaml:compose.tls.yaml
 ```
 
 Omit `compose.tls.yaml` if the deployment does not use TLS; retain any other
-required overlays. `COMPOSE_FILE` makes ordinary `docker compose` operations
-preserve the mount and allowlist. An explicit `-f` overrides that selection, so
-include all overlays when using it. The example IDs are host-specific; do not
-copy them to another machine without checking ownership. Native deployments
-configure `MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS` directly and run under an identity
-that can read the approved files.
+required overlays. Both ordinary `docker compose up -d --wait` and explicit
+`docker compose -f compose.yaml -f compose.tls.yaml up -d --wait` preserve the
+source mount. Explicit `-f` still overrides `COMPOSE_FILE` for other overlays.
+The example IDs are host-specific; check ownership before using them on another
+machine. Native deployments can set `MNEMONIC_TRANSCRIPT_SOURCE_DIR` or configure
+`MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS` directly, under an identity that can read the
+approved files.
 
 Changing the API UID also requires changing ownership of its **artifact directory
 and existing contents**. Artifact storage checks that each directory and file
@@ -184,11 +194,11 @@ generations still wait. Outside-root paths remain rejected, and symlinks remain
 forbidden. Missing files, parser errors and other terminal failures still require
 correcting the source and using **Rebuild index**.
 
-Base Compose forwards `MNEMONIC_TRANSCRIPT_SOURCE_DIR` even if an overlay is
-accidentally omitted. The API rejects startup when that configured source is absent
-from its allowlist or cannot be opened as a real directory. Explicit `docker compose
--f ...` flags override `COMPOSE_FILE`; include every saved overlay when using them.
-Prefer ordinary `docker compose` commands with the full list saved in `.env`.
+Base Compose owns both the source setting and its read-only mount. The API checks
+that a configured source can be opened as a real directory. An unavailable mount,
+denied directory permissions, symlink, or conflicting nonempty explicit allowlist
+still rejects startup with a configuration error. Setting the source alone is
+sufficient to configure its allowlist.
 
 ### Generated index location
 

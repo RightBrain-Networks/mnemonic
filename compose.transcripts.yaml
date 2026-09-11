@@ -1,17 +1,3 @@
-# Optional shared-filesystem transcript access. Preserve client absolute paths.
-# Set MNEMONIC_TRANSCRIPT_SOURCE_DIR to an existing absolute directory.
-# Match MNEMONIC_API_UID/GID to its owner for private 0600 transcripts.
-# Keep this overlay enabled in .env, including any other deployment overlays:
-# COMPOSE_FILE=compose.yaml:compose.transcripts.yaml
-# See docs/transcripts.md for artifact ownership and TLS deployment instructions.
-services:
-  api:
-    environment:
-      MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS: '["${MNEMONIC_TRANSCRIPT_SOURCE_DIR:?Set the absolute transcript source directory}"]'
-    volumes:
-      - type: bind
-        source: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:?Set the absolute transcript source directory}
-        target: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:?Set the absolute transcript source directory}
-        read_only: true
-        bind:
-          create_host_path: false
+# Transcript source mounts are configured by compose.yaml.
+# Existing COMPOSE_FILE lists may continue to include this file.
+services: {}

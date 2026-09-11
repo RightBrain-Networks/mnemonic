@@ -30,7 +30,7 @@ services:
       MNEMONIC_LEASE_TTL_SECONDS: ${MNEMONIC_LEASE_TTL_SECONDS:-900}
       MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS: ${MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS:-10}
       MNEMONIC_ARTIFACT_ROOT: /var/lib/mnemonic/artifacts
-      # Passing the requested source also detects a forgotten transcript overlay.
+      # The configured source supplies the default allowlist in API settings.
       MNEMONIC_TRANSCRIPT_SOURCE_DIR: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:-}
       MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS: ${MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS:-[]}
       MNEMONIC_TRANSCRIPT_MAX_BYTES: ${MNEMONIC_TRANSCRIPT_MAX_BYTES:-67108864}
@@ -54,6 +54,13 @@ services:
       - type: bind
         source: ${MNEMONIC_ARTIFACT_DIR:-./artifacts}
         target: /var/lib/mnemonic/artifacts
+        bind:
+          create_host_path: false
+      # Without a configured source, expose only the shipped empty placeholder.
+      - type: bind
+        source: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:-./deploy/empty-transcripts}
+        target: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:-/var/lib/mnemonic/transcript-source-disabled}
+        read_only: true
         bind:
           create_host_path: false
       - type: bind

@@ -78,6 +78,6 @@ def check_transcript_source(source: Path | None, roots: list[Path]) -> None:
         os.close(descriptor)
     except (OSError, ExtractionError):
         raise RuntimeError(
-            "Configured transcript source is unavailable. Check compose.transcripts.yaml, "
+            "Configured transcript source is unavailable. Check MNEMONIC_TRANSCRIPT_SOURCE_DIR, "
             "the read-only bind mount, and the API UID/GID permissions."
         ) from None
