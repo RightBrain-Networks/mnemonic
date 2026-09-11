@@ -633,7 +633,7 @@ html[data-pane-crossfade]::view-transition-new(root) {
   .brand { font-size: 24px; }
   .sidebar nav { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .sidebar nav .nav-item { min-width: 0; gap: 6px; padding: 10px 8px; font-size: 10px; }
-  .sidebar nav .nav-item > svg:last-child { display: none; }
+  .sidebar nav .nav-item > svg:last-child:not(.settings-nav-chevron) { display: none; }
   .sidebar nav .nav-item > span:not(.attention-nav-count):not(.summary-nav-count) { min-width: 0; line-height: 1.25; }
   .topbar { padding: 0 20px; height: 46px; }
   .topbar-actions { gap: 6px; margin-left: 10px; }
@@ -2442,7 +2442,6 @@ html[data-theme="dark"] .review-policy-summary, html[data-theme="dark"] .review-
 }
 @media (max-width: 580px) {
   .settings-nav { grid-column: span 2; }
-  .sidebar nav .settings-nav-toggle > .settings-nav-chevron { display: block; }
   .sidebar nav .settings-nav-leaf { margin-left: 13px; padding-left: 20px; }
 }
 @media (prefers-reduced-motion: reduce) {
