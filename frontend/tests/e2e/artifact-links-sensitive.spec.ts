@@ -50,6 +50,9 @@ test("dashboard links artifacts in both directions and work items from either su
     await details.getByRole("button", { name: `Link artifact ${second}`, exact: true }).click();
     await expect(page.getByRole("button", { name: "Retry pending action", exact: true })).toBeEnabled();
     await expect(details.getByRole("button", { name: "Close details", exact: true })).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: first, exact: true })).toBeVisible();
+    await expect(details.getByRole("button", { name: "Retry pending action", exact: true })).toBeEnabled();
     await expect(page.locator("#project-select")).toBeDisabled();
     await page.getByRole("button", { name: "Retry pending action", exact: true }).click();
     await expect(details.getByRole("button", { name: second, exact: true })).toBeVisible();
@@ -62,19 +65,21 @@ test("dashboard links artifacts in both directions and work items from either su
     await details.getByLabel("Find a work item", { exact: true }).fill(state.historicalCompletion.title);
     await details.getByRole("button", { name: `Link work item ${state.historicalCompletion.title}`, exact: true }).click();
     await expect(details.getByRole("link", { name: workId, exact: true })).toBeVisible();
-    const downloadEvent = page.waitForEvent("download");
-    await row.getByRole("link", { name: `Download ${first}`, exact: true }).click();
-    expect(await readFile((await (await downloadEvent).path())!, "utf8")).toBe(sensitiveContent);
     await details.scrollIntoViewIfNeeded();
     const screenshot = testInfo.outputPath("artifact-links-sensitive.png");
     await details.screenshot({ path: screenshot });
     await testInfo.attach("Artifact links and sensitivity", { path: screenshot, contentType: "image/png" });
 
+    await details.getByRole("button", { name: "Close details" }).click();
+    const downloadEvent = page.waitForEvent("download");
+    await row.getByRole("link", { name: `Download ${first}`, exact: true }).click();
+    expect(await readFile((await (await downloadEvent).path())!, "utf8")).toBe(sensitiveContent);
+
     await expect.poll(async () => {
       const response = await client.get(`/api/v1/projects/${state.projectId}/artifacts`, { params: { q: first } });
       return (await response.json()).items[0].extraction.status;
     }, { timeout: 60000 }).toBe("ready");
-    await page.getByLabel("Search file contents too").check();
+    await page.getByLabel("Include contents").check();
     await page.getByLabel("Search artifact metadata and content").fill(needle);
     await page.getByRole("button", { name: "Search", exact: true }).click();
     await expect(row.locator(".artifact-search-excerpt")).toContainText(needle);

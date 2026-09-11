@@ -1,6 +1,6 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.37.0`, plugin `0.24.0`, and current migration
+Application/API/MCP/dashboard `0.38.0`, plugin `0.24.0`, and current migration
 `0030_question_versions` support files outside Git and local full-text search. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
@@ -78,7 +78,7 @@ context (`X-Artifact-Access: human-dashboard`, set by its server proxy), permit
 human previews/downloads/searches, and are audited. This header and the approval
 assertion are policy signals, not separate authentication credentials.
 
-Upgrade API, MCP and dashboard together to `0.37.0`, plugin `0.24.0`, and migration
+Upgrade API, MCP and dashboard together to `0.38.0`, plugin `0.24.0`, and migration
 `0030_question_versions`. Migration 0029 initially marked older artifacts
 non-sensitive; migration 0030 preserves their current sensitivity. No new
 configuration is required. Downgrade refuses populated artifact state; fix forward.
@@ -474,14 +474,31 @@ and clipboard file paste. Unknown mutation outcomes retain the exact selected
 File and intent for deliberate retry. Navigating away warns when that intent
 would be lost.
 
-A search field and opt-in full-text checkbox consume the same ranked API. Search
-shows extraction coverage and plain-text excerpts; clear the query to restore
-directory column sorting. Document properties and extraction state are visible
-on artifact rows. Existing drag/drop, paste, download and mutation controls remain.
+Dashboard search uses the ranked API and shows extraction coverage and plain-text
+excerpts. Clear the query to restore directory column sorting. Document properties
+and extraction state are visible in the artifact details drawer.
 
-Validated directory layouts: [desktop](images/artifacts-desktop.png) and
-[narrow screen](images/artifacts-narrow.png).
+Current directory layouts: [desktop](images/artifacts-ui/desktop-search.png) and
+[narrow screen](images/artifacts-ui/narrow-search.png).
 Disabled-state layouts: [desktop](images/artifacts-disabled-desktop.png) and
 [narrow screen](images/artifacts-disabled-narrow.png).
 Search layouts: [desktop](images/artifacts-search-desktop.png) and
 [narrow screen](images/artifacts-search-narrow.png).
+
+## Dashboard search and file details
+
+The dashboard starts with **Include contents** enabled and remembers changes to
+this switch in browser localStorage. The API and agent search defaults remain
+metadata-only; the dashboard sends its selected `fulltext` value explicitly.
+Press `/` outside an editor or dialog to focus artifact search. Click a filename
+to open metadata and links in the right-side drawer; Escape or the close button
+returns to the directory. Pending metadata mutations keep their retry controls
+inside the drawer and prevent dismissal until resolved.
+
+Click the dashed upload target to open the browser file picker, or drop files
+onto it. File paste remains available while browsing the library. The configured
+per-file limit is enforced when selecting files and reported if a file is too
+large.
+
+Details drawer: [desktop](images/artifacts-ui/desktop-details.png) and
+[narrow dark theme](images/artifacts-ui/narrow-details-dark.png).

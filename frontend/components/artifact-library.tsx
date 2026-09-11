@@ -10,7 +10,10 @@ import { sameUuid, validUuid } from "@/lib/wire-guards";
 import { formatDateTime } from "@/components/work-item-card";
 import { ArtifactMetadataEditor, WorkArtifactLinkDialog } from "@/components/artifact-links";
 import ArtifactPreviewDrawer from "@/components/artifact-preview-drawer";
+import ArtifactDetailsDrawer from "@/components/artifact-details-drawer";
 import { artifactPreviewKind, type ArtifactPreviewKind } from "@/lib/artifact-preview";
+import { dashboardStorageKeys } from "@/lib/dashboard-preferences";
+import { dialogOpen, typingTarget } from "@/lib/keyboard-shortcuts";
 
 const PAGE_SIZE = 50;
 const columns: { key: ArtifactSort; label: string }[] = [
@@ -33,7 +36,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
-  const [fulltext, setFulltext] = useState(false);
+  const [fulltext, setFulltext] = useState(true);
   const [searchPage, setSearchPage] = useState<ArtifactSearchPage | null>(null);
   const [workFilter, setWorkFilter] = useState("");
   const [sort, setSort] = useState<ArtifactSort>("filename");
@@ -53,6 +56,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
   const [selected, setSelected] = useState<Artifact | null>(null);
   const [preview, setPreview] = useState<{ artifact: Artifact; kind: ArtifactPreviewKind } | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const replaceInput = useRef<HTMLInputElement>(null);
   const replaceTarget = useRef<Artifact | null>(null);
   const pendingRef = useRef<ArtifactMutation | null>(null);
@@ -70,6 +74,22 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
     statusRef.current = value; setStatus(value);
     if (!value?.enabled) { setDragging(false); dragDepth.current = 0; setPreview(null); }
   }, []);
+
+  useEffect(() => {
+    try { setFulltext(localStorage.getItem(dashboardStorageKeys.artifactContents) !== "false"); } catch { /* Storage is optional. */ }
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    function focusSearch(event: KeyboardEvent) {
+      if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (typingTarget(event.target) || dialogOpen()) return;
+      event.preventDefault();
+      searchInput.current?.focus();
+    }
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, [enabled]);
 
   useEffect(() => {
     const location = artifactLocation(window.location.search);
@@ -204,7 +224,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
   const pasteFiles = useRef(upload);
   pasteFiles.current = upload;
   useEffect(() => {
-    if (!enabled || preview) return;
+    if (!enabled || preview || selected) return;
     const paste = (event: ClipboardEvent) => {
       const files = Array.from(event.clipboardData?.files ?? []);
       if (!files.length) return;
@@ -212,7 +232,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
     };
     document.addEventListener("paste", paste);
     return () => document.removeEventListener("paste", paste);
-  }, [enabled, preview]);
+  }, [enabled, preview, selected]);
 
   async function remove(artifact: Artifact) {
     if (!statusRef.current?.enabled || pendingRef.current || !window.confirm(`Delete “${artifact.filename}”? Its content will be permanently removed. Metadata and audit history are retained.`)) return;
@@ -224,6 +244,12 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
   }
 
   function searchArtifacts(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setSearch(query.trim()); setOffset(0); }
+
+  const actionFeedback = <>
+    {actionError && <div className="error-notice" role="alert"><p>{actionError}</p>{pending && <><p>Keep this page open to preserve the exact retry request. Operation: <code>{pending.operationId}</code></p><button className="button button-secondary" disabled={busy || safetyConflict} onClick={() => { void execute(pending).then((success) => { if (success) void drainQueue(); }); }}>{busy ? "Working…" : "Retry pending action"}</button></>}</div>}
+    {notice && <p role="status" className="artifact-notice">{notice}</p>}
+    {busy && <p role="status" className="artifact-notice"><span className="spinner" /> {pending?.method === "DELETE" ? "Deleting artifact…" : pending?.method === "PATCH" ? "Updating artifact…" : "Uploading artifact…"}</p>}
+  </>;
 
   if (!enabled) {
     const disabled = status?.enabled === false;
@@ -238,34 +264,56 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
     onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); event.dataTransfer.dropEffect = pending ? "none" : "copy"; } }}
     onDragLeave={(event) => { event.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}
     onDrop={(event) => { event.preventDefault(); dragDepth.current = 0; setDragging(false); void upload(Array.from(event.dataTransfer.files)); }}>
-    <div className="artifact-toolbar">
-      <form className="artifact-search" onSubmit={searchArtifacts}><label className="sr-only" htmlFor="artifact-search">Search artifact metadata and content</label><input id="artifact-search" placeholder="Search artifact names and metadata…" value={query} maxLength={200} onChange={(event) => setQuery(event.target.value)} /><button className="button button-secondary" type="submit">Search</button>{search && <button className="button button-secondary" type="button" onClick={() => { setQuery(""); setSearch(""); setOffset(0); }}>Clear search</button>}</form>
-      <button type="button" className="button button-primary" disabled={Boolean(pending)} onClick={() => input.current?.click()}>Upload files</button>
+    <div className="artifact-search-panel">
+      <label className="section-label" htmlFor="artifact-search">Find a file</label>
+      <form className="artifact-search" onSubmit={searchArtifacts}>
+        <div className="search-field artifact-search-field">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="8.5" /><path d="m17 17 4 4" /></svg>
+          <input ref={searchInput} id="artifact-search" type="search" aria-label="Search artifact metadata and content" aria-keyshortcuts="/" placeholder="Search files…" value={query} maxLength={200} onChange={(event) => setQuery(event.target.value)} />
+          <kbd aria-hidden="true">/</kbd>
+          <span className="search-mode-divider" />
+          <label className={`semantic-toggle artifact-contents-toggle ${fulltext ? "selected" : ""}`}>
+            <input type="checkbox" role="switch" checked={fulltext} onChange={(event) => {
+              const enabled = event.target.checked;
+              setFulltext(enabled); setOffset(0);
+              try { localStorage.setItem(dashboardStorageKeys.artifactContents, String(enabled)); } catch { /* Storage is optional. */ }
+            }} />
+            <span className="semantic-switch" aria-hidden="true"><span /></span><span>Include contents</span>
+          </label>
+        </div>
+        <div className="artifact-search-actions">
+          <button className="button button-primary" type="submit">Search</button>
+          {(query || search) && <button className="button button-secondary" type="button" onClick={() => { setQuery(""); setSearch(""); setOffset(0); searchInput.current?.focus(); }}>Clear</button>}
+        </div>
+      </form>
+    </div>
+    <div className="artifact-upload-area">
+      <button type="button" className="artifact-upload-target" disabled={Boolean(pending)} onClick={() => input.current?.click()}>
+        <span className="artifact-upload-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 16V3m-5 5 5-5 5 5M4 21h16" /></svg></span>
+        <span>Drop, paste, or <strong>upload</strong> files here.</span>
+      </button>
       <input ref={input} className="sr-only" aria-label="Upload artifact files" type="file" multiple tabIndex={-1} disabled={Boolean(pending)} onChange={(event) => { void upload(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
       <input ref={replaceInput} className="sr-only" aria-label="Replace artifact content" type="file" tabIndex={-1} onChange={(event) => { const file = event.target.files?.[0]; if (file && replaceTarget.current) void upload([file], replaceTarget.current); event.target.value = ""; }} />
     </div>
-    <div className="artifact-search-options"><label><input type="checkbox" checked={fulltext} onChange={(event) => { setFulltext(event.target.checked); setOffset(0); }} /> Search file contents too</label><span>{fulltext ? "Includes extracted text from current files. All query terms must match." : "Metadata only, including extracted document properties. File contents are excluded."}</span></div>
-    <div className="artifact-upload-hint"><span>Drop files here or paste a file from your clipboard. Up to {formatArtifactSize(currentMaximum)} ({currentMaximum.toLocaleString("en-US")} bytes) per file.</span><label><input type="checkbox" checked={includeDeleted} onChange={(event) => { setIncludeDeleted(event.target.checked); setOffset(0); }} /> Show deleted</label></div>
     <details className="artifact-upload-options"><summary>Upload description, links and sensitivity</summary><div className="artifact-upload-fields"><label>Description<textarea value={description} maxLength={4000} disabled={Boolean(pending)} onChange={(event) => setDescription(event.target.value)} rows={2} /></label><label>Originating work item ID<input value={originWork} disabled={Boolean(pending)} onChange={(event) => setOriginWork(event.target.value.trim())} placeholder="Optional work item UUID" /></label><label>Related work item IDs<input value={relatedWork} disabled={Boolean(pending)} onChange={(event) => setRelatedWork(event.target.value)} placeholder="Optional comma-separated UUIDs" /></label><label>Related artifact IDs<input value={relatedArtifacts} disabled={Boolean(pending)} onChange={(event) => setRelatedArtifacts(event.target.value)} placeholder="Optional comma-separated UUIDs" /></label><label className="artifact-sensitive-option"><input type="checkbox" checked={sensitive} disabled={Boolean(pending)} onChange={(event) => setSensitive(event.target.checked)} /> Mark new uploads as sensitive</label></div></details>
     {workFilter && <p className="artifact-filter-note">Showing files linked to work item <code>{workFilter}</code>. <button className="text-button" onClick={() => { setWorkFilter(""); setOffset(0); }}>Show all project artifacts</button></p>}
-    {actionError && <div className="error-notice" role="alert"><p>{actionError}</p>{pending && <><p>Keep this page open to preserve the exact retry request. Operation: <code>{pending.operationId}</code></p><button className="button button-secondary" disabled={busy || safetyConflict} onClick={() => { void execute(pending).then((success) => { if (success) void drainQueue(); }); }}>{busy ? "Working…" : "Retry pending action"}</button></>}</div>}
-    {notice && <p role="status" className="artifact-notice">{notice}</p>}
-    {busy && <p role="status" className="artifact-notice"><span className="spinner" /> {pending?.method === "DELETE" ? "Deleting artifact…" : pending?.method === "PATCH" ? "Updating artifact…" : "Uploading artifact…"}</p>}
-    {searchPage && <div className="artifact-search-status" role="status"><p>Results ordered by relevance. Clear search to sort the directory.</p><p>{searchPage.indexing.ready} extracted · {searchPage.indexing.pending} pending · {searchPage.indexing.failed} failed{searchPage.indexing.truncated > 0 ? ` · ${searchPage.indexing.truncated} truncated` : ""}</p>{searchPage.sensitive_content_withheld > 0 && <p>{searchPage.sensitive_content_withheld} sensitive artifacts were excluded from content search. Content results are incomplete.</p>}{(searchPage.indexing.pending > 0 || searchPage.indexing.failed > 0 || searchPage.indexing.truncated > 0) && <p>Content results may be incomplete. Pending files refresh automatically; failed files still match their available metadata. Truncated files search only the extracted prefix.</p>}</div>}
+    {!selected && actionFeedback}
+    <div className="artifact-directory-heading"><h2>{search ? "Search results" : "Project files"}{page && <span className="artifact-count">{page.total}</span>}</h2><label><input type="checkbox" checked={includeDeleted} onChange={(event) => { setIncludeDeleted(event.target.checked); setOffset(0); }} /> Show deleted</label></div>
+    {searchPage && <div className="artifact-search-status" role="status"><p>Sorted by relevance. Clear to browse all files.</p><p>{searchPage.indexing.ready} extracted · {searchPage.indexing.pending} pending · {searchPage.indexing.failed} failed{searchPage.indexing.truncated > 0 ? ` · ${searchPage.indexing.truncated} truncated` : ""}</p>{searchPage.sensitive_content_withheld > 0 && <p>{searchPage.sensitive_content_withheld} sensitive artifacts were excluded from content search. Content results are incomplete.</p>}{(searchPage.indexing.pending > 0 || searchPage.indexing.failed > 0 || searchPage.indexing.truncated > 0) && <p>Content results may be incomplete. Pending files refresh automatically; failed files still match their available metadata. Truncated files search only the extracted prefix.</p>}</div>}
     {loadError ? <div className="error-notice" role="alert"><p>{loadError}</p><button className="button button-secondary" onClick={() => setRefresh((value) => value + 1)}>Retry loading artifacts</button></div> : <>
       <div className="artifact-table-scroll" aria-busy={loading} tabIndex={0} role="region" aria-label="Sortable artifact directory">
-        <table className="artifact-table"><thead><tr>{columns.map((column) => <th key={column.key} scope="col" aria-sort={!search && sort === column.key ? order === "asc" ? "ascending" : "descending" : "none"}><button disabled={Boolean(search)} title={search ? "Clear search to sort the directory" : undefined} onClick={() => { setSort(column.key); setOrder(sort === column.key && order === "asc" ? "desc" : "asc"); setOffset(0); }}>{column.label}<span aria-hidden="true">{search ? "" : sort === column.key ? order === "asc" ? " ↑" : " ↓" : " ↕"}</span></button></th>)}<th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+        <table className="artifact-table"><thead><tr>{columns.map((column) => <th key={column.key} scope="col" aria-sort={!search && sort === column.key ? order === "asc" ? "ascending" : "descending" : "none"}><button disabled={Boolean(search)} title={search ? "Clear to sort the directory" : undefined} onClick={() => { setSort(column.key); setOrder(sort === column.key && order === "asc" ? "desc" : "asc"); setOffset(0); }}>{column.label}<span aria-hidden="true">{search ? "" : sort === column.key ? order === "asc" ? " ↑" : " ↓" : " ↕"}</span></button></th>)}<th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>{page?.items.map((artifact) => <tr key={artifact.id} className={artifact.deleted_at ? "artifact-deleted" : ""}>
-            <td><button className="artifact-name" title={artifact.filename} disabled={Boolean(pending)} onClick={() => setSelected(selected?.id === artifact.id ? null : artifact)}><svg width="19" height="22" viewBox="0 0 20 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 1h8l6 6v16H3zM11 1v7h6M6 13h8M6 17h6" /></svg><span>{artifact.filename}</span></button><span className="artifact-type">{artifact.sensitive && <span className="artifact-sensitive-badge">Sensitive</span>}{artifact.deleted_at ? "Deleted · " : ""}{artifact.mime_type || "Unknown file type"}</span>{searchPage && <ArtifactSearchExcerpt page={searchPage} artifactId={artifact.id} />}</td>
+            <td><button className="artifact-name" title={artifact.filename} disabled={Boolean(pending)} aria-haspopup="dialog" onClick={() => setSelected(artifact)}><svg width="19" height="22" viewBox="0 0 20 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 1h8l6 6v16H3zM11 1v7h6M6 13h8M6 17h6" /></svg><span>{artifact.filename}</span></button><span className="artifact-type">{artifact.sensitive && <span className="artifact-sensitive-badge">Sensitive</span>}{artifact.deleted_at ? "Deleted · " : ""}{artifact.mime_type || "Unknown file type"}</span>{searchPage && <ArtifactSearchExcerpt page={searchPage} artifactId={artifact.id} />}</td>
             <td>{formatArtifactSize(artifact.size_bytes)}</td><td><span className="artifact-revision">r{artifact.revision}</span></td><td><time dateTime={artifact.created_at}>{formatDateTime(artifact.created_at)}</time></td><td><time dateTime={artifact.modified_at}>{formatDateTime(artifact.modified_at)}</time></td>
             <td><div className="artifact-actions">{artifact.content_available && <>{artifactPreviewKind(artifact) && <button type="button" className="button button-secondary" aria-label={`View ${artifact.filename}`} onClick={() => { const kind = artifactPreviewKind(artifact); if (kind) setPreview({ artifact, kind }); }}>View</button>}<a className="button button-secondary" href={`${artifactPath(projectId, artifact.id)}/content`} download={artifact.filename} aria-label={`Download ${artifact.filename}`}>Download</a><button className="button button-secondary" disabled={Boolean(pending)} aria-label={`Replace ${artifact.filename}`} onClick={() => { if (window.confirm(`Replace “${artifact.filename}”? The previous content will be permanently removed.`)) { replaceTarget.current = artifact; replaceInput.current?.click(); } }}>Replace</button><button className="button button-danger" disabled={Boolean(pending)} aria-label={`Delete ${artifact.filename}`} onClick={() => void remove(artifact)}>Delete</button></>}</div></td>
           </tr>)}</tbody></table>
       </div>
       {loading && !page && <div className="loading-state" role="status">Loading artifacts…</div>}
-      {page && !page.items.length && <div className="artifact-empty"><h2>{search || workFilter ? "No matching artifacts." : "Your project files belong here."}</h2><p>{search || workFilter ? `Try another query${fulltext ? "" : " or opt in to file-content search"}, or clear the work filter.` : "Keep documents, binaries and working files together with the work that created them."}</p></div>}
+      {page && !page.items.length && <div className="artifact-empty"><h2>{search || workFilter ? "No matching artifacts." : "Your project files belong here."}</h2><p>{search || workFilter ? `Try another query${fulltext ? "" : " or enable Include contents"}, or clear the work filter.` : "Keep documents, binaries and working files together with the work that created them."}</p></div>}
       {page && <div className="artifact-pagination"><span>{page.total ? `${offset + 1}–${Math.min(offset + page.items.length, page.total)} of ${page.total} artifacts` : "0 artifacts"}</span><div><button className="button button-secondary" disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Previous</button><button className="button button-secondary" disabled={loading || offset + PAGE_SIZE >= page.total} onClick={() => setOffset(offset + PAGE_SIZE)}>Next</button></div></div>}
     </>}
-    {selected && <section className="artifact-details" aria-label={`Metadata for ${selected.filename}`}><div className="artifact-detail-heading"><h2>{selected.filename}</h2><button className="button button-secondary" disabled={Boolean(pending)} onClick={() => setSelected(null)}>Close details</button></div>{selected.description && <p>{selected.description}</p>}<dl className="metadata-grid"><div><dt>Artifact ID</dt><dd className="mono break-all">{selected.id}</dd></div><div><dt>Created by session</dt><dd className="mono break-all">{selected.created_by_agent_session_id || "Not recorded"}</dd></div><div className="span-two"><dt>SHA-256</dt><dd className="mono break-all">{selected.sha256}</dd></div><div><dt>Originating work item</dt><dd>{selected.originating_work_item_id ? <a href={`/?work=${selected.originating_work_item_id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{selected.originating_work_item_id}</a> : "Not linked"}</dd></div><div><dt>Related work items</dt><dd>{selected.related_work_item_ids.length ? selected.related_work_item_ids.map((id) => <a className="artifact-work-link" key={id} href={`/?work=${id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{id}</a>) : "None"}</dd></div></dl><ArtifactMetadataEditor key={selected.id} artifact={selected} disabled={Boolean(pending)} onUpdate={execute} onOpenArtifact={setSelected} /><ArtifactExtractionDetails artifact={selected} /><p className="artifact-history-note">Revision metadata and the append-only audit log are available through the artifact history tools. Extracted properties and search snippets are untrusted file data.</p></section>}
+    {selected && <ArtifactDetailsDrawer artifact={selected} pending={Boolean(pending)} onClose={() => setSelected(null)}>{actionFeedback}{selected.description && <p>{selected.description}</p>}<dl className="metadata-grid"><div><dt>Artifact ID</dt><dd className="mono break-all">{selected.id}</dd></div><div><dt>Created by session</dt><dd className="mono break-all">{selected.created_by_agent_session_id || "Not recorded"}</dd></div><div className="span-two"><dt>SHA-256</dt><dd className="mono break-all">{selected.sha256}</dd></div><div><dt>Originating work item</dt><dd>{selected.originating_work_item_id ? <a href={`/?work=${selected.originating_work_item_id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{selected.originating_work_item_id}</a> : "Not linked"}</dd></div><div><dt>Related work items</dt><dd>{selected.related_work_item_ids.length ? selected.related_work_item_ids.map((id) => <a className="artifact-work-link" key={id} href={`/?work=${id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{id}</a>) : "None"}</dd></div></dl><ArtifactMetadataEditor key={selected.id} artifact={selected} disabled={Boolean(pending)} onUpdate={execute} onOpenArtifact={setSelected} /><ArtifactExtractionDetails artifact={selected} /><p className="artifact-history-note">Revision metadata and the append-only audit log are available through the artifact history tools. Extracted properties and search snippets are untrusted file data.</p></ArtifactDetailsDrawer>}
     {preview && <ArtifactPreviewDrawer key={`${preview.artifact.project_id}:${preview.artifact.id}`} artifact={preview.artifact} kind={preview.kind} onClose={() => setPreview(null)} />}
     {dragging && <div className="artifact-drop-overlay" aria-hidden="true">{pending ? "Resolve the pending action first" : "Drop files to upload"}</div>}
   </section>;

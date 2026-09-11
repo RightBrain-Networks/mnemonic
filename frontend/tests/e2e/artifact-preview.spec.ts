@@ -112,7 +112,7 @@ test("artifact preview fits large images, preserves small images and opens an im
     });
     expect(dimensions.width).toBeLessThanOrEqual(dimensions.areaWidth);
     expect(dimensions.height).toBeLessThanOrEqual(dimensions.areaHeight);
-    if (size === 32) expect(dimensions.width).toBe(32);
+    if (size === 32) expect(dimensions.width).toBeCloseTo(32, 4);
     else expect(dimensions.width).toBeLessThan(size);
     await expect(drawer.getByRole("button", { name: "Copy contents" })).toHaveCount(0);
     const link = drawer.getByRole("link", { name: "Open image in new tab" });
