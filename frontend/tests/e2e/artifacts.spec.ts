@@ -15,8 +15,7 @@ test("artifact directory supports upload, sorting, downloads, atomic replacement
   await expect(page.getByRole("heading", { name: "Artifacts." })).toBeVisible();
   const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
   await expect(navigation.getByRole("link", { name: "Artifacts" })).toHaveAttribute("aria-current", "page");
-  const names = await navigation.locator("a").allTextContents();
-  expect(names.findIndex((name) => name.includes("Artifacts"))).toBe(names.findIndex((name) => name.includes("Needs Attention")) + 1);
+  await expect(navigation.locator(".resources-nav a")).toHaveText(["Artifacts", "Transcripts"]);
 
   await page.getByLabel("Upload artifact files").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from("Original artifact bytes") });
   const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: filename, exact: true }) });

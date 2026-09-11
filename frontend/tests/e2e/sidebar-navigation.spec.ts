@@ -12,6 +12,8 @@ test("sidebar navigation keeps the workspace mounted through menu links and brow
   const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
   const toggle = navigation.getByRole("button", { name: "Project settings" });
   await toggle.click();
+  const resources = navigation.getByRole("button", { name: "Resources", exact: true });
+  await resources.click();
   await expect(page.locator(".summary-nav-count")).toHaveText("7");
   await expect(page.locator(".sync-status")).toHaveText("Live Updates");
 
@@ -29,10 +31,11 @@ test("sidebar navigation keeps the workspace mounted through menu links and brow
       if ((document.querySelector("#project-select") as HTMLSelectElement).disabled) resets.push("project picker disabled");
       if (document.querySelector(".summary-nav-count")?.textContent !== "7") resets.push("badge reset");
       if (document.querySelector(".settings-nav")?.getAttribute("data-expanded") !== "true") resets.push("menu collapsed");
+      if (document.querySelector(".resources-nav")?.getAttribute("data-expanded") !== "true") resets.push("resources collapsed");
     }).observe(document.querySelector(".sidebar")!, { subtree: true, childList: true, attributes: true });
   });
 
-  for (const label of ["Summaries", "Needs Attention", "Artifacts", "Workspace", "Prompts", "Code reviews", "Backups", "Work library"]) {
+  for (const label of ["Summaries", "Needs Attention", "Artifacts", "Transcripts", "Workspace", "Prompts", "Code reviews", "Backups", "Work library"]) {
     await navigation.getByRole("link", { name: label, exact: label !== "Summaries" }).click();
     await expect(page.locator("h1")).toContainText(label === "Work library" ? `Work library: ${state.projectName}` : `${label}.`);
     expect(documentRequests).toEqual([]);
@@ -40,6 +43,7 @@ test("sidebar navigation keeps the workspace mounted through menu links and brow
     await expect(navigation.locator('[aria-current="page"]')).toContainText(label);
     await expect(page.locator("#project-select")).toHaveValue(state.projectId);
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(resources).toHaveAttribute("aria-expanded", "true");
   }
   await page.goBack();
   await expect(page.locator("h1")).toHaveText("Backups.");
@@ -146,6 +150,10 @@ test("sidebar navigation and browser Back retain a pending backup panel", async 
     const originalPanel = await panel.elementHandle();
     await panel.getByRole("button", { name: "Back up now", exact: true }).click();
     await expect(page.locator("#project-select")).toBeDisabled();
+    await navigation.getByRole("button", { name: "Resources", exact: true }).click();
+    await navigation.getByRole("link", { name: "Transcripts", exact: true }).click();
+    await expect(page).toHaveURL("/settings/backups");
+    expect(await originalPanel!.evaluate((element) => element.isConnected)).toBe(true);
     await navigation.getByRole("link", { name: "Work library" }).click();
     await expect(page).toHaveURL("/settings/backups");
     await page.goBack();

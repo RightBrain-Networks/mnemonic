@@ -22,8 +22,8 @@ test("settings menu links show only their dedicated cards in the requested order
   const toggle = navigation.getByRole("button", { name: "Project settings" });
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();
-  await expect(page.locator(".settings-nav-chevron")).toBeVisible();
-  await expect(page.locator(".settings-nav-leaves a")).toHaveText(sections.map(({ label }) => label));
+  await expect(page.locator(".settings-nav .nav-group-chevron")).toBeVisible();
+  await expect(page.locator(".settings-nav .nav-group-leaves a")).toHaveText(sections.map(({ label }) => label));
   for (const section of sections) {
     await navigation.getByRole("link", { name: section.label, exact: true }).click();
     await expect(page).toHaveURL(section.path);
@@ -51,9 +51,9 @@ test("settings menu preserves both disclosure states and supports keyboard navig
   await page.keyboard.press("Space");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), preferenceKey)).toBe("closed");
-  await expect(page.locator(".settings-nav-collapse")).toHaveAttribute("inert", "");
+  await expect(page.locator(".settings-nav .nav-group-collapse")).toHaveAttribute("inert", "");
   await page.keyboard.press("Tab");
-  expect(await page.evaluate(() => document.activeElement?.closest(".settings-nav-leaves") !== null)).toBe(false);
+  expect(await page.evaluate(() => document.activeElement?.closest(".settings-nav .nav-group-leaves") !== null)).toBe(false);
   await page.reload();
   await expect(group).toHaveAttribute("data-ready", "true");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -74,7 +74,7 @@ test("settings menu uses Expo easing in each direction and respects reduced moti
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/");
   const toggle = page.getByRole("button", { name: "Project settings" });
-  const collapse = page.locator(".settings-nav-collapse");
+  const collapse = page.locator(".settings-nav .nav-group-collapse");
   await expect(page.locator(".settings-nav")).toHaveAttribute("data-ready", "true");
   await toggle.click();
   await expect(collapse).toHaveCSS("transition-timing-function", "cubic-bezier(0.16, 1, 0.3, 1), ease");
@@ -85,7 +85,7 @@ test("settings menu uses Expo easing in each direction and respects reduced moti
   await page.emulateMedia({ reducedMotion: "reduce" });
   await toggle.click();
   await expect(collapse).toHaveCSS("transition-property", "none");
-  await expect(page.locator(".settings-nav-chevron")).toHaveCSS("transition-property", "none");
+  await expect(page.locator(".settings-nav .nav-group-chevron")).toHaveCSS("transition-property", "none");
   await expect(page.getByRole("link", { name: "Workspace", exact: true })).toBeVisible();
   await toggle.click();
   await expect(collapse).toBeHidden();

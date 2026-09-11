@@ -27,6 +27,7 @@ import AffectedPathsEditor from "@/components/affected-paths-editor";
 import DashboardViewChrome from "@/components/dashboard-view-chrome";
 import ThemeSelector from "@/components/theme-selector";
 import ProjectSettingsPanel from "@/components/project-settings";
+import SidebarNavGroup from "@/components/sidebar-nav-group";
 import ProjectSettingsNav from "@/components/project-settings-nav";
 import { settingsSections } from "@/lib/settings-navigation";
 import { BACKUP_DEFAULT_MAX_BYTES } from "@/lib/backups";
@@ -320,7 +321,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const view = pathname.startsWith("/settings/") ? "settings"
     : pathname === "/summaries" ? "summaries"
       : pathname === "/attention" ? "attention"
-        : pathname === "/artifacts" ? "artifacts" : "library";
+        : pathname === "/artifacts" ? "artifacts"
+          : pathname === "/transcripts" ? "transcripts" : "library";
   const artifactRoute = artifactLocation(searchParams.toString());
   const artifactProjectId = view === "artifacts" ? artifactRoute.projectId : null;
 
@@ -2853,7 +2855,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   />;
 
   return <MutationIntentProvider registry={mutationRegistry}><div className="app-shell">
-    <a className="skip-link" href="#main-content">{view === "artifacts" ? "Skip to artifacts" : view === "settings" ? "Skip to project settings" : view === "attention" ? "Skip to human questions" : view === "summaries" ? "Skip to summaries" : "Skip to work items"}</a>
+    <a className="skip-link" href="#main-content">{view === "transcripts" ? "Skip to transcripts" : view === "artifacts" ? "Skip to artifacts" : view === "settings" ? "Skip to project settings" : view === "attention" ? "Skip to human questions" : view === "summaries" ? "Skip to summaries" : "Skip to work items"}</a>
     <aside className="sidebar">
       <Link href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={blockNavigationWhilePending}><Logo /><span>mnemonic<span className="brand-period">.</span></span></Link>
       <div className="workspace-picker">
@@ -2869,18 +2871,25 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         <Link className={`nav-item ${view === "library" ? "active" : ""}`} href="/" aria-current={view === "library" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="library" /><span>Work library</span><Icon name="arrow" size={15} /></Link>
         <Link className={`nav-item ${view === "summaries" ? "active" : ""}`} href="/summaries" aria-current={view === "summaries" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="box" /><span>Summaries</span>{reportCount !== null && reportCount !== "0" && <span className="summary-nav-count" aria-label={`${reportCount} undismissed summaries`}>{reportCount}</span>}<Icon name="arrow" size={15} /></Link>
         <Link className={`nav-item ${view === "attention" ? "active" : ""}`} href="/attention" aria-current={view === "attention" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="attention" /><span>Needs Attention</span>{attentionCount !== null && attentionCount > 0 && <span className="attention-nav-count" aria-label={`${attentionCount} unresolved human question${attentionCount === 1 ? "" : "s"}`}>{attentionCount}</span>}<Icon name="arrow" size={15} /></Link>
-        <Link className={`nav-item ${view === "artifacts" ? "active" : ""}`} href={activeId ? artifactLibraryPath(activeId) : "/artifacts"} aria-current={view === "artifacts" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="artifacts" /><span>Artifacts</span><Icon name="arrow" size={15} /></Link>
+        <SidebarNavGroup className="resources-nav" label="Resources"
+          storageKey={dashboardStorageKeys.resourcesMenu}
+          activeId={view === "artifacts" || view === "transcripts" ? view : undefined}
+          items={[
+            { id: "artifacts", label: "Artifacts", href: activeId ? artifactLibraryPath(activeId) : "/artifacts" },
+            { id: "transcripts", label: "Transcripts", href: "/transcripts" }
+          ]}
+          icon={<Icon name="artifacts" />} onNavigate={blockNavigationWhilePending} />
         <ProjectSettingsNav section={view === "settings" ? settingsSection : undefined} icon={<Icon name="settings" />} onNavigate={blockNavigationWhilePending} />
       </nav>
-      <div className="sidebar-note"><h2>Keeping your agents on the same page.</h2></div>
+      <div className="sidebar-note"><img className="note-art" src="/img/robot.svg" alt="" width={115} height={115} aria-hidden="true" /><h2>Keeping your agents on the same page.</h2></div>
       <div className="sidebar-footer"><span className="local-dot" /><span>Local workspace</span><ThemeSelector /></div>
     </aside>
 
     <main id="main-content" className="main-content">
-      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view !== "library" && <><span className="breadcrumb-slash">/</span><span>{view === "artifacts" ? "Artifacts" : view === "settings" ? settingsPage.label : view === "summaries" ? "Summaries" : "Needs Attention"}</span></>}</div><div className="topbar-actions">{project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncLabels[liveSyncStatus]}</div></div></header>
+      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view !== "library" && <><span className="breadcrumb-slash">/</span><span>{view === "transcripts" ? "Transcripts" : view === "artifacts" ? "Artifacts" : view === "settings" ? settingsPage.label : view === "summaries" ? "Summaries" : "Needs Attention"}</span></>}</div><div className="topbar-actions">{project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncLabels[liveSyncStatus]}</div></div></header>
       <div className={`page-content ${view === "library" ? "page-content-library" : ""}`}>
         {activity.error && <div className="error-notice" role="alert"><p>Activity updates: {activity.error}</p><button type="button" className="button button-secondary" onClick={activity.streamChanged ? activity.reloadSnapshot : activity.poll}>{activity.streamChanged ? "Reload current snapshot" : "Retry updates"}</button></div>}
-        {view === "artifacts" ? <>
+        {view === "transcripts" ? <DashboardViewChrome title="Transcripts" /> : view === "artifacts" ? <>
           <DashboardViewChrome eyebrow="FILES THAT STAY WITH YOUR WORK — BUT OUT OF YOUR CODEBASE" title="Artifacts" description={project ? `Store documents, binaries and other files in the “${project.name}” project.` : "Choose a project to open its artifact library."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
           {project ? <ArtifactLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} maximumBytes={artifactMaxBytes} refreshSignal={refresh} onPendingChange={setArtifactPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to upload artifacts."}</div>}
