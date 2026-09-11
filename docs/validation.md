@@ -3,6 +3,8 @@
 
 ## Existing transcript imports (0.44.0)
 
+See the [independent cold review and validation record](transcript-imports-review.md).
+
 Workspace settings can import existing Claude Code JSONL from shared folders.
 Migration `0033_transcript_imports` retains project-owned sources and permanent
 import receipts; the application, API, MCP, dashboard and backup service ship together.
