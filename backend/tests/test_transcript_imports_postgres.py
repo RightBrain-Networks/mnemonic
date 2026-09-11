@@ -69,7 +69,7 @@ def test_imports_nested_sources_skip_enrollment_and_replay_without_rescanning(
 @pytest.mark.parametrize("enroll_first", [True, False])
 @pytest.mark.parametrize("suffix", ["", "/", "/.", "/.//./"])
 def test_path_aliases_and_client_aliases_do_not_duplicate_sources(
-    api, project, work_payload, tmp_path, enroll_first, suffix,
+    api, project, work_payload, tmp_path, postgres_engine, enroll_first, suffix,
 ):
     path = source(tmp_path)
     api.app.state.settings.transcript_allowed_roots = [tmp_path]
@@ -87,6 +87,9 @@ def test_path_aliases_and_client_aliases_do_not_duplicate_sources(
     assert page["items"][0]["kind"] == "primary"
     assert page["items"][0]["source_path"] == assertion["path"]
     assert not run(api)
+    expire_lease(postgres_engine, work["id"])
+    assert run(api)
+    assert read(api, project, page["items"][0])["status"] == "ready"
 
 
 @pytest.mark.parametrize("indexed", [False, True])

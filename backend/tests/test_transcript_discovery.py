@@ -8,7 +8,8 @@ from mnemonic_api.errors import ApplicationError
 from mnemonic_api.transcript_discovery import discover_transcripts
 
 
-def test_scans_nested_jsonl_and_skips_links_and_nonregular_files(tmp_path):
+@pytest.mark.parametrize("prefix", ["", "/", "//"])
+def test_scans_nested_jsonl_and_skips_links_and_nonregular_files(tmp_path, prefix):
     root = tmp_path / "allowed"
     root.mkdir()
     child = root / "session" / "subagents"
@@ -22,7 +23,7 @@ def test_scans_nested_jsonl_and_skips_links_and_nonregular_files(tmp_path):
     (root / "linked").symlink_to(outside, target_is_directory=True)
     (root / "alias.jsonl").symlink_to(root / "main.jsonl")
     os.mkfifo(root / "pipe.jsonl")
-    scan = discover_transcripts(str(root), [root])
+    scan = discover_transcripts(prefix + str(root), [root])
     assert scan.paths == sorted([str(root / "main.jsonl"), str(child / "agent.jsonl")])
     assert scan.skipped == 3
 

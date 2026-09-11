@@ -7,12 +7,21 @@ from pathlib import Path
 from mnemonic_api.artifact_tika import ExtractionError
 
 
+def canonical_source_path(source: str) -> str:
+    # The local POSIX filesystem treats repeated separators and '.' components
+    # identically, including Python's otherwise distinct two-slash anchor.
+    path = Path(source)
+    return "/" + str(path).lstrip("/") if path.is_absolute() else str(path)
+
+
 def _relative_source(source: str, roots: list[Path], *, directory: bool = False,
 ) -> tuple[Path, tuple[str, ...]]:
     path = Path(source)
     if not path.is_absolute() or ".." in path.parts or "\x00" in source:
         raise ExtractionError("transcript_path_not_allowed")
+    path = Path(canonical_source_path(source))
     for root in roots:
+        root = Path(canonical_source_path(str(root)))
         if path.is_relative_to(root) and (directory or path != root):
             return root, path.relative_to(root).parts
     raise ExtractionError("transcript_path_not_allowed")

@@ -9,9 +9,10 @@ from sqlalchemy.orm import Session
 from mnemonic_api.errors import conflict
 from mnemonic_api.models import Transcript, TranscriptImport
 from mnemonic_api.services.work_items import require_project
-from mnemonic_api.transcript_discovery import TranscriptDiscovery, canonical_source_path
+from mnemonic_api.transcript_discovery import TranscriptDiscovery
 from mnemonic_api.transcript_schemas import TranscriptImportRead, TranscriptImportRequest
 from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
+from mnemonic_api.transcript_storage import canonical_source_path
 
 
 def replay_import(database: Session, project_id: UUID,

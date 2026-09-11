@@ -7,18 +7,13 @@ from time import monotonic
 
 from mnemonic_api.artifact_tika import ExtractionError
 from mnemonic_api.errors import ApplicationError
-from mnemonic_api.transcript_storage import _open_source
+from mnemonic_api.transcript_storage import _open_source, canonical_source_path
 
 MAX_IMPORT_FILES = 5000
 MAX_IMPORT_ENTRIES = 50000
 MAX_IMPORT_DEPTH = 64
 SCAN_SECONDS = 10
 
-
-def canonical_source_path(source: str) -> str:
-    # POSIX treats repeated separators and '.' components as the same location.
-    # Do not resolve symlinks or rewrite an agent's retained source assertion.
-    return "/" + str(Path(source)).lstrip("/")
 
 
 @dataclass
