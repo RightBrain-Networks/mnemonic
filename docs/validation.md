@@ -1,5 +1,32 @@
 # Mnemonic validation record
 
+## Private transcript Docker access (0.44.1)
+
+The production API image accepts non-root UID/GID build arguments. The optional
+transcript overlay exposes only the approved source tree, read-only at its original
+absolute path. Deployment instructions retain the overlay across ordinary Compose
+commands and migrate private artifact ownership when changing the API UID.
+No schema or API contract change is introduced by this patch.
+
+`uv run --project backend python scripts/test-transcript-mount.py` exercises the
+actual production Compose files with a separate project and synthetic host files.
+It reproduces the mismatched-UID failure, then verifies owner-only (`0600`) files,
+new nested subagent files, directory discovery, denied writes, symlink/outside-root
+rejection, no credential-directory exposure, private artifact writes and rejection
+of a missing host source. It also checks that the TLS overlay remains effective.
+The harness never starts application servers or connects to a database.
+
+Validation also includes 52 backend filesystem, discovery, indexing and OpenAPI
+checks against isolated PostgreSQL schemas, plus Python lint/type checks and
+121 MCP transcript/transport/version regressions. The default image identity was
+also built and verified as 10001:10001; the deployment-specific build was tested
+as 1026:1000, and a UID 0 build was rejected.
+
+An independent cold reviewer froze findings on commit `5b727596`, then independently
+ran the real Compose harness from a detached checkout. No actionable findings
+were reported. That review used synthetic files and isolated containers; it did
+not access production configuration, databases or transcript bodies.
+
 
 ## Existing transcript imports (0.44.0)
 
