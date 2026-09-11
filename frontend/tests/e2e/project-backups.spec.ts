@@ -94,6 +94,8 @@ test("project backups download compressed data, prune oldest archives and restor
     await panel.getByRole("button", { name: "Upload and restore" }).click();
     await reloaded;
     await expect(page.locator("#project-select")).toHaveValue(source.id);
+    await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("link", { name: "Workspace", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings\/workspace$/);
     await expect(page.getByLabel("Description", { exact: false })).toHaveValue(source.description);
     const restored = await api.get(`/api/v1/projects/${source.id}/work-items/${original.id}/context`);
     expect(restored.ok(), await restored.text()).toBe(true);
@@ -287,6 +289,8 @@ for (const outcome of ["pending", "uncertain"] as const) {
       if (outcome === "pending") release();
       else await panel.getByRole("button", { name: "Reload and inspect" }).click();
       await reloaded;
+      await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("link", { name: "Workspace", exact: true }).click();
+      await expect(page).toHaveURL(/\/settings\/workspace$/);
       await expect(page.getByLabel("Description", { exact: false })).toHaveValue(project.description);
       await expect(page.locator("#project-select")).toBeEnabled();
       expect(requests).toBe(1);

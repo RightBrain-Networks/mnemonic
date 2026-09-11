@@ -84,8 +84,8 @@ test("settings menu uses Expo easing in each direction and respects reduced moti
   await expect.poll(() => collapse.evaluate((element) => element.getBoundingClientRect().height)).toBe(0);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await toggle.click();
-  await expect(collapse).toHaveCSS("transition-duration", "0s");
-  await expect(page.locator(".settings-nav-chevron")).toHaveCSS("transition-duration", "0s");
+  await expect(collapse).toHaveCSS("transition-property", "none");
+  await expect(page.locator(".settings-nav-chevron")).toHaveCSS("transition-property", "none");
   await expect(page.getByRole("link", { name: "Workspace", exact: true })).toBeVisible();
   await toggle.click();
   await expect(collapse).toBeHidden();
