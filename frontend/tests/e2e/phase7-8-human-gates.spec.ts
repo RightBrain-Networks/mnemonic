@@ -484,7 +484,8 @@ test("question versions replace graph review and preserve drafts across a concur
     await card.getByRole("button", { name: "Record answer" }).click();
     await expect.poll(() => statuses[0]).toBe(409);
     await expect(card.getByRole("tab", { name: "Version 3 · Current" })).toHaveAttribute("aria-selected", "true");
-    await expect(card.getByRole("tab", { name: "Version 3 · Current" })).toBeInViewport({ ratio: 1 });
+    // IntersectionObserver rounds the scroll edge to fractional CSS pixels.
+    await expect(card.getByRole("tab", { name: "Version 3 · Current" })).toBeInViewport({ ratio: 0.99 });
     await expect(card.getByRole("tabpanel")).toContainText("Tuesday at 14:00");
     await expect(answer).toHaveValue("Tuesday works for us.");
     await card.getByRole("button", { name: "Record answer" }).click();
