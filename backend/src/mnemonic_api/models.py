@@ -964,11 +964,13 @@ class WorkDuplicateMerge(Base):
 
 
 class WorkGate(Base):
-    """An immutable human question with one optional immutable resolution."""
+    """A versioned human question with one optional immutable resolution."""
 
     __tablename__ = "work_gates"
     __table_args__ = (
         CheckConstraint("attention_sequence > 0", name="attention_sequence_positive"),
+        CheckConstraint("jsonb_typeof(question_revisions) = 'array'",
+                        name="question_revisions_array"),
         CheckConstraint("gate_type = 'human'", name="gate_type_valid"),
         CheckConstraint(
             "mnemonic_has_non_whitespace(question) AND length(question) <= 4000",
@@ -1092,6 +1094,9 @@ class WorkGate(Base):
         server_default="human",
     )
     question: Mapped[str] = mapped_column(Text)
+    question_revisions: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
     requested_by_client: Mapped[str] = mapped_column(String(80))
     requested_by_session_id: Mapped[str] = mapped_column(String(200))
     requested_by_model: Mapped[str | None] = mapped_column(String(120))

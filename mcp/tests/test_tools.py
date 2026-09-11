@@ -588,9 +588,9 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
         assert required in described[name].lower(), name
 
     for required in (
-        "check the item's unresolved gates first",
-        "supporting context checkpoint before requesting",
-        "cannot withdraw a gate",
+        "inspect unresolved questions on affected related work",
+        "rewrite its complete prose",
+        "gate_id and expected_question_version together",
     ):
         assert required in described["request_human_input"].lower()
     assert (
@@ -1105,6 +1105,8 @@ async def test_tool_catalog_ready_event_and_gate_schemas(settings):
         "client_operation_id",
     }
     assert set(request_gate_input["properties"]) == {
+        "gate_id",
+        "expected_question_version",
         "project_id",
         "work_item_id",
         "question",
@@ -1121,6 +1123,8 @@ async def test_tool_catalog_ready_event_and_gate_schemas(settings):
     request_gate_output = tools["request_human_input"].outputSchema
     assert request_gate_output["additionalProperties"] is False
     assert set(request_gate_output["properties"]) == {
+        "question_version",
+        "previous_questions",
         "id",
         "project_id",
         "work_item_id",
@@ -5495,3 +5499,53 @@ async def test_renew_receipt_token_mismatch_never_claims_a_confirmed_renewal(
     assert "exact same claim_request_id" not in message
     assert LEASE_TOKEN not in message
     assert "b" * 64 not in message
+
+
+async def test_request_human_input_rewrites_the_exact_question(settings, human_gate):
+    question = "Tuesday is now available. Proceed Tuesday?"
+    previous = {
+        "version": 1,
+        "question": human_gate["question"],
+        "created_at": human_gate["created_at"],
+        "requested_by_client": human_gate["requested_by_client"],
+        "requested_by_session_id": human_gate["requested_by_session_id"],
+        "requested_by_model": human_gate["requested_by_model"],
+        "context_revision": human_gate["requested_context_revision"],
+    }
+    response = {
+        **human_gate, "question": question, "question_version": 2,
+        "previous_questions": [previous],
+    }
+    arguments = {
+        **protected_tool_arguments()["request_human_input"],
+        "question": question, "gate_id": human_gate["id"], "expected_question_version": 1,
+    }
+    requests = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        assert payload["gate_id"] == human_gate["id"]
+        assert payload["expected_question_version"] == 1
+        assert payload["question"] == question
+        requests.append(request.content)
+        return httpx.Response(201, json=response)
+
+    server = adapter(settings, handler)
+    assert structured(await server.call_tool("request_human_input", arguments)) == response
+    assert structured(await server.call_tool("request_human_input", arguments)) == response
+    assert requests[0] == requests[1]
+
+
+@pytest.mark.parametrize("missing", ["gate_id", "expected_question_version"])
+async def test_question_revision_requires_both_target_and_version(settings, human_gate, missing):
+    arguments = {
+        **protected_tool_arguments()["request_human_input"],
+        "gate_id": human_gate["id"], "expected_question_version": 1,
+    }
+    arguments.pop(missing)
+
+    def handler(_request):
+        pytest.fail("Invalid revision target must not reach the API")
+
+    with pytest.raises(ToolError, match="must be supplied together"):
+        await adapter(settings, handler).call_tool("request_human_input", arguments)

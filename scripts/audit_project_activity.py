@@ -20,9 +20,11 @@ from typing import Any
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0029_artifact_links_sensitive"
+HEAD = "0030_question_versions"
 EXTRACTION_HEAD = "0027_artifact_fulltext"
-EXTRACTION_HEADS = (EXTRACTION_HEAD, "0028_work_summary_limit", HEAD)
+EXTRACTION_HEADS = (
+    EXTRACTION_HEAD, "0028_work_summary_limit", "0029_artifact_links_sensitive", HEAD,
+)
 ARTIFACT_HEAD = "0026_artifact_library"
 ARTIFACT_HEADS = (ARTIFACT_HEAD, *EXTRACTION_HEADS)
 CROSS_PROJECT_HEAD = "0025_cross_project_relationships"

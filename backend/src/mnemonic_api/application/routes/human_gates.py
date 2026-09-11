@@ -4,8 +4,8 @@ An agent may request a gate and read gates; resolution arrives through the
 dashboard's REST call below and never through the MCP surface. Both writes
 reject request-known secrets before reserving a receipt, so credential or
 capability material can never become durable question or answer text. Every
-resolution names the exact work, checkpoint, and relationship revision that
-was reviewed; reads expose that revision with backend-computed drift facts.
+resolution binds the displayed question version and current work revision;
+reads expose current prose, previous versions, and backend-computed drift facts.
 """
 
 from typing import Annotated

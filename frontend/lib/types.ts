@@ -412,12 +412,24 @@ export interface HumanGateContextRevision {
 
 export type HumanGateStatus = "unresolved" | "resolved";
 
+export interface HumanGateQuestionVersion {
+  version: number;
+  question: string;
+  created_at: string;
+  requested_by_client: string;
+  requested_by_session_id: string;
+  requested_by_model: string | null;
+  context_revision: HumanGateContextRevision;
+}
+
 export interface HumanGateRead {
   id: string;
   project_id: string;
   work_item_id: string;
   gate_type: "human";
   question: string;
+  question_version: number;
+  previous_questions: HumanGateQuestionVersion[];
   requested_by_client: string;
   requested_by_session_id: string;
   requested_by_model: string | null;
@@ -454,6 +466,7 @@ export type HumanAttentionPage = CursorPage<HumanAttentionItem>;
 export type HumanGatePage = CursorPage<HumanGateRead>;
 
 export interface HumanGateResolutionInput extends ClientOperationInput {
+  expected_question_version: number;
   resolution: string;
   resolved_by_client: "dashboard";
   resolved_by_session_id: string;

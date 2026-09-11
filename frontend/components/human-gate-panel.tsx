@@ -2,13 +2,11 @@
 
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useRef, useState } from "react";
-import HumanGateResolution from "@/components/human-gate-resolution";
-import MarkdownContent from "@/components/markdown-content";
+import HumanGateQuestion from "@/components/human-gate-question";
 import { clientLabel, formatDateTime } from "@/components/work-item-card";
 import { api, errorMessage } from "@/lib/api";
 import {
   decodeHumanGatePage,
-  humanGateCurrentDriftMessage,
   humanGateHistorySearchParams,
   humanGateOmissionSentence,
   humanGatePath,
@@ -18,16 +16,14 @@ import type { HumanGatePage, HumanGateRead, WorkContext } from "@/lib/types";
 
 const HISTORY_PAGE_SIZE = 30;
 
-function GateFact({ gate, resolved = false }: { gate: HumanGateRead; resolved?: boolean }) {
-  const driftMessage = humanGateCurrentDriftMessage(gate);
+function GateFact({ gate, resolved = false, onResolved, onRefresh }: { gate: HumanGateRead; resolved?: boolean; onResolved?: () => void | Promise<void>; onRefresh?: () => void | Promise<void> }) {
   return <article className={`gate-fact ${resolved ? "gate-fact-resolved" : ""}`}>
     <div className="gate-fact-heading">
       <span className={`gate-state gate-state-${gate.status}`}>{gate.status === "resolved" ? "Resolved" : "Needs attention"}</span>
       <time dateTime={gate.created_at}>{formatDateTime(gate.created_at)}</time>
     </div>
-    <MarkdownContent className="gate-question">{gate.question}</MarkdownContent>
+    <HumanGateQuestion gate={gate} onResolved={onResolved} onRefresh={onRefresh} />
     <p className="gate-provenance">Requested through {clientLabel(gate.requested_by_client)} · <span className="mono">{gate.requested_by_session_id}</span>{gate.requested_by_model ? ` · ${gate.requested_by_model}` : ""}</p>
-    {driftMessage && <p className="gate-changes">{driftMessage}</p>}
     {gate.status === "resolved" && <>
       <div className="gate-answer"><span className="section-label">DURABLE ANSWER</span><p>{gate.resolution}</p></div>
       <p className="gate-provenance">Resolved through {clientLabel(gate.resolved_by_client!)} · <span className="mono">{gate.resolved_by_session_id}</span>{gate.resolved_by_model ? ` · ${gate.resolved_by_model}` : ""} · <time dateTime={gate.resolved_at!}>{formatDateTime(gate.resolved_at!)}</time></p>
@@ -166,10 +162,10 @@ export default function HumanGatePanel({
     </div>
     {context.unresolved_gates.length > 0 ? <div className="gate-facts">
       {context.unresolved_gates.map((gate) => <div className="gate-with-resolution" key={gate.id}>
-        <GateFact gate={gate} />
+        <GateFact gate={gate} onResolved={context.canonical.is_duplicate ? undefined : () => resolved(gate.id)} onRefresh={onResolved} />
         {context.canonical.is_duplicate
           ? <p className="gate-omission">This duplicate is immutable; review the gate as source-owned audit history.</p>
-          : <HumanGateResolution gate={gate} reviewedContext={context} onResolved={() => resolved(gate.id)} />}
+          : null}
       </div>)}
     </div> : <p className="no-gates">No explicit human questions are unresolved for this work item.</p>}
     {unresolvedOmission && <p className="gate-omission">{unresolvedOmission}</p>}

@@ -36,6 +36,7 @@ class TransportEffect(StrEnum):
 
 
 _APPLICATION_ERRORS = {
+    "gate_question_changed": "The question changed. Read its latest version before a new intent.",
     "artifact_not_found": "Artifact not found in this project.",
     "artifact_revision_conflict": "Artifact revision changed. Read its metadata before a new intent.",
     "artifact_deleted": "Artifact bytes were deleted. Its metadata and audit history remain available.",

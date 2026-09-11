@@ -7,14 +7,11 @@ import {
   decodeHumanGate,
   decodeHumanGatePage,
   humanAttentionSearchParams,
-  humanGateCurrentDriftMessage,
-  humanGateChangedLabels,
   humanGateHistorySearchParams,
   humanGateOmissionSentence,
   humanGatePath,
   humanGateProjectionKey,
-  humanGateResolutionStatus,
-  hasCompleteRelationshipReview
+  humanGateResolutionStatus
 } from "../lib/human-gates.ts";
 
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
@@ -24,11 +21,6 @@ const gateId = "f1cf3691-7d28-4716-94a9-4867b341a685";
 const checkpoint = "1dfa9455-4a17-4cd4-938b-010ea17ccaf0";
 const nextCheckpoint = "26a3a437-0af3-405a-ab82-7932d17869e0";
 const incomingWork = "11111111-1111-4111-8111-111111111111";
-const outgoingWork = "22222222-2222-4222-8222-222222222222";
-const relatedWork = "33333333-3333-4333-8333-333333333333";
-const incomingRelationship = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const outgoingRelationship = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-const relatedRelationship = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const createdAt = "2026-09-01T12:00:00Z";
 
 function revision(overrides = {}) {
@@ -50,6 +42,8 @@ function gate(overrides = {}) {
     requested_by_client: "claude-code",
     requested_by_session_id: "session-1",
     requested_by_model: "model-1",
+    question_version: 1,
+    previous_questions: [],
     requested_context_revision: revision(),
     created_at: createdAt,
     status: "unresolved",
@@ -142,30 +136,6 @@ test("compact checkpoint pointers remain scope-free", () => {
   assert.throws(() => decodeWorkSummary(poisoned, project), /checkpoint pointer/);
 });
 
-function reviewedRelationship({
-  id,
-  relationshipType,
-  sourceWorkItemId,
-  targetWorkItemId,
-  direction,
-  counterpartId,
-  counterpartProjectId = project,
-  projectId = project
-}) {
-  return {
-    relationship: {
-      id,
-      project_id: projectId,
-      relationship_type: relationshipType,
-      source_work_item_id: sourceWorkItemId,
-      target_work_item_id: targetWorkItemId
-    },
-    relative_to_work_item_id: work,
-    direction,
-    counterpart: { id: counterpartId, project_id: counterpartProjectId }
-  };
-}
-
 test("strict gate decoding preserves literal text and enforces scope and nullability", () => {
   const decoded = decodeHumanGate(gate(), {
     projectId: project,
@@ -194,9 +164,6 @@ test("nested revisions and server drift facts are structurally guarded without r
     context_changed_since_request: false
   });
   const decoded = decodeHumanGate(serverProjection);
-  assert.deepEqual(humanGateChangedLabels(decoded), [
-    "work fields", "relationships"
-  ]);
   assert.equal(decoded.context_changed_since_request, false);
   assert.notEqual(
     humanGateProjectionKey(decoded),
@@ -206,6 +173,8 @@ test("nested revisions and server drift facts are structurally guarded without r
     })))
   );
   assert.throws(() => decodeHumanGate(gate({
+    question_version: 1,
+    previous_questions: [],
     requested_context_revision: { ...revision(), extra: true }
   })), /invalid human-gate revision/);
   assert.throws(() => decodeHumanGate(gate({
@@ -224,23 +193,6 @@ test("nested revisions and server drift facts are structurally guarded without r
   assert.equal(
     sameHumanGateRevision(resolved.current_context_revision, resolved.resolved_context_revision),
     false
-  );
-});
-
-test("only unresolved gates present current drift as an actionable warning", () => {
-  const current = revision({ work_version: 4 });
-  const drift = {
-    current_context_revision: current,
-    work_changed_since_request: true,
-    context_changed_since_request: true
-  };
-  assert.equal(
-    humanGateCurrentDriftMessage(decodeHumanGate(gate(drift))),
-    "Current drift: work fields."
-  );
-  assert.equal(
-    humanGateCurrentDriftMessage(decodeHumanGate(resolvedGate(drift))),
-    null
   );
 });
 
@@ -313,78 +265,6 @@ test("attention pages are scope coherent and limit zero transmits no gate text",
   }, project, { limit: 30 }));
 });
 
-test("relationship drift review is complete only when every directional count is materialized", () => {
-  const incoming = reviewedRelationship({
-    id: incomingRelationship,
-    relationshipType: "blocks",
-    sourceWorkItemId: incomingWork,
-    targetWorkItemId: work,
-    direction: "incoming",
-    counterpartId: incomingWork,
-    counterpartProjectId: otherProject,
-    projectId: otherProject
-  });
-  const outgoing = reviewedRelationship({
-    id: outgoingRelationship,
-    relationshipType: "blocks",
-    sourceWorkItemId: work,
-    targetWorkItemId: outgoingWork,
-    direction: "outgoing",
-    counterpartId: outgoingWork
-  });
-  const undirected = reviewedRelationship({
-    id: relatedRelationship,
-    relationshipType: "related",
-    sourceWorkItemId: work,
-    targetWorkItemId: relatedWork,
-    direction: "undirected",
-    counterpartId: relatedWork
-  });
-  const complete = {
-    work_item: { id: work, project_id: project },
-    incoming_relationships: [incoming],
-    outgoing_relationships: [outgoing],
-    undirected_relationships: [undirected],
-    relationship_counts: { incoming: 1, outgoing: 1, undirected: 1, total: 3 },
-    omitted_relationship_counts: { incoming: 0, outgoing: 0, undirected: 0, total: 0 }
-  };
-  assert.equal(hasCompleteRelationshipReview(complete), true);
-  assert.equal(hasCompleteRelationshipReview({
-    ...complete,
-    undirected_relationships: [],
-    relationship_counts: { incoming: 1, outgoing: 1, undirected: 1, total: 3 }
-  }), false);
-  assert.equal(hasCompleteRelationshipReview({
-    ...complete,
-    relationship_counts: { incoming: 0, outgoing: 2, undirected: 1, total: 3 }
-  }), false);
-  assert.equal(hasCompleteRelationshipReview({
-    ...complete,
-    incoming_relationships: [{
-      ...incoming,
-      relationship: { ...incoming.relationship, project_id: "not-a-uuid" }
-    }]
-  }), false);
-  assert.equal(hasCompleteRelationshipReview({
-    ...complete,
-    incoming_relationships: [{ ...incoming, direction: "outgoing" }]
-  }), false);
-  assert.equal(hasCompleteRelationshipReview({
-    ...complete,
-    incoming_relationships: [{
-      ...incoming,
-      counterpart: { id: outgoingWork, project_id: otherProject }
-    }]
-  }), false);
-  assert.equal(hasCompleteRelationshipReview({
-    ...complete,
-    outgoing_relationships: [{
-      ...outgoing,
-      relationship: { ...outgoing.relationship, id: incomingRelationship }
-    }]
-  }), false);
-});
-
 test("paired history and cursor helpers preserve endpoint-specific filters", () => {
   const page = decodeHumanGatePage({
     items: [resolvedGate({ project_id: incomingWork }), gate()],
@@ -412,4 +292,24 @@ test("paired history and cursor helpers preserve endpoint-specific filters", () 
     humanGatePath(project, work, gateId),
     `/projects/${project}/work-items/${work}/gates/${gateId}`
   );
+});
+
+test("question history is ordered, complete, and contains valid prose", () => {
+  const original = gate();
+  const version = {
+    version: 1, question: original.question, created_at: original.created_at,
+    requested_by_client: original.requested_by_client,
+    requested_by_session_id: original.requested_by_session_id,
+    requested_by_model: original.requested_by_model,
+    context_revision: original.requested_context_revision
+  };
+  const revised = gate({ question: "Updated question", question_version: 2, previous_questions: [version] });
+  assert.equal(decodeHumanGate(revised).previous_questions[0].question, original.question);
+  assert.notEqual(humanGateProjectionKey(original), humanGateProjectionKey(revised));
+  for (const malformed of [
+    { ...revised, previous_questions: [] },
+    { ...revised, previous_questions: [{ ...version, version: 2 }] },
+    { ...revised, previous_questions: [{ ...version, question: "" }] },
+    { ...revised, previous_questions: [{ ...version, created_at: "2020-01-01T00:00:00Z" }] }
+  ]) assert.throws(() => decodeHumanGate(malformed));
 });

@@ -21,6 +21,7 @@ type WorkCreation = {
 };
 
 type HumanGate = {
+  question_version: number;
   id: string;
   status: "unresolved" | "resolved";
   resolution: string | null;
@@ -36,12 +37,6 @@ type GateRevision = {
   work_version: number;
   context_checkpoint_id: string;
   relationship_event_count: number;
-};
-
-type ResolutionAttempt = {
-  client_operation_id: string;
-  resolution: string;
-  reviewed_context_revision: GateRevision;
 };
 
 async function createWork(
@@ -108,6 +103,7 @@ async function resolveGate(
         resolved_by_client: "playwright-api",
         resolved_by_session_id: sessionId,
         resolved_by_model: null,
+        expected_question_version: gate.question_version,
         reviewed_context_revision: gate.current_context_revision,
         client_operation_id: crypto.randomUUID()
       }
@@ -198,6 +194,7 @@ async function hideWork(client: APIRequestContext, workId: string): Promise<void
     const gates = await gatesResponse.json() as {
       items: Array<{
         id: string;
+        question_version: number;
         context_changed_since_request: boolean;
         current_context_revision: {
           work_version: number;
@@ -215,6 +212,7 @@ async function hideWork(client: APIRequestContext, workId: string): Promise<void
             resolved_by_client: "playwright-cleanup",
             resolved_by_session_id: "phase78-cleanup",
             resolved_by_model: null,
+            expected_question_version: gate.question_version,
             reviewed_context_revision: gate.current_context_revision,
             client_operation_id: crypto.randomUUID()
           }
@@ -332,7 +330,7 @@ test("human questions stay visible and recover one exact durable resolution", as
       phase78Pwned?: boolean;
     }).phase78Pwned)).not.toBe(true);
 
-    await attentionCard.getByLabel("Durable answer").fill(answer);
+    await attentionCard.getByLabel("Your answer").fill(answer);
     await attentionCard.getByRole("button", { name: "Record answer" }).click();
     await expect.poll(() => probe.requests.length).toBe(1);
     await expect(page.locator(".mutation-recovery")).toContainText(
@@ -414,255 +412,93 @@ test("human questions stay visible and recover one exact durable resolution", as
 });
 
 
-test("a B review rejected at C preserves the answer and requires a fresh intent", async ({
-  page
-}, testInfo) => {
-  test.slow();
+test("question versions replace graph review and preserve drafts across a concurrent rewrite", async ({ page }, testInfo) => {
   const apiURL = process.env.MNEMONIC_E2E_API_URL;
   const apiKey = process.env.MNEMONIC_E2E_API_KEY;
   if (!apiURL || !apiKey) throw new Error("Run this test through the disposable E2E stack.");
-
-  const suffix = `${testInfo.project.name}-${state.runId.slice(0, 8)}-${crypto.randomUUID().slice(0, 8)}`;
-  const title = `Stale human review ${suffix}`;
-  const counterpartTitle = `Relationship review counterpart ${suffix}`;
-  const tag = `stale-${crypto.randomUUID().slice(0, 8)}`;
-  const sessionId = `phase78-stale-${suffix}`;
-  const question = `Which reviewed context should govern this decision? ${suffix}`;
-  const answer = `Use the newly reviewed current context. ${suffix}`;
-  const bSummary = `Review snapshot B for ${suffix}.`;
-  const bPrompt = `Exact checkpoint B for ${suffix}.`;
-  const cSummary = `Review snapshot C for ${suffix}.`;
-  const cPrompt = `Exact checkpoint C for ${suffix}.`;
+  const sessionId = `versions-${crypto.randomUUID()}`;
   const client = await request.newContext({
-    baseURL: apiURL,
-    extraHTTPHeaders: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" }
+    baseURL: apiURL, extraHTTPHeaders: { Authorization: `Bearer ${apiKey}` }
   });
   let workId = "";
   let counterpartId = "";
   let relationshipId = "";
-
   try {
-    const created = await createWork(client, title, tag, sessionId);
+    const created = await createWork(client, "Choose a deployment window", sessionId, sessionId);
     workId = created.work_item.id;
-    const counterpart = await createWork(
-      client,
-      counterpartTitle,
-      `${tag}-peer`,
-      `${sessionId}-peer`
-    );
-    counterpartId = counterpart.work_item.id;
-    const gate = await createGate(client, workId, question, sessionId);
-    const relationshipResponse = await client.post(
-      `/api/v1/projects/${state.projectId}/relationships`,
-      {
-        data: {
-          relationship_type: "related",
-          source_work_item_id: workId,
-          target_work_item_id: counterpartId,
-          created_by_client: "playwright-api",
-          created_by_session_id: `${sessionId}-relationship-B`,
-          created_by_model: null,
-          context_checkpoint_id: null
-        }
-      }
-    );
-    expect(relationshipResponse.status(), await relationshipResponse.text()).toBe(200);
-    const relationshipResult = await relationshipResponse.json() as {
-      created: boolean;
-      relationship: { id: string };
-    };
-    expect(relationshipResult.created).toBe(true);
-    relationshipId = relationshipResult.relationship.id;
-    const reviewB = await advanceReviewContext(
-      client,
-      workId,
-      created.work_item.version,
-      bSummary,
-      bPrompt,
-      tag,
-      `${sessionId}-B`
-    );
-    expect(reviewB.workVersion).toBe(2);
-
-    let freezeOuterAttentionProjection = true;
-    let frozenOuterAttentionProjection: Record<string, unknown> | undefined;
-    await page.route(
-      "**/api/mnemonic/projects/" + state.projectId + "/human-attention?*",
-      async (route) => {
-        const url = new URL(route.request().url());
-        if (
-          route.request().method() !== "GET"
-          || url.searchParams.get("limit") === "0"
-          || !freezeOuterAttentionProjection
-        ) {
-          await route.continue();
-          return;
-        }
-        if (!frozenOuterAttentionProjection) {
-          const response = await route.fetch();
-          frozenOuterAttentionProjection = await response.json() as Record<string, unknown>;
-          await route.fulfill({ response, json: frozenOuterAttentionProjection });
-          return;
-        }
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(frozenOuterAttentionProjection)
-        });
-      }
-    );
-
-    await page.goto("/");
-    await page.locator("#project-select").selectOption(state.projectId);
-    await page.getByRole("link", { name: /Needs Attention/ }).click();
-    const attentionCard = page.locator("article.attention-card").filter({ hasText: title });
-    await expect(attentionCard.getByText(question, { exact: true })).toBeVisible();
-    await attentionCard.getByRole("button", { name: "Review current context" }).click();
-
-    const reviewBundle = attentionCard.locator(".gate-context-review");
-    await expect(reviewBundle.locator("pre")).toHaveText(bPrompt);
-    await expect(reviewBundle).toContainText(bSummary);
-    await expect(reviewBundle.locator(".gate-review-revision dd").nth(0)).toHaveText("2");
-    await expect(reviewBundle.locator(".gate-review-revision dd").nth(1)).toHaveText(
-      reviewB.checkpointId
-    );
-    await expect(reviewBundle.locator(".gate-review-revision dd").nth(2)).toHaveText("1");
-    const relationshipReview = reviewBundle.locator(".gate-review-relationships");
-    await relationshipReview.locator("summary").click();
-    await expect(
-      relationshipReview.locator("li").filter({ hasText: counterpartTitle })
-    ).toBeVisible();
-    const answerField = attentionCard.getByLabel("Durable answer");
-    const acknowledgement = attentionCard.getByLabel(
-      "I reviewed this exact current work, context checkpoint, and relationship state."
-    );
-    const submit = attentionCard.getByRole("button", { name: "Record answer" });
-    await answerField.fill(answer);
-    await acknowledgement.check();
-    await expect(submit).toBeEnabled();
-
-    const resolutionPath = `/projects/${state.projectId}/work-items/${workId}/gates/${gate.id}/resolve`;
-    const attempts: ResolutionAttempt[] = [];
-    const responses: Array<{ status: number; body: string }> = [];
-    let reviewC: { workVersion: number; checkpointId: string } | undefined;
-    await page.route(`**/api/mnemonic${resolutionPath}`, async (route) => {
-      if (route.request().method() !== "POST") {
-        await route.continue();
-        return;
-      }
-      attempts.push(JSON.parse(route.request().postData() ?? "") as ResolutionAttempt);
-      if (attempts.length === 1) {
-        const removed = await client.delete(
-          `/api/v1/projects/${state.projectId}/relationships/${relationshipId}`
-        );
-        expect(removed.ok(), await removed.text()).toBe(true);
-        relationshipId = "";
-        reviewC = await advanceReviewContext(
-          client,
-          workId,
-          reviewB.workVersion,
-          cSummary,
-          cPrompt,
-          tag,
-          `${sessionId}-C`
-        );
-      }
-      const response = await route.fetch();
-      const body = await response.text();
-      responses.push({ status: response.status(), body });
-      if (response.status() === 200) freezeOuterAttentionProjection = false;
-      await route.fulfill({ response, body });
-    });
-
-    await submit.click();
-    await expect.poll(() => responses.length).toBe(1);
-    expect(responses[0]!.status).toBe(409);
-    expect(responses[0]!.body).toContain("gate_context_changed");
-    expect(attempts[0]).toMatchObject({
-      resolution: answer,
-      reviewed_context_revision: {
-        work_version: reviewB.workVersion,
-        context_checkpoint_id: reviewB.checkpointId,
-        relationship_event_count: 1
-      }
-    });
-    expect(attempts[0]!.client_operation_id).toMatch(
-      /^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/
-    );
-
-    await expect(attentionCard.getByRole("alert")).toContainText(
-      "Your answer is still here; review and acknowledge the newly loaded context"
-    );
-    await expect(answerField).toHaveValue(answer);
-    expect(reviewC).toBeDefined();
-    const currentC = reviewC!;
-    expect(currentC.workVersion).toBe(3);
-    await expect(reviewBundle.locator("pre")).toHaveText(cPrompt);
-    await expect(reviewBundle).toContainText(cSummary);
-    await expect(reviewBundle.locator(".gate-review-revision dd").nth(0)).toHaveText("3");
-    await expect(reviewBundle.locator(".gate-review-revision dd").nth(1)).toHaveText(
-      currentC.checkpointId
-    );
-    await expect(reviewBundle.locator(".gate-review-revision dd").nth(2)).toHaveText("2");
-    await expect(relationshipReview.locator("summary")).toHaveText(
-      "Review current relationships (0)"
-    );
-    await relationshipReview.locator("summary").click();
-    await expect(relationshipReview.getByText("No current relationships.", { exact: true }))
-      .toBeVisible();
-    await expect(acknowledgement).not.toBeChecked();
-    await expect(submit).toBeDisabled();
-
-    await acknowledgement.check();
-    await submit.click();
-    await expect.poll(() => responses.length).toBe(2);
-    expect(responses[1]!.status).toBe(200);
-    expect(attempts[1]).toMatchObject({
-      resolution: answer,
-      reviewed_context_revision: {
-        work_version: currentC.workVersion,
-        context_checkpoint_id: currentC.checkpointId,
-        relationship_event_count: 2
-      }
-    });
-    expect(attempts[1]!.client_operation_id).not.toBe(attempts[0]!.client_operation_id);
-    await expect(attentionCard).toHaveCount(0);
-
-    const historyResponse = await client.get(
-      `/api/v1/projects/${state.projectId}/work-items/${workId}/gates?status=all&limit=30`
-    );
-    expect(historyResponse.ok(), await historyResponse.text()).toBe(true);
-    const history = await historyResponse.json() as {
-      items: Array<HumanGate & {
-        resolved_context_revision: GateRevision | null;
-        context_changed_at_resolution: boolean | null;
-      }>;
-    };
-    expect(history.items).toHaveLength(1);
-    expect(history.items[0]).toMatchObject({
-      id: gate.id,
-      status: "resolved",
-      resolution: answer,
-      resolved_context_revision: attempts[1]!.reviewed_context_revision,
-      context_changed_at_resolution: true
-    });
-
-    const eventsResponse = await client.get(
-      `/api/v1/projects/${state.projectId}/work-items/${workId}/events?order=newest&limit=100&offset=0`
-    );
-    expect(eventsResponse.ok(), await eventsResponse.text()).toBe(true);
-    const events = await eventsResponse.json() as {
-      items: Array<{ event_type: string; body: string | null }>;
-    };
-    expect(events.items.filter(
-      (event) => event.event_type === "human_attention_resolved" && event.body === answer
-    )).toHaveLength(1);
-  } finally {
-    if (relationshipId) {
-      await client.delete(
-        `/api/v1/projects/${state.projectId}/relationships/${relationshipId}`
-      );
+    const original = "## Deployment window\n\nShould we deploy on Monday or Tuesday?";
+    const updated = "## Deployment window\n\nThe infrastructure team is unavailable on Monday. Tuesday’s maintenance window is open.\n\n**Recommendation:** deploy on Tuesday at 10:00. Does that work for you?";
+    const newest = "## Deployment window\n\nTuesday’s maintenance window has moved to 14:00. The infrastructure team will be available.\n\n**Recommendation:** deploy on Tuesday at 14:00. Does that work for you?";
+    const gate = await createGate(client, workId, original, sessionId);
+    const related = await createWork(client, "Confirm infrastructure availability", sessionId, sessionId);
+    counterpartId = related.work_item.id;
+    const relationship = await client.post(`/api/v1/projects/${state.projectId}/relationships`, { data: {
+      relationship_type: "related", source_work_item_id: workId, target_work_item_id: counterpartId,
+      created_by_client: "playwright-api", created_by_session_id: sessionId
+    }});
+    expect(relationship.ok(), await relationship.text()).toBe(true);
+    relationshipId = (await relationship.json()).relationship.id;
+    await advanceReviewContext(client, counterpartId, related.work_item.version,
+      "Monday is unavailable; Tuesday is open.", "Infrastructure availability confirmed for Tuesday.", sessionId, sessionId);
+    async function rewrite(question: string, version: number): Promise<void> {
+      const response = await client.post(`/api/v1/projects/${state.projectId}/work-items/${workId}/gates`, { data: {
+        question, gate_id: gate.id, expected_question_version: version,
+        requested_by_client: "playwright-api", requested_by_session_id: sessionId,
+        client_operation_id: crypto.randomUUID()
+      }});
+      expect(response.status(), await response.text()).toBe(201);
     }
+    await rewrite(updated, 1);
+    await page.goto(`/attention?work_item_id=${workId}`);
+    await page.locator("#project-select").selectOption(state.projectId);
+    const card = page.locator("article.attention-card");
+    await expect(card).toHaveCount(1);
+    const currentTab = card.getByRole("tab", { name: "Version 2 · Current" });
+    await expect(currentTab).toHaveAttribute("aria-selected", "true");
+    await expect(card.getByRole("tabpanel")).toContainText("Tuesday at 10:00");
+    await expect(card.locator(".gate-drift")).toHaveCount(0);
+    const answer = card.getByLabel("Your answer");
+    await answer.fill("Tuesday works for us.");
+    await currentTab.focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(card.getByRole("tab", { name: "Version 1", exact: true })).toBeFocused();
+    await expect(card.getByRole("tabpanel")).toContainText("Monday or Tuesday?");
+    await expect(answer).toBeDisabled();
+    await expect(answer).toHaveValue("Tuesday works for us.");
+    await expect(card.getByRole("button", { name: "Record answer" })).toBeDisabled();
+    await page.keyboard.press("End");
+    await expect(currentTab).toBeFocused();
+    await expect(answer).toBeEnabled();
+    if (process.env.MNEMONIC_CAPTURE_ATTENTION) {
+      await card.screenshot({ path: `../docs/images/attention-versions-${testInfo.project.name}.png` });
+    }
+    const attempts: Array<{ expected_question_version: number; client_operation_id: string }> = [];
+    const statuses: number[] = [];
+    await page.route(`**/work-items/${workId}/gates/${gate.id}/resolve`, async (route) => {
+      attempts.push(route.request().postDataJSON());
+      if (attempts.length === 1) await rewrite(newest, 2);
+      const response = await route.fetch();
+      statuses.push(response.status());
+      await route.fulfill({ response });
+    });
+    await card.getByRole("button", { name: "Record answer" }).click();
+    await expect.poll(() => statuses[0]).toBe(409);
+    await expect(card.getByRole("tab", { name: "Version 3 · Current" })).toHaveAttribute("aria-selected", "true");
+    // IntersectionObserver rounds the scroll edge to fractional CSS pixels.
+    await expect(card.getByRole("tab", { name: "Version 3 · Current" })).toBeInViewport({ ratio: 0.99 });
+    await expect(card.getByRole("tabpanel")).toContainText("Tuesday at 14:00");
+    await expect(answer).toHaveValue("Tuesday works for us.");
+    await card.getByRole("button", { name: "Record answer" }).click();
+    await expect.poll(() => statuses[1]).toBe(200);
+    expect(attempts.map((attempt) => attempt.expected_question_version)).toEqual([2, 3]);
+    expect(attempts[0].client_operation_id).not.toBe(attempts[1].client_operation_id);
+    await expect(card).toHaveCount(0);
+    const history = await client.get(`/api/v1/projects/${state.projectId}/work-items/${workId}/gates?status=all&limit=30`);
+    const retained = (await history.json()).items[0];
+    expect(retained.question).toBe(newest);
+    expect(retained.previous_questions.map((version: { question: string }) => version.question)).toEqual([original, updated]);
+  } finally {
+    if (relationshipId) await client.delete(`/api/v1/projects/${state.projectId}/relationships/${relationshipId}`);
     await hideWork(client, workId);
     await hideWork(client, counterpartId);
     await client.dispose();
@@ -811,8 +647,8 @@ test("a deep attention cursor and sibling drafts survive refresh and resolution"
     const siblingCard = page.locator("article.attention-card").filter({
       hasText: questions[31]
     });
-    const firstAnswer = firstCard.getByLabel("Durable answer");
-    const siblingAnswer = siblingCard.getByLabel("Durable answer");
+    const firstAnswer = firstCard.getByLabel("Your answer");
+    const siblingAnswer = siblingCard.getByLabel("Your answer");
     await firstAnswer.fill(firstDraft);
     await siblingAnswer.fill(siblingDraft);
 
@@ -915,24 +751,16 @@ test("detail reconciliation preserves sibling gate drafts and restores focus", a
     const panel = questionsTab.getByRole("region", { name: "Questions and answers" });
     const firstGate = panel.locator(".gate-with-resolution").filter({ hasText: questions[0] });
     const siblingGate = panel.locator(".gate-with-resolution").filter({ hasText: questions[1] });
-    const firstAnswer = firstGate.getByLabel("Durable answer");
-    const siblingAnswer = siblingGate.getByLabel("Durable answer");
-    const acknowledgementLabel =
-      "I reviewed this exact current work, context checkpoint, and relationship state.";
-    const firstAcknowledgement = firstGate.getByLabel(acknowledgementLabel);
-    const siblingAcknowledgement = siblingGate.getByLabel(acknowledgementLabel);
+    const firstAnswer = firstGate.getByLabel("Your answer");
+    const siblingAnswer = siblingGate.getByLabel("Your answer");
     const deleteButton = detail.getByRole("button", { name: "Delete work item" });
     await expect(deleteButton).toBeDisabled();
     await expect(detail.getByText(
       "2 unresolved human questions block deletion.",
       { exact: true }
     )).toBeVisible();
-    await expect(firstAcknowledgement).toBeEnabled();
-    await expect(siblingAcknowledgement).toBeEnabled();
     await firstAnswer.fill(firstDraft);
     await siblingAnswer.fill(siblingDraft);
-    await firstAcknowledgement.check();
-    await siblingAcknowledgement.check();
 
     const loadsBeforeInvalidation = contextLoads;
     await appendProgress(
@@ -944,16 +772,10 @@ test("detail reconciliation preserves sibling gate drafts and restores focus", a
     await expect.poll(() => contextLoads).toBeGreaterThan(loadsBeforeInvalidation);
     await expect(firstAnswer).toHaveValue(firstDraft);
     await expect(siblingAnswer).toHaveValue(siblingDraft);
-    await expect(firstAcknowledgement).toBeChecked();
-    await expect(firstAcknowledgement).toBeEnabled();
-    await expect(siblingAcknowledgement).toBeChecked();
-    await expect(siblingAcknowledgement).toBeEnabled();
 
     await firstGate.getByRole("button", { name: "Record answer" }).click();
     await expect(firstGate).toHaveCount(0);
     await expect(siblingAnswer).toHaveValue(siblingDraft);
-    await expect(siblingAcknowledgement).toBeChecked();
-    await expect(siblingAcknowledgement).toBeEnabled();
     await expect(panel.getByRole("heading", { name: "Questions and answers" })).toBeFocused();
     await expect(panel.getByRole("status").filter({
       hasText: "Answer recorded. 1 unresolved question remains."

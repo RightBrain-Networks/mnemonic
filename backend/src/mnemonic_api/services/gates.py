@@ -33,6 +33,7 @@ from mnemonic_api.schemas import (
     HumanGateContextRevision,
     HumanGateListQuery,
     HumanGatePage,
+    HumanGateQuestionVersion,
     HumanGateRead,
     HumanGateRequestCreate,
     HumanGateResolutionCreate,
@@ -254,6 +255,16 @@ def human_gate_read(
         context_checkpoint_id=value("requested_context_checkpoint_id"),
         relationship_event_count=value("requested_relationship_event_count"),
     )
+    original = HumanGateQuestionVersion(
+        version=1, question=value("question"), created_at=value("created_at"),
+        requested_by_client=value("requested_by_client"),
+        requested_by_session_id=value("requested_by_session_id"),
+        requested_by_model=value("requested_by_model"), context_revision=requested_revision,
+    )
+    versions = [original, *[
+        HumanGateQuestionVersion.model_validate(item) for item in value("question_revisions")
+    ]]
+    latest = versions[-1]
     resolved_at = value("resolved_at")
     resolved_revision = (
         HumanGateContextRevision(
@@ -269,11 +280,13 @@ def human_gate_read(
         project_id=value("project_id"),
         work_item_id=value("work_item_id"),
         gate_type=value("gate_type"),
-        question=value("question"),
-        requested_by_client=value("requested_by_client"),
-        requested_by_session_id=value("requested_by_session_id"),
-        requested_by_model=value("requested_by_model"),
-        requested_context_revision=requested_revision,
+        question=latest.question,
+        question_version=latest.version,
+        previous_questions=versions[:-1],
+        requested_by_client=latest.requested_by_client,
+        requested_by_session_id=latest.requested_by_session_id,
+        requested_by_model=latest.requested_by_model,
+        requested_context_revision=latest.context_revision,
         created_at=value("created_at"),
         status="resolved" if resolved_at is not None else "unresolved",
         current_context_revision=current_revision,
@@ -298,9 +311,11 @@ def request_human_gate(
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
     require_canonical_work_item(database, work_item)
+    revision = _current_context_revision(database, work_item)
+    if payload.gate_id is not None:
+        return _revise_human_gate(database, work_item, payload, revision)
     if work_item.status != "pending":
         raise conflict("work_not_pending", "Only pending work can request human input.")
-    revision = _current_context_revision(database, work_item)
     created_at = database_now(database)
     gate = WorkGate(
         id=uuid4(),
@@ -325,6 +340,36 @@ def request_human_gate(
         .execution_options(synchronize_session=False)
     )
     stage_human_attention_requested(database, gate)
+    database.flush()
+    return human_gate_read(gate, revision)
+
+
+def _revise_human_gate(
+    database: Session,
+    work_item: WorkItem,
+    payload: HumanGateRequestCreate,
+    revision: HumanGateContextRevision,
+) -> HumanGateRead:
+    assert payload.gate_id is not None
+    gate = _locked_gate(database, work_item.project_id, work_item.id, payload.gate_id)
+    if gate.resolved_at is not None:
+        raise gate_already_resolved()
+    if payload.expected_question_version != len(gate.question_revisions) + 1:
+        raise conflict("gate_question_changed", "The question changed. Reload its latest version.")
+    authored_at = database_now(database)
+    version = HumanGateQuestionVersion(
+        version=len(gate.question_revisions) + 2, question=payload.question,
+        created_at=authored_at, context_revision=revision,
+        requested_by_client=payload.requested_by_client,
+        requested_by_session_id=payload.requested_by_session_id,
+        requested_by_model=payload.requested_by_model,
+    )
+    gate.question_revisions = [*gate.question_revisions, version.model_dump(mode="json")]
+    database.execute(
+        update(WorkItem).where(WorkItem.id == work_item.id)
+        .values(updated_at=func.greatest(WorkItem.updated_at, authored_at))
+        .execution_options(synchronize_session=False)
+    )
     database.flush()
     return human_gate_read(gate, revision)
 
@@ -365,6 +410,8 @@ def resolve_human_gate(
     gate = _locked_gate(database, project_id, work_item_id, gate_id)
     if gate.resolved_at is not None:
         raise gate_already_resolved()
+    if payload.expected_question_version != len(gate.question_revisions) + 1:
+        raise conflict("gate_question_changed", "The question changed. Reload its latest version.")
     revision = _current_context_revision(database, work_item)
     if payload.reviewed_context_revision != revision:
         raise gate_context_changed()

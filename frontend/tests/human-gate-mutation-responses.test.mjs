@@ -27,6 +27,8 @@ function response(overrides = {}) {
     requested_by_client: "claude-code",
     requested_by_session_id: "agent-session",
     requested_by_model: "model",
+    question_version: 1,
+    previous_questions: [],
     requested_context_revision: revision(),
     created_at: "2026-09-01T12:00:00Z",
     status: "resolved",

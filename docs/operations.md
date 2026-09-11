@@ -132,8 +132,8 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.36.0`, plugin `0.23.0`,
-and Alembic `0029_artifact_links_sensitive`. Inventory exactly 48 MCP tools,
+The current coordinated boundary is API/MCP/dashboard `0.37.0`, plugin `0.24.0`,
+and Alembic `0030_question_versions`. Inventory exactly 48 MCP tools,
 17 protected MCP writes, 22 REST receipt kinds, 19 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
@@ -943,18 +943,18 @@ An unresolved gate makes Pending work `waiting`, removes it from ready
 discovery, and blocks a fresh/replacement claim, completion, terminal
 transition, and deletion. It does not revoke an existing lease. An agent checks existing unresolved gates, writes the supporting `context`
 checkpoint, and then requests
-one concrete decision; agents cannot resolve, edit, cancel, or withdraw it. If
-later evidence makes the question moot, append a context checkpoint explaining
-why and have a person resolve it as "No longer needed".
+one concrete decision. Agents updating this work or related work must rewrite
+affected open questions in place using the current question version; they cannot
+resolve, cancel, or withdraw them. Earlier prose is available in version tabs.
+If later evidence makes a question moot, rewrite it to explain why and ask the
+human to close it.
 
-Resolution is a dashboard/direct-REST human action. Every attempt must submit
-`reviewed_context_revision` equal to the exact current work version, newest
-context checkpoint ID, and relationship-event count the person reviewed. Any
-intervening change makes that frozen attempt stale; reload, review, and prepare
-a new operation intent. Resolver fields are asserted provenance under the
-shared bearer, not a signed identity. Gate reads nest the requested three-field
-revision and expose server-computed current and resolution drift flags; clients
-should validate their types and nullability rather than rederive them.
+Resolution is a dashboard/direct-REST human action. The browser supplies the
+current `expected_question_version` and `reviewed_context_revision`. The human
+reads the current question and answers directly. A concurrent change preserves
+the draft and refreshes the question before a new operation intent. Resolver
+fields remain asserted provenance under the shared bearer. See
+[Needs Attention](attention.md) for the revision and migration contract.
 
 `deferred` is a persisted human hold, distinct from waiting and blocking. It is
 absent from ready discovery and must not be returned to Pending unless the
@@ -996,7 +996,7 @@ from the same revision: the frozen digests and the code that computes them are
 one unit, and a mismatched pair reports drift against an unchanged schema.
 `scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.36.0` clients and plugin `0.23.0` together.
+failure, and inventory deployed `0.37.0` clients and plugin `0.24.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 All three audits pin the PostgreSQL session settings that decide how the server

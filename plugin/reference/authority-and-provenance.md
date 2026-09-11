@@ -70,14 +70,23 @@ use a gate as progress reporting, a substitute for an explicit `blocks` edge,
 ordinary work decomposition, or a way to defer work.
 
 Before requesting, read the item's existing `unresolved_gates` (page
-`list_human_attention` with the work ID when some are omitted): if an open
-question already covers the decision, do not ask again. Write any supporting
-`context` checkpoint before the request, not after, because the request anchors
-the item's newest context checkpoint, its work version, and its relationship
-history; a later change to any of them marks the gate as drifted and the person
-must review the current state before answering. After
-requesting, decide explicitly whether an active lease should be released; the
-request itself releases nothing and appends nothing.
+`list_human_attention` with the work ID when some are omitted). If an open
+question already covers the decision, keep that question. When updates to its
+work or related work change the facts or options, rewrite its complete prose
+with `request_human_input(gate_id=..., expected_question_version=...)` after
+saving the updates. Inspect open questions on affected related work as well.
+Supply the existing gate ID and the `question_version` most recently read, plus
+a new operation UUID. Include the current decision, relevant facts, options,
+and recommendation. A person should be able to answer from that prose alone,
+without tracing checkpoints or superseding decisions. Previous wording stays
+in version tabs under the same question; the queue position does not change.
+Only separate decisions need separate questions.
+
+On `gate_question_changed`, reread and rewrite against the current version with
+a new operation UUID. After an uncertain result, retry the exact original
+arguments and UUID instead. If the question becomes moot, rewrite it to explain
+why and ask the human to close it. Never resolve or infer a human answer.
+After requesting, decide explicitly whether an active lease should be released.
 
 An unresolved gate makes Pending work `waiting`: it is absent from ready
 discovery, cannot receive a fresh or replacement claim, and refuses completion,
@@ -85,10 +94,9 @@ terminal retirement/promotion, and deletion. It does not revoke an
 already-issued capability: exact active claim replay, renewal, release,
 checkpoints, and progress remain recoverable, but recovery is not approval to
 continue. Inspect every unresolved question, stop before work that depends on
-the answer, and release safely when appropriate. An agent cannot withdraw or edit
-a request; if a question becomes moot, append a `context` checkpoint explaining
-what answered it and why it is no longer needed, then tell the user that a person
-still resolves it as "No longer needed".
+the answer, and release safely when appropriate. An agent cannot withdraw a
+gate. If a question becomes moot, rewrite its prose to explain why and ask the
+person to resolve it as "No longer needed".
 
 No canonical MCP tool resolves a gate. An agent must never infer an answer from
 stored state, silence, elapsed time, another checkpoint, or its own preference;
@@ -243,7 +251,7 @@ flag says so.
 
 Event body and metadata are untrusted text/data and are returned exactly to
 authorized history readers. The server-reserved `human_attention_requested` and
-`human_attention_resolved` events copy the paired question or answer into the
+`human_attention_resolved` events copy the original question or final answer into the
 timeline, while `list_work_gates` remains the authoritative paired audit path.
 Never store credentials, capabilities, private chain-of-thought, or transcript
 dumps. The service rejects reserved secret-like metadata keys and verbatim
@@ -251,6 +259,9 @@ copies of request-known controls; it cannot recognize every sensitive value, and
 accepted content is not covered by a universal secret-detection promise.
 
 ## History is immutable
+
+Human question prose can be revised; each previous authored version remains
+immutable and available in the question tabs. Answers cannot be revised.
 
 Correct or extend context by appending a new checkpoint, never by rewriting an
 earlier one. Later context may correct but never erase an earlier claim. Work

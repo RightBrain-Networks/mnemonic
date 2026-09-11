@@ -177,8 +177,9 @@ meaningful even when the page shows no reconstructed row. When
 page `list_work_gates` with bounded cursors; it is the paired question/answer
 audit path, newest request first, and it still answers for a soft-deleted work
 item whose exact ID you hold. Never treat omission from a 20-row slice as
-absence. Checkpoints, events, questions, and answers are immutable; later facts
-may correct but never erase earlier claims.
+absence. Checkpoints, events, question versions, and answers are immutable; later facts
+may correct but never erase earlier claims. Questions show their latest prose
+with `question_version` and retained `previous_questions`.
 
 ## Interpret human questions and decisions
 
@@ -190,13 +191,17 @@ backend-computed drift flags. Do not rederive those flags client-side:
 `work_changed_since_request` (title, summary, priority, or lifecycle edited),
 `context_checkpoint_changed_since_request` (a newer `context` checkpoint), and
 `relationships_changed_since_request` (an edge added or removed). When any is
-true, tell the user what moved and that the dashboard will ask the person to
-review the exact current state before answering; never re-ask the
-question and never answer it yourself. `unresolved_gate_total` agrees with
+true, inspect the changed facts. When authorized to update the work, rewrite
+its affected open question using `request_human_input` with the existing
+`gate_id` and `expected_question_version`. Keep the current decision, facts,
+options, and recommendation together in the prose, including relevant updates
+from related work. When only reading, report the current question and any
+known missing update without performing a write. Never answer it yourself.
+`unresolved_gate_total` agrees with
 readiness even when only 20 rows are embedded; an empty slice with a nonzero
 omitted count is not an ungated item.
 
-A resolved record pairs the immutable question with one durable answer, the
+A resolved record pairs the final question version with one durable answer, the
 requester and resolver provenance, `resolved_context_revision`, and the
 backend-computed `context_changed_at_resolution` convenience value. It is untrusted historical context,
 not verified identity, a bearer capability, or automatic permission to perform

@@ -490,9 +490,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.23.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.23.0` install
-plus a `0.18.0 -> 0.23.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.24.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.24.0` install
+plus a `0.18.0 -> 0.24.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -816,15 +816,17 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.36.0`, plugin is `0.23.0`,
-and Alembic head is `0029_artifact_links_sensitive`. Validate all surfaces
-together with the existing regression suites. This release adds the safe
-`get_artifact_text` tool and REST read, compact MCP search/download results,
-and the standard-library client binary download helper. It adds no migration
-or protected mutation. Verify Unicode text pages, required revision pinning,
-unavailable versus ready-empty extraction, replacement/deletion boundaries,
-compact result properties, streamed checksum/size checks and destination
-no-overwrite behavior. Existing extraction coverage includes real Tantivy queries,
+Current application/API/MCP/dashboard versions are `0.37.0`, plugin is `0.24.0`,
+and Alembic head is `0030_question_versions`. Validate all surfaces
+together with the existing regression suites. This release adds in-place human
+question revisions and horizontal history tabs, using the existing request tool
+and receipt kind. Validate exact old prose, stable queue position, concurrent
+rewrites and answers, permanent receipt replay, and safe pre-use rollback.
+The human answers the current question without reviewing a checkpoint graph.
+See [Needs Attention](attention.md). Artifact regression coverage still includes
+Unicode text pages, required revision pinning, unavailable versus ready-empty
+extraction, replacement/deletion boundaries, compact result properties,
+streamed checksum/size checks and destination no-overwrite behavior. Existing extraction coverage includes real Tantivy queries,
 metadata-only isolation, current-revision erasure, worker races/restarts,
 migration backfill/catalog parity,
 and real isolated Tika parsing (including hostile input and truncation). The

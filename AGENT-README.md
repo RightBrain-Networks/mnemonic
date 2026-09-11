@@ -421,10 +421,10 @@ item separately:
 - An existing populated installation requires the upgrade or credential-rotation procedure in
   `docs/operations.md`; it MUST NOT be treated as a new installation.
 
-## Current artifact library release boundary
+## Current release boundary
 
-Application/API/MCP/dashboard 0.36.0, plugin 0.23.0 and Alembic
-`0029_artifact_links_sensitive` ship together: 48 MCP tools, 17
+Application/API/MCP/dashboard 0.37.0, plugin 0.24.0 and Alembic
+`0030_question_versions` ship together: 48 MCP tools, 17
 receipt-protected MCP writes,
 22 REST receipt kinds, 19 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
@@ -434,7 +434,7 @@ excludes that work. The dashboard presents it through normal lifecycle surfaces.
 Quiesce old writers, take a verified
 backup, migrate, and deploy every coordinated surface together. Run both
 read-only `scripts/audit_project_activity.py` and
-`scripts/audit_code_reviews.py` at 0027; the activity audit also supports its
+`scripts/audit_code_reviews.py` at 0030; the activity audit also supports its
 explicit historical-head preflights.
 
 Before starting the new Compose stack, create the private artifact host bind
@@ -482,3 +482,9 @@ duplicate membership or alias, or unsealed terminal history blocks a fresh move.
 Move is a REST/dashboard action; review-policy/history or remediation ancestry also blocks a move in
 this release. There is no MCP write or plugin skill for it. Permanent
 source-scoped receipts remain the authority for exact unknown-outcome retries after the item has moved.
+
+Needs Attention questions are revisable through `request_human_input` with the
+existing `gate_id` and `expected_question_version`. After updating relevant
+work or related work, rewrite the affected question's complete prose rather
+than leaving the human to reconcile checkpoints. Earlier versions remain in
+tabs and resolved answers remain immutable. See `docs/attention.md`.

@@ -17,6 +17,8 @@ from .transport import bounded_stdio_server
 VALIDATION_FIELDS = frozenset(
     {
         "external_candidates",
+        "gate_id",
+        "expected_question_version",
         "code_review_handoff",
         "scope",
         "repositories",
