@@ -256,7 +256,10 @@ def test_capacity_preflight_rejects_before_loading_corpus(
         else:
             row.extracted_metadata = {"synthetic": ["m" * 4000]}
         database.commit()
-    monkeypatch.setattr(transcript_service, "_SEARCH_MAX_BYTES", 4096)
+    if fulltext:
+        api.app.state.settings.transcript_search_max_bytes = 4096
+    else:
+        monkeypatch.setattr(transcript_service, "_SEARCH_MAX_BYTES", 4096)
     body_queries = []
 
     def before_cursor(_conn, _cursor, _statement, _parameters, context, _executemany):
@@ -284,8 +287,8 @@ def test_corpus_cursor_fetches_one_document_from_a_coherent_snapshot(
     preflight = transcript_service._preflight_corpus
     batches = []
 
-    def grow_after_preflight(database, statement, fulltext):
-        preflight(database, statement, fulltext)
+    def grow_after_preflight(database, statement, fulltext, maximum_content_bytes):
+        preflight(database, statement, fulltext, maximum_content_bytes)
         with api.app.state.session_factory() as writer:
             value = "🦊" * 2000
             writer.execute(update(Transcript).where(Transcript.id == UUID(record["id"])).values(
@@ -299,7 +302,7 @@ def test_corpus_cursor_fetches_one_document_from_a_coherent_snapshot(
             batches.append(context.execution_options.get("yield_per"))
 
     monkeypatch.setattr(transcript_service, "_preflight_corpus", grow_after_preflight)
-    monkeypatch.setattr(transcript_service, "_SEARCH_MAX_BYTES", 4096)
+    api.app.state.settings.transcript_search_max_bytes = 4096
     event.listen(postgres_engine, "before_cursor_execute", before_cursor)
     try:
         response = api.get(collection(project), params={"query": "needle", "fulltext": True})
@@ -324,11 +327,11 @@ def test_search_admission_bounds_parallel_corpus_loading(
     bounded = transcript_service._bounded_records
     calls = []
 
-    def pause_load(database, statement, fulltext):
+    def pause_load(database, statement, fulltext, maximum_content_bytes):
         calls.append(True)
         entered.set()
         assert release.wait(5)
-        return bounded(database, statement, fulltext)
+        return bounded(database, statement, fulltext, maximum_content_bytes)
 
     monkeypatch.setattr(transcript_service, "_bounded_records", pause_load)
     with ThreadPoolExecutor(max_workers=2) as executor:

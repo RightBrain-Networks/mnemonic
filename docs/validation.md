@@ -1,5 +1,24 @@
 # Mnemonic validation record
 
+## Large transcript content search (0.44.2)
+
+Content search separates its configurable 512 MiB body budget from the existing
+metadata/document bounds. Cold builds stream scalar bodies into the cached RAM
+index, and only the selected result page loads bodies for snippets. Dedicated
+transcript search and the unified facet use the same cache and read helpers.
+
+PostgreSQL regression coverage includes a 36.8 MB corpus exceeding the former
+32 MB rejection threshold, cross-endpoint cache reuse, page-only snippet reads,
+UTF-8 budget boundaries on cold and warm searches, metadata-only reads, coherent
+snapshots across concurrent publication, and global mixed-facet pagination.
+An additional local scale run applied the same large-library assertions to 120
+synthetic transcripts (220,801,920 UTF-8 bytes); it passed in 6.3 seconds including
+fixture setup and teardown. No production transcript bodies were used for tests.
+
+Configuration validation, OpenAPI snapshot checks, 121 MCP transport/read/version
+regressions, dashboard tests/typecheck/build, and backend/MCP lint/type checks
+also pass. No schema change, source-file rewrite, or transcript rebuild is needed.
+
 ## Private transcript Docker access (0.44.1)
 
 The production API image accepts non-root UID/GID build arguments. The optional

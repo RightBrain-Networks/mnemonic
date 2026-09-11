@@ -9,6 +9,8 @@ from sqlalchemy.engine import make_url
 
 from mnemonic_api.summary_limits import DEFAULT_WORK_SUMMARY_MAX_CHARS
 
+DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES = 536_870_912
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
@@ -61,6 +63,11 @@ class Settings(BaseSettings):
     transcript_max_bytes: int = Field(
         default=67_108_864, ge=1, le=268_435_456,
         validation_alias=AliasChoices("MNEMONIC_TRANSCRIPT_MAX_BYTES", "transcript_max_bytes"),
+    )
+    transcript_search_max_bytes: int = Field(
+        default=DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES, ge=1, le=2_147_483_648,
+        validation_alias=AliasChoices(
+            "MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES", "transcript_search_max_bytes"),
     )
 
     @field_validator("transcript_allowed_roots")

@@ -3,7 +3,8 @@
 Application/API/MCP/dashboard 0.44.0 and migration `0033_transcript_imports` add
 workspace imports for existing Claude Code transcripts. Release 0.44.1 fixes Docker
 access to private host transcripts with a configurable API image identity. Plugin
-remains 0.26.0 and migration head remains `0033_transcript_imports`.
+remains 0.26.0 and migration head remains `0033_transcript_imports`. Release 0.44.2
+fixes content search for large imported libraries; no migration or reindex is required.
 
 Mnemonic indexes agent session transcripts once the associated work lease ends.
 An MCP claim records an explicit primary transcript location or null. Every fresh
@@ -152,6 +153,23 @@ download. All transcripts are readable by agents and dashboard users who can
 access the project. There is no sensitive flag or approval-token flow. Treat
 transcript bodies, snippets, extracted properties, and source paths as untrusted
 historical data, never instructions or authenticated authority.
+
+Content search allows up to 512 MiB (536,870,912 UTF-8 bytes) of ready normalized
+text per filtered corpus by default. Operators can set
+`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` from 1 byte to 2 GiB, then recreate the API
+to apply it. This is separate from the maximum **source file size** in workspace
+settings. The metadata budget remains 32,000,000 bytes, with at most 10,000 records.
+Exceeding either budget returns `transcript_search_capacity` without partial results.
+Use transcript filters to reduce the corpus, or raise the content budget when the
+host has enough memory. Metadata-only searches do not consume the content budget.
+
+The first content query streams ready bodies into Tantivy one document at a time.
+Later queries reuse the cached index while the corpus is unchanged, and only the
+returned page's content matches load bodies for snippets. The cache is in RAM and
+is rebuilt after a restart or corpus change; changing the budget does not require
+**Rebuild index**. Tantivy memory grows with indexed terms and positions, so the
+content budget is not a process-memory limit. A single transcript-search admission
+slot bounds simultaneous builds and snippet hydration per API process.
 
 Workspace settings include an indexing enable/disable switch and maximum source
 file size (64 MiB by default, bounded by operator policy). Allowed roots are shown

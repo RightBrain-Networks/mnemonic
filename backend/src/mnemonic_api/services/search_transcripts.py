@@ -1,14 +1,13 @@
 """Bounded transcript facet searches retain their immutable index for page snippets."""
 
-import hashlib
-import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from mnemonic_api.artifact_index import ArtifactSearchIndex, SearchDocument
+from mnemonic_api.artifact_index import ArtifactSearchIndex
+from mnemonic_api.config import DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES
 from mnemonic_api.errors import ApplicationError
 from mnemonic_api.models import Transcript
 from mnemonic_api.search_schemas import (
@@ -21,7 +20,8 @@ from mnemonic_api.services.search_sources import SearchCandidate, SearchSource
 from mnemonic_api.services.transcripts import (
     _SEARCH_SLOT,
     _bounded_records,
-    _metadata,
+    _search_read,
+    _search_records,
     transcript_query,
     transcript_read,
 )
@@ -40,33 +40,19 @@ def _filtered_statement(project_id: UUID, request: SearchRequest):
     return statement
 
 
-def _corpus_key(records: list[Transcript], fulltext: bool) -> str:
-    digest = hashlib.sha256(str(fulltext).encode())
-    for record in records:
-        digest.update(json.dumps([
-            str(record.id), _metadata(record), record.generation, record.status,
-            record.text_sha256, str(record.indexing_completed_at),
-        ]).encode())
-    return digest.hexdigest()
-
-
 def _source(
     database: Session, project_id: UUID, request: SearchRequest, index: ArtifactSearchIndex,
+    maximum_content_bytes: int,
 ) -> tuple[SearchSource, TranscriptSearchCoverage]:
     fulltext = bool(request.q and request.fulltext)
-    rows = _bounded_records(database, _filtered_statement(project_id, request), fulltext)
+    rows = _bounded_records(database, _filtered_statement(project_id, request), fulltext,
+                            maximum_content_bytes)
     records = {str(record.id): record for record in rows}
     hits = {}
     searcher = None
     if request.q:
-        result = index.search(
-            _corpus_key(rows, fulltext),
-            lambda: (SearchDocument(
-                str(record.id), _metadata(record),
-                (record.normalized_text or "") if fulltext else "",
-            ) for record in rows),
-            query=request.q, fulltext=fulltext, count=len(rows),
-        )
+        result = _search_records(database, rows, request.q, fulltext, index,
+                                 maximum_content_bytes)
         hits = {hit.identity: hit for hit in result.hits}
         searcher = result.searcher
     candidates = [SearchCandidate(
@@ -82,14 +68,9 @@ def _source(
         rendered: dict[UUID, SearchHit] = {}
         for item in page:
             record = records[str(item.id)]
-            transcript = transcript_read(record, project_id)
-            if request.q:
-                hit = hits[str(item.id)]
-                transcript.score = hit.score
-                if hit.content and searcher is not None:
-                    transcript.snippet = index.snippet(
-                        record.normalized_text or "", request.q, searcher,
-                    )
+            transcript = (_search_read(database, project_id, record, hits[str(item.id)],
+                                       request.q, index, searcher) if request.q else
+                          transcript_read(record, project_id))
             rendered[item.id] = TranscriptFacetHit(**item.fields(), transcript=transcript)
         return rendered
 
@@ -99,11 +80,12 @@ def _source(
 @contextmanager
 def transcript_source(
     database: Session, project_id: UUID, request: SearchRequest, index: ArtifactSearchIndex,
+    *, maximum_content_bytes: int = DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES,
 ) -> Iterator[tuple[SearchSource, TranscriptSearchCoverage]]:
     if not _SEARCH_SLOT.acquire(timeout=0.25):
         raise ApplicationError(503, "transcript_search_busy",
                                "Transcript search is busy. Try this read again shortly.")
     try:
-        yield _source(database, project_id, request, index)
+        yield _source(database, project_id, request, index, maximum_content_bytes)
     finally:
         _SEARCH_SLOT.release()

@@ -39,16 +39,18 @@ _collection = "/projects/{project_id}/transcripts"
 def list_transcripts(project_id: UUID, filters: Annotated[TranscriptSearch, Query()],
                      database: Database, request: Request) -> TranscriptPage:
     begin_coherent_read(database)
-    return transcripts.list_transcripts(database, project_id, filters,
-                                        request.app.state.transcript_search_index)
+    return transcripts.list_transcripts(
+        database, project_id, filters, request.app.state.transcript_search_index,
+        maximum_content_bytes=settings_of(request).transcript_search_max_bytes)
 
 
 @router.post(_collection + "/search-content", response_model=TranscriptPage)
 def search_transcripts(project_id: UUID, payload: TranscriptSearch,
                        database: Database, request: Request) -> TranscriptPage:
     begin_coherent_read(database)
-    return transcripts.list_transcripts(database, project_id, payload,
-                                        request.app.state.transcript_search_index)
+    return transcripts.list_transcripts(
+        database, project_id, payload, request.app.state.transcript_search_index,
+        maximum_content_bytes=settings_of(request).transcript_search_max_bytes)
 
 
 @router.post(_collection + "/rebuild", response_model=TranscriptRebuildRead)

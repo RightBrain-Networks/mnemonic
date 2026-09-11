@@ -12654,7 +12654,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.44.1"
+    "version": "0.44.2"
   },
   "openapi": "3.1.0",
   "paths": {
