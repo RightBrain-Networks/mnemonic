@@ -6,6 +6,7 @@ from uuid import uuid4
 def reported(payload: dict, *, retirement: bool = False) -> dict:
     """Add a fresh report intent at the call site; never intercept the test client."""
     fields = {
+        "subagent_transcripts": None,
         "client_operation_id": str(uuid4()),
         "job_completion_report": {
             "summary": "This test work reached its closeout. Its outcome is ready to review.",

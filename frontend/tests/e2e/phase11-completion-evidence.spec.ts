@@ -141,7 +141,7 @@ async function deleteFixture(
   if (!work) return;
   const response = await client.post(
     `/api/v1/projects/${state.projectId}/work-items/${workId}/delete`,
-    { data: { expected_version: work.version } }
+    { data: { subagent_transcripts: null, expected_version: work.version } }
   );
   expect(response.ok(), await response.text()).toBe(true);
 }
@@ -169,6 +169,7 @@ async function completeFixtureWithoutEvidence(
     `/api/v1/projects/${state.projectId}/work-items/${work.id}/complete`,
     {
       data: {
+        subagent_transcripts: null,
         job_completion_report: await reportForFixture(client, state.projectId),
         client_operation_id: crypto.randomUUID(),
         expected_version: work.version,
@@ -218,6 +219,7 @@ async function mergeFixture(
     `/api/v1/projects/${state.projectId}/work-items/${sourceId}/merge`,
     {
       data: {
+        subagent_transcripts: null,
         destination_work_item_id: destinationId,
         reviewed_source_revision: source.merge_review_revision,
         reviewed_destination_revision: destination.merge_review_revision,

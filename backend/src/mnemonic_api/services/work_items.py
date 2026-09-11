@@ -51,6 +51,8 @@ from mnemonic_api.summary_limits import (
     DEFAULT_WORK_SUMMARY_MAX_CHARS,
     require_work_summary_length,
 )
+from mnemonic_api.transcript_lifecycle import register_closeout_transcripts
+from mnemonic_api.transcript_locations import TranscriptSources
 
 
 def require_project(database: Session, project_id: UUID, *, lock: bool = False) -> Project:
@@ -283,6 +285,12 @@ def require_sealed_closeout_report(database: Session, work_item: WorkItem) -> No
         raise closeout_report_unsealed()
 
 
+def require_no_subagent_transcripts(sources: TranscriptSources | None) -> None:
+    if sources is not None:
+        raise ApplicationError(422, "subagent_transcripts_not_applicable",
+                               "Subagent transcripts belong to an actual closeout.")
+
+
 def update_work_record(database: Session, work_item: WorkItem, payload: WorkItemPatch) -> None:
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
@@ -311,7 +319,8 @@ def _update_implementation_record(
         mode="json",
         exclude_unset=True,
         exclude={"expected_version", "lease_token", "actor", "client_operation_id",
-                 "job_completion_report", *SUPERSESSION_FIELDS},
+                 "job_completion_report", "review_decision", "subagent_transcripts",
+                 *SUPERSESSION_FIELDS},
     )
     before = {
         field: deepcopy(getattr(work_item, field))
@@ -353,8 +362,12 @@ def _update_implementation_record(
                                "Reports belong only to an actual closeout transition.")
     if terminal_transition:
         require_no_unresolved_gates(database, work_item.id)
+        assert payload.actor is not None
+        register_closeout_transcripts(database, work_item, payload.subagent_transcripts,
+                                     payload.actor.actor_client, payload.actor.actor_session_id)
         consume_lease_for_terminal_mutation(database, work_item.id, payload.lease_token)
     else:
+        require_no_subagent_transcripts(payload.subagent_transcripts)
         validate_optional_lease_token(database, work_item.id, payload.lease_token, lock=True)
     mutation_time = database_now(database)
     for field, value in changes.items():
@@ -424,6 +437,7 @@ def complete_work_record(
     completion_evidence: CompletionEvidenceInput | None = None,
     job_completion_report: JobCompletionReportInput | None = None,
     code_review_handoff: CodeReviewHandoffInput | None = None,
+    subagent_transcripts: TranscriptSources | None = None,
 ) -> Checkpoint:
     from mnemonic_api.services.completion_evidence import (
         hydrate_completion_evidence,
@@ -445,6 +459,8 @@ def complete_work_record(
 
     review_decision = prepare_review_policy(work_item, report_settings, code_review_handoff)
     report_id = uuid4()
+    register_closeout_transcripts(database, work_item, subagent_transcripts,
+                                 payload.source_client, payload.source_session_id)
     require_unblocked(database, work_item.id)
     require_no_unresolved_gates(database, work_item.id)
     consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
@@ -491,6 +507,7 @@ def delete_work_record(
     expected_version: int,
     lease_token: str | None = None,
     actor: MutationActor | None = None,
+    subagent_transcripts: TranscriptSources | None = None,
 ) -> None:
     from mnemonic_api.services.code_reviews import require_no_review_obligation
     from mnemonic_api.services.duplicates import require_canonical_work_item
@@ -499,6 +516,9 @@ def delete_work_record(
     require_version(work_item, expected_version)
     require_no_review_obligation(database, work_item.id)
     require_no_relationships(database, work_item.id)
+    register_closeout_transcripts(database, work_item, subagent_transcripts,
+                                 actor.actor_client if actor else "unattributed",
+                                 actor.actor_session_id if actor else "unattributed")
     require_no_unresolved_gates(database, work_item.id)
     consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
     mutation_time = database_now(database)

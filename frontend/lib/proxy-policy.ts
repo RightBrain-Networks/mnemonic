@@ -603,8 +603,9 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       !allowedKeys(body, [
         "expected_version", "title", "summary", "priority", "status", "actor", "job_completion_report", "external_references", "review_decision",
         "supersede_code_review_id", "expected_code_review_version", "supersede_follow_up_id", "expected_follow_up_version",
-        CLIENT_OPERATION_FIELD
+        "subagent_transcripts", CLIENT_OPERATION_FIELD
       ])
+      || (Object.hasOwn(body, "subagent_transcripts") && body.subagent_transcripts !== null)
       || !finiteInteger(body.expected_version, 1)
       || !validActor(body.actor)
       || (Object.hasOwn(body, "job_completion_report") && !validJobReportInput(body.job_completion_report))
@@ -660,7 +661,8 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   }
   if (WORK_DELETE.test(path) && method === "POST") {
     if (
-      !allowedKeys(body, ["expected_version", "actor", CLIENT_OPERATION_FIELD])
+      !allowedKeys(body, ["expected_version", "actor", "subagent_transcripts", CLIENT_OPERATION_FIELD])
+      || (Object.hasOwn(body, "subagent_transcripts") && body.subagent_transcripts !== null)
       || !finiteInteger(body.expected_version, 1)
       || !validActor(body.actor)
     ) return DEFINITIVE_PROXY_ERRORS.invalidWorkItemDeletion.detail;
@@ -710,8 +712,9 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   if (WORK_COMPLETE.test(path) && method === "POST") {
     if (
       !allowedKeys(body, [
-        "expected_version", "checkpoint", "completion_evidence", "job_completion_report", "code_review_handoff", CLIENT_OPERATION_FIELD
+        "expected_version", "checkpoint", "completion_evidence", "job_completion_report", "code_review_handoff", "subagent_transcripts", CLIENT_OPERATION_FIELD
       ])
+      || (Object.hasOwn(body, "subagent_transcripts") && body.subagent_transcripts !== null)
       || !finiteInteger(body.expected_version, 1, COMPLETION_EXPECTED_VERSION_MAX)
       || !validCheckpointPayload(body.checkpoint, false)
       || completionEvidenceIssues(body.completion_evidence).length > 0
@@ -759,9 +762,10 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       !allowedKeys(body, [
         "destination_work_item_id", "reviewed_source_revision",
         "reviewed_destination_revision", "rationale", "merged_by_client",
-        "merged_by_session_id", "merged_by_model", CLIENT_OPERATION_FIELD
+        "merged_by_session_id", "merged_by_model", "subagent_transcripts", CLIENT_OPERATION_FIELD
       ])
-      || Object.keys(body).length !== 8
+      || Object.keys(body).length !== 8 + Number(Object.hasOwn(body, "subagent_transcripts"))
+      || (Object.hasOwn(body, "subagent_transcripts") && body.subagent_transcripts !== null)
       || !validUuid(body.destination_work_item_id)
       || !validMergeReviewRevision(body.reviewed_source_revision)
       || !validMergeReviewRevision(body.reviewed_destination_revision)

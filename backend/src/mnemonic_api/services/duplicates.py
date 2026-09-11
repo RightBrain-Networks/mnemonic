@@ -537,6 +537,10 @@ def merge_work_records(
         raise duplicate_self()
     graph = _load_graph(database, project_id, tuple(locked.values()))
     _require_merge_preconditions(database, source, destination, payload, graph)
+    from mnemonic_api.transcript_lifecycle import register_closeout_transcripts
+
+    register_closeout_transcripts(database, source, payload.subagent_transcripts,
+                                 payload.merged_by_client, payload.merged_by_session_id)
     consume_lease_for_terminal_mutation(database, source.id, payload.lease_token)
 
     merge_id = uuid4()

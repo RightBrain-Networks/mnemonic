@@ -855,3 +855,23 @@ test("only nonblank semantic searches receive the warmup timeout", () => {
     assert.equal(upstreamTimeoutMs(new URLSearchParams(query)), 15_000);
   }
 });
+
+
+test("browser closeouts accept explicit null and historical omission, but reject agent transcript paths", () => {
+  const actor = { actor_client: "dashboard", actor_session_id: "tab-1" };
+  const checkpointInput = { prompt: "Completed fixture.", source_client: "dashboard", source_session_id: "tab-1" };
+  const revision = { work_version: 3, context_checkpoint_id: checkpoint, work_event_count: 8 };
+  const cases = [
+    [`projects/${project}/work-items/${work}/delete`, "POST", { expected_version: 1, actor, client_operation_id: operation }],
+    [`projects/${project}/work-items/${work}/complete`, "POST", { expected_version: 1, checkpoint: checkpointInput, client_operation_id: operation }],
+    [`projects/${project}/work-items/${work}`, "PATCH", { expected_version: 1, status: "wont-do", actor, client_operation_id: operation }],
+    [`projects/${project}/work-items/${work}/merge`, "POST", { destination_work_item_id: other, reviewed_source_revision: revision, reviewed_destination_revision: revision, rationale: "Same work.", merged_by_client: "dashboard", merged_by_session_id: "tab-1", merged_by_model: null, client_operation_id: operation }]
+  ];
+  for (const [path, method, body] of cases) {
+    assert.equal(invalidMutationBody(path, method, body), null);
+    assert.equal(invalidMutationBody(path, method, { ...body, subagent_transcripts: null }), null);
+    for (const invalid of [[], [{ client: "claude-code", path: "/shared/session.jsonl" }], "unknown", false]) {
+      assert.notEqual(invalidMutationBody(path, method, { ...body, subagent_transcripts: invalid }), null);
+    }
+  }
+});

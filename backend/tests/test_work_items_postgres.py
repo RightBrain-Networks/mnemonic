@@ -514,7 +514,8 @@ def test_lifecycle_versions_typed_errors_and_soft_delete(api, project, work_payl
     assert reopened.status_code == 200
     history = api.get(f"{endpoint}/checkpoints").json()
     assert any(row["kind"] == "completion" for row in history["items"])
-    deletion = api.post(f"{endpoint}/delete", json={"expected_version": 5})
+    deletion = api.post(f"{endpoint}/delete", json={
+        "subagent_transcripts": None, "expected_version": 5})
     assert deletion.status_code == 200
     assert deletion.json() == {
         "deleted": True,
@@ -636,7 +637,8 @@ def test_checkpoint_contract_is_append_only_and_validates_lease_fields(
     assert patch.status_code == 409
     assert patch.json()["detail"]["code"] == "lease_token_mismatch"
     deletion = api.post(
-        f"{endpoint}/delete", json={"expected_version": 1, "lease_token": "secret"}
+        f"{endpoint}/delete", json={
+            "subagent_transcripts": None, "expected_version": 1, "lease_token": "secret"}
     )
     assert deletion.status_code == 409
     assert deletion.json()["detail"]["code"] == "lease_token_mismatch"

@@ -118,6 +118,7 @@ def protected_tool_arguments(operation_id: str = CLIENT_OPERATION_ID):
             **operation,
         },
         "complete_work": {
+            "subagent_transcripts": None,
             "project_id": PROJECT_ID,
             "work_item_id": WORK_ID,
             "expected_version": 3,
@@ -125,6 +126,7 @@ def protected_tool_arguments(operation_id: str = CLIENT_OPERATION_ID):
             **operation,
         },
         "delete_work": {
+            "subagent_transcripts": None,
             "project_id": PROJECT_ID,
             "work_item_id": WORK_ID,
             "expected_version": 3,
@@ -154,6 +156,7 @@ def protected_tool_arguments(operation_id: str = CLIENT_OPERATION_ID):
             **operation,
         },
         "merge_work": {
+            "subagent_transcripts": None,
             "project_id": PROJECT_ID,
             "source_work_item_id": WORK_ID,
             "destination_work_item_id": OTHER_WORK_ID,
@@ -656,6 +659,8 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {
+        "list_transcripts", "search_transcript_contents", "get_transcript",
+        "get_transcript_text", "download_transcript",
         "list_artifacts", "get_artifact", "get_artifact_text",
         "list_artifact_history", "download_artifact",
         "search_artifact_contents", "upload_artifact", "replace_artifact", "delete_artifact", "update_artifact",
@@ -766,7 +771,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 48
+    assert len(tools) == 53
     for name in mutating:
         assert tools[name].annotations.idempotentHint is (name in protected)
     for name in tools.keys() - mutating:
@@ -822,6 +827,7 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
         assert "project_id" in tools[name].inputSchema["required"]
 
     claim_fields = {
+        "session_transcript",
         "project_id",
         "work_item_id",
         "holder_client",
@@ -1280,6 +1286,7 @@ async def test_excluded_mutations_reject_unexpected_operation_id_locally(setting
     excluded = {
         "create_project": {"name": "Example"},
         "claim_work": {
+            "session_transcript": None,
             "project_id": PROJECT_ID,
             "work_item_id": WORK_ID,
             "holder_client": "claude-code",
@@ -1287,6 +1294,7 @@ async def test_excluded_mutations_reject_unexpected_operation_id_locally(setting
             "claim_request_id": CLAIM_REQUEST_ID,
         },
         "claim_and_recall": {
+            "session_transcript": None,
             "project_id": PROJECT_ID,
             "work_item_id": WORK_ID,
             "holder_client": "claude-code",
@@ -2906,6 +2914,7 @@ async def test_get_and_update_work_use_identity_endpoint(settings, work_item):
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}"
         if request.method == "PATCH":
             assert json.loads(request.content) == {
+                "subagent_transcripts": None,
                 **OPERATION_PAYLOAD,
                 "expected_version": 3,
                 "summary": "Narrowed to UUID punctuation.",
@@ -2951,6 +2960,7 @@ async def test_get_and_update_work_use_identity_endpoint(settings, work_item):
         await server.call_tool(
             "update_work",
             {
+                "subagent_transcripts": None,
                 "project_id": PROJECT_ID,
                 "work_item_id": WORK_ID,
                 "expected_version": 3,
@@ -3186,6 +3196,7 @@ async def test_claim_tools_send_body_only_and_return_exact_capability_models(
     settings, claim_receipt, active_work_context
 ):
     claim_body = {
+        "session_transcript": None,
         "holder_client": claim_receipt["holder_client"],
         "holder_session_id": claim_receipt["holder_session_id"],
         "claim_request_id": claim_receipt["claim_request_id"],
@@ -3295,6 +3306,7 @@ async def test_complete_and_delete_work_return_explicit_mutation_receipts(
         if request.url.path.endswith("/complete"):
             assert request.method == "POST"
             assert json.loads(request.content) == {
+                "subagent_transcripts": None,
                 **OPERATION_PAYLOAD,
                 "expected_version": 3,
                 "checkpoint": completion_input,
@@ -3305,6 +3317,7 @@ async def test_complete_and_delete_work_return_explicit_mutation_receipts(
             )
         assert request.url.path.endswith("/delete")
         assert json.loads(request.content) == {
+            "subagent_transcripts": None,
             **OPERATION_PAYLOAD,
             "expected_version": 4,
             **ACTOR_PAYLOAD,
@@ -3324,6 +3337,7 @@ async def test_complete_and_delete_work_return_explicit_mutation_receipts(
         await server.call_tool(
             "complete_work",
             {
+                "subagent_transcripts": None,
                 "project_id": PROJECT_ID,
                 "work_item_id": WORK_ID,
                 "expected_version": 3,
@@ -3342,6 +3356,7 @@ async def test_complete_and_delete_work_return_explicit_mutation_receipts(
         await server.call_tool(
             "delete_work",
             {
+                "subagent_transcripts": None,
                 "project_id": PROJECT_ID,
                 "work_item_id": WORK_ID,
                 "expected_version": 4,
@@ -3426,14 +3441,15 @@ async def test_canonical_mutations_send_optional_lease_token_only_in_body(
     )
     await server.call_tool(
         "update_work",
-        {**common, "expected_version": 3, "changes": {"status": "promoted"}, **ACTOR_ARGUMENTS},
+        {**common, "subagent_transcripts": None, "expected_version": 3,
+         "changes": {"status": "promoted"}, **ACTOR_ARGUMENTS},
     )
     await server.call_tool(
         "complete_work",
-        {**common, "expected_version": 3, "checkpoint": checkpoint_input},
+        {"subagent_transcripts": None, **common, "expected_version": 3, "checkpoint": checkpoint_input},
     )
     await server.call_tool(
-        "delete_work", {**common, "expected_version": 3, **ACTOR_ARGUMENTS}
+        "delete_work", {"subagent_transcripts": None, **common, "expected_version": 3, **ACTOR_ARGUMENTS}
     )
     assert seen == [
         f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/checkpoints",
@@ -3607,6 +3623,7 @@ async def test_delete_passes_version_and_conflict_is_not_retried(settings):
             f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/delete"
         )
         assert json.loads(request.content) == {
+            "subagent_transcripts": None,
             **OPERATION_PAYLOAD,
             "expected_version": 3,
             **ACTOR_PAYLOAD,
@@ -3624,6 +3641,7 @@ async def test_delete_passes_version_and_conflict_is_not_retried(settings):
 
     with pytest.raises(ToolError, match="Version conflict") as caught:
         await adapter(settings, handler).call_tool("delete_work", {
+            "subagent_transcripts": None,
             "project_id": PROJECT_ID,
             "work_item_id": WORK_ID,
             "expected_version": 3,
@@ -3671,6 +3689,7 @@ async def test_typed_application_errors_are_actionable_and_sanitized(
         await adapter(settings, handler).call_tool(
             "delete_work",
             {
+                "subagent_transcripts": None,
                 "project_id": PROJECT_ID,
                 "work_item_id": WORK_ID,
                 "expected_version": 3,
@@ -3768,6 +3787,7 @@ async def test_lease_contention_reports_only_public_coordination(settings, code)
         await adapter(settings, handler).call_tool(
             "claim_work",
             {
+                "session_transcript": None,
                 "project_id": PROJECT_ID,
                 "work_item_id": WORK_ID,
                 "holder_client": "claude-code",
@@ -3802,6 +3822,7 @@ async def test_lease_contention_omits_invalid_public_fields(settings, context):
 
     with pytest.raises(ToolError) as caught:
         await adapter(settings, handler).call_tool("claim_work", {
+            "session_transcript": None,
             "project_id": PROJECT_ID, "work_item_id": WORK_ID,
             "holder_client": "claude-code", "holder_session_id": "claiming-session",
             "claim_request_id": CLAIM_REQUEST_ID,
@@ -3827,6 +3848,7 @@ async def test_lease_identity_is_quoted_without_losing_session_distinctions(sett
 
     with pytest.raises(ToolError) as caught:
         await adapter(settings, handler).call_tool("claim_work", {
+            "session_transcript": None,
             "project_id": PROJECT_ID, "work_item_id": WORK_ID,
             "holder_client": "codex", "holder_session_id": "independent-subagent",
             "claim_request_id": CLAIM_REQUEST_ID,
@@ -3883,6 +3905,7 @@ async def test_unknown_typed_error_does_not_fall_through_to_legacy_conflict_gues
         await adapter(settings, handler).call_tool(
             "delete_work",
             {
+                "subagent_transcripts": None,
                 "project_id": PROJECT_ID,
                 "work_item_id": WORK_ID,
                 "expected_version": 3,
@@ -4672,6 +4695,7 @@ async def test_claim_network_failure_requires_exact_same_request_id(settings, to
         await adapter(settings, handler).call_tool(
             tool_name,
             {
+                "session_transcript": None,
                 "project_id": PROJECT_ID,
                 "work_item_id": WORK_ID,
                 "holder_client": "claude-code",
@@ -4705,6 +4729,7 @@ async def test_ambiguous_claim_response_requires_same_request_id(
         await adapter(settings, handler).call_tool(
             "claim_work",
             {
+                "session_transcript": None,
                 "project_id": PROJECT_ID,
                 "work_item_id": WORK_ID,
                 "holder_client": "claude-code",
@@ -4744,6 +4769,7 @@ async def test_structured_503_claim_response_requires_same_request_id(
         await adapter(settings, handler).call_tool(
             tool_name,
             {
+                "session_transcript": None,
                 "project_id": PROJECT_ID,
                 "work_item_id": WORK_ID,
                 "holder_client": "claude-code",
@@ -4772,6 +4798,7 @@ async def test_phase9_core_catalog_exposes_exact_merge_and_search_contracts(sett
     merge = tools["merge_work"]
     merge_input = merge.inputSchema
     assert set(merge_input["properties"]) == {
+        "subagent_transcripts",
         "project_id",
         "source_work_item_id",
         "destination_work_item_id",
@@ -5120,6 +5147,7 @@ async def test_merge_work_sends_exact_private_intent_once(
         f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/merge"
     )
     assert json.loads(requests[0].content) == {
+        "subagent_transcripts": None,
         "client_operation_id": CLIENT_OPERATION_ID,
         "destination_work_item_id": OTHER_WORK_ID,
         "reviewed_source_revision": arguments["reviewed_source_revision"],
@@ -5466,6 +5494,7 @@ async def test_claim_receipt_identity_mismatch_has_unknown_outcome_guidance(
         await adapter(settings, handler).call_tool(
             tool_name,
             {
+                "session_transcript": None,
                 "project_id": PROJECT_ID,
                 "work_item_id": WORK_ID,
                 "holder_client": claim_receipt["holder_client"],

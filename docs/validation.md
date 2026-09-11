@@ -1,5 +1,43 @@
 # Mnemonic validation record
 
+## Agent transcript indexing (0.42.0)
+
+Claude Code primary and subagent transcripts are registered with work leases and
+indexed after those lease generations leave Active. The shared Tika service feeds
+retained PostgreSQL text/properties and a separate Tantivy RAM index. Five MCP
+read tools, the `/transcripts` library, workspace settings, and durable rebuild
+retries expose the feature. Transcript content is available without an artifact
+sensitivity flag.
+
+Application/API/MCP/dashboard 0.42.0, plugin 0.25.0, and migration
+`0032_agent_transcripts` ship together. The migration follows manual review
+decisions; integration tests verify that human review closeout releases the review
+transcript while preserving original Done work. Configure source roots and a
+read-only shared filesystem mount as described in [transcripts](transcripts.md).
+
+Independent cold adversarial reviews covered the backend, MCP, and dashboard
+before the PR. Every actionable finding was fixed with regression coverage; the
+final rebased-source review found no actionable P1/P2 issues. See the
+[review and validation record](transcripts-review.md) for coverage and static-review
+limitations.
+
+Validation: 2,220 backend tests against real PostgreSQL, 1,391 MCP tests, 423
+frontend unit tests, Ruff/ty, TypeScript, production build, generated OpenAPI and
+catalog correspondence, and pre-commit passed. Packaged-plugin checks passed 71
+cases with the platform-specific macOS case delegated to CI. The actual shared
+Tika smoke passed all transcript formats and the existing artifact isolation tests.
+The broad pre-rebase acceptance run passed 64 desktop/narrow browser cases. After
+rebasing, all 40 combined transcript, review-action, lease-visibility and receipt
+recovery browser cases passed on desktop and narrow screens, along with every
+isolated backup-service check.
+
+Screenshots: [desktop library](images/transcripts-library-desktop.png),
+[narrow library](images/transcripts-library-narrow.png),
+[desktop details](images/transcript-details-desktop.png),
+[narrow details](images/transcript-details-narrow.png),
+[desktop settings](images/transcript-settings-desktop.png), and
+[narrow settings](images/transcript-settings-narrow.png).
+
 ## Human review actions (0.41.0)
 
 Review decisions use migration `0031_review_decisions`. Regression coverage exercises

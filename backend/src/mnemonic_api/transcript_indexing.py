@@ -1,0 +1,224 @@
+"""Persisted, expiring transcript jobs; no database lock spans filesystem or Tika IO."""
+
+import asyncio
+import hashlib
+import io
+import json
+import logging
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
+
+from sqlalchemy import exists, func, or_, select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
+from starlette.concurrency import run_in_threadpool
+
+from mnemonic_api.artifact_extraction import Extractor
+from mnemonic_api.artifact_tika import ExtractedArtifact, ExtractionError
+from mnemonic_api.config import Settings
+from mnemonic_api.errors import ApplicationError
+from mnemonic_api.models import Transcript, TranscriptSettings, WorkItem, WorkLease
+from mnemonic_api.services.project_mutations import project_mutation
+from mnemonic_api.transcript_parsers import TranscriptParserFactory
+from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
+from mnemonic_api.transcript_storage import read_transcript
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class TranscriptJob:
+    transcript_id: UUID
+    generation: int
+    lease_token: UUID
+    source_path: str
+    client: str
+    maximum_bytes: int
+
+
+@dataclass(frozen=True)
+class TranscriptResult:
+    extracted: ExtractedArtifact
+    size_bytes: int
+    sha256: str
+    format: str
+    mime_type: str
+
+
+def _active_generation():
+    return exists(select(WorkLease.work_item_id).where(
+        WorkLease.work_item_id == Transcript.work_item_id,
+        WorkLease.lease_generation_id == Transcript.lease_generation_id,
+        WorkLease.expires_at > func.clock_timestamp(),
+    ))
+
+
+def _claimable_transcripts():
+    return (select(Transcript, TranscriptSettings.max_file_size_bytes)
+        .join(WorkItem, WorkItem.id == Transcript.work_item_id)
+        .outerjoin(TranscriptSettings, TranscriptSettings.project_id == WorkItem.project_id)
+        .where(func.coalesce(TranscriptSettings.enabled, True), ~_active_generation(), or_(
+            Transcript.status.in_(["waiting", "pending"])
+            & (Transcript.next_attempt_at <= func.clock_timestamp()),
+            (Transcript.status == "processing")
+            & (Transcript.lease_expires_at <= func.clock_timestamp()),
+        )))
+
+
+def _lock_claim_candidate(database: Session, candidate):
+    transcript_id, work_id, project_id = candidate
+    work = database.scalar(select(WorkItem).where(
+        WorkItem.id == work_id, WorkItem.project_id == project_id).with_for_update())
+    if work is None:
+        return None
+    database.scalar(select(WorkLease).where(WorkLease.work_item_id == work_id).with_for_update())
+    # This query runs after the lease lock: an earlier renewal must now be
+    # committed, so the fresh clock comparison cannot observe its old expiry.
+    return database.execute(_claimable_transcripts().where(Transcript.id == transcript_id)
+                            .with_for_update(of=Transcript)).first()
+
+
+def _start_claim(database: Session, row, settings: Settings) -> TranscriptJob:
+    transcript, maximum = row
+    now = database.execute(select(func.clock_timestamp())).scalar_one()
+    for field, value in empty_transcript_snapshot().items():
+        setattr(transcript, field, value)
+    transcript.status = "processing"
+    transcript.indexing_started_at = transcript.indexing_started_at or now
+    transcript.indexing_completed_at = None
+    transcript.lease_token = uuid4()
+    transcript.lease_expires_at = now + timedelta(
+        seconds=settings.artifact_extraction_timeout_seconds * 2 + 300)
+    transcript.attempts += 1
+    return TranscriptJob(transcript.id, transcript.generation, transcript.lease_token,
+                         transcript.source_path, transcript.client,
+                         min(maximum or settings.transcript_max_bytes,
+                             settings.transcript_max_bytes))
+
+
+def claim_transcript_job(
+    factory: sessionmaker[Session], settings: Settings,
+) -> TranscriptJob | None:
+    with factory() as database:
+        candidate = database.execute(_claimable_transcripts().with_only_columns(
+            Transcript.id, Transcript.work_item_id, WorkItem.project_id)
+            .order_by(Transcript.next_attempt_at, Transcript.id).limit(1)).first()
+        if candidate is None:
+            return None
+        # Follow the same project -> work -> lease -> transcript lock order as
+        # lifecycle mutations. No candidate lock is taken before the project.
+        with project_mutation(database, candidate.project_id):
+            row = _lock_claim_candidate(database, candidate)
+            if row is None:
+                return None
+            job = _start_claim(database, row, settings)
+            database.commit()
+            return job
+
+
+def _save_result(record: Transcript, result: TranscriptResult) -> None:
+    record.status = "ready"
+    record.error_code = None
+    record.normalized_text = result.extracted.text
+    record.text_sha256 = hashlib.sha256(result.extracted.text.encode("utf-8")).hexdigest()
+    record.extracted_metadata = result.extracted.metadata
+    record.truncated = result.extracted.truncated
+    record.size_bytes = result.size_bytes
+    record.sha256 = result.sha256
+    record.format = result.format
+    record.mime_type = result.mime_type
+
+
+def complete_transcript_job(
+    factory: sessionmaker[Session], job: TranscriptJob,
+    result: TranscriptResult | None, error: ExtractionError | None,
+    source_size: int | None = None, source_details: dict | None = None,
+) -> None:
+    with factory() as database:
+        project_id = database.scalar(select(WorkItem.project_id).join(
+            Transcript, Transcript.work_item_id == WorkItem.id
+        ).where(Transcript.id == job.transcript_id))
+        if project_id is None:
+            return
+        with project_mutation(database, project_id):
+            record = database.scalar(select(Transcript).where(
+                Transcript.id == job.transcript_id, Transcript.generation == job.generation,
+                Transcript.status == "processing", Transcript.lease_token == job.lease_token,
+            ).with_for_update())
+            if record is None:
+                return
+            record.lease_token = None
+            record.lease_expires_at = None
+            record.indexing_completed_at = datetime.now(UTC)
+            if error is not None:
+                retry = error.retryable and record.attempts < 3
+                record.status = "pending" if retry else "failed"
+                record.error_code = error.code
+                snapshot = (empty_transcript_snapshot() | {"size_bytes": source_size}
+                            | (source_details or {}))
+                for field, value in snapshot.items():
+                    setattr(record, field, value)
+                record.next_attempt_at = datetime.now(UTC) + timedelta(seconds=30 * record.attempts)
+                if retry:
+                    record.indexing_completed_at = None
+            elif result is not None:
+                _save_result(record, result)
+            else:
+                raise ValueError("Transcript publication requires result or safe error")
+            database.commit()
+
+
+def _combined_metadata(extracted: ExtractedArtifact, parsed_metadata: dict) -> tuple[dict, bool]:
+    metadata = dict(parsed_metadata)
+    truncated = False
+    for key, value in extracted.metadata.items():
+        candidate = metadata | {key: value}
+        if len(candidate) > 64 or len(json.dumps(candidate, ensure_ascii=True).encode()) > 8192:
+            truncated = True
+        else:
+            metadata = candidate
+    return metadata, truncated
+
+
+def index_next_transcript(
+    factory: sessionmaker[Session], settings: Settings, extractor: Extractor,
+) -> bool:
+    job = claim_transcript_job(factory, settings)
+    if job is None:
+        return False
+    result, error, size = None, None, None
+    source_details = {}
+    try:
+        parser = TranscriptParserFactory.create(job.client)
+        data = read_transcript(job.source_path, settings.transcript_allowed_roots,
+                               job.maximum_bytes)
+        size = len(data)
+        source_details["sha256"] = hashlib.sha256(data).hexdigest()
+        parsed = parser.parse(data, settings.artifact_extraction_max_chars)
+        source_details.update(format=parsed.format, mime_type=parsed.mime_type,
+                              extracted_metadata=parsed.metadata, truncated=parsed.truncated)
+        normalized = parsed.text.encode("utf-8")
+        extracted = extractor.extract(io.BytesIO(normalized), filename="transcript.txt",
+                                      size_bytes=len(normalized))
+        metadata, metadata_truncated = _combined_metadata(extracted, parsed.metadata)
+        result = TranscriptResult(ExtractedArtifact(
+            extracted.text, metadata,
+            extracted.truncated or parsed.truncated or metadata_truncated,
+        ), len(data), hashlib.sha256(data).hexdigest(), parsed.format, parsed.mime_type)
+    except ExtractionError as failure:
+        error = failure
+    complete_transcript_job(factory, job, result, error, size, source_details)
+    return True
+
+
+async def transcript_indexing_loop(
+    factory: sessionmaker[Session], settings: Settings, extractor: Extractor,
+) -> None:
+    while True:
+        try:
+            processed = await run_in_threadpool(index_next_transcript, factory, settings, extractor)
+        except (SQLAlchemyError, OSError, ApplicationError) as error:
+            logger.warning("Transcript indexing unavailable (%s)", type(error).__name__)
+            processed = False
+        await asyncio.sleep(0.1 if processed else 5)

@@ -52,6 +52,7 @@ test("work summaries render Markdown and keep embedded HTML and image loads iner
     ];
     const closeout = await api.post(`/api/v1/projects/${project.id}/work-items/${work.id}/complete`, {
       data: {
+        subagent_transcripts: null,
         expected_version: work.version, client_operation_id: crypto.randomUUID(),
         checkpoint: { prompt: "Checked the Markdown fixture.", source_client: "playwright-api", source_session_id: "markdown-messages" },
         job_completion_report: { ...await reportForFixture(api, project.id), summary, fyi_items: fyiItems }

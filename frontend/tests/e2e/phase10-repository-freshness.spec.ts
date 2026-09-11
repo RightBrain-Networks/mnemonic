@@ -35,7 +35,7 @@ async function deleteFixture(client: APIRequestContext, workId: string): Promise
   const body = await read.json() as { work_item: WorkItem };
   const deleted = await client.post(
     `/api/v1/projects/${state.projectId}/work-items/${workId}/delete`,
-    { data: { expected_version: body.work_item.version } }
+    { data: { subagent_transcripts: null, expected_version: body.work_item.version } }
   );
   expect(deleted.ok(), await deleted.text()).toBe(true);
 }

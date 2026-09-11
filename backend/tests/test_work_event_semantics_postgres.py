@@ -132,7 +132,9 @@ def test_lifecycle_completion_reopen_and_delete_emit_one_exact_fact(
     assert reopened_again.status_code == 200, reopened_again.text
     deleted = api.post(
         f"{endpoint}/delete",
-        json={"expected_version": 5, "actor": actor("lifecycle-deleted")},
+        json={
+            "subagent_transcripts": None,
+            "expected_version": 5, "actor": actor("lifecycle-deleted")},
     )
     assert deleted.status_code == 200, deleted.text
     assert deleted.json()["version"] == 6

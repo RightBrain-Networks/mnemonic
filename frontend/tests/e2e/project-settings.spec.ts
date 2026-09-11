@@ -34,7 +34,7 @@ async function removeSeededWork(
   if (!work) return;
   const response = await client.post(
     `/api/v1/projects/${state.projectId}/work-items/${work.id}/delete`,
-    { data: { expected_version: work.version } }
+    { data: { subagent_transcripts: null, expected_version: work.version } }
   );
   expect(response.ok(), await response.text()).toBe(true);
 }

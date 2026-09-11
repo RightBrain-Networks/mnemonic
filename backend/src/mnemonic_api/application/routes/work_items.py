@@ -237,6 +237,7 @@ def complete_work(
             domain_payload.completion_evidence,
             domain_payload.job_completion_report,
             domain_payload.code_review_handoff,
+            domain_payload.subagent_transcripts,
         )
         database.refresh(work_item)
         database.refresh(checkpoint)
@@ -285,6 +286,7 @@ def delete_work(
             domain_payload.expected_version,
             domain_payload.lease_token,
             domain_payload.actor,
+            domain_payload.subagent_transcripts,
         )
         return WorkDeletionRead(
             project_id=project_id, work_item_id=work_item_id, version=work_item.version

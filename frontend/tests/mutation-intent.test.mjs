@@ -173,6 +173,7 @@ test("merge ambiguity freezes both work keys, both revisions, and byte-identical
     merged_by_client: "dashboard",
     merged_by_session_id: "tab-1",
     merged_by_model: null,
+    subagent_transcripts: null,
     client_operation_id: operation
   });
 
@@ -617,4 +618,62 @@ test("reference replacement retries retain the exact ordered list and clear rema
   const clearRegistry = new MutationIntentRegistry(async () => { throw new Error("Not dispatched"); }, () => operation);
   const clear = clearRegistry.prepare({ ...spec, payload: { ...spec.payload, external_references: [] } });
   assert.deepEqual(JSON.parse(clear.body).external_references, []);
+});
+
+
+test("new browser closeouts freeze explicit null transcript assertions while ordinary edits remain sparse", async () => {
+  const calls = [];
+  const registry = new MutationIntentRegistry(async (_url, init) => { calls.push(init.body); return deletionResponse(); }, () => operation);
+  for (const [kind, payload, expected] of [
+    ["delete_work", { expected_version: 2 }, true], ["merge_work", {}, true], ["complete_work", {}, true],
+    ["update_work", { status: "wont-do" }, true], ["update_work", { status: "promoted" }, true],
+    ["update_work", { status: "pending" }, false], ["update_work", { title: "Keep current status" }, false],
+    ["update_work", { review_decision: { status: "done" } }, false],
+    ["defer_work", {}, false]
+  ]) {
+    const prepared = registry.prepare({ ...deletionInput(), kind, slot: kind, payload });
+    assert.equal(Object.hasOwn(JSON.parse(prepared.body), "subagent_transcripts"), expected);
+    if (expected) assert.equal(JSON.parse(prepared.body).subagent_transcripts, null);
+    registry.discardPrepared(kind);
+  }
+  const input = deletionInput();
+  const prepared = registry.prepare(input);
+  await registry.execute(input);
+  assert.equal(calls[0], prepared.body);
+  assert.equal(JSON.parse(calls[0]).subagent_transcripts, null);
+});
+
+test("pre-receipt rejection of an uncertain retry retains its exact original operation until recovery", async () => {
+  const failures = [
+    [403, { detail: "This dashboard request is not from a trusted origin." }],
+    [422, { detail: [{ type: "value_error", loc: ["body", "expected_version"], msg: "Value is invalid." }] }],
+    [401, { detail: "Valid bearer authentication is required" }],
+    [422, { detail: { code: "client_operation_secret_echo", message: "A field includes a protected value.", context: {} } }]
+  ];
+  for (const [status, body] of failures) {
+    let attempts = 0;
+    const calls = [];
+    const registry = new MutationIntentRegistry(async (_url, init) => {
+      calls.push(init.body);
+      attempts++;
+      if (attempts === 1) throw new Error("The committed response was lost.");
+      if (attempts === 2) return Response.json(body, { status });
+      return deletionResponse();
+    }, () => operation);
+    const input = deletionInput();
+    await assert.rejects(registry.execute(input), (error) => error.state === "unresolved");
+    const original = registry.get(input.slot);
+    await assert.rejects(registry.retry(input.slot), (error) => error.state === "unresolved");
+    const retained = registry.get(input.slot);
+    assert.equal(retained.operationId, original.operationId);
+    assert.equal(retained.body, original.body);
+    assert.equal(retained.attempts, 2);
+    assert.equal(registry.hasDispatched(), true);
+    assert.equal(registry.blocks(input.conflictKeys), true);
+    assert.equal(registry.discardPrepared(input.slot), false);
+    await registry.retry(input.slot);
+    assert.equal(registry.get(input.slot), undefined);
+    assert.equal(registry.hasDispatched(), false);
+    assert.deepEqual(calls, [original.body, original.body, original.body]);
+  }
 });

@@ -127,6 +127,7 @@ def merge(api, project, source, destination):
     response = api.post(
         f"{prefix}/{source['id']}/merge",
         json={
+            "subagent_transcripts": None,
             "destination_work_item_id": destination["id"],
             "reviewed_source_revision": source_context["merge_review_revision"],
             "reviewed_destination_revision": destination_context["merge_review_revision"],
@@ -1325,5 +1326,5 @@ def test_title_key_function_and_partial_expression_index_are_frozen(postgres_eng
                 """
             )
         ).one()
-        assert head == "0031_review_decisions"
+        assert head == "0032_agent_transcripts"
         assert capacity == 64

@@ -160,6 +160,7 @@ async function completeApi(
     `/api/v1/projects/${projectId}/work-items/${work.id}/complete`,
     {
       data: {
+        subagent_transcripts: null,
         expected_version: work.version,
         client_operation_id: crypto.randomUUID(),
         checkpoint: {
@@ -225,6 +226,7 @@ async function reviewApi(
     `${path}/code-reviews/${review.id}/complete`,
     {
       data: {
+        subagent_transcripts: null,
         expected_review_version: review.version,
         scope_sha256: review.scope_sha256,
         lease_token: lease.lease_token,
@@ -353,7 +355,7 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
       name: `Choose an action for ${first.title}`,
       exact: true,
     });
-    await expect(actionChooser).toBeDisabled();
+    await expect(actionChooser).toBeEnabled();
     await expect(
       pane.getByText(
         "Work with code review or remediation history must remain in its original project.",

@@ -30,6 +30,7 @@ def close(api, project, work, checkpoint_fields, status="done", **overrides):
     }
     base = f"/api/v1/projects/{project['id']}/work-items/{work['id']}"
     payload = {
+        "subagent_transcripts": None,
         "expected_version": work["version"],
         "client_operation_id": str(uuid4()),
         "job_completion_report": report,

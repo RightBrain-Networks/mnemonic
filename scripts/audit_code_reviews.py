@@ -1,4 +1,4 @@
-"""Read-only code-review integrity audit for supported schemas 0024 through 0031.
+"""Read-only code-review integrity audit for supported schemas 0024 through 0032.
 
 Run with the backend virtual environment and private database access. Output
 contains counts only: no repository locators, prompts, findings, actors, tokens,
@@ -12,11 +12,12 @@ import os
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0031_review_decisions"
+HEAD = "0032_agent_transcripts"
 REVIEW_HEAD = "0024_code_reviews"
 SUPPORTED_HEADS = (REVIEW_HEAD, "0025_cross_project_relationships", "0026_artifact_library",
                    "0027_artifact_fulltext", "0028_work_summary_limit",
-                   "0029_artifact_links_sensitive", "0030_question_versions", HEAD)
+                   "0029_artifact_links_sensitive", "0030_question_versions",
+                   "0031_review_decisions", HEAD)
 CHECKS = {
     "lifecycle_event_witness_mismatch": """
         SELECT count(*) FROM work_events event
@@ -237,7 +238,7 @@ HUMAN_DECISION_CHECKS = {
 
 
 def checks_for_head(schema_head: str) -> dict[str, str]:
-    return {**CHECKS, **(HUMAN_DECISION_CHECKS if schema_head == HEAD else {})}
+    return {**CHECKS, **(HUMAN_DECISION_CHECKS if schema_head in {"0031_review_decisions", HEAD} else {})}
 
 
 def audit(connection: Connection) -> dict:

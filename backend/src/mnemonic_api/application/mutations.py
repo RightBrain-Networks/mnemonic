@@ -123,6 +123,7 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
         protected=True,
     ):
         result = execute(cast(Payload, operation.domain_payload))
+        _require_closeout_transcript_assertion(kind, payload)
         completed = complete_client_operation(
             database,
             operation,
@@ -134,6 +135,25 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
         database.commit()
     _record_success(trace, completed)
     return completed.response
+
+
+def _require_closeout_transcript_assertion(kind: str, payload: APIModel) -> None:
+    """Historical receipts replay first; fresh closeouts require an explicit assertion.
+
+    Check the original field set: canonical serialization deliberately keeps null
+    sparse to preserve permanent historical receipt hashes. Domain work is still
+    uncommitted here and rolls back with the reserved receipt on rejection.
+    """
+    closeout = kind in {"complete_work", "merge_work", "delete_work", "complete_code_review"}
+    if kind == "update_work":
+        closeout = getattr(payload, "status", None) in {"wont-do", "promoted"} and (
+            getattr(payload, "job_completion_report", None) is not None
+        )
+    if closeout and "subagent_transcripts" not in payload.model_fields_set:
+        raise ApplicationError(
+            422, "subagent_transcripts_required",
+            "Report subagent transcript locations, or explicitly assert null when unavailable.",
+        )
 
 
 def _reserve(

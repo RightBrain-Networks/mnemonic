@@ -423,10 +423,10 @@ item separately:
 
 ## Current release boundary
 
-Application/API/MCP/dashboard 0.41.0, plugin 0.24.0 and Alembic
-`0031_review_decisions` ship together: 48 MCP tools, 17
+Application/API/MCP/dashboard 0.42.0, plugin 0.25.0 and Alembic
+`0032_agent_transcripts` ship together: 53 MCP tools, 17
 receipt-protected MCP writes,
-22 REST receipt kinds, 19 protected browser mutations, 24 event types and three
+23 REST receipt kinds, 20 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
 do not infer historical review requests. `search_work(status="to-review")` finds
 Done implementation with a requested review or pending recommendation; `done`

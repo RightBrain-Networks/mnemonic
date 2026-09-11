@@ -16,6 +16,7 @@ from uuid import uuid4
 import httpx
 from mnemonic_api.artifact_tika import ExtractionError, TikaExtractor
 from mnemonic_api.config import Settings
+from mnemonic_api.transcript_parsers import TranscriptParserFactory
 
 REPOSITORY = Path(__file__).resolve().parent.parent
 
@@ -170,6 +171,35 @@ def check_extraction(origin: str) -> None:
     )
 
 
+def check_transcripts(origin: str) -> None:
+    extractor = TikaExtractor(Settings(
+        database_url="postgresql://localhost/synthetic_test",
+        api_key="test-only-" * 4, artifact_tika_url=origin,
+        artifact_extraction_max_chars=1000,
+    ))
+    records = [
+        {"type": "user", "sessionId": "synthetic", "message": {
+            "role": "user", "content": "Find the transcript narwhal."}},
+        {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "text", "text": "The transcript narwhal is indexed."},
+            {"type": "tool_use", "name": "synthetic_tool", "input": {"needle": "narwhal"}},
+        ]}},
+    ]
+    parser = TranscriptParserFactory.create("claude_code")
+    for data in [
+        "\n".join(json.dumps(row) for row in records).encode(),
+        json.dumps(records).encode(), json.dumps({"messages": records}).encode(),
+    ]:
+        parsed = parser.parse(data, 1000)
+        content = parsed.text.encode()
+        result = extractor.extract(io.BytesIO(content), filename="transcript.txt",
+                                   size_bytes=len(content))
+        assert "transcript narwhal" in result.text
+        assert "synthetic_tool" in result.text
+        assert "user:" in result.text and "assistant:" in result.text
+    print("Shared Tika: Claude Code JSONL, JSON array and message export extraction passed")
+
+
 def check_isolation(name: str) -> None:
     info = json.loads(docker("inspect", name).stdout)[0]
     host = info["HostConfig"]
@@ -249,6 +279,7 @@ def main() -> None:
         origin = f"http://{ip}:9998"
         wait_ready(origin)
         check_extraction(origin)
+        check_transcripts(origin)
         check_isolation(name)
     finally:
         docker("rm", "-f", name, check=False)

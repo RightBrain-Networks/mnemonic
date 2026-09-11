@@ -59,6 +59,7 @@ from mnemonic_api.phase12_schemas import (
     JobCompletionReportRead,
     PositiveRevision,
 )
+from mnemonic_api.transcript_locations import TranscriptLocation, TranscriptSources
 
 AFFECTED_PATH_MAX_COUNT = 64
 AFFECTED_PATH_MAX_BYTES = 512
@@ -1475,6 +1476,10 @@ class WorkItemPatch(APIModel):
         default=None, exclude_if=lambda value: value is None,
     )
 
+    subagent_transcripts: TranscriptSources | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Subagent transcript locations; null means unavailable or inapplicable.",
+    )
     supersede_code_review_id: UUID | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -1540,7 +1545,7 @@ class WorkItemPatch(APIModel):
             "lease_token",
             "actor",
             "client_operation_id",
-            "job_completion_report",
+            "job_completion_report", "subagent_transcripts",
             "supersede_code_review_id", "expected_code_review_version",
             "supersede_follow_up_id", "expected_follow_up_version",
         }
@@ -1585,6 +1590,10 @@ class WorkMoveCreate(APIModel):
 
 class WorkCompletionRequest(APIModel):
     """Control-free completion intent used after receipt preparation."""
+    subagent_transcripts: TranscriptSources | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Subagent transcript locations; null means unavailable or inapplicable.",
+    )
 
     expected_version: Annotated[StrictInt, Field(ge=1, le=COMPLETION_EXPECTED_VERSION_MAX)]
     code_review_handoff: CodeReviewHandoffInput | SkipJsonSchema[None] = Field(
@@ -1687,6 +1696,10 @@ class WorkCompletionCreate(WorkCompletionRequest):
 
 
 class WorkDeletionCreate(APIModel):
+    subagent_transcripts: TranscriptSources | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Subagent transcript locations; null means unavailable or inapplicable.",
+    )
     expected_version: Annotated[StrictInt, Field(ge=1)]
     lease_token: LeaseToken | None = Field(default=None, repr=False)
     actor: MutationActor | None = None
@@ -1702,6 +1715,10 @@ class WorkDeletionCreate(APIModel):
 
 
 class WorkClaimCreate(APIModel):
+    session_transcript: TranscriptLocation | None = Field(
+        default=None,
+        description="Primary transcript location; MCP callers must assert null if unknown.",
+    )
     holder_client: ClientName
     holder_session_id: SessionID
     claim_request_id: ClaimRequestID
@@ -1735,6 +1752,10 @@ class LeaseTokenCreate(APIModel):
 
 
 class LeaseReleaseCreate(APIModel):
+    subagent_transcripts: TranscriptSources | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Subagent transcript locations; null means unavailable or inapplicable.",
+    )
     lease_token: LeaseToken = Field(repr=False)
     actor: MutationActor | None = None
     client_operation_id: UUID | None = Field(
@@ -1796,6 +1817,10 @@ class MergeReviewRevision(APIModel):
 
 class WorkMergeRequest(APIModel):
     """Domain fields shared by the public request and receipt-isolated service payload."""
+    subagent_transcripts: TranscriptSources | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Subagent transcript locations; null means unavailable or inapplicable.",
+    )
 
     destination_work_item_id: UUID
     reviewed_source_revision: MergeReviewRevision
@@ -3991,6 +4016,10 @@ class WorkFollowUpResponseResult(APIModel):
 
 
 class CodeReviewCompletionRequest(APIModel):
+    subagent_transcripts: TranscriptSources | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Subagent transcript locations; null means unavailable or inapplicable.",
+    )
     expected_review_version: ReviewVersion
     scope_sha256: ScopeHash
     lease_token: LeaseToken = Field(repr=False)

@@ -154,3 +154,11 @@ same-scope claim for an authorized cold retry, not a contextual reread. After
 supersession, stop and obtain a newly copied cold prompt. Distinct fresh result
 submissions on a completed episode fail; receipt replay preserves the original
 result and remediation even after later work.
+
+Every review claim explicitly includes `session_transcript={client, path}` or
+`null` when unavailable. A fresh `complete_code_review` explicitly reports
+`subagent_transcripts=[{client, path}, ...]` or `null` when no additional transcripts
+are applicable or available. These are location assertions, not context reads;
+cold reviewers must not search or read transcripts before findings freeze. See
+[the transcript reference](transcripts.md) for shared filesystem requirements and
+exact retry handling.

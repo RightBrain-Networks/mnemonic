@@ -356,6 +356,7 @@ def closeout_fixture(outcome, work_item, checkpoint, *, include_report=True):
     )}
     del checkpoint["affected_paths"]
     args = {
+        "subagent_transcripts": None,
         "project_id": PROJECT_ID, "work_item_id": WORK_ID, "expected_version": 3,
         "client_operation_id": CLIENT_OPERATION_ID,
     }
@@ -712,9 +713,9 @@ async def test_report_input_errors_hide_prose_and_arbitrary_keys(settings, work_
     assert "private-" not in message
 
 
-async def test_catalog_is_48_tools_17_protected_and_report_omission_is_replay_only(settings):
+async def test_catalog_is_53_tools_17_protected_and_report_omission_is_replay_only(settings):
     tools = {tool.name: tool for tool in await build_server(settings).list_tools()}
-    assert len(tools) == 48
+    assert len(tools) == 53
     protected = [tool for tool in tools.values() if "client_operation_id" in tool.inputSchema["properties"]]
     assert len(protected) == 17
     assert "dismiss_job_completion_report" not in tools

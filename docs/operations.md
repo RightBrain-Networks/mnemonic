@@ -132,14 +132,22 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.41.0`, plugin `0.24.0`,
-and Alembic `0031_review_decisions`. Inventory exactly 48 MCP tools,
-17 protected MCP writes, 22 REST receipt kinds, 19 protected browser mutations,
+The current coordinated boundary is API/MCP/dashboard `0.42.0`, plugin `0.25.0`,
+and Alembic `0032_agent_transcripts`. Inventory exactly 53 MCP tools,
+17 protected MCP writes, 23 REST receipt kinds, 20 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
 revision checks, and relationship endpoint identity, adjacency, graph guards,
 event attribution, and move eligibility now span projects. Permanent historical
 receipts remain recoverable with their exact old request; do not manufacture missing reports or evidence for historical work.
+
+Transcript migration `0032_agent_transcripts` follows `0031_review_decisions`. Stop
+older API/MCP/dashboard writers before upgrading together. Configure the read-only
+shared source mount and allowed roots in [transcript deployment](transcripts.md#filesystem-deployment);
+the existing Tika service is reused. Workspace rebuilds reread current client files,
+so preserve source access during extraction. Backups include retained transcript text,
+provenance, settings and rebuild receipts. Populated transcript state cannot be
+downgraded without data loss; the migration rejects that downgrade.
 
 Before the artifact upgrade, create the private host bind directory and configure
 the shared API/dashboard upload limit as described in [artifact deployment](artifacts.md#deployment).
@@ -995,7 +1003,7 @@ from the same revision: the frozen digests and the code that computes them are
 one unit, and a mismatched pair reports drift against an unchanged schema.
 `scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.41.0` clients and plugin `0.24.0` together.
+failure, and inventory deployed `0.42.0` clients and plugin `0.25.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 All three audits pin the PostgreSQL session settings that decide how the server

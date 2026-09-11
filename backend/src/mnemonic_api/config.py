@@ -53,6 +53,23 @@ class Settings(BaseSettings):
             "MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS", "artifact_extraction_max_chars"
         ),
     )
+    transcript_allowed_roots: list[Path] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices(
+            "MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS", "transcript_allowed_roots"),
+    )
+    transcript_max_bytes: int = Field(
+        default=67_108_864, ge=1, le=268_435_456,
+        validation_alias=AliasChoices("MNEMONIC_TRANSCRIPT_MAX_BYTES", "transcript_max_bytes"),
+    )
+
+    @field_validator("transcript_allowed_roots")
+    @classmethod
+    def transcript_roots_absolute(cls, roots: list[Path]) -> list[Path]:
+        if any(not root.is_absolute() or root == Path("/") or ".." in root.parts for root in roots):
+            raise ValueError("Transcript roots must be explicit absolute directories other than /")
+        return list(dict.fromkeys(roots))
+
     dashboard_origins: str = Field(
         default="http://localhost:3000,http://127.0.0.1:3000",
         validation_alias=AliasChoices("MNEMONIC_DASHBOARD_ORIGINS", "dashboard_origins"),

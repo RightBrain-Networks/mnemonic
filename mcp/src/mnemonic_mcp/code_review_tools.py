@@ -5,6 +5,7 @@ from uuid import UUID
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field, StrictInt
+from pydantic.experimental.missing_sentinel import MISSING
 
 from .api import MnemonicAPI, TransportEffect
 from .code_review_models import (
@@ -29,6 +30,7 @@ from .server import (
     _actor_payload,
     _client_operation_payload,
 )
+from .transcript_models import SubagentTranscriptArgument, subagent_transcript_payload
 
 QueueLimit = Annotated[StrictInt, Field(ge=1, le=50)]
 ReviewCursor = Annotated[str, Field(min_length=1, max_length=4096)]
@@ -263,15 +265,17 @@ def _register_review_writes(server: FastMCP, api: MnemonicAPI) -> None:
         project_id: UUID, work_item_id: UUID, review_id: UUID, expected_review_version: ReviewVersion,
         scope_sha256: ScopeHash, result: CodeReviewResultInput, lease_token: LeaseTokenInput,
         actor_client: ActorClientInput, actor_session_id: ActorSessionInput,
-        client_operation_id: UUID, actor_model: ActorModelInput | None = None,
+        client_operation_id: UUID, subagent_transcripts: SubagentTranscriptArgument = MISSING,
+        actor_model: ActorModelInput | None = None,
     ) -> CodeReviewCompletionRead:
-        """Submit one frozen ADVERSARIAL code-review result against the exact pinned scope and live purpose=code_review lease, using matching cold/warm mode. Require complete source coverage; missing objects or inability to inspect scope leaves the review open. Report concrete evidence-backed defects, contrary hypotheses, honest limitations; zero findings is valid. All actionable findings (at most 100, 8 KiB each, 64 KiB result) atomically create ONE linked pending remediation, or none if empty, and consume the review lease. Do not manufacture defects, truncate, fan out/create work, add reports/evidence, complete implementation again or review a review. The original stays Done. Freeze ordered findings and operation UUID; unknown outcome retries must reuse every argument unchanged before replacement claims. A definitive cold lease loss permits minimal same-scope claim only; supersession requires a new operator-provided cold prompt, never an implicit context read. No implicit reads occur in this tool."""
+        """Every fresh closeout requires an explicit subagent_transcripts assertion; omission is accepted exclusively for historical receipt replay before fresh backend guards. Explicitly report subagent_transcripts=[{client, path}, ...] for review subagents you launched, or null if none are applicable or available; retain the assertion unchanged with this operation UUID. Submit one frozen ADVERSARIAL code-review result against the exact pinned scope and live purpose=code_review lease, using matching cold/warm mode. Require complete source coverage; missing objects or inability to inspect scope leaves the review open. Report concrete evidence-backed defects, contrary hypotheses, honest limitations; zero findings is valid. All actionable findings (at most 100, 8 KiB each, 64 KiB result) atomically create ONE linked pending remediation, or none if empty, and consume the review lease. Do not manufacture defects, truncate, fan out/create work, add reports/evidence, complete implementation again or review a review. The original stays Done. Freeze ordered findings and operation UUID; unknown outcome retries must reuse every argument unchanged before replacement claims. A definitive cold lease loss permits minimal same-scope claim only; supersession requires a new operator-provided cold prompt, never an implicit context read. No implicit reads occur in this tool."""
         actor = _actor_payload(actor_client, actor_session_id, actor_model)
         return cast(CodeReviewCompletionRead, await api.request(
             "POST", f"projects/{project_id}/work-items/{work_item_id}/code-reviews/{review_id}/complete",
             payload=_client_operation_payload(client_operation_id, {
                 "expected_review_version": expected_review_version, "scope_sha256": scope_sha256,
                 "result": result.model_dump(mode="json"), "actor": actor,
+                **subagent_transcript_payload(subagent_transcripts),
                 "lease_token": lease_token.get_secret_value(),
             }), response_model=CodeReviewCompletionRead,
             effect=TransportEffect.RECEIPT_PROTECTED_WRITE, expected_status_code=200,

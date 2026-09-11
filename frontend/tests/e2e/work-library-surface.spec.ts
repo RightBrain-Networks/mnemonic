@@ -193,6 +193,7 @@ async function mergeDirect(
     `/api/v1/projects/${state.projectId}/work-items/${sourceId}/merge`,
     {
       data: {
+        subagent_transcripts: null,
         destination_work_item_id: destination.work_item.id,
         reviewed_source_revision: source.merge_review_revision,
         reviewed_destination_revision: destination.merge_review_revision,

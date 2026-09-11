@@ -63,6 +63,7 @@ type HierarchyRootsPage = {
 };
 
 type MergeInput = {
+  subagent_transcripts: null;
   destination_work_item_id: string;
   reviewed_source_revision: MergeRevision;
   reviewed_destination_revision: MergeRevision;
@@ -193,6 +194,7 @@ function mergeInput(
   mergedByClient = "playwright-api"
 ): MergeInput {
   return {
+    subagent_transcripts: null,
     destination_work_item_id: destination.work_item.id,
     reviewed_source_revision: source.merge_review_revision,
     reviewed_destination_revision: destination.merge_review_revision,

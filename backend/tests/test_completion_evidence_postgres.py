@@ -137,6 +137,7 @@ def _completion_payload(
     operation_id: str | object = ...,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
+        "subagent_transcripts": None,
         "expected_version": version,
         "checkpoint": {
             "prompt": f"Completed and reviewed in {session}.",
@@ -976,6 +977,7 @@ def test_maximum_escaping_completion_representations_fit_896_kib(
     operation_id = str(uuid4())
     lease_token = "\x02" * 200
     request_body = _maximum_escaping_completion_payload(operation_id, lease_token)
+    request_body["subagent_transcripts"] = None
     request_body["job_completion_report"] = {
         **_job_report_payload(api, project),
         "summary": "😀" * 2000,
@@ -1922,6 +1924,7 @@ def test_alias_history_remains_source_owned_without_canonical_blending(
     merged = api.post(
         f"{_item_path(project, source)}/merge",
         json={
+            "subagent_transcripts": None,
             "destination_work_item_id": destination["id"],
             "reviewed_source_revision": source_context["merge_review_revision"],
             "reviewed_destination_revision": destination_context["merge_review_revision"],
@@ -1963,7 +1966,7 @@ def test_soft_deleted_history_is_concealed_by_the_evidence_route(
     assert completed.status_code == 200, completed.text
     deleted = api.post(
         f"{_item_path(project, work)}/delete",
-        json={"expected_version": 2},
+        json={"subagent_transcripts": None, "expected_version": 2},
     )
     assert deleted.status_code == 200, deleted.text
     assert api.get(_item_path(project, work)).status_code == 404
@@ -1990,7 +1993,8 @@ def test_retained_deletion_tombstone_cleared_by_owner_has_no_current_pointer(
         operation_id=str(uuid4()),
     )
     assert completed.status_code == 200, completed.text
-    deleted = api.post(f"{_item_path(project, work)}/delete", json={"expected_version": 2})
+    deleted = api.post(f"{_item_path(project, work)}/delete", json={
+        "subagent_transcripts": None, "expected_version": 2})
     assert deleted.status_code == 200, deleted.text
     with postgres_engine.begin() as connection:
         connection.execute(
@@ -2202,6 +2206,7 @@ def test_evidence_receipt_replays_exactly_after_authoritative_merge(
     merged = api.post(
         f"{_item_path(project, source)}/merge",
         json={
+            "subagent_transcripts": None,
             "destination_work_item_id": destination["id"],
             "reviewed_source_revision": source_context["merge_review_revision"],
             "reviewed_destination_revision": destination_context["merge_review_revision"],
@@ -2244,7 +2249,8 @@ def test_evidence_receipt_replays_exactly_after_soft_deletion_and_recovery(
     )
     completed = api.post(f"{_item_path(project, work)}/complete", json=request_body)
     assert completed.status_code == 200, completed.text
-    deleted = api.post(f"{_item_path(project, work)}/delete", json={"expected_version": 2})
+    deleted = api.post(f"{_item_path(project, work)}/delete", json={
+        "subagent_transcripts": None, "expected_version": 2})
     assert deleted.status_code == 200, deleted.text
     before_replay = _completion_durable_snapshot(postgres_engine, work["id"], operation_id)
 
@@ -3394,7 +3400,8 @@ def test_retained_deletion_event_blocks_completion_after_deleted_at_is_cleared(
     message: str,
 ):
     work = _create_work(api, project, work_payload)
-    deleted = api.post(f"{_item_path(project, work)}/delete", json={"expected_version": 1})
+    deleted = api.post(f"{_item_path(project, work)}/delete", json={
+        "subagent_transcripts": None, "expected_version": 1})
     assert deleted.status_code == 200, deleted.text
     with postgres_engine.begin() as connection:
         connection.execute(

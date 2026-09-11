@@ -258,7 +258,7 @@ test("external API writes appear through live browser sync", async ({ page }, te
     const deletion = await client.post(
       "/api/v1/projects/" + state.projectId + "/work-items/"
         + emptyWork.work_item.id + "/delete",
-      { data: { expected_version: emptyWork.work_item.version } }
+      { data: { subagent_transcripts: null, expected_version: emptyWork.work_item.version } }
     );
     expect(deletion.ok(), await deletion.text()).toBe(true);
     const exitMidpoint = await sampleFadeMidpoint(page, emptyTitle, "out");

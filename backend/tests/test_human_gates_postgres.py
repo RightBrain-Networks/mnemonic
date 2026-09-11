@@ -147,7 +147,7 @@ def test_gate_request_capability_overlap_attention_resolution_and_replay(
     assert blocked_terminal.json()["detail"]["code"] == "work_gated"
     blocked_delete = api.post(
         f"{collection(project)}/{work['id']}/delete",
-        json={"expected_version": 1},
+        json={"subagent_transcripts": None, "expected_version": 1},
     )
     assert blocked_delete.status_code == 409
     assert blocked_delete.json()["detail"]["code"] == "work_gated"
@@ -245,7 +245,7 @@ def test_gate_request_capability_overlap_attention_resolution_and_replay(
 
     deleted = api.post(
         f"{collection(project)}/{work['id']}/delete",
-        json={"expected_version": 1},
+        json={"subagent_transcripts": None, "expected_version": 1},
     )
     assert deleted.status_code == 200, deleted.text
     resolution_replay = api.post(

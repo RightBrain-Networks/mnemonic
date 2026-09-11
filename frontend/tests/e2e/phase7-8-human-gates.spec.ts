@@ -183,7 +183,7 @@ async function hideWork(client: APIRequestContext, workId: string): Promise<void
   const detail = await current.json() as { work_item: { version: number } };
   const deletionPath = `/api/v1/projects/${state.projectId}/work-items/${workId}/delete`;
   let response = await client.post(deletionPath, {
-    data: { expected_version: detail.work_item.version }
+    data: { subagent_transcripts: null, expected_version: detail.work_item.version }
   });
   let body = await response.text();
   if (response.status() === 409 && body.includes("\"code\":\"work_gated\"")) {
@@ -221,7 +221,7 @@ async function hideWork(client: APIRequestContext, workId: string): Promise<void
       expect(resolution.ok(), await resolution.text()).toBe(true);
     }
     response = await client.post(deletionPath, {
-      data: { expected_version: detail.work_item.version }
+      data: { subagent_transcripts: null, expected_version: detail.work_item.version }
     });
     body = await response.text();
   }

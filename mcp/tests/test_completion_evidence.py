@@ -677,6 +677,7 @@ async def test_completion_tools_list_schema_matches_runtime_evidence_contract(se
         format_checker=FormatChecker(),
     )
     base_arguments = {
+        "subagent_transcripts": None,
         "project_id": PROJECT_ID,
         "work_item_id": WORK_ID,
         "expected_version": 1,
@@ -775,6 +776,7 @@ async def test_completion_tools_list_schema_matches_runtime_evidence_contract(se
 def test_complete_work_runtime_expected_version_is_strict_and_incrementable(settings):
     tool = build_server(settings)._tool_manager.get_tool("complete_work")
     arguments = {
+        "subagent_transcripts": None,
         "project_id": PROJECT_ID,
         "work_item_id": WORK_ID,
         "expected_version": MAX_COMPLETION_EXPECTED_VERSION,
@@ -817,6 +819,7 @@ async def test_complete_work_freezes_and_returns_ordered_evidence(
     def handler(request):
         seen.append(request)
         assert json.loads(request.content) == {
+            "subagent_transcripts": None,
             "client_operation_id": CLIENT_OPERATION_ID,
             "expected_version": 3,
             "checkpoint": {
@@ -852,6 +855,7 @@ async def test_complete_work_freezes_and_returns_ordered_evidence(
         await server.call_tool(
             "complete_work",
             {
+                "subagent_transcripts": None,
                 "project_id": PROJECT_ID,
                 "work_item_id": WORK_ID,
                 "expected_version": 3,
@@ -883,6 +887,7 @@ async def test_complete_work_omits_empty_evidence(
         )
 
     arguments = {
+        "subagent_transcripts": None,
         "project_id": PROJECT_ID,
         "work_item_id": WORK_ID,
         "expected_version": 3,
@@ -919,6 +924,7 @@ async def test_complete_work_rejects_explicit_null_before_dispatch(settings):
         await server.call_tool(
             "complete_work",
             {
+                "subagent_transcripts": None,
                 "project_id": PROJECT_ID,
                 "work_item_id": WORK_ID,
                 "expected_version": 3,
@@ -1004,6 +1010,7 @@ async def test_complete_work_treats_incoherent_evidence_success_as_unknown(
         return httpx.Response(200, content=raw_response)
 
     arguments = {
+        "subagent_transcripts": None,
         "project_id": PROJECT_ID,
         "work_item_id": WORK_ID,
         "expected_version": 3,
@@ -1970,6 +1977,7 @@ async def test_largest_legal_complete_call_fits_one_mib_ingress(settings):
         json.dumps({"m": source_metadata["m"] + "\x1b"}, ensure_ascii=False).encode()
     ) > 16_384
     arguments = {
+        "subagent_transcripts": None,
         "project_id": PROJECT_ID,
         "work_item_id": WORK_ID,
         "expected_version": MAX_COMPLETION_EXPECTED_VERSION,

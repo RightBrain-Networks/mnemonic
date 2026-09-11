@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const preferenceKey = "mnemonic.resources-menu";
 
-test("resources menu groups its leaves below Needs Attention and opens a blank Transcripts page", async ({ page }, testInfo) => {
+test("resources menu groups its leaves below Needs Attention and opens the Transcripts library", async ({ page }, testInfo) => {
   if ((page.viewportSize()?.width ?? 0) > 800) await page.setViewportSize({ width: 1280, height: 1000 });
   await page.goto("/");
   const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
@@ -16,13 +16,14 @@ test("resources menu groups its leaves below Needs Attention and opens a blank T
   await toggle.click();
   await expect(resources.locator("a")).toHaveText(["Artifacts", "Transcripts"]);
   await resources.getByRole("link", { name: "Transcripts", exact: true }).click();
-  await expect(page).toHaveURL("/transcripts");
+  await expect(page).toHaveURL(/\/transcripts(?:\?project=[a-f0-9-]+)?$/);
   await expect(page.locator("h1")).toHaveText("Transcripts.");
   await expect(navigation.locator('[aria-current="page"]')).toHaveText("Transcripts");
   await expect(page.locator(".breadcrumb")).toContainText("Transcripts");
   await expect(page.locator(".skip-link")).toHaveText("Skip to transcripts");
-  await expect(page.locator(".page-content > *")).toHaveCount(1);
-  await expect(page.locator(".page-content input, .page-content button, .page-content table")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Transcript library", exact: true })).toBeVisible();
+  await expect(page.getByRole("searchbox", { name: "Search transcript metadata and content" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Transcript directory", exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.reload();
   await expect(page.locator("h1")).toHaveText("Transcripts.");
@@ -30,7 +31,7 @@ test("resources menu groups its leaves below Needs Attention and opens a blank T
   await page.evaluate(() => document.fonts.ready);
   const screenshot = testInfo.outputPath("resources-transcripts.png");
   await page.screenshot({ path: screenshot, fullPage: true });
-  await testInfo.attach("Resources and blank Transcripts page", { path: screenshot, contentType: "image/png" });
+  await testInfo.attach("Resources and Transcripts library", { path: screenshot, contentType: "image/png" });
 });
 
 test("resources menu restores its own disclosure state and supports keyboard navigation", async ({ page }) => {
@@ -82,6 +83,6 @@ test("resources menu supports reduced motion and unavailable storage", async ({ 
   await expect(group.locator(".nav-group-collapse")).toBeHidden();
   await toggle.click();
   await group.getByRole("link", { name: "Transcripts", exact: true }).click();
-  await expect(page).toHaveURL("/transcripts");
+  await expect(page).toHaveURL(/\/transcripts(?:\?project=[a-f0-9-]+)?$/);
   await expect(page.locator("h1")).toHaveText("Transcripts.");
 });

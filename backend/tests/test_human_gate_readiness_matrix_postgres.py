@@ -715,7 +715,8 @@ def test_overlapping_gate_blocker_and_active_lease_errors_have_stable_precedence
             "Review and resolve every gate first."
         ),
     )
-    deletion = api.post(f"{target_path}/delete", json={"expected_version": 1})
+    deletion = api.post(f"{target_path}/delete", json={
+        "subagent_transcripts": None, "expected_version": 1})
     assert_conflict(
         deletion,
         code="active_relationships",
