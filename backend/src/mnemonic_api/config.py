@@ -67,13 +67,14 @@ class Settings(BaseSettings):
     )
 
     @model_validator(mode="after")
-    def transcript_source_has_allowlist(self) -> Self:
-        if (self.transcript_source_dir is not None
-                and self.transcript_source_dir not in self.transcript_allowed_roots):
+    def transcript_source_default_allowlist(self) -> Self:
+        if self.transcript_source_dir is None:
+            return self
+        if not self.transcript_allowed_roots:
+            self.transcript_allowed_roots = [self.transcript_source_dir]
+        elif self.transcript_source_dir not in self.transcript_allowed_roots:
             raise ValueError(
-                "MNEMONIC_TRANSCRIPT_SOURCE_DIR requires the same path in "
-                "MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS. Include compose.transcripts.yaml; "
-                "explicit Compose -f flags override COMPOSE_FILE."
+                "MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS must include MNEMONIC_TRANSCRIPT_SOURCE_DIR"
             )
         return self
 

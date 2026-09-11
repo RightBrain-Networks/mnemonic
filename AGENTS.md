@@ -83,7 +83,7 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.45.0`, Claude plugin
+The current application/API/MCP/dashboard release is `0.45.1`, Claude plugin
 `0.26.0`, and Alembic head `0033_transcript_imports`. The catalog is exactly
 54 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 20 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
@@ -141,8 +141,9 @@ Imports are project-owned, deduplicated by normalized source path against enroll
 and reused by later enrollment. Import receipts retain exact folders and operation UUIDs.
 The API only reads regular files beneath operator-configured allowed roots. Corrected
 roots automatically retry earlier path-not-allowed failures while retaining lease
-and pause guards. Compose rejects a configured source with an omitted allowlist or
-unavailable mount at API startup. See
+and pause guards. Base Compose mounts the configured transcript source read-only at
+its original absolute path; the source supplies the default allowlist. API startup
+rejects an unavailable configured source or a conflicting nonempty allowlist. See
 `docs/transcripts.md` for the read-only shared-filesystem mount and workspace settings.
 
 Reviews belong to original Done work and require purpose-bound review leases.

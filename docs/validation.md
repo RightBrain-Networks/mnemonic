@@ -1,5 +1,25 @@
 # Mnemonic validation record
 
+## Transcript startup without a source overlay (0.45.1)
+
+Base Compose now mounts `MNEMONIC_TRANSCRIPT_SOURCE_DIR` read-only at its exact
+absolute path, and API settings derive the default allowlist from that source.
+The retained empty transcript overlay keeps saved deployment file lists valid.
+No schema migration or transcript rebuild is needed.
+
+The production Compose harness passes with base alone, explicit base/TLS flags,
+and a saved base/TLS/transcript overlay list. Each configuration exercises real
+owner-only primary and nested subagent files, discovery, denied writes, outside-root
+and symlink rejection, wrong-UID denial, private artifact writes, and disk indexing.
+A source path containing spaces and quotes works without JSON interpolation.
+Unset and empty source settings expose only the shipped placeholder and leave
+filesystem access disabled. Missing configured sources fail without auto-creation.
+
+The 37 focused settings and storage checks pass, including default allowlist
+derivation, preservation of explicit roots, and rejection of a conflicting
+nonempty allowlist or an ambiguous source path. The harness uses synthetic files
+in isolated containers and does not read production transcripts.
+
 ## Configurable transcript index storage and source recovery (0.45.0)
 
 `MNEMONIC_TRANSCRIPT_INDEX_DIR` selects both the generated index directory and its
