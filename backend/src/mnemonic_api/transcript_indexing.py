@@ -60,6 +60,8 @@ def _resolved_path_errors(settings: Settings):
     # normal reader still enforces regular files and refuses all symlinks.
     path = func.regexp_replace(Transcript.source_path, r"/\.(?=/|$)", "", "g")
     path = func.regexp_replace(path, "/+", "/", "g")
+    # Path() also removes trailing separators; the root itself is not a file.
+    path = func.rtrim(path, "/")
     allowed = or_(false(), *(path.startswith(
         canonical_source_path(str(root)).rstrip("/") + "/", autoescape=True,
     ) for root in settings.transcript_allowed_roots))

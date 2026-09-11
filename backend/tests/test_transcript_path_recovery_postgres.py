@@ -78,7 +78,9 @@ def test_recovery_waits_for_active_generation_and_enabled_settings(
         assert database.get(Transcript, UUID(record["id"])).attempts == 1
 
 
-@pytest.mark.parametrize("source_kind", ["plain", "aliases", "sibling", "wildcard", "traversal"])
+@pytest.mark.parametrize("source_kind", [
+    "plain", "aliases", "sibling", "wildcard", "traversal", "root", "root_slashes", "root_dot",
+])
 def test_recovery_matches_exact_roots_and_posix_aliases(api, project, tmp_path, source_kind):
     root = tmp_path / "private%_root"
     root.mkdir()
@@ -90,6 +92,9 @@ def test_recovery_matches_exact_roots_and_posix_aliases(api, project, tmp_path, 
         "sibling": str(root) + "-outside/session.jsonl",
         "wildcard": str(tmp_path / "privateZZroot" / "session.jsonl"),
         "traversal": str(root) + "/../private%_root/session.jsonl",
+        "root": str(root) + "/",
+        "root_slashes": str(root) + "//",
+        "root_dot": str(root) + "/./",
     }
     identity = uuid4()
     factory = api.app.state.session_factory
@@ -105,6 +110,7 @@ def test_recovery_matches_exact_roots_and_posix_aliases(api, project, tmp_path, 
         record = database.get(Transcript, identity)
         assert record.source_path == paths[source_kind]
         assert record.status == ("ready" if eligible else "failed")
+        assert record.attempts == 1
     assert not run(api)
 
 
