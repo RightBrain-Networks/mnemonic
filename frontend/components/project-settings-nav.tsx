@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useId, useState, type MouseEvent, type ReactNode } from "react";
 import { dashboardStorageKeys } from "@/lib/dashboard-preferences";
 import { settingsSections, type SettingsSection } from "@/lib/settings-navigation";
@@ -45,12 +46,12 @@ export default function ProjectSettingsNav({ section, icon, onNavigate }: Props)
     <div id={submenuId} className="settings-nav-collapse" inert={!expanded} aria-hidden={!expanded}>
       <ul className="settings-nav-leaves">
         {settingsSections.map(({ id, label }) => <li key={id}>
-          <a
+          <Link
             className={`nav-item settings-nav-leaf ${section === id ? "active" : ""}`}
             href={`/settings/${id}`}
             aria-current={section === id ? "page" : undefined}
             onClick={onNavigate}
-          ><span>{label}</span></a>
+          ><span>{label}</span></Link>
         </li>)}
       </ul>
     </div>
