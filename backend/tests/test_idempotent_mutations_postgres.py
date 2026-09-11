@@ -905,6 +905,7 @@ def test_terminal_and_release_replay_before_disappeared_or_replaced_state(
     deletion_work = create_unkeyed(api, project, work_payload, "Deletion replay")
     deletion_path = work_path(project, deletion_work)
     deletion_body = {
+        "subagent_transcripts": None,
         "expected_version": 1,
         "actor": actor("delete"),
         "client_operation_id": str(uuid4()),

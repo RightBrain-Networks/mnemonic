@@ -100,6 +100,7 @@ def result_payload(completion, lease, *, findings=None):
     review = completion["code_review_request"]
     repository = handoff()["scope"]["repositories"][0]
     return {
+        "subagent_transcripts": None,
         "client_operation_id": str(uuid4()),
         "expected_review_version": review["version"],
         "scope_sha256": review["scope_sha256"],

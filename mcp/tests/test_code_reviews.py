@@ -153,7 +153,8 @@ def answer_arguments(recommend=False):
 
 
 def complete_arguments():
-    return {**base_arguments(), "review_id": REVIEW_ID, "expected_review_version": 1,
+    return {**base_arguments(), "subagent_transcripts": None, "review_id": REVIEW_ID,
+            "expected_review_version": 1,
             "scope_sha256": scope_digest(), "lease_token": "private-live-review-token",
             "result": result_input()}
 
@@ -252,7 +253,7 @@ async def test_forged_answer_success_remains_unknown(settings, field):
 
 
 async def test_cold_claim_returns_only_coordination_and_never_recalls(settings):
-    arguments = {"project_id": PROJECT_ID, "work_item_id": WORK_ID,
+    arguments = {"session_transcript": None, "project_id": PROJECT_ID, "work_item_id": WORK_ID,
                  "holder_client": "review-test", "holder_session_id": "actual-session",
                  "claim_request_id": "retained-claim", "purpose": "code_review",
                  "code_review_id": REVIEW_ID, "mode": "cold"}
@@ -418,6 +419,7 @@ async def test_explicit_null_review_claim_arguments_fail_before_http(settings, f
     server = build_server(settings, MnemonicAPI(settings, httpx.MockTransport(handle)))
     with pytest.raises(ToolError):
         await server.call_tool("claim_work", {
+            "session_transcript": None,
             "project_id": PROJECT_ID, "work_item_id": WORK_ID,
             "holder_client": "review-test", "holder_session_id": "actual-session",
             "claim_request_id": "retained-claim", field: None,

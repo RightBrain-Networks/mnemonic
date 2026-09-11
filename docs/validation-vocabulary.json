@@ -184,7 +184,9 @@
       "after",
       "changes",
       "claim_request_id",
+      "client",
       "dismissal",
+      "expected_sha256",
       "fyi_items",
       "holder_client",
       "holder_session_id",
@@ -200,7 +202,10 @@
       "requested_by_client",
       "requested_by_model",
       "requested_by_session_id",
-      "start"
+      "session_transcript",
+      "start",
+      "subagent_transcripts",
+      "transcript_id"
     ],
     "browser": [
       "completion_checkpoint_id",

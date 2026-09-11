@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import TranscriptSettingsPanel from "@/components/transcript-settings";
 import CodeReviewSettingsPanel from "@/components/code-review-settings";
 import ProjectBackupsPanel from "@/components/project-backups";
 import { api, ApiError, errorMessage } from "@/lib/api";
@@ -25,6 +26,7 @@ type Props = {
   backupMaximumBytes: number;
   backupRefreshSignal: number;
   onBackupPendingChange: (pending: boolean) => void;
+  onTranscriptPendingChange: (pending: boolean) => void;
 };
 
 type PendingAction = "save" | "clear" | "report-save" | "report-reset" | null;
@@ -59,7 +61,8 @@ export default function ProjectSettingsPanel({
   onNotice,
   backupMaximumBytes,
   backupRefreshSignal,
-  onBackupPendingChange
+  onBackupPendingChange,
+  onTranscriptPendingChange
 }: Props) {
   const [projectDetails, setProjectDetails] = useState(() => detailsFromProject(project));
   const storedTemplate = settings && project && settings.project_id === project.id
@@ -376,6 +379,7 @@ export default function ProjectSettingsPanel({
         </div>
       </form>
     </section>}
+    {section === "workspace" && <TranscriptSettingsPanel key={selectedProject.id} projectId={selectedProject.id} onPendingChange={onTranscriptPendingChange} />}
     {section === "prompts" && <>
     {conflictRevision && <section className="error-notice" role="alert">
       <p>Review the latest saved settings before applying your draft. Your edits have been kept.</p>

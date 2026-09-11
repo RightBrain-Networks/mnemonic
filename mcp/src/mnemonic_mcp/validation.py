@@ -17,6 +17,12 @@ from .transport import bounded_stdio_server
 VALIDATION_FIELDS = frozenset(
     {
         "external_candidates",
+        "session_transcript",
+        "subagent_transcripts",
+        "client",
+        "transcript_id",
+        "expected_sha256",
+
         "gate_id",
         "expected_question_version",
         "code_review_handoff",
@@ -382,6 +388,12 @@ class SanitizedFastMCP(FastMCP[Any]):
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         tool = self._tool_manager.get_tool(name)
+        changes = arguments.get("changes")
+        if name == "update_work" and isinstance(changes, dict):
+            status = changes.get("status")
+            closeout = isinstance(status, str) and status in {"wont-do", "promoted"}
+            if not closeout and arguments.get("subagent_transcripts") is not None:
+                raise ToolError("Subagent transcript assertions require a closeout transition.")
         try:
             return await super().call_tool(name, arguments)
         except ToolError as error:

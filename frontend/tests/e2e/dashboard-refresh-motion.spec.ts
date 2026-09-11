@@ -39,6 +39,7 @@ async function add(api: APIRequestContext, projectId: string, queue: Queue, titl
   const { work_item: work } = await create.json() as { work_item: { id: string; version: number } };
   const result = queue === "summaries"
     ? await api.post(`/api/v1/projects/${projectId}/work-items/${work.id}/complete`, { data: {
+        subagent_transcripts: null,
         expected_version: work.version, client_operation_id: crypto.randomUUID(),
         checkpoint: { prompt: "Verified the dashboard fixture.", source_client: "playwright-api", source_session_id: "dashboard-motion" },
         job_completion_report: await reportForFixture(api, projectId)

@@ -114,6 +114,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
       `/api/v1/projects/${state.projectId}/work-items/${doneRootId}/complete`,
       {
         data: {
+          subagent_transcripts: null,
           job_completion_report: await reportForFixture(client, state.projectId),
           client_operation_id: crypto.randomUUID(),
           expected_version: 1,

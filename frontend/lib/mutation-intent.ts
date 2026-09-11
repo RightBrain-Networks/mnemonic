@@ -163,6 +163,15 @@ export function mutationCreateKey(projectId: string): string {
   return `work-create:${projectId.toLowerCase()}`;
 }
 
+function mutationBody(input: PrepareMutation<MutationKind>, operationId: string, fresh = true): string {
+  const payload = input.payload as Record<string, unknown>;
+  const closeout = ["complete_work", "merge_work", "delete_work"].includes(input.kind)
+    || input.kind === "update_work" && ["done", "wont-do", "promoted"].includes(String(payload.status));
+  return JSON.stringify({ ...payload,
+    ...(fresh && closeout && payload.subagent_transcripts === undefined ? { subagent_transcripts: null } : {}),
+    client_operation_id: operationId });
+}
+
 export class MutationIntentRegistry {
   readonly #fetcher: Fetcher;
   readonly #uuidFactory: UuidFactory;
@@ -229,7 +238,7 @@ export class MutationIntentRegistry {
     if (!UUID_PATTERN.test(operationId)) {
       throw new Error("The mutation operation ID generator returned an invalid UUID.");
     }
-    const body = JSON.stringify({ ...input.payload, client_operation_id: operationId });
+    const body = mutationBody(input, operationId);
     const intent = immutableIntent({
       kind: input.kind,
       slot: input.slot,
@@ -271,7 +280,8 @@ export class MutationIntentRegistry {
       || existing.expectedSourceWorkItemId !== input.expectedSourceWorkItemId
       || existing.expectedSourceWorkStatus !== input.expectedSourceWorkStatus
       || !sameKeys(existing.conflictKeys, input.conflictKeys)
-      || JSON.stringify({ ...input.payload, client_operation_id: existing.operationId }) !== existing.body
+      || mutationBody(input, existing.operationId,
+        Object.hasOwn(JSON.parse(existing.body), "subagent_transcripts")) !== existing.body
     ) {
       throw new MutationIntentError(BLOCKED, "blocked", existing.slot);
     }
@@ -365,6 +375,11 @@ export class MutationIntentRegistry {
       return outcome.value;
     }
     if (outcome.type === "rejected") {
+      if (intent.attempts > 1 && !outcome.receiptChecked) {
+        const message = `This retry was rejected: ${outcome.error.message} The original outcome is still unknown. Retry the same pending action.`;
+        this.#retain(intent, "unresolved", message);
+        throw new MutationIntentError(message, "unresolved", intent.slot);
+      }
       this.#intents.delete(intent.slot);
       this.#emit();
       throw outcome.error;

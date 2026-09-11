@@ -59,6 +59,7 @@ def merge_payload(
     operation_id: str | None = None,
 ) -> dict:
     return {
+        "subagent_transcripts": None,
         "destination_work_item_id": destination_context["work_item"]["id"],
         "reviewed_source_revision": source_context["merge_review_revision"],
         "reviewed_destination_revision": destination_context["merge_review_revision"],
@@ -581,7 +582,7 @@ def test_every_fresh_alias_mutation_fails_without_side_effects(
         ),
         "delete": api.post(
             f"{work_path(project, source)}/delete",
-            json={"expected_version": alias_version},
+            json={"subagent_transcripts": None, "expected_version": alias_version},
         ),
         "checkpoint": api.post(
             f"{work_path(project, source)}/checkpoints",

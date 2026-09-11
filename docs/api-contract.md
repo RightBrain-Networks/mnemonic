@@ -1,10 +1,10 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.41.0`, plugin `0.24.0`, and migration
-`0031_review_decisions`. The catalog has exactly 48 MCP tools, 17
-protected MCP writes, 22 REST receipt kinds, 19 protected browser mutations and
-24 work-event types. The 22 REST receipt kinds comprise 18 work operations and
-four artifact operations with filesystem recovery journals. See
+This is application/API/MCP/dashboard `0.42.0`, plugin `0.25.0`, and migration
+`0032_agent_transcripts`. The catalog has exactly 53 MCP tools, 17
+protected MCP writes, 23 REST receipt kinds, 20 protected browser mutations and
+24 work-event types. The 23 REST receipt kinds comprise 18 work operations, four artifact operations
+with filesystem recovery journals, and one transcript rebuild operation. See
 [artifact contracts](artifacts.md) for binary routes, retention and work discovery.
 Relationship identity and graph invariants are global;
 `relationship.project_id` remains immutable edge and read/removal route
@@ -1274,7 +1274,13 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 48 tools:
+The catalog is exactly 53 tools:
+
+Transcript tools: `list_transcripts`, `search_transcript_contents`, `get_transcript`,
+`get_transcript_text`, and `download_transcript`. All five are safe reads. Claims
+require `session_transcript: {client, path} | null`; agent closeouts require
+`subagent_transcripts: [{client, path}, ...] | null`. See [transcripts](transcripts.md)
+for indexing dispositions, paging, shared-filesystem limits, settings and rebuild receipts.
 
 Artifact tools: `list_artifacts`, `get_artifact`, `list_artifact_history`,
 `upload_artifact`, `replace_artifact`, `download_artifact`, `delete_artifact`,

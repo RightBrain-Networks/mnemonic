@@ -27,6 +27,12 @@ from mnemonic_api.services.work_events import (
     stage_work_claimed,
     stage_work_released,
 )
+from mnemonic_api.transcript_lifecycle import (
+    register_claim_transcript,
+    register_closeout_transcripts,
+    require_same_claim_transcript,
+)
+from mnemonic_api.transcript_locations import TranscriptSources
 
 
 def _database_now(database: Session) -> datetime:
@@ -154,6 +160,7 @@ def claim_lease_record(
             code_review_id=lease.code_review_id, mode=lease.mode,
         )
         database.flush()
+        register_claim_transcript(database, work_item, lease, payload.session_transcript)
         return claim_receipt(lease, database)
 
     retained_identity = (
@@ -164,6 +171,7 @@ def claim_lease_record(
     )
     if lease.expires_at > database_now:
         if retained_identity == requested_identity:
+            require_same_claim_transcript(database, lease, payload.session_transcript)
             return claim_receipt(lease, database)
         _fresh_claim_eligible(database, work_item, payload)
         raise conflict(
@@ -206,6 +214,7 @@ def claim_lease_record(
         code_review_id=lease.code_review_id, mode=lease.mode,
     )
     database.flush()
+    register_claim_transcript(database, work_item, lease, payload.session_transcript)
     return claim_receipt(lease, database)
 
 
@@ -249,6 +258,7 @@ def release_lease_record(
     work_item: WorkItem,
     lease_token: str,
     actor: MutationActor | None = None,
+    subagent_transcripts: TranscriptSources | None = None,
 ) -> ReleaseResult:
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
@@ -259,6 +269,8 @@ def release_lease_record(
     if lease is None:
         return ReleaseResult(work_item_id=work_item.id, released=False)
     if _same_token(lease_token, lease.lease_token):
+        register_closeout_transcripts(database, work_item, subagent_transcripts,
+                                     lease.holder_client, lease.holder_session_id)
         release_id = uuid4()
         lease.pending_release_id = release_id
         database.flush()

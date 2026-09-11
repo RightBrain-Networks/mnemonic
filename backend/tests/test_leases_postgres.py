@@ -508,17 +508,21 @@ def test_terminal_mutations_require_active_token_and_consume_the_lease(
         f"{deleted_endpoint}/claim", json=claim_payload("delete-request")
     ).json()
     assert api.post(
-        f"{deleted_endpoint}/delete", json={"expected_version": 1}
+        f"{deleted_endpoint}/delete", json={"subagent_transcripts": None, "expected_version": 1}
     ).status_code == 409
     wrong_deletion = api.post(
         f"{deleted_endpoint}/delete",
-        json={"expected_version": 1, "lease_token": "wrong-deletion-token"},
+        json={
+            "subagent_transcripts": None,
+            "expected_version": 1, "lease_token": "wrong-deletion-token"},
     )
     assert wrong_deletion.status_code == 409
     assert wrong_deletion.json()["detail"]["code"] == "lease_token_mismatch"
     deleted = api.post(
         f"{deleted_endpoint}/delete",
-        json={"expected_version": 1, "lease_token": deleted_claim["lease_token"]},
+        json={
+            "subagent_transcripts": None,
+            "expected_version": 1, "lease_token": deleted_claim["lease_token"]},
     )
     assert deleted.status_code == 200
     assert api.get(deleted_endpoint).status_code == 404
@@ -594,7 +598,8 @@ def test_terminal_deleted_and_cross_project_claims_are_rejected_without_token_le
         },
     )["work_item"]
     deleted_endpoint = item_path(project, deleted)
-    assert api.post(f"{deleted_endpoint}/delete", json={"expected_version": 1}).status_code == 200
+    assert api.post(f"{deleted_endpoint}/delete", json={
+        "subagent_transcripts": None, "expected_version": 1}).status_code == 200
     assert api.post(
         f"{deleted_endpoint}/claim", json=claim_payload("deleted-request")
     ).status_code == 404
@@ -682,7 +687,9 @@ def test_capabilities_are_body_only_and_lease_routes_reject_every_query_paramete
     rejected_deletion = api.post(
         f"{endpoint}/delete",
         params={"lease_token": query_token},
-        json={"expected_version": 1, "lease_token": receipt["lease_token"]},
+        json={
+            "subagent_transcripts": None,
+            "expected_version": 1, "lease_token": receipt["lease_token"]},
     )
     for response in [rejected_renew, rejected_release, rejected_terminal, rejected_deletion]:
         assert response.status_code == 422
@@ -703,7 +710,9 @@ def test_capabilities_are_body_only_and_lease_routes_reject_every_query_paramete
     assert search.json()["total"] >= 1
     accepted_deletion = api.post(
         f"{endpoint}/delete",
-        json={"expected_version": 1, "lease_token": receipt["lease_token"]},
+        json={
+            "subagent_transcripts": None,
+            "expected_version": 1, "lease_token": receipt["lease_token"]},
     )
     assert accepted_deletion.status_code == 200
     assert api.get(endpoint).status_code == 404

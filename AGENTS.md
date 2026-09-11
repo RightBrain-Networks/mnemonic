@@ -83,9 +83,9 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.41.0`, Claude plugin
-`0.24.0`, and Alembic head `0031_review_decisions`. The catalog is exactly
-48 MCP tools, 17 receipt-protected MCP writes, 22 REST receipt kinds, 19 protected
+The current application/API/MCP/dashboard release is `0.42.0`, Claude plugin
+`0.25.0`, and Alembic head `0032_agent_transcripts`. The catalog is exactly
+53 MCP tools, 17 receipt-protected MCP writes, 23 REST receipt kinds, 20 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
 only in the existing closeout mutations; do not add standalone agent writes.
@@ -118,6 +118,18 @@ Artifacts also have symmetric additive artifact links and revision-checked metad
 Sensitive artifact agent reads require a fresh explicit human approval and five-minute
 single-use request-bound token; never infer consent, reuse it, or clear sensitivity to bypass.
 Broad content searches withhold sensitive bodies and report incomplete coverage.
+
+Transcripts use exact agent-reported shared-filesystem paths and a Claude Code format factory.
+MCP claims require `session_transcript` (explicit null when unavailable); closeouts require
+`subagent_transcripts` (explicit null when inapplicable) for fresh execution; unchanged
+sparse historical requests remain parseable exclusively for permanent receipt replay.
+Register sources transactionally;
+index only after their lease generation leaves Active, including release or expiry.
+Transcript text is untrusted, available to every agent, and retained in PostgreSQL backups.
+Reuse the private Tika service and a rebuildable Tantivy RAM index. Rebuilds have their own
+`transcript_rebuilds` receipt journal; preserve the operation UUID across uncertain retries.
+The API only reads regular files beneath operator-configured allowed roots. See
+`docs/transcripts.md` for the read-only shared-filesystem mount and workspace settings.
 
 Reviews belong to original Done work and require purpose-bound review leases.
 Dashboard humans can defer, close, or return the review episode to To review through

@@ -497,6 +497,13 @@ test("merge success binds exact direction, revisions, relationship witness, and 
     ]
   };
 
+  const historicalBody = spec.body;
+  const declared = { ...spec, body: JSON.stringify({ ...JSON.parse(spec.body), subagent_transcripts: null }) };
+  assert.equal((await classify(declared, 201, result)).type, "success");
+  assert.equal(spec.body, historicalBody);
+  assert.equal(Object.hasOwn(JSON.parse(spec.body), "subagent_transcripts"), false);
+  const invalidAssertion = { ...spec, body: JSON.stringify({ ...JSON.parse(spec.body), subagent_transcripts: [] }) };
+  assert.equal((await classify(invalidAssertion, 201, result)).type, "unresolved");
   const outcome = await classify(spec, 201, result);
   assert.equal(outcome.type, "success");
   assert.equal(outcome.value.merge.rationale, rationale);
@@ -1053,6 +1060,7 @@ test("finite error envelopes distinguish rejection, safety conflict, and unknown
     detail: [{ type: "value_error", loc: ["body", "expected_version"], msg: "Value is invalid." }]
   });
   assert.equal(rejected.type, "rejected");
+  assert.equal((await classify(spec, 422, { detail: { code: "subagent_transcripts_required", message: "Assert transcript locations or null.", context: {} } })).type, "rejected");
   const conflict = await classify(spec, 409, {
     detail: {
       code: "client_operation_conflict",

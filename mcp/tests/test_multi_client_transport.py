@@ -31,6 +31,7 @@ def operation_case(tool_name, client_name, session_id, index, template):
     response = {**template, "work_item_id": work_item_id}
     if tool_name == "claim_work":
         payload = {
+            "session_transcript": None,
             "holder_client": client_name,
             "holder_session_id": session_id,
             "claim_request_id": f"claim:{client_name}/{index}",
@@ -45,7 +46,8 @@ def operation_case(tool_name, client_name, session_id, index, template):
                 scope_sha256="a" * 64,
             )
         arguments.update(payload)
-        response.update(payload)
+        response.update({key: value for key, value in payload.items()
+                         if key != "session_transcript"})
         return arguments, payload, response
     if tool_name == "add_checkpoint":
         checkpoint_input = {

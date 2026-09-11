@@ -14,7 +14,7 @@ Link originating and related work during upload so ordinary recall discovers fil
 
 Mnemonic Phase 12 requires an agent-authored human report on every fresh Done,
 Won’t do, or Promoted closeout. Read current project settings before authoring,
-then submit the report inside the existing closeout intent. The 48-tool MCP
+then submit the report inside the existing closeout intent. The 53-tool MCP
 catalog adds four safe reads for settings, durable project activity, and report
 history; reviews add four reads and two protected writes, totaling sixteen. Human dismissal and manual
 follow-ups belong in the dashboard’s Summaries page, immediately below Needs

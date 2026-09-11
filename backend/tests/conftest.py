@@ -249,6 +249,7 @@ def api(postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[Te
         await asyncio.Event().wait()
 
     monkeypatch.setattr("mnemonic_api.application.artifact_extraction_loop", idle_extraction)
+    monkeypatch.setattr("mnemonic_api.application.transcript_indexing_loop", idle_extraction)
     reset_disposable_schema(postgres_engine)
     settings = Settings(
         database_url=postgres_engine.url.render_as_string(hide_password=False), api_key=TEST_API_KEY

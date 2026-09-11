@@ -110,7 +110,7 @@ export interface FrozenMutationRequest {
 
 export type MutationHttpOutcome<K extends MutationKind = MutationKind> =
   | { readonly type: "success"; readonly value: MutationResultByKind[K] }
-  | { readonly type: "rejected"; readonly error: ApiError }
+  | { readonly type: "rejected"; readonly error: ApiError; readonly receiptChecked: boolean }
   | { readonly type: "safety_conflict"; readonly error: ApiError }
   | { readonly type: "unresolved"; readonly message: string };
 
@@ -199,7 +199,7 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "event_secret_echo", "client_operation_secret_echo", "gate_secret_echo",
     "code_review_handoff_required", "code_review_handoff_not_applicable", "work_follow_up_answer_invalid", "code_review_scope_mismatch", "code_review_coverage_incomplete",
     "merge_secret_echo", "job_completion_report_required", "job_completion_report_not_applicable", "client_operation_id_required",
-    "initial_status_must_be_pending", "job_report_secret_echo"
+    "initial_status_must_be_pending", "job_report_secret_echo", "subagent_transcripts_required"
   ])],
   [503, new Set(["duplicate_graph_invalid"])]
 ]);
@@ -776,8 +776,10 @@ function decodeSuccess<K extends MutationKind>(
       || !exactKeys(body, [
         "destination_work_item_id", "reviewed_source_revision",
         "reviewed_destination_revision", "rationale", "merged_by_client",
-        "merged_by_session_id", "merged_by_model", "client_operation_id"
+        "merged_by_session_id", "merged_by_model", "client_operation_id",
+        ...(Object.hasOwn(body, "subagent_transcripts") ? ["subagent_transcripts"] : [])
       ])
+      || (Object.hasOwn(body, "subagent_transcripts") && body.subagent_transcripts !== null)
       || !validUuid(body.destination_work_item_id)
       || sameUuid(body.destination_work_item_id, path.workItemId)
       || !sameMergeRevision(body.reviewed_source_revision, body.reviewed_source_revision)
@@ -953,7 +955,7 @@ export async function classifyMutationResponse<K extends MutationKind>(
     && detail?.category === "application"
     && detail.code === "duplicate_graph_invalid"
   ) {
-    return { type: "rejected", error: new ApiError(detail.message, 503, detail.code) };
+    return { type: "rejected", error: new ApiError(detail.message, 503, detail.code), receiptChecked: true };
   }
   if (AMBIGUOUS_STATUSES.has(response.status) || response.status >= 500) {
     return {
@@ -981,7 +983,10 @@ export async function classifyMutationResponse<K extends MutationKind>(
       : isDefinitiveProxyError(response.status, detail.message)
         || DEFINITIVE_API_STRING_ERRORS.get(response.status)?.has(detail.message) === true;
   return recognized
-    ? { type: "rejected", error }
+    ? { type: "rejected", error,
+        // Request validation, authentication, proxy guards and secret-echo checks
+        // can run before the permanent receipt is looked up.
+        receiptChecked: detail.category === "application" && !detail.code?.endsWith("_secret_echo") }
     : {
       type: "unresolved",
       message: "Mnemonic returned an unrecognized mutation response. Retry the same pending action."

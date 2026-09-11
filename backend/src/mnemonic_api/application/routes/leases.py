@@ -148,7 +148,8 @@ def release_claim(
     def execute(domain_payload: LeaseReleaseCreate) -> ReleaseResult:
         work_item = require_work_item(database, project_id, work_item_id, lock=True)
         return release_lease_record(
-            database, work_item, domain_payload.lease_token, domain_payload.actor
+            database, work_item, domain_payload.lease_token, domain_payload.actor,
+            domain_payload.subagent_transcripts,
         )
 
     return run_registered_mutation(

@@ -1,5 +1,6 @@
 """Artifact configuration and disabled responses never require storage or a database."""
 
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -67,7 +68,11 @@ def test_disabled_routes_never_open_storage_database_or_consume_content(tmp_path
     monkeypatch.setattr(application, "ArtifactStorage", forbidden)
     monkeypatch.setattr(application, "artifact_maintenance_loop", forbidden)
     monkeypatch.setattr(application, "artifact_extraction_loop", forbidden)
-    monkeypatch.setattr(application, "TikaExtractor", forbidden)
+    async def idle_transcripts(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    # Transcript extraction remains independent when the artifact library is off.
+    monkeypatch.setattr(application, "transcript_indexing_loop", idle_transcripts)
     root = tmp_path / "nonexistent-artifacts"
     app = application.create_app(settings(artifact_root=root, artifact_max_bytes=0))
     app.state.session_factory = forbidden

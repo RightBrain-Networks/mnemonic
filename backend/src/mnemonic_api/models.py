@@ -27,11 +27,12 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, deferred, mapped_column
 from sqlalchemy.schema import conv
 
 from mnemonic_api import code_review_db_tables as reviews
 from mnemonic_api import phase12_db_tables as phase12
+from mnemonic_api import transcript_db_tables as transcripts
 
 # The work lifecycle vocabulary. WorkItem's status_valid check constraint is the
 # database guard for the same five values.
@@ -2101,3 +2102,53 @@ class ArtifactAccessApproval(Base):
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Transcript(Base):
+    """A source file assertion and its durable normalized indexing snapshot."""
+
+    __table__ = Table("transcripts", Base.metadata, *transcripts.transcript_elements())
+
+    id: Mapped[UUID]
+    work_item_id: Mapped[UUID]
+    lease_generation_id: Mapped[UUID]
+    client: Mapped[str]
+    session_id: Mapped[str]
+    source_path: Mapped[str]
+    kind: Mapped[str]
+    status: Mapped[str]
+    generation: Mapped[int]
+    attempts: Mapped[int]
+    indexing_started_at: Mapped[datetime | None]
+    indexing_completed_at: Mapped[datetime | None]
+    error_code: Mapped[str | None]
+    size_bytes: Mapped[int | None]
+    mime_type: Mapped[str | None]
+    format: Mapped[str | None]
+    sha256: Mapped[str | None]
+    text_sha256: Mapped[str | None]
+    normalized_text: Mapped[str | None] = deferred(__table__.c.normalized_text)
+    extracted_metadata: Mapped[dict[str, list[str]]]
+    truncated: Mapped[bool]
+    created_at: Mapped[datetime]
+    next_attempt_at: Mapped[datetime]
+    lease_token: Mapped[UUID | None]
+    lease_expires_at: Mapped[datetime | None]
+
+
+class TranscriptSettings(Base):
+    __table__ = Table("transcript_settings", Base.metadata, *transcripts.settings_elements())
+
+    project_id: Mapped[UUID]
+    enabled: Mapped[bool]
+    max_file_size_bytes: Mapped[int]
+    revision: Mapped[int]
+
+
+class TranscriptRebuild(Base):
+    __table__ = Table("transcript_rebuilds", Base.metadata, *transcripts.rebuild_elements())
+
+    project_id: Mapped[UUID]
+    client_operation_id: Mapped[UUID]
+    queued: Mapped[int]
+    created_at: Mapped[datetime]

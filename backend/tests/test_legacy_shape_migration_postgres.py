@@ -450,6 +450,7 @@ def test_completion_generation_advances_only_on_reopen(
         response = api.post(
             f"{item}/complete",
             json={
+                "subagent_transcripts": None,
                 "expected_version": version,
                 "client_operation_id": str(uuid4()),
                 "job_completion_report": {

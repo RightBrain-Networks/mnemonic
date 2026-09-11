@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useDashboardRoute } from "@/components/use-dashboard-route";
 import WorkSummaryInput from "@/components/work-summary-input";
 import ExternalReferencesEditor from "@/components/external-references-editor";
+import TranscriptLibrary from "@/components/transcript-library";
+import { transcriptLibraryPath } from "@/lib/transcripts";
 import ArtifactLibrary from "@/components/artifact-library";
 import { ARTIFACT_DEFAULT_MAX_BYTES, artifactLibraryPath, artifactLocation } from "@/lib/artifacts";
 import CodeReviewHandoffEditor, { emptyReviewHandoff } from "@/components/code-review-handoff-editor";
@@ -142,7 +144,7 @@ const liveSyncLabels: Record<LiveSyncStatus, string> = {
   connecting: "Connecting…"
 };
 
-const unavailableArtifactProject = "The artifact link's project is unavailable. Select a project to continue.";
+const unavailableArtifactProject = "The resource link's project is unavailable. Select a project to continue.";
 
 const iconPaths = {
   search: "m21 21-4.4-4.4M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0Z",
@@ -306,10 +308,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const mutationIntents = useMutationIntents(mutationRegistry);
   useMutationUnloadWarning(mutationRegistry);
   const [retryingMutation, setRetryingMutation] = useState("");
+  const [transcriptPending, setTranscriptPending] = useState(false);
   const [artifactPending, setArtifactPending] = useState(false);
   const [backupPending, setBackupPending] = useState(false);
   const backupPendingRef = useRef(false);
-  const blockedNavigation = artifactPending ? "Resolve the pending artifact action before leaving this page."
+  const blockedNavigation = transcriptPending ? "Resolve the pending transcript rebuild before leaving this page." : artifactPending ? "Resolve the pending artifact action before leaving this page."
     : backupPending ? "Wait for the backup action to finish before leaving this page."
       : mutationRegistry.hasDispatched() ? "Resolve pending mutations before leaving this dashboard document." : null;
   const route = useDashboardRoute(blockedNavigation);
@@ -322,7 +325,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         : pathname === "/artifacts" ? "artifacts"
           : pathname === "/transcripts" ? "transcripts" : "library";
   const artifactRoute = artifactLocation(searchParams.toString());
-  const artifactProjectId = view === "artifacts" ? artifactRoute.projectId : null;
+  const artifactProjectId = (view === "artifacts" || view === "transcripts") ? artifactRoute.projectId : null;
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
@@ -520,7 +523,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setProjects(all);
       let saved = "";
       try { saved = localStorage.getItem(dashboardStorageKeys.project) ?? ""; } catch { /* optional */ }
-      const requested = view === "artifacts" ? artifactLocation(window.location.search).projectId : null;
+      const requested = (view === "artifacts" || view === "transcripts") ? artifactLocation(window.location.search).projectId : null;
       if (requested && !all.some((item) => sameUuid(item.id, requested))) {
         throw new Error(unavailableArtifactProject);
       }
@@ -888,6 +891,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   }
 
   function chooseProject(id: string) {
+    if (transcriptPending) { setNotice({ message: "Resolve the pending transcript rebuild before switching projects.", error: true }); return; }
     if (artifactPending) { setNotice({ message: "Resolve the pending artifact action before switching projects.", error: true }); return; }
     if (backupPending) { setNotice({ message: "Wait for the backup action to finish before switching projects.", error: true }); return; }
     if (
@@ -906,8 +910,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       if (!leavingOpenedWorkAllowed()) return;
       clearSelection();
     }
-    if (view === "artifacts" && id !== activeId) {
-      window.history.replaceState(null, "", artifactLibraryPath(id));
+    if ((view === "artifacts" || view === "transcripts") && id !== activeId) {
+      window.history.replaceState(null, "", view === "transcripts" ? transcriptLibraryPath(id) : artifactLibraryPath(id));
       setProjectsError("");
     }
     applyProjectSelection(id);
@@ -2789,7 +2793,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   }
 
   const activeProjectMutationBlocked = Boolean(
-    artifactPending || backupPending || activeId && selectMutationScope(mutationIntents, { projectId: activeId }).blocked
+    transcriptPending || artifactPending || backupPending || activeId && selectMutationScope(mutationIntents, { projectId: activeId }).blocked
   );
   const openedWorkKey = opened
     ? mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
@@ -2873,7 +2877,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       <Link href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={blockNavigationWhilePending}><Logo /><span>mnemonic<span className="brand-period">.</span></span></Link>
       <div className="workspace-picker">
         <label className="section-label" htmlFor="project-select">YOUR WORKSPACE</label>
-        <div className="select-wrap"><select id="project-select" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={artifactPending || backupPending || projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
+        <div className="select-wrap"><select id="project-select" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={transcriptPending || artifactPending || backupPending || projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
           {!projects.length && <option value="">{projectsLoading ? "Loading projects…" : "Select a project"}</option>}
           {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select><span className="select-chevron" aria-hidden="true">⌄</span></div>
@@ -2889,7 +2893,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
           activeId={view === "artifacts" || view === "transcripts" ? view : undefined}
           items={[
             { id: "artifacts", label: "Artifacts", href: activeId ? artifactLibraryPath(activeId) : "/artifacts" },
-            { id: "transcripts", label: "Transcripts", href: "/transcripts" }
+            { id: "transcripts", label: "Transcripts", href: activeId ? transcriptLibraryPath(activeId) : "/transcripts" }
           ]}
           icon={<Icon name="artifacts" />} onNavigate={blockNavigationWhilePending} />
         <ProjectSettingsNav section={view === "settings" ? settingsSection : undefined} icon={<Icon name="settings" />} onNavigate={blockNavigationWhilePending} />
@@ -2902,7 +2906,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view !== "library" && <><span className="breadcrumb-slash">/</span><span>{view === "transcripts" ? "Transcripts" : view === "artifacts" ? "Artifacts" : view === "settings" ? settingsPage.label : view === "summaries" ? "Summaries" : "Needs Attention"}</span></>}</div><div className="topbar-actions">{project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncLabels[liveSyncStatus]}</div></div></header>
       <div className={`page-content ${view === "library" ? "page-content-library" : ""}`}>
         {activity.error && <div className="error-notice" role="alert"><p>Activity updates: {activity.error}</p><button type="button" className="button button-secondary" onClick={activity.streamChanged ? activity.reloadSnapshot : activity.poll}>{activity.streamChanged ? "Reload current snapshot" : "Retry updates"}</button></div>}
-        {view === "transcripts" ? <DashboardViewChrome title="Transcripts" /> : view === "artifacts" ? <>
+        {view === "transcripts" ? <>
+          <DashboardViewChrome eyebrow="AGENT SESSIONS THAT STAY WITH YOUR WORK" title="Transcripts" description={project ? `Find session history and subagent work in the “${project.name}” project.` : "Choose a project to open its transcripts."} />
+          {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
+          {project ? <TranscriptLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} refreshSignal={refresh} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view transcripts."}</div>}
+        </> : view === "artifacts" ? <>
           <DashboardViewChrome eyebrow="FILES THAT STAY WITH YOUR WORK — BUT OUT OF YOUR CODEBASE" title="Artifacts" description={project ? `Store documents, binaries and other files in the “${project.name}” project.` : "Choose a project to open its artifact library."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
           {project ? <ArtifactLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} maximumBytes={artifactMaxBytes} refreshSignal={refresh} onPendingChange={setArtifactPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to upload artifacts."}</div>}
@@ -2928,6 +2936,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
               backupMaximumBytes={backupMaxBytes}
               backupRefreshSignal={settingsRefresh}
               onBackupPendingChange={handleBackupPendingChange}
+              onTranscriptPendingChange={setTranscriptPending}
             />}
         </> : view === "summaries" ? <>
           <DashboardViewChrome eyebrow="WORK RESULTS FOR PEOPLE" title="Summaries"

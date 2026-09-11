@@ -1210,7 +1210,8 @@ def test_move_preserves_relationships_and_rejects_other_conflicts(
     assert counterpart_edge["counterpart"]["project_id"] == target["id"]
 
     guarded_delete = api.post(
-        _path(target, related) + "/delete", json={"expected_version": 2}
+        _path(target, related) + "/delete", json={
+            "subagent_transcripts": None, "expected_version": 2}
     )
     assert guarded_delete.status_code == 409
     assert guarded_delete.json()["detail"]["code"] == "active_relationships"

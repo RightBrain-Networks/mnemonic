@@ -545,7 +545,10 @@ def complete_review(
     review.state, review.result_id = "completed", result.id
     review.version += 1
     from mnemonic_api.services.leases import release_lease_record
+    from mnemonic_api.transcript_lifecycle import register_closeout_transcripts
 
+    register_closeout_transcripts(database, work, payload.subagent_transcripts,
+                                 payload.actor.actor_client, payload.actor.actor_session_id)
     release_lease_record(database, work, payload.lease_token, payload.actor)
     database.flush()
     return bounded(

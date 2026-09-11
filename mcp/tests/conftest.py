@@ -54,6 +54,7 @@ LOCAL_VALIDATION_CASES = (
     (
         "claim_work",
         {
+            "session_transcript": None,
             "project_id": PRIVATE_UUID_MARKER,
             "work_item_id": WORK_ID,
             "holder_client": "test-client",

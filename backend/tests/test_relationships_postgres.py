@@ -190,7 +190,8 @@ def test_all_relationship_types_round_trip_normalize_and_delete_guard(
     assert second_parent.status_code == 409
     assert second_parent.json()["detail"]["code"] == "parent_already_set"
 
-    guarded = api.post(f"{work_path(project, target)}/delete", json={"expected_version": 1})
+    guarded = api.post(f"{work_path(project, target)}/delete", json={
+        "subagent_transcripts": None, "expected_version": 1})
     assert guarded.status_code == 409
     assert guarded.json()["detail"]["code"] == "active_relationships"
 
@@ -202,7 +203,8 @@ def test_all_relationship_types_round_trip_normalize_and_delete_guard(
         repeated = api.delete(f"{relationship_collection(project)}/{edge['id']}")
         assert repeated.json()["removed"] is False
     assert api.post(
-        f"{work_path(project, target)}/delete", json={"expected_version": 1}
+        f"{work_path(project, target)}/delete", json={
+            "subagent_transcripts": None, "expected_version": 1}
     ).status_code == 200
 
 
@@ -530,7 +532,7 @@ def test_relationship_scope_lookup_runs_after_completed_add_and_create_replay(
     assert removed.status_code == 200, removed.text
     deleted = api.post(
         f"{work_path(project, add_right)}/delete",
-        json={"expected_version": 1},
+        json={"subagent_transcripts": None, "expected_version": 1},
     )
     assert deleted.status_code == 200, deleted.text
     add_replay = api.post(relationship_collection(project), json=add_payload)
@@ -566,7 +568,7 @@ def test_relationship_scope_lookup_runs_after_completed_add_and_create_replay(
     assert removed_created_edge.status_code == 200, removed_created_edge.text
     deleted_counterpart = api.post(
         f"{work_path(project, create_counterpart)}/delete",
-        json={"expected_version": 1},
+        json={"subagent_transcripts": None, "expected_version": 1},
     )
     assert deleted_counterpart.status_code == 200, deleted_counterpart.text
     create_replay = api.post(work_collection(project), json=create_payload)

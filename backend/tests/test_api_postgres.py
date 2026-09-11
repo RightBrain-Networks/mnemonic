@@ -39,6 +39,7 @@ def save(api, project, payload, **changes):
         checkpoint = body["initial_checkpoint"]
         retired = api.patch(path(project, created["work_item"]), json={
             "expected_version": 1, "status": terminal_status, "client_operation_id": str(uuid4()),
+            "subagent_transcripts": None,
             "actor": {"actor_client": checkpoint["source_client"],
                       "actor_session_id": checkpoint["source_session_id"],
                       "actor_model": checkpoint.get("source_model")},

@@ -116,7 +116,7 @@ async function hideFixtureWork(
   if (!work) return;
   const response = await client.post(
     `/api/v1/projects/${state.projectId}/work-items/${workId}/delete`,
-    { data: { expected_version: work.version } }
+    { data: { subagent_transcripts: null, expected_version: work.version } }
   );
   expect(response.ok(), await response.text()).toBe(true);
 }

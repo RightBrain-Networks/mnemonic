@@ -1017,7 +1017,7 @@ def _update_work_matches(
         "lease_token",
         "actor",
         "client_operation_id",
-        "job_completion_report", "review_decision",
+        "job_completion_report", "review_decision", "subagent_transcripts",
         "supersede_code_review_id", "expected_code_review_version",
         "supersede_follow_up_id", "expected_follow_up_version",
     }

@@ -13,7 +13,7 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0031_review_decisions"
+HEAD = "0032_agent_transcripts"
 TABLES = tuple(sorted(Base.metadata.tables))
 MAX_ARCHIVE_IDENTITY = 2**53 - 1
 IDENTITY_COLUMNS = tuple(
@@ -21,6 +21,7 @@ IDENTITY_COLUMNS = tuple(
     if column.identity is not None
 )
 CHILD_OWNERS = {
+    "transcripts": ("work_item_id", "work_items", "id"),
     "checkpoints": ("work_item_id", "work_items", "id"),
     "work_item_embeddings": ("work_item_id", "work_items", "id"),
     "work_leases": ("work_item_id", "work_items", "id"),

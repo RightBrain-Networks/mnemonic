@@ -36,6 +36,10 @@ class TransportEffect(StrEnum):
 
 
 _APPLICATION_ERRORS = {
+    "transcript_not_found": "Transcript not found in this project.",
+    "transcript_not_indexed": "Transcript text is not indexed yet. Read its indexing status.",
+    "transcript_content_changed": "Transcript text changed. Read metadata before a new text snapshot.",
+    "subagent_transcripts_required": "Closeout requires subagent transcript locations or explicit null.",
     "gate_question_changed": "The question changed. Read its latest version before a new intent.",
     "artifact_not_found": "Artifact not found in this project.",
     "artifact_revision_conflict": "Artifact revision changed. Read its metadata before a new intent.",
@@ -208,7 +212,9 @@ _SAFE_READ_FAILURE = (
     "Check service health and try again."
 )
 _EXTENDED_READ_TIMEOUT_SECONDS = 60.0
-_BOUNDED_SAFE_READ_RESPONSE_MAX_BYTES = 6 * 1024 * 1024
+# Transcript pages can include 100 failed 4096-character paths and filenames.
+# Each caller still supplies its own narrower response budget.
+_BOUNDED_SAFE_READ_RESPONSE_MAX_BYTES = 16 * 1024 * 1024
 
 
 class BoundedIdentityResponseViolation(ValueError):

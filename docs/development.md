@@ -414,7 +414,7 @@ uv run ruff check .
 uv run ty check src/mnemonic_mcp
 ```
 
-The MCP suite verifies the exact 48-tool canonical catalog, strict unknown-field
+The MCP suite verifies the exact 53-tool canonical catalog, strict unknown-field
 rejection, nested checkpoint request bodies, canonical/grouped search hits,
 compact ready results, bounded recall, deterministic checkpoint/event
 pagination, versioned mutation receipts, typed graph and lease behavior, the
@@ -490,9 +490,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.24.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.24.0` install
-plus a `0.18.0 -> 0.24.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.25.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.25.0` install
+plus a `0.18.0 -> 0.25.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -816,11 +816,14 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.41.0`, plugin is `0.24.0`,
-and Alembic head is `0031_review_decisions`. Validate all surfaces
-together with the existing regression suites. This release adds in-place human
-question revisions and horizontal history tabs, using the existing request tool
-and receipt kind. Validate exact old prose, stable queue position, concurrent
+Current application/API/MCP/dashboard versions are `0.42.0`, plugin is `0.25.0`,
+and Alembic head is `0032_agent_transcripts`. Validate all surfaces
+together with the existing regression suites. This release adds Claude Code transcript
+indexing, transcript MCP reads, a dashboard library, and workspace index settings.
+Validate lease expiry/release, closeout receipts, allowed filesystem roots, parser
+failures, rebuild races, and snapshot-bound retrieval. See [transcripts](transcripts.md).
+In-place human question revisions and horizontal history tabs continue using the
+existing request tool and receipt kind. Validate exact old prose, stable queue position, concurrent
 rewrites and answers, permanent receipt replay, and safe pre-use rollback.
 The human answers the current question without reviewing a checkpoint graph.
 See [Needs Attention](attention.md). Artifact regression coverage still includes
@@ -898,8 +901,8 @@ questions, cold/warm lease isolation, one atomic remediation and hard depth ceil
 exact historical and new receipt replay, protected lineage under direct SQL,
 bounded discovery/history, backup/restore audit, and both dashboard Done paths.
 Run `scripts/audit_code_reviews.py` read-only from a private database environment.
-The current inventory is 48 MCP tools, 17 protected MCP writes, 22 REST receipt
-kinds, 19 protected browser mutations and 24 work-event types. See
+The current inventory is 53 MCP tools, 17 protected MCP writes, 23 REST receipt
+kinds, 20 protected browser mutations and 24 work-event types. See
 [code reviews](code-reviews.md) for client and deployment rules.
 
 The [artifact library](artifacts.md) exposes nine MCP tools, three durable
@@ -923,7 +926,7 @@ Run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 48-tool
+Read-only mode verifies REST/MCP health, authentication, the exact 53-tool
 catalog, the exact seventeen protected schemas and annotations, the absence of an MCP
 resolution tool, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, settings/activity/report read contracts, and the

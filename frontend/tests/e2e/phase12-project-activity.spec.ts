@@ -25,7 +25,7 @@ async function createReport(api: APIRequestContext, projectId: string, status: "
     : status === "wont-do" ? "The font change was deliberately stopped because the current font already meets the project’s needs."
       : "The font decision has moved to the design team for its next review. The font change itself is still unfinished.",
     fyi_items: status === "done" ? ["I chose Arial because it is widely available; create a follow-up if you prefer another font."] : [] };
-  const common = { expected_version: work_item.version, job_completion_report: report, client_operation_id: crypto.randomUUID() };
+  const common = { subagent_transcripts: null, expected_version: work_item.version, job_completion_report: report, client_operation_id: crypto.randomUUID() };
   const closeout = status === "done" ? await api.post(`/api/v1/projects/${projectId}/work-items/${work_item.id}/complete`, { data: {
     ...common, checkpoint: { prompt: "Updated dashboard typography and checked the browser layouts.", source_client: "playwright-api", source_session_id: "phase12" }
   }}) : await api.patch(`/api/v1/projects/${projectId}/work-items/${work_item.id}`, { data: {
@@ -423,6 +423,7 @@ test("open follow-up and originating-report context stay fresh while their draft
     await expect(stored.locator(".report-source-state")).toContainText("The work is now Pending.");
     expect(detailReads).toBeGreaterThan(1);
     const deleted = await api.post(`/api/v1/projects/${project.id}/work-items/${source.workId}/delete`, { data: {
+      subagent_transcripts: null,
       expected_version: 3, actor: { actor_client: "playwright-api", actor_session_id: "phase12" }, client_operation_id: crypto.randomUUID()
     }});
     expect(deleted.ok(), await deleted.text()).toBe(true);
@@ -466,6 +467,7 @@ test("a source merge refreshes both an open follow-up draft and an already-open 
       api.get(`/api/v1/projects/${project.id}/work-items/${destination.id}/context`).then((response) => response.json())
     ]);
     const merged = await api.post(`/api/v1/projects/${project.id}/work-items/${source.workId}/merge`, { data: {
+      subagent_transcripts: null,
       destination_work_item_id: destination.id,
       reviewed_source_revision: sourceContext.merge_review_revision,
       reviewed_destination_revision: destinationContext.merge_review_revision,

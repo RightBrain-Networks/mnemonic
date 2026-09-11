@@ -1,0 +1,14 @@
+# Optional shared-filesystem transcript access. Preserve client absolute paths.
+# Set MNEMONIC_TRANSCRIPT_SOURCE_DIR to an existing absolute directory, then:
+# docker compose -f compose.yaml -f compose.transcripts.yaml up --build -d --wait
+services:
+  api:
+    environment:
+      MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS: '["${MNEMONIC_TRANSCRIPT_SOURCE_DIR:?Set the absolute transcript source directory}"]'
+    volumes:
+      - type: bind
+        source: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:?Set the absolute transcript source directory}
+        target: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:?Set the absolute transcript source directory}
+        read_only: true
+        bind:
+          create_host_path: false
