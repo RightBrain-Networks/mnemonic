@@ -88,11 +88,12 @@ MNEMONIC_E2E_BACKUP_TOKEN=$(openssl rand -hex 32)
 # A fresh host bind for each acceptance run; never use production artifacts.
 MNEMONIC_E2E_ARTIFACT_DIR=$(mktemp -d /tmp/mnemonic-e2e-artifacts.XXXXXXXX)
 MNEMONIC_E2E_BACKUP_DIR=$(mktemp -d /tmp/mnemonic-e2e-backups.XXXXXXXX)
-export MNEMONIC_E2E_ARTIFACT_DIR MNEMONIC_E2E_BACKUP_DIR
+MNEMONIC_E2E_TRANSCRIPT_INDEX_DIR=$(mktemp -d /tmp/mnemonic-e2e-index.XXXXXXXX)
+export MNEMONIC_E2E_ARTIFACT_DIR MNEMONIC_E2E_BACKUP_DIR MNEMONIC_E2E_TRANSCRIPT_INDEX_DIR
 
 clean_disposable_directory() {
   local directory="$1"
-  if [[ ! "$directory" =~ ^/tmp/mnemonic-e2e-(artifacts|backups)\.[[:alnum:]]{8}$ ]] \
+  if [[ ! "$directory" =~ ^/tmp/mnemonic-e2e-(artifacts|backups|index)\.[[:alnum:]]{8}$ ]] \
     || [[ ! -d "$directory" || -L "$directory" ]]; then
     echo "Refusing to clean an unexpected E2E storage directory." >&2
     return 2
@@ -112,6 +113,7 @@ cleanup() {
   docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" down -v --remove-orphans >/dev/null 2>&1 || true
   clean_disposable_directory "$MNEMONIC_E2E_ARTIFACT_DIR" || true
   clean_disposable_directory "$MNEMONIC_E2E_BACKUP_DIR" || true
+  clean_disposable_directory "$MNEMONIC_E2E_TRANSCRIPT_INDEX_DIR" || true
   exit "$status"
 }
 trap cleanup EXIT
@@ -120,7 +122,8 @@ trap 'exit 130' INT TERM
 docker run --rm --user 0 \
   --mount "type=bind,source=$MNEMONIC_E2E_ARTIFACT_DIR,target=/artifacts" \
   --mount "type=bind,source=$MNEMONIC_E2E_BACKUP_DIR,target=/backups" \
-  postgres:17-alpine chown 10001:10001 /artifacts /backups
+  --mount "type=bind,source=$MNEMONIC_E2E_TRANSCRIPT_INDEX_DIR,target=/index" \
+  postgres:17-alpine chown 10001:10001 /artifacts /backups /index
 
 services=(api backup tika)
 if [[ "$run_browser" == true ]]; then

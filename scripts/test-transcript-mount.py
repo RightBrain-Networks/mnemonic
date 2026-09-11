@@ -20,11 +20,13 @@ import os
 from pathlib import Path
 from uuid import uuid4
 from mnemonic_api.artifact_storage import ArtifactStorage
+from mnemonic_api.artifact_index import ArtifactSearchIndex, SearchDocument
 from mnemonic_api.artifact_tika import ExtractionError
 from mnemonic_api.config import Settings
 from mnemonic_api.transcript_discovery import discover_transcripts
-from mnemonic_api.transcript_storage import read_transcript
+from mnemonic_api.transcript_storage import check_transcript_source, read_transcript
 settings = Settings()
+check_transcript_source(settings.transcript_source_dir, settings.transcript_allowed_roots)
 root = settings.transcript_allowed_roots[0]
 assert os.geteuid() == int(os.environ["EXPECTED_UID"]) > 0
 assert os.getegid() == int(os.environ["EXPECTED_GID"]) > 0
@@ -56,7 +58,16 @@ staged = store.stage(uuid4(), uuid4(), "sample.txt", [b"private artifact"])
 store.publish(staged)
 assert (settings.artifact_root / staged.relative_path).read_bytes() == b"private artifact"
 assert (settings.artifact_root / staged.relative_path).stat().st_uid == os.geteuid()
-print("PASS: private transcript read/discovery, read-only mount, containment, artifact write")
+assert settings.transcript_search_max_bytes == 1048576
+index = ArtifactSearchIndex(settings.transcript_index_dir)
+try:
+    result = index.search("mount-probe", lambda: [SearchDocument("one", "probe", "needle")],
+                          query="needle", fulltext=True, count=1)
+    assert len(result.hits) == 1
+    assert (settings.transcript_index_dir / "snapshot" / "meta.json").is_file()
+finally:
+    index.close()
+print("PASS: private source read/discovery, containment, artifact write and configured disk index")
 '''
 DENIED_PROBE = '''
 from mnemonic_api.artifact_tika import ExtractionError
@@ -95,9 +106,16 @@ def check_config(compose: list[str], env: dict[str, str], source: Path) -> None:
     assert len(mounts) == 1
     assert mounts[0]["source"] == str(source) and mounts[0]["read_only"]
     assert not mounts[0]["bind"].get("create_host_path", False)
+    index_root = env["MNEMONIC_TRANSCRIPT_INDEX_DIR"]
+    assert api["environment"]["MNEMONIC_TRANSCRIPT_INDEX_DIR"] == index_root
+    assert int(api["environment"]["MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES"]) == 1048576
+    index_mount = next(m for m in api["volumes"] if m["target"] == index_root)
+    assert index_mount["source"] == index_root and not index_mount.get("read_only", False)
+    assert not index_mount["bind"].get("create_host_path", False)
     for name, service in services.items():
         if name != "api":
-            assert all(m["source"] != str(source) for m in service.get("volumes", []))
+            assert all(m["source"] not in {str(source), index_root}
+                       for m in service.get("volumes", []))
     assert "https://transcript-test.invalid" in api["environment"]["MNEMONIC_DASHBOARD_ORIGINS"]
 
 
@@ -108,7 +126,8 @@ def exercise(compose: list[str], env: dict[str, str], source: Path) -> None:
     other_uid = "10001" if os.getuid() != 10001 else "10002"
     print(command([*run, "--user", f"{other_uid}:{other_uid}", "api", "-"],
                   env=env, content=DENIED_PROBE).stdout.strip())
-    for filename in ("existing.jsonl", "session/subagents/new.jsonl"):
+    for filename in ("existing.jsonl", "session/subagents/new.jsonl",
+                     "session/subagents/workflows/wf-synthetic/agent.jsonl"):
         path = source / filename
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         path.write_bytes(b"synthetic transcript\n")
@@ -116,6 +135,12 @@ def exercise(compose: list[str], env: dict[str, str], source: Path) -> None:
         args = [*run, "-e", f"EXPECTED_UID={os.getuid()}", "-e", f"EXPECTED_GID={os.getgid()}",
                 "-e", f"PROBE_SOURCE={filename}", "api", "-"]
         print(command(args, env=env, content=PROBE).stdout.strip())
+    omitted = [*compose, "-f", str(ROOT / "compose.yaml"), "-f", str(ROOT / "compose.tls.yaml")]
+    result = command([*omitted, "run", "--rm", "--no-deps", "-T", "--entrypoint", "python",
+                      "api", "-c", "from mnemonic_api.config import Settings; Settings()"],
+                     env=env, succeeds=False)
+    assert "explicit Compose -f flags override COMPOSE_FILE" in result.stderr, result.stderr
+    print("PASS: explicitly omitting the saved transcript overlay fails configuration")
     missing = source / "does-not-exist"
     result = command([*run, "api", "-c", "raise AssertionError('missing source was mounted')"],
                      env={**env, "MNEMONIC_TRANSCRIPT_SOURCE_DIR": str(missing)}, succeeds=False)
@@ -136,7 +161,7 @@ def main() -> None:
         (source / "existing.jsonl").write_bytes(b"synthetic transcript\n")
         (source / "existing.jsonl").chmod(0o600)
         (source / "linked.jsonl").symlink_to(source / "existing.jsonl")
-        for name in ("artifacts", "backups"):
+        for name in ("artifacts", "backups", "transcript-index"):
             (directory / name).mkdir(mode=0o700)
         env = {key: value for key, value in os.environ.items()
                if not key.startswith(("MNEMONIC_", "COMPOSE_", "POSTGRES_"))}
@@ -148,13 +173,17 @@ def main() -> None:
             "MNEMONIC_API_UID": str(os.getuid()), "MNEMONIC_API_GID": str(os.getgid()),
             "MNEMONIC_TRANSCRIPT_SOURCE_DIR": str(source),
             "MNEMONIC_ARTIFACT_DIR": str(directory / "artifacts"),
+            "MNEMONIC_TRANSCRIPT_INDEX_DIR": str(directory / "transcript-index"),
+            "MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES": "1048576",
             "MNEMONIC_BACKUP_DIR": str(directory / "backups"),
             "MNEMONIC_TLS_HOST": "transcript-test.invalid",
             "POSTGRES_PASSWORD": "synthetic-mount-test",
             "MNEMONIC_API_KEY": "synthetic-mount-test-key-long-enough",
             "MNEMONIC_BACKUP_TOKEN": "synthetic-mount-test-backup-long-enough",
         })
-        compose = ["docker", "compose", "--env-file", "/dev/null", "-p", project]
+        env_file = directory / "compose.env"
+        env_file.write_text("COMPOSE_FILE=" + json.dumps(env.pop("COMPOSE_FILE")) + "\n")
+        compose = ["docker", "compose", "--env-file", str(env_file), "-p", project]
         try:
             exercise(compose, env, source)
         finally:

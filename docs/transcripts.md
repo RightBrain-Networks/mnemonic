@@ -4,7 +4,8 @@ Application/API/MCP/dashboard 0.44.0 and migration `0033_transcript_imports` add
 workspace imports for existing Claude Code transcripts. Release 0.44.1 fixes Docker
 access to private host transcripts with a configurable API image identity. Plugin
 remains 0.26.0 and migration head remains `0033_transcript_imports`. Release 0.44.2
-fixes content search for large imported libraries; no migration or reindex is required.
+fixes content search for large imported libraries. Release 0.45.0 adds a private
+configurable disk index, including reuse after restart. No migration or reindex is required.
 
 Mnemonic indexes agent session transcripts once the associated work lease ends.
 An MCP claim records an explicit primary transcript location or null. Every fresh
@@ -48,7 +49,8 @@ See [Tika Server concurrency documentation](https://tika.apache.org/docs/4.0.x/u
 PostgreSQL retains transcript metadata, normalized text, extraction properties,
 and work/lease provenance. Metadata includes indexing start/completion timestamps,
 status and failure code, original byte size and MIME type, detected format, source
-SHA-256, normalized-text SHA-256, and truncation. Tantivy is a rebuildable RAM index.
+SHA-256, normalized-text SHA-256, and truncation. Tantivy holds a rebuildable search cache in the configured private directory
+(or RAM for native processes without an index directory).
 Original transcript bytes remain client-managed files; normalized text retrieval
 and download use the indexed snapshot rather than rereading its source path.
 Database backups therefore include transcript content.
@@ -165,11 +167,80 @@ host has enough memory. Metadata-only searches do not consume the content budget
 
 The first content query streams ready bodies into Tantivy one document at a time.
 Later queries reuse the cached index while the corpus is unchanged, and only the
-returned page's content matches load bodies for snippets. The cache is in RAM and
-is rebuilt after a restart or corpus change; changing the budget does not require
-**Rebuild index**. Tantivy memory grows with indexed terms and positions, so the
-content budget is not a process-memory limit. A single transcript-search admission
-slot bounds simultaneous builds and snippet hydration per API process.
+returned page's content matches load bodies for snippets. Changing the budget does
+not require **Rebuild index**. This budget counts normalized text, not index-file
+bytes, filesystem quota, or process memory. Tantivy still uses writer memory and
+memory-mapped pages when its files are stored on disk. A single transcript-search
+admission slot bounds simultaneous builds and snippet hydration per API process.
+
+### Recovery after correcting shared folders
+
+Starting with 0.45.0, the worker automatically retries stored
+`transcript_path_not_allowed` failures whose exact paths now fall beneath an allowed
+root. This includes nested subagent and workflow transcripts recorded before the
+shared mount was configured. Existing IDs and enrollment provenance are preserved;
+no reimport or project-wide rebuild is needed. Paused projects and active lease
+generations still wait. Outside-root paths remain rejected, and symlinks remain
+forbidden. Missing files, parser errors and other terminal failures still require
+correcting the source and using **Rebuild index**.
+
+Base Compose forwards `MNEMONIC_TRANSCRIPT_SOURCE_DIR` even if an overlay is
+accidentally omitted. The API rejects startup when that configured source is absent
+from its allowlist or cannot be opened as a real directory. Explicit `docker compose
+-f ...` flags override `COMPOSE_FILE`; include every saved overlay when using them.
+Prefer ordinary `docker compose` commands with the full list saved in `.env`.
+
+### Generated index location
+
+Both operator settings are in `.env`:
+
+```dotenv
+MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES=536870912
+MNEMONIC_TRANSCRIPT_INDEX_DIR=/var/lib/mnemonic/transcript-index
+```
+
+`MNEMONIC_TRANSCRIPT_INDEX_DIR` is an absolute, dedicated directory for the generated
+search index. Base Compose automatically mounts the same host path read-write into
+the API; no index overlay is needed. Only the API receives this mount. The transcript
+**source** directory is separate and retains its read-only mount and allowed roots.
+
+Before starting or upgrading Compose, create the chosen directory privately for the
+API UID/GID. For the default service identity:
+
+```sh
+sudo install -d -m 0700 -o 10001 -g 10001 /var/lib/mnemonic/transcript-index
+docker compose up -d --wait api
+```
+
+For this installation's API UID/GID 1026:1000, a project-local location can instead be
+configured as `MNEMONIC_TRANSCRIPT_INDEX_DIR=/srv/mnemonic/transcript-index` and
+created with `sudo install -d -m 0700 -o 1026 -g 1000 /srv/mnemonic/transcript-index`.
+After changing either setting, recreate the API. A new empty location builds its
+cache automatically from PostgreSQL on the next search. Choose a dedicated folder;
+the API rejects unrelated contents, public permissions, a symlink at the root, or
+an owner mismatch. Native deployments also require ancestor directories owned by
+root or the API user and protected against other users renaming their children
+(sticky directories such as `/tmp` are accepted). Container parents created around
+the bind mount meet that rule. Changing the API UID also requires migrating index
+ownership.
+
+The private snapshot contains indexed terms and positions derived from transcripts.
+Do not share or commit it. It is disposable and excluded from project backups; the
+authoritative text remains in PostgreSQL and its backups. A completed cache survives
+API restart and is reused only when its corpus fingerprint and engine/schema version
+match. Changed, incomplete or corrupt index snapshots are rebuilt. **Rebuild index**
+clears the cached snapshot while retaining the selected storage directory. Old open
+searchers keep their coherent snapshot while a new one is built.
+
+One API process exclusively locks each index directory. Separate API processes or
+replicas need separate directories. Missing mounts, invalid permissions, or another
+owner of the lock cause `transcript_index_unavailable`; there is no silent fallback
+to a different directory. Native Linux deployments set the same environment variable;
+unset or empty retains the previous RAM cache. Compose defaults to the disk path
+shown above, including when its variable is absent or empty.
+
+See the [Tantivy directory and reader API](https://tantivy-py.readthedocs.io/en/latest/api/tantivy/tantivy.html#index)
+for the underlying disk-index and immutable-searcher support.
 
 Workspace settings include an indexing enable/disable switch and maximum source
 file size (64 MiB by default, bounded by operator policy). Allowed roots are shown

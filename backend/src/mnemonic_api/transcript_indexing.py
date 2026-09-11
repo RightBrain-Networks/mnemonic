@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import exists, false, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
@@ -23,7 +23,7 @@ from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.transcripts import transcript_project_id
 from mnemonic_api.transcript_parsers import TranscriptParserFactory
 from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
-from mnemonic_api.transcript_storage import read_transcript
+from mnemonic_api.transcript_storage import canonical_source_path, read_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -55,19 +55,35 @@ def _active_generation():
     ))
 
 
-def _claimable_transcripts():
+def _resolved_path_errors(settings: Settings):
+    # Compare POSIX aliases without changing the exact agent assertion. The
+    # normal reader still enforces regular files and refuses all symlinks.
+    path = func.regexp_replace(Transcript.source_path, r"/\.(?=/|$)", "", "g")
+    path = func.regexp_replace(path, "/+", "/", "g")
+    # Path() also removes trailing separators; the root itself is not a file.
+    path = func.rtrim(path, "/")
+    allowed = or_(false(), *(path.startswith(
+        canonical_source_path(str(root)).rstrip("/") + "/", autoescape=True,
+    ) for root in settings.transcript_allowed_roots))
+    return (Transcript.status == "failed") & (
+        Transcript.error_code == "transcript_path_not_allowed"
+    ) & allowed & ~path.regexp_match(r"(^|/)\.\.(/|$)")
+
+
+def _claimable_transcripts(settings: Settings):
     return (select(Transcript, TranscriptSettings.max_file_size_bytes)
         .outerjoin(WorkItem, WorkItem.id == Transcript.work_item_id)
         .outerjoin(TranscriptSettings, TranscriptSettings.project_id == transcript_project_id())
         .where(func.coalesce(TranscriptSettings.enabled, True), ~_active_generation(), or_(
             Transcript.status.in_(["waiting", "pending"])
             & (Transcript.next_attempt_at <= func.clock_timestamp()),
+            _resolved_path_errors(settings),
             (Transcript.status == "processing")
             & (Transcript.lease_expires_at <= func.clock_timestamp()),
         )))
 
 
-def _lock_claim_candidate(database: Session, candidate):
+def _lock_claim_candidate(database: Session, candidate, settings: Settings):
     transcript_id, work_id, project_id = candidate
     if work_id is not None:
         work = database.scalar(select(WorkItem).where(
@@ -78,7 +94,7 @@ def _lock_claim_candidate(database: Session, candidate):
             WorkLease.work_item_id == work_id).with_for_update())
     # This query runs after the lease lock: an earlier renewal must now be
     # committed, so the fresh clock comparison cannot observe its old expiry.
-    return database.execute(_claimable_transcripts().where(
+    return database.execute(_claimable_transcripts(settings).where(
         Transcript.id == transcript_id, transcript_project_id() == project_id)
                             .with_for_update(of=Transcript)).first()
 
@@ -88,6 +104,11 @@ def _start_claim(database: Session, row, settings: Settings) -> TranscriptJob:
     now = database.execute(select(func.clock_timestamp())).scalar_one()
     for field, value in empty_transcript_snapshot().items():
         setattr(transcript, field, value)
+    if transcript.status == "failed":
+        # A changed allowlist starts a new attempt budget for this same source.
+        transcript.attempts = 0
+        transcript.indexing_started_at = None
+    transcript.error_code = None
     transcript.status = "processing"
     transcript.indexing_started_at = transcript.indexing_started_at or now
     transcript.indexing_completed_at = None
@@ -105,7 +126,7 @@ def claim_transcript_job(
     factory: sessionmaker[Session], settings: Settings,
 ) -> TranscriptJob | None:
     with factory() as database:
-        candidate = database.execute(_claimable_transcripts().with_only_columns(
+        candidate = database.execute(_claimable_transcripts(settings).with_only_columns(
             Transcript.id, Transcript.work_item_id, transcript_project_id().label("project_id"))
             .order_by(Transcript.next_attempt_at, Transcript.id).limit(1)).first()
         if candidate is None:
@@ -113,7 +134,7 @@ def claim_transcript_job(
         # Follow the same project -> work -> lease -> transcript lock order as
         # lifecycle mutations. No candidate lock is taken before the project.
         with project_mutation(database, candidate.project_id):
-            row = _lock_claim_candidate(database, candidate)
+            row = _lock_claim_candidate(database, candidate, settings)
             if row is None:
                 return None
             job = _start_claim(database, row, settings)

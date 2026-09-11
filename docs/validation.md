@@ -1,5 +1,38 @@
 # Mnemonic validation record
 
+## Configurable transcript index storage and source recovery (0.45.0)
+
+`MNEMONIC_TRANSCRIPT_INDEX_DIR` selects both the generated index directory and its
+private read-write API bind in base Compose. The existing
+`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` remains the content-corpus budget. Completed
+disk snapshots reopen only for the matching database fingerprint and engine/schema
+version; artifacts retain their RAM index. No schema migration is introduced.
+
+Real Tantivy tests cover private modes, path and owner rejection, exclusive locks
+across processes, restart reuse without body loading, changed-corpus eviction,
+failed-build cleanup, corrupt-cache recovery, pinned old searchers and bounded
+rebuild contention. PostgreSQL API tests exercise the configured directory with a
+36.8 MB corpus, startup/restart, page-only body reads, budget changes on a cached
+corpus, metadata-only reads, and rebuild retaining its configured storage.
+
+The production Compose mount harness uses only synthetic sources and isolated
+containers. It verifies both environment settings, private on-disk indexing,
+owner-only transcript reads, read-only source mounts and containment. The isolated
+browser stack likewise provisions a separate private index bind for each run.
+The mount harness also loads `COMPOSE_FILE` from a saved environment file, exercises
+nested workflow subagents, and proves an explicit command omitting the source overlay
+is rejected. Recovery tests cover prior primary/subagent failures, stable enrollment
+IDs, active generations, paused projects, exact root boundaries, path aliases,
+symlink rejection and terminal errors that must not be retried.
+
+An independent cold reviewer identified three persistent-cache recovery gaps:
+missing snapshots, missing metadata, and corruption detected during querying. All
+three were corrected and independently reproduced as recovering with one body load,
+followed by cache reuse. The reviewer passed 104 focused checks on the corrections.
+
+Dashboard validation includes 432 tests, typecheck and build; MCP validation includes
+121 read/transport/version regressions. Backend/MCP Ruff and ty pass.
+
 ## Large transcript content search (0.44.2)
 
 Content search separates its configurable 512 MiB body budget from the existing

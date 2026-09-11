@@ -10,7 +10,6 @@ from mnemonic_api.application.guards import (
     reject_read_body_and_duplicate_query,
 )
 from mnemonic_api.application.state import settings_of
-from mnemonic_api.artifact_index import ArtifactSearchIndex
 from mnemonic_api.database import Database, begin_coherent_read
 from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.models import Transcript
@@ -59,7 +58,7 @@ def rebuild_transcripts(project_id: UUID, payload: TranscriptRebuildRequest,
     with project_mutation(database, project_id):
         queued = transcripts.rebuild_transcripts(database, project_id, payload.client_operation_id)
         database.commit()
-    request.app.state.transcript_search_index = ArtifactSearchIndex()
+    request.app.state.transcript_search_index.clear()
     return TranscriptRebuildRead(queued=queued, project_id=project_id,
                                  client_operation_id=payload.client_operation_id)
 

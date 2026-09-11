@@ -37,6 +37,7 @@ from mnemonic_api.schemas import COMPLETION_EVENT_ID_MAX
 from mnemonic_api.semantic import Embedder, FastembedEmbedder
 from mnemonic_api.services.artifact_search import ArtifactSearchIndex
 from mnemonic_api.transcript_indexing import transcript_indexing_loop
+from mnemonic_api.transcript_storage import check_transcript_source
 
 __all__ = ["create_app"]
 
@@ -52,6 +53,8 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        check_transcript_source(config.transcript_source_dir, config.transcript_allowed_roots)
+        app.state.transcript_search_index.start()
         maintenance = None
         extraction = None
         transcript_indexing = asyncio.create_task(transcript_indexing_loop(
@@ -73,13 +76,14 @@ def create_app(
                     task.cancel()
                     with suppress(asyncio.CancelledError):
                         await task
+            app.state.transcript_search_index.close()
             if engine is None:
                 # Only an engine this factory built is this factory's to dispose.
                 connection_pool.dispose()
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.44.2",
+        version="0.45.0",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )
@@ -91,7 +95,7 @@ def create_app(
     )
     app.state.artifact_upload_slots = asyncio.Semaphore(4)
     app.state.artifact_search_index = ArtifactSearchIndex()
-    app.state.transcript_search_index = ArtifactSearchIndex()
+    app.state.transcript_search_index = ArtifactSearchIndex(config.transcript_index_dir)
     app.state.session_factory = build_session_factory(
         connection_pool, work_summary_max_chars=config.work_summary_max_chars
     )

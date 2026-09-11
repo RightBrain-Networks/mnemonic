@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from mnemonic_api.artifact_tika import ExtractionError
-from mnemonic_api.transcript_storage import read_transcript
+from mnemonic_api.transcript_storage import check_transcript_source, read_transcript
 
 
 @pytest.mark.parametrize("prefix", ["", "/", "//"])
@@ -48,3 +48,16 @@ def test_fifo_never_blocks_and_large_file_is_rejected(tmp_path):
     file.write_bytes(b"x" * 101)
     with pytest.raises(ExtractionError, match="transcript_too_large"):
         read_transcript(str(file), [tmp_path], 100)
+
+
+def test_configured_source_is_checked_without_reading_transcripts(tmp_path):
+    check_transcript_source(None, [])
+    check_transcript_source(tmp_path, [tmp_path])
+    with pytest.raises(RuntimeError, match="Configured transcript source is unavailable"):
+        check_transcript_source(tmp_path / "missing", [tmp_path])
+    with pytest.raises(RuntimeError, match="Configured transcript source is unavailable"):
+        check_transcript_source(tmp_path, [])
+    link = tmp_path / "linked"
+    link.symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(RuntimeError, match="Configured transcript source is unavailable"):
+        check_transcript_source(link, [tmp_path])

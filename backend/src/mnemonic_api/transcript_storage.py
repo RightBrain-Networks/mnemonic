@@ -67,3 +67,17 @@ def read_transcript(source: str, roots: list[Path], maximum_bytes: int) -> bytes
     ) or len(data) != before.st_size:
         raise ExtractionError("transcript_content_changed", retryable=True)
     return data
+
+
+def check_transcript_source(source: Path | None, roots: list[Path]) -> None:
+    """Reject a configured but unavailable source before starting any index jobs."""
+    if source is None:
+        return
+    try:
+        descriptor = _open_source(str(source), roots, directory=True)
+        os.close(descriptor)
+    except (OSError, ExtractionError):
+        raise RuntimeError(
+            "Configured transcript source is unavailable. Check compose.transcripts.yaml, "
+            "the read-only bind mount, and the API UID/GID permissions."
+        ) from None

@@ -2,7 +2,7 @@
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.44.2 uses migration
+configuration was required for that release. Current release 0.45.0 uses migration
 `0033_transcript_imports` and also searches [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
 Their searches use the shared API, including the work semantic toggle. Hierarchy
@@ -28,11 +28,13 @@ query-string parameters are rejected. Responses use `Cache-Control: no-store`.
 Transcript search bounds metadata to 10,000 records and 32,000,000 bytes. Content
 has a separate 512 MiB default budget, configured with
 `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` (1 byte–2 GiB). Cold builds stream bodies
-into the RAM index; unchanged corpora are cached and snippets load only for the
+into the configured transcript index; unchanged corpora are cached and snippets load only for the
 global page. Metadata-only searches never fetch bodies or use the content budget.
 Exceeding a bound returns an explicit error without partial results. Narrow the
 transcript filters or raise the content budget with sufficient server memory.
-See [transcript search deployment](transcripts.md#dashboard-settings-and-retrieval).
+`MNEMONIC_TRANSCRIPT_INDEX_DIR` selects the private disk directory and its API bind
+mount in Compose. A matching cached corpus reopens after restart; the database
+remains authoritative. See [transcript search deployment](transcripts.md#dashboard-settings-and-retrieval).
 
 ## Facets and filters
 
