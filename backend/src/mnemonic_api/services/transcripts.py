@@ -3,15 +3,22 @@
 import hashlib
 import json
 import threading
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from uuid import UUID, uuid4
 
-from sqlalchemy import Text, cast, func, select, update
+import tantivy
+from sqlalchemy import Text, case, cast, func, literal, select, update
 from sqlalchemy.orm import Session, defer, undefer
 
-from mnemonic_api.artifact_index import ArtifactSearchIndex, SearchDocument
-from mnemonic_api.config import Settings
+from mnemonic_api.artifact_index import (
+    ArtifactSearchIndex,
+    IndexSearchResult,
+    SearchDocument,
+    SearchHit,
+)
+from mnemonic_api.config import DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES, Settings
 from mnemonic_api.database import rows_affected
 from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.models import Transcript, TranscriptRebuild, TranscriptSettings, WorkItem
@@ -29,6 +36,7 @@ from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
 # snippets. The index's own lock starts too late to bound concurrent DB loads.
 _SEARCH_SLOT = threading.BoundedSemaphore(1)
 _SEARCH_MAX_DOCUMENTS = 10_000
+# Only lightweight metadata is retained in Python. Bodies have a separate budget.
 _SEARCH_MAX_BYTES = 32_000_000
 
 
@@ -93,23 +101,69 @@ def _metadata(record: Transcript) -> str:
                       str(record.work_item_id), json.dumps(record.extracted_metadata)])
 
 
-def _search_records(records: list[Transcript], query: str, fulltext: bool,
-                    index: ArtifactSearchIndex) -> list[tuple[Transcript, str | None, float]]:
-    digest = hashlib.sha256()
+def _corpus_key(records: list[Transcript], fulltext: bool) -> str:
+    digest = hashlib.sha256(str(fulltext).encode())
     for record in records:
-        digest.update(f"{record.id}:{record.generation}:{record.status}:"
-                      f"{record.text_sha256}:{record.indexing_completed_at}".encode())
-    result = index.search(digest.hexdigest(), lambda: (
-        SearchDocument(str(row.id), _metadata(row), row.normalized_text or "") for row in records
-    ), query=query, fulltext=fulltext, count=len(records))
-    by_id = {str(row.id): row for row in records}
-    return [(record, index.snippet(record.normalized_text or "", query, result.searcher)
-             if hit.content and result.searcher else None, hit.score)
-            for hit in result.hits for record in [by_id[hit.identity]]]
+        digest.update(json.dumps([
+            str(record.id), _metadata(record), record.generation, record.status,
+            record.text_sha256, str(record.indexing_completed_at),
+        ]).encode())
+    return digest.hexdigest()
+
+
+def _documents(database: Session, records: list[Transcript], fulltext: bool,
+               maximum_content_bytes: int) -> Iterator[SearchDocument]:
+    # Only a cache miss calls this generator. Never attach the streamed bodies
+    # to the ORM instances retained for ranking and metadata hydration.
+    by_id = {record.id: record for record in records}
+    content_ids = {record.id for record in records if fulltext and record.status == "ready"}
+    for record in records:
+        if record.id not in content_ids:
+            yield SearchDocument(str(record.id), _metadata(record))
+    if not content_ids:
+        return
+    rows = database.execute(select(Transcript.id, Transcript.normalized_text).where(
+        Transcript.id.in_(content_ids)).order_by(Transcript.id).execution_options(yield_per=1))
+    size = 0
+    try:
+        for identity, content in rows:
+            content = content or ""
+            size += len(content.encode("utf-8"))
+            if size > maximum_content_bytes:
+                raise _capacity_error(content=True)
+            yield SearchDocument(str(identity), _metadata(by_id[identity]), content)
+    finally:
+        rows.close()
+
+
+def _search_records(database: Session, records: list[Transcript], query: str, fulltext: bool,
+                    index: ArtifactSearchIndex, maximum_content_bytes: int) -> IndexSearchResult:
+    return index.search(
+        _corpus_key(records, fulltext),
+        lambda: _documents(database, records, fulltext, maximum_content_bytes),
+        query=query, fulltext=fulltext, count=len(records),
+    )
+
+
+def _search_read(
+    database: Session, project_id: UUID, record: Transcript, hit: SearchHit, query: str,
+    index: ArtifactSearchIndex, searcher: tantivy.Searcher | None,
+) -> TranscriptRead:
+    rendered = transcript_read(record, project_id)
+    rendered.score = hit.score
+    if hit.content and searcher is not None:
+        # Hydrate only the returned page, one body at a time, using the same
+        # database snapshot and immutable Tantivy searcher that produced the hit.
+        content = database.scalar(select(Transcript.normalized_text).where(
+            Transcript.id == record.id))
+        rendered.snippet = index.snippet(content or "", query, searcher)
+    return rendered
 
 
 def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSearch,
-                     index: ArtifactSearchIndex) -> TranscriptPage:
+                     index: ArtifactSearchIndex, *,
+                     maximum_content_bytes: int = DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES,
+) -> TranscriptPage:
     require_project(database, project_id)
     statement = transcript_query(project_id)
     if filters.work_item_id is not None:
@@ -117,7 +171,8 @@ def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSea
     incomplete = bool(database.scalar(select(func.count()).select_from(statement.where(
         (Transcript.status != "ready") | Transcript.truncated).subquery())))
     if filters.query and filters.query.strip():
-        return _searched_page(database, project_id, filters, index, statement, incomplete)
+        return _searched_page(database, project_id, filters, index, statement, incomplete,
+                              maximum_content_bytes)
     total = database.scalar(select(func.count()).select_from(statement.subquery())) or 0
     records = database.scalars(statement.options(defer(Transcript.normalized_text))
         .order_by(Transcript.created_at.desc(), Transcript.id).offset(filters.offset)
@@ -127,72 +182,69 @@ def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSea
                           indexing_incomplete=incomplete)
 
 
-def _searched_page(database, project_id, filters, index, statement, incomplete) -> TranscriptPage:
+def _searched_page(database, project_id, filters, index, statement, incomplete,
+                   maximum_content_bytes) -> TranscriptPage:
     if not _SEARCH_SLOT.acquire(timeout=0.25):
         raise ApplicationError(503, "transcript_search_busy",
                                "Transcript search is busy. Try this read again shortly.")
     try:
-        return _searched_page_locked(database, project_id, filters, index, statement, incomplete)
+        return _searched_page_locked(database, project_id, filters, index, statement, incomplete,
+                                     maximum_content_bytes)
     finally:
         _SEARCH_SLOT.release()
 
 
-def _searched_page_locked(database, project_id, filters, index, statement, incomplete):
-    records = _bounded_records(database, statement, filters.fulltext)
-    # Metadata-only requests must not load content through a deferred attribute.
-    if not filters.fulltext:
-        def documents():
-            return (SearchDocument(str(row.id), _metadata(row)) for row in records)
-        key = hashlib.sha256(json.dumps([(str(r.id), _metadata(r)) for r in records]).encode())
-        hits = index.search(key.hexdigest(), documents, query=filters.query,
-                            fulltext=False, count=len(records)).hits
-        by_id = {str(row.id): row for row in records}
-        matches = [(by_id[hit.identity], None, hit.score) for hit in hits]
-    else:
-        matches = _search_records(records, filters.query, True, index)
-    items = [transcript_read(record, project_id).model_copy(update={"snippet": snippet,
-                                                               "score": score})
-             for record, snippet, score in matches[filters.offset:filters.offset + filters.limit]]
-    return TranscriptPage(items=items, total=len(matches), limit=filters.limit,
+def _searched_page_locked(database, project_id, filters, index, statement, incomplete,
+                          maximum_content_bytes):
+    records = _bounded_records(database, statement, filters.fulltext, maximum_content_bytes)
+    result = _search_records(database, records, filters.query, filters.fulltext, index,
+                             maximum_content_bytes)
+    by_id = {str(record.id): record for record in records}
+    items = [_search_read(database, project_id, by_id[hit.identity], hit, filters.query,
+                          index, result.searcher)
+             for hit in result.hits[filters.offset:filters.offset + filters.limit]]
+    return TranscriptPage(items=items, total=len(result.hits), limit=filters.limit,
                           offset=filters.offset, indexing_incomplete=incomplete)
 
 
-def _capacity_error() -> ApplicationError:
-    return ApplicationError(503, "transcript_search_capacity",
-                            "Transcript search capacity reached; narrow by work item.")
+def _capacity_error(*, content: bool = False) -> ApplicationError:
+    message = ("Transcript content search exceeds the server's configured size limit. "
+               "Ask your operator to increase transcript search capacity." if content else
+               "Transcript search capacity reached; narrow the search scope.")
+    return ApplicationError(503, "transcript_search_capacity", message)
 
 
-def _preflight_corpus(database, statement, fulltext) -> None:
-    # JSON escaping can expand non-ASCII metadata. Use a conservative upper bound
-    # so this scalar aggregate can reject a corpus without returning any bodies.
+def _preflight_corpus(database, statement, fulltext, maximum_content_bytes) -> None:
+    # Reject an oversized scope before transferring any bodies. JSON escaping
+    # can expand non-ASCII metadata, so its estimate stays conservative.
     metadata_bytes = (func.octet_length(Transcript.source_path)
         + func.octet_length(Transcript.client)
         + func.coalesce(func.octet_length(Transcript.session_id), 0)
         + func.octet_length(cast(Transcript.extracted_metadata, Text)) * 6 + 128)
-    text_bytes = func.coalesce(func.octet_length(Transcript.normalized_text), 0) if fulltext else 0
+    text_bytes = (case((Transcript.status == "ready",
+                       func.coalesce(func.octet_length(Transcript.normalized_text), 0)), else_=0)
+                  if fulltext else literal(0))
     corpus = statement.with_only_columns(
-        Transcript.id, (metadata_bytes + text_bytes).label("size_bytes")).subquery()
-    count, size = database.execute(select(
-        func.count(corpus.c.id), func.coalesce(func.sum(corpus.c.size_bytes), 0))).one()
+        Transcript.id, metadata_bytes.label("metadata_bytes"),
+        text_bytes.label("text_bytes")).subquery()
+    count, size, content_size = database.execute(select(
+        func.count(corpus.c.id), func.coalesce(func.sum(corpus.c.metadata_bytes), 0),
+        func.coalesce(func.sum(corpus.c.text_bytes), 0))).one()
     if count > _SEARCH_MAX_DOCUMENTS or size > _SEARCH_MAX_BYTES:
         raise _capacity_error()
+    if content_size > maximum_content_bytes:
+        raise _capacity_error(content=True)
 
 
-def _bounded_records(database, statement, fulltext) -> list[Transcript]:
-    _preflight_corpus(database, statement, fulltext)
-    load_text = (undefer(Transcript.normalized_text) if fulltext
-                 else defer(Transcript.normalized_text))
-    rows = database.scalars(statement.options(load_text).order_by(Transcript.id)
-                            .execution_options(yield_per=1))
+def _bounded_records(database, statement, fulltext, maximum_content_bytes) -> list[Transcript]:
+    _preflight_corpus(database, statement, fulltext, maximum_content_bytes)
+    rows = database.scalars(statement.options(defer(Transcript.normalized_text))
+                            .order_by(Transcript.id).execution_options(yield_per=1))
     records = []
     size = 0
     try:
         for record in rows:
             size += len(_metadata(record).encode("utf-8"))
-            if fulltext:
-                size += len((record.normalized_text or "").encode("utf-8"))
-            # Recheck every row: a concurrent commit may enlarge the corpus
-            # between preflight and this READ COMMITTED cursor's snapshot.
             if len(records) >= _SEARCH_MAX_DOCUMENTS or size > _SEARCH_MAX_BYTES:
                 raise _capacity_error()
             records.append(record)

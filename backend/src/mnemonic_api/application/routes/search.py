@@ -15,7 +15,7 @@ from mnemonic_api.application.routes.artifacts import (
     storage_errors,
     storage_of,
 )
-from mnemonic_api.application.state import embedder_of
+from mnemonic_api.application.state import embedder_of, settings_of
 from mnemonic_api.application.suggestion_resources import semantic_search_inference_acquired
 from mnemonic_api.database import Database
 from mnemonic_api.errors import ApplicationError, semantic_unavailable
@@ -128,6 +128,7 @@ async def search_project(
             request.app.state.transcript_search_index,
             artifacts_enabled=artifacts_enabled, human_dashboard=human_dashboard,
             embedder=embedder, query_vector=query_vector,
+            maximum_transcript_content_bytes=settings_of(request).transcript_search_max_bytes,
         )
 
     return await run_in_threadpool(execute)

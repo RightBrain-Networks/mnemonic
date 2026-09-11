@@ -819,7 +819,7 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.44.1`, plugin is `0.26.0`,
+Current application/API/MCP/dashboard versions are `0.44.2`, plugin is `0.26.0`,
 and Alembic head is `0033_transcript_imports`. Validate all surfaces
 together with the existing regression suites. This release adds Claude Code transcript
 indexing, transcript MCP reads, a dashboard library, and workspace index settings.

@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.artifact_index import ArtifactSearchIndex
+from mnemonic_api.config import DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES
 from mnemonic_api.errors import semantic_unavailable
 from mnemonic_api.search_schemas import (
     ArtifactSearchCoverage,
@@ -105,7 +106,7 @@ def _search_locked(
     database: Session, project_id: UUID, request: SearchRequest,
     artifact_index: ArtifactSearchIndex, transcript_index: ArtifactSearchIndex,
     *, artifacts_enabled: bool, human_dashboard: bool, embedder: Embedder,
-    query_vector: tuple[float, ...] | None,
+    query_vector: tuple[float, ...] | None, maximum_transcript_content_bytes: int,
 ) -> tuple[SearchPage, list[EmbeddingCacheUpdate]]:
     as_of = database.scalar(select(func.clock_timestamp()))
     if as_of is None:
@@ -125,6 +126,7 @@ def _search_locked(
         if "transcripts" in request.facets:
             sources["transcripts"], coverage.transcripts = stack.enter_context(transcript_source(
                 database, project_id, request, transcript_index,
+                maximum_content_bytes=maximum_transcript_content_bytes,
             ))
         return _page(sources, request, coverage), updates
 
@@ -134,6 +136,7 @@ def search(
     artifact_index: ArtifactSearchIndex, transcript_index: ArtifactSearchIndex,
     *, artifacts_enabled: bool, human_dashboard: bool, embedder: Embedder,
     query_vector: tuple[float, ...] | None = None,
+    maximum_transcript_content_bytes: int = DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES,
 ) -> SearchPage:
     # Published work, artifact revisions/sensitivity and transcript snapshots all
     # use this project lock. Acquire it before selecting any candidate so a queued
@@ -144,6 +147,7 @@ def search(
             database, project_id, request, artifact_index, transcript_index,
             artifacts_enabled=artifacts_enabled, human_dashboard=human_dashboard,
             embedder=embedder, query_vector=query_vector,
+            maximum_transcript_content_bytes=maximum_transcript_content_bytes,
         )
         database.commit()
     try:
