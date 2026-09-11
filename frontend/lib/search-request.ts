@@ -25,7 +25,7 @@ function validFilters(value: unknown): boolean {
       if (["semantic", "include_deleted", "sensitive"].includes(key)) return typeof value === "boolean";
       if (key === "status") return (facet === "work_items" ? ["all", "pending", "active", "to-review", "dropped", "deferred", "done", "wont-do", "promoted"] : ["waiting", "pending", "processing", "ready", "failed"]).includes(String(value));
       if (key === "duplicate_scope") return ["canonical", "aliases", "all"].includes(String(value));
-      if (key === "kind") return ["primary", "subagent"].includes(String(value));
+      if (key === "kind") return ["primary", "subagent", "imported"].includes(String(value));
       return text(value, key === "tag" ? 50 : ["client", "source_client"].includes(key) ? 80 : key === "external_url" ? 2000 : key === "mime_type" ? 255 : 200);
     });
   });

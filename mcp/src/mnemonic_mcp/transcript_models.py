@@ -3,7 +3,7 @@
 import json
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from pydantic import (
@@ -14,6 +14,7 @@ from pydantic import (
     StrictBool,
     StrictInt,
     field_validator,
+    model_validator,
 )
 from pydantic.experimental.missing_sentinel import MISSING
 
@@ -78,13 +79,13 @@ def transcript_locations_payload(locations: SubagentTranscripts) -> list[dict[st
 class TranscriptRead(TranscriptModel):
     id: UUID
     project_id: UUID
-    work_item_id: UUID
-    lease_generation_id: UUID
+    work_item_id: UUID | None
+    lease_generation_id: UUID | None
     client: Annotated[str, Field(min_length=1, max_length=80)]
-    session_id: Annotated[str, Field(min_length=1, max_length=200)]
+    session_id: Annotated[str, Field(min_length=1, max_length=200)] | None
     source_path: Annotated[str, Field(max_length=4096)]
     filename: Annotated[str, Field(max_length=4096)]
-    kind: Literal["primary", "subagent"]
+    kind: Literal["primary", "subagent", "imported"]
     status: TranscriptStatus
     indexing_started_at: datetime | None
     indexing_completed_at: datetime | None
@@ -100,6 +101,17 @@ class TranscriptRead(TranscriptModel):
     created_at: datetime
     snippet: Annotated[str, Field(max_length=1000)] | None = None
     score: Annotated[float, Field(ge=0, allow_inf_nan=False)] | None = None
+
+    @model_validator(mode="after")
+    def coherent_provenance(self) -> Self:
+        provenance = (self.work_item_id, self.lease_generation_id, self.session_id)
+        if self.kind == "imported":
+            valid = all(value is None for value in provenance)
+        else:
+            valid = all(value is not None for value in provenance)
+        if not valid:
+            raise ValueError("Transcript provenance does not match its source kind")
+        return self
 
     @field_validator("metadata")
     @classmethod

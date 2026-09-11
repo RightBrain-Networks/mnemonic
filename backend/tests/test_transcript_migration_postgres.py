@@ -36,7 +36,7 @@ def test_populated_transcript_data_blocks_downgrade(
     with postgres_engine.connect() as connection:
         assert connection.scalar(text(f"SELECT count(*) FROM {populated}")) == before
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0032_agent_transcripts"
+            == "0033_transcript_imports"
 
 
 def test_empty_transcript_schema_downgrades_and_upgrades(pristine_postgres_engine):
@@ -46,3 +46,42 @@ def test_empty_transcript_schema_downgrades_and_upgrades(pristine_postgres_engin
     migrate(pristine_postgres_engine, "head")
     with pristine_postgres_engine.connect() as connection:
         assert connection.scalar(text("SELECT count(*) FROM transcripts")) == 0
+
+
+@pytest.mark.parametrize("with_sources", [False, True])
+def test_import_receipts_and_sources_prevent_downgrade(api, project, tmp_path,
+                                                     postgres_engine, with_sources):
+    from .test_transcript_imports_postgres import import_folder, source
+
+    api.app.state.settings.transcript_allowed_roots = [tmp_path]
+    if with_sources:
+        source(tmp_path)
+    receipt = import_folder(api, project, tmp_path).json()
+    with pytest.raises(RuntimeError, match="imports cannot be safely downgraded"):
+        migrate(postgres_engine, "0032_agent_transcripts", downgrade=True)
+    with postgres_engine.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM transcript_imports")) == 1
+        assert connection.scalar(text("SELECT count(*) FROM transcripts")) == int(with_sources)
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
+            == "0033_transcript_imports"
+    assert import_folder(api, project, tmp_path, receipt["client_operation_id"]).json() == receipt
+
+
+def test_import_migration_preserves_existing_enrollment_bytes_and_receipts(
+    api, project, work_payload, tmp_path, postgres_engine,
+):
+    from .test_transcript_indexing_postgres import read
+
+    work, _, record, _ = register(api, project, work_payload, tmp_path)
+    expire_lease(postgres_engine, work["id"])
+    assert run(api)
+    original = read(api, project, record)
+    rebuild = {"client_operation_id": str(uuid4())}
+    response = api.post(collection(project) + "/rebuild", json=rebuild).json()
+    assert run(api)
+    before = read(api, project, record)
+    migrate(postgres_engine, "0032_agent_transcripts", downgrade=True)
+    migrate(postgres_engine, "head")
+    assert read(api, project, record) == before
+    assert before["sha256"] == original["sha256"]
+    assert api.post(collection(project) + "/rebuild", json=rebuild).json() == response

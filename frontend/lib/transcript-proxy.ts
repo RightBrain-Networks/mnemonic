@@ -1,6 +1,6 @@
 import { readBoundedBytes, readBoundedJson } from "./bounded-json.ts";
 import { configuredOrigins, forbiddenControlTransport, trustedRequest } from "./proxy-policy.ts";
-import { TRANSCRIPT_JSON_MAX_BYTES, TRANSCRIPT_MAX_BYTES, TRANSCRIPT_PROXY_REJECTION_MESSAGES, transcriptDigest } from "./transcripts.ts";
+import { TRANSCRIPT_JSON_MAX_BYTES, TRANSCRIPT_MAX_BYTES, TRANSCRIPT_PROXY_REJECTION_MESSAGES, transcriptDigest, validTranscriptDirectory } from "./transcripts.ts";
 import { exactKeys, finiteInteger, objectValue, validUuid } from "./wire-guards.ts";
 
 const SECURITY_HEADERS = {
@@ -10,13 +10,14 @@ const SECURITY_HEADERS = {
   "Content-Security-Policy": "sandbox; default-src 'none'"
 };
 type Environment = { MNEMONIC_DASHBOARD_ORIGINS?: string; MNEMONIC_API_URL?: string; MNEMONIC_API_KEY?: string };
-type Action = "list" | "detail" | "text" | "content" | "settings" | "save" | "rebuild";
+type Action = "list" | "detail" | "text" | "content" | "settings" | "save" | "rebuild" | "import";
 export function transcriptRoute(path: string[], method: string): Action | null {
   if (path[0] !== "projects" || !validUuid(path[1])) return null;
   if (path.length === 3 && path[2] === "transcript-settings") return method === "GET" ? "settings" : method === "PATCH" ? "save" : null;
   if (path[2] !== "transcripts") return null;
   if (path.length === 3 && method === "GET") return "list";
   if (path.length === 4 && path[3] === "rebuild" && method === "POST") return "rebuild";
+  if (path.length === 4 && path[3] === "import" && method === "POST") return "import";
   if (!validUuid(path[3]) || method !== "GET") return null;
   if (path.length === 4) return "detail";
   if (path.length === 5 && ["text", "content"].includes(path[4])) return path[4] as Action;
@@ -39,11 +40,11 @@ function reject(status: number, message: string): Response {
   if (!TRANSCRIPT_PROXY_REJECTION_MESSAGES[status]?.includes(message)) return fail(status, message);
   return Response.json({ detail: { code: "transcript_proxy_rejected", message } }, { status, headers: SECURITY_HEADERS });
 }
-export async function readTranscriptMutationBody(request: Request, timeoutMs = 10000): Promise<Uint8Array<ArrayBuffer>> {
+export async function readTranscriptMutationBody(request: Request, timeoutMs = 10000, maximumBytes = 4096): Promise<Uint8Array<ArrayBuffer>> {
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(new DOMException("Transcript request body timed out.", "TimeoutError")), timeoutMs);
   try {
-    return await readBoundedBytes(new Response(request.body, { headers: request.headers }), 4096,
+    return await readBoundedBytes(new Response(request.body, { headers: request.headers }), maximumBytes,
       AbortSignal.any([request.signal, deadline.signal]));
   } finally { clearTimeout(timer); }
 }
@@ -66,14 +67,15 @@ export async function proxyTranscript(request: Request, path: string[], environm
   const encoding = request.headers.get("content-encoding");
   if (encoding && encoding.toLowerCase() !== "identity") return reject(415, "Encoded requests are not supported.");
   let body: string | undefined;
-  if (action === "save" || action === "rebuild") {
+  if (action === "save" || action === "rebuild" || action === "import") {
     if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") return reject(415, "Send transcript settings as JSON.");
     try {
-      const bytes = await readTranscriptMutationBody(request);
+      const bytes = await readTranscriptMutationBody(request, 10000, action === "import" ? 32 * 1024 : 4096);
       body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
       const value = objectValue(JSON.parse(body));
       if (!value || (action === "save"
         ? !exactKeys(value, ["enabled", "max_file_size_bytes", "expected_revision"]) || typeof value.enabled !== "boolean" || !finiteInteger(value.max_file_size_bytes, 1, TRANSCRIPT_MAX_BYTES) || !finiteInteger(value.expected_revision, 1)
+        : action === "import" ? !exactKeys(value, ["client_operation_id", "directory"]) || !validUuid(value.client_operation_id) || !validTranscriptDirectory(value.directory)
         : !exactKeys(value, ["client_operation_id"]) || !validUuid(value.client_operation_id))) return reject(400, "Invalid transcript settings request.");
     } catch { return reject(400, "Invalid or oversized transcript settings request."); }
   } else if (request.body) return reject(400, "Transcript reads do not accept a body.");
@@ -95,5 +97,5 @@ export async function proxyTranscript(request: Request, path: string[], environm
     const value = await readBoundedJson(upstream, TRANSCRIPT_JSON_MAX_BYTES);
     if (objectValue(objectValue(value)?.detail)?.code === "transcript_proxy_rejected") return fail(502, "Mnemonic returned an invalid rejection response.");
     return Response.json(value, { status: upstream.status, headers: SECURITY_HEADERS });
-  } catch { return fail(502, "The transcript request could not be completed. For a pending rebuild, retry the preserved request."); }
+  } catch { return fail(502, "The transcript request could not be completed. For a pending import or rebuild, retry the preserved request."); }
 }

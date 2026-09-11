@@ -14,9 +14,12 @@ from mnemonic_api.artifact_index import ArtifactSearchIndex
 from mnemonic_api.database import Database, begin_coherent_read
 from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.models import Transcript
-from mnemonic_api.services import transcripts
+from mnemonic_api.services import transcript_imports, transcripts
 from mnemonic_api.services.project_mutations import project_mutation
+from mnemonic_api.transcript_discovery import discover_transcripts
 from mnemonic_api.transcript_schemas import (
+    TranscriptImportRead,
+    TranscriptImportRequest,
     TranscriptPage,
     TranscriptRead,
     TranscriptRebuildRead,
@@ -57,6 +60,21 @@ def rebuild_transcripts(project_id: UUID, payload: TranscriptRebuildRequest,
     request.app.state.transcript_search_index = ArtifactSearchIndex()
     return TranscriptRebuildRead(queued=queued, project_id=project_id,
                                  client_operation_id=payload.client_operation_id)
+
+
+@router.post(_collection + "/import", response_model=TranscriptImportRead)
+def import_transcripts(project_id: UUID, payload: TranscriptImportRequest,
+                       database: Database, request: Request) -> TranscriptImportRead:
+    replay = transcript_imports.replay_import(database, project_id, payload)
+    if replay is not None:
+        return replay
+    # Do not hold database locks or a read transaction while walking the filesystem.
+    database.rollback()
+    scan = discover_transcripts(payload.directory, settings_of(request).transcript_allowed_roots)
+    with project_mutation(database, project_id):
+        result = transcript_imports.import_transcripts(database, project_id, payload, scan)
+        database.commit()
+    return result
 
 
 @router.get(_collection + "/{transcript_id}", response_model=TranscriptRead,

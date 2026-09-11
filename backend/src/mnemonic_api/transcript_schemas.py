@@ -4,7 +4,9 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from mnemonic_api.transcript_locations import TranscriptLocation
 
 TranscriptStatus = Literal["waiting", "pending", "processing", "ready", "failed"]
 
@@ -12,13 +14,13 @@ TranscriptStatus = Literal["waiting", "pending", "processing", "ready", "failed"
 class TranscriptRead(BaseModel):
     id: UUID
     project_id: UUID
-    work_item_id: UUID
-    lease_generation_id: UUID
+    work_item_id: UUID | None
+    lease_generation_id: UUID | None
     client: str
-    session_id: str
+    session_id: str | None
     source_path: str
     filename: str
-    kind: Literal["primary", "subagent"]
+    kind: Literal["primary", "subagent", "imported"]
     status: TranscriptStatus
     indexing_started_at: datetime | None
     indexing_completed_at: datetime | None
@@ -89,3 +91,23 @@ class TranscriptRebuildRead(BaseModel):
     queued: int
     project_id: UUID
     client_operation_id: UUID
+
+
+class TranscriptImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    client_operation_id: UUID
+    directory: str = Field(strict=True, min_length=1, max_length=4096)
+
+    @field_validator("directory")
+    @classmethod
+    def safe_directory(cls, value: str) -> str:
+        return TranscriptLocation(client="claude_code", path=value).path
+
+
+class TranscriptImportRead(BaseModel):
+    project_id: UUID
+    client_operation_id: UUID
+    directory: str
+    imported: int
+    existing: int
+    skipped: int

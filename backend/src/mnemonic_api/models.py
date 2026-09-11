@@ -2110,10 +2110,11 @@ class Transcript(Base):
     __table__ = Table("transcripts", Base.metadata, *transcripts.transcript_elements())
 
     id: Mapped[UUID]
-    work_item_id: Mapped[UUID]
-    lease_generation_id: Mapped[UUID]
+    work_item_id: Mapped[UUID | None]
+    lease_generation_id: Mapped[UUID | None]
+    import_project_id: Mapped[UUID | None]
     client: Mapped[str]
-    session_id: Mapped[str]
+    session_id: Mapped[str | None]
     source_path: Mapped[str]
     kind: Mapped[str]
     status: Mapped[str]
@@ -2151,4 +2152,16 @@ class TranscriptRebuild(Base):
     project_id: Mapped[UUID]
     client_operation_id: Mapped[UUID]
     queued: Mapped[int]
+    created_at: Mapped[datetime]
+
+
+class TranscriptImport(Base):
+    __table__ = Table("transcript_imports", Base.metadata, *transcripts.import_elements())
+
+    project_id: Mapped[UUID]
+    client_operation_id: Mapped[UUID]
+    directory: Mapped[str]
+    imported: Mapped[int]
+    existing: Mapped[int]
+    skipped: Mapped[int]
     created_at: Mapped[datetime]

@@ -4,14 +4,14 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 
-def transcript_elements() -> list:
-    return [
+def transcript_elements(*, include_imports: bool = True) -> list:
+    elements = [
         sa.Column("id", UUID, primary_key=True),
         sa.Column("work_item_id", UUID, sa.ForeignKey("work_items.id", ondelete="RESTRICT"),
-                  nullable=False),
-        sa.Column("lease_generation_id", UUID, nullable=False),
+                  nullable=include_imports),
+        sa.Column("lease_generation_id", UUID, nullable=include_imports),
         sa.Column("client", sa.String(80), nullable=False),
-        sa.Column("session_id", sa.String(200), nullable=False),
+        sa.Column("session_id", sa.String(200), nullable=include_imports),
         sa.Column("source_path", sa.String(4096), nullable=False),
         sa.Column("kind", sa.String(16), nullable=False),
         sa.Column("status", sa.String(16), nullable=False, server_default="waiting"),
@@ -37,7 +37,8 @@ def transcript_elements() -> list:
         sa.Column("lease_expires_at", sa.DateTime(timezone=True)),
         sa.UniqueConstraint("work_item_id", "lease_generation_id", "source_path", "kind",
                             name="uq_transcripts_source"),
-        sa.CheckConstraint("kind IN ('primary','subagent')", name="kind_valid"),
+        sa.CheckConstraint("kind IN ('primary','subagent','imported')" if include_imports
+                           else "kind IN ('primary','subagent')", name="kind_valid"),
         sa.CheckConstraint("status IN ('waiting','pending','processing','ready','failed')",
                            name="status_valid"),
         sa.CheckConstraint("generation > 0 AND attempts >= 0", name="counters_valid"),
@@ -55,6 +56,41 @@ def transcript_elements() -> list:
                            name="metadata_valid"),
         sa.Index("ix_transcripts_work_created", "work_item_id", "created_at", "id"),
         sa.Index("ix_transcripts_due", "status", "next_attempt_at"),
+    ]
+    if include_imports:
+        elements.extend([
+            sa.Column("import_project_id", UUID,
+                      sa.ForeignKey("projects.id", ondelete="RESTRICT")),
+            sa.CheckConstraint(IMPORT_PROVENANCE, name="provenance_valid"),
+            sa.UniqueConstraint("import_project_id", "source_path",
+                                name="uq_transcripts_import_source"),
+        ])
+    return elements
+
+
+IMPORT_PROVENANCE = (
+    "(kind = 'imported' AND import_project_id IS NOT NULL AND work_item_id IS NULL "
+    "AND lease_generation_id IS NULL AND session_id IS NULL) OR "
+    "(kind IN ('primary','subagent') AND import_project_id IS NULL "
+    "AND work_item_id IS NOT NULL AND lease_generation_id IS NOT NULL "
+    "AND session_id IS NOT NULL)"
+)
+
+
+def import_elements() -> list:
+    return [
+        sa.Column("project_id", UUID, sa.ForeignKey("projects.id", ondelete="RESTRICT"),
+                  primary_key=True),
+        sa.Column("client_operation_id", UUID, primary_key=True),
+        sa.Column("directory", sa.String(4096), nullable=False),
+        sa.Column("imported", sa.Integer, nullable=False),
+        sa.Column("existing", sa.Integer, nullable=False),
+        sa.Column("skipped", sa.Integer, nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False,
+                  server_default=sa.func.clock_timestamp()),
+        sa.CheckConstraint("imported >= 0 AND existing >= 0 AND imported + existing <= 5000 "
+                           "AND skipped BETWEEN 0 AND 50000", name="counts_valid"),
+        sa.CheckConstraint("left(directory, 1) = '/'", name="directory_absolute"),
     ]
 
 

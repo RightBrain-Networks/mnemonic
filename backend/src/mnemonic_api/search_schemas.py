@@ -72,7 +72,7 @@ class TranscriptSearchFilters(APIModel):
     work_item_id: UUID | None = None
     agent_session_id: SessionID | None = None
     client: ClientName | None = None
-    kind: Literal["primary", "subagent"] | None = None
+    kind: Literal["primary", "subagent", "imported"] | None = None
     status: TranscriptStatus | None = None
 
 
