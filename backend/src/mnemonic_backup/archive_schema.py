@@ -13,7 +13,7 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0030_question_versions"
+HEAD = "0031_review_decisions"
 TABLES = tuple(sorted(Base.metadata.tables))
 MAX_ARCHIVE_IDENTITY = 2**53 - 1
 IDENTITY_COLUMNS = tuple(

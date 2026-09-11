@@ -31,6 +31,7 @@ const cardStatusLabels: Record<CardStatus, string> = {
 };
 
 function effectiveCardStatus(status: WorkStatus, readiness?: Readiness): CardStatus {
+  if (status === "done" && readiness?.review_status) return readiness.review_status;
   if (status === "done" && readiness?.display_state === "to-review") return "to-review";
   if (status !== "pending" || !readiness || readiness.is_duplicate) return status;
   if (readiness.is_gated) return "waiting";

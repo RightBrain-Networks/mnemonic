@@ -834,3 +834,56 @@ test("an unsent affirmative recommendation preserves every draft field across un
     await api.dispose();
   }
 });
+
+test("human review actions work on summary and detail cards without reopening implementation", async ({ page }, testInfo) => {
+  test.setTimeout(90000);
+  const api = await client();
+  try {
+    const p = await project(api);
+    await project(api); // A real alternate project makes the disabled Move control meaningful.
+    await configure(api, p.id, { code_review_required_min_priority: 0 });
+    const work = await create(api, p.id, "Review handled by a person");
+    const completed = await completeApi(api, p.id, work);
+    await open(page, p.id, work.title, "All");
+    await closeDetail(page);
+    const card = workCard(page, work.title);
+    await expect(card.getByRole("button", { name: `Defer ${work.title}` })).toBeEnabled();
+    await card.getByRole("button", { name: `Choose an action for ${work.title}` }).click();
+    let menu = page.getByRole("menu", { name: `Actions for ${work.title}`, exact: true });
+    await expect(menu.getByRole("menuitem", { name: `Done ${work.title}`, exact: true })).toBeEnabled();
+    await expect(menu.getByRole("menuitem", { name: `Pending ${work.title}` })).toHaveCount(0);
+    await expect(menu.getByRole("menuitem", { name: `Active ${work.title}` })).toHaveCount(0);
+    await expect(menu.getByRole("menuitem", { name: `Move ${work.title} to another project` })).toHaveAttribute("aria-disabled", "true");
+    await page.screenshot({ path: testInfo.outputPath("review-summary-actions.png"), fullPage: true });
+    await page.keyboard.press("Escape");
+    await card.getByRole("button", { name: `Defer ${work.title}` }).click();
+    await expect(card.locator(".status-badge")).toHaveText("Deferred");
+    const pane = await selectWork(page, work.title);
+    for (const [action, label] of [
+      ["To review", "To review"], ["Won’t Do", "Won’t do"], ["To review", "To review"],
+      ["Done", "Done"], ["To review", "To review"], ["Promote", "Promoted"],
+      ["To review", "To review"]
+    ]) {
+      await pane.getByRole("button", { name: `Choose an action for ${work.title}` }).click();
+      menu = pane.getByRole("menu", { name: `Actions for ${work.title}`, exact: true });
+      await expect(menu.getByRole("menuitem", { name: `Pending ${work.title}` })).toHaveCount(0);
+      await expect(menu.getByRole("menuitem", { name: `Active ${work.title}` })).toHaveCount(0);
+      await menu.getByRole("menuitem", { name: `${action} ${work.title}`, exact: true }).click();
+      await expect(pane.locator(".detail-identity > .status-badge")).toHaveText(label);
+      await expect(card.locator(".status-badge")).toHaveText(label);
+    }
+    await pane.getByRole("button", { name: `Choose an action for ${work.title}` }).click();
+    await expect(pane.getByRole("menuitem", { name: `Move ${work.title} to another project` })).toHaveAttribute("aria-disabled", "true");
+    await page.screenshot({ path: testInfo.outputPath("review-detail-actions.png"), fullPage: true });
+    await page.keyboard.press("Escape");
+    await pane.getByRole("button", { name: `Defer ${work.title}` }).click();
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Deferred");
+    const context = await (await api.get(`/api/v1/projects/${p.id}/work-items/${work.id}/context`)).json();
+    expect(context.work_item.status).toBe("done");
+    expect(context.code_review_context.current_review.id).toBe(completed.code_review_request?.id);
+    expect(context.code_review_context.current_review.result_id).toBeNull();
+    expect(context.readiness.has_active_lease).toBe(false);
+  } finally {
+    await api.dispose();
+  }
+});

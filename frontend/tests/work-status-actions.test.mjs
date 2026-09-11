@@ -4,7 +4,6 @@ import test from "node:test";
 import {
   availableStatusActions,
   currentManualStatusAction,
-  decodeDashboardActivationResult,
   decodeLeaseReleaseResult,
   humanDecisionCompletionCheckpoint,
   humanDecisionReport,
@@ -46,7 +45,7 @@ function readiness(overrides = {}) {
 test("the status menu has the requested order and excludes the current state", () => {
   assert.deepEqual(
     availableStatusActions("pending", readiness()).map((item) => item.label),
-    ["Active", "Done", "Won’t Do", "Promote"]
+    ["Done", "Won’t Do", "Promote"]
   );
   const active = readiness({
     has_active_lease: true,
@@ -73,7 +72,7 @@ test("the status menu has the requested order and excludes the current state", (
   assert.equal(currentManualStatusAction("pending", dropped), null);
   assert.deepEqual(
     availableStatusActions("pending", dropped).map((item) => item.label),
-    ["Pending", "Active", "Done", "Won’t Do", "Promote"]
+    ["Pending", "Done", "Won’t Do", "Promote"]
   );
   assert.deepEqual(
     availableStatusActions("done", readiness({
@@ -82,7 +81,7 @@ test("the status menu has the requested order and excludes the current state", (
       is_ready: false,
       display_state: "done"
     })).map((item) => item.label),
-    ["Pending", "Active", "Won’t Do", "Promote"]
+    ["Pending", "Won’t Do", "Promote"]
   );
   assert.equal(currentManualStatusAction("deferred", readiness({
     lifecycle_status: "deferred",
@@ -91,7 +90,7 @@ test("the status menu has the requested order and excludes the current state", (
   })), "defer");
 });
 
-test("terminal actions wait for gates and report settings while Active also respects blockers", () => {
+test("terminal actions wait for gates, blockers and report settings", () => {
   const gated = readiness({ unresolved_gate_count: 1, is_gated: true, is_ready: false });
   assert.match(
     statusActionDisabledReason("done", readiness({
@@ -102,23 +101,19 @@ test("terminal actions wait for gates and report settings while Active also resp
     /incoming blocker/
   );
   assert.match(statusActionDisabledReason("done", gated, true), /human question/);
-  assert.match(statusActionDisabledReason("active", gated, true), /human question/);
-  assert.match(
-    statusActionDisabledReason("active", readiness({
-      unresolved_blocker_count: 1,
-      is_blocked: true,
-      is_ready: false
-    }), true),
-    /incoming blocker/
-  );
   assert.match(statusActionDisabledReason("promoted", readiness(), false), /report settings/);
   assert.equal(statusActionDisabledReason("pending", gated, false), null);
 });
 
-test("unclaimed review work requires explicit reopening before status changes", () => {
-  const review = readiness({ lifecycle_status: "done", is_terminal: true, is_ready: false, display_state: "to-review" });
-  for (const action of availableStatusActions("done", review)) {
-    assert.match(statusActionDisabledReason(action.value, review, true), /Reopen work/);
+test("review actions affect the review, return to To review and never offer Active or Pending", () => {
+  for (const status of ["to-review", "deferred", "done", "wont-do", "promoted"]) {
+    const review = readiness({ lifecycle_status: "done", is_terminal: true, is_ready: false,
+      display_state: status, review_status: status });
+    const actions = availableStatusActions("done", review);
+    assert.ok(actions.every((action) => !["active", "pending"].includes(action.value)));
+    assert.equal(actions.some((action) => action.value === "to-review"), status !== "to-review");
+    assert.equal(actions.some((action) => action.value === "done"), status !== "done");
+    for (const action of actions) assert.equal(statusActionDisabledReason(action.value, review, true), null);
   }
 });
 
@@ -131,26 +126,6 @@ test("manual closeout records say exactly what the human action proves", () => {
   }
   assert.match(humanDecisionCompletionCheckpoint(work), /Explicit human decision/);
   assert.match(humanDecisionCompletionCheckpoint(work), /makes no additional/);
-});
-
-test("manual Active responses are exact and bound to the dashboard actor", () => {
-  const actor = { actor_client: "dashboard", actor_session_id: "tab" };
-  const lease = {
-    holder_client: "dashboard",
-    holder_session_id: "tab",
-    acquired_at: "2026-09-01T12:00:00Z",
-    renewed_at: "2026-09-01T12:00:00Z",
-    expires_at: "2026-09-01T12:15:00Z"
-  };
-  assert.deepEqual(decodeDashboardActivationResult(lease, actor), lease);
-  assert.throws(
-    () => decodeDashboardActivationResult({ ...lease, holder_session_id: "other" }, actor),
-    /invalid manual activation/
-  );
-  assert.throws(
-    () => decodeDashboardActivationResult({ ...lease, lease_token: "leaked" }, actor),
-    /invalid manual activation/
-  );
 });
 
 test("manual Pending responses are exact and bound to the selected work item", () => {

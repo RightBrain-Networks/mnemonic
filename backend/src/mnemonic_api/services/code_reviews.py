@@ -256,7 +256,10 @@ def answer_follow_up(
     database: Session, work: WorkItem, follow_up_id: UUID, payload: WorkFollowUpResponseRequest
 ) -> WorkFollowUpResponseResult:
     question = require_follow_up(database, work.project_id, work.id, follow_up_id, lock=True)
-    if question.state != "pending" or question.version != payload.expected_follow_up_version:
+    from mnemonic_api.services.review_decisions import disposition
+
+    if (question.state != "pending" or question.version != payload.expected_follow_up_version
+            or disposition(question) != "to-review"):
         code = (
             "work_follow_up_superseded"
             if question.state == "superseded"

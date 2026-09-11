@@ -31,7 +31,7 @@ const READINESS_FIELDS = [
 
 export const READINESS_DECODER_FIELDS = {
   decodeLease: [...LEASE_FIELDS, "purpose", "code_review_id", "mode"],
-  decodeReadiness: READINESS_FIELDS
+  decodeReadiness: [...READINESS_FIELDS, "review_status"]
 } as const;
 
 function decodeLease(value: unknown): LeasePublic | null {
@@ -51,12 +51,6 @@ function decodeLease(value: unknown): LeasePublic | null {
   return lease as unknown as LeasePublic;
 }
 
-export function decodeLeasePublic(value: unknown): LeasePublic {
-  const lease = decodeLease(value);
-  if (!lease) throw new Error("Mnemonic returned an invalid manual activation.");
-  return lease;
-}
-
 export function decodeReadiness(
   value: unknown,
   status: WorkStatus,
@@ -65,7 +59,8 @@ export function decodeReadiness(
   const readiness = objectValue(value);
   if (
     !readiness
-    || !exactKeys(readiness, READINESS_FIELDS)
+    || !exactKeys(readiness, [...READINESS_FIELDS, ...("review_status" in readiness ? ["review_status"] : [])])
+    || ("review_status" in readiness && (status !== "done" || !["to-review", "deferred", "done", "wont-do", "promoted"].includes(String(readiness.review_status))))
     || readiness.lifecycle_status !== status
     || typeof readiness.is_duplicate !== "boolean"
     || !validUuid(readiness.canonical_work_item_id)
@@ -92,6 +87,8 @@ export function decodeReadiness(
     && readiness.unresolved_gate_count === 0;
   const displayState = readiness.is_duplicate
     ? "duplicate"
+    : readiness.review_status
+    ? readiness.review_status
     : status === "done" && readiness.display_state === "to-review"
     ? "to-review"
     : status !== "pending"

@@ -859,7 +859,6 @@ test("the Defer menu moves linked deferred work without severing its relationshi
     const parentItems = statusMenu.locator('[data-status-menu-item="true"]');
     await expect(parentItems).toHaveText([
       "Pending",
-      "Active",
       "Done",
       "Won’t Do",
       "Promote",

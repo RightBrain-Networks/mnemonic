@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import literal_column, text
+from sqlalchemy import func, literal_column, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
@@ -23,7 +23,7 @@ from mnemonic_api.services.duplicates import (
 )
 from mnemonic_api.services.readiness import (
     readiness,
-    review_obligation_clause,
+    review_status_clause,
     unresolved_blocker_count_clause,
     unresolved_gate_count_clause,
 )
@@ -59,15 +59,11 @@ def _hierarchy_match_sql(
             "WHERE filter_lease.work_item_id = candidate.id"
             ")"
         )
-    elif filters.status in {"to-review", "done"}:
-        obligation = review_obligation_clause(literal_column("candidate.id"))
-        predicate = obligation if filters.status == "to-review" else ~obligation
-        conditions.append("candidate.status = 'done' AND (" + str(
-            predicate.compile(compile_kwargs={"literal_binds": True})
-        ) + ")")
     elif filters.status != "all":
-        conditions.append("candidate.status = :filter_status")
-        parameters["filter_status"] = filters.status
+        review = review_status_clause(literal_column("candidate.id"))
+        effective = func.coalesce(review, literal_column("candidate.status"))
+        predicate = effective == filters.status
+        conditions.append(str(predicate.compile(compile_kwargs={"literal_binds": True})))
 
     checkpoint_conditions: list[str] = []
     if filters.tag is not None:
@@ -180,7 +176,7 @@ def hierarchy_page(
             )
         )
 
-    root_review_sql = sql(review_obligation_clause(literal_column("root.id")))
+    root_review_sql = sql(review_status_clause(literal_column("root.id")))
     member_blocker_count_sql = sql(
         unresolved_blocker_count_clause(
             literal_column("member.id"),
@@ -449,7 +445,7 @@ def hierarchy_page(
                     ) AS checkpoint_count,
                     ({root_blocker_count_sql}) AS unresolved_blocker_count,
                     ({root_gate_count_sql}) AS unresolved_gate_count,
-                    ({root_review_sql}) AS needs_review,
+                    ({root_review_sql}) AS review_status,
                     EXISTS (
                         SELECT 1
                         FROM work_leases AS dropped_lease
@@ -528,7 +524,7 @@ def hierarchy_page(
                                         page_rows.current_checkpoint_created_at
                                 ),
                                 'readiness', jsonb_build_object(
-                                    'needs_review', page_rows.needs_review,
+                                    'review_status', page_rows.review_status,
                                     'has_dropped_lease',
                                         page_rows.has_dropped_lease,
                                     'active_lease', CASE
@@ -629,7 +625,7 @@ def hierarchy_page(
             bool(readiness_inputs["has_dropped_lease"]),
             int(readiness_inputs["unresolved_gate_count"]),
             canonical_work_item_id=UUID(str(summary["work_item"]["id"])),
-            needs_review=bool(readiness_inputs["needs_review"]),
+            review_status=readiness_inputs["review_status"],
         )
         items.append(HierarchySummary.model_validate(item))
     return items, int(row["total"])

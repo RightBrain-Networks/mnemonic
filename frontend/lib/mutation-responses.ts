@@ -1,3 +1,4 @@
+import { decodeHumanReviewDecision } from "./code-reviews.ts";
 import { sameExternalReferences } from "./external-references.ts";
 import { ApiError, detailMessage } from "./api.ts";
 import type {
@@ -156,6 +157,7 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
   [409, new Set([
     "job_report_prompt_changed", "project_settings_changed",
     "work_follow_up_changed", "work_follow_up_superseded", "work_follow_up_origin_mismatch", "work_follow_up_already_answered",
+    "review_decision_requires_human", "review_decision_invalid", "review_decision_unchanged",
     "code_review_not_requested", "code_review_superseded", "code_review_changed", "code_review_already_completed",
     "code_review_depth_forbidden", "code_review_remediation_disabled", "lease_purpose_mismatch",
     "code_review_obligation_outstanding", "code_review_provenance_merge_forbidden",
@@ -569,11 +571,30 @@ function decodeSuccess<K extends MutationKind>(
     if (!path?.workItemId) throw new Error("The frozen mutation request is invalid.");
     const raw = objectValue(value);
     if (!raw) throw new Error("Mnemonic returned an invalid work update.");
-    const { job_completion_report: report, ...workFields } = raw;
+    const { job_completion_report: report, review_decision: decision, ...workFields } = raw;
     if (Object.hasOwn(body, "job_completion_report") !== Object.hasOwn(raw, "job_completion_report")) {
       throw new Error("Mnemonic returned an incoherent closeout report.");
     }
     const workItem = decodeWorkItem(workFields, path.projectId, path.workItemId);
+    if (Object.hasOwn(body, "review_decision") !== Object.hasOwn(raw, "review_decision")) {
+      throw new Error("Mnemonic returned an incoherent review decision.");
+    }
+    if (decision !== undefined) {
+      const returned = objectValue(decision);
+      const expected = objectValue(body.review_decision);
+      const actor = objectValue(body.actor);
+      if (!returned || !expected || !actor) throw new Error("Invalid review decision response.");
+      const { resource_id, ...fields } = returned;
+      const parsed = decodeHumanReviewDecision(fields);
+      if (!sameUuid(resource_id, expected.resource_id)
+        || parsed.status !== expected.status || parsed.version !== Number(expected.expected_decision_version) + 1
+        || parsed.work_version !== workItem.version || workItem.status !== "done"
+        || parsed.actor_client !== actor.actor_client || parsed.actor_session_id !== actor.actor_session_id
+        || !jsonEqual(parsed.job_completion_report, expected.job_completion_report ?? null)) {
+        throw new Error("Mnemonic returned an incoherent review decision.");
+      }
+    }
+
     if (
       workItem.version !== Number(body.expected_version) + 1
       || (Object.hasOwn(body, "external_references") && !sameExternalReferences(workItem.external_references, body.external_references))
@@ -584,7 +605,7 @@ function decodeSuccess<K extends MutationKind>(
     ) throw new Error("Mnemonic returned an incoherent mutation response.");
     decoded = Object.hasOwn(body, "job_completion_report")
       ? { ...workItem, job_completion_report: matchCloseoutReport(report, path.projectId, workItem, body.job_completion_report, body.actor, null) }
-      : workItem;
+      : { ...workItem, ...(decision !== undefined ? { review_decision: decision } : {}) };
   } else if (request.kind === "defer_work") {
     const path = parsePath(request.path, "/defer");
     if (!path?.workItemId) throw new Error("The frozen mutation request is invalid.");

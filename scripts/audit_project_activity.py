@@ -20,10 +20,11 @@ from typing import Any
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0030_question_versions"
+HEAD = "0031_review_decisions"
 EXTRACTION_HEAD = "0027_artifact_fulltext"
 EXTRACTION_HEADS = (
-    EXTRACTION_HEAD, "0028_work_summary_limit", "0029_artifact_links_sensitive", HEAD,
+    EXTRACTION_HEAD, "0028_work_summary_limit", "0029_artifact_links_sensitive",
+    "0030_question_versions", HEAD,
 )
 ARTIFACT_HEAD = "0026_artifact_library"
 ARTIFACT_HEADS = (ARTIFACT_HEAD, *EXTRACTION_HEADS)
@@ -100,14 +101,14 @@ def _legacy():
     return module
 
 
-def _review_checks() -> dict[str, str]:
+def _review_checks(expected_head: str) -> dict[str, str]:
     path = Path(__file__).with_name("audit_code_reviews.py")
     spec = importlib.util.spec_from_file_location("mnemonic_review_audit", path)
     if spec is None or spec.loader is None:
         raise RuntimeError("Code-review audit is unavailable")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return {f"code_review_{name}": sql for name, sql in module.CHECKS.items()}
+    return {f"code_review_{name}": sql for name, sql in module.checks_for_head(expected_head).items()}
 
 
 def _digest(value: str, schema: str) -> str:
@@ -922,7 +923,7 @@ def _head_findings(
     if expected_head in MOVE_HEADS:
         checks.update(_MOVE_FINDINGS)
     if expected_head in REVIEW_HEADS:
-        checks.update(_review_checks())
+        checks.update(_review_checks(expected_head))
     if expected_head in CROSS_PROJECT_HEADS:
         checks.update(_CROSS_PROJECT_RELATIONSHIP_FINDINGS)
     if expected_head in ARTIFACT_HEADS:

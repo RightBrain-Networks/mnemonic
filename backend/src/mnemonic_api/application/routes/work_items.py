@@ -135,6 +135,10 @@ def update_work(
         report = closeout_report(database, work_item)
         if report is not None:
             data["job_completion_report"] = report
+        if domain_payload.review_decision is not None:
+            from mnemonic_api.services.review_decisions import decision_result
+
+            data["review_decision"] = decision_result(database, domain_payload)
         return WorkUpdateRead(**data)
 
     return run_registered_mutation(

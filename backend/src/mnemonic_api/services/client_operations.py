@@ -1017,17 +1017,32 @@ def _update_work_matches(
         "lease_token",
         "actor",
         "client_operation_id",
-        "job_completion_report",
+        "job_completion_report", "review_decision",
         "supersede_code_review_id", "expected_code_review_version",
         "supersede_follow_up_id", "expected_follow_up_version",
     }
     return (
         _report_matches(result.job_completion_report, request.job_completion_report, request.actor)
+        and _review_decision_matches(result, request)
         and result.project_id == project_id
         and str(result.id) == target_envelope.get("work_item_id")
         and result.version == request.expected_version + 1
         and all(getattr(result, field) == getattr(request, field) for field in changed_fields)
     )
+
+
+def _review_decision_matches(result: WorkUpdateRead, request: WorkItemPatch) -> bool:
+    actual, expected = result.review_decision, request.review_decision
+    if actual is None or expected is None:
+        return actual is None and expected is None
+    return (actual.resource_id == expected.resource_id and actual.status == expected.status
+            and actual.version == expected.expected_decision_version + 1
+            and actual.work_version == result.version and result.status == "done"
+            and actual.job_completion_report == expected.job_completion_report
+            and request.actor is not None
+            and actual.actor_client == request.actor.actor_client
+            and actual.actor_session_id == request.actor.actor_session_id
+            and actual.actor_model == request.actor.actor_model)
 
 
 def _defer_work_matches(

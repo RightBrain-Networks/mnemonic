@@ -3,12 +3,14 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import cast
 from uuid import UUID
 
-from sqlalchemy import and_, false, func, literal, literal_column, or_, select, text, true
+from sqlalchemy import and_, false, func, literal, literal_column, select, text, true
 from sqlalchemy.orm import InstrumentedAttribute, Session
 from sqlalchemy.sql.elements import ColumnElement
 
+from mnemonic_api.code_review_schemas import ReviewDisposition
 from mnemonic_api.errors import conflict, work_gated
 from mnemonic_api.models import (
     CodeReview,
@@ -39,7 +41,7 @@ def readiness(
     unresolved_gate_count: int = 0,
     *,
     canonical_work_item_id: UUID | None = None,
-    needs_review: bool = False,
+    review_status: ReviewDisposition | None = None,
 ) -> Readiness:
     """Project lifecycle, blocker, lease, and gate facts with fixed display precedence."""
     terminal = work_item.status in {"done", "wont-do", "promoted"}
@@ -51,8 +53,8 @@ def readiness(
     is_duplicate = canonical_id != work_item.id
     if is_duplicate:
         display_state = "duplicate"
-    elif work_item.status == "done" and needs_review:
-        display_state = "to-review"
+    elif work_item.status == "done" and review_status:
+        display_state = review_status
     elif work_item.status != "pending":
         display_state = work_item.status
     elif is_gated:
@@ -66,6 +68,7 @@ def readiness(
     else:
         display_state = "pending"
     return Readiness(
+        review_status=review_status if work_item.status == "done" and not is_duplicate else None,
         lifecycle_status=work_item.status,
         is_duplicate=is_duplicate,
         canonical_work_item_id=canonical_id,
@@ -88,30 +91,27 @@ def readiness(
     )
 
 
-def review_obligation_clause(
+def review_status_clause(
     work_item_id: ColumnElement[UUID] | InstrumentedAttribute[UUID],
-) -> ColumnElement[bool]:
-    """Outstanding review work, including the originating author's recommendation."""
-    return or_(
-        select(CodeReview.id).where(
-            CodeReview.work_item_id == work_item_id,
-            CodeReview.state == "requested",
-        ).exists(),
-        select(WorkAgentFollowUp.id).where(
-            WorkAgentFollowUp.work_item_id == work_item_id,
-            WorkAgentFollowUp.state == "pending",
-        ).exists(),
-    )
+) -> ColumnElement[str]:
+    """The current review episode's human disposition, including recommendations."""
+    def resource_status(model, state):
+        return select(func.coalesce(
+            model.human_decisions[-1]["status"].astext, "to-review",
+        )).where(model.work_item_id == work_item_id, model.state == state).scalar_subquery()
+
+    return func.coalesce(resource_status(CodeReview, "requested"),
+                         resource_status(WorkAgentFollowUp, "pending"))
 
 
-def review_obligation_ids(database: Session, work_item_ids: Sequence[UUID]) -> set[UUID]:
+def review_statuses(
+    database: Session, work_item_ids: Sequence[UUID],
+) -> dict[UUID, ReviewDisposition]:
     if not work_item_ids:
-        return set()
-    return set(database.scalars(select(WorkItem.id).where(
-        WorkItem.id.in_(work_item_ids),
-        WorkItem.status == "done",
-        review_obligation_clause(WorkItem.id),
-    )))
+        return {}
+    return {work_id: cast(ReviewDisposition, status) for work_id, status in database.execute(select(
+        WorkItem.id, review_status_clause(WorkItem.id),
+    ).where(WorkItem.id.in_(work_item_ids), WorkItem.status == "done")) if status is not None}
 
 
 def unresolved_blocker_counts(database: Session, work_item_ids: Sequence[UUID]) -> dict[UUID, int]:

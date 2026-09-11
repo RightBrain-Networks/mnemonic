@@ -87,8 +87,8 @@ export default function WorkQueueCard({ summary, presentation, depth = 0 }: Prop
   const copied = copiedKey === `${id}:pointer`;
   const descendants = presentation?.descendant_count ?? 0;
   const mutationBlocked = isMutationBlocked(summary);
-  const reviewLocked = summary.readiness.display_state === "to-review";
-  const actionsDisabled = mutationBlocked || summary.readiness.is_duplicate || reviewLocked;
+  const reviewLocked = Boolean(summary.readiness.review_status || summary.readiness.display_state === "to-review");
+  const actionsDisabled = mutationBlocked || summary.readiness.is_duplicate;
   const moveDisabledReason = mutationBlocked
     ? "Resolve the pending mutation before moving this work item."
     : reviewLocked

@@ -22,7 +22,7 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
-from mnemonic_api.phase12_schemas import PositiveRevision, report_text
+from mnemonic_api.phase12_schemas import JobCompletionReportInput, PositiveRevision, report_text
 
 
 def multiline(value: str) -> str:
@@ -281,7 +281,44 @@ class ReviewPolicyRead(ReviewTimestamp):
         return self
 
 
+ReviewDisposition = Literal["to-review", "deferred", "done", "wont-do", "promoted"]
+
+
+class HumanReviewDecisionInput(ReviewModel):
+    resource_id: UUID
+    expected_decision_version: Annotated[StrictInt, Field(ge=0)]
+    status: ReviewDisposition
+    job_completion_report: JobCompletionReportInput | None = None
+
+
+class HumanReviewDecision(ReviewTimestamp):
+    version: Annotated[StrictInt, Field(ge=1)]
+    status: ReviewDisposition
+    actor_client: Literal["dashboard"]
+    actor_session_id: SessionID
+    actor_model: None
+    event_id: PositiveRevision
+    work_version: Annotated[StrictInt, Field(ge=1)]
+    job_completion_report: JobCompletionReportInput | None
+
+
+    @model_validator(mode="after")
+    def report_matches_decision(self) -> Self:
+        if (self.status in {"done", "wont-do", "promoted"}) != (
+            self.job_completion_report is not None
+        ):
+            raise ValueError("A terminal human review decision requires a report")
+        return self
+
+
+class HumanReviewDecisionRead(HumanReviewDecision):
+    resource_id: UUID
+
+
 class CodeReviewRead(ReviewTimestamp):
+    human_decision: HumanReviewDecision | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID
     project_id: UUID
     work_item_id: UUID
@@ -318,6 +355,9 @@ class CodeReviewRead(ReviewTimestamp):
 
 
 class WorkFollowUpRead(ReviewTimestamp):
+    human_decision: HumanReviewDecision | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID
     project_id: UUID
     work_item_id: UUID

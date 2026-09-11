@@ -227,34 +227,14 @@ test("a human can move work through every manual status", async ({ page }, testI
   });
   await pendingChooser.click();
   await expect(returned.getByRole("menuitem")).toHaveText([
-    "Active",
     "Done",
     "Won’t Do",
     "Promote",
     /^Move›$/
   ]);
   await expect(returned.getByRole("menuitem", { name: `Pending ${title}` })).toHaveCount(0);
-  await returned.getByRole("menuitem", { name: `Active ${title}` }).click();
-  await expect(page.locator(".toast")).toContainText("Explicit human decision recorded");
-  await expect(page.locator(".toast")).toContainText("is Active");
-  await expect(card).toHaveCount(0);
-
-  await closeDetail(page);
-  await page.getByRole("button", { name: "Active", exact: true }).click();
-  await expect(card).toHaveCount(1);
-  const active = await selectWork(page, title);
-  await expect(active.locator(".detail-identity > .status-badge")).toHaveText("Active");
-  await active.getByRole("button", { name: `Choose an action for ${title}` }).click();
-  await expect(active.getByRole("menuitem", { name: `Active ${title}` })).toHaveCount(0);
-  await active.getByRole("menuitem", { name: `Pending ${title}` }).click();
-  await expect(page.locator(".toast")).toContainText("Explicit human decision recorded");
-  await expect(page.locator(".toast")).toContainText("is Pending");
-  await expect(card).toHaveCount(0);
-
-  await closeDetail(page);
-  await page.getByRole("button", { name: "Pending", exact: true }).click();
-  await expect(card).toHaveCount(1);
-
+  await expect(returned.getByRole("menuitem", { name: `Active ${title}` })).toHaveCount(0);
+  await pendingChooser.click();
   const pendingAgain = await selectWork(page, title);
   await pendingAgain.getByRole("button", { name: `Choose an action for ${title}` }).click();
   await pendingAgain.getByRole("menuitem", { name: `Won’t Do ${title}` }).click();

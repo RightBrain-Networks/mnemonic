@@ -1,19 +1,16 @@
 import type {
   JobCompletionReportInput,
-  LeasePublic,
   LeaseReleaseResult,
-  MutationActor,
   Readiness,
   WorkItem,
   WorkStatus
 } from "./types.ts";
-import { decodeLeasePublic } from "./readiness-codecs.ts";
 import { exactKeys, objectValue, sameUuid } from "./wire-guards.ts";
 
 export type ManualStatusAction =
   | "defer"
   | "pending"
-  | "active"
+  | "to-review"
   | "done"
   | "wont-do"
   | "promoted";
@@ -21,7 +18,6 @@ export type AlternateStatusAction = Exclude<ManualStatusAction, "defer">;
 
 export const alternateStatusActions = [
   { value: "pending", label: "Pending" },
-  { value: "active", label: "Active" },
   { value: "done", label: "Done" },
   { value: "wont-do", label: "Won’t Do" },
   { value: "promoted", label: "Promote" }
@@ -33,8 +29,10 @@ export const alternateStatusActions = [
 export function currentManualStatusAction(
   status: WorkStatus,
   readiness: Readiness
-): ManualStatusAction | null {
-  if (readiness.active_lease?.purpose === "code_review" || status === "done") return status === "deferred" ? "defer" : status;
+): ManualStatusAction | "active" | null {
+  const review = readiness.review_status ?? (readiness.display_state === "to-review" ? "to-review" : null);
+  if (review) return review === "deferred" ? "defer" : review;
+  if (status === "done") return "done";
   if (readiness.has_active_lease) return "active";
   if (readiness.has_dropped_lease) return null;
   return status === "deferred" ? "defer" : status;
@@ -43,9 +41,12 @@ export function currentManualStatusAction(
 export function availableStatusActions(
   status: WorkStatus,
   readiness: Readiness
-): typeof alternateStatusActions[number][] {
+): { value: AlternateStatusAction; label: string }[] {
   const current = currentManualStatusAction(status, readiness);
-  return alternateStatusActions.filter((action) => action.value !== current);
+  const review = readiness.review_status || readiness.display_state === "to-review";
+  const actions = alternateStatusActions.map((action) => review && action.value === "pending"
+    ? { value: "to-review" as const, label: "To review" } : action);
+  return actions.filter((action) => action.value !== current);
 }
 
 export function statusActionDisabledReason(
@@ -53,15 +54,6 @@ export function statusActionDisabledReason(
   readiness: Readiness,
   reportSettingsReady: boolean
 ): string | null {
-  if (readiness.display_state === "to-review" || readiness.active_lease?.purpose === "code_review") {
-    return "Use Reopen work to explicitly supersede this review before changing implementation status.";
-  }
-  if (action === "active" && readiness.is_gated) {
-    return "Resolve every human question before marking this work Active.";
-  }
-  if (action === "active" && readiness.is_blocked) {
-    return "Resolve every incoming blocker before marking this work Active.";
-  }
   if (action === "done" && readiness.is_blocked) {
     return "Resolve every incoming blocker before marking this work Done.";
   }
@@ -102,23 +94,6 @@ export function humanDecisionCompletionCheckpoint(work: WorkItem): string {
     + "marked Done. This checkpoint records the status decision only and makes no "
     + "additional implementation or verification claim."
   );
-}
-
-export function decodeDashboardActivationResult(
-  value: unknown,
-  actor: MutationActor
-): LeasePublic {
-  let lease: LeasePublic;
-  try {
-    lease = decodeLeasePublic(value);
-  } catch {
-    throw new Error("Mnemonic returned an invalid manual activation.");
-  }
-  if (
-    lease.holder_client !== actor.actor_client
-    || lease.holder_session_id !== actor.actor_session_id
-  ) throw new Error("Mnemonic returned an invalid manual activation.");
-  return lease;
 }
 
 export function decodeLeaseReleaseResult(

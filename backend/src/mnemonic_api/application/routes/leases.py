@@ -9,9 +9,8 @@ recovered through ``claim_request_id`` instead. Release is receipt-protected
 like the other state-changing writes, and releasing a lease that is no longer
 held is a no-op the registry reports through ``released``.
 
-The dashboard-only Active and Pending routes never accept or return a token.
-They require asserted dashboard-human provenance and either return a public
-lease projection or clear the exact safe lease state the person reviewed.
+The dashboard-only Pending route never accepts or returns a token. It clears
+the exact safe lease state the person reviewed with dashboard-human provenance.
 """
 
 from uuid import UUID
@@ -26,9 +25,7 @@ from mnemonic_api.database import Database
 from mnemonic_api.schemas import (
     ClaimAndRecall,
     ClaimReceipt,
-    DashboardWorkActivationCreate,
     DashboardWorkPendingCreate,
-    LeasePublic,
     LeaseReleaseCreate,
     LeaseTokenCreate,
     ReleaseResult,
@@ -62,41 +59,6 @@ def claim_work(
         )
         database.commit()
         return receipt
-
-
-@router.post(
-    "/projects/{project_id}/work-items/{work_item_id}/activate",
-    response_model=LeasePublic,
-)
-def activate_work_from_dashboard(
-    project_id: UUID,
-    work_item_id: UUID,
-    payload: DashboardWorkActivationCreate,
-    request: Request,
-    database: Database,
-) -> LeasePublic:
-    """Record an explicit dashboard-human Active decision without returning a token."""
-    with project_mutation(database, project_id):
-        work_item = require_work_item(database, project_id, work_item_id, lock=True)
-        require_version(work_item, payload.expected_version)
-        receipt = claim_lease_record(
-            database,
-            work_item,
-            WorkClaimCreate(
-                holder_client=payload.actor.actor_client,
-                holder_session_id=payload.actor.actor_session_id,
-                claim_request_id=payload.claim_request_id,
-            ),
-            settings_of(request).lease_ttl_seconds,
-        )
-        database.commit()
-        return LeasePublic(
-            holder_client=receipt.holder_client,
-            holder_session_id=receipt.holder_session_id,
-            acquired_at=receipt.acquired_at,
-            renewed_at=receipt.renewed_at,
-            expires_at=receipt.expires_at,
-        )
 
 
 @router.post(
