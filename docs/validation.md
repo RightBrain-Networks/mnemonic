@@ -1,5 +1,19 @@
 # Mnemonic validation record
 
+## Sidebar navigation (0.39.0)
+
+Menu navigation preserves the mounted sidebar and its project selection, badges,
+theme, disclosure state and live connection. The regression fails on the previous
+implementation's first document reload. Browser coverage checks every menu route,
+Back/Forward, work selection URLs, artifact project/work URLs and pending-backup
+navigation guards, alongside the existing settings, backup and artifact suites.
+The coordinated application/API/MCP/dashboard version is 0.39.0; plugin 0.24.0
+and migration `0030_question_versions` are unchanged. No configuration change is
+required.
+
+Screenshots after navigating every section: [desktop](images/sidebar-navigation-desktop.png)
+and [narrow](images/sidebar-navigation-narrow.png).
+
 ## Artifact dashboard search and details (0.38.0)
 
 The dashboard adds a slash shortcut, a persisted Include contents switch enabled

@@ -816,7 +816,7 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.38.0`, plugin is `0.24.0`,
+Current application/API/MCP/dashboard versions are `0.39.0`, plugin is `0.24.0`,
 and Alembic head is `0030_question_versions`. Validate all surfaces
 together with the existing regression suites. This release adds in-place human
 question revisions and horizontal history tabs, using the existing request tool
@@ -1255,3 +1255,19 @@ from easings.net over 300 ms. Reduced-motion preferences disable these transitio
 This release requires no migration or configuration changes.
 
 ![Expanded Project settings navigation](images/project-settings-navigation.png)
+
+
+### Dashboard route lifecycle
+
+The dashboard routes share `frontend/app/(dashboard)/layout.tsx`. The layout
+reads the server-only timezone and upload limits and keeps one dashboard mounted;
+the page entries declare the supported URLs. Sidebar links use client navigation,
+so the project picker, count badges, theme selector, settings disclosure and live
+connection persist between sections. Do not move the dashboard back into the page
+entries or replace these links with document navigation.
+
+Work and artifact query parameters still restore selections through browser
+history. Menu links retain their unsaved-work confirmation, and both menu links
+and Back/Forward keep pending operations on their originating screen. Run `sidebar-navigation.spec.ts` with `settings-navigation.spec.ts` when
+changing this lifecycle; the tests observe transient sidebar resets as well as
+final page content, work links, artifact project/filter links, and a pending backup.
