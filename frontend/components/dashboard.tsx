@@ -2834,7 +2834,7 @@ export default function Dashboard({ view = "library", settingsSection = "workspa
       <div className={`page-content ${view === "library" ? "page-content-library" : ""}`}>
         {activity.error && <div className="error-notice" role="alert"><p>Activity updates: {activity.error}</p><button type="button" className="button button-secondary" onClick={activity.streamChanged ? activity.reloadSnapshot : activity.poll}>{activity.streamChanged ? "Reload current snapshot" : "Retry updates"}</button></div>}
         {view === "artifacts" ? <>
-          <DashboardViewChrome eyebrow="FILES THAT STAY WITH YOUR WORK" title="Artifacts" description={project ? `Documents, binaries and working files in “${project.name}”.` : "Choose a project to open its artifact library."} />
+          <DashboardViewChrome eyebrow="FILES THAT STAY WITH YOUR WORK — BUT OUT OF YOUR CODEBASE" title="Artifacts" description={project ? `Store documents, binaries and other files in the “${project.name}” project.` : "Choose a project to open its artifact library."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
           {project ? <ArtifactLibrary key={project.id} projectId={project.id} maximumBytes={artifactMaxBytes} refreshSignal={refresh} onPendingChange={setArtifactPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to upload artifacts."}</div>}
         </> : view === "settings" ? <>

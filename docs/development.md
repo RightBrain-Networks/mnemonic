@@ -816,7 +816,7 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.37.0`, plugin is `0.24.0`,
+Current application/API/MCP/dashboard versions are `0.38.0`, plugin is `0.24.0`,
 and Alembic head is `0030_question_versions`. Validate all surfaces
 together with the existing regression suites. This release adds in-place human
 question revisions and horizontal history tabs, using the existing request tool

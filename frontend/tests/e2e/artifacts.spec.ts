@@ -74,7 +74,7 @@ test("artifact directory supports upload, sorting, downloads, atomic replacement
   await expect(row.getByRole("link", { name: `Download ${filename}` })).toBeHidden();
 });
 
-test("artifact search opts into Tika content, exposes document properties, and removes replaced and deleted text", async ({ page }, testInfo) => {
+test("artifact search switches between Tika content and metadata, exposes document properties, and removes replaced and deleted text", async ({ page }, testInfo) => {
   test.setTimeout(180000);
   const token = `${state.runId.replaceAll("-", "").slice(0, 8)}${testInfo.project.name.replaceAll("-", "")}`;
   const filename = `extracted-${token}.html`;
@@ -87,9 +87,10 @@ test("artifact search opts into Tika content, exposes document properties, and r
   });
   try {
     await page.goto(`/artifacts?project=${state.projectId}`);
-    const fulltext = page.getByLabel("Search file contents too");
+    const fulltext = page.getByLabel("Include contents");
     const search = page.getByLabel("Search artifact metadata and content");
-    await expect(fulltext).not.toBeChecked();
+    await expect(fulltext).toBeChecked();
+    await fulltext.uncheck();
     await page.getByLabel("Upload artifact files").setInputFiles({ name: filename, mimeType: "text/html", buffer: Buffer.from(`<!doctype html><html><head><title>${title}</title><meta name="author" content="Synthetic acceptance author"></head><body>A private research record describes ${needle} with matching context for the artifact library.</body></html>`) });
     const name = page.getByRole("button", { name: filename, exact: true });
     await expect(name).toBeVisible();
@@ -112,7 +113,7 @@ test("artifact search opts into Tika content, exposes document properties, and r
     const row = page.getByRole("row").filter({ has: name });
     await expect(row.locator(".artifact-search-excerpt")).toContainText(needle);
     await expect(row).toContainText("Matched content");
-    await expect(page.getByText("Results ordered by relevance. Clear search to sort the directory.")).toBeVisible();
+    await expect(page.getByText("Sorted by relevance. Clear to browse all files.")).toBeVisible();
     await expect(page.getByRole("button", { name: "Modified", exact: true })).toBeDisabled();
     await name.click();
     const details = page.getByRole("region", { name: `Metadata for ${filename}` });
@@ -131,7 +132,7 @@ test("artifact search opts into Tika content, exposes document properties, and r
     await expect(name).toBeVisible();
     await expect(row).toContainText("Matched metadata");
     await expect(row.locator(".artifact-search-excerpt p")).toHaveCount(0);
-    await page.getByRole("button", { name: "Clear search" }).click();
+    await page.getByRole("button", { name: "Clear", exact: true }).click();
     await expect(page.getByRole("button", { name: "Modified", exact: false })).toBeEnabled();
     page.once("dialog", (dialog) => dialog.accept());
     await row.getByRole("button", { name: `Replace ${filename}` }).click();
@@ -193,7 +194,7 @@ for (const view of ["directory", "search"] as const) {
     const details = page.getByRole("region", { name: `Metadata for ${filename}` });
     await expect(details).toContainText("Text extraction: pending");
     await expect(details).toContainText("No extracted document properties available.");
-    const row = page.getByRole("row").filter({ has: name });
+    const row = page.locator(".artifact-table tbody tr").filter({ has: page.locator(".artifact-name", { hasText: filename }) });
     await row.evaluate((element) => element.setAttribute("data-stability-probe", "retained"));
     if (view === "search") await page.locator(".artifact-search-status").evaluate((element) => element.setAttribute("data-stability-probe", "retained"));
     ready = true;
@@ -233,7 +234,7 @@ test("artifact content matches survive background refresh but clear immediately 
   await page.goto(`/artifacts?project=${state.projectId}`);
   await page.getByLabel("Upload artifact files").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from("Search refresh fixture") });
   await expect(page.getByRole("button", { name: filename, exact: true })).toBeVisible();
-  await page.getByLabel("Search file contents too").check();
+  await page.getByLabel("Include contents").check();
   await page.getByLabel("Search artifact metadata and content").fill(filename);
   await page.getByRole("button", { name: "Search", exact: true }).click();
   const snippet = page.locator(".artifact-search-excerpt p");
@@ -245,7 +246,7 @@ test("artifact content matches survive background refresh but clear immediately 
     await expect.poll(() => requests).toBe(1);
     await expect(snippet).toBeVisible();
     await expect(snippet).toHaveAttribute("data-stability-probe", "retained");
-    await page.getByLabel("Search file contents too").uncheck();
+    await page.getByLabel("Include contents").uncheck();
     await expect.poll(() => requests).toBe(2);
     await expect(snippet).toHaveCount(0);
     await expect(page.getByRole("button", { name: filename, exact: true })).toHaveCount(0);
@@ -271,13 +272,13 @@ test("an artifact upload with a lost response preserves the file and receipt unt
   await page.getByLabel("Upload artifact files").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from("Retry me exactly") });
   await expect(page.getByRole("button", { name: "Retry pending action" })).toBeVisible();
   await expect(page.locator("#project-select")).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Upload files", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Drop, paste, or upload files here.", exact: true })).toBeDisabled();
   await page.getByRole("link", { name: "Work library" }).click();
   await expect(page).toHaveURL(/\/artifacts(?:\?|$)/);
   await page.getByRole("button", { name: "Retry pending action" }).click();
   await expect(page.getByRole("button", { name: "Retry pending action" })).toBeEnabled();
   await expect(page.locator("#project-select")).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Upload files", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Drop, paste, or upload files here.", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Retry pending action" }).click();
   await expect(page.getByRole("button", { name: filename, exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Retry pending action" })).toBeHidden();
@@ -347,6 +348,7 @@ test("large escaped Unicode descriptions pass the artifact HTTP header envelope"
   expect(header.length).toBeLessThanOrEqual(16_384);
   await page.getByRole("button", { name: filename, exact: true }).click();
   await expect(page.getByRole("region", { name: `Metadata for ${filename}` })).toContainText(description);
+  await page.getByRole("button", { name: "Close details" }).click();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: `Delete ${filename}`, exact: true }).click();
   await expect(page.getByRole("button", { name: filename, exact: true })).toBeHidden();
@@ -362,7 +364,7 @@ test("disabled artifacts stay visible without listing files or accepting clipboa
   await expect(page.getByLabel("Artifact library", { exact: true })).toContainText("0 bytes");
   await expect(page.getByLabel("Artifact library", { exact: true })).toContainText("Existing files are preserved");
   await expect(page.getByLabel("Upload artifact files")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Upload files", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Drop, paste, or upload files here.", exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Sortable artifact directory" })).toHaveCount(0);
   const untouchedPaste = await page.evaluate(() => {
     const data = new DataTransfer(); data.items.add(new File(["private bytes"], "disabled.txt"));
@@ -383,12 +385,12 @@ test("disabled artifacts stay visible without listing files or accepting clipboa
   expect(dataRequests).toEqual([]);
 });
 
-test("enabled artifacts display the configured per-file limit and reject oversized new selections", async ({ page }) => {
+test("enabled artifacts reject oversized new selections using the configured per-file limit", async ({ page }) => {
   let mutations = 0;
   page.on("request", (request) => { if (request.method() !== "GET" && request.url().includes("/api/artifacts/projects/")) mutations++; });
   await page.route("**/api/artifacts/status", (route) => route.fulfill({ json: { enabled: true, max_bytes: 8, message: "Up to 8 bytes per file." } }));
   await page.goto(`/artifacts?project=${state.projectId}`);
-  await expect(page.locator(".artifact-upload-hint")).toContainText("8 B (8 bytes) per file");
+  await expect(page.getByRole("button", { name: "Drop, paste, or upload files here.", exact: true })).toBeEnabled();
   await page.getByLabel("Upload artifact files").setInputFiles({ name: "over-limit.txt", mimeType: "text/plain", buffer: Buffer.from("123456789") });
   await expect(page.getByLabel("Artifact library", { exact: true }).getByRole("alert")).toContainText("exceeds the 8 B (8 bytes) per-file limit");
   expect(mutations).toBe(0);
@@ -452,8 +454,7 @@ test("live artifact status re-enables a page opened with a zero server-rendered 
   expect(patchedInitialLimit).toBe(true);
   maximum = 64;
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-  await expect(page.getByRole("button", { name: "Upload files", exact: true })).toBeEnabled();
-  await expect(page.locator(".artifact-upload-hint")).toContainText("64 B (64 bytes) per file");
+  await expect(page.getByRole("button", { name: "Drop, paste, or upload files here.", exact: true })).toBeEnabled();
   await expect(page.getByRole("region", { name: "Sortable artifact directory" })).toBeVisible();
   await page.getByLabel("Upload artifact files").setInputFiles(filenames.map((name) => ({ name, mimeType: "text/plain", buffer: Buffer.from("Re-enabled upload") })));
   for (const filename of filenames) await expect(page.getByRole("button", { name: filename, exact: true })).toBeVisible();

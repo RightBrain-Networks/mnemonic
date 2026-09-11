@@ -1,5 +1,28 @@
 # Mnemonic validation record
 
+## Artifact dashboard search and details (0.38.0)
+
+The dashboard adds a slash shortcut, a persisted Include contents switch enabled
+by default, a clickable dashed upload target, and a right-side metadata drawer.
+The API and agent metadata-only defaults, artifact mutation receipts, plugin
+version, tool catalog, and migration head are unchanged.
+
+Regression coverage exercises keyboard and dialog focus, both stored search
+preferences, unavailable browser storage, the file picker, pending metadata
+retries inside the drawer, live extraction refresh, and existing artifact
+upload/replace/delete/link/preview flows on desktop and narrow screens.
+
+Validation: 409 frontend unit tests, TypeScript, production build, 34 existing
+artifact acceptance scenarios plus six new search/drawer scenarios, all six
+isolated backup acceptance groups, 66 MCP version/transport/OpenAPI tests, and
+local gitleaks passed. The browser scenarios used disposable PostgreSQL and file
+storage. No schema or configuration change is required.
+
+Screenshots: [desktop search](images/artifacts-ui/desktop-search.png),
+[desktop details](images/artifacts-ui/desktop-details.png),
+[narrow search](images/artifacts-ui/narrow-search.png), and
+[narrow dark details](images/artifacts-ui/narrow-details-dark.png).
+
 ## Question versions (0.37.0)
 
 The queue shows current prose with horizontal tabs for every prior version.
