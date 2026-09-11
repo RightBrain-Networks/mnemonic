@@ -29,6 +29,11 @@ see the [official Claude Code hook reference](https://code.claude.com/docs/en/ho
 The session JSONL commonly resides under `~/.claude/projects/<encoded-project>/`;
 subagent JSONL may be nested under `<session-id>/subagents/`. Supply the exact
 absolute file path that the backend can read, never a guessed host/container path.
+A Claude Code session started in a Git worktree can live in that worktree's encoded
+project directory (for example, `-srv-project--claude-worktrees-topic`), rather than
+`-srv-project`. Verify the exact hook-provided path exists; do not construct it from
+the main checkout and session UUID. If the actual path cannot be established,
+report `session_transcript: null` on a fresh claim. Keep uncertain retries unchanged.
 
 The backend reuses the existing Apache Tika container. Transcript parsing first
 normalizes the client-specific record structure into text, then the existing Tika
@@ -129,7 +134,10 @@ After fixing deployment access, use **Rebuild index** in workspace settings to
 retry previously failed records. Rebuild discards indexed snapshots and schedules
 all known project sources again; active lease generations still wait until they
 end. A source that has been deleted must be recovered at its original path before
-it can be indexed.
+it can be indexed. If an agent reported the wrong directory, rebuilding preserves
+that original assertion and will still fail. Use the actual path for future claims;
+existing files can be recovered through **Import existing transcripts** using their
+real folder. Import keeps the original failed enrollment history intact.
 
 The deployment follows Docker's [read-only bind mount documentation](https://docs.docker.com/engine/storage/bind-mounts/)
 and [build argument reference](https://docs.docker.com/build/building/variables/).

@@ -18,8 +18,14 @@ The harness never starts application servers or connects to a database.
 
 Validation also includes 52 backend filesystem, discovery, indexing and OpenAPI
 checks against isolated PostgreSQL schemas, plus Python lint/type checks and
-MCP transcript/transport/version regressions. The default image identity remains
-10001:10001; the deployment-specific build is tested as 1026:1000.
+121 MCP transcript/transport/version regressions. The default image identity was
+also built and verified as 10001:10001; the deployment-specific build was tested
+as 1026:1000, and a UID 0 build was rejected.
+
+An independent cold reviewer froze findings on commit `5b727596`, then independently
+ran the real Compose harness from a detached checkout. No actionable findings
+were reported. That review used synthetic files and isolated containers; it did
+not access production configuration, databases or transcript bodies.
 
 
 ## Existing transcript imports (0.44.0)
