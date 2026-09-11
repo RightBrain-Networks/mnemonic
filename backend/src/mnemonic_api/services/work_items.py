@@ -557,6 +557,9 @@ def move_work_record(
     require_no_duplicate_membership(database, work_item)
     require_no_unresolved_gates(database, work_item.id)
     require_no_active_lease_for_move(database, work_item.id)
+    from mnemonic_api.services.transcript_imports import remove_imports_for_moved_work
+
+    remove_imports_for_moved_work(database, work_item.id, payload.target_project_id)
 
     mutation_time = database_now(database)
     move = WorkItemMove(

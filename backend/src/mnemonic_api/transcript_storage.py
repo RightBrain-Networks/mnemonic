@@ -7,32 +7,44 @@ from pathlib import Path
 from mnemonic_api.artifact_tika import ExtractionError
 
 
-def _relative_source(source: str, roots: list[Path]) -> tuple[Path, tuple[str, ...]]:
+def canonical_source_path(source: str) -> str:
+    # The local POSIX filesystem treats repeated separators and '.' components
+    # identically, including Python's otherwise distinct two-slash anchor.
+    path = Path(source)
+    return "/" + str(path).lstrip("/") if path.is_absolute() else str(path)
+
+
+def _relative_source(source: str, roots: list[Path], *, directory: bool = False,
+) -> tuple[Path, tuple[str, ...]]:
     path = Path(source)
     if not path.is_absolute() or ".." in path.parts or "\x00" in source:
         raise ExtractionError("transcript_path_not_allowed")
+    path = Path(canonical_source_path(source))
     for root in roots:
-        if path.is_relative_to(root) and path != root:
+        root = Path(canonical_source_path(str(root)))
+        if path.is_relative_to(root) and (directory or path != root):
             return root, path.relative_to(root).parts
     raise ExtractionError("transcript_path_not_allowed")
 
 
-def _open_source(source: str, roots: list[Path]) -> int:
-    root, parts = _relative_source(source, roots)
+def _open_source(source: str, roots: list[Path], *, directory: bool = False) -> int:
+    root, parts = _relative_source(source, roots, directory=directory)
     # Walk from /, including the operator root: every component must be a real
     # directory, so a concurrent symlink swap can never redirect this descriptor.
     components = (*root.parts[1:], *parts)
-    directory = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    flags = os.O_RDONLY | os.O_NOFOLLOW | (os.O_DIRECTORY if directory else os.O_NONBLOCK)
+    descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
     try:
+        if not components:
+            return os.dup(descriptor)
         for component in components[:-1]:
             child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                            dir_fd=directory)
-            os.close(directory)
-            directory = child
-        return os.open(components[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
-                       dir_fd=directory)
+                            dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        return os.open(components[-1], flags, dir_fd=descriptor)
     finally:
-        os.close(directory)
+        os.close(descriptor)
 
 
 def read_transcript(source: str, roots: list[Path], maximum_bytes: int) -> bytes:

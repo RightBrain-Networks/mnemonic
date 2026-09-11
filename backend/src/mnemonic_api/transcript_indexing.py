@@ -20,6 +20,7 @@ from mnemonic_api.config import Settings
 from mnemonic_api.errors import ApplicationError
 from mnemonic_api.models import Transcript, TranscriptSettings, WorkItem, WorkLease
 from mnemonic_api.services.project_mutations import project_mutation
+from mnemonic_api.services.transcripts import transcript_project_id
 from mnemonic_api.transcript_parsers import TranscriptParserFactory
 from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
 from mnemonic_api.transcript_storage import read_transcript
@@ -56,8 +57,8 @@ def _active_generation():
 
 def _claimable_transcripts():
     return (select(Transcript, TranscriptSettings.max_file_size_bytes)
-        .join(WorkItem, WorkItem.id == Transcript.work_item_id)
-        .outerjoin(TranscriptSettings, TranscriptSettings.project_id == WorkItem.project_id)
+        .outerjoin(WorkItem, WorkItem.id == Transcript.work_item_id)
+        .outerjoin(TranscriptSettings, TranscriptSettings.project_id == transcript_project_id())
         .where(func.coalesce(TranscriptSettings.enabled, True), ~_active_generation(), or_(
             Transcript.status.in_(["waiting", "pending"])
             & (Transcript.next_attempt_at <= func.clock_timestamp()),
@@ -68,14 +69,17 @@ def _claimable_transcripts():
 
 def _lock_claim_candidate(database: Session, candidate):
     transcript_id, work_id, project_id = candidate
-    work = database.scalar(select(WorkItem).where(
-        WorkItem.id == work_id, WorkItem.project_id == project_id).with_for_update())
-    if work is None:
-        return None
-    database.scalar(select(WorkLease).where(WorkLease.work_item_id == work_id).with_for_update())
+    if work_id is not None:
+        work = database.scalar(select(WorkItem).where(
+            WorkItem.id == work_id, WorkItem.project_id == project_id).with_for_update())
+        if work is None:
+            return None
+        database.scalar(select(WorkLease).where(
+            WorkLease.work_item_id == work_id).with_for_update())
     # This query runs after the lease lock: an earlier renewal must now be
     # committed, so the fresh clock comparison cannot observe its old expiry.
-    return database.execute(_claimable_transcripts().where(Transcript.id == transcript_id)
+    return database.execute(_claimable_transcripts().where(
+        Transcript.id == transcript_id, transcript_project_id() == project_id)
                             .with_for_update(of=Transcript)).first()
 
 
@@ -102,7 +106,7 @@ def claim_transcript_job(
 ) -> TranscriptJob | None:
     with factory() as database:
         candidate = database.execute(_claimable_transcripts().with_only_columns(
-            Transcript.id, Transcript.work_item_id, WorkItem.project_id)
+            Transcript.id, Transcript.work_item_id, transcript_project_id().label("project_id"))
             .order_by(Transcript.next_attempt_at, Transcript.id).limit(1)).first()
         if candidate is None:
             return None
@@ -136,9 +140,9 @@ def complete_transcript_job(
     source_size: int | None = None, source_details: dict | None = None,
 ) -> None:
     with factory() as database:
-        project_id = database.scalar(select(WorkItem.project_id).join(
-            Transcript, Transcript.work_item_id == WorkItem.id
-        ).where(Transcript.id == job.transcript_id))
+        project_id = database.scalar(select(transcript_project_id()).select_from(Transcript)
+            .outerjoin(WorkItem, Transcript.work_item_id == WorkItem.id)
+            .where(Transcript.id == job.transcript_id))
         if project_id is None:
             return
         with project_mutation(database, project_id):

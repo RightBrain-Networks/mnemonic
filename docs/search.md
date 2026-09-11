@@ -2,7 +2,8 @@
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration is required; the migration head remains `0032_agent_transcripts`.
+configuration was required for that release. Current release 0.44.0 uses migration
+`0033_transcript_imports` and also searches [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
 Their searches use the shared API, including the work semantic toggle. Hierarchy
 and file-directory browsing retain their existing endpoints and sort controls.
@@ -67,7 +68,7 @@ project read; long inference can delay project writes until that read finishes.
 
 Artifact `sensitive` is tri-state: omit or null for both, true for sensitive only,
 false for nonsensitive only. MIME types and session IDs are exact filters.
-Transcript `kind` is `primary` or `subagent`; status is `waiting`, `pending`,
+Transcript `kind` is `primary`, `subagent`, or `imported`; status is `waiting`, `pending`,
 `processing`, `ready`, or `failed`. Transcript session IDs describe the registered
 agent lease session, not a value inferred from transcript text.
 

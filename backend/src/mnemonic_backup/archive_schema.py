@@ -13,7 +13,7 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0032_agent_transcripts"
+HEAD = "0033_transcript_imports"
 TABLES = tuple(sorted(Base.metadata.tables))
 MAX_ARCHIVE_IDENTITY = 2**53 - 1
 IDENTITY_COLUMNS = tuple(
@@ -91,6 +91,9 @@ def lock_tables(connection: Connection, *, restore: bool) -> None:
 def scope(name: str) -> str:
     if name == "projects":
         return "id = CAST(:project AS uuid)"
+    if name == "transcripts":
+        return "(import_project_id = CAST(:project AS uuid) OR work_item_id IN " \
+            "(SELECT id FROM work_items WHERE " + scope("work_items") + "))"
     if name in CHILD_OWNERS:
         column, parent, key = CHILD_OWNERS[name]
         return f"{quote(column)} IN (SELECT {quote(key)} FROM {quote(parent)} WHERE " \
@@ -142,6 +145,11 @@ def validate_ownership(rows: dict[str, list[dict[str, Any]]], project: str) -> N
 def _owned(name: str, row: dict, owners: dict, project: str) -> bool:
     if name == "projects":
         return row["id"] == project
+    if name == "transcripts" and row["kind"] == "imported":
+        return (row["import_project_id"] == project and row["work_item_id"] is None
+                and row["lease_generation_id"] is None and row["session_id"] is None)
+    if name == "transcripts" and row["import_project_id"] is not None:
+        return False
     if name in CHILD_OWNERS:
         column = CHILD_OWNERS[name][0]
         return isinstance(row[column], str) and row[column] in owners[name]

@@ -436,3 +436,21 @@ async def test_transcript_binary_download_has_a_total_body_deadline(settings, mo
     assert len(requests) == 2
     assert timeouts == [60.0, 120]
     assert stream.closed and 0 < stream.chunks < 100
+
+
+async def test_imported_transcript_reads_have_no_fabricated_work_provenance(settings):
+    imported = transcript(kind="imported", work_item_id=None, lease_generation_id=None,
+                          session_id=None)
+    actual = await call(settings, "list_transcripts", {"project_id": PROJECT_ID},
+                        lambda request: httpx.Response(200, json=page(items=[imported])))
+    assert actual["items"][0]["kind"] == "imported"
+    assert actual["items"][0]["work_item_id"] is None
+    for changes in ({"work_item_id": WORK_ID}, {"session_id": "invented"}, {"kind": "primary"}):
+        with pytest.raises(ToolError):
+            await call(settings, "list_transcripts", {"project_id": PROJECT_ID},
+                        lambda request, changes=changes: httpx.Response(200, json=page(
+                            items=[{**imported, **changes}])))
+    with pytest.raises(ToolError):
+        await call(settings, "list_transcripts", {
+            "project_id": PROJECT_ID, "work_item_id": WORK_ID,
+        }, lambda request: httpx.Response(200, json=page(items=[imported])))

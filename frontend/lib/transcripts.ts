@@ -9,13 +9,13 @@ export type TranscriptStatus = "waiting" | "pending" | "processing" | "ready" | 
 export interface Transcript {
   id: string;
   project_id: string;
-  work_item_id: string;
-  lease_generation_id: string;
+  work_item_id: string | null;
+  lease_generation_id: string | null;
   client: string;
   session_id: string | null;
   source_path: string;
   filename: string;
-  kind: "primary" | "subagent";
+  kind: "primary" | "subagent" | "imported";
   status: TranscriptStatus;
   indexing_started_at: string | null;
   indexing_completed_at: string | null;
@@ -67,10 +67,12 @@ export function decodeTranscript(value: unknown, projectId: string, transcriptId
   const metadata = objectValue(row?.metadata);
   if (!row || !validUuid(row.id) || !sameUuid(row.project_id, projectId)
     || transcriptId !== undefined && !sameUuid(row.id, transcriptId)
-    || !validUuid(row.work_item_id) || !validUuid(row.lease_generation_id)
+    || (row.kind === "imported"
+      ? row.work_item_id !== null || row.lease_generation_id !== null || row.session_id !== null
+      : !validUuid(row.work_item_id) || !validUuid(row.lease_generation_id))
     || !boundedText(row.client, 200) || !nullableText(row.session_id, 200)
     || !boundedText(row.source_path, 4096) || !boundedText(row.filename, 4096)
-    || !["primary", "subagent"].includes(row.kind as string) || !statuses.includes(row.status as string)
+    || !["primary", "subagent", "imported"].includes(row.kind as string) || !statuses.includes(row.status as string)
     || !(row.indexing_started_at === null || timestamp(row.indexing_started_at))
     || !(row.indexing_completed_at === null || timestamp(row.indexing_completed_at))
     || !nullableText(row.error_code, 200) || !(row.size_bytes === null || finiteInteger(row.size_bytes))
@@ -150,7 +152,7 @@ export async function transcriptRequest(path: string, init: RequestInit = {}): P
   return value;
 }
 export function transcriptStatusLabel(transcript: Transcript): string {
-  const labels = { waiting: "Waiting for work to leave Active", pending: "Queued", processing: "Indexing", ready: "Indexed", failed: "Failed" };
+  const labels = { waiting: transcript.kind === "imported" ? "Queued" : "Waiting for work to leave Active", pending: "Queued", processing: "Indexing", ready: "Indexed", failed: "Failed" };
   return `${labels[transcript.status]}${transcript.truncated ? " · Truncated" : ""}`;
 }
 
@@ -168,5 +170,37 @@ export function decodeTranscriptProxyRejection(status: number, value: unknown): 
   if (!root || !exactKeys(root, ["detail"]) || !detail || !exactKeys(detail, ["code", "message"])
     || detail.code !== "transcript_proxy_rejected" || typeof detail.message !== "string"
     || !TRANSCRIPT_PROXY_REJECTION_MESSAGES[status]?.includes(detail.message)) return null;
+  return detail.message;
+}
+
+
+export function validTranscriptDirectory(value: unknown): value is string {
+  return boundedText(value, 4096) && value.startsWith("/") && !value.split("/").includes("..")
+    && !Array.from(value).some((char) => char.codePointAt(0)! < 32 || char.codePointAt(0)! >= 0xd800 && char.codePointAt(0)! <= 0xdfff);
+}
+
+export interface TranscriptImport {
+  project_id: string;
+  client_operation_id: string;
+  directory: string;
+  imported: number;
+  existing: number;
+  skipped: number;
+}
+export function decodeTranscriptImport(value: unknown, projectId: string, operationId: string, directory: string): TranscriptImport {
+  const row = objectValue(value);
+  if (!row || !exactKeys(row, ["project_id", "client_operation_id", "directory", "imported", "existing", "skipped"])
+    || !sameUuid(row.project_id, projectId) || !sameUuid(row.client_operation_id, operationId) || row.directory !== directory
+    || !finiteInteger(row.imported, 0, 5000) || !finiteInteger(row.existing, 0, 5000) || row.imported + row.existing > 5000
+    || !finiteInteger(row.skipped, 0, 50000)) throw new Error("Import outcome is uncertain. Retry the preserved request.");
+  return row as unknown as TranscriptImport;
+}
+
+export function decodeTranscriptImportRejection(status: number, value: unknown): string | null {
+  const detail = objectValue(objectValue(value)?.detail);
+  // These scan failures happen before any registration. Only a fresh request
+  // may dismiss them; a failed retry cannot settle an earlier uncertain attempt.
+  if (status !== 422 || !detail || !["transcript_import_path_not_allowed", "transcript_import_scan_failed", "transcript_import_scan_limit"].includes(String(detail.code))
+    || !boundedText(detail.message, 1000)) return null;
   return detail.message;
 }

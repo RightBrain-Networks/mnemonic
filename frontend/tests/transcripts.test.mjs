@@ -160,3 +160,46 @@ test("transcript page budgets accommodate valid long Unicode paths and escaped J
   const browserValue = await transcriptRequest(`/api/transcripts/${root}`);
   assert.equal(decodeTranscriptPage(browserValue, project).items[0].filename, filename);
 });
+
+test("imported transcripts require null lease provenance and remain scoped", () => {
+  const imported = { ...row, kind: "imported", work_item_id: null, lease_generation_id: null, session_id: null };
+  assert.equal(decodeTranscript(imported, project).kind, "imported");
+  assert.equal(decodeTranscriptPage({ ...listing, items: [imported] }, project).total, 1);
+  for (const change of [{ work_item_id: operation }, { lease_generation_id: operation }, { session_id: "invented" }, { kind: "primary" }]) {
+    assert.throws(() => decodeTranscript({ ...imported, ...change }, project));
+  }
+  assert.throws(() => decodeTranscriptPage({ ...listing, items: [imported] }, project, 0, false, operation));
+});
+
+test("import proxy preserves exact requests and rejects unsafe folder paths and CSRF", async () => {
+  const path = `${root}/import`;
+  let calls = 0;
+  const fetcher = async () => { calls++; return Response.json({}); };
+  assert.equal(transcriptRoute(path.split("/"), "POST"), "import");
+  assert.equal(transcriptRoute(path.split("/"), "GET"), null);
+  for (const directory of ["relative", "/allowed/../private", "/path\u0000", "/path\ud800", "x".repeat(4097), null]) {
+    assert.equal((await proxyTranscript(request(path, "POST", { directory, client_operation_id: operation }), path.split("/"), environment, fetcher)).status, 400);
+  }
+  assert.equal((await proxyTranscript(request(path, "POST", { directory: "/shared", client_operation_id: operation }, { origin: "https://attacker.example" }), path.split("/"), environment, fetcher)).status, 403);
+  assert.equal(calls, 0);
+  const body = `{ "directory": "/shared//./sessions", "client_operation_id": "${operation}" }`;
+  const response = await proxyTranscript(request(path, "POST", body), path.split("/"), environment, async (target, init) => {
+    assert.equal(String(target), `http://api:8000/api/v1/${path}`);
+    assert.equal(init.body, body);
+    return Response.json({ imported: 1, existing: 2, skipped: 0 });
+  });
+  assert.equal(response.status, 200);
+});
+
+test("import confirmation binds counts, project, folder and operation", async () => {
+  const { decodeTranscriptImport, decodeTranscriptImportRejection } = await import("../lib/transcripts.ts");
+  const result = { project_id: project, client_operation_id: operation, directory: "/shared", imported: 1, existing: 2, skipped: 0 };
+  assert.equal(decodeTranscriptImport(result, project, operation, "/shared").imported, 1);
+  for (const change of [{ project_id: id }, { client_operation_id: id }, { directory: "/other" }, { imported: -1 }, { imported: 5000, existing: 1 }, { skipped: 50001 }, { extra: true }]) {
+    assert.throws(() => decodeTranscriptImport({ ...result, ...change }, project, operation, "/shared"));
+  }
+  const rejection = { detail: { code: "transcript_import_scan_failed", message: "Cannot read this folder.", context: {} } };
+  assert.equal(decodeTranscriptImportRejection(422, rejection), rejection.detail.message);
+  assert.equal(decodeTranscriptImportRejection(500, rejection), null);
+  assert.equal(decodeTranscriptImportRejection(409, { detail: { code: "transcript_import_conflict", message: "Conflict" } }), null);
+});

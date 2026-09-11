@@ -36,6 +36,8 @@ def register_transcripts(
     database: Session, work: WorkItem, lease_generation_id: UUID, client: str,
     session_id: str, sources: list[dict[str, str]], kind: str,
 ) -> None:
+    from mnemonic_api.services.transcript_imports import take_imported_transcript
+
     for source in sources:
         existing = database.scalar(select(Transcript.id).where(
             Transcript.work_item_id == work.id,
@@ -43,10 +45,16 @@ def register_transcripts(
             Transcript.source_path == source["path"], Transcript.kind == kind,
         ))
         if existing is None:
-            database.add(Transcript(id=uuid4(), work_item_id=work.id,
-                                    lease_generation_id=lease_generation_id,
-                                    client=source.get("client", client), session_id=session_id,
-                                    source_path=source["path"], kind=kind))
+            record = take_imported_transcript(database, work.project_id, source["path"])
+            if record is None:
+                record = Transcript(id=uuid4())
+                database.add(record)
+            record.work_item_id = work.id
+            record.lease_generation_id = lease_generation_id
+            record.client = source.get("client", client)
+            record.session_id = session_id
+            record.source_path = source["path"]
+            record.kind = kind
             database.flush()
 
 
@@ -58,9 +66,13 @@ def transcript_read(record: Transcript, project_id: UUID) -> TranscriptRead:
                           metadata=record.extracted_metadata)
 
 
+def transcript_project_id():
+    return func.coalesce(WorkItem.project_id, Transcript.import_project_id)
+
+
 def transcript_query(project_id: UUID):
-    return select(Transcript).join(WorkItem, WorkItem.id == Transcript.work_item_id).where(
-        WorkItem.project_id == project_id)
+    return select(Transcript).outerjoin(WorkItem, WorkItem.id == Transcript.work_item_id).where(
+        transcript_project_id() == project_id)
 
 
 def require_transcript(
@@ -77,7 +89,7 @@ def require_transcript(
 
 
 def _metadata(record: Transcript) -> str:
-    return "\n".join([record.source_path, record.client, record.session_id, record.kind,
+    return "\n".join([record.source_path, record.client, record.session_id or "", record.kind,
                       str(record.work_item_id), json.dumps(record.extracted_metadata)])
 
 
@@ -154,7 +166,8 @@ def _preflight_corpus(database, statement, fulltext) -> None:
     # JSON escaping can expand non-ASCII metadata. Use a conservative upper bound
     # so this scalar aggregate can reject a corpus without returning any bodies.
     metadata_bytes = (func.octet_length(Transcript.source_path)
-        + func.octet_length(Transcript.client) + func.octet_length(Transcript.session_id)
+        + func.octet_length(Transcript.client)
+        + func.coalesce(func.octet_length(Transcript.session_id), 0)
         + func.octet_length(cast(Transcript.extracted_metadata, Text)) * 6 + 128)
     text_bytes = func.coalesce(func.octet_length(Transcript.normalized_text), 0) if fulltext else 0
     corpus = statement.with_only_columns(
@@ -225,8 +238,8 @@ def rebuild_transcripts(database: Session, project_id: UUID, operation_id: UUID)
     receipt = database.get(TranscriptRebuild, (project_id, operation_id))
     if receipt is not None:
         return receipt.queued
-    result = database.execute(update(Transcript).where(Transcript.work_item_id.in_(
-        select(WorkItem.id).where(WorkItem.project_id == project_id))).values(
+    result = database.execute(update(Transcript).where(Transcript.id.in_(
+        transcript_query(project_id).with_only_columns(Transcript.id))).values(
             **empty_transcript_snapshot(), generation=Transcript.generation + 1,
             status="waiting", lease_token=None, lease_expires_at=None,
             indexing_started_at=None, indexing_completed_at=None, error_code=None,

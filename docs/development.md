@@ -819,8 +819,8 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.43.0`, plugin is `0.26.0`,
-and Alembic head is `0032_agent_transcripts`. Validate all surfaces
+Current application/API/MCP/dashboard versions are `0.44.0`, plugin is `0.26.0`,
+and Alembic head is `0033_transcript_imports`. Validate all surfaces
 together with the existing regression suites. This release adds Claude Code transcript
 indexing, transcript MCP reads, a dashboard library, and workspace index settings.
 Validate lease expiry/release, closeout receipts, allowed filesystem roots, parser
@@ -904,8 +904,8 @@ questions, cold/warm lease isolation, one atomic remediation and hard depth ceil
 exact historical and new receipt replay, protected lineage under direct SQL,
 bounded discovery/history, backup/restore audit, and both dashboard Done paths.
 Run `scripts/audit_code_reviews.py` read-only from a private database environment.
-The current inventory is 54 MCP tools, 17 protected MCP writes, 23 REST receipt
-kinds, 20 protected browser mutations and 24 work-event types. See
+The current inventory is 54 MCP tools, 17 protected MCP writes, 24 REST receipt
+kinds, 21 protected browser mutations and 24 work-event types. See
 [code reviews](code-reviews.md) for client and deployment rules.
 
 The [artifact library](artifacts.md) exposes nine MCP tools, three durable

@@ -1,5 +1,8 @@
 # Agent transcript indexing
 
+Application/API/MCP/dashboard 0.44.0 and migration `0033_transcript_imports` add
+workspace imports for existing Claude Code transcripts. Plugin remains 0.26.0.
+
 Mnemonic indexes agent session transcripts once the associated work lease ends.
 An MCP claim records an explicit primary transcript location or null. Every fresh
 completion, retirement, merge, deletion, or review completion reports additional
@@ -95,3 +98,54 @@ The `sha256` metadata field identifies original source bytes and is distinct fro
 starting a new snapshot. `indexing_incomplete`, failed dispositions, and truncated
 entries make coverage limits explicit. Report those limits when presenting search
 results. A rebuild does not manufacture unavailable history.
+
+
+## Import existing transcripts
+
+In **Settings → Workspace → Transcript indexing → Import existing transcripts**,
+enter an absolute shared folder path, such as
+`/home/jamie/.claude/projects/-srv-fishfood`, and select **Import transcripts**.
+The backend must be able to read that path within its configured allowed roots;
+the Docker shared-filesystem mount described above also applies to imports.
+
+The import recursively discovers `.jsonl` files, including nested subagent sessions.
+Other filename extensions are ignored. Symlinks and nonregular source files are
+skipped and counted. Unreadable folders abort registration; no partial import is
+committed. Each scan is limited to 5,000 sources, 50,000 directory entries, 64 levels,
+and ten seconds of traversal checks. Choose smaller subfolders if a limit is reached.
+Malformed or oversized transcripts retain normal failed indexing dispositions.
+Import results count newly imported sources, already registered sources, and skipped
+entries; use the transcript library to track extraction failures and incomplete indexing.
+
+Deduplication is scoped to the selected project and the normalized absolute source
+path, including equivalent repeated separators and `.` components. It does not compare
+transcript contents or merge independently enrolled work/lease history. An import skips
+any matching agent-enrolled source, including active, failed, or already indexed records.
+Repeated and overlapping folder imports add no duplicate sources. A later agent enrollment
+reuses a matching imported record and its ID, attaches real work/lease provenance, and
+invalidates its earlier snapshot so indexing waits for the new lease generation to end.
+When enrolled work moves into a project that already imported its source, the move
+atomically removes only the redundant imported record. The enrolled ID, snapshot,
+and work/lease history survive; import receipts retain their original counts.
+The removed imported ID subsequently returns 404; no redirect is created.
+
+Imported sources appear as **Imported**, with no work item, lease generation, or
+agent session assertion. They participate in project browsing, unified search, text
+retrieval, rebuilds, and backups. Importing while indexing is paused queues them until
+indexing is enabled. Source files remain client-managed and are never rewritten.
+
+`POST /api/v1/projects/{project_id}/transcripts/import` accepts exactly
+`{ "directory": "/shared/folder", "client_operation_id": "<uuid>" }`. The response echoes
+those fields and the project ID, with `imported`, `existing`, and `skipped` counts.
+The separate `transcript_imports` journal atomically retains the request and counts.
+Retry the exact directory and operation UUID after an uncertain result, even if files
+or allowed roots change. A confirmed operation replays without rescanning; changing its
+folder returns `transcript_import_conflict`. Fresh scan failures return 422 with
+`transcript_import_path_not_allowed`, `transcript_import_scan_failed`, or
+`transcript_import_scan_limit`. The dashboard preserves uncertain requests and blocks
+navigation until their result is confirmed. No MCP write tool is added.
+
+Stop older processes before applying migration 0033 and upgrading the API, MCP,
+dashboard and backup service together. Existing 0032 sources and receipts are preserved.
+Backups include imported text and import receipts; populated import state prevents a
+lossy downgrade. The source mount and operator roots remain the deployment boundary.

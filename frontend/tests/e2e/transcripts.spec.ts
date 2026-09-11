@@ -16,15 +16,16 @@ async function fixture(api: APIRequestContext) {
   const workResponse = await api.post(`/api/v1/projects/${project.id}/work-items`, { data: { title: "Index primary and subagent sessions", summary: "Synthetic transcript acceptance fixture.", priority: 4, initial_checkpoint: { prompt: "Exercise transcript indexing.", source_client: "claude-code", source_session_id: runId } } });
   expect(workResponse.ok(), await workResponse.text()).toBe(true);
   const { work_item: work } = await workResponse.json() as { work_item: { id: string; version: number } };
-  const primary = `${transcriptRoot}/${runId}.jsonl`;
-  const subagent = `${transcriptRoot}/agent-${runId}.jsonl`;
+  const folder = `${transcriptRoot}/${runId}`;
+  const primary = `${folder}/${runId}.jsonl`;
+  const subagent = `${folder}/${runId}/subagents/agent-${runId}.jsonl`;
   const rows = [
     { type: "user", sessionId: runId, uuid: crypto.randomUUID(), parentUuid: null, isSidechain: false, message: { role: "user", content: "Investigate the magenta otter indexing fixture." } },
     { type: "assistant", sessionId: runId, uuid: crypto.randomUUID(), parentUuid: null, isSidechain: false, message: { role: "assistant", model: "fixture-model", content: [{ type: "text", text: "The magenta otter result is ready. <script>window.transcriptExecuted = true</script>" }] } }
   ];
-  const source = `import json,pathlib,sys\nroot=pathlib.Path(${JSON.stringify(transcriptRoot)})\nroot.mkdir(parents=True,exist_ok=True)\ndata=json.loads(sys.argv[1])\nfor path,rows in data.items():\n pathlib.Path(path).write_text(''.join(json.dumps(row)+'\\n' for row in rows))\n`;
+  const source = `import json,pathlib,sys\nroot=pathlib.Path(${JSON.stringify(transcriptRoot)})\nroot.mkdir(parents=True,exist_ok=True)\ndata=json.loads(sys.argv[1])\nfor path,rows in data.items():\n pathlib.Path(path).parent.mkdir(parents=True,exist_ok=True)\n pathlib.Path(path).write_text(''.join(json.dumps(row)+'\\n' for row in rows))\n`;
   await execFileAsync("docker", ["compose", "-p", requireDisposableE2EComposeProject("Transcript fixture"), "-f", resolve(process.cwd(), "../compose.e2e.yaml"), "exec", "-T", "api", "python", "-c", source, JSON.stringify({ [primary]: rows, [subagent]: rows.map((row) => ({ ...row, isSidechain: true })) })]);
-  return { project, work, runId, primary, subagent };
+  return { project, work, runId, primary, subagent, folder };
 }
 
 async function apiContext() {
@@ -166,5 +167,93 @@ test("transcript rebuild definitive proxy rejection releases navigation without 
     await expect(page.locator("#project-select")).toBeEnabled();
     await page.getByRole("link", { name: "Work library", exact: true }).click();
     await expect(page).toHaveURL(/\/$/);
+  } finally { await api.dispose(); }
+});
+
+
+test("workspace imports existing transcripts recursively and deduplicates active enrolled sources", async ({ page }, testInfo) => {
+  test.setTimeout(120000);
+  const api = await apiContext();
+  try {
+    const { project, work, runId, primary, subagent, folder } = await fixture(api);
+    const claim = await api.post(`/api/v1/projects/${project.id}/work-items/${work.id}/claim`, { data: { holder_client: "claude-code", holder_session_id: runId, claim_request_id: crypto.randomUUID(), session_transcript: { client: "claude-code", path: primary } } });
+    expect(claim.ok(), await claim.text()).toBe(true);
+    await page.goto(`/transcripts?project=${project.id}`);
+    await page.getByRole("link", { name: "Index settings", exact: true }).click();
+    const settings = page.getByRole("region", { name: "Transcript indexing", exact: true });
+    await settings.getByRole("checkbox", { name: "Enable transcript indexing" }).uncheck();
+    await settings.getByRole("button", { name: "Save transcript settings" }).click();
+    await expect(settings.getByText("Transcript settings saved.", { exact: true })).toBeVisible();
+    await settings.getByRole("textbox", { name: "Transcript folder" }).fill(folder);
+    await settings.getByRole("button", { name: "Import transcripts", exact: true }).click();
+    await expect(settings.getByRole("status")).toContainText("1 transcript imported; 1 already registered.");
+    await settings.getByRole("button", { name: "Import transcripts", exact: true }).click();
+    await expect(settings.getByRole("status")).toContainText("0 transcripts imported; 2 already registered.");
+    await settings.getByRole("checkbox", { name: "Enable transcript indexing" }).check();
+    await settings.getByRole("button", { name: "Save transcript settings" }).click();
+    await expect(settings.getByText("Transcript settings saved.", { exact: true })).toBeVisible();
+    await settings.getByRole("button", { name: "Import transcripts", exact: true }).click();
+    await expect(settings.getByRole("status")).toContainText("0 transcripts imported; 2 already registered.");
+    const collection = `/api/v1/projects/${project.id}/transcripts`;
+    await expect.poll(async () => {
+      const response = await api.get(collection);
+      return (await response.json()).items.map((item: { status: string }) => item.status).sort();
+    }, { timeout: 60000 }).toEqual(["ready", "waiting"]);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
+    await settings.locator(".transcript-import").screenshot({ path: testInfo.outputPath("transcript-import-settings.png"), animations: "disabled" });
+    await testInfo.attach("Import existing transcripts", { path: testInfo.outputPath("transcript-import-settings.png"), contentType: "image/png" });
+    await page.goto(`/transcripts?project=${project.id}`);
+    await expect(page.locator(".transcript-table tbody tr")).toHaveCount(2);
+    const filename = subagent.split("/").at(-1)!;
+    await page.getByRole("button", { name: filename, exact: true }).click();
+    const details = page.getByRole("dialog", { name: filename, exact: true });
+    await expect(details).toContainText("Imported without a work item");
+    await expect(details.locator('a[href="/?work=null"]')).toHaveCount(0);
+  } finally { await api.dispose(); }
+});
+
+test("workspace import retains exact retry requests and allows correcting fresh folder failures", async ({ page }) => {
+  const api = await apiContext();
+  try {
+    const { project, folder } = await fixture(api);
+    await page.goto(`/transcripts?project=${project.id}`);
+    await page.getByRole("link", { name: "Index settings", exact: true }).click();
+    const settings = page.getByRole("region", { name: "Transcript indexing", exact: true });
+    const directory = settings.getByRole("textbox", { name: "Transcript folder" });
+    await directory.fill(`${folder}/missing`);
+    await settings.getByRole("button", { name: "Import transcripts", exact: true }).click();
+    await expect(settings.getByRole("alert")).toContainText("The folder could not be read.");
+    await expect(directory).toBeEnabled();
+    await expect(page.locator("#project-select")).toBeEnabled();
+    await directory.fill(folder);
+    const requests: string[] = [];
+    await page.route(`**/api/transcripts/projects/${project.id}/transcripts/import`, async (route) => {
+      requests.push(route.request().postData()!);
+      if (requests.length === 2) {
+        await route.fulfill({ status: 422, json: { detail: { code: "transcript_import_scan_failed", message: "Retry scan failed.", context: {} } } });
+        return;
+      }
+      const response = await route.fetch();
+      if (requests.length === 1) await route.abort("failed");
+      else await route.fulfill({ response });
+    });
+    await settings.getByRole("button", { name: "Import transcripts", exact: true }).click();
+    const retry = settings.getByRole("button", { name: "Retry pending import" });
+    await expect(retry).toBeEnabled();
+    await expect(directory).toBeDisabled();
+    await expect(page.locator("#project-select")).toBeDisabled();
+    await page.getByRole("link", { name: "Work library", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings\/workspace$/);
+    await retry.click();
+    await expect(settings.getByText("Retry scan failed.", { exact: true })).toBeVisible();
+    await expect(retry).toBeEnabled();
+    await expect(page.locator("#project-select")).toBeDisabled();
+    await retry.click();
+    await expect(settings.getByRole("status")).toContainText("2 transcripts imported; 0 already registered.");
+    expect(requests).toHaveLength(3);
+    expect(requests[1]).toBe(requests[0]);
+    expect(requests[2]).toBe(requests[0]);
+    await expect(page.locator("#project-select")).toBeEnabled();
   } finally { await api.dispose(); }
 });

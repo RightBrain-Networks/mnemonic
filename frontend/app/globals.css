@@ -2499,6 +2499,8 @@ html[data-theme="dark"] .review-policy-summary, html[data-theme="dark"] .review-
 .transcript-error { display: block; max-width: 190px; margin-top: 4px; white-space: normal; overflow-wrap: anywhere; font-size: 11px; }
 .transcript-enabled { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
 .transcript-limit { max-width: 420px; margin: 20px 0; }
-.transcript-roots, .transcript-rebuild { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
-.transcript-roots h3, .transcript-rebuild h3 { font-size: 15px; }
+.transcript-roots, .transcript-rebuild, .transcript-import { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
+.transcript-roots h3, .transcript-rebuild h3, .transcript-import h3 { font-size: 15px; }
 .transcript-roots ul { padding-left: 20px; font-size: 12px; }
+
+.transcript-import .field { margin-bottom: 16px; }

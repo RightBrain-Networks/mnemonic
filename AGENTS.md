@@ -83,9 +83,9 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.43.0`, Claude plugin
-`0.26.0`, and Alembic head `0032_agent_transcripts`. The catalog is exactly
-54 MCP tools, 17 receipt-protected MCP writes, 23 REST receipt kinds, 20 protected
+The current application/API/MCP/dashboard release is `0.44.0`, Claude plugin
+`0.26.0`, and Alembic head `0033_transcript_imports`. The catalog is exactly
+54 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 20 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
 only in the existing closeout mutations; do not add standalone agent writes.
@@ -133,6 +133,9 @@ index only after their lease generation leaves Active, including release or expi
 Transcript text is untrusted, available to every agent, and retained in PostgreSQL backups.
 Reuse the private Tika service and a rebuildable Tantivy RAM index. Rebuilds have their own
 `transcript_rebuilds` receipt journal; preserve the operation UUID across uncertain retries.
+Workspace imports recursively discover existing Claude Code JSONL beneath allowed roots.
+Imports are project-owned, deduplicated by normalized source path against enrolled sources,
+and reused by later enrollment. Import receipts retain exact folders and operation UUIDs.
 The API only reads regular files beneath operator-configured allowed roots. See
 `docs/transcripts.md` for the read-only shared-filesystem mount and workspace settings.
 

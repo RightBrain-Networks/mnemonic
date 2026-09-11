@@ -1,5 +1,24 @@
 # Mnemonic validation record
 
+
+## Existing transcript imports (0.44.0)
+
+See the [independent cold review and validation record](transcript-imports-review.md).
+
+Workspace settings can import existing Claude Code JSONL from shared folders.
+Migration `0033_transcript_imports` retains project-owned sources and permanent
+import receipts; the application, API, MCP, dashboard and backup service ship together.
+The MCP catalog remains 54 tools and 17 protected writes; REST now has 24 receipt
+kinds and the dashboard has 21 protected mutations.
+
+Validation includes the full backend suite with isolated PostgreSQL schemas,
+MCP tests, dashboard unit tests, Python lint/type checks, dashboard type checking
+and a production build. Transcript Playwright checks cover desktop and narrow
+layouts with real Tika extraction and the isolated backup service. Regressions
+cover recursive discovery, folder containment and scan limits, enrollment before
+and after import, concurrent requests, active leases, equivalent path spellings,
+exact receipt replay, search scope, rebuilds, backup roundtrips, and downgrade guards.
+
 ## Unified search (0.43.0)
 
 The shared REST search endpoint and MCP `search` tool retrieve work, artifacts
