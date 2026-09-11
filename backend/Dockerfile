@@ -16,10 +16,17 @@ COPY src ./src
 COPY alembic ./alembic
 COPY alembic.ini ./
 RUN uv sync --frozen --no-dev && \
-    python -c 'from mnemonic_api.semantic import warm_embedding_model; warm_embedding_model()' && \
-    groupadd --gid 10001 mnemonic && \
-    useradd --uid 10001 --gid mnemonic --no-create-home mnemonic && \
-    chown -R mnemonic:mnemonic /app/.embedding-cache
+    python -c 'from mnemonic_api.semantic import warm_embedding_model; warm_embedding_model()'
+# Match the transcript owner for private (0600) host files. Keep the default
+# service identity for installations without shared transcripts.
+ARG MNEMONIC_API_UID=10001
+ARG MNEMONIC_API_GID=10001
+RUN test "$MNEMONIC_API_UID" -gt 0 && test "$MNEMONIC_API_GID" -gt 0 && \
+    (getent group "$MNEMONIC_API_GID" >/dev/null || \
+     groupadd --gid "$MNEMONIC_API_GID" mnemonic) && \
+    useradd --uid "$MNEMONIC_API_UID" --gid "$MNEMONIC_API_GID" \
+      --no-create-home --no-log-init mnemonic && \
+    chown -R "$MNEMONIC_API_UID:$MNEMONIC_API_GID" /app/.embedding-cache
 ENV HF_HUB_OFFLINE=1
 USER mnemonic
 EXPOSE 8000

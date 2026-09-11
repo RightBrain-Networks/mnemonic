@@ -1,7 +1,9 @@
 # Agent transcript indexing
 
 Application/API/MCP/dashboard 0.44.0 and migration `0033_transcript_imports` add
-workspace imports for existing Claude Code transcripts. Plugin remains 0.26.0.
+workspace imports for existing Claude Code transcripts. Release 0.44.1 fixes Docker
+access to private host transcripts with a configurable API image identity. Plugin
+remains 0.26.0 and migration head remains `0033_transcript_imports`.
 
 Mnemonic indexes agent session transcripts once the associated work lease ends.
 An MCP claim records an explicit primary transcript location or null. Every fresh
@@ -56,14 +58,83 @@ input or an instruction to read arbitrary server files.
 
 For Docker, set `MNEMONIC_TRANSCRIPT_SOURCE_DIR` to the host directory containing
 allowed transcripts and include `compose.transcripts.yaml` alongside the main
-Compose file. The optional override binds that directory read-only into the API
-at the same absolute path and configures that directory as the allowed root.
-Native deployments configure the JSON allowed-roots environment value directly. The
-API runs as UID 10001 and needs read access to transcript files and traversal of
-parent directories. Grant narrow directory/file ACLs as appropriate; do not
-broaden access to an entire home directory. Configure client-created files to
-remain readable by the service. The Tika container receives normalized text over
-HTTP and needs no transcript filesystem mount.
+Compose file. The overlay binds that directory read-only into the API at the
+same absolute path and sets the allowed root. It requires an existing directory;
+Docker must not create an empty replacement for a misspelled host path. Only the
+API receives the mount. Tika receives normalized text over HTTP.
+
+Claude Code can create owner-only (`0600`) files. The API image defaults to UID/GID
+10001, which cannot read files owned by a different host user. Set the build
+arguments `MNEMONIC_API_UID` and `MNEMONIC_API_GID` to that user's numeric IDs.
+The API still runs as the unprivileged `mnemonic` account. Matching the UID handles
+both existing files and newly created private files without changing transcript
+permissions. A supplementary group or default ACL alone cannot grant access when
+the client explicitly creates files with mode `0600`.
+
+For example, first check the directory owner with
+`stat -c '%u:%g' /home/jamie/.claude/projects`. For this host's UID/GID 1026:1000,
+add these values to the private `.env`:
+
+```dotenv
+MNEMONIC_TRANSCRIPT_SOURCE_DIR=/home/jamie/.claude/projects
+MNEMONIC_API_UID=1026
+MNEMONIC_API_GID=1000
+COMPOSE_FILE=compose.yaml:compose.tls.yaml:compose.transcripts.yaml
+```
+
+Omit `compose.tls.yaml` if the deployment does not use TLS; retain any other
+required overlays. `COMPOSE_FILE` makes ordinary `docker compose` operations
+preserve the mount and allowlist. An explicit `-f` overrides that selection, so
+include all overlays when using it. The example IDs are host-specific; do not
+copy them to another machine without checking ownership. Native deployments
+configure `MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS` directly and run under an identity
+that can read the approved files.
+
+Changing the API UID also requires changing ownership of its **artifact directory
+and existing contents**. Artifact storage checks that each directory and file
+belongs to the effective API user. Build images first, then stop API writers before
+changing ownership. For the default artifact directory and example IDs:
+
+```sh
+docker compose build api
+docker compose stop api
+sudo chown -hR -- 1026:1000 ./artifacts
+docker compose up -d --wait api
+```
+
+Use the configured `MNEMONIC_ARTIFACT_DIR` if different. Keep private artifact modes
+(`0700` directories, `0600` files); a fresh installation can use
+`sudo install -d -m 0700 -o 1026 -g 1000 ./artifacts`. Backup storage retains its
+separate UID/GID 10001 and must not be changed. A coordinated application/schema
+upgrade still requires stopping older API/MCP/dashboard/backup processes before
+migration, as described below; the commands above cover an identity-only change.
+
+Verify the live configuration without printing credentials:
+
+```sh
+docker compose exec -T api id
+docker compose exec -T api python -c 'from mnemonic_api.config import Settings; print(Settings().transcript_allowed_roots)'
+docker compose exec -T api python -c 'import os; p="/home/jamie/.claude/projects/<project>/<session>.jsonl"; fd=os.open(p, os.O_RDONLY | os.O_NOFOLLOW); os.close(fd); print("Transcript is readable")'
+```
+
+Replace the final example with an existing transcript path. Opening and closing the
+file verifies permissions without displaying its body. A mount of the projects
+subdirectory creates container-local parent directories; it does not expose the
+host home directory or Claude credentials.
+
+`transcript_path_not_allowed` means the asserted path is outside the configured
+roots (including an empty root list). Missing files, missing mounts and denied
+filesystem permissions within an allowed root produce `transcript_io_error`.
+After fixing deployment access, use **Rebuild index** in workspace settings to
+retry previously failed records. Rebuild discards indexed snapshots and schedules
+all known project sources again; active lease generations still wait until they
+end. A source that has been deleted must be recovered at its original path before
+it can be indexed.
+
+The deployment follows Docker's [read-only bind mount documentation](https://docs.docker.com/engine/storage/bind-mounts/)
+and [build argument reference](https://docs.docker.com/build/building/variables/).
+Linux [ACL creation rules](https://man7.org/linux/man-pages/man5/acl.5.html)
+explain why default ACL entries are limited by a client's explicit file mode.
 
 ## Dashboard settings and retrieval
 

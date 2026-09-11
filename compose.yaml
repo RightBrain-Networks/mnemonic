@@ -18,7 +18,11 @@ services:
     restart: unless-stopped
 
   api:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        MNEMONIC_API_UID: ${MNEMONIC_API_UID:-10001}
+        MNEMONIC_API_GID: ${MNEMONIC_API_GID:-10001}
     environment:
       DATABASE_URL: postgresql+psycopg://mnemonic:${POSTGRES_PASSWORD}@postgres:5432/mnemonic
       MNEMONIC_API_KEY: ${MNEMONIC_API_KEY:?Run scripts/setup.py or configure .env first}
