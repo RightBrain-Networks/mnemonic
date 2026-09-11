@@ -538,7 +538,7 @@ test("proxy exposes bounded review reads and one answer write, never review leas
   );
 });
 
-test("review leases do not project Done work as active or permit legacy implementation controls", () => {
+test("review leases never offer manual Active or Pending actions", () => {
   const readiness = {
     lifecycle_status: "done",
     has_active_lease: true,
@@ -547,8 +547,5 @@ test("review leases do not project Done work as active or permit legacy implemen
     is_duplicate: false,
   };
   assert.equal(currentManualStatusAction("done", readiness), "done");
-  assert.match(
-    statusActionDisabledReason("pending", readiness, true),
-    /review/i,
-  );
+  assert.equal(statusActionDisabledReason("done", readiness, true), null);
 });

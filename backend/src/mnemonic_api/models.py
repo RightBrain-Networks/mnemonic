@@ -7,6 +7,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Column,
     Computed,
     DateTime,
     ForeignKey,
@@ -1654,7 +1655,10 @@ class WorkCompletionReviewPolicy(Base):
 
 
 class WorkAgentFollowUp(Base):
-    __table__ = Table("work_agent_follow_ups", Base.metadata, *reviews.follow_up_elements())
+    human_decisions: Mapped[list[dict[str, Any]]]
+
+    __table__ = Table("work_agent_follow_ups", Base.metadata, *reviews.follow_up_elements(),
+        Column("human_decisions", JSONB, nullable=False, server_default=text("'[]'::jsonb")))
 
     id: Mapped[UUID]
     project_id: Mapped[UUID]
@@ -1698,7 +1702,10 @@ class WorkAgentFollowUpAnswer(Base):
 
 
 class CodeReview(Base):
-    __table__ = Table("code_reviews", Base.metadata, *reviews.review_elements())
+    human_decisions: Mapped[list[dict[str, Any]]]
+
+    __table__ = Table("code_reviews", Base.metadata, *reviews.review_elements(),
+        Column("human_decisions", JSONB, nullable=False, server_default=text("'[]'::jsonb")))
 
     id: Mapped[UUID]
     project_id: Mapped[UUID]

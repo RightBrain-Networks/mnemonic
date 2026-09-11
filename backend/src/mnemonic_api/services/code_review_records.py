@@ -52,11 +52,11 @@ def policy_read(row: Any) -> ReviewPolicyRead:
 
 
 def review_read(row: CodeReview) -> CodeReviewRead:
-    return wire(CodeReviewRead, row)
+    return wire(CodeReviewRead, row, human_decision=(row.human_decisions or [None])[-1])
 
 
 def follow_up_read(row: WorkAgentFollowUp) -> WorkFollowUpRead:
-    return wire(WorkFollowUpRead, row)
+    return wire(WorkFollowUpRead, row, human_decision=(row.human_decisions or [None])[-1])
 
 
 def answer_read(row: Any) -> WorkFollowUpAnswerRead:
@@ -130,6 +130,10 @@ def require_requested(database: Session, work: WorkItem, review: CodeReview) -> 
         raise conflict("code_review_already_completed", "This review already has a result.")
     if review.state != "requested":
         raise conflict("code_review_superseded", "This review was superseded.")
+    from mnemonic_api.services.review_decisions import disposition
+
+    if disposition(review) != "to-review":
+        raise conflict("code_review_not_requested", "A person has deferred or closed this review.")
     require_episode(database, work, review.completion_checkpoint_id)
 
 

@@ -79,7 +79,6 @@ import type {
   Checkpoint,
   CheckpointInput,
   CheckpointKind,
-  DashboardWorkActivationInput,
   DashboardWorkPendingInput,
   DeletionResult,
   DuplicateScope,
@@ -105,7 +104,6 @@ import { editableLifecycleStatuses, normalizedTags } from "@/lib/work-item-view"
 import { paneCrossfadeTargets } from "@/lib/pane-crossfade";
 import { dashboardMutationActor } from "@/lib/work-events";
 import {
-  decodeDashboardActivationResult,
   decodeLeaseReleaseResult,
   humanDecisionCompletionCheckpoint,
   humanDecisionReport,
@@ -2338,10 +2336,39 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     try {
       const latestValue = await api<unknown>(`${basePath}/context?recent_limit=0&recent_event_limit=0`);
       const latestContext = decodeWorkContext(latestValue, work.project_id, work.id);
-      if (latestContext.code_review_context?.current_review || latestContext.code_review_context?.pending_follow_up) {
-        throw new Error("Use Reopen work to explicitly supersede the outstanding review or recommendation before changing status.");
-      }
       if (latestContext.work_item.version !== work.version) throw new Error("This work item changed. Refresh it before making a status decision.");
+      const review = latestContext.code_review_context?.current_review
+        ?? latestContext.code_review_context?.pending_follow_up;
+      if (review) {
+        const status = action === "defer" ? "deferred" : action === "pending" ? "to-review" : action;
+        const terminal = status === "done" || status === "wont-do" || status === "promoted";
+        if (terminal) {
+          settings = decodeProjectSettings(await api<unknown>(`/projects/${work.project_id}/settings`), work.project_id);
+          handleProjectSettingsSaved(settings);
+        }
+        await mutationRegistry.execute({
+          kind: "update_work", slot: `update-work:${work.project_id}:${work.id}`,
+          projectId: work.project_id, conflictKeys, method: "PATCH", path: basePath,
+          payload: {
+            expected_version: work.version, actor,
+            review_decision: {
+              resource_id: review.id,
+              expected_decision_version: review.human_decision?.version ?? 0,
+              status,
+              ...(terminal && settings ? { job_completion_report: {
+                summary: `A person explicitly marked the code review for “${work.title}” ${status} in the Mnemonic dashboard. This records the human decision; no agent findings or verification evidence were supplied.`,
+                fyi_items: [], prompt_revision: settings.revision
+              } } : {})
+            }
+          }
+        });
+        setNotice({ message: `Code review ${status === "to-review" ? "returned to To review" : `marked ${status}`}.` });
+        setEventRefresh((value) => value + 1);
+        setRefresh((value) => value + 1);
+        if (actionSourceIsStillOpened()) void reloadOpenContext();
+        return;
+      }
+      if (action === "to-review") throw new Error("This review episode changed. Refresh before continuing.");
       if (action === "done") {
         settings = decodeProjectSettings(await api<unknown>(`/projects/${work.project_id}/settings`), work.project_id);
         handleProjectSettingsSaved(settings);
@@ -2358,8 +2385,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         }
       }
       if (
-        action !== "active"
-        && (summary.readiness.has_active_lease || summary.readiness.has_dropped_lease)
+        summary.readiness.has_active_lease || summary.readiness.has_dropped_lease
       ) {
         const payload: DashboardWorkPendingInput = {
           expected_version: currentWork.version,
@@ -2394,18 +2420,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         currentWork = reopenedWork;
       }
 
-      if (action === "active") {
-        const payload: DashboardWorkActivationInput = {
-          expected_version: currentWork.version,
-          actor,
-          claim_request_id: crypto.randomUUID()
-        };
-        const value = await api<unknown>(`${basePath}/activate`, {
-          method: "POST",
-          body: JSON.stringify(payload)
-        });
-        decodeDashboardActivationResult(value, actor);
-      } else if (action === "defer") {
+      if (action === "defer") {
         await mutationRegistry.execute({
           kind: "defer_work",
           slot: `defer-work:${work.project_id}:${work.id}`,
@@ -2499,9 +2514,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
             : summary.readiness.is_blocked
               ? "Pending but still blocked, so it remains out of ready discovery"
               : "Pending and available in the work queue"
-          : action === "active"
-            ? "Active"
-            : action === "done"
+          : action === "done"
               ? "Done"
               : action === "wont-do"
                 ? "Won’t Do"

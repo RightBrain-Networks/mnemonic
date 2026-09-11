@@ -22,7 +22,12 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
-from .phase12_models import PositiveDecimalString, _validated_text, omit_default
+from .phase12_models import (
+    JobCompletionReportInput,
+    PositiveDecimalString,
+    _validated_text,
+    omit_default,
+)
 
 PositiveRevision = PositiveDecimalString
 
@@ -262,7 +267,34 @@ class ReviewPolicyRead(ReviewTimestamp):
         return self
 
 
+class HumanReviewDecision(ReviewTimestamp):
+    version: Annotated[StrictInt, Field(ge=1)]
+    status: Literal["to-review", "deferred", "done", "wont-do", "promoted"]
+    actor_client: Literal["dashboard"]
+    actor_session_id: SessionID
+    actor_model: None
+    event_id: PositiveDecimalString
+    work_version: Annotated[StrictInt, Field(ge=1)]
+    job_completion_report: JobCompletionReportInput | None
+
+
+    @model_validator(mode="after")
+    def report_matches_decision(self) -> Self:
+        if (self.status in {"done", "wont-do", "promoted"}) != (
+            self.job_completion_report is not None
+        ):
+            raise ValueError("A terminal human review decision requires a report")
+        return self
+
+
+class HumanReviewDecisionRead(HumanReviewDecision):
+    resource_id: UUID
+
+
 class CodeReviewRead(ReviewTimestamp):
+    human_decision: HumanReviewDecision | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID
     project_id: UUID
     work_item_id: UUID
@@ -299,6 +331,9 @@ class CodeReviewRead(ReviewTimestamp):
 
 
 class WorkFollowUpRead(ReviewTimestamp):
+    human_decision: HumanReviewDecision | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID
     project_id: UUID
     work_item_id: UUID

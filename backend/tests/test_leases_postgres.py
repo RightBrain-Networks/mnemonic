@@ -170,7 +170,7 @@ def test_claim_replay_context_readiness_renew_release_and_no_work_activity(
     assert api.get(endpoint).json()["work_item"] == before
 
 
-def test_dashboard_manual_active_and_pending_are_token_free_human_decisions(
+def test_dashboard_cannot_activate_work_but_can_return_agent_work_to_pending(
     api, project, work_payload, postgres_engine
 ):
     work_item = create_work(api, project, work_payload)["work_item"]
@@ -180,48 +180,14 @@ def test_dashboard_manual_active_and_pending_are_token_free_human_decisions(
         "actor_session_id": "manual-status",
         "actor_model": None,
     }
-    claim_request_id = str(uuid4())
-    activation_body = {
-        "expected_version": 1,
-        "actor": actor,
-        "claim_request_id": claim_request_id,
-    }
-
-    invalid_actor = api.post(
-        f"{endpoint}/activate",
-        json={**activation_body, "actor": {**actor, "actor_client": "agent"}},
-    )
-    assert invalid_actor.status_code == 422
-    stale = api.post(
-        f"{endpoint}/activate",
-        json={**activation_body, "expected_version": 2},
-    )
-    assert stale.status_code == 409
-    assert stale.json()["detail"]["code"] == "version_conflict"
-
-    activated = api.post(f"{endpoint}/activate", json=activation_body)
-    assert activated.status_code == 200, activated.text
-    lease = activated.json()
-    assert set(lease) == {
-        "holder_client",
-        "holder_session_id",
-        "acquired_at",
-        "renewed_at",
-        "expires_at",
-    }
-    assert lease["holder_client"] == "dashboard"
-    assert lease["holder_session_id"] == "manual-status"
-    assert "lease_token" not in activated.text
-    assert "claim_request_id" not in activated.text
-    assert api.post(f"{endpoint}/activate", json=activation_body).json() == lease
-
-    claimed_events = api.get(
-        f"{endpoint}/events", params={"event_type": "work_claimed"}
-    ).json()
-    assert claimed_events["total"] == 1
-    assert claimed_events["items"][0]["actor_client"] == "dashboard"
-    assert claimed_events["items"][0]["actor_session_id"] == "manual-status"
-    assert claimed_events["items"][0]["actor_model"] is None
+    assert api.post(f"{endpoint}/activate", json={
+        "expected_version": 1, "actor": actor, "claim_request_id": str(uuid4()),
+    }).status_code == 404
+    claim_body = {"holder_client": "agent", "holder_session_id": "agent-session",
+                  "claim_request_id": str(uuid4())}
+    claimed = api.post(f"{endpoint}/claim", json=claim_body)
+    assert claimed.status_code == 200, claimed.text
+    lease = api.get(f"{endpoint}/context").json()["readiness"]["active_lease"]
 
     wrong_lease = {**lease, "expires_at": lease["acquired_at"]}
     changed = api.post(
@@ -253,8 +219,8 @@ def test_dashboard_manual_active_and_pending_are_token_free_human_decisions(
     assert readiness["active_lease"] is None
 
     reactivated = api.post(
-        f"{endpoint}/activate",
-        json={**activation_body, "claim_request_id": str(uuid4())},
+        f"{endpoint}/claim",
+        json={**claim_body, "claim_request_id": str(uuid4())},
     )
     assert reactivated.status_code == 200, reactivated.text
     expire_lease(postgres_engine, work_item["id"])

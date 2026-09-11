@@ -91,7 +91,7 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   );
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/complete`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/defer`, "POST"), []);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/activate`, "POST"), []);
+  assert.equal(allowedQueryKeys(`projects/${project}/work-items/${work}/activate`, "POST"), null);
   assert.deepEqual(
     allowedQueryKeys(`projects/${project}/work-items/${work}/return-to-pending`, "POST"),
     []
@@ -676,15 +676,10 @@ test("all lease-capability routes are denied to the browser proxy", () => {
   }
 });
 
-test("browser-safe manual Active and Pending actions have exact token-free bodies", () => {
+test("manual Active is unavailable and Pending actions have exact token-free bodies", () => {
   const actor = { actor_client: "dashboard", actor_session_id: "tab-1" };
   const activationPath = `projects/${project}/work-items/${work}/activate`;
   const pendingPath = `projects/${project}/work-items/${work}/return-to-pending`;
-  const activation = {
-    expected_version: 3,
-    actor,
-    claim_request_id: operation
-  };
   const activeLease = {
     holder_client: "dashboard",
     holder_session_id: "tab-1",
@@ -705,19 +700,11 @@ test("browser-safe manual Active and Pending actions have exact token-free bodie
     actor
   };
 
-  assert.equal(invalidMutationBody(activationPath, "POST", activation), null);
+  assert.equal(allowedQueryKeys(activationPath, "POST"), null);
   assert.equal(invalidMutationBody(pendingPath, "POST", activePending), null);
   assert.equal(invalidMutationBody(pendingPath, "POST", droppedPending), null);
-  assert.equal(browserTransportEffect(activationPath, "POST"), "lease_claim");
+  assert.equal(browserTransportEffect(activationPath, "POST"), null);
   assert.equal(browserTransportEffect(pendingPath, "POST"), "lease_claim");
-
-  for (const invalid of [
-    { ...activation, actor: { actor_client: "agent", actor_session_id: "tab-1" } },
-    { ...activation, actor: { ...actor, actor_model: "forged" } },
-    { ...activation, claim_request_id: "not-a-uuid" },
-    { ...activation, client_operation_id: operation },
-    { ...activation, lease_token: "browser-secret" }
-  ]) assert.ok(invalidMutationBody(activationPath, "POST", invalid));
 
   for (const invalid of [
     { ...activePending, expected_active_lease: null },

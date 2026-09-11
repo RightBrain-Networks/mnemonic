@@ -185,8 +185,8 @@ Lease expiry/release makes the same request available. Implementation tokens
 cannot submit reviews, and review tokens cannot perform implementation writes.
 Explicit reopen requires the exact outstanding review/question ID and version,
 current work version and operation UUID; it atomically supersedes the resource
-and invalidates a review lease. Ordinary dashboard Active/Pending controls
-cannot release review leases. Unresolved obligations block deletion/merge.
+and invalidates a review lease. The dashboard’s ordinary Pending control
+cannot release review leases. Human review decisions use the separate episode decision path. Unresolved obligations block deletion/merge.
 Resolved history and protected provenance survive permissible soft deletion.
 
 Work moves remain available for eligible items without review history. Any
@@ -209,3 +209,32 @@ aggregate integrity facts, never handoff/findings/tokens, and performs no repair
 See the [implementation contract](code-reviews-implementation-plan.md) for
 the full invariants and verification matrix, and the installed
 [agent protocol](../plugin/reference/code-reviews.md) for precise workflow rules.
+
+## Human review decisions (0.41.0)
+
+The Defer split button on summary and detail cards applies to the current review
+or unanswered review recommendation. Its menu offers Done, Won’t Do and Promote;
+a deferred or manually closed review can return to To review. Active is reserved
+for agent leases and is never a manual dashboard action. Reviews remain in their
+original project.
+
+These actions keep the original implementation Done, including its checkpoint,
+report, dependency resolution and pinned review scope. Human Done records an
+external completion decision; it does not invent agent findings or a remediation.
+Each decision appends immutable authorship and a progress event. Terminal decisions
+include a human report. The current decision and report are returned with the
+review resource. Historical decisions remain stored on that exact episode.
+
+The browser submits `review_decision` inside the existing receipt-protected
+`update_work` mutation, with the work version, resource ID and expected decision
+version. Only dashboard human provenance is accepted. Deferred or manually closed
+episodes are excluded from outstanding review discovery and cannot be claimed or
+answered until returned to To review. A human decision releases an existing review
+lease atomically, so its old capability cannot submit a late result. Exact uncertain
+retries retain the same operation UUID and payload and replay the original snapshot.
+
+Upgrade API, MCP and dashboard together to 0.41.0 and migration
+`0031_review_decisions`; plugin 0.24.0 and the tool/write/event catalogs are unchanged.
+The migration adds empty decision histories without changing existing episodes.
+Back up and quiesce writers before upgrading. Downgrade is refused after human
+review decisions have been written.

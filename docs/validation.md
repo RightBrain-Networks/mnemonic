@@ -1,5 +1,24 @@
 # Mnemonic validation record
 
+## Human review actions (0.41.0)
+
+Review decisions use migration `0031_review_decisions`. Regression coverage exercises
+all human dispositions and returns to To review, exact receipt replay after later
+decisions, original implementation preservation, claim denial while deferred or
+closed, active review lease invalidation, and forbidden agent/mixed/stale updates.
+Browser acceptance covers summary and detail cards at desktop and narrow widths,
+project move denial, and removal of manual Active from ordinary work.
+
+Validation: 149 affected PostgreSQL review/audit/backup/snapshot tests, the full
+1,332-test MCP suite with 73 contract/transport/version checks repeated after rebase,
+409 dashboard unit tests, type checks, production build, four desktop/narrow browser
+checks, and pre-commit passed.
+
+Screenshots: [summary actions](images/review-actions/review-summary-desktop.png),
+[detail actions](images/review-actions/review-detail-desktop.png),
+[narrow summary](images/review-actions/review-summary-narrow.png), and
+[narrow detail](images/review-actions/review-detail-narrow.png).
+
 ## Resources navigation and sidebar robot (0.40.0)
 
 PR #85 restored the original robot SVG file but omitted its sidebar placement.

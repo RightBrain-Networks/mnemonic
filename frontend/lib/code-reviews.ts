@@ -1,4 +1,5 @@
-import type { LeasePublic, MutationActor, WorkStatus } from "./types.ts";
+import { validJobReportInput } from "./job-completion-reports.ts";
+import type { JobCompletionReportInput, LeasePublic, MutationActor, WorkStatus } from "./types.ts";
 import { decimalString } from "./activity-cursors.ts";
 import {
   codeReviewDecision,
@@ -55,7 +56,20 @@ export interface ReviewPolicy {
   decision: CodeReviewDecision;
   created_at: string;
 }
+export interface HumanReviewDecision {
+  version: number;
+  status: "to-review" | "deferred" | "done" | "wont-do" | "promoted";
+  actor_client: "dashboard";
+  actor_session_id: string;
+  actor_model: null;
+  event_id: string;
+  work_version: number;
+  created_at: string;
+  job_completion_report: JobCompletionReportInput | null;
+}
+
 export interface CodeReview {
+  human_decision?: HumanReviewDecision;
   id: string;
   project_id: string;
   work_item_id: string;
@@ -78,6 +92,7 @@ export interface CodeReview {
   created_at: string;
 }
 export interface WorkFollowUp {
+  human_decision?: HumanReviewDecision;
   id: string;
   project_id: string;
   work_item_id: string;
@@ -499,6 +514,19 @@ export function decodeReviewPolicy(
     fail();
   return row as unknown as ReviewPolicy;
 }
+export function decodeHumanReviewDecision(value: unknown): HumanReviewDecision {
+  const row = model(value, ["version", "status", "actor_client", "actor_session_id", "actor_model",
+    "event_id", "work_version", "created_at", "job_completion_report"]);
+  const terminal = ["done", "wont-do", "promoted"].includes(String(row.status));
+  if (!version(row.version) || !version(row.work_version) || !sequence(row.event_id)
+    || !validUtcDateTime(row.created_at) || row.actor_client !== "dashboard"
+    || row.actor_model !== null || !reviewText(row.actor_session_id, 200, 800, false)
+    || !["to-review", "deferred", "done", "wont-do", "promoted"].includes(String(row.status))
+    || terminal !== (row.job_completion_report !== null)) fail();
+  if (terminal && !validJobReportInput(row.job_completion_report)) fail();
+  return row as unknown as HumanReviewDecision;
+}
+
 export function decodeCodeReview(
   value: unknown,
   projectId?: string,
@@ -525,7 +553,8 @@ export function decodeCodeReview(
     "result_id",
     "superseded_by_event_id",
     "created_at",
-  ]);
+  ], ["human_decision"]);
+  if ("human_decision" in row) decodeHumanReviewDecision(row.human_decision);
   identity(row, projectId, workId);
   actor(row, "requesting");
   if (
@@ -578,7 +607,8 @@ export function decodeWorkFollowUp(
     "created_event_id",
     "created_sequence",
     "created_at",
-  ]);
+  ], ["human_decision"]);
+  if ("human_decision" in row) decodeHumanReviewDecision(row.human_decision);
   identity(row, projectId, workId);
   actor(row, "origin");
   const kind = model(row.kind_data, ["policy_decision_id"]);

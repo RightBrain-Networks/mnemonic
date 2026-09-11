@@ -1163,3 +1163,26 @@ test("create/update receipts compare ordered canonical reference values and dist
     if (refs?.length) assert.equal((await classify(request("create_work", "POST", `/projects/${project}/work-items`, payload), 201, { ...result, work_item: workItem() })).type, "unresolved");
   }
 });
+
+test("human review decisions require an exact resource, revision, actor and report receipt", async () => {
+  const actor = { actor_client: "dashboard", actor_session_id: "human-tab", actor_model: null };
+  const report = { summary: "Completed this review elsewhere.", fyi_items: [], prompt_revision: "1" };
+  const decision = { resource_id: counterpart, expected_decision_version: 0, status: "done", job_completion_report: report };
+  const intent = request("update_work", "PATCH", `/projects/${project}/work-items/${work}`, {
+    expected_version: 2, actor, review_decision: decision
+  });
+  const receipt = { ...workItem({ status: "done", version: 3 }), review_decision: {
+    resource_id: counterpart, version: 1, status: "done", ...actor,
+    event_id: "15", work_version: 3, created_at: createdAt, job_completion_report: report
+  } };
+  assert.equal((await classify(intent, 200, receipt)).type, "success");
+  for (const changed of [
+    { resource_id: work }, { version: 2 }, { actor_session_id: "another-tab" },
+    { status: "promoted" }, { job_completion_report: null },
+    { job_completion_report: { ...report, summary: "Invented result" } }
+  ]) {
+    assert.equal((await classify(intent, 200, { ...receipt,
+      review_decision: { ...receipt.review_decision, ...changed }
+    })).type, "unresolved");
+  }
+});

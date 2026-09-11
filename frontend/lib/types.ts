@@ -108,11 +108,7 @@ export interface LeasePublic {
   expires_at: string;
 }
 
-export interface DashboardWorkActivationInput {
-  expected_version: number;
-  actor: MutationActor;
-  claim_request_id: string;
-}
+
 
 export interface DashboardWorkPendingInput {
   expected_version: number;
@@ -127,6 +123,7 @@ export interface LeaseReleaseResult {
 }
 
 export interface Readiness {
+  review_status?: "to-review" | "deferred" | "done" | "wont-do" | "promoted";
   lifecycle_status: WorkStatus;
   is_terminal: boolean;
   has_active_lease: boolean;
@@ -782,6 +779,7 @@ export interface RelationshipRemovalInput extends ClientOperationInput {
 }
 
 export interface WorkUpdate extends WorkItem {
+  review_decision?: import("./code-reviews.ts").HumanReviewDecision & { resource_id: string };
   job_completion_report?: JobCompletionReport;
 }
 

@@ -42,6 +42,7 @@ from .code_review_models import (
     CodeReviewRead,
     CodeReviewRemediationRead,
     CodeReviewResultRead,
+    HumanReviewDecisionRead,
     ReviewMode,
     ReviewModel,
     ReviewPolicyRead,
@@ -1834,6 +1835,10 @@ def _validate_lease_review_identity(
 
 
 class Readiness(CanonicalResponse):
+    review_status: (
+        Literal["to-review", "deferred", "done", "wont-do", "promoted"] | SkipJsonSchema[None]
+    ) = Field(default=None, exclude_if=lambda value: value is None)
+
     lifecycle_status: Status
     is_duplicate: StrictBool
     canonical_work_item_id: UUID
@@ -1887,6 +1892,8 @@ def _validate_ready_state(readiness: Readiness) -> None:
 def _expected_display_state(readiness: Readiness) -> DisplayState:
     if readiness.is_duplicate:
         return "duplicate"
+    if readiness.lifecycle_status == "done" and readiness.review_status:
+        return readiness.review_status
     if readiness.lifecycle_status == "done" and readiness.display_state == "to-review":
         return "to-review"
     if readiness.lifecycle_status != "pending":
@@ -1919,6 +1926,10 @@ class WorkItemRead(CanonicalResponse):
     updated_at: datetime
 
 class WorkUpdateRead(WorkItemRead):
+    review_decision: HumanReviewDecisionRead | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
     """Flattened update result; old receipts keep the report field absent."""
 
     job_completion_report: Annotated[

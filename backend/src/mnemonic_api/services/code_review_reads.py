@@ -3,7 +3,7 @@
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, literal, or_, select
+from sqlalchemy import and_, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.code_review_schemas import (
@@ -177,11 +177,16 @@ def queue_page(
     )
     if state != "all":
         query = query.where(model.state == state)
+        if state in {"requested", "pending"}:
+            query = query.where(func.coalesce(
+                model.human_decisions[-1]["status"].astext, "to-review",
+            ) == "to-review")
     if work_item_id is not None:
         query = query.where(model.work_item_id == work_item_id)
     if availability == "unclaimed":
         query = query.where(
             model.state == "requested",
+            func.coalesce(model.human_decisions[-1]["status"].astext, "to-review") == "to-review",
             WorkItem.status == "done",
             WorkItem.deleted_at.is_(None),
             WorkItem.id.not_in(select(WorkDuplicateMerge.source_work_item_id)),
@@ -213,6 +218,8 @@ def _queue_row(
     child: UUID | None,
     now: Any,
 ) -> ReviewQueueRow:
+    from mnemonic_api.services.review_decisions import disposition
+
     active = lease is not None and lease.expires_at > now
     review = isinstance(resource, CodeReview)
     matching_lease = (
@@ -237,7 +244,8 @@ def _queue_row(
             request_reason=resource.request_reason if review else None,
             kind=None if review else resource.kind,
             remediation_depth=work.remediation_depth,
-            review_available=review and resource.state == "requested" and not active,
+            review_available=(review and resource.state == "requested" and not active
+                              and disposition(resource) == "to-review"),
             result_id=resource.result_id if review else None,
             remediation_work_item_id=child,
             lease=(

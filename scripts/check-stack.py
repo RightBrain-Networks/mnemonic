@@ -1110,7 +1110,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.40.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.41.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         require(
             {"ExternalReference", "ExternalReferencesChange", "ExternalDuplicateCandidate",
@@ -1135,13 +1135,14 @@ def validate_rest_contract(document: Any) -> None:
             "/api/v1/projects/{project_id}/work-items/{work_item_id}/move": (
                 "#/components/schemas/WorkMoveCreate"
             ),
-            "/api/v1/projects/{project_id}/work-items/{work_item_id}/activate": (
-                "#/components/schemas/DashboardWorkActivationCreate"
-            ),
             "/api/v1/projects/{project_id}/work-items/{work_item_id}/return-to-pending": (
                 "#/components/schemas/DashboardWorkPendingCreate"
             ),
         }
+        require(
+            "/api/v1/projects/{project_id}/work-items/{work_item_id}/activate"
+            not in document["paths"], "Manual activation must not be exposed.",
+        )
         for path, expected_ref in endpoint_refs.items():
             request_schema = document["paths"][path]["post"]["requestBody"]["content"][
                 "application/json"
@@ -1166,10 +1167,6 @@ def validate_rest_contract(document: Any) -> None:
                 "/api/v1/projects/{project_id}/work-items/{work_item_id}/move",
                 "200",
             ): "#/components/schemas/WorkMoveRead",
-            (
-                "/api/v1/projects/{project_id}/work-items/{work_item_id}/activate",
-                "200",
-            ): "#/components/schemas/LeasePublic",
             (
                 "/api/v1/projects/{project_id}/work-items/{work_item_id}/return-to-pending",
                 "200",
@@ -1602,14 +1599,14 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.40.0",
+                    and initialized.serverInfo.version == "0.41.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.40.0 cross-project relationship contract shape, work-move, "
+                    "PASS: REST 0.41.0 cross-project relationship contract shape, work-move, "
                     "code-review contract, real MCP initialization, 48-tool catalog, "
                     "exact sixteen protected mutation "
                     "schemas/annotations, and REST-backed project listing"

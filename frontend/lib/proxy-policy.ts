@@ -70,10 +70,6 @@ export const DEFINITIVE_PROXY_ERRORS = {
     status: 400,
     detail: "The work-item deferral does not match the dashboard allowlist."
   },
-  invalidWorkActivation: {
-    status: 400,
-    detail: "The work-item activation does not match the dashboard allowlist."
-  },
   invalidWorkPending: {
     status: 400,
     detail: "The work-item Pending action does not match the dashboard allowlist."
@@ -156,6 +152,19 @@ export function isDefinitiveProxyError(status: number, detail: string): boolean 
       && detail.endsWith(".");
 }
 
+function validHumanReviewDecision(body: Record<string, unknown>): boolean {
+  const decision = jsonObject(body.review_decision);
+  const actor = jsonObject(body.actor);
+  if (!decision || !actor || actor.actor_client !== "dashboard" || actor.actor_model != null
+    || !allowedKeys(body, ["expected_version", "actor", "client_operation_id", "review_decision"])
+    || !allowedKeys(decision, ["resource_id", "expected_decision_version", "status", "job_completion_report"])
+    || !validUuid(decision.resource_id) || !finiteInteger(decision.expected_decision_version, 0)
+    || !["to-review", "deferred", "done", "wont-do", "promoted"].includes(String(decision.status))) return false;
+  return ["done", "wont-do", "promoted"].includes(String(decision.status))
+    ? validJobReportInput(decision.job_completion_report)
+    : !("job_completion_report" in decision);
+}
+
 const UUID = UUID_PATTERN.source.slice(1, -1);
 const PROJECT = new RegExp(`^projects/${UUID}$`);
 const PROJECT_ACTIVITY = new RegExp(`^projects/${UUID}/activity$`);
@@ -177,7 +186,6 @@ const RELATIONSHIPS = new RegExp(`^projects/${UUID}/relationships$`);
 const RELATIONSHIP = new RegExp(`^projects/${UUID}/relationships/${UUID}$`);
 const WORK_COMPLETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/complete$`);
 const WORK_DEFER = new RegExp(`^projects/${UUID}/work-items/${UUID}/defer$`);
-const WORK_ACTIVATE = new RegExp(`^projects/${UUID}/work-items/${UUID}/activate$`);
 const WORK_PENDING = new RegExp(`^projects/${UUID}/work-items/${UUID}/return-to-pending$`);
 const WORK_DELETE = new RegExp(`^projects/${UUID}/work-items/${UUID}/delete$`);
 const WORK_MOVE = new RegExp(`^projects/${UUID}/work-items/${UUID}/move$`);
@@ -297,7 +305,6 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   if (GATE_RESOLVE.test(path) && method === "POST") return [];
   if (WORK_COMPLETE.test(path) && method === "POST") return [];
   if (WORK_DEFER.test(path) && method === "POST") return [];
-  if (WORK_ACTIVATE.test(path) && method === "POST") return [];
   if (WORK_PENDING.test(path) && method === "POST") return [];
   if (WORK_DELETE.test(path) && method === "POST") return [];
   if (WORK_MOVE.test(path) && method === "POST") return [];
@@ -594,7 +601,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   if (WORK_ITEM.test(path) && method === "PATCH") {
     if (
       !allowedKeys(body, [
-        "expected_version", "title", "summary", "priority", "status", "actor", "job_completion_report", "external_references",
+        "expected_version", "title", "summary", "priority", "status", "actor", "job_completion_report", "external_references", "review_decision",
         "supersede_code_review_id", "expected_code_review_version", "supersede_follow_up_id", "expected_follow_up_version",
         CLIENT_OPERATION_FIELD
       ])
@@ -602,7 +609,8 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !validActor(body.actor)
       || (Object.hasOwn(body, "job_completion_report") && !validJobReportInput(body.job_completion_report))
       || !validReviewSupersession(body)
-      || !["title", "summary", "priority", "status", "external_references"].some((key) => key in body)
+      || ("review_decision" in body && !validHumanReviewDecision(body))
+      || !["title", "summary", "priority", "status", "external_references", "review_decision"].some((key) => key in body)
       || (Object.hasOwn(body, "external_references") && !validExternalReferences(body.external_references))
       || (body.title !== undefined && !boundedText(body.title, 200))
       || (body.summary !== undefined && !boundedText(body.summary, Infinity))
@@ -617,18 +625,6 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !finiteInteger(body.expected_version, 1)
       || !validActor(body.actor)
     ) return DEFINITIVE_PROXY_ERRORS.invalidWorkItemDeferral.detail;
-  }
-  if (WORK_ACTIVATE.test(path) && method === "POST") {
-    const actor = jsonObject(body.actor);
-    if (
-      !allowedKeys(body, ["expected_version", "actor", "claim_request_id"])
-      || Object.keys(body).length !== 3
-      || !finiteInteger(body.expected_version, 1)
-      || !validActor(body.actor)
-      || actor?.actor_client !== "dashboard"
-      || (actor.actor_model !== undefined && actor.actor_model !== null)
-      || !validUuid(body.claim_request_id)
-    ) return DEFINITIVE_PROXY_ERRORS.invalidWorkActivation.detail;
   }
   if (WORK_PENDING.test(path) && method === "POST") {
     const actor = jsonObject(body.actor);
@@ -789,7 +785,7 @@ export function browserTransportEffect(
 ): BrowserTransportEffect | null {
   if (method === "POST" && DUPLICATE_SUGGESTIONS.test(path)) return "safe_read";
   if (LEASE_CAPABILITY.test(path)) return "lease_claim";
-  if (method === "POST" && (WORK_ACTIVATE.test(path) || WORK_PENDING.test(path))) {
+  if (method === "POST" && WORK_PENDING.test(path)) {
     return "lease_claim";
   }
   if (method === "GET" && allowedQueryKeys(path, method) !== null) return "safe_read";

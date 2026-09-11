@@ -38,6 +38,8 @@ from mnemonic_api.code_review_schemas import (
     CodeReviewRemediationRead,
     CodeReviewResultInput,
     CodeReviewResultRead,
+    HumanReviewDecisionInput,
+    HumanReviewDecisionRead,
     ReviewMode,
     ReviewPolicyRead,
     ReviewThreshold,
@@ -1469,6 +1471,10 @@ class RelationshipCreate(APIModel):
 
 
 class WorkItemPatch(APIModel):
+    review_decision: HumanReviewDecisionInput | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
     supersede_code_review_id: UUID | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -1977,6 +1983,9 @@ class WorkItemRead(Timestamps):
 
 
 class WorkUpdateRead(WorkItemRead):
+    review_decision: HumanReviewDecisionRead | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     job_completion_report: JobCompletionReportRead | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -2439,20 +2448,6 @@ class ClaimReceipt(LeasePublic):
         return self
 
 
-class DashboardWorkActivationCreate(APIModel):
-    """Browser-only human decision to represent work as Active with a safe lease."""
-
-    expected_version: Annotated[StrictInt, Field(ge=1)]
-    actor: MutationActor
-    claim_request_id: ClaimRequestID
-
-    @model_validator(mode="after")
-    def require_dashboard_human(self) -> Self:
-        if self.actor.actor_client != "dashboard" or self.actor.actor_model is not None:
-            raise ValueError("Manual activation requires dashboard human provenance")
-        return self
-
-
 class DashboardWorkPendingCreate(APIModel):
     """Browser-only human decision to clear the exact observed lease state."""
 
@@ -2471,6 +2466,12 @@ class DashboardWorkPendingCreate(APIModel):
 
 
 class Readiness(APIModel):
+    review_status: (
+        Literal["to-review", "deferred", "done", "wont-do", "promoted"] | SkipJsonSchema[None]
+    ) = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
     lifecycle_status: Status
     is_duplicate: bool
     canonical_work_item_id: UUID

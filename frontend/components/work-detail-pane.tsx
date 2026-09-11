@@ -394,7 +394,8 @@ export function StatusActionButton({
   });
   const moveUnavailable = moveDisabled || moving || targetProjects.length === 0;
   const controlsBusy = busy || moving;
-  const primaryDisabled = disabled || controlsBusy || work.status === "deferred";
+  const deferred = (readiness.review_status ?? work.status) === "deferred";
+  const primaryDisabled = disabled || controlsBusy || deferred;
 
   useEffect(() => {
     setOpen(false);
@@ -780,7 +781,7 @@ export function StatusActionButton({
       type="button"
       disabled={primaryDisabled}
       aria-label={`Defer ${work.title}`}
-      title={work.status === "deferred"
+      title={deferred
         ? "This work item is already Deferred. Choose another status from the menu."
         : "Explicitly hold this work item out of the work queue"}
       onClick={() => onAction("defer", summary)}
@@ -1006,14 +1007,14 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
       {readiness.active_lease && <ActiveLeaseSummary lease={readiness.active_lease} detailed />}
       <div className="detail-actions">
         <button type="button" className={`button button-primary ${props.copiedKey === pointerKey ? "is-copied" : ""}`} onClick={() => props.onCopyPointer(pointerSummary)}><Icon name="copy" size={16} />{props.copiedKey === pointerKey ? "Copied" : "Copy recall pointer"}</button>
-        {currentReview ? <button type="button" className={`button button-primary detail-cold-review ${props.copiedKey === reviewKey ? "is-copied" : ""}`} aria-label="Copy cold review prompt" disabled={!context || props.contextLoading} onClick={props.onCopyColdReview}><Icon name="copy" size={16} />{props.copiedKey === reviewKey ? "Copied" : "Cold review"}</button> : <button type="button" className={`button copy-button detail-copy-context ${props.copiedKey === contextKey ? "is-copied" : ""}`} aria-label="Copy current context" disabled={!context} onClick={() => { if (context) props.onCopy(currentContext(context).prompt, contextKey, "Current context copied exactly as stored."); }}><Icon name="copy" size={16} />{props.copiedKey === contextKey ? "Copied" : "Copy context"}</button>}
+        {currentReview && readiness.display_state === "to-review" ? <button type="button" className={`button button-primary detail-cold-review ${props.copiedKey === reviewKey ? "is-copied" : ""}`} aria-label="Copy cold review prompt" disabled={!context || props.contextLoading} onClick={props.onCopyColdReview}><Icon name="copy" size={16} />{props.copiedKey === reviewKey ? "Copied" : "Cold review"}</button> : <button type="button" className={`button copy-button detail-copy-context ${props.copiedKey === contextKey ? "is-copied" : ""}`} aria-label="Copy current context" disabled={!context} onClick={() => { if (context) props.onCopy(currentContext(context).prompt, contextKey, "Current context copied exactly as stored."); }}><Icon name="copy" size={16} />{props.copiedKey === contextKey ? "Copied" : "Copy context"}</button>}
         {reviewObligation && <button type="button" className="button button-secondary" disabled={actionsLocked} onClick={props.onReopenReview}>Reopen work…</button>}
         {!isDuplicate && <button type="button" className="button button-secondary" aria-label="Edit work item" disabled={actionsLocked} onClick={props.onEdit}>Edit</button>}
         {!isDuplicate && <button type="button" className="button button-secondary" title={mergeLeaseExplanation || undefined} aria-describedby={mergeLeaseExplanation ? mergeLeaseExplanationId : undefined} disabled={actionsLocked || Boolean(mergeLeaseExplanation)} onClick={props.onOpenMerge}>Merge as duplicate…</button>}
         {!isDuplicate && <StatusActionButton
           summary={pointerSummary}
           projects={props.projects}
-          disabled={actionsLocked || reviewObligation}
+          disabled={actionsLocked}
           busy={props.statusChanging}
           reportSettingsReady={props.reportSettingsReady}
           moveDisabled={Boolean(moveDisabledReason)}

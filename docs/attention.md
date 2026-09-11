@@ -35,8 +35,8 @@ and every argument exactly. Historical receipts replay their original result,
 even after further rewrites or resolution. A stale question version returns
 `409 gate_question_changed`; reread before submitting a new intent.
 
-Upgrade API, MCP, and dashboard together to 0.40.0, plugin 0.24.0, and Alembic
-`0030_question_versions`. The migration gives existing questions version 1,
+Upgrade API, MCP, and dashboard together to 0.41.0, plugin 0.24.0, and Alembic
+`0031_review_decisions`. The earlier question-version migration gives existing questions version 1,
 preserves original prose and events, and adds append-only revision storage.
 Back up first and stop old writers before migrating. Downgrade is allowed only before any revised question or new gate receipt exists;
 after use, restore a pre-upgrade backup. There are no new configuration settings.

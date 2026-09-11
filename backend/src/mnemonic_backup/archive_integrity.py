@@ -6,7 +6,7 @@ from types import ModuleType
 
 from sqlalchemy import Connection, text
 
-from mnemonic_backup.archive_schema import BackupError
+from mnemonic_backup.archive_schema import HEAD, BackupError
 
 
 def _audit_module() -> ModuleType:
@@ -30,7 +30,7 @@ def validate_integrity(connection: Connection) -> None:
     counts.update(previous._completion_evidence_counts(connection, schema))
     audit._move_aware_prior_counts(connection, counts, previous, cross_project_relationships=True)
     findings = previous._blocking_counts(counts)
-    checks = dict(audit._review_checks())
+    checks = dict(audit._review_checks(HEAD))
     for name in ("_ACTIVITY_FINDINGS", "_REPORT_FINDINGS", "_REFERENCE_FINDINGS",
                  "_MOVE_FINDINGS", "_CROSS_PROJECT_RELATIONSHIP_FINDINGS", "_ARTIFACT_FINDINGS"):
         checks.update(getattr(audit, name))

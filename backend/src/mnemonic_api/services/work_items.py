@@ -284,11 +284,23 @@ def require_sealed_closeout_report(database: Session, work_item: WorkItem) -> No
 
 
 def update_work_record(database: Session, work_item: WorkItem, payload: WorkItemPatch) -> None:
-    from mnemonic_api.services.code_reviews import SUPERSESSION_FIELDS, supersede_for_reopen
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
     require_canonical_work_item(database, work_item)
     require_version(work_item, payload.expected_version)
+    if payload.review_decision is not None:
+        from mnemonic_api.services.review_decisions import record_human_review_decision
+
+        record_human_review_decision(database, work_item, payload)
+        return
+    _update_implementation_record(database, work_item, payload)
+
+
+def _update_implementation_record(
+    database: Session, work_item: WorkItem, payload: WorkItemPatch,
+) -> None:
+    from mnemonic_api.services.code_reviews import SUPERSESSION_FIELDS, supersede_for_reopen
+
     if payload.summary is not None and payload.summary != work_item.summary:
         require_work_summary_length(
             payload.summary,

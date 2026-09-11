@@ -40,7 +40,7 @@ function ReviewResult({
           review
         </h4>
         <span className={`review-state review-state-${review.state}`}>
-          {review.state}
+          {review.state === "requested" ? (review.human_decision?.status ?? "To review") : review.state}
         </span>
       </div>
       <p>
@@ -55,9 +55,13 @@ function ReviewResult({
       )}
       <p className="field-hint">
         {review.state === "requested"
-          ? "Implementation is complete. This work stays To review until the review is completed."
+          ? "Implementation is complete. Use the status menu to defer or close its review."
           : "Review history is retained with the original work item."}
       </p>
+      {review.human_decision && <section aria-label="Human review decision">
+        <p>A person marked this review {review.human_decision.status} · {formatDateTime(review.human_decision.created_at)}</p>
+        {review.human_decision.job_completion_report && <p className="review-prose">{review.human_decision.job_completion_report.summary}</p>}
+      </section>}
       <details>
         <summary>Pinned repository scope</summary>
         {detail.scope.repositories.map((row) => (
@@ -209,6 +213,7 @@ function FollowUp({
     setError("");
   }, [question.id, question.state]);
   const owner =
+    (question.human_decision?.status ?? "to-review") === "to-review" &&
     question.origin_client === "dashboard" &&
     question.origin_session_id === session;
   const workKey = mutationWorkKey(question.project_id, question.work_item_id);

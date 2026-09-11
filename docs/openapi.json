@@ -2253,6 +2253,10 @@
             "title": "Created Sequence",
             "type": "string"
           },
+          "human_decision": {
+            "$ref": "#/components/schemas/HumanReviewDecision",
+            "title": "Human Decision"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -4339,33 +4343,6 @@
         "title": "DashboardLeaseObservation",
         "type": "object"
       },
-      "DashboardWorkActivationCreate": {
-        "additionalProperties": false,
-        "description": "Browser-only human decision to represent work as Active with a safe lease.",
-        "properties": {
-          "actor": {
-            "$ref": "#/components/schemas/MutationActor"
-          },
-          "claim_request_id": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Claim Request Id",
-            "type": "string"
-          },
-          "expected_version": {
-            "minimum": 1.0,
-            "title": "Expected Version",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "expected_version",
-          "actor",
-          "claim_request_id"
-        ],
-        "title": "DashboardWorkActivationCreate",
-        "type": "object"
-      },
       "DashboardWorkPendingCreate": {
         "additionalProperties": false,
         "description": "Browser-only human decision to clear the exact observed lease state.",
@@ -5600,6 +5577,203 @@
           "reviewed_context_revision"
         ],
         "title": "HumanGateResolutionCreate",
+        "type": "object"
+      },
+      "HumanReviewDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_client": {
+            "const": "dashboard",
+            "title": "Actor Client",
+            "type": "string"
+          },
+          "actor_model": {
+            "title": "Actor Model",
+            "type": "null"
+          },
+          "actor_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Actor Session Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "job_completion_report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobCompletionReportInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "to-review",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          },
+          "work_version": {
+            "minimum": 1.0,
+            "title": "Work Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created_at",
+          "version",
+          "status",
+          "actor_client",
+          "actor_session_id",
+          "actor_model",
+          "event_id",
+          "work_version",
+          "job_completion_report"
+        ],
+        "title": "HumanReviewDecision",
+        "type": "object"
+      },
+      "HumanReviewDecisionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_decision_version": {
+            "minimum": 0.0,
+            "title": "Expected Decision Version",
+            "type": "integer"
+          },
+          "job_completion_report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobCompletionReportInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resource_id": {
+            "format": "uuid",
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "to-review",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource_id",
+          "expected_decision_version",
+          "status"
+        ],
+        "title": "HumanReviewDecisionInput",
+        "type": "object"
+      },
+      "HumanReviewDecisionRead": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_client": {
+            "const": "dashboard",
+            "title": "Actor Client",
+            "type": "string"
+          },
+          "actor_model": {
+            "title": "Actor Model",
+            "type": "null"
+          },
+          "actor_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Actor Session Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "job_completion_report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobCompletionReportInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resource_id": {
+            "format": "uuid",
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "to-review",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          },
+          "work_version": {
+            "minimum": 1.0,
+            "title": "Work Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created_at",
+          "version",
+          "status",
+          "actor_client",
+          "actor_session_id",
+          "actor_model",
+          "event_id",
+          "work_version",
+          "job_completion_report",
+          "resource_id"
+        ],
+        "title": "HumanReviewDecisionRead",
         "type": "object"
       },
       "InitialCheckpointCreate": {
@@ -7656,6 +7830,17 @@
               "promoted"
             ],
             "title": "Lifecycle Status",
+            "type": "string"
+          },
+          "review_status": {
+            "enum": [
+              "to-review",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Review Status",
             "type": "string"
           },
           "unresolved_blocker_count": {
@@ -10014,6 +10199,10 @@
             "title": "Created Sequence",
             "type": "string"
           },
+          "human_decision": {
+            "$ref": "#/components/schemas/HumanReviewDecision",
+            "title": "Human Decision"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -10411,6 +10600,10 @@
               }
             ],
             "title": "Priority"
+          },
+          "review_decision": {
+            "$ref": "#/components/schemas/HumanReviewDecisionInput",
+            "title": "Review Decision"
           },
           "status": {
             "anyOf": [
@@ -11412,6 +11605,10 @@
             "title": "Project Id",
             "type": "string"
           },
+          "review_decision": {
+            "$ref": "#/components/schemas/HumanReviewDecisionRead",
+            "title": "Review Decision"
+          },
           "status": {
             "enum": [
               "pending",
@@ -11485,7 +11682,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.40.0"
+    "version": "0.41.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -14444,72 +14641,6 @@
           }
         ],
         "summary": "Update Work"
-      }
-    },
-    "/api/v1/projects/{project_id}/work-items/{work_item_id}/activate": {
-      "post": {
-        "description": "Record an explicit dashboard-human Active decision without returning a token.",
-        "operationId": "activate_work_from_dashboard_api_v1_projects__project_id__work_items__work_item_id__activate_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "work_item_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Work Item Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DashboardWorkActivationCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LeasePublic"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Activate Work From Dashboard"
       }
     },
     "/api/v1/projects/{project_id}/work-items/{work_item_id}/agent-follow-ups/{follow_up_id}": {

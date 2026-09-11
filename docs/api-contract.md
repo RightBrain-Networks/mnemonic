@@ -1,7 +1,7 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.40.0`, plugin `0.24.0`, and migration
-`0030_question_versions`. The catalog has exactly 48 MCP tools, 17
+This is application/API/MCP/dashboard `0.41.0`, plugin `0.24.0`, and migration
+`0031_review_decisions`. The catalog has exactly 48 MCP tools, 17
 protected MCP writes, 22 REST receipt kinds, 19 protected browser mutations and
 24 work-event types. The 22 REST receipt kinds comprise 18 work operations and
 four artifact operations with filesystem recovery journals. See
@@ -585,15 +585,8 @@ matching retained row even after expiry. An absent row returns
 A different active replacement returns `lease_token_mismatch`; a different
 expired row remains untouched and also returns `released: false`.
 
-Two dashboard-only, token-free status routes sit beside those capability routes:
+The dashboard-only, token-free Pending route sits beside those capability routes:
 
-- `POST /projects/{project_id}/work-items/{work_item_id}/activate` accepts
-  `{expected_version, actor, claim_request_id}`. The actor must have
-  `actor_client: "dashboard"` and a null/omitted model. The browser supplies a
-  UUID request ID. Fresh eligibility and the exact work version are rechecked.
-  Success returns only `LeasePublic={holder_client, holder_session_id,
-  acquired_at, renewed_at, expires_at}`; it cannot return the work ID, request
-  ID, or token.
 - `POST /projects/{project_id}/work-items/{work_item_id}/return-to-pending`
   accepts `{expected_version, expected_lease_state, expected_active_lease,
   actor}`. Active requires the exact five-field public lease the person
@@ -601,10 +594,9 @@ Two dashboard-only, token-free status routes sit beside those capability routes:
   renewed or replacement lease fails with `409 lease_state_changed` instead of
   being cleared. Success returns `{work_item_id, released}`.
 
-These routes do not enter the durable receipt ledger. Activation uses the
-ordinary claim-request replay contract; returning an already-cleared item is a
-convergent `released: false` no-op. A real acquisition/release emits the normal
-`work_claimed`/`work_released` event with the asserted dashboard actor. This
+This route does not enter the durable receipt ledger. Returning an already-cleared
+item is a convergent `released: false` no-op. A release emits the normal
+`work_released` event with the asserted dashboard actor. This
 is human-decision provenance under the shared bearer boundary, not a signed
 identity.
 
@@ -1905,3 +1897,20 @@ exact match or rejecting a valid SQL result. Normalization stability for already
 assigned characters permits native NFKC inside those runs on supported newer
 runtimes; see [Unicode normalization stability](https://www.unicode.org/reports/tr15/#Versioning_and_Stability).
 The shipped SQL key and draft-specific boundary trimming remain unchanged.
+
+### Human review disposition
+
+`PATCH /projects/{project_id}/work-items/{work_item_id}` accepts an exclusive
+`review_decision` object: `resource_id`, `expected_decision_version` (initially 0),
+`status` (`to-review`, `deferred`, `done`, `wont-do`, `promoted`), and a nested
+`job_completion_report` for terminal choices. Include `expected_version`, a
+client operation UUID and dashboard human actor. The response preserves the Done
+work item and returns the exact `review_decision` snapshot. Review/recommendation
+reads expose the latest `human_decision`; readiness exposes `review_status` for
+a current episode. The old dashboard `/activate` route has been removed.
+
+Human decision failures are definitive: `review_decision_requires_human` rejects
+agent provenance, `review_decision_invalid` rejects mixed work edits,
+`review_decision_unchanged` rejects an identical fresh status, and
+`code_review_changed` rejects stale episode/decision identities. Existing report
+required/prompt-changed and work version conflicts apply unchanged.

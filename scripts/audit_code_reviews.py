@@ -1,4 +1,4 @@
-"""Read-only code-review integrity audit for supported schemas 0024 through 0030.
+"""Read-only code-review integrity audit for supported schemas 0024 through 0031.
 
 Run with the backend virtual environment and private database access. Output
 contains counts only: no repository locators, prompts, findings, actors, tokens,
@@ -12,11 +12,11 @@ import os
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0030_question_versions"
+HEAD = "0031_review_decisions"
 REVIEW_HEAD = "0024_code_reviews"
 SUPPORTED_HEADS = (REVIEW_HEAD, "0025_cross_project_relationships", "0026_artifact_library",
                    "0027_artifact_fulltext", "0028_work_summary_limit",
-                   "0029_artifact_links_sensitive", HEAD)
+                   "0029_artifact_links_sensitive", "0030_question_versions", HEAD)
 CHECKS = {
     "lifecycle_event_witness_mismatch": """
         SELECT count(*) FROM work_events event
@@ -199,6 +199,47 @@ def pin_session_settings(connection: Connection) -> None:
         raise RuntimeError("Audit could not pin its deterministic session settings")
 
 
+HUMAN_DECISION_CHECKS = {
+    "human_decision_event_mismatch": """
+        WITH resources AS (
+            SELECT id,project_id,work_item_id,human_decisions FROM code_reviews
+            UNION ALL
+            SELECT id,project_id,work_item_id,human_decisions FROM work_agent_follow_ups
+        )
+        SELECT count(*) FROM resources resource
+        CROSS JOIN LATERAL jsonb_array_elements(resource.human_decisions)
+            WITH ORDINALITY AS decision(entry,position)
+        LEFT JOIN work_events event ON event.id::text=entry->>'event_id'
+        WHERE event.id IS NULL OR event.work_item_id<>resource.work_item_id
+           OR event.project_id<>resource.project_id OR event.event_type<>'progress'
+           OR entry->'version' IS DISTINCT FROM to_jsonb(position)
+           OR entry->>'actor_client' IS DISTINCT FROM 'dashboard'
+           OR entry->'actor_model' IS DISTINCT FROM 'null'::jsonb
+           OR event.actor_client IS DISTINCT FROM entry->>'actor_client'
+           OR event.actor_session_id IS DISTINCT FROM entry->>'actor_session_id'
+           OR event.actor_model IS NOT NULL
+           OR event.metadata->>'review_resource_id' IS DISTINCT FROM resource.id::text
+           OR event.metadata->'review_status' IS DISTINCT FROM entry->'status'
+           OR event.metadata->'decision_version' IS DISTINCT FROM entry->'version'
+           OR event.metadata->'work_version' IS DISTINCT FROM entry->'work_version'
+           OR event.created_at IS DISTINCT FROM (entry->>'created_at')::timestamptz
+           OR NOT COALESCE(entry->>'status' IN
+                ('to-review','deferred','done','wont-do','promoted'), false)
+           OR ((entry->>'status' IN ('done','wont-do','promoted')) IS DISTINCT FROM
+               (jsonb_typeof(entry->'job_completion_report')='object'))
+    """,
+    "human_closed_review_has_lease": """
+        SELECT count(*) FROM code_reviews review JOIN work_leases lease
+            ON lease.code_review_id=review.id
+        WHERE COALESCE(review.human_decisions->-1->>'status','to-review')<>'to-review'
+    """,
+}
+
+
+def checks_for_head(schema_head: str) -> dict[str, str]:
+    return {**CHECKS, **(HUMAN_DECISION_CHECKS if schema_head == HEAD else {})}
+
+
 def audit(connection: Connection) -> dict:
     """Read counts within the caller's read-only coherent transaction."""
     pin_session_settings(connection)
@@ -206,7 +247,7 @@ def audit(connection: Connection) -> dict:
     if schema_head not in SUPPORTED_HEADS:
         raise RuntimeError("Code-review audit requires a supported schema head")
     findings = {
-        name: int(connection.scalar(text(query)) or 0) for name, query in CHECKS.items()
+        name: int(connection.scalar(text(query)) or 0) for name, query in checks_for_head(schema_head).items()
     }
     counts = dict(
         connection.execute(

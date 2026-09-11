@@ -1,7 +1,7 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.40.0`, Claude plugin `0.24.0`,
-and Alembic head `0030_question_versions`.
+This architecture describes application/API/MCP `0.41.0`, Claude plugin `0.24.0`,
+and Alembic head `0031_review_decisions`.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
 An isolated Apache Tika 4 service extracts normalized current text and document
