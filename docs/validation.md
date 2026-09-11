@@ -1,5 +1,26 @@
 # Mnemonic validation record
 
+## Resources navigation and sidebar robot (0.40.0)
+
+PR #85 restored the original robot SVG file but omitted its sidebar placement.
+The sidebar now renders that asset above the existing message, including in short
+desktop windows. Resources appears immediately below Needs Attention and groups
+Artifacts and the blank Transcripts route. Both Resources and Project settings
+use the same disclosure behavior with independent saved preferences.
+
+The coordinated application/API/MCP/dashboard version is 0.40.0. Plugin 0.24.0,
+migration `0030_question_versions`, and configuration are unchanged. Transcript
+indexing and search are deferred.
+
+Validation: 409 frontend unit tests, type checking, production build, 61 browser
+checks across desktop Chromium, Firefox and narrow Chromium, 61 MCP version and
+transport tests, the OpenAPI snapshot check, backend lint/type checking and
+pre-commit passed. One existing desktop-only work-detail test is skipped on the
+narrow viewport. The isolated stack's backup-service acceptance checks also passed.
+
+Screenshots: [desktop with the restored robot](images/resources-transcripts-desktop.png)
+and [narrow navigation](images/resources-transcripts-narrow.png).
+
 ## Sidebar navigation (0.39.0)
 
 Menu navigation preserves the mounted sidebar and its project selection, badges,
