@@ -157,6 +157,7 @@ class WorkFacetHit(SearchHitBase):
 
 
 class SearchArtifactMatch(ArtifactSearchMatch):
+    snippet: Annotated[str, Field(max_length=1000)] | None = None
     # Blank-query directory browsing has no literal match fields.
     matched_fields: Annotated[list[Literal["metadata", "content"]], Field(max_length=2)]
 
