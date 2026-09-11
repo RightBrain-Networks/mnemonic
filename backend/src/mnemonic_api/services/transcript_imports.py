@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import conflict
@@ -35,7 +35,7 @@ def import_transcripts(database: Session, project_id: UUID, payload: TranscriptI
     replay = replay_import(database, project_id, payload)
     if replay is not None:
         return replay
-    key = func.regexp_replace(Transcript.source_path, r"/(\.?/)*", "/", "g")
+    key = _source_key()
     existing = set(database.scalars(transcript_query(project_id).with_only_columns(key)
                                    .where(key.in_(scan.paths))))
     added = [path for path in scan.paths if path not in existing]
@@ -69,3 +69,26 @@ def take_imported_transcript(database: Session, project_id: UUID, source: str) -
         record.attempts = 0
         record.next_attempt_at = datetime.now(UTC)
     return record
+
+
+def _source_key():
+    return func.regexp_replace(
+        func.regexp_replace(Transcript.source_path, r"/(\.?/)*", "/", "g"), r"/\.?$", "",
+    )
+
+
+def remove_imports_for_moved_work(
+    database: Session, work_id: UUID, target_project_id: UUID,
+) -> None:
+    """Keep enrolled identities and provenance when a move meets a redundant import.
+
+    The caller holds both project locks and the work/lease locks. Imported rows
+    carry no work or lease history and no other records reference their public IDs.
+    Their import receipts remain durable; deleting a duplicate also invalidates
+    any extraction job that was in flight for it.
+    """
+    sources = select(_source_key()).where(Transcript.work_item_id == work_id)
+    database.execute(delete(Transcript).where(
+        Transcript.import_project_id == target_project_id,
+        Transcript.source_path.in_(sources),
+    ).execution_options(synchronize_session=False))

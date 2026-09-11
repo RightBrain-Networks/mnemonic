@@ -124,6 +124,10 @@ any matching agent-enrolled source, including active, failed, or already indexed
 Repeated and overlapping folder imports add no duplicate sources. A later agent enrollment
 reuses a matching imported record and its ID, attaches real work/lease provenance, and
 invalidates its earlier snapshot so indexing waits for the new lease generation to end.
+When enrolled work moves into a project that already imported its source, the move
+atomically removes only the redundant imported record. The enrolled ID, snapshot,
+and work/lease history survive; import receipts retain their original counts.
+The removed imported ID subsequently returns 404; no redirect is created.
 
 Imported sources appear as **Imported**, with no work item, lease generation, or
 agent session assertion. They participate in project browsing, unified search, text

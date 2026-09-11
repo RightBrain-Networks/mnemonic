@@ -200,7 +200,8 @@ test("workspace imports existing transcripts recursively and deduplicates active
       return (await response.json()).items.map((item: { status: string }) => item.status).sort();
     }, { timeout: 60000 }).toEqual(["ready", "waiting"]);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await settings.screenshot({ path: testInfo.outputPath("transcript-import-settings.png"), animations: "disabled" });
+    await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
+    await settings.locator(".transcript-import").screenshot({ path: testInfo.outputPath("transcript-import-settings.png"), animations: "disabled" });
     await testInfo.attach("Import existing transcripts", { path: testInfo.outputPath("transcript-import-settings.png"), contentType: "image/png" });
     await page.goto(`/transcripts?project=${project.id}`);
     await expect(page.locator(".transcript-table tbody tr")).toHaveCount(2);
