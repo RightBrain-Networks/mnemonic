@@ -19,6 +19,7 @@ from mnemonic_api.artifact_search_schemas import (
     ArtifactSearchRequest,
 )
 from mnemonic_api.models import Artifact, ArtifactExtraction, ArtifactWorkLink
+from mnemonic_api.search_schemas import ArtifactSearchFilters
 from mnemonic_api.services.artifact_approvals import require_sensitive_access
 from mnemonic_api.services.artifacts import _has_pending_operation, artifact_read
 from mnemonic_api.services.project_mutations import project_mutation
@@ -29,7 +30,9 @@ __all__ = ["ArtifactSearchIndex", "search_artifact_contents"]
 type Corpus = list[tuple[Artifact, ArtifactExtraction | None]]
 
 
-def _corpus(database: Session, project_id: UUID, filters: ArtifactSearchRequest) -> Corpus:
+def _corpus(
+    database: Session, project_id: UUID, filters: ArtifactSearchRequest | ArtifactSearchFilters,
+) -> Corpus:
     clauses = [
         Artifact.project_id == project_id, Artifact.revision > 0, ~_has_pending_operation(),
     ]
@@ -42,6 +45,8 @@ def _corpus(database: Session, project_id: UUID, filters: ArtifactSearchRequest)
             ArtifactWorkLink.artifact_id == Artifact.id,
             ArtifactWorkLink.work_item_id == filters.work_item_id,
         )))
+    if isinstance(filters, ArtifactSearchFilters):
+        clauses.extend(_facet_conditions(filters))
     rows = database.execute(
         select(Artifact, ArtifactExtraction)
         .outerjoin(ArtifactExtraction, and_(
@@ -53,6 +58,16 @@ def _corpus(database: Session, project_id: UUID, filters: ArtifactSearchRequest)
         .order_by(Artifact.id)
     )
     return [(artifact, extraction) for artifact, extraction in rows]
+
+
+def _facet_conditions(filters: ArtifactSearchFilters):
+    fields = {
+        "sensitive": Artifact.sensitive,
+        "mime_type": Artifact.mime_type,
+        "created_by_agent_session_id": Artifact.created_by_agent_session_id,
+    }
+    return [column == value for name, column in fields.items()
+            if (value := getattr(filters, name)) is not None]
 
 
 def _metadata(artifact: Artifact, extraction: ArtifactExtraction | None) -> dict[str, Any]:
@@ -152,7 +167,7 @@ def _documents(
 
 def _match(
     database: Session, index: ArtifactSearchIndex, corpus: dict[str, Artifact],
-    hit: SearchHit, filters: ArtifactSearchRequest, searcher: tantivy.Searcher | None,
+    hit: SearchHit, query: str, searcher: tantivy.Searcher | None,
 ) -> ArtifactSearchMatch:
     artifact = corpus[hit.identity]
     fields: list[Literal["metadata", "content"]] = []
@@ -166,7 +181,7 @@ def _match(
             ArtifactExtraction.revision == artifact.revision,
         ))
         if searcher is not None:
-            snippet = index.snippet(content or "", filters.q, searcher)
+            snippet = index.snippet(content or "", query, searcher)
     return ArtifactSearchMatch(
         artifact=artifact_read(database, artifact), score=hit.score,
         snippet=snippet, matched_fields=fields,
@@ -210,7 +225,7 @@ def _search_page(
     identities = {str(artifact.id): artifact for artifact, _ in corpus}
     return ArtifactSearchPage(
         items=[
-            _match(database, index, identities, hit, filters, result.searcher)
+            _match(database, index, identities, hit, filters.q, result.searcher)
             for hit in result.hits[filters.offset:filters.offset + filters.limit]
         ],
         total=len(result.hits), limit=filters.limit, offset=filters.offset,

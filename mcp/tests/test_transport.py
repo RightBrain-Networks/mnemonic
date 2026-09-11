@@ -38,6 +38,7 @@ INITIALIZE = {
 }
 
 CANONICAL_TOOL_NAMES = {
+    "search",
     "list_transcripts", "search_transcript_contents", "get_transcript",
     "get_transcript_text", "download_transcript",
     "list_artifacts", "get_artifact", "get_artifact_text",
@@ -160,7 +161,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         initialized = client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS)
         assert initialized.status_code == 200
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
-        assert initialized.json()["result"]["serverInfo"]["version"] == "0.42.0"
+        assert initialized.json()["result"]["serverInfo"]["version"] == "0.43.0"
         instructions = initialized.json()["result"]["instructions"]
         # Clients truncate this block, so it must stay short and lead with the
         # trigger condition. Per-tool doctrine lives in the tool descriptions.
@@ -169,7 +170,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         first_sentence = instructions.split(". ")[0]
         assert "outlives one session" in first_sentence
         assert "list_projects" in instructions
-        assert "search_work" in instructions
+        assert "search" in instructions
         assert "recall_work" in instructions
         assert "list_ready_work" in instructions
         assert "append_event" in instructions
@@ -186,7 +187,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
         listed_tools = listed.json()["result"]["tools"]
-        assert len(listed_tools) == 53
+        assert len(listed_tools) == 54
         assert_serialized_tool_contract(listed_tools)
         assert all(
             tool["inputSchema"].get("additionalProperties") is False
@@ -452,12 +453,12 @@ async def test_stdio_transport_handshake_and_catalog():
         ):
             initialized = await session.initialize()
             assert initialized.serverInfo.name == "Mnemonic"
-            assert initialized.serverInfo.version == "0.42.0"
+            assert initialized.serverInfo.version == "0.43.0"
             assert initialized.instructions is not None
             assert len(initialized.instructions) <= 1200
             assert "unimplemented" not in initialized.instructions.casefold()
             result = await session.list_tools()
-            assert len(result.tools) == 53
+            assert len(result.tools) == 54
             assert all(tool.outputSchema is not None for tool in result.tools)
             assert all(
                 tool.inputSchema.get("additionalProperties") is False

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { ARTIFACT_DISABLED_MESSAGE, artifactLibraryPath, artifactLocation, artifactPath, decodeArtifactLimitError, decodeArtifactPage, decodeArtifactSearchPage, fetchArtifactStatus, formatArtifactSize, type Artifact, type ArtifactPage, type ArtifactSearchPage, type ArtifactSort, type ArtifactStatus } from "@/lib/artifacts";
+import { ARTIFACT_DISABLED_MESSAGE, artifactLibraryPath, artifactLocation, artifactPath, decodeArtifactLimitError, decodeArtifactPage, fetchArtifactStatus, formatArtifactSize, type Artifact, type ArtifactPage, type ArtifactSearchPage, type ArtifactSort, type ArtifactStatus } from "@/lib/artifacts";
+import { artifactSearchRequest, decodeUnifiedArtifactSearchPage, unifiedSearchPath } from "@/lib/unified-search";
 import { artifactMetadataHeader, dispatchArtifactMutation, type ArtifactMutation } from "@/lib/artifact-mutations";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import { detailMessage, errorMessage } from "@/lib/api";
@@ -111,7 +112,6 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
     requestScopeRef.current = scope;
     setLoading(true); setLoadError("");
     const query = new URLSearchParams({ sort, order, limit: String(PAGE_SIZE), offset: String(offset), include_deleted: String(includeDeleted) });
-    if (search) query.set("q", search);
     if (workFilter) query.set("work_item_id", workFilter);
     let checkedStatus = false;
     async function load() {
@@ -120,9 +120,9 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
         if (controller.signal.aborted) return;
         checkedStatus = true; recordStatus(status);
         if (!status.enabled) { setPage(null); setSelected(null); return; }
-        const response = search ? await fetch(`${artifactPath(projectId)}/search-content`, {
+        const response = search ? await fetch(`/api/mnemonic${unifiedSearchPath(projectId)}`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ q: search, fulltext, include_deleted: includeDeleted, limit: PAGE_SIZE, offset, ...(workFilter ? { work_item_id: workFilter } : {}) }),
+          body: JSON.stringify(artifactSearchRequest(search, fulltext, includeDeleted, PAGE_SIZE, offset, workFilter || undefined)),
           cache: "no-store", signal: controller.signal
         }) : await fetch(`${artifactPath(projectId)}?${query}`, { cache: "no-store", signal: controller.signal });
         const result = await readBoundedJson(response, 4 * 1024 * 1024);
@@ -134,7 +134,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
         if (!response.ok) throw new Error(detailMessage((result as { detail?: unknown }).detail).message || "Unable to load artifacts.");
         let freshPage: ArtifactPage;
         if (search) {
-          const matches = decodeArtifactSearchPage(result, projectId, fulltext, PAGE_SIZE, offset);
+          const matches = decodeUnifiedArtifactSearchPage(result, projectId, fulltext, PAGE_SIZE, offset, includeDeleted, workFilter || undefined);
           if (!includeDeleted && matches.items.some((item) => item.artifact.deleted_at !== null)) throw new Error("Mnemonic returned deleted artifacts outside the requested search scope.");
           setSearchPage(matches); freshPage = { ...matches, items: matches.items.map((item) => item.artifact) };
         } else { setSearchPage(null); freshPage = decodeArtifactPage(result, projectId); }

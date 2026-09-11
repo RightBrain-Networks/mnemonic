@@ -3,7 +3,7 @@
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, errorMessage, workItemPath } from "@/lib/api";
-import { decodeWorkSearchPage } from "@/lib/duplicate-handling";
+import { decodeUnifiedWorkSearchPage, unifiedSearchPath, workSearchRequest } from "@/lib/unified-search";
 import { decodeHierarchyPage } from "@/lib/hierarchy-presentation";
 import type { DuplicateScope, Page, StatusFilter, WorkSort } from "@/lib/types";
 import { isFlatWorkSearch, workSearchParams } from "@/lib/work-item-search";
@@ -98,7 +98,7 @@ export function useWorkQueuePages({
     offset: number,
     signal: AbortSignal
   ): Promise<Page<WorkQueueItem>> => {
-    const params = workSearchParams({
+    const options = {
       status,
       sort,
       limit: WORK_PAGE_SIZE,
@@ -110,10 +110,12 @@ export function useWorkQueuePages({
       sourceSessionId,
       duplicateScope,
       ...(canonicalWorkItemId ? { canonicalWorkItemId } : {})
-    });
-    const value = await api<unknown>(`${workItemPath(projectId)}?${params}`, { signal });
+    };
+    const value = flatSearch
+      ? await api<unknown>(unifiedSearchPath(projectId), { method: "POST", body: JSON.stringify(workSearchRequest(options)), signal })
+      : await api<unknown>(`${workItemPath(projectId)}?${workSearchParams(options)}`, { signal });
     return flatSearch
-      ? decodeWorkSearchPage(value, projectId, {
+      ? decodeUnifiedWorkSearchPage(value, projectId, {
         duplicateScope,
         canonicalWorkItemId: canonicalWorkItemId || undefined,
         query: search,

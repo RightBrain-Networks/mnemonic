@@ -2,12 +2,13 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { artifactLocation, formatArtifactSize } from "@/lib/artifacts";
-import { errorMessage } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
+import { decodeUnifiedTranscriptSearchPage, transcriptSearchRequest, unifiedSearchPath } from "@/lib/unified-search";
 import { dashboardStorageKeys } from "@/lib/dashboard-preferences";
 import { dialogOpen, typingTarget } from "@/lib/keyboard-shortcuts";
 import { sameUuid } from "@/lib/wire-guards";
 import { formatDateTime } from "@/components/work-item-card";
-import { decodeTranscript, decodeTranscriptPage, decodeTranscriptText, transcriptContentPath, transcriptLibraryPath, transcriptPath, transcriptRequest, transcriptStatusLabel, TRANSCRIPT_PAGE_SIZE, TRANSCRIPT_TEXT_PAGE_SIZE, type Transcript, type TranscriptPage, type TranscriptText } from "@/lib/transcripts";
+import { decodeTranscript, decodeTranscriptText, transcriptContentPath, transcriptLibraryPath, transcriptPath, transcriptRequest, transcriptStatusLabel, TRANSCRIPT_PAGE_SIZE, TRANSCRIPT_TEXT_PAGE_SIZE, type Transcript, type TranscriptPage, type TranscriptText } from "@/lib/transcripts";
 
 export default function TranscriptLibrary({ projectId, refreshSignal }: { projectId: string; refreshSignal: number }) {
   const [page, setPage] = useState<TranscriptPage | null>(null);
@@ -46,10 +47,10 @@ export default function TranscriptLibrary({ projectId, refreshSignal }: { projec
     if (scopeRef.current !== scope) setPage(null);
     scopeRef.current = scope;
     setLoading(true); setError("");
-    const query = new URLSearchParams({ fulltext: String(fulltext), limit: String(TRANSCRIPT_PAGE_SIZE), offset: String(offset), ...(search ? { query: search } : {}), ...(workFilter ? { work_item_id: workFilter } : {}) });
-    void transcriptRequest(`${transcriptPath(projectId)}?${query}`, { signal: controller.signal }).then((value) => {
+    const body = transcriptSearchRequest(search, fulltext, offset, workFilter || undefined);
+    void api<unknown>(unifiedSearchPath(projectId), { method: "POST", body: JSON.stringify(body), signal: controller.signal }).then((value) => {
       if (controller.signal.aborted) return;
-      const result = decodeTranscriptPage(value, projectId, offset, fulltext, workFilter || undefined);
+      const result = decodeUnifiedTranscriptSearchPage(value, projectId, offset, fulltext, workFilter || undefined);
       setPage(result);
       setSelected((current) => current ? result.items.find((item) => sameUuid(item.id, current.id)) ?? current : null);
     }).catch((error) => { if (!controller.signal.aborted) { setPage(null); setError(errorMessage(error)); } })

@@ -1,5 +1,8 @@
 # Operating Mnemonic
 
+Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
+ranked, filtered, paginated read through REST or MCP.
+
 For the coordinated 0.13.0 code-review release (plugin 0.14.0, migration 0024),
 see [code-review deployment and recovery](code-reviews.md#recovery-and-deployment).
 Back up and quiesce old writers; do not deploy older processes against the new
@@ -132,8 +135,8 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.42.0`, plugin `0.25.0`,
-and Alembic `0032_agent_transcripts`. Inventory exactly 53 MCP tools,
+The current coordinated boundary is API/MCP/dashboard `0.43.0`, plugin `0.26.0`,
+and Alembic `0032_agent_transcripts`. Inventory exactly 54 MCP tools,
 17 protected MCP writes, 23 REST receipt kinds, 20 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
@@ -1003,7 +1006,7 @@ from the same revision: the frozen digests and the code that computes them are
 one unit, and a mismatched pair reports drift against an unchanged schema.
 `scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.42.0` clients and plugin `0.25.0` together.
+failure, and inventory deployed `0.43.0` clients and plugin `0.26.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 All three audits pin the PostgreSQL session settings that decide how the server

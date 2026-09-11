@@ -1,6 +1,9 @@
 # Mnemonic architecture
 
-This architecture describes application/API/MCP `0.42.0`, Claude plugin `0.25.0`,
+Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
+ranked, filtered, paginated read through REST or MCP.
+
+This architecture describes application/API/MCP `0.43.0`, Claude plugin `0.26.0`,
 and Alembic head `0032_agent_transcripts`.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
@@ -353,7 +356,7 @@ The MCP service is a typed HTTP adapter. Its seventeen protected mutation tools
 require the caller to prepare and retain one operation UUID plus the complete
 arguments; the adapter sends only one HTTP attempt. Its other tools use work,
 checkpoint, lease, relationship, human-gate, evidence, and duplicate terminology. Its exact
-53-tool
+54-tool
 catalog includes request, attention, and gate-history operations but deliberately
 no resolution, dismissal, or report-follow-up write tools; Phase 12 adds four safe
 reads for activity, project settings, report lists, and report detail,

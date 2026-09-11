@@ -165,14 +165,14 @@ for (const view of ["directory", "search"] as const) {
     let held: Promise<void> | null = null;
     let release = () => {};
     let refreshRequests = 0;
-    await page.route((url) => url.pathname === collection || url.pathname === `${collection}/search-content`, async (route) => {
-      const search = new URL(route.request().url()).pathname.endsWith("/search-content");
+    await page.route((url) => url.pathname === collection || url.pathname === `/api/mnemonic/projects/${state.projectId}/search`, async (route) => {
+      const search = new URL(route.request().url()).pathname.endsWith("/search");
       if (!search && route.request().method() !== "GET") { await route.continue(); return; }
       if (held) { refreshRequests++; await held; }
       const response = await route.fetch();
       const payload = await response.json();
       for (const item of payload.items) {
-        const artifact = search ? item.artifact : item;
+        const artifact = search ? item.artifact.artifact : item;
         if (artifact.filename === filename) artifact.extraction = {
           status: ready ? "ready" : "pending", metadata: ready ? { title: ["Automatically refreshed document title"] } : {},
           truncated: false, error_code: null, extracted_at: ready ? "2026-09-08T12:00:00Z" : null
@@ -214,19 +214,19 @@ for (const view of ["directory", "search"] as const) {
 }
 
 test("artifact content matches survive background refresh but clear immediately when search scope changes", async ({ page }, testInfo) => {
-  const filename = `search-scope-${state.runId.slice(0, 8)}-${testInfo.project.name}.txt`;
+  const filename = `search-scope-${state.runId.slice(0, 8)}-${testInfo.project.name}-${testInfo.repeatEachIndex}-${testInfo.retry}.txt`;
   const collection = `/api/artifacts/projects/${state.projectId}/artifacts`;
   let held: Promise<void> | null = null;
   let release = () => {};
   let requests = 0;
-  await page.route((url) => url.pathname === `${collection}/search-content`, async (route) => {
+  await page.route((url) => url.pathname === `/api/mnemonic/projects/${state.projectId}/search`, async (route) => {
     if (held) { requests++; await held; }
     const body = route.request().postDataJSON() as { fulltext: boolean };
     const response = await route.fetch();
     const payload = await response.json();
-    for (const item of payload.items) if (item.artifact.filename === filename && body.fulltext) {
-      item.snippet = "Untrusted content snippet retained during this scope.";
-      item.matched_fields = ["metadata", "content"];
+    for (const item of payload.items) if (item.artifact.artifact.filename === filename && body.fulltext) {
+      item.artifact.snippet = "Untrusted content snippet retained during this scope.";
+      item.artifact.matched_fields = ["metadata", "content"];
     }
     await route.fulfill({ response, json: payload });
   });
@@ -249,7 +249,12 @@ test("artifact content matches survive background refresh but clear immediately 
     await expect.poll(() => requests).toBe(2);
     await expect(snippet).toHaveCount(0);
     await expect(page.getByRole("button", { name: filename, exact: true })).toHaveCount(0);
-  } finally { release(); held = null; }
+  } finally {
+    // Changing the scope deliberately aborts the held fulltext request. Its route
+    // may already be handled; the current metadata response must still render below.
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    release(); held = null;
+  }
   await expect(page.getByRole("button", { name: filename, exact: true })).toBeVisible();
   await expect(snippet).toHaveCount(0);
 });

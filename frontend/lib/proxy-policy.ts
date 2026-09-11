@@ -1,3 +1,4 @@
+import { validSearchRequest } from "./search-request.ts";
 import { validExternalCandidates, validExternalReferences } from "./external-references.ts";
 import { validHumanGateRevision, validMergeReviewRevision } from "./revision-codecs.ts";
 import { validReviewThreshold } from "./code-review-policy.ts";
@@ -177,6 +178,7 @@ const WORK_REPORT_FOLLOW_UPS = new RegExp(`^projects/${UUID}/work-items/${UUID}/
 const PROJECT_SETTINGS = new RegExp(`^projects/${UUID}/settings$`);
 const WORK_ITEMS = new RegExp(`^projects/${UUID}/work-items$`);
 const DUPLICATE_SUGGESTIONS = new RegExp(`^projects/${UUID}/duplicate-suggestions$`);
+const UNIFIED_SEARCH = new RegExp(`^projects/${UUID}/search$`);
 const WORK_ITEM = new RegExp(`^projects/${UUID}/work-items/${UUID}$`);
 const CHECKPOINTS = new RegExp(`^projects/${UUID}/work-items/${UUID}/checkpoints$`);
 const WORK_CONTEXT = new RegExp(`^projects/${UUID}/work-items/${UUID}/context$`);
@@ -239,7 +241,12 @@ const FORBIDDEN_CONTROL_TRANSPORT_NAMES = new Set([
 ]);
 
 
+export function isUnifiedSearchRoute(path: string, method: string): boolean {
+  return UNIFIED_SEARCH.test(path) && method === "POST";
+}
+
 export function allowedQueryKeys(path: string, method: string): string[] | null {
+  if (UNIFIED_SEARCH.test(path) && method === "POST") return [];
   // Lease receipts and arguments carry browser-forbidden capabilities.
   if (LEASE_CAPABILITY.test(path)) return null;
   if (REVIEW_LIST.test(path) && method === "GET") return ["state", "availability", "work_item_id", "after", "limit"];
@@ -528,6 +535,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
     return DEFINITIVE_PROXY_ERRORS.invalidClientOperation.detail;
   }
 
+  if (UNIFIED_SEARCH.test(path) && method === "POST" && !validSearchRequest(body)) return "Invalid unified search request.";
   if (DUPLICATE_SUGGESTIONS.test(path) && method === "POST") {
     if (
       !allowedKeys(body, [
@@ -787,7 +795,7 @@ export function browserTransportEffect(
   path: string,
   method: string
 ): BrowserTransportEffect | null {
-  if (method === "POST" && DUPLICATE_SUGGESTIONS.test(path)) return "safe_read";
+  if (method === "POST" && (DUPLICATE_SUGGESTIONS.test(path) || UNIFIED_SEARCH.test(path))) return "safe_read";
   if (LEASE_CAPABILITY.test(path)) return "lease_claim";
   if (method === "POST" && WORK_PENDING.test(path)) {
     return "lease_claim";
@@ -805,7 +813,7 @@ export function upstreamTimeoutMs(
   path = "",
   method = "GET"
 ): number {
-  return method === "POST" && DUPLICATE_SUGGESTIONS.test(path)
+  return method === "POST" && (DUPLICATE_SUGGESTIONS.test(path) || UNIFIED_SEARCH.test(path))
     || query.get("semantic") === "true" && Boolean(query.get("q")?.trim())
     ? 60_000
     : 15_000;
@@ -859,6 +867,7 @@ export async function readBodyChunk(
 }
 
 export function proxyBodyLimitBytes(path: string): number {
+  if (UNIFIED_SEARCH.test(path)) return 16_384;
   return DUPLICATE_SUGGESTIONS.test(path) ? 2_097_152 : 1_048_576;
 }
 
@@ -899,6 +908,7 @@ export function trustedRequest(headers: Headers, method: string, origins: Set<st
 
 
 export function phase12ResponseLimitBytes(path: string, method = "GET"): number | null {
+  if (UNIFIED_SEARCH.test(path) && method === "POST") return 16 * 1024 * 1024;
   if (REVIEW_LIST.test(path)) return 524_288;
   if (REVIEW_DETAIL.test(path)) return 786_432;
   if (FOLLOW_UP_DETAIL.test(path)) return 65_536;

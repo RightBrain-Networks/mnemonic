@@ -134,6 +134,9 @@ class DuplicateSuggestionControlMiddleware:
         self.resources = resources
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if _is_unified_search_request(scope):
+            await _serve_unified_search(self.app, self.resources, scope, receive, send)
+            return
         if _is_semantic_search_request(scope):
             await _serve_semantic_search(
                 self.app,
@@ -346,6 +349,59 @@ def suggestion_request_deadline(scope: Scope) -> float:
 def semantic_search_inference_acquired(scope: Scope) -> bool:
     state = scope.get("state")
     return bool(isinstance(state, dict) and state.get(SEMANTIC_SEARCH_STATE_KEY) is True)
+
+
+async def _serve_unified_search(
+    app: ASGIApp,
+    resources: DuplicateSuggestionResources,
+    scope: Scope,
+    receive: Receive,
+    send: Send,
+) -> None:
+    """Bound the JSON safe read and share semantic admission with work search."""
+    send = _with_no_store(send)
+    if _declared_oversize(scope, 16_384):
+        await _send_error(request_body_too_large(), scope, receive, send)
+        return
+    try:
+        body = await asyncio.wait_for(
+            _read_bounded_body(receive, 16_384), timeout=resources.timeout_seconds,
+        )
+    except _ClientDisconnected:
+        return
+    except TimeoutError:
+        await _send_duplicate_key_error(scope, receive, send)
+        return
+    if body is None:
+        await _send_error(request_body_too_large(), scope, receive, send)
+        return
+    if _preparse_rejects_json(body):
+        await _send_duplicate_key_error(scope, receive, send)
+        return
+    replay = _replay_body(body)
+    if _unified_semantic_requested(json.loads(body)):
+        await _serve_semantic_search(app, resources, scope, replay, send)
+    else:
+        await app(scope, replay, send)
+
+
+def _unified_semantic_requested(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    filters = payload.get("filters")
+    work = filters.get("work_items") if isinstance(filters, dict) else None
+    value = work.get("semantic") if isinstance(work, dict) else None
+    # Match Pydantic's boolean forms; invalid values remain its concern.
+    return value is True or value == 1 or (
+        isinstance(value, str) and value.lower() in {"1", "on", "t", "true", "y", "yes"}
+    )
+
+
+def _is_unified_search_request(scope: Scope) -> bool:
+    if scope.get("type") != "http" or scope.get("method") != "POST":
+        return False
+    parts = str(scope.get("path", "")).strip("/").split("/")
+    return len(parts) == 5 and parts[:3] == ["api", "v1", "projects"] and parts[4] == "search"
 
 
 async def _serve_semantic_search(

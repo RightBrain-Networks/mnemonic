@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, errorMessage, workItemPath } from "@/lib/api";
-import { decodeWorkSearchPage } from "@/lib/duplicate-handling";
+import { api, errorMessage } from "@/lib/api";
+import { decodeUnifiedWorkSearchPage, unifiedSearchPath, workSearchRequest } from "@/lib/unified-search";
 import type { Page, WorkSearchHit } from "@/lib/types";
-import { workSearchParams } from "@/lib/work-item-search";
 
 type SearchState = {
   key: string;
@@ -46,7 +45,7 @@ export function useCanonicalWorkSearch({
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setState({ ...EMPTY_SEARCH, key, searchedQuery: trimmedQuery, searching: true });
-      const params = workSearchParams({
+      const body = workSearchRequest({
         status: "all",
         sort: "updated",
         limit,
@@ -54,11 +53,11 @@ export function useCanonicalWorkSearch({
         query: trimmedQuery,
         duplicateScope: "canonical"
       });
-      api<unknown>(`${workItemPath(projectId)}?${params}`, {
-        signal: controller.signal
+      api<unknown>(unifiedSearchPath(projectId), {
+        method: "POST", body: JSON.stringify(body), signal: controller.signal
       }).then((value) => {
         if (controller.signal.aborted) return;
-        const page = decodeWorkSearchPage(value, projectId, {
+        const page = decodeUnifiedWorkSearchPage(value, projectId, {
           duplicateScope: "canonical",
           query: trimmedQuery,
           expectedLimit: limit,

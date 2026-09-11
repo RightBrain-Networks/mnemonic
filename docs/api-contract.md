@@ -1,7 +1,10 @@
 # Mnemonic API contract
 
-This is application/API/MCP/dashboard `0.42.0`, plugin `0.25.0`, and migration
-`0032_agent_transcripts`. The catalog has exactly 53 MCP tools, 17
+Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
+ranked, filtered, paginated read through REST or MCP.
+
+This is application/API/MCP/dashboard `0.43.0`, plugin `0.26.0`, and migration
+`0032_agent_transcripts`. The catalog has exactly 54 MCP tools, 17
 protected MCP writes, 23 REST receipt kinds, 20 protected browser mutations and
 24 work-event types. The 23 REST receipt kinds comprise 18 work operations, four artifact operations
 with filesystem recovery journals, and one transcript rebuild operation. See
@@ -1274,7 +1277,10 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 53 tools:
+The catalog is exactly 54 tools:
+
+`search` is the shared safe read over work, artifacts and transcripts; see
+[the request, ranking, facet, pagination and coverage contract](search.md).
 
 Transcript tools: `list_transcripts`, `search_transcript_contents`, `get_transcript`,
 `get_transcript_text`, and `download_transcript`. All five are safe reads. Claims

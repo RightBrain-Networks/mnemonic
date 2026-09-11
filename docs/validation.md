@@ -1,5 +1,30 @@
 # Mnemonic validation record
 
+## Unified search (0.43.0)
+
+The shared REST search endpoint and MCP `search` tool retrieve work, artifacts
+and transcripts with independent facet filters, mixed relevance/date ordering,
+ordered facet groups and one global offset/limit. Defaults search all sources
+and work statuses with metadata-only artifact/transcript matching. Dashboard
+search interfaces retain their existing layout and controls. Application clients
+ship at 0.43.0 and plugin 0.26.0; migration head remains 0032_agent_transcripts.
+See [the search contract](search.md).
+
+Validation passed 2,260 backend tests against real PostgreSQL, including canonical
+alias identities, pages beyond 100 candidates, date ordering, mixed/grouped page
+boundaries, metadata-only database reads, shared semantic inference admission,
+sensitive search audits/cache isolation, lifecycle erasure and OpenAPI references.
+Backend Ruff and ty pass. Dashboard 429 unit tests, typecheck and production build
+pass. The isolated browser stack passed all 11 selected behaviors covering the
+separate search interfaces, artifact/work pickers, pagination, merge filtering,
+transcript lookup and human-sensitive artifact search. The refresh regression
+passed three consecutive runs after its intentional-request-cancellation fixture
+was made teardown-safe. Plugin verifier ran 72 cases successfully (one
+platform-specific skip delegated to CI). MCP focused contract tests and a live
+API-to-MCP smoke passed for default browsing, all three facets, grouped paging,
+past-end offsets, fulltext coverage and transcript session filtering. This release
+requires no schema migration or new operator configuration.
+
 ## Agent transcript indexing (0.42.0)
 
 Claude Code primary and subagent transcripts are registered with work leases and

@@ -6,6 +6,7 @@ import {
   forbiddenControlTransport,
   forwardedRetryAfter,
   isCompletionEvidenceRoute,
+  isUnifiedSearchRoute,
   invalidMutationBody,
   proxyBodyLimitBytes,
   phase12ResponseLimitBytes,
@@ -148,6 +149,7 @@ async function proxy(request: Request, context: Context): Promise<Response> {
       headers: {
         Authorization: `Bearer ${key}`,
         Accept: "application/json",
+        ...(isUnifiedSearchRoute(route, request.method) ? { "X-Artifact-Access": "human-dashboard" } : {}),
         ...(evidenceRoute ? { "Accept-Encoding": "identity" } : {}),
         ...(body ? { "Content-Type": "application/json" } : {})
       },

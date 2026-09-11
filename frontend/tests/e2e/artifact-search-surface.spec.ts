@@ -19,10 +19,10 @@ test("artifact search remembers both contents preferences and supports the slash
   await page.keyboard.type("folder/report");
   await expect(search).toHaveValue("folder/report");
 
-  const submitted = page.waitForRequest((request) => request.url().endsWith("/search-content"));
+  const submitted = page.waitForRequest((request) => request.url().endsWith(`/projects/${state.projectId}/search`));
   await search.press("Enter");
   expect((await submitted).postDataJSON()).toMatchObject({ q: "folder/report", fulltext: true });
-  const metadataOnly = page.waitForRequest((request) => request.url().endsWith("/search-content") && request.postDataJSON().fulltext === false);
+  const metadataOnly = page.waitForRequest((request) => request.url().endsWith(`/projects/${state.projectId}/search`) && request.postDataJSON().fulltext === false);
   await contents.uncheck();
   await metadataOnly;
   expect(await page.evaluate((key) => localStorage.getItem(key), contentsKey)).toBe("false");
@@ -70,7 +70,7 @@ test("artifact search works when browser preference storage is unavailable", asy
   await contents.uncheck();
   await expect(contents).not.toBeChecked();
   await page.getByRole("searchbox").fill("storage unavailable");
-  const submitted = page.waitForRequest((request) => request.url().endsWith("/search-content"));
+  const submitted = page.waitForRequest((request) => request.url().endsWith(`/projects/${state.projectId}/search`));
   await page.getByRole("button", { name: "Search", exact: true }).click();
   expect((await submitted).postDataJSON()).toMatchObject({ fulltext: false });
   await expect(page.locator(".artifact-search-status")).toBeVisible();

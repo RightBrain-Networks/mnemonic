@@ -1,10 +1,13 @@
 # Agent workflow
 
+Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
+ranked, filtered, paginated read through REST or MCP.
+
 For code reviews, branch by temperature before ordinary recall: the
 [code-review protocol](code-reviews.md) governs mandatory handoff, durable
 originating-session recommendation answers, minimal cold coordination, warm
 adversarial review and one atomic remediation. Reviews are not implementation
-closeouts. The current catalog is 48 tools and seventeen protected writes.
+closeouts. The current catalog is 54 tools and seventeen protected writes.
 The [artifact library](artifacts.md) adds project file upload/download, atomic
 replacement, permanent content deletion, and searchable retained metadata/audit.
 Use `get_artifact_text` to page normalized text at a required current revision;
@@ -14,7 +17,7 @@ Link originating and related work during upload so ordinary recall discovers fil
 
 Mnemonic Phase 12 requires an agent-authored human report on every fresh Done,
 Won’t do, or Promoted closeout. Read current project settings before authoring,
-then submit the report inside the existing closeout intent. The 53-tool MCP
+then submit the report inside the existing closeout intent. The 54-tool MCP
 catalog adds four safe reads for settings, durable project activity, and report
 history; reviews add four reads and two protected writes, totaling sixteen. Human dismissal and manual
 follow-ups belong in the dashboard’s Summaries page, immediately below Needs
@@ -47,7 +50,7 @@ below before every protected MCP mutation.
 1. Resolve the project explicitly with `list_projects`, comparing its
    repository URL when present. Never guess a UUID or silently choose the first
    project.
-2. Search the failure shape and durable identifiers with `search_work`. Its
+2. Search the failure shape and durable identifiers with unified `search`. Its
    default canonical scope groups aliases under their root and identifies the
    exact member that matched. Search non-Pending history and use explicit alias
    audit scope when the likely duplicate may be Deferred, complete, or merged.
