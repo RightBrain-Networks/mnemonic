@@ -14,6 +14,11 @@ from pathlib import Path
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
+SOURCE_SETTINGS = {
+    "MNEMONIC_TRANSCRIPT_SOURCE_DIR": "transcript-source-disabled",
+    "MNEMONIC_CODEX_TRANSCRIPT_SOURCE_DIR": "codex-transcript-source-disabled",
+    "MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR": "codex-archived-transcript-source-disabled",
+}
 PROBE = '''
 import errno
 import os
@@ -26,9 +31,11 @@ from mnemonic_api.config import Settings
 from mnemonic_api.transcript_discovery import discover_transcripts
 from mnemonic_api.transcript_storage import check_transcript_source, read_transcript
 settings = Settings()
-check_transcript_source(settings.transcript_source_dir, settings.transcript_allowed_roots)
-assert settings.transcript_allowed_roots == [settings.transcript_source_dir]
-root = settings.transcript_source_dir
+for configured in settings.transcript_source_dirs:
+    check_transcript_source(configured, settings.transcript_allowed_roots)
+assert settings.transcript_allowed_roots == settings.transcript_source_dirs
+root = Path(os.environ["PROBE_ROOT"])
+assert root in settings.transcript_source_dirs
 assert os.geteuid() == int(os.environ["EXPECTED_UID"]) > 0
 assert os.getegid() == int(os.environ["EXPECTED_GID"]) > 0
 source = root / os.environ["PROBE_SOURCE"]
@@ -54,6 +61,7 @@ except ExtractionError as error:
 else:
     raise AssertionError("Symlink was followed")
 assert not (root.parent / "credentials.json").exists()
+assert not (root.parent / "auth.json").exists()
 store = ArtifactStorage(settings.artifact_root, max_bytes=1024)
 staged = store.stage(uuid4(), uuid4(), "sample.txt", [b"private artifact"])
 store.publish(staged)
@@ -74,13 +82,13 @@ DENIED_PROBE = '''
 from mnemonic_api.artifact_tika import ExtractionError
 from mnemonic_api.config import Settings
 from mnemonic_api.transcript_storage import read_transcript
-root = Settings().transcript_allowed_roots[0]
-try:
-    read_transcript(str(root / "existing.jsonl"), [root], 1024)
-except ExtractionError as error:
-    assert str(error) == "transcript_io_error"
-else:
-    raise AssertionError("Wrong UID read an owner-only transcript")
+for root in Settings().transcript_allowed_roots:
+    try:
+        read_transcript(str(root / "existing.jsonl"), [root], 1024)
+    except ExtractionError as error:
+        assert str(error) == "transcript_io_error"
+    else:
+        raise AssertionError("Wrong UID read an owner-only transcript")
 print("PASS: mismatched service UID reproduces the permission failure")
 '''
 
@@ -96,7 +104,7 @@ def command(args: list[str], *, env: dict[str, str], content: str | None = None,
 
 
 def check_config(
-    compose: list[str], env: dict[str, str], source: Path, *, tls: bool,
+    compose: list[str], env: dict[str, str], sources: dict[str, Path], *, tls: bool,
 ) -> None:
     services = json.loads(command([*compose, "config", "--format", "json"], env=env).stdout)[
         "services"
@@ -104,77 +112,80 @@ def check_config(
     api = services["api"]
     assert api["build"]["args"]["MNEMONIC_API_UID"] == env["MNEMONIC_API_UID"]
     assert api["build"]["args"]["MNEMONIC_API_GID"] == env["MNEMONIC_API_GID"]
-    assert api["environment"]["MNEMONIC_TRANSCRIPT_SOURCE_DIR"] == str(source)
     assert json.loads(api["environment"]["MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS"]) == []
-    mounts = [m for m in api["volumes"] if m["target"] == str(source)]
-    assert len(mounts) == 1
-    assert mounts[0]["source"] == str(source) and mounts[0]["read_only"]
-    assert not mounts[0]["bind"].get("create_host_path", False)
+    for name, source in sources.items():
+        assert api["environment"][name] == str(source)
+        mounts = [m for m in api["volumes"] if m["target"] == str(source)]
+        assert len(mounts) == 1
+        assert mounts[0]["source"] == str(source) and mounts[0]["read_only"]
+        assert not mounts[0]["bind"].get("create_host_path", False)
     index_root = env["MNEMONIC_TRANSCRIPT_INDEX_DIR"]
     assert api["environment"]["MNEMONIC_TRANSCRIPT_INDEX_DIR"] == index_root
     assert int(api["environment"]["MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES"]) == 1048576
     index_mount = next(m for m in api["volumes"] if m["target"] == index_root)
     assert index_mount["source"] == index_root and not index_mount.get("read_only", False)
     assert not index_mount["bind"].get("create_host_path", False)
+    private_mounts = {*map(str, sources.values()), index_root}
     for name, service in services.items():
         if name != "api":
-            assert all(m["source"] not in {str(source), index_root}
-                       for m in service.get("volumes", []))
+            assert all(m["source"] not in private_mounts for m in service.get("volumes", []))
     origins = api["environment"]["MNEMONIC_DASHBOARD_ORIGINS"]
     assert ("https://transcript-test.invalid" in origins) == tls
 
 
-def exercise_sources(compose: list[str], env: dict[str, str], source: Path) -> None:
+def exercise_sources(compose: list[str], env: dict[str, str], sources: dict[str, Path]) -> None:
     run = [*compose, "run", "--rm", "--no-deps", "-T", "--entrypoint", "python"]
     other_uid = "10001" if os.getuid() != 10001 else "10002"
     print(command([*run, "--user", f"{other_uid}:{other_uid}", "api", "-"],
                   env=env, content=DENIED_PROBE).stdout.strip())
-    for filename in ("existing.jsonl", "session/subagents/new.jsonl",
-                     "session/subagents/workflows/wf-synthetic/agent.jsonl"):
-        path = source / filename
-        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        path.write_bytes(b"synthetic transcript\n")
-        path.chmod(0o600)
-        args = [*run, "-e", f"EXPECTED_UID={os.getuid()}", "-e", f"EXPECTED_GID={os.getgid()}",
-                "-e", f"PROBE_SOURCE={filename}", "api", "-"]
-        print(command(args, env=env, content=PROBE).stdout.strip())
-    missing = source / "does-not-exist"
-    result = command([*run, "api", "-c", "raise AssertionError('missing source was mounted')"],
-                     env={**env, "MNEMONIC_TRANSCRIPT_SOURCE_DIR": str(missing)}, succeeds=False)
-    assert "bind source path does not exist" in result.stderr, result.stderr
-    assert not missing.exists()
-    print("PASS: a missing bind source is rejected without creating it")
+    filenames = (
+        "session/subagents/workflows/wf-synthetic/agent.jsonl",
+        "2026/09/12/rollout-agent.jsonl", "rollout-archived.jsonl",
+    )
+    for (name, source), filename in zip(sources.items(), filenames, strict=True):
+        for probe_filename in ("existing.jsonl", filename):
+            path = source / probe_filename
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            path.write_bytes(b"synthetic transcript\n")
+            path.chmod(0o600)
+            args = [*run, "-e", f"EXPECTED_UID={os.getuid()}", "-e", f"EXPECTED_GID={os.getgid()}",
+                    "-e", f"PROBE_ROOT={source}", "-e", f"PROBE_SOURCE={probe_filename}", "api", "-"]
+            print(command(args, env=env, content=PROBE).stdout.strip())
+        missing = source / "does-not-exist"
+        result = command([*run, "api", "-c", "raise AssertionError('missing source was mounted')"],
+                         env={**env, name: str(missing)}, succeeds=False)
+        assert "bind source path does not exist" in result.stderr, result.stderr
+        assert not missing.exists()
+    print("PASS: every missing bind source is rejected without creating it")
 
 
-
-def exercise_disabled(compose: list[str], env: dict[str, str], source: Path) -> None:
-    disabled_env = {key: value for key, value in env.items()
-                    if key != "MNEMONIC_TRANSCRIPT_SOURCE_DIR"}
+def exercise_disabled(compose: list[str], env: dict[str, str], sources: dict[str, Path]) -> None:
+    disabled_env = {key: value for key, value in env.items() if key not in SOURCE_SETTINGS}
     probe = """
 from pathlib import Path
 from mnemonic_api.config import Settings
-from mnemonic_api.transcript_storage import check_transcript_source
 settings = Settings()
-assert settings.transcript_source_dir is None
+assert settings.transcript_source_dirs == []
 assert settings.transcript_allowed_roots == []
-check_transcript_source(settings.transcript_source_dir, settings.transcript_allowed_roots)
-placeholder = Path("/var/lib/mnemonic/transcript-source-disabled")
-assert sorted(path.name for path in placeholder.iterdir()) == [".keep"]
-print("PASS: no configured source leaves transcript access disabled")
+for name in ("transcript-source-disabled", "codex-transcript-source-disabled",
+             "codex-archived-transcript-source-disabled"):
+    placeholder = Path("/var/lib/mnemonic") / name
+    assert sorted(path.name for path in placeholder.iterdir()) == [".keep"]
+print("PASS: no configured sources leaves transcript access disabled")
 """
-    for configured in (disabled_env, {**disabled_env, "MNEMONIC_TRANSCRIPT_SOURCE_DIR": ""}):
+    for configured in (disabled_env, {**disabled_env, **dict.fromkeys(SOURCE_SETTINGS, "")}):
         api = json.loads(command([*compose, "config", "--format", "json"], env=configured)
                          .stdout)["services"]["api"]
-        assert all(m["source"] != str(source) for m in api["volumes"])
-        mount = next(m for m in api["volumes"]
-                     if m["target"] == "/var/lib/mnemonic/transcript-source-disabled")
-        assert mount["source"] == str(ROOT / "deploy/empty-transcripts")
-        assert mount["read_only"] and not mount["bind"].get("create_host_path", False)
+        assert all(m["source"] not in set(map(str, sources.values())) for m in api["volumes"])
+        for target in SOURCE_SETTINGS.values():
+            mount = next(m for m in api["volumes"] if m["target"] == f"/var/lib/mnemonic/{target}")
+            assert mount["source"] == str(ROOT / "deploy/empty-transcripts")
+            assert mount["read_only"] and not mount["bind"].get("create_host_path", False)
         print(command([*compose, "run", "--rm", "--no-deps", "-T", "--entrypoint", "python",
                        "api", "-"], env=configured, content=probe).stdout.strip())
 
 
-def exercise(compose: list[str], env: dict[str, str], source: Path) -> None:
+def exercise(compose: list[str], env: dict[str, str], sources: dict[str, Path]) -> None:
     command([*compose, "build", "api"], env=env)
     base = [*compose, "-f", str(ROOT / "compose.yaml")]
     variants = [
@@ -183,9 +194,9 @@ def exercise(compose: list[str], env: dict[str, str], source: Path) -> None:
         ("saved base, TLS and transcript overlay", compose, True),
     ]
     for name, selected, tls in variants:
-        check_config(selected, env, source, tls=tls)
-        exercise_sources(selected, env, source)
-        exercise_disabled(selected, env, source)
+        check_config(selected, env, sources, tls=tls)
+        exercise_sources(selected, env, sources)
+        exercise_disabled(selected, env, sources)
         print(f"PASS: {name}")
 
 
@@ -195,12 +206,18 @@ def main() -> None:
     project = "mnemonic-transcript-mount-" + uuid4().hex[:12]
     with tempfile.TemporaryDirectory(prefix="mnemonic-transcript-mount-") as temporary:
         directory = Path(temporary)
-        source = directory / 'private "quoted" home' / ".claude" / "projects"
-        source.mkdir(mode=0o700, parents=True)
-        (source.parent / "credentials.json").write_text("synthetic unmounted credentials")
-        (source / "existing.jsonl").write_bytes(b"synthetic transcript\n")
-        (source / "existing.jsonl").chmod(0o600)
-        (source / "linked.jsonl").symlink_to(source / "existing.jsonl")
+        private_home = directory / 'private "quoted" home'
+        sources = dict(zip(SOURCE_SETTINGS, (
+            private_home / ".claude" / "projects", private_home / ".codex" / "sessions",
+            private_home / ".codex" / "archived_sessions",
+        ), strict=True))
+        for source in sources.values():
+            source.mkdir(mode=0o700, parents=True)
+            (source.parent / "credentials.json").write_text("synthetic unmounted credentials")
+            (source.parent / "auth.json").write_text("synthetic unmounted Codex credentials")
+            (source / "existing.jsonl").write_bytes(b"synthetic transcript\n")
+            (source / "existing.jsonl").chmod(0o600)
+            (source / "linked.jsonl").symlink_to(source / "existing.jsonl")
         for name in ("artifacts", "backups", "transcript-index", "prompts"):
             (directory / name).mkdir(mode=0o700)
         env = {key: value for key, value in os.environ.items()
@@ -211,7 +228,7 @@ def main() -> None:
                 for name in ("compose.yaml", "compose.tls.yaml", "compose.transcripts.yaml")
             ),
             "MNEMONIC_API_UID": str(os.getuid()), "MNEMONIC_API_GID": str(os.getgid()),
-            "MNEMONIC_TRANSCRIPT_SOURCE_DIR": str(source),
+            **{name: str(source) for name, source in sources.items()},
             "MNEMONIC_ARTIFACT_DIR": str(directory / "artifacts"),
             "MNEMONIC_PROMPT_DIR": str(directory / "prompts"),
             "MNEMONIC_TRANSCRIPT_INDEX_DIR": str(directory / "transcript-index"),
@@ -226,7 +243,7 @@ def main() -> None:
         env_file.write_text("COMPOSE_FILE=" + json.dumps(env.pop("COMPOSE_FILE")) + "\n")
         compose = ["docker", "compose", "--env-file", str(env_file), "-p", project]
         try:
-            exercise(compose, env, source)
+            exercise(compose, env, sources)
         finally:
             command([*compose, "down", "--remove-orphans", "--rmi", "local"], env=env)
 

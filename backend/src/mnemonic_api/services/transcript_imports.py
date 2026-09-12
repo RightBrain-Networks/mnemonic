@@ -41,7 +41,8 @@ def import_transcripts(database: Session, project_id: UUID, payload: TranscriptI
                                    .where(key.in_(scan.paths))))
     added = [path for path in scan.paths if path not in existing]
     database.add_all([Transcript(id=uuid4(), import_project_id=project_id,
-                                source_path=path, client="claude_code", kind="imported",
+                                source_path=path, client=scan.clients.get(path, "claude_code"),
+                                kind="imported",
                                 status="pending") for path in added])
     result = TranscriptImportRead(project_id=project_id,
         client_operation_id=payload.client_operation_id, directory=payload.directory,

@@ -31,8 +31,10 @@ services:
       MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS: ${MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS:-10}
       MNEMONIC_ARTIFACT_ROOT: /var/lib/mnemonic/artifacts
       MNEMONIC_PROMPT_ROOT: /var/lib/mnemonic/prompts
-      # The configured source supplies the default allowlist in API settings.
+      # Configured sources supply the default allowlist in API settings.
       MNEMONIC_TRANSCRIPT_SOURCE_DIR: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:-}
+      MNEMONIC_CODEX_TRANSCRIPT_SOURCE_DIR: ${MNEMONIC_CODEX_TRANSCRIPT_SOURCE_DIR:-}
+      MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR: ${MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR:-}
       MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS: ${MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS:-[]}
       MNEMONIC_TRANSCRIPT_MAX_BYTES: ${MNEMONIC_TRANSCRIPT_MAX_BYTES:-67108864}
       MNEMONIC_TRANSCRIPT_INDEX_DIR: ${MNEMONIC_TRANSCRIPT_INDEX_DIR:-/var/lib/mnemonic/transcript-index}
@@ -66,6 +68,19 @@ services:
       - type: bind
         source: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:-./deploy/empty-transcripts}
         target: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:-/var/lib/mnemonic/transcript-source-disabled}
+        read_only: true
+        bind:
+          create_host_path: false
+      # Mount Codex session directories only; its parent can contain credentials.
+      - type: bind
+        source: ${MNEMONIC_CODEX_TRANSCRIPT_SOURCE_DIR:-./deploy/empty-transcripts}
+        target: ${MNEMONIC_CODEX_TRANSCRIPT_SOURCE_DIR:-/var/lib/mnemonic/codex-transcript-source-disabled}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR:-./deploy/empty-transcripts}
+        target: ${MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR:-/var/lib/mnemonic/codex-archived-transcript-source-disabled}
         read_only: true
         bind:
           create_host_path: false

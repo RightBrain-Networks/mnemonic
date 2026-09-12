@@ -1,12 +1,14 @@
 """Bounded folder discovery through no-follow directory descriptors."""
 
 import os
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import monotonic
 
 from mnemonic_api.artifact_tika import ExtractionError
 from mnemonic_api.errors import ApplicationError
+from mnemonic_api.transcript_detection import detect_transcript_client
 from mnemonic_api.transcript_storage import _open_source, canonical_source_path
 
 MAX_IMPORT_FILES = 5000
@@ -19,6 +21,7 @@ SCAN_SECONDS = 10
 @dataclass
 class TranscriptDiscovery:
     paths: list[str] = field(default_factory=list)
+    clients: dict[str, str] = field(default_factory=dict)
     skipped: int = 0
     entries: int = 0
     deadline: float = field(default_factory=lambda: monotonic() + SCAN_SECONDS)
@@ -46,17 +49,31 @@ def _visit(descriptor: int, directory: Path, scan: TranscriptDiscovery, depth: i
                 finally:
                     os.close(child)
             elif entry.name.endswith(".jsonl"):
-                _candidate(entry, directory, scan)
+                _candidate(entry, descriptor, directory, scan)
 
 
-def _candidate(entry: os.DirEntry, directory: Path, scan: TranscriptDiscovery) -> None:
+def _candidate(entry: os.DirEntry, descriptor: int, directory: Path,
+               scan: TranscriptDiscovery) -> None:
     path = str(directory / entry.name)
     if (not entry.is_file(follow_symlinks=False) or len(path) > 4096
             or any(ord(char) < 32 or 0xD800 <= ord(char) <= 0xDFFF for char in path)):
         scan.skipped += 1
         return
     scan.paths.append(path)
+    scan.clients[path] = _source_client(entry.name, descriptor)
     scan.check(0)
+
+
+def _source_client(name: str, directory_descriptor: int) -> str:
+    try:
+        descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                             dir_fd=directory_descriptor)
+        with os.fdopen(descriptor, "rb") as content:
+            if stat.S_ISREG(os.fstat(content.fileno()).st_mode):
+                return detect_transcript_client(content)
+    except OSError:
+        pass
+    return "claude_code"
 
 
 def discover_transcripts(directory: str, roots: list[Path]) -> TranscriptDiscovery:

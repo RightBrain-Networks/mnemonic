@@ -21,6 +21,7 @@ from mnemonic_api.errors import ApplicationError
 from mnemonic_api.models import Transcript, TranscriptSettings, WorkItem, WorkLease
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.transcripts import transcript_project_id
+from mnemonic_api.transcript_detection import detect_transcript_client
 from mnemonic_api.transcript_parsers import TranscriptParserFactory
 from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
 from mnemonic_api.transcript_storage import canonical_source_path, read_transcript
@@ -36,6 +37,7 @@ class TranscriptJob:
     source_path: str
     client: str
     maximum_bytes: int
+    imported: bool
 
 
 @dataclass(frozen=True)
@@ -119,7 +121,7 @@ def _start_claim(database: Session, row, settings: Settings) -> TranscriptJob:
     return TranscriptJob(transcript.id, transcript.generation, transcript.lease_token,
                          transcript.source_path, transcript.client,
                          min(maximum or settings.transcript_max_bytes,
-                             settings.transcript_max_bytes))
+                             settings.transcript_max_bytes), transcript.kind == "imported")
 
 
 def claim_transcript_job(
@@ -159,6 +161,7 @@ def complete_transcript_job(
     factory: sessionmaker[Session], job: TranscriptJob,
     result: TranscriptResult | None, error: ExtractionError | None,
     source_size: int | None = None, source_details: dict | None = None,
+    detected_client: str | None = None,
 ) -> None:
     with factory() as database:
         project_id = database.scalar(select(transcript_project_id()).select_from(Transcript)
@@ -173,6 +176,8 @@ def complete_transcript_job(
             ).with_for_update())
             if record is None:
                 return
+            if detected_client is not None and job.imported and record.kind == "imported":
+                record.client = detected_client
             record.lease_token = None
             record.lease_expires_at = None
             record.indexing_completed_at = datetime.now(UTC)
@@ -212,14 +217,17 @@ def index_next_transcript(
     job = claim_transcript_job(factory, settings)
     if job is None:
         return False
-    result, error, size = None, None, None
+    result, error, size, detected_client = None, None, None, None
     source_details = {}
     try:
-        parser = TranscriptParserFactory.create(job.client)
+        parser = None if job.imported else TranscriptParserFactory.create(job.client)
         data = read_transcript(job.source_path, settings.transcript_allowed_roots,
                                job.maximum_bytes)
         size = len(data)
         source_details["sha256"] = hashlib.sha256(data).hexdigest()
+        if parser is None:
+            detected_client = detect_transcript_client(io.BytesIO(data))
+            parser = TranscriptParserFactory.create(detected_client)
         parsed = parser.parse(data, settings.artifact_extraction_max_chars)
         source_details.update(format=parsed.format, mime_type=parsed.mime_type,
                               extracted_metadata=parsed.metadata, truncated=parsed.truncated)
@@ -233,7 +241,7 @@ def index_next_transcript(
         ), len(data), hashlib.sha256(data).hexdigest(), parsed.format, parsed.mime_type)
     except ExtractionError as failure:
         error = failure
-    complete_transcript_job(factory, job, result, error, size, source_details)
+    complete_transcript_job(factory, job, result, error, size, source_details, detected_client)
     return True
 
 

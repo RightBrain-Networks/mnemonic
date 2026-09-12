@@ -204,3 +204,10 @@ export function decodeTranscriptImportRejection(status: number, value: unknown):
     || !boundedText(detail.message, 1000)) return null;
   return detail.message;
 }
+
+export function transcriptClientLabel(client: string): string {
+  const normalized = client.trim().toLowerCase();
+  if (["claude-code", "claude_code", "claude code"].includes(normalized)) return "Claude Code";
+  if (["codex", "openai-codex", "openai_codex", "openai codex", "codex-cli", "codex_cli", "codex cli"].includes(normalized)) return "OpenAI Codex";
+  return client;
+}

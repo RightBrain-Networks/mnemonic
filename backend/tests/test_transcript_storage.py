@@ -4,8 +4,12 @@ import os
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
 
 from mnemonic_api.artifact_tika import ExtractionError
+from mnemonic_api.config import Settings
+from mnemonic_api.main import create_app
 from mnemonic_api.transcript_storage import check_transcript_source, read_transcript
 
 
@@ -61,3 +65,25 @@ def test_configured_source_is_checked_without_reading_transcripts(tmp_path):
     link.symlink_to(tmp_path, target_is_directory=True)
     with pytest.raises(RuntimeError, match="Configured transcript source is unavailable"):
         check_transcript_source(link, [tmp_path])
+
+
+@pytest.mark.parametrize("missing_field", [
+    "transcript_source_dir", "codex_transcript_source_dir", "codex_archived_transcript_source_dir",
+])
+def test_startup_rejects_any_unavailable_configured_source(tmp_path, missing_field):
+    sources = {field: tmp_path / field for field in (
+        "transcript_source_dir", "codex_transcript_source_dir",
+        "codex_archived_transcript_source_dir",
+    )}
+    for field, source in sources.items():
+        if field != missing_field:
+            source.mkdir()
+    config = Settings(database_url="postgresql+psycopg://test:test@localhost/test",
+                      api_key="synthetic-test-key" * 3, artifact_max_bytes=0, **sources)
+    engine = create_engine("sqlite://")
+    try:
+        with pytest.raises(RuntimeError, match=f"Configured transcript source.*{missing_field}"):
+            with TestClient(create_app(settings=config, engine=engine)):
+                pytest.fail("Startup accepted an unavailable transcript source")
+    finally:
+        engine.dispose()

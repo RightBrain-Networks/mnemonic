@@ -431,7 +431,7 @@ startup/investigation and estimate remaining session time for later lease reques
 within the current project bounds. Preserve exact `lease_minutes` arguments on
 uncertain claim retries.
 
-Application/API/MCP/dashboard 0.49.0, plugin 0.29.0 and Alembic
+Application/API/MCP/dashboard 0.50.0, plugin 0.29.0 and Alembic
 `0035_prompt_library` ship together: 54 MCP tools, 17
 receipt-protected MCP writes,
 24 REST receipt kinds, 21 protected browser mutations, 24 event types and three
@@ -504,3 +504,19 @@ When authoring a report, supply the exact `work_item_id` to `get_project_setting
 so project and work macros expand together. Keep the returned prompt revision
 with the closeout intent for exact retries. Editable templates require a companion
 filesystem backup; immutable report authoring-prompt snapshots stay in PostgreSQL.
+
+### Native Codex transcripts
+
+Codex agents report the exact verified rollout path using `client: "codex"` in
+`session_transcript` on claim, and each available child rollout in
+`subagent_transcripts` at closeout. Use explicit null when a path is unavailable;
+do not guess filenames or change uncertain retry arguments. Primary and subagent
+rollouts use the same native JSONL format and need not share a directory.
+
+The operator can mount Codex `sessions` and `archived_sessions` privately alongside
+Claude transcripts. Workspace folder imports identify both clients automatically;
+imported sources are detected again during extraction so rebuilt sources can
+recover from earlier unreadable headers. Agent assertions remain authoritative.
+Search is metadata-only by default; opt into `fulltext=true` and report incomplete
+coverage from encrypted, binary, unsupported, or truncated content. See
+[transcript deployment and formats](docs/transcripts.md).

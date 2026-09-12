@@ -71,15 +71,36 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("MNEMONIC_TRANSCRIPT_SOURCE_DIR", "transcript_source_dir"),
     )
 
+    codex_transcript_source_dir: Path | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MNEMONIC_CODEX_TRANSCRIPT_SOURCE_DIR", "codex_transcript_source_dir"),
+    )
+    codex_archived_transcript_source_dir: Path | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR", "codex_archived_transcript_source_dir",
+        ),
+    )
+
+    @property
+    def transcript_source_dirs(self) -> list[Path]:
+        return list(dict.fromkeys(source for source in (
+            self.transcript_source_dir, self.codex_transcript_source_dir,
+            self.codex_archived_transcript_source_dir,
+        ) if source is not None))
+
     @model_validator(mode="after")
     def transcript_source_default_allowlist(self) -> Self:
-        if self.transcript_source_dir is None:
-            return self
+        sources = self.transcript_source_dirs
         if not self.transcript_allowed_roots:
-            self.transcript_allowed_roots = [self.transcript_source_dir]
-        elif self.transcript_source_dir not in self.transcript_allowed_roots:
+            self.transcript_allowed_roots = sources
+        elif any(source not in self.transcript_allowed_roots for source in sources):
             raise ValueError(
-                "MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS must include MNEMONIC_TRANSCRIPT_SOURCE_DIR"
+                "MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS must include every configured transcript "
+                "source directory (MNEMONIC_TRANSCRIPT_SOURCE_DIR, "
+                "MNEMONIC_CODEX_TRANSCRIPT_SOURCE_DIR, "
+                "MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR)"
             )
         return self
 
@@ -92,7 +113,10 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("MNEMONIC_TRANSCRIPT_INDEX_DIR", "transcript_index_dir"),
     )
 
-    @field_validator("prompt_root", "transcript_index_dir", "transcript_source_dir", mode="before")
+    @field_validator(
+        "prompt_root", "transcript_index_dir", "transcript_source_dir",
+        "codex_transcript_source_dir", "codex_archived_transcript_source_dir", mode="before",
+    )
     @classmethod
     def transcript_directory(cls, value):
         if value is None or value == "":

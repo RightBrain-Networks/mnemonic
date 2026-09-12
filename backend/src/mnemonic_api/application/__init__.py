@@ -53,7 +53,8 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        check_transcript_source(config.transcript_source_dir, config.transcript_allowed_roots)
+        for source in config.transcript_source_dirs:
+            check_transcript_source(source, config.transcript_allowed_roots)
         app.state.transcript_search_index.start()
         maintenance = None
         extraction = None
@@ -83,7 +84,7 @@ def create_app(
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.49.0",
+        version="0.50.0",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )
