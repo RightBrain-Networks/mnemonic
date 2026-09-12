@@ -41,6 +41,8 @@ Upon discovering something worth doing, but is out-of-scope of the current task,
 
 - **Project artifact library** -- Some content shouldn't be committed in your repo (docs with PII, large binaries, etc). The project artifact library allows both agents and humans to upload, download, search, and reference these files stored in your local filesystem. The artifact library is a lightweight alternative to a traditional document management system (DMS) and can be optionally disabled in the project environment.
 
+-  **Unified search** -- Agents can search across work items, artifacts, and session transcripts to retrieve relevant information in one-shot, with results being ranked using an intelligent, composite score. This saves time, tokens, and agent context space.
+
 ## Run it
 
 ### Copy and paste into your LLM to have it handle this part.
