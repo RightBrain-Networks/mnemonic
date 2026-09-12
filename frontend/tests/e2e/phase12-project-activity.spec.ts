@@ -189,12 +189,12 @@ test("recovering another report action preserves an unrelated follow-up draft", 
       else await route.fulfill({response});
     });
     await openSummaries(page, project.id);
-    await page.getByRole("article", {name:"Report for Dashboard font promoted",exact:true}).getByRole("button", {name:"Dismiss",exact:true}).click();
-    await expect(page.getByText("Dismiss summary · outcome unknown", {exact:true})).toBeVisible();
     await page.getByRole("article", {name:"Report for Dashboard font done",exact:true}).getByRole("button", {name:"Create Follow-up",exact:true}).click();
     const form=page.getByRole("form", {name:"Create Follow-up"});
     await form.getByLabel("Title", {exact:true}).fill("Keep this separate font decision");
     await form.getByRole("textbox", { name: "Work summary", exact: true }).fill("This draft belongs to the other report.");
+    await page.getByRole("article", {name:"Report for Dashboard font promoted",exact:true}).getByRole("button", {name:"Dismiss",exact:true}).click();
+    await expect(page.getByText("Dismiss summary · outcome unknown", {exact:true})).toBeVisible();
     await page.getByRole("button", {name:"Retry exact request",exact:true}).click();
     await expect.poll(() => attempts).toBe(2);
     await expect(page.locator(".mutation-recovery-global")).toHaveCount(0);

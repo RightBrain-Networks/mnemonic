@@ -46,7 +46,7 @@ test("prompt directory has a bottom macro glossary and a right editor with copy,
     await expect(page.locator("#project-select")).toBeDisabled();
     await drawer.getByRole("button", { name: "Copy contents" }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(await content.inputValue());
-    await page.screenshot({ path: testInfo.outputPath("prompt-editor.png"), fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath("prompt-editor.png"), fullPage: false });
     page.once("dialog", (dialog) => dialog.dismiss());
     await page.keyboard.press("Escape");
     await expect(drawer).toBeVisible();
@@ -189,5 +189,54 @@ test("browser history and project shortcuts preserve an unsaved prompt draft", a
     await drawer.getByRole("button", { name: "Close prompt" }).click();
     await expect(drawer).toHaveCount(0);
     await expect(page.locator("#project-select")).toBeEnabled();
+  } finally { await api.dispose(); }
+});
+
+test("report instructions initialize during typing and changed instructions still need explicit review", async ({ page }) => {
+  const api = await client();
+  try {
+    const selected = await project(api);
+    const response = await api.post(`/api/v1/projects/${selected.id}/work-items`, { data: {
+      title: "Report prompt initialization", summary: "Keep the report revision while the author types.", priority: 1,
+      initial_checkpoint: { prompt: "Verify report authoring instructions.", source_client: "playwright-api", source_session_id: "report-prompt-race" }
+    }});
+    expect(response.ok(), await response.text()).toBe(true);
+    const { work_item: work } = await response.json() as { work_item: { id: string } };
+    let releasePrompt!: () => void;
+    const promptReady = new Promise<void>((resolve) => { releasePrompt = resolve; });
+    await page.route(`**/api/mnemonic/projects/${selected.id}/settings?work_item_id=${work.id}`, async (route) => {
+      await promptReady;
+      await route.continue();
+    });
+    await page.goto("/");
+    await page.locator("#project-select").selectOption(selected.id);
+    const pane = await selectWork(page, "Report prompt initialization");
+    await pane.getByLabel(/^Checkpoint text/).fill("The report prompt initialization has been checked.");
+    const summary = pane.getByRole("textbox", { name: /^Human summary/ });
+    await summary.fill("The prompt settings are ready.");
+    await expect(pane.getByText("Loading project report instructions…", { exact: true })).toBeVisible();
+    releasePrompt();
+    await summary.pressSequentially(" The author can keep typing while they load.", { delay: 5 });
+    await expect(pane.getByRole("button", { name: "Complete work", exact: true })).toBeEnabled();
+    await expect(summary).toHaveValue("The prompt settings are ready. The author can keep typing while they load.");
+    const original = await readPrompt(api, selected.id, "job-completion-report");
+    const changed = await api.put(`/api/v1/projects/${selected.id}/prompts/job-completion-report`, {
+      data: { content: "Describe the result for $WORK_ITEM_TITLE in familiar words.", expected_revision: original.revision }
+    });
+    expect(changed.ok(), await changed.text()).toBe(true);
+    await pane.getByRole("button", { name: "Review current prompt", exact: true }).click();
+    await expect(pane.getByRole("button", { name: /^Use reviewed revision/ })).toBeVisible();
+    await expect(pane.locator(".job-report-prompt")).toHaveText("Describe the result for Report prompt initialization in familiar words.");
+    let closeouts = 0;
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url().endsWith(`/work-items/${work.id}/complete`)) closeouts += 1;
+    });
+    await pane.getByRole("button", { name: "Complete work", exact: true }).click();
+    await expect(pane.getByText("Project instructions changed. Review the current report prompt", { exact: false })).toBeVisible();
+    expect(closeouts).toBe(0);
+    await pane.getByRole("button", { name: /^Use reviewed revision/ }).click();
+    await pane.getByRole("button", { name: "Complete work", exact: true }).click();
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Done");
+    expect(closeouts).toBe(1);
   } finally { await api.dispose(); }
 });

@@ -15,6 +15,8 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type Dispatch,
+  type SetStateAction,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
@@ -155,7 +157,7 @@ export type WorkDetailPaneProps = {
   checkpointTags: string;
   checkpointSaving: boolean;
   jobReportDraft: JobReportDraft;
-  onJobReportDraft: (draft: JobReportDraft) => void;
+  onJobReportDraft: Dispatch<SetStateAction<JobReportDraft>>;
   completionEvidenceDraft: CompletionEvidenceDraft;
   completionEvidenceIssues: readonly CompletionEvidenceIssue[];
   evidenceRefreshSignal: number;

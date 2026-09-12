@@ -256,3 +256,47 @@ def test_expanded_report_history_is_retained_and_prevents_lossy_downgrade(
             connection.scalar(text("SELECT version_num FROM alembic_version"))
             == "0035_prompt_library"
         )
+
+
+def test_legacy_settings_patch_cannot_overwrite_an_external_change_after_revision_check(
+    api,
+    project,
+    monkeypatch,
+):
+    from mnemonic_api.prompt_storage import PromptStorage
+
+    base = f"/api/v1/projects/{project['id']}"
+    settings = api.get(base + "/settings").json()
+    original_write = PromptStorage.write
+
+    def external_edit_before_write(storage, project_id, prompt_id, content, revision):
+        path = storage.root / "projects" / str(project_id) / f"{prompt_id}.md"
+        path.write_text("An external editor's newer instructions", encoding="utf-8")
+        return original_write(storage, project_id, prompt_id, content, revision)
+
+    monkeypatch.setattr(PromptStorage, "write", external_edit_before_write)
+    response = api.patch(
+        base + "/settings",
+        json={
+            "expected_revision": settings["revision"],
+            "recall_pointer_template": "Stale editor draft",
+        },
+    )
+    assert response.status_code == 409, response.text
+    assert api.get(base + "/prompts/recall-pointer").json()["content"] == (
+        "An external editor's newer instructions"
+    )
+
+
+@pytest.mark.parametrize("prompt_id", ["resume-work", "job-completion-report"])
+def test_blank_macro_expansion_returns_a_controlled_prompt_error(api, project, prompt_id):
+    base = f"/api/v1/projects/{project['id']}"
+    assert api.patch(base, json={"description": ""}).status_code == 200
+    save_prompt(api, base, prompt_id, "$PROJECT_DESCRIPTION")
+    response = api.post(base + f"/prompts/{prompt_id}/render", json={})
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "invalid_prompt"
+    if prompt_id == "job-completion-report":
+        settings = api.get(base + "/settings")
+        assert settings.status_code == 422, settings.text
+        assert settings.json()["detail"]["code"] == "invalid_prompt"

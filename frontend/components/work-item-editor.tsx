@@ -3,7 +3,7 @@ import ExternalReferencesEditor from "@/components/external-references-editor";
 import ExternalReferences from "@/components/external-references";
 import JobReportEditor from "@/components/job-report-editor";
 import type { JobReportDraft } from "@/lib/job-completion-reports";
-import type { FormEvent } from "react";
+import type { Dispatch, FormEvent, SetStateAction } from "react";
 import type { WorkItem, WorkStatus, ExternalReference } from "@/lib/types";
 import { statusLabels } from "@/components/work-item-card";
 import { editableLifecycleStatuses } from "@/lib/work-item-view";
@@ -22,7 +22,7 @@ export function draftFromWork(work: WorkItem): WorkEditDraft {
 
 type Props = {
   jobReportDraft: JobReportDraft;
-  onJobReportDraft: (draft: JobReportDraft) => void;
+  onJobReportDraft: Dispatch<SetStateAction<JobReportDraft>>;
   work: WorkItem;
   draft: WorkEditDraft;
   setDraft: (updater: (draft: WorkEditDraft) => WorkEditDraft) => void;

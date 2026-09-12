@@ -172,13 +172,11 @@ def _restore_templates(storage: PromptStorage) -> None:
         bind.execute(
             sa.text(
                 "UPDATE project_settings SET recall_pointer_template=:recall, "
-                "job_completion_report_prompt=:report, revision=revision+:changed "
-                "WHERE project_id=:id"
+                "job_completion_report_prompt=:report WHERE project_id=:id"
             ),
             {
                 "id": row["project_id"],
                 "report": report.content,
-                "changed": int(changed),
                 "recall": None
                 if recall.content == default_prompt("recall-pointer")
                 else recall.content,
@@ -233,12 +231,10 @@ def downgrade() -> None:
         raise RuntimeError("Expanded report history cannot fit the previous prompt schema")
     op.add_column("project_settings", sa.Column("recall_pointer_template", sa.Text()))
     op.add_column("project_settings", sa.Column("job_completion_report_prompt", sa.Text()))
-    op.execute("ALTER TABLE project_settings DISABLE TRIGGER USER")
     storage = PromptStorage(
         Path(os.environ.get("MNEMONIC_PROMPT_ROOT", "/var/lib/mnemonic/prompts"))
     )
     _restore_templates(storage)
-    op.execute("ALTER TABLE project_settings ENABLE TRIGGER USER")
     _restore_guards()
     op.alter_column("project_settings", "job_completion_report_prompt", nullable=False)
     for name in ("recall_pointer_hash", "report_prompt_hash"):

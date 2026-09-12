@@ -182,17 +182,16 @@ def update_project_settings(
             if field in prompt_ids:
                 prompt_id = prompt_ids[field]
                 storage = storage_for(database)
-                current = storage.read(project_id, prompt_id)
-                saved = storage.write(
-                    project_id,
-                    prompt_id,
-                    default_prompt(prompt_id) if value is None else value,
-                    current.revision,
-                )
                 hash_field = (
                     "recall_pointer_sha256"
                     if field == "recall_pointer_template"
                     else "job_completion_report_prompt_sha256"
+                )
+                saved = storage.write(
+                    project_id,
+                    prompt_id,
+                    default_prompt(prompt_id) if value is None else value,
+                    getattr(settings, hash_field),
                 )
                 if getattr(settings, hash_field) != saved.revision:
                     changed = True

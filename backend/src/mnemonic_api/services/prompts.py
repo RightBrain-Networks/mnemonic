@@ -212,6 +212,8 @@ def render_prompt(
         else storage_for(database).read(project_id, prompt_id).content
     )
     rendered = expand_macros(body, values)
+    if not rendered.strip() or "\x00" in rendered:
+        raise ApplicationError(422, "invalid_prompt", "Expanded prompt must contain nonblank text.")
     if len(rendered) > 100_000 or len(rendered.encode()) > 400_000:
         raise ApplicationError(422, "prompt_render_too_large", "Expanded prompt exceeds its limit.")
     if prompt_id == "review-recommendation":

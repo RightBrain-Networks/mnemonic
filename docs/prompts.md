@@ -72,7 +72,8 @@ Existing bytes are preserved. An export conflict or storage failure stops the
 migration instead of discarding text. Keep the configured prompt volume mounted
 while migrating, and include it in the upgrade backup. Older application
 processes must not run against the new schema. A downgrade restores the two
-legacy editable settings from their exact files and retains the files. It refuses
+legacy editable settings from their exact files and retains the files. Read current
+settings first to synchronize any external edits. It refuses
 to proceed if any expanded historical prompt exceeds the predecessor’s bounds;
 restore an upgrade backup in that case.
 
