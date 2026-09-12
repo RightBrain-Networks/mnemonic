@@ -319,6 +319,11 @@ checkpoint and a progress event. Never put credentials, lease tokens, operation
 IDs, private chain-of-thought, or transcript dumps in either surface: reserved
 keys and request-known secret echoes are rejected, but other sensitive text is
 stored and returned exactly to authorized history readers.
+Supply the active implementation `lease_token` as a separate tool argument on a
+fresh `append_event` or `add_checkpoint` to renew the lease in the same transaction
+using server time and the configured TTL. Token-free writes and exact receipt
+replays do not renew ownership. Freeze the token with all other retry arguments;
+use `renew_claim` when no new progress needs recording.
 
 ## Persist and report
 

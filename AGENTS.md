@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.46.0`, Claude plugin
-`0.26.0`, and Alembic head `0033_transcript_imports`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.47.0`, Claude plugin
+`0.27.0`, and Alembic head `0033_transcript_imports`. The catalog is exactly
 54 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 20 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -153,6 +153,10 @@ Deferred or manually closed episodes cannot be claimed or answered. Manual Activ
 is unavailable for every work item.
 Optional closeout questions are durable originating-session follow-ups, not
 human gates. Cold reviewers must not load context before freezing findings.
+Fresh token-bearing `append_event` and `add_checkpoint` writes renew an active
+implementation lease atomically using the configured TTL; exact receipt replays
+and token-free writes do not renew it. Review leases still use `renew_claim`.
+New remediation summaries describe finding count, primary file, and finding titles.
 One completed review creates zero or one remediation containing all findings;
 immutable depth 2 can never be reviewed, and remediation cannot be merged.
 

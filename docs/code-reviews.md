@@ -168,6 +168,13 @@ completion. Priority is inherited from the original closeout snapshot, not from
 later edits or inferred severity. There is no assignment or automatic execution.
 Never call `create_work` or human report follow-ups to fan out review findings.
 
+New remediation summaries include the finding count, the primary repository/file
+(the location with the most findings; ties use submitted order), and one clause
+per finding title. Long paths and clauses are abbreviated to the configured work
+summary limit; the initial checkpoint retains every full finding. Search uses
+this stored summary. Existing remediation summaries and permanent receipts retain
+their authored history; this release has no backfill or schema migration.
+
 Database ownership/cardinality and immutable lineage prevent reviews of reviews,
 depth-three creation, review of second-generation remediation, late attachment,
 or stripping ancestry. Remediation cannot be merged in either direction. The
