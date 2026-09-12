@@ -94,7 +94,7 @@ def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 def decode_json(raw: bytes) -> dict[str, Any]:
     result = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
     if not isinstance(result, dict):
-        raise ValueError("Expected a JSON object")
+        raise TypeError("Expected a JSON object")
     return result
 
 

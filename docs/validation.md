@@ -24,7 +24,10 @@ standalone scripts pass Ruff and Python 3.10 syntax checks, and the helper runs
 under system Python 3.12. Both edited skills pass the skill validator. Node 24
 passes all 436 dashboard tests, type checking and a production build. Local
 plugin unittest validation passes 71 tests with one macOS-only runtime test
-skipped; CI supplies that platform. Gitleaks passes.
+skipped; CI supplies that platform. The full PostgreSQL-backed backend suite
+passes all 2,496 tests and the full MCP suite passes all 1,535 tests. Gitleaks
+passes. The operational-script Ruff invocation additionally checks executable
+script modes and exception types; both new entrypoints satisfy those checks.
 
 ## Variable work leases (0.48.0)
 
