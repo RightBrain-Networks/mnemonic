@@ -493,9 +493,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.29.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.29.0` install
-plus a `0.18.0 -> 0.29.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.30.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.30.0` install
+plus a `0.18.0 -> 0.30.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -819,7 +819,7 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.50.0`, plugin is `0.29.0`,
+Current application/API/MCP/dashboard versions are `0.50.0`, plugin is `0.30.0`,
 and Alembic head is `0035_prompt_library`. Validate all surfaces
 together with the existing regression suites. This release adds per-project
 Default/Minimum/Maximum lease settings and agent-requested claim/renew durations.

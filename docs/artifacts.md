@@ -1,6 +1,6 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.50.0`, plugin `0.29.0`, and current migration
+Application/API/MCP/dashboard `0.50.0`, plugin `0.30.0`, and current migration
 `0035_prompt_library` support files outside Git and local full-text search. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
@@ -78,7 +78,7 @@ context (`X-Artifact-Access: human-dashboard`, set by its server proxy), permit
 human previews/downloads/searches, and are audited. This header and the approval
 assertion are policy signals, not separate authentication credentials.
 
-Upgrade API, MCP and dashboard together to `0.50.0`, plugin `0.29.0`, and migration
+Upgrade API, MCP and dashboard together to `0.50.0`, plugin `0.30.0`, and migration
 `0035_prompt_library`. Migration 0029 initially marked older artifacts
 non-sensitive; migration 0030 preserves their current sensitivity. No new
 configuration is required. Downgrade refuses populated artifact state; fix forward.
@@ -305,6 +305,15 @@ List query parameters: `q` (up to 200 characters), `work_item_id`,
 History accepts `q`, `limit`, and `offset`, returning independent `revisions` and
 `audit` pages. These directory/history reads include extracted metadata but never
 match body text.
+
+### Upload local files without base64 in agent context
+
+Agents should run the [direct upload client](artifact-upload-client.md) for local
+uploads and replacements. It prepares a private snapshot and immutable request
+metadata, then streams bytes to the existing REST endpoint and prints a compact
+validated receipt. The helper ships in the plugin and portable skill exports as
+well as the repository. MCP upload/replacement tools still accept base64 for
+programmatic callers; agents should not read that encoding into their sessions.
 
 ### Read extracted text
 

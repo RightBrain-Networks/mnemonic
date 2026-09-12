@@ -16,7 +16,8 @@ repository working directory. Before running the bundled helper, resolve
 `SKILL.md` and pass its absolute path as one quoted command argument. Keep the
 working directory at the user-selected repository. Relative helper paths shown
 in examples are resource locators to resolve first. This bundle requires no
-client-specific path or session-variable expansion.
+client-specific path or session-variable expansion. The artifact upload helper
+is bundled at `scripts/upload_artifact.py`; resolve it the same way when needed.
 
 """
 
@@ -41,7 +42,7 @@ def _payload(plugin_root: Path) -> dict[Path, tuple[bytes, int]]:
     resources = sorted((plugin_root / "reference").glob("*.md"))
     helper = plugin_root / "bin" / "mnemonic-repository-freshness"
     for skill in sorted((plugin_root / "skills").glob("*/SKILL.md")):
-        for source in (skill, *resources, helper):
+        for source in (skill, *resources, helper, plugin_root / "scripts" / "upload_artifact.py"):
             relative = Path("SKILL.md") if source == skill else source.relative_to(plugin_root)
             content = (
                 _render_markdown(source, relative)

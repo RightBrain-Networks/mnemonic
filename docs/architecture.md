@@ -3,7 +3,7 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This architecture describes application/API/MCP `0.50.0`, Claude plugin `0.29.0`,
+This architecture describes application/API/MCP `0.50.0`, Claude plugin `0.30.0`,
 and Alembic head `0035_prompt_library`.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
