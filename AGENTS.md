@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.50.0`, Claude plugin
-`0.29.0`, and Alembic head `0035_prompt_library`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.51.0`, Claude plugin
+`0.30.0`, and Alembic head `0035_prompt_library`. The catalog is exactly
 54 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -116,6 +116,13 @@ an explicit private host bind mount in Compose. Only current bytes are retained;
 revision metadata, work links, audit events, and operation receipts are durable.
 Artifact mutations use the separate `artifact_operations` journal. Preserve exact
 bytes, metadata, operation UUID, and expected revision across uncertain retries.
+Local uploads/replacements use `scripts/upload_artifact.py prepare` and `send`;
+retain the private prepared directory unchanged for an uncertain retry. Local
+downloads use `scripts/download_artifact.py --dest` with a new file in the agent's
+actual scratchpad. Both helpers stream raw bytes directly to the API, return only
+compact summaries, and ship in the plugin and portable skills. Keep base64 out of
+agent context. See `docs/artifact-upload-client.md` and
+`docs/artifact-download-client.md` for the explicitly provisioned client environment.
 Tika extracts current normalized text and retained document properties into
 PostgreSQL; Tantivy searches a rebuildable RAM index. Content matching is opt-in
 (`fulltext=true`); metadata-only is the default. Replacement/deletion clears old

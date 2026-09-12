@@ -1,6 +1,6 @@
 # Mnemonic validation record
 
-## Direct local artifact transfers (0.50.0)
+## Direct local artifact transfers (0.51.0)
 
 Local uploads and replacements now use a standard-library client that streams raw
 bytes to the existing authenticated API. Preparation retains a private local
@@ -14,7 +14,8 @@ exports. All three skills and MCP descriptions direct local file transfers to
 these clients instead of passing base64 through model context. Downloads stream
 straight into the caller's chosen scratchpad, verify revision/size/checksum and
 print only a compact summary. Sensitive downloads retain the explicit human
-approval protocol and failed transfers leave no partial destination. API/MCP/dashboard versions are 0.50.0 and plugin
+approval protocol and failed transfers leave no partial destination.
+API/MCP/dashboard versions are 0.51.0 and plugin
 0.30.0; migration 0035 and all tool/receipt catalogs are unchanged. The client
 requires an explicitly provisioned API origin and credential environment.
 
@@ -25,7 +26,7 @@ and installed/exported clients. The PostgreSQL round trip also replays a receipt
 after the upload limit is lowered. Both Python packages pass Ruff and ty; the
 standalone scripts pass Ruff and Python 3.10 syntax checks, and the helper runs
 under system Python 3.12. All three skills pass the skill validator. Node 24
-passes all 436 dashboard tests, type checking and a production build. Local
+passes dashboard tests, type checking and a production build. Local
 plugin unittest validation passes 71 tests with one macOS-only runtime test
 skipped; CI supplies that platform. Download coverage includes 50 client tests,
 with files larger than 64 MiB saved into scratchpads through repository, installed

@@ -819,7 +819,7 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.50.0`, plugin is `0.30.0`,
+Current application/API/MCP/dashboard versions are `0.51.0`, plugin is `0.30.0`,
 and Alembic head is `0035_prompt_library`. Validate all surfaces
 together with the existing regression suites. This release adds per-project
 Default/Minimum/Maximum lease settings and agent-requested claim/renew durations.
