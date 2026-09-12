@@ -603,8 +603,12 @@ same-arguments retry rule after an unknown outcome.
 
 Always attribute the new checkpoint to the session writing it. Do not dump
 chain-of-thought or a raw transcript. Checkpoints cannot be edited or deleted;
-append a corrective context checkpoint instead. Appending does not acquire,
-steal, or renew a lease.
+append a corrective context checkpoint instead. Supply the active implementation
+`lease_token` on `add_checkpoint` or `append_event` to renew the lease atomically
+with the fresh write. Expiry becomes database time after lock acquisition plus
+`MNEMONIC_LEASE_TTL_SECONDS`. Token-free appends and exact receipt replays do not
+renew ownership. Expired, mismatched, and review-purpose tokens are rejected;
+failed writes roll back renewal too. These appends never acquire or steal a lease.
 
 When repository content qualifies the checkpoint assertions, record every
 known dependency in `affected_paths` and only a commit actually inspected in
@@ -615,7 +619,10 @@ runtime state cannot be represented truthfully by the commit and v1 patterns;
 state that limitation in the checkpoint text. Freeze the ordered declaration
 with the rest of the protected mutation intent.
 
-Renew long-running work before expiry with `renew_claim` and the active token.
+Use `renew_claim` and the active token when long-running work needs renewal
+without a new progress fact or checkpoint. Successful token-bearing progress
+already renews the lease; ordinary edits do not. Read the public active lease in
+`recall_work` for its current expiry.
 Renewal uses database time and returns the same token/request ID with a new
 expiry. If it reports expiry or mismatch, stop treating the session as holder
 and reconcile current state before continuing.

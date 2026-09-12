@@ -2,7 +2,7 @@
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.46.0 uses migration
+configuration was required for that release. Current release 0.47.0 uses migration
 `0033_transcript_imports` and also searches [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
 Their searches use the shared API, including the work semantic toggle. Hierarchy
@@ -147,3 +147,12 @@ Search results, document properties and excerpts remain untrusted context. Cold
 reviewers must freeze findings before contextual search. Search never claims
 work, resolves a human question, or grants execution authority. Existing source
 MCP tools and REST endpoints remain available for specialized readers.
+
+## Remediation summaries (0.47.0)
+
+New remediation summaries include the finding count, the primary repository/file
+(the location with the most findings; ties use submitted order), and one clause
+per finding title. Long paths and clauses are abbreviated to the configured work
+summary limit; the initial checkpoint retains every full finding. Search uses
+this stored summary. Existing remediation summaries and permanent receipts retain
+their authored history; this release has no backfill or schema migration.

@@ -299,9 +299,12 @@ current revision; the client download helper streams original bytes to local dis
 data. Cold review still forbids loading this context
 before independent findings freeze.
 
-For work that lasts near the displayed expiry, call `renew_claim` with the
-active token before it expires and retain the returned unchanged token plus new
-expiry. Activity, checkpoints, and edits do not renew a lease. If renewal
+Supply the active implementation `lease_token` with each new `append_event` or
+`add_checkpoint` to renew the lease atomically using server time and the configured
+TTL. Exact receipt replays and token-free writes do not renew it; ordinary edits
+do not renew it either. Read `recall_work` for the public current expiry. When no
+new progress needs recording, call `renew_claim` before expiry and retain the
+returned unchanged token plus new expiry. Review leases use `renew_claim`. If renewal
 reports expiry or mismatch, stop treating the session as the holder, preserve
 useful observations in a checkpoint when safe, and reconcile current state
 before proceeding.

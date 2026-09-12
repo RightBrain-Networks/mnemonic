@@ -3,7 +3,7 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.46.0`, plugin `0.26.0`, and migration
+This is application/API/MCP/dashboard `0.47.0`, plugin `0.27.0`, and migration
 `0033_transcript_imports`. The catalog has exactly 54 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
@@ -320,6 +320,18 @@ Base path: `/projects/{project_id}/work-items`.
 - `POST /projects/{project_id}/duplicate-suggestions` compares one transient
   creation draft and returns canonical-grouped evidence without creating a
   receipt or domain event.
+
+Fresh checkpoint and progress-event appends with an active implementation
+`lease_token` renew that same lease atomically. The server captures database time
+after locking the lease and sets expiry to that time plus
+`MNEMONIC_LEASE_TTL_SECONDS`; the existing `lease_renewed` project activity entry
+records the change. MCP `append_event` now accepts the optional `lease_token`
+argument, as `add_checkpoint` already does. Token-free appends and exact permanent
+receipt replays do not renew a lease. Invalid, expired, or review-purpose tokens
+reject the fresh write; transaction failure rolls back both progress and renewal.
+Response shapes remain unchanged and never include the token. Current expiry is
+available through ordinary work context/readiness reads. Use `renew_claim` when
+no new progress needs recording. Ordinary work edits do not renew ownership.
 
 There are no checkpoint update/delete routes. PostgreSQL also rejects direct
 `UPDATE` and `DELETE` against checkpoint rows.

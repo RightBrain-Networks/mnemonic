@@ -1,5 +1,34 @@
 # Mnemonic validation record
 
+## Remediation search summaries and progress lease renewal (0.47.0)
+
+New review remediation work stores the finding count, primary repository/file,
+and one clause per finding title in its summary. The primary location is the
+most frequent finding location, with submitted order breaking ties. The configured
+summary limit bounds abbreviated paths and clauses; the immutable initial
+checkpoint retains the complete findings. Existing summaries and receipt history
+remain unchanged, with no migration or configuration change.
+
+Fresh `append_event` and `add_checkpoint` writes renew the supplied active
+implementation lease in the same transaction, using database time after acquiring
+the lease lock plus the configured TTL. MCP `append_event` now accepts the optional
+lease-token argument. Token-free writes and permanent receipt replays do not
+renew ownership; review tokens, expired tokens, and mismatches reject fresh writes.
+Response shapes and catalog counts remain unchanged. Application/API/MCP/dashboard
+versions advance to 0.47.0 and plugin guidance to 0.27.0; Alembic remains
+`0033_transcript_imports`.
+
+The 37 focused backend checks pass against PostgreSQL, covering remediation
+search through both flat and unified search, bounded summaries, configured TTL,
+concurrent same-operation retries, replay after expiry and takeover, rollback
+of progress and renewal together, and review-token rejection. The 432 frontend
+unit tests, type check, and production build pass under Node 24. The plugin suite
+passes 71 checks with the optional authentic runtime check skipped. Enabling
+that check locally confirms this host's Git 2.43 is below its required Git 2.45;
+the dedicated macOS CI job supplies the supported runtime. The 29 human-gate
+concurrency tests and seven focused MCP schema/description checks also pass.
+Python lint/type checks and Gitleaks pass.
+
 ## Artifact directory sorting preserves scroll (0.46.0)
 
 Sorting previously cleared the loaded artifact page before requesting the new order.

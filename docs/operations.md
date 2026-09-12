@@ -56,7 +56,8 @@ chosen HTTPS host/origin without changing the loopback defaults.
 Important API settings are:
 
 - `MNEMONIC_LEASE_TTL_SECONDS`, default 900, accepted range 60 through 3600.
-  It affects later claims and renewals, not existing lease rows.
+  It affects later claims and renewals, including fresh token-bearing progress
+  events and checkpoints, not existing lease rows until one of those writes.
 - `MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS`, default 10, accepted range 1
   through 10. A wait timeout returns `client_operation_unavailable`; only an
   exact retry of the privately retained intent is safe.
@@ -142,7 +143,7 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.46.0`, plugin `0.26.0`,
+The current coordinated boundary is API/MCP/dashboard `0.47.0`, plugin `0.27.0`,
 and Alembic `0033_transcript_imports`. Inventory exactly 54 MCP tools,
 17 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
@@ -1015,7 +1016,7 @@ from the same revision: the frozen digests and the code that computes them are
 one unit, and a mismatched pair reports drift against an unchanged schema.
 `scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.46.0` clients and plugin `0.26.0` together.
+failure, and inventory deployed `0.47.0` clients and plugin `0.27.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 All three audits pin the PostgreSQL session settings that decide how the server

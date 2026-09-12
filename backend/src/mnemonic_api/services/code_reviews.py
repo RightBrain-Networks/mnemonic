@@ -56,6 +56,7 @@ from mnemonic_api.services.code_review_records import (
     review_read,
     stage_review_event,
 )
+from mnemonic_api.services.remediation_summaries import remediation_summary
 from mnemonic_api.services.work_events import database_now
 
 SUPERSESSION_FIELDS = frozenset(
@@ -612,10 +613,7 @@ def _create_remediation(
         work.project_id,
         WorkItemCreate(
             title=("Remediate review: " + work.title)[:200],
-            # This server-authored label may be abbreviated; the checkpoint retains every finding.
-            summary=("Fix all actionable findings from code review " + str(review.id) + ".")[
-                :summary_maximum
-            ],
+            summary=remediation_summary(payload.result.findings, summary_maximum),
             priority=policy.priority_at_closeout,
             initial_checkpoint=initial,
         ),

@@ -147,6 +147,13 @@ otherwise ONE linked remediation contains ALL findings. Do not complete the
 original implementation again, add another job report/evidence, review this
 review, or create a remediation yourself. Return recorded review/remediation IDs.
 
+New remediation summaries include the finding count, the primary repository/file
+(the location with the most findings; ties use submitted order), and one clause
+per finding title. Long paths and clauses are abbreviated to the configured work
+summary limit; the initial checkpoint retains every full finding. Search uses
+this stored summary. Existing remediation summaries and permanent receipts retain
+their authored history; this release has no backfill or schema migration.
+
 Unknown outcome means exact same UUID and every argument unchanged before any
 new action. Never reauthor findings or acquire a replacement lease while a
 submission outcome is unknown. Definitive lease loss permits only a minimal

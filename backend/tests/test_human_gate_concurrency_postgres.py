@@ -283,7 +283,9 @@ def checkpoint_work(
     label: str,
 ) -> object:
     work = require_work_item(database, project_id, work_item_id, lock=True)
-    return append_checkpoint_record(database, work, checkpoint_payload(work_payload, label))
+    return append_checkpoint_record(
+        database, work, checkpoint_payload(work_payload, label), lease_ttl_seconds=300,
+    )
 
 
 def relationship_work(
@@ -359,6 +361,7 @@ def progress_work(
             actor=actor(label),
         ),
         bearer_key="mnemonic-integration-test-key-32-characters",
+        lease_ttl_seconds=300,
     )
 
 

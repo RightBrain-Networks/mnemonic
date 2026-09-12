@@ -316,3 +316,39 @@ def test_queue_filters_history_and_capability_isolation(
         ).status_code
         == 422
     )
+
+
+def test_remediation_summary_is_discoverable_in_flat_and_unified_search(
+    api, project, work_payload, checkpoint_fields,
+):
+    completion, _ = mandatory(api, project, work_payload, checkpoint_fields)
+    lease = claim_review(api, project, completion, checkpoint_fields)
+    findings = [
+        {**finding(), "path": "src/other.py", "title": "Reject missing ownership"},
+        {**finding("F002"), "title": "Invalidate stale readers"},
+        {**finding("F003"), "title": "Serialize concurrent writers"},
+    ]
+    body = result_payload(completion, lease, findings=findings)
+    response = api.post(result_url(project, completion), json=body)
+    assert response.status_code == 200, response.text
+    created = response.json()["remediation_work"]
+    summary = (
+        "Fix 3 review findings (primary file: main:src/cache.py): "
+        "Reject missing ownership; Invalidate stale readers; Serialize concurrent writers"
+    )
+    assert created["work_item"]["summary"] == summary
+    for row in findings:
+        assert row["title"] in created["initial_checkpoint"]["prompt"]
+        assert row["problem"] in created["initial_checkpoint"]["prompt"]
+    base = f"/api/v1/projects/{project['id']}"
+    for query in ("ownership", "writers", "cache.py"):
+        flat = api.get(base + "/work-items", params={"q": query, "status": "all"})
+        assert flat.status_code == 200, flat.text
+        assert any(hit["summary"]["work_item"] == created["work_item"]
+                   for hit in flat.json()["items"])
+        unified = api.post(base + "/search", json={"q": query, "facets": ["work_items"]})
+        assert unified.status_code == 200, unified.text
+        hit = next(hit for hit in unified.json()["items"]
+                   if hit["id"] == created["work_item"]["id"])
+        assert hit["work_item"]["summary"]["work_item"]["summary"] == summary
+    assert api.post(result_url(project, completion), json=body).json() == response.json()

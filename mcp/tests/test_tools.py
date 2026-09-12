@@ -1064,6 +1064,7 @@ async def test_tool_catalog_ready_event_and_gate_schemas(settings):
         "work_item_id",
         "body",
         "metadata",
+        "lease_token",
         "actor_client",
         "actor_session_id",
         "actor_model",
@@ -1079,7 +1080,7 @@ async def test_tool_catalog_ready_event_and_gate_schemas(settings):
     }
     assert append_input["properties"]["metadata"]["default"] == {}
     assert "event_type" not in append_input["properties"]
-    assert "lease_token" not in append_input["properties"]
+    assert "lease_token" not in append_input["required"]
     event_list_input = tools["list_work_events"].inputSchema["properties"]
     assert event_list_input["order"]["default"] == "oldest"
     assert event_list_input["limit"]["default"] == 50
@@ -5579,3 +5580,30 @@ async def test_question_revision_requires_both_target_and_version(settings, huma
 
     with pytest.raises(ToolError, match="must be supplied together"):
         await adapter(settings, handler).call_tool("request_human_input", arguments)
+
+
+@pytest.mark.parametrize("token", [None, LEASE_TOKEN])
+async def test_append_event_transports_optional_liveness_token(settings, progress_event, token):
+    arguments = {
+        **protected_tool_arguments()["append_event"], **ACTOR_ARGUMENTS, "lease_token": token,
+        "body": progress_event["body"], "metadata": progress_event["metadata"],
+    }
+    seen = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        assert payload.get("lease_token") == token
+        assert ("lease_token" in payload) == (token is not None)
+        assert payload["client_operation_id"] == arguments["client_operation_id"]
+        assert LEASE_TOKEN not in str(request.url)
+        seen.append(request)
+        return httpx.Response(201, json=progress_event)
+
+    server = adapter(settings, handler)
+    result = await server.call_tool("append_event", arguments)
+    assert result[1] == progress_event
+    assert len(seen) == 1
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    for name in ("append_event", "add_checkpoint"):
+        assert "configured TTL in the same transaction" in tools[name].description
+        assert "exact receipt replays do not renew a lease" in tools[name].description

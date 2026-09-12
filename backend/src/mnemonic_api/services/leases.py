@@ -368,12 +368,13 @@ def validate_optional_lease_token(
     lease_token: str | None,
     *,
     lock: bool = False,
+    renew_ttl_seconds: int | None = None,
 ) -> None:
-    """Validate a supplied token without requiring ownership for the operation."""
+    """Validate an optional implementation token and renew it for a progress write."""
     if lease_token is None:
         return
     statement = select(WorkLease).where(WorkLease.work_item_id == work_item_id)
-    if lock:
+    if lock or renew_ttl_seconds is not None:
         statement = statement.with_for_update()
     lease = database.scalar(statement)
     database_now = _database_now(database)
@@ -385,6 +386,10 @@ def validate_optional_lease_token(
         )
     if lease.expires_at <= database_now:
         _expired()
+    if renew_ttl_seconds is not None:
+        lease.renewed_at = database_now
+        lease.expires_at = database_now + timedelta(seconds=renew_ttl_seconds)
+        database.flush()
 
 
 def require_no_active_lease(database: Session, work_item_id: UUID) -> None:

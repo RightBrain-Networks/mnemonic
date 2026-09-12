@@ -1112,7 +1112,7 @@ def _register_context_tools(server: FastMCP, api: MnemonicAPI) -> None:
         kind: AppendCheckpointKind = "context",
         lease_token: LeaseTokenInput | None = None,
     ) -> CheckpointRead:
-        """After changing work or related work, inspect affected unresolved human questions. If their facts or options changed, rewrite the original prose with request_human_input using its gate_id and expected_question_version; keep the human out of checkpoint and superseding-decision reconciliation. Append immutable context or progress with truthful current-session provenance; source_session_id must be the native agent session ID when exposed, otherwise a Mnemonic session UUID generated once and retained for this agent session, never a transport identity. affected_paths is an ordered declaration of repository dependencies, not files merely changed by the author; a non-empty list requires the commit actually inspected in verified_against, while omission or [] means no scope was declared and ** explicitly means all eligible repository paths. The server and MCP adapter do not inspect Git. A lease is not required; when supplied, its token is validated rather than ignored. Corrections are new context checkpoints, never a rewrite of an earlier one; completion uses complete_work. Never store lease tokens, credentials, or private chain-of-thought. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
+        """After changing work or related work, inspect affected unresolved human questions. If their facts or options changed, rewrite the original prose with request_human_input using its gate_id and expected_question_version; keep the human out of checkpoint and superseding-decision reconciliation. Append immutable context or progress with truthful current-session provenance; source_session_id must be the native agent session ID when exposed, otherwise a Mnemonic session UUID generated once and retained for this agent session, never a transport identity. affected_paths is an ordered declaration of repository dependencies, not files merely changed by the author; a non-empty list requires the commit actually inspected in verified_against, while omission or [] means no scope was declared and ** explicitly means all eligible repository paths. The server and MCP adapter do not inspect Git. A lease is not required. Supply a matching active implementation lease_token to renew the lease from server time using the configured TTL in the same transaction. Token-free writes and exact receipt replays do not renew a lease. Corrections are new context checkpoints, never a rewrite of an earlier one; completion uses complete_work. Never store lease tokens, credentials, or private chain-of-thought. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
         return cast(
             CheckpointRead,
             await api.request(
@@ -1332,8 +1332,9 @@ def _register_event_tools(server: FastMCP, api: MnemonicAPI) -> None:
         client_operation_id: UUID,
         actor_model: ActorModelInput | None = None,
         metadata: ProgressMetadataInput = _EMPTY_PROGRESS_METADATA,
+        lease_token: LeaseTokenInput | None = None,
     ) -> WorkEventRead:
-        """Append one concise progress fact with truthful current-session provenance; use add_checkpoint instead when a future session needs resume context. Never store credentials, lease tokens, operation IDs, private chain-of-thought, or transcript dumps. Reserved secret-like keys and request-known secret echoes are rejected, but accepted opaque text may still contain unrecognized sensitive content and is returned exactly to authorized history readers. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
+        """Append one concise progress fact with truthful current-session provenance; use add_checkpoint instead when a future session needs resume context. Supply the active implementation lease_token to renew the lease from server time using the configured TTL in the same transaction. Token-free writes and exact receipt replays do not renew a lease. Never store credentials, lease tokens, operation IDs, private chain-of-thought, or transcript dumps. Reserved secret-like keys and request-known secret echoes are rejected, but accepted opaque text may still contain unrecognized sensitive content and is returned exactly to authorized history readers. Generate client_operation_id before the first attempt and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
         event = cast(
             WorkEventRead,
             await api.request(
@@ -1341,14 +1342,17 @@ def _register_event_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 f"projects/{project_id}/work-items/{work_item_id}/events",
                 payload=_client_operation_payload(
                     client_operation_id,
-                    {
-                        "event_type": "progress",
-                        "body": body,
-                        "metadata": metadata,
-                        "actor": _actor_payload(
-                            actor_client, actor_session_id, actor_model
-                        ),
-                    },
+                    _lease_capable_payload(
+                        {
+                            "event_type": "progress",
+                            "body": body,
+                            "metadata": metadata,
+                            "actor": _actor_payload(
+                                actor_client, actor_session_id, actor_model
+                            ),
+                        },
+                        lease_token,
+                    ),
                 ),
                 response_model=WorkEventRead,
                 effect=TransportEffect.RECEIPT_PROTECTED_WRITE,
@@ -1558,7 +1562,7 @@ def _register_claim_tools(server: FastMCP, api: MnemonicAPI) -> None:
         work_item_id: UUID,
         lease_token: LeaseTokenInput,
     ) -> ClaimReceipt:
-        """Renew a matching unexpired claim before it expires; ordinary activity, checkpoints, and edits do not renew it. Each success recalculates expiry, so this operation is not idempotent. Keep the token in active-session state only."""
+        """Renew a matching unexpired claim before it expires; fresh token-bearing append_event and add_checkpoint writes also renew implementation leases, while token-free writes, exact receipt replays, and ordinary edits do not renew it. Each success recalculates expiry, so this operation is not idempotent. Keep the token in active-session state only."""
         receipt = cast(
             ClaimReceipt,
             await api.request(

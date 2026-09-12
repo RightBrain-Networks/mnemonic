@@ -211,7 +211,7 @@ def create_work_records(
 
 
 def append_checkpoint_record(
-    database: Session, work_item: WorkItem, payload: CheckpointCreate
+    database: Session, work_item: WorkItem, payload: CheckpointCreate, *, lease_ttl_seconds: int
 ) -> Checkpoint:
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
@@ -222,7 +222,7 @@ def append_checkpoint_record(
         database,
         work_item.id,
         payload.lease_token,
-        lock=payload.lease_token is not None,
+        renew_ttl_seconds=lease_ttl_seconds,
     )
     checkpoint = _checkpoint(work_item.id, payload, kind=payload.kind)
     database.add(checkpoint)
