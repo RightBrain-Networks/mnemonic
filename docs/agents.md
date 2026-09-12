@@ -629,7 +629,7 @@ chain-of-thought or a raw transcript. Checkpoints cannot be edited or deleted;
 append a corrective context checkpoint instead. Supply the active implementation
 `lease_token` on `add_checkpoint` or `append_event` to renew the lease atomically
 with the fresh write. Expiry becomes database time after lock acquisition plus
-`MNEMONIC_LEASE_TTL_SECONDS`. Token-free appends and exact receipt replays do not
+the last granted duration, clamped to current project minimum and maximum. Token-free appends and exact receipt replays do not
 renew ownership. Expired, mismatched, and review-purpose tokens are rejected;
 failed writes roll back renewal too. These appends never acquire or steal a lease.
 

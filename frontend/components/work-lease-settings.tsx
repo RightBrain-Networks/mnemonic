@@ -25,6 +25,7 @@ export default function WorkLeaseSettings({
     () => available ? leaseSettingsDraft(available) : null
   );
   const [revision, setRevision] = useState(available?.revision ?? null);
+  const acceptedRevision = useRef(available?.revision ?? null);
   const prior = useRef(available);
   const [conflict, setConflict] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -33,12 +34,19 @@ export default function WorkLeaseSettings({
 
   useEffect(() => () => { generation.current += 1; }, []);
   useEffect(() => {
-    if (!available || available.revision === revision) return;
+    if (!available || acceptedRevision.current !== null
+      && BigInt(available.revision) <= BigInt(acceptedRevision.current)) return;
     if (!draft || !prior.current || sameLeaseDraft(draft, leaseSettingsDraft(prior.current))) {
       prior.current = available;
       setDraft(leaseSettingsDraft(available));
+      acceptedRevision.current = available.revision;
       setRevision(available.revision);
-    } else setConflict(true);
+    } else {
+      // A refresh can finish while the user accepts these saved values. Consult
+      // the acknowledged revision when this update runs, not its earlier render.
+      setConflict((current) => current || acceptedRevision.current === null
+        || BigInt(available.revision) > BigInt(acceptedRevision.current));
+    }
   }, [available, draft, revision]);
 
   const dirty = available && draft && !sameLeaseDraft(draft, leaseSettingsDraft(available));
@@ -60,6 +68,7 @@ export default function WorkLeaseSettings({
       if (request !== generation.current) return;
       prior.current = saved;
       setConflict(false);
+      acceptedRevision.current = saved.revision;
       setRevision(saved.revision);
       setDraft(leaseSettingsDraft(saved));
       onSaved(saved);
@@ -117,6 +126,7 @@ export default function WorkLeaseSettings({
         <button type="button" className="button button-secondary" disabled={loading || saving || Boolean(loadError)}
           onClick={() => {
             prior.current = available;
+            acceptedRevision.current = available.revision;
             setRevision(available.revision);
             setConflict(false);
             setError("");

@@ -48,7 +48,9 @@ test("work lease durations validate, persist, and stay scoped to the selected pr
     await expect(maximumMinutes).toHaveValue("120");
     await expect(save).toBeDisabled();
     const screenshotPath = testInfo.outputPath(`workspace-variable-leases-${testInfo.project.name}.png`);
-    await details.screenshot({ path: screenshotPath });
+    const leaseForm = details.locator(".work-lease-settings");
+    await leaseForm.scrollIntoViewIfNeeded();
+    await leaseForm.screenshot({ path: screenshotPath });
     await testInfo.attach("Workspace lease settings", { path: screenshotPath, contentType: "image/png" });
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
 
@@ -120,7 +122,16 @@ test("lease drafts survive background refresh and require review after a setting
     await expect(page.getByText("Saved durations: Default 20 minutes;", { exact: false })).toBeVisible();
     await expect(defaultMinutes).toHaveValue("25");
     await expect(save).toBeDisabled();
-    await page.getByRole("button", { name: "I reviewed the saved durations" }).click();
+    // Another refresh of this same revision can finish while the user accepts it.
+    // It must not turn the acknowledged draft back into a conflict.
+    const duplicateRefresh = page.waitForResponse((response) => response.request().method() === "GET"
+      && response.url().endsWith(`/projects/${projectId}/settings`));
+    sendSync!(JSON.stringify({ type: "invalidate", scope: "projects", revision: 3 }));
+    await Promise.all([
+      page.getByRole("button", { name: "I reviewed the saved durations" }).click(),
+      duplicateRefresh
+    ]);
+    await expect(page.getByRole("button", { name: "I reviewed the saved durations" })).toHaveCount(0);
     await expect(defaultMinutes).toBeEnabled();
     await save.click();
     await expect(page.locator(".toast[role=status]")).toContainText("Work lease durations saved.");
