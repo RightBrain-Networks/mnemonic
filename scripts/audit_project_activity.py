@@ -20,12 +20,12 @@ from typing import Any
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0034_variable_work_leases"
+HEAD = "0035_prompt_library"
 EXTRACTION_HEAD = "0027_artifact_fulltext"
 EXTRACTION_HEADS = (
     EXTRACTION_HEAD, "0028_work_summary_limit", "0029_artifact_links_sensitive",
     "0030_question_versions", "0031_review_decisions", "0032_agent_transcripts",
-    "0033_transcript_imports", HEAD,
+    "0033_transcript_imports", "0034_variable_work_leases", HEAD,
 )
 ARTIFACT_HEAD = "0026_artifact_library"
 ARTIFACT_HEADS = (ARTIFACT_HEAD, *EXTRACTION_HEADS)
@@ -341,13 +341,17 @@ _REPORT_FINDINGS = {
         SELECT count(*) FROM job_completion_reports
         WHERE NOT mnemonic_job_report_text_valid_v1(summary,2000,8000,false)
            OR NOT mnemonic_job_report_fyis_valid_v1(summary,fyi_items)
-           OR NOT mnemonic_job_report_text_valid_v1(prompt_text,8000,16384,true)
            OR prompt_revision<1
+           OR length(prompt_text) NOT BETWEEN 1 AND 100000
+           OR octet_length(prompt_text)>400000
+           OR NOT mnemonic_has_non_whitespace(prompt_text)
            OR prompt_sha256<>encode(sha256(convert_to(prompt_text,'UTF8')),'hex')
+           OR prompt_template_sha256 !~ '^[a-f0-9]{64}$'
     """,
     "invalid_settings_text": """
         SELECT count(*) FROM project_settings WHERE revision<1
-          OR NOT mnemonic_job_report_text_valid_v1(job_completion_report_prompt,8000,16384,true)
+          OR job_completion_report_prompt_sha256 !~ '^[a-f0-9]{64}$'
+          OR recall_pointer_sha256 !~ '^[a-f0-9]{64}$'
     """,
     "missing_or_mismatched_review": """
         SELECT count(*) FROM job_completion_reports r
@@ -908,6 +912,24 @@ _EXTRACTION_FINDINGS = {
 }
 
 
+def _report_checks(expected_head: str) -> dict[str, str]:
+    checks = dict(_REPORT_FINDINGS)
+    if expected_head != HEAD:
+        checks["invalid_report_text"] = """
+            SELECT count(*) FROM job_completion_reports
+            WHERE NOT mnemonic_job_report_text_valid_v1(summary,2000,8000,false)
+              OR NOT mnemonic_job_report_fyis_valid_v1(summary,fyi_items)
+              OR NOT mnemonic_job_report_text_valid_v1(prompt_text,8000,16384,true)
+              OR prompt_revision<1
+              OR prompt_sha256<>encode(sha256(convert_to(prompt_text,'UTF8')),'hex')
+        """
+        checks["invalid_settings_text"] = """
+            SELECT count(*) FROM project_settings WHERE revision<1
+              OR NOT mnemonic_job_report_text_valid_v1(job_completion_report_prompt,8000,16384,true)
+        """
+    return checks
+
+
 def _head_findings(
     connection: Connection, expected_head: str, previous: Any
 ) -> dict[str, int]:
@@ -918,7 +940,7 @@ def _head_findings(
     findings = _catalog_drift(connection, expected_head)
     checks = dict(_ACTIVITY_FINDINGS)
     if expected_head in REPORT_HEADS:
-        checks.update(_REPORT_FINDINGS)
+        checks.update(_report_checks(expected_head))
     if expected_head in REFERENCE_HEADS:
         checks.update(_REFERENCE_FINDINGS)
     if expected_head in MOVE_HEADS:

@@ -58,6 +58,7 @@ from mnemonic_api.phase12_schemas import (
     JobCompletionReportInput,
     JobCompletionReportRead,
     PositiveRevision,
+    RenderedAuthoringPrompt,
 )
 from mnemonic_api.transcript_locations import TranscriptLocation, TranscriptSources
 
@@ -1381,6 +1382,9 @@ class ProjectSettingsPatch(APIModel):
 
     @model_validator(mode="after")
     def editable_setting(self) -> Self:
+        edited = self.model_fields_set - {"expected_revision"}
+        if edited & {"recall_pointer_template", "job_completion_report_prompt"} and len(edited) > 1:
+            raise ValueError("Save each prompt separately from other settings")
         if not self.model_fields_set - {"expected_revision"}:
             raise ValueError("Provide at least one editable setting")
         return self
@@ -1392,7 +1396,7 @@ class ProjectSettingsRead(APIModel):
     lease_maximum_minutes: LeaseMinutes
     project_id: UUID
     recall_pointer_template: str | None
-    job_completion_report_prompt: AuthoringPrompt
+    job_completion_report_prompt: RenderedAuthoringPrompt
     revision: PositiveRevision
     code_review_required_min_priority: ReviewThreshold
     code_review_optional_min_priority: ReviewThreshold

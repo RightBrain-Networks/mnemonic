@@ -67,15 +67,7 @@ SUPERSESSION_FIELDS = frozenset(
         "expected_follow_up_version",
     }
 )
-QUESTION = (
-    "Do you recommend an adversarial code review of the work you just completed? "
-    "Answer yes or no and give a concise reason. Consider complexity, application-wide changes, "
-    "rework of faulty code, security or other critical behavior, and mistakes encountered. "
-    "A comprehensive review already completed in this session, trivial changes, an owner's "
-    "request for no review, or well-supported confidence may justify no. These examples are "
-    "not exhaustive. If yes, provide the exact Git scope and a reviewer handoff describing "
-    "decisions and reasons, concerns, and implementation or testing traps."
-)
+
 
 
 def prepare_review_policy(
@@ -189,6 +181,8 @@ def seal_review_policy(
 def _create_question(
     database: Session, work: WorkItem, policy: WorkCompletionReviewPolicy, actor: MutationActor
 ) -> None:
+    from mnemonic_api.services.prompts import render_prompt
+
     human = actor.actor_client == "dashboard" and actor.actor_model is None
     question = WorkAgentFollowUp(
         id=uuid4(),
@@ -200,9 +194,10 @@ def _create_question(
         schema_version=1,
         version=1,
         audience="origin_human" if human else "origin_agent",
-        question=QUESTION.replace("work you just completed", "work you just marked Done")
-        if human
-        else QUESTION,
+        question=render_prompt(
+            database, work.project_id, "review-recommendation", work_item_id=work.id,
+            extra={"$COMPLETION_ACTION": "marked Done" if human else "completed"},
+        ),
         allowed_answers=["yes", "no"],
         required_answer_fields=["recommend_review", "rationale"],
         origin_client=actor.actor_client,
@@ -603,7 +598,7 @@ def _create_remediation(
     summary_maximum = database.info.get("work_summary_max_chars", DEFAULT_WORK_SUMMARY_MAX_CHARS)
     association_id = uuid4()
     initial = InitialCheckpointCreate(
-        prompt=_remediation_prompt(result.id, payload),
+        prompt=_remediation_prompt(database, work, result.id, payload, review.id),
         source_client=payload.actor.actor_client,
         source_session_id=payload.actor.actor_session_id,
         source_model=payload.actor.actor_model,
@@ -661,14 +656,30 @@ def _create_remediation(
     )
 
 
-def _remediation_prompt(result_id: UUID, payload: CodeReviewCompletionRequest) -> str:
-    chunks = [
-        f"Remediate all findings from code review result {result_id}.",
-        "Keep all findings in this one work item. Record progress by finding key.",
-    ]
+def _remediation_prompt(
+    database: Session, work: WorkItem, result_id: UUID, payload: CodeReviewCompletionRequest,
+    review_id: UUID,
+) -> str:
+    from mnemonic_api.services.prompts import render_prompt
+
+    chunks = []
     for finding in payload.result.findings:
         chunks.append(f"\n- [ ] {finding.finding_key} ({finding.severity}): {finding.title}")
         for field, value in finding.model_dump(mode="json").items():
             if field not in {"finding_key", "severity", "title"} and value is not None:
                 chunks.append(f"  {field}: {value}")
-    return "\n".join(chunks)
+    findings = "\n".join(chunks).lstrip("\n")
+    rendered = render_prompt(
+        database, work.project_id, "review-remediation", work_item_id=work.id,
+        code_review_id=review_id,
+        extra={"$REVIEW_RESULT_ID": str(result_id), "$REVIEW_FINDINGS": findings},
+    )
+    # The finding data is a required immutable witness even if a customized template omits it.
+    if str(result_id) not in rendered:
+        rendered += "\n\n" + str(result_id)
+    if findings not in rendered:
+        rendered += "\n\n" + findings
+    if len(rendered) > 100_000:
+        raise ApplicationError(422, "prompt_render_too_large",
+                               "Remediation instructions exceed 100,000 characters.")
+    return rendered

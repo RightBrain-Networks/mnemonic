@@ -30,6 +30,7 @@ def main() -> None:
     print("Created .env with new local secrets. Do not commit or share it.")
     print("Create the private artifact bind directory before starting Compose:")
     print("  sudo install -d -m 0700 -o 10001 -g 10001 ./artifacts")
+    print("  sudo install -d -m 0700 -o 10001 -g 10001 ./prompts/runtime")
     print("  sudo install -d -m 0700 -o 10001 -g 10001 ./backups")
     print("  sudo install -d -m 0700 -o 10001 -g 10001 /var/lib/mnemonic/transcript-index")
     print("Start Mnemonic: docker compose up --build -d --wait")

@@ -71,6 +71,7 @@ def build_session_factory(
 def get_session(request: Request) -> Iterator[Session]:
     # A failed request closes and rolls back its uncommitted transaction.
     with request.app.state.session_factory() as session:
+        session.info["prompt_root"] = request.app.state.settings.prompt_root
         yield session
 
 

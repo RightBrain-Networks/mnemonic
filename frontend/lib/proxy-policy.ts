@@ -1,3 +1,4 @@
+import { invalidPromptBody, isPromptRenderRoute, promptQueryKeys, PROMPT_RESPONSE_MAX_BYTES } from "./prompts.ts";
 import { LEASE_SETTINGS_FIELDS, validLeaseMinutes } from "./work-lease-settings.ts";
 import { validSearchRequest } from "./search-request.ts";
 import { validExternalCandidates, validExternalReferences } from "./external-references.ts";
@@ -247,6 +248,8 @@ export function isUnifiedSearchRoute(path: string, method: string): boolean {
 }
 
 export function allowedQueryKeys(path: string, method: string): string[] | null {
+  const promptKeys = promptQueryKeys(path, method);
+  if (promptKeys !== null) return promptKeys;
   if (UNIFIED_SEARCH.test(path) && method === "POST") return [];
   // Lease receipts and arguments carry browser-forbidden capabilities.
   if (LEASE_CAPABILITY.test(path)) return null;
@@ -268,7 +271,8 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     if (method === "POST") return [];
   }
   if (PROJECT.test(path) && (method === "GET" || method === "PATCH")) return [];
-  if (PROJECT_SETTINGS.test(path) && (method === "GET" || method === "PATCH")) return [];
+  if (PROJECT_SETTINGS.test(path) && method === "GET") return ["work_item_id"];
+  if (PROJECT_SETTINGS.test(path) && method === "PATCH") return [];
   if (DUPLICATE_SUGGESTIONS.test(path) && method === "POST") return [];
   if (WORK_ITEMS.test(path)) {
     if (method === "GET") {
@@ -536,6 +540,8 @@ export function invalidMutationBody(path: string, method: string, value: unknown
     return DEFINITIVE_PROXY_ERRORS.invalidClientOperation.detail;
   }
 
+  const promptError = invalidPromptBody(path, method, body);
+  if (promptError) return promptError;
   if (UNIFIED_SEARCH.test(path) && method === "POST" && !validSearchRequest(body)) return "Invalid unified search request.";
   if (DUPLICATE_SUGGESTIONS.test(path) && method === "POST") {
     if (
@@ -656,7 +662,9 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   }
   if (PROJECT_SETTINGS.test(path) && method === "PATCH") {
     if (
-      !allowedKeys(body, ["expected_revision", "recall_pointer_template", "job_completion_report_prompt", "code_review_required_min_priority", "code_review_optional_min_priority", "allow_remediation_code_reviews", ...LEASE_SETTINGS_FIELDS])
+      ["recall_pointer_template", "job_completion_report_prompt"].some((key) => Object.hasOwn(body, key))
+        && Object.keys(body).length !== 2
+      || !allowedKeys(body, ["expected_revision", "recall_pointer_template", "job_completion_report_prompt", "code_review_required_min_priority", "code_review_optional_min_priority", "allow_remediation_code_reviews", ...LEASE_SETTINGS_FIELDS])
       || !decimalString(body.expected_revision, true)
       || !["recall_pointer_template", "job_completion_report_prompt", "code_review_required_min_priority", "code_review_optional_min_priority", "allow_remediation_code_reviews", ...LEASE_SETTINGS_FIELDS].some((field) => Object.hasOwn(body, field))
       || (Object.hasOwn(body, "code_review_required_min_priority") && !validReviewThreshold(body.code_review_required_min_priority))
@@ -797,6 +805,7 @@ export function browserTransportEffect(
   path: string,
   method: string
 ): BrowserTransportEffect | null {
+  if (isPromptRenderRoute(path, method)) return "safe_read";
   if (method === "POST" && (DUPLICATE_SUGGESTIONS.test(path) || UNIFIED_SEARCH.test(path))) return "safe_read";
   if (LEASE_CAPABILITY.test(path)) return "lease_claim";
   if (method === "POST" && WORK_PENDING.test(path)) {
@@ -910,6 +919,7 @@ export function trustedRequest(headers: Headers, method: string, origins: Set<st
 
 
 export function phase12ResponseLimitBytes(path: string, method = "GET"): number | null {
+  if (promptQueryKeys(path, method) !== null) return PROMPT_RESPONSE_MAX_BYTES;
   if (UNIFIED_SEARCH.test(path) && method === "POST") return 16 * 1024 * 1024;
   if (REVIEW_LIST.test(path)) return 524_288;
   if (REVIEW_DETAIL.test(path)) return 786_432;
@@ -918,9 +928,10 @@ export function phase12ResponseLimitBytes(path: string, method = "GET"): number 
   if (PROJECT_ACTIVITY.test(path)) return 524_288;
   if (JOB_REPORT_COUNT.test(path)) return 1_024;
   if (JOB_REPORTS.test(path)) return 2_097_152;
-  if (JOB_REPORT.test(path) || WORK_REPORT_FOLLOW_UPS.test(path)) return 262_144;
+  if (JOB_REPORT.test(path)) return PROMPT_RESPONSE_MAX_BYTES;
+  if (WORK_REPORT_FOLLOW_UPS.test(path)) return 262_144;
   if (JOB_REPORT_FOLLOW_UPS.test(path)) return method === "GET" ? 262_144 : 1_048_576;
   if (JOB_REPORT_DISMISS.test(path)) return 16_384;
-  if (PROJECT_SETTINGS.test(path)) return 1_048_576;
+  if (PROJECT_SETTINGS.test(path)) return PROMPT_RESPONSE_MAX_BYTES;
   return null;
 }

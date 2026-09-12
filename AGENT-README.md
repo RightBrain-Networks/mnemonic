@@ -431,8 +431,8 @@ startup/investigation and estimate remaining session time for later lease reques
 within the current project bounds. Preserve exact `lease_minutes` arguments on
 uncertain claim retries.
 
-Application/API/MCP/dashboard 0.48.0, plugin 0.28.0 and Alembic
-`0034_variable_work_leases` ship together: 54 MCP tools, 17
+Application/API/MCP/dashboard 0.49.0, plugin 0.29.0 and Alembic
+`0035_prompt_library` ship together: 54 MCP tools, 17
 receipt-protected MCP writes,
 24 REST receipt kinds, 21 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
@@ -496,3 +496,11 @@ existing `gate_id` and `expected_question_version`. After updating relevant
 work or related work, rewrite the affected question's complete prose rather
 than leaving the human to reconcile checkpoints. Earlier versions remain in
 tabs and resolved answers remain immutable. See `docs/attention.md`.
+
+
+Project prompt templates are Markdown files in `prompts/`; the dashboard edits
+per-project copies through Settings → Prompts. See [the prompt library](docs/prompts.md).
+When authoring a report, supply the exact `work_item_id` to `get_project_settings`
+so project and work macros expand together. Keep the returned prompt revision
+with the closeout intent for exact retries. Editable templates require a companion
+filesystem backup; immutable report authoring-prompt snapshots stay in PostgreSQL.

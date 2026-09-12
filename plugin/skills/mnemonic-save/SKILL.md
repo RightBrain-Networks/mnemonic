@@ -373,7 +373,7 @@ promote it without owner direction.
    authority. Keep existing lease, version, blocker, gate, freshness and
    completion-evidence checks. A blocker requiring a person belongs in Needs
    Attention, not an FYI.
-2. Fetch current `get_project_settings(project_id)`, read its effective report
+2. Fetch current `get_project_settings(project_id, work_item_id)`, read its effective report
    prompt, and author a concise paragraph plus zero or more FYIs following the
    shared report reference. Assume the human saw no other LLM output and is
    multitasking. Put every material outcome, limitation and override decision

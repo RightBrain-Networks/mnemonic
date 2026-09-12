@@ -88,7 +88,8 @@ def _pre_review_completion(engine: Engine, project: dict, work: dict) -> dict:
         _insert_direct_artifact(connection, project["id"], work["id"], checkpoint)
         version = _transition_direct_completion_to_done(connection, work["id"])
         _insert_direct_completion_event(
-            connection, project["id"], work["id"], checkpoint, version, seal_review_policy=False
+            connection, project["id"], work["id"], checkpoint, version,
+            seal_review_policy=False, prompt_library=False,
         )
         receipt_id = seal_historical_receipt(connection, work["id"], checkpoint["id"])
         receipt_before = connection.scalar(
@@ -129,7 +130,7 @@ def test_project_activity_audit_accepts_review_events_and_checks_review_facts(
     close_work(api, project, question_work, checkpoint_fields, review=False)
     report = _audit(postgres_engine)
     assert report["result"] == "pass", report["blocking_findings"]
-    assert report["expected_head"] == "0034_variable_work_leases"
+    assert report["expected_head"] == "0035_prompt_library"
 
 
 def test_project_and_review_audits_keep_supported_0024_boundary(postgres_engine: Engine):

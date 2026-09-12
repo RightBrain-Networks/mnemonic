@@ -81,18 +81,9 @@ class ProjectSettings(Base):
                         "code_review_required_min_priority % 5 = 0 AND "
                         "code_review_optional_min_priority BETWEEN 0 AND 100 AND "
                         "code_review_optional_min_priority % 5 = 0", name="review_thresholds"),
-        CheckConstraint(
-            "mnemonic_job_report_text_valid_v1(job_completion_report_prompt, 8000, 16384, true)",
-            name="report_prompt_valid",
-        ),
-        CheckConstraint(
-            "mnemonic_has_non_whitespace(recall_pointer_template)",
-            name="recall_pointer_template_nonblank",
-        ),
-        CheckConstraint(
-            "length(recall_pointer_template) <= 100000",
-            name="recall_pointer_template_max_length",
-        ),
+        CheckConstraint("recall_pointer_sha256 ~ '^[a-f0-9]{64}$'", name="recall_pointer_hash"),
+        CheckConstraint("job_completion_report_prompt_sha256 ~ '^[a-f0-9]{64}$'",
+                        name="report_prompt_hash"),
     )
 
     project_id: Mapped[UUID] = mapped_column(
@@ -101,8 +92,22 @@ class ProjectSettings(Base):
     lease_default_minutes: Mapped[int] = mapped_column(Integer, default=15, server_default="15")
     lease_minimum_minutes: Mapped[int] = mapped_column(Integer, default=10, server_default="10")
     lease_maximum_minutes: Mapped[int] = mapped_column(Integer, default=120, server_default="120")
-    recall_pointer_template: Mapped[str | None] = mapped_column(Text)
-    job_completion_report_prompt: Mapped[str] = mapped_column(Text)
+    prompt_context_revision: Mapped[int] = mapped_column(BigInteger, default=1, server_default="1")
+    recall_pointer_sha256: Mapped[str] = mapped_column(String(64))
+    job_completion_report_prompt_sha256: Mapped[str] = mapped_column(String(64))
+
+    @property
+    def recall_pointer_template(self) -> str:
+        from mnemonic_api.services.prompts import settings_prompt
+
+        return settings_prompt(self, "recall-pointer")
+
+    @property
+    def job_completion_report_prompt(self) -> str:
+        from mnemonic_api.services.prompts import settings_prompt
+
+        return settings_prompt(self, "job-completion-report")
+
     revision: Mapped[int] = mapped_column(BigInteger, default=1, server_default="1")
     code_review_required_min_priority: Mapped[int] = mapped_column(
         SmallInteger, default=100, server_default="100")
@@ -1569,7 +1574,7 @@ class JobCompletionReport(Base):
     __table__ = Table(
         "job_completion_reports",
         Base.metadata,
-        *phase12.report_elements(movable_work=True),
+        *phase12.report_elements(movable_work=True, prompt_library=True),
     )
 
     id: Mapped[UUID]
@@ -1584,6 +1589,7 @@ class JobCompletionReport(Base):
     fyi_items: Mapped[list[str]]
     prompt_revision: Mapped[int]
     prompt_sha256: Mapped[str]
+    prompt_template_sha256: Mapped[str]
     prompt_text: Mapped[str]
     created_at: Mapped[datetime]
     actor_client: Mapped[str]

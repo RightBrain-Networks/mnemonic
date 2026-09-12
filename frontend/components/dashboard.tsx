@@ -12,7 +12,8 @@ import CodeReviewHandoffEditor, { emptyReviewHandoff } from "@/components/code-r
 import JobReportEditor from "@/components/job-report-editor";
 import { codeReviewDecision } from "@/lib/code-review-policy";
 import { decodeCodeReviewDetail, validReviewHandoff, type CodeReviewHandoff } from "@/lib/code-reviews";
-import { coldReviewPrompt, warmReviewDirective } from "@/lib/code-review-prompts";
+import { validateColdReviewPointer } from "@/lib/code-review-prompts";
+import { renderedPrompt } from "@/lib/prompts";
 import { normalizeExternalReferences, sameExternalReferences } from "@/lib/external-references";
 import type { ExternalReference } from "@/lib/types";
 import {
@@ -114,7 +115,6 @@ import {
 } from "@/lib/work-status-actions";
 import { scheduleHierarchyFilterCommit } from "@/lib/work-item-search";
 import { statusFilterLabels, statusFilterTransition } from "@/lib/work-queue";
-import { workRecallPointer } from "@/lib/work-recall-pointer";
 import {
   loadCompleteProjectCatalog,
   preservedWorkMoveDisplayStatus,
@@ -311,8 +311,9 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const [transcriptPending, setTranscriptPending] = useState(false);
   const [artifactPending, setArtifactPending] = useState(false);
   const [backupPending, setBackupPending] = useState(false);
+  const [promptPending, setPromptPending] = useState(false);
   const backupPendingRef = useRef(false);
-  const blockedNavigation = transcriptPending ? "Resolve the pending transcript rebuild before leaving this page." : artifactPending ? "Resolve the pending artifact action before leaving this page."
+  const blockedNavigation = promptPending ? "Save or discard your prompt changes before leaving this page." : transcriptPending ? "Resolve the pending transcript rebuild before leaving this page." : artifactPending ? "Resolve the pending artifact action before leaving this page."
     : backupPending ? "Wait for the backup action to finish before leaving this page."
       : mutationRegistry.hasDispatched() ? "Resolve pending mutations before leaving this dashboard document." : null;
   const route = useDashboardRoute(blockedNavigation);
@@ -891,6 +892,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   }
 
   function chooseProject(id: string) {
+    if (promptPending) { setNotice({ message: "Save or discard your prompt changes before switching projects.", error: true }); return; }
     if (transcriptPending) { setNotice({ message: "Resolve the pending transcript rebuild before switching projects.", error: true }); return; }
     if (artifactPending) { setNotice({ message: "Resolve the pending artifact action before switching projects.", error: true }); return; }
     if (backupPending) { setNotice({ message: "Wait for the backup action to finish before switching projects.", error: true }); return; }
@@ -1891,7 +1893,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     const selection = recordRequest.current;
     try {
       if (complete) {
-        const latestSettings = decodeProjectSettings(await api<unknown>(`/projects/${context.work_item.project_id}/settings`), context.work_item.project_id);
+        const latestSettings = decodeProjectSettings(await api<unknown>(`/projects/${context.work_item.project_id}/settings?work_item_id=${context.work_item.id}`), context.work_item.project_id);
         if (recordRequest.current !== selection) return;
         handleProjectSettingsSaved(latestSettings);
         const decision = codeReviewDecision(latestSettings, context.work_item.priority, context.code_review_context?.remediation_depth ?? 0);
@@ -2347,7 +2349,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         const status = action === "defer" ? "deferred" : action === "pending" ? "to-review" : action;
         const terminal = status === "done" || status === "wont-do" || status === "promoted";
         if (terminal) {
-          settings = decodeProjectSettings(await api<unknown>(`/projects/${work.project_id}/settings`), work.project_id);
+          settings = decodeProjectSettings(await api<unknown>(`/projects/${work.project_id}/settings?work_item_id=${work.id}`), work.project_id);
           handleProjectSettingsSaved(settings);
         }
         await mutationRegistry.execute({
@@ -2374,7 +2376,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       }
       if (action === "to-review") throw new Error("This review episode changed. Refresh before continuing.");
       if (action === "done") {
-        settings = decodeProjectSettings(await api<unknown>(`/projects/${work.project_id}/settings`), work.project_id);
+        settings = decodeProjectSettings(await api<unknown>(`/projects/${work.project_id}/settings?work_item_id=${work.id}`), work.project_id);
         handleProjectSettingsSaved(settings);
         const decision = codeReviewDecision(settings, work.priority, latestContext.code_review_context?.remediation_depth ?? 0);
         if (decision === "mandatory" && !handoff) {
@@ -2679,39 +2681,20 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
   async function copyRecallPointer(summary: WorkSummary) {
     const projectId = summary.work_item.project_id;
-    const pointerProject = projects.find((item) => item.id === projectId);
-    if (!pointerProject) {
-      setNotice({
-        message: "Project details are unavailable. Refresh the workspace and try again.",
-        error: true
-      });
-      return;
-    }
-    if (!projectSettings || projectSettings.project_id !== projectId) {
-      setNotice({
-        message: settingsLoadError
-          ? `Project settings could not be loaded. ${settingsLoadError} Use Refresh and try again.`
-          : settingsLoading
-            ? "Project settings are still loading. Wait a moment and try again."
-            : "Project settings are unavailable. Use Refresh and try again.",
-        error: true
-      });
-      return;
-    }
     const requestGeneration = recordRequest.current;
     try {
       const value = await api<unknown>(`${workItemPath(projectId, summary.work_item.id)}/context?recent_limit=0&recent_event_limit=0`);
       const latest = decodeWorkContext(value, projectId, summary.work_item.id);
       if (recordRequest.current !== requestGeneration) return;
       const review = latest.code_review_context?.current_review;
-      await copyText(
-      workRecallPointer(summaryWithContext(summary, latest), {
-        template: projectSettings.recall_pointer_template ?? undefined,
-        project: pointerProject
-      }) + (review ? `\n\n${warmReviewDirective(review)}` : ""),
-      `${summary.work_item.id}:pointer`,
-      "Recall pointer copied. Paste it into a session with Mnemonic connected."
-    );
+      const parts = await Promise.all([
+        renderedPrompt(projectId, "recall-pointer", summary.work_item.id),
+        ...(review ? [renderedPrompt(projectId, "warm-code-review", summary.work_item.id, review.id)] : [])
+      ]);
+      const prompt = parts.join("\n\n");
+      if (recordRequest.current !== requestGeneration) return;
+      await copyText(prompt, `${summary.work_item.id}:pointer`,
+        "Recall pointer copied. Paste it into a session with Mnemonic connected.");
     } catch (error) { setNotice({ message: errorMessage(error), error: true }); }
   }
 
@@ -2726,8 +2709,10 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       if (detail.review.state !== "requested" || detail.review.version !== review.version || detail.review.scope_sha256 !== review.scope_sha256) {
         setContextRefresh((value) => value + 1); throw new Error("The review changed. Refresh the work item before copying its prompt.");
       }
-      const prompt = coldReviewPrompt({ project_id: review.project_id, work_item_id: review.work_item_id, code_review_id: review.id,
+      validateColdReviewPointer({ project_id: review.project_id, work_item_id: review.work_item_id, code_review_id: review.id,
         review_version: review.version, scope_sha256: review.scope_sha256, scope: detail.scope });
+      const prompt = await renderedPrompt(review.project_id, "cold-code-review", review.work_item_id, review.id);
+      if (requestGeneration !== recordRequest.current) return;
       await copyText(prompt, `${review.work_item_id}:cold-review`, "Cold review prompt copied with pinned Git scope and no handoff context.");
     } catch (error) { setNotice({ message: errorMessage(error), error: true }); }
   }
@@ -2877,7 +2862,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       <Link href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={blockNavigationWhilePending}><Logo /><span>mnemonic<span className="brand-period">.</span></span></Link>
       <div className="workspace-picker">
         <label className="section-label" htmlFor="project-select">YOUR WORKSPACE</label>
-        <div className="select-wrap"><select id="project-select" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={transcriptPending || artifactPending || backupPending || projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
+        <div className="select-wrap"><select id="project-select" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={promptPending || transcriptPending || artifactPending || backupPending || projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
           {!projects.length && <option value="">{projectsLoading ? "Loading projects…" : "Select a project"}</option>}
           {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select><span className="select-chevron" aria-hidden="true">⌄</span></div>
@@ -2937,6 +2922,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
               backupRefreshSignal={settingsRefresh}
               onBackupPendingChange={handleBackupPendingChange}
               onTranscriptPendingChange={setTranscriptPending}
+              onPromptPendingChange={setPromptPending}
             />}
         </> : view === "summaries" ? <>
           <DashboardViewChrome eyebrow="WORK RESULTS FOR PEOPLE" title="Summaries"
@@ -3156,7 +3142,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       recovery={modalRecovery(selectMutationScope(mutationIntents, { conflictKeys: [mutationWorkKey(reviewCloseout.summary.work_item.project_id, reviewCloseout.summary.work_item.id)] }).intents)}>
       <p className="dialog-intro">“{reviewCloseout.summary.work_item.title}” requires a review under project policy. Complete the implementation and attach its immutable Git scope and originating-session handoff in one operation.</p>
       <CodeReviewHandoffEditor value={reviewHandoff} onChange={setReviewHandoff} disabled={checkpointSaving || Boolean(statusChangingId) || detailMutationBlocked} />
-      {reviewCloseout.mode === "checkpoint" && <JobReportEditor projectId={reviewCloseout.summary.work_item.project_id} draft={jobReportDraft} onChange={setJobReportDraft} disabled={checkpointSaving || detailMutationBlocked} />}
+      {reviewCloseout.mode === "checkpoint" && <JobReportEditor projectId={reviewCloseout.summary.work_item.project_id} workItemId={reviewCloseout.summary.work_item.id} draft={jobReportDraft} onChange={setJobReportDraft} disabled={checkpointSaving || detailMutationBlocked} />}
       {reviewCloseoutError && <p className="error-notice" role="alert">{reviewCloseoutError}</p>}
       <div className="dialog-actions"><button className="button button-secondary" disabled={checkpointSaving || Boolean(statusChangingId) || detailMutationBlocked} onClick={() => setReviewCloseout(null)}>Keep draft</button><button className="button button-primary" disabled={checkpointSaving || Boolean(statusChangingId) || detailMutationBlocked || !validReviewHandoff(reviewHandoff)} onClick={() => { void (reviewCloseout.mode === "checkpoint" ? saveCheckpoint(true, reviewHandoff) : changeManualStatus("done", reviewCloseout.summary, reviewHandoff)); }}>Complete and request review</button></div>
     </Dialog>}

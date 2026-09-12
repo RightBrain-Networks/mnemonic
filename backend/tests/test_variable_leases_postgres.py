@@ -209,7 +209,7 @@ def test_migration_backfills_projects_and_preserves_active_lease_replay(
     with postgres_engine.connect() as connection:
         assert connection.scalar(text("SELECT claim_lease_minutes FROM work_leases")) is None
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == \
-            "0034_variable_work_leases"
+            "0035_prompt_library"
 
 
 def test_backup_restores_policy_and_exact_claim_duration(
@@ -248,7 +248,7 @@ def test_downgrade_cannot_discard_custom_policy_or_claim_identity(
         migrate(postgres_engine, "0033_transcript_imports", downgrade=True)
     with postgres_engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == \
-            "0034_variable_work_leases"
+            "0035_prompt_library"
 
 
 def test_cold_review_status_read_and_custom_lease(api, project, work_payload, checkpoint_fields,

@@ -86,6 +86,12 @@ def report_prompt(value: str) -> str:
     return _validated_text(value, max_bytes=16384, multiline=True)
 
 
+def rendered_report_prompt(value: str) -> str:
+    if not value.strip() or "\x00" in value or len(value.encode("utf-8")) > 400_000:
+        raise ValueError("Expanded report prompt must be nonblank, NUL-free and bounded.")
+    return value
+
+
 ReportSummary = Annotated[
     StrictStr, Field(min_length=1, max_length=2000), AfterValidator(report_summary)
 ]
@@ -94,6 +100,9 @@ ReportFyi = Annotated[
 ]
 ReportPrompt = Annotated[
     StrictStr, Field(min_length=1, max_length=8000), AfterValidator(report_prompt)
+]
+RenderedReportPrompt = Annotated[
+    StrictStr, Field(min_length=1, max_length=100_000), AfterValidator(rendered_report_prompt)
 ]
 
 
@@ -181,7 +190,7 @@ class JobCompletionReportRead(JobCompletionReportInput):
 
 
 class JobCompletionReportDetailRead(JobCompletionReportRead):
-    authoring_prompt: ReportPrompt
+    authoring_prompt: RenderedReportPrompt
 
     @model_validator(mode="after")
     def enforce_prompt_hash(self) -> Self:
@@ -199,7 +208,7 @@ class ProjectSettingsRead(Phase12Wire):
     allow_remediation_code_reviews: StrictBool
     project_id: UUID
     recall_pointer_template: Annotated[StrictStr, Field(min_length=1, max_length=100000)] | None
-    job_completion_report_prompt: ReportPrompt
+    job_completion_report_prompt: RenderedReportPrompt
     revision: PositiveDecimalString
 
     @model_validator(mode="after")

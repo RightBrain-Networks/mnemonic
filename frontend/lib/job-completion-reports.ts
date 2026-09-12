@@ -58,6 +58,11 @@ export function validReportPrompt(value: unknown): value is string {
     && !FORBIDDEN_PROMPT.test(value) && Array.from(value).length <= 8_000
     && encoder.encode(value).byteLength <= 16_384;
 }
+export function validRenderedReportPrompt(value: unknown): value is string {
+  return typeof value === "string" && validUnicode(value) && Boolean(value.trim())
+    && !value.includes("\0") && Array.from(value).length <= 100_000
+    && encoder.encode(value).byteLength <= 400_000;
+}
 export function validJobReportInput(value: unknown): value is JobCompletionReportInput {
   const report = objectValue(value);
   return Boolean(report && exactKeys(report, ["summary", "fyi_items", "prompt_revision"])
@@ -71,7 +76,7 @@ export function decodeProjectSettings(value: unknown, projectId: string): Projec
   const settings = objectValue(value);
   if (!settings || !exactKeys(settings, PROJECT_SETTINGS_FIELDS) || !sameUuid(settings.project_id, projectId)
     || !nullableBoundedText(settings.recall_pointer_template, 100_000)
-    || !validReportPrompt(settings.job_completion_report_prompt)
+    || !validRenderedReportPrompt(settings.job_completion_report_prompt)
     || !validLeaseDurations(settings.lease_default_minutes, settings.lease_minimum_minutes, settings.lease_maximum_minutes)
     || !validReviewThreshold(settings.code_review_required_min_priority)
     || !validReviewThreshold(settings.code_review_optional_min_priority)
@@ -95,7 +100,7 @@ export function decodeJobReport(value: unknown, projectId: string, reportId?: st
     || !boundedText(report.actor_client, 80) || !boundedText(report.actor_session_id, 200)
     || !nullableBoundedText(report.actor_model, 120)
     || typeof report.prompt_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(report.prompt_sha256)
-    || !validUtcDateTime(report.created_at) || detail && !validReportPrompt(report.authoring_prompt)) throw invalid();
+    || !validUtcDateTime(report.created_at) || detail && !validRenderedReportPrompt(report.authoring_prompt)) throw invalid();
   return report as unknown as JobCompletionReport;
 }
 export function matchCloseoutReport(value: unknown, projectId: string, work: WorkItem, input: unknown, actor: unknown, checkpointId: string | null): JobCompletionReport {

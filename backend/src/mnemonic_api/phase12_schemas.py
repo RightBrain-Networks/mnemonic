@@ -75,6 +75,18 @@ def authoring_prompt(value: str) -> str:
     return value
 
 
+def rendered_authoring_prompt(value: str) -> str:
+    if not value.strip() or "\x00" in value or len(value.encode()) > 400_000:
+        raise ValueError("Expanded authoring prompt is invalid or exceeds its byte bound")
+    return value
+
+
+RenderedAuthoringPrompt = Annotated[
+    str, StringConstraints(strict=True, min_length=1, max_length=100_000),
+    AfterValidator(rendered_authoring_prompt),
+]
+
+
 Sequence = Annotated[
     str,
     StringConstraints(strict=True, min_length=1, max_length=19),
@@ -185,7 +197,7 @@ class JobCompletionReportRead(JobCompletionReportInput):
 
 
 class JobCompletionReportDetailRead(JobCompletionReportRead):
-    authoring_prompt: AuthoringPrompt
+    authoring_prompt: RenderedAuthoringPrompt
 
 
 class HumanDismissalRead(Phase12Model):

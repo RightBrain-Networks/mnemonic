@@ -53,11 +53,13 @@ MNEMONIC_E2E_BACKUP_TOKEN=$(openssl rand -hex 32)
 test_tmp=$(mktemp -d)
 MNEMONIC_E2E_ARTIFACT_DIR=$(mktemp -d /tmp/mnemonic-nginx-e2e-artifacts.XXXXXXXX)
 MNEMONIC_E2E_BACKUP_DIR=$(mktemp -d /tmp/mnemonic-nginx-e2e-backups.XXXXXXXX)
+MNEMONIC_E2E_PROMPT_DIR=$(mktemp -d /tmp/mnemonic-nginx-e2e-prompts.XXXXXXXX)
+export MNEMONIC_E2E_PROMPT_DIR
 export MNEMONIC_E2E_ARTIFACT_DIR MNEMONIC_E2E_BACKUP_DIR
 
 clean_disposable_directory() {
   local directory="$1"
-  if [[ ! "$directory" =~ ^/tmp/mnemonic-nginx-e2e-(artifacts|backups)\.[[:alnum:]]{8}$ ]] \
+  if [[ ! "$directory" =~ ^/tmp/mnemonic-nginx-e2e-(prompts|artifacts|backups)\.[[:alnum:]]{8}$ ]] \
     || [[ ! -d "$directory" || -L "$directory" ]]; then
     echo "Refusing to clean an unexpected nginx E2E storage directory." >&2
     return 2
@@ -76,6 +78,7 @@ cleanup() {
   rm -rf -- "$test_tmp"
   clean_disposable_directory "$MNEMONIC_E2E_ARTIFACT_DIR" || true
   clean_disposable_directory "$MNEMONIC_E2E_BACKUP_DIR" || true
+  clean_disposable_directory "$MNEMONIC_E2E_PROMPT_DIR" || true
   exit "$status"
 }
 trap cleanup EXIT
@@ -84,7 +87,8 @@ trap 'exit 130' INT TERM
 docker run --rm --user 0 \
   --mount "type=bind,source=$MNEMONIC_E2E_ARTIFACT_DIR,target=/artifacts" \
   --mount "type=bind,source=$MNEMONIC_E2E_BACKUP_DIR,target=/backups" \
-  postgres:17-alpine chown 10001:10001 /artifacts /backups
+  --mount "type=bind,source=$MNEMONIC_E2E_PROMPT_DIR,target=/prompts" \
+  postgres:17-alpine chown 10001:10001 /prompts /artifacts /backups
 
 docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$base_compose" -f "$nginx_compose" \
   run --rm --no-deps nginx-stock-policy-check

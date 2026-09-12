@@ -13,12 +13,13 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from mnemonic_api.application.guards import reject_empty_read_request
+from mnemonic_api.application.guards import reject_read_body_and_duplicate_query
 from mnemonic_api.database import Database, database_sqlstate
 from mnemonic_api.errors import ApplicationError, conflict
-from mnemonic_api.job_report_defaults import DEFAULT_JOB_COMPLETION_REPORT_PROMPT
 from mnemonic_api.models import Project, ProjectSettings
+from mnemonic_api.prompt_storage import default_prompt
 from mnemonic_api.schemas import (
+    APIModel,
     Page,
     ProjectCreate,
     ProjectListQuery,
@@ -28,9 +29,16 @@ from mnemonic_api.schemas import (
     ProjectSettingsRead,
 )
 from mnemonic_api.services.project_mutations import project_mutation
+from mnemonic_api.services.prompts import render_prompt, storage_for, synchronize_settings
 from mnemonic_api.services.work_items import require_project
 
 router = APIRouter()
+
+
+class ProjectSettingsQuery(APIModel):
+    work_item_id: UUID | None = None
+
+
 UNIQUE_VIOLATION = "23505"  # PostgreSQL SQLSTATE
 
 
@@ -85,6 +93,13 @@ def update_project(project_id: UUID, payload: ProjectPatch, database: Database) 
                 setattr(project, field, value)
             if changed:
                 project.updated_at = datetime.now(UTC)
+                settings = database.get(ProjectSettings, project_id)
+                if settings is not None:
+                    if max(settings.revision, settings.prompt_context_revision) == 2**63 - 1:
+                        raise ApplicationError(503, "project_settings_unavailable",
+                                               "Project settings revision is exhausted.")
+                    settings.prompt_context_revision += 1
+                    settings.revision += 1
             database.commit()
     except IntegrityError as exc:
         database.rollback()
@@ -98,16 +113,28 @@ def update_project(project_id: UUID, payload: ProjectPatch, database: Database) 
 @router.get(
     "/projects/{project_id}/settings",
     response_model=ProjectSettingsRead,
-    dependencies=[Depends(reject_empty_read_request)],
+    dependencies=[Depends(reject_read_body_and_duplicate_query)],
 )
-def get_project_settings(project_id: UUID, database: Database) -> ProjectSettingsRead:
-    require_project(database, project_id)
-    settings = database.get(ProjectSettings, project_id)
-    if settings is None:
-        raise ApplicationError(
-            503, "project_settings_unavailable", "Project settings are unavailable."
+def get_project_settings(
+    project_id: UUID,
+    filters: Annotated[ProjectSettingsQuery, Query()],
+    database: Database,
+) -> ProjectSettingsRead:
+    with project_mutation(database, project_id):
+        settings = database.get(ProjectSettings, project_id)
+        if settings is None:
+            raise ApplicationError(503, "project_settings_unavailable", "Settings are unavailable.")
+        synchronize_settings(database, settings)
+        result = settings_read(settings)
+        result.job_completion_report_prompt = render_prompt(
+            database,
+            project_id,
+            "job-completion-report",
+            work_item_id=filters.work_item_id,
+            template=result.job_completion_report_prompt,
         )
-    return settings_read(settings)
+        database.commit()
+        return result
 
 
 def settings_read(settings: ProjectSettings) -> ProjectSettingsRead:
@@ -137,6 +164,7 @@ def update_project_settings(
             raise ApplicationError(
                 503, "project_settings_unavailable", "Project settings are unavailable."
             )
+        synchronize_settings(database, settings)
         if int(payload.expected_revision) != settings.revision:
             raise conflict(
                 "project_settings_changed", "Project settings changed. Reload before saving."
@@ -147,8 +175,29 @@ def update_project_settings(
         changed = False
         for field in payload.model_fields_set - {"expected_revision"}:
             value = getattr(payload, field)
-            if field == "job_completion_report_prompt" and value is None:
-                value = DEFAULT_JOB_COMPLETION_REPORT_PROMPT
+            prompt_ids = {
+                "job_completion_report_prompt": "job-completion-report",
+                "recall_pointer_template": "recall-pointer",
+            }
+            if field in prompt_ids:
+                prompt_id = prompt_ids[field]
+                storage = storage_for(database)
+                current = storage.read(project_id, prompt_id)
+                saved = storage.write(
+                    project_id,
+                    prompt_id,
+                    default_prompt(prompt_id) if value is None else value,
+                    current.revision,
+                )
+                hash_field = (
+                    "recall_pointer_sha256"
+                    if field == "recall_pointer_template"
+                    else "job_completion_report_prompt_sha256"
+                )
+                if getattr(settings, hash_field) != saved.revision:
+                    changed = True
+                    setattr(settings, hash_field, saved.revision)
+                continue
             if getattr(settings, field) != value:
                 changed = True
                 setattr(settings, field, value)

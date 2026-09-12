@@ -7,6 +7,8 @@
 !backend/alembic/
 !backend/alembic/**
 !backend/alembic.ini
+!prompts/
+!prompts/*.md
 !scripts/
 !scripts/audit_project_activity.py
 !scripts/audit_duplicate_handling.py

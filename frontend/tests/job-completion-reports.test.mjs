@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { jobReportDraftHasEdits, emptyJobReportDraft, decodeJobReport, decodeReportEnvelope, decodeReportPage, decodeReportCount, decodeProjectSettings, decodeReportProvenancePage, validJobReportInput, validReportPrompt } from "../lib/job-completion-reports.ts";
+import { jobReportDraftHasEdits, emptyJobReportDraft, decodeJobReport, decodeReportDetail, decodeReportEnvelope, decodeReportPage, decodeReportCount, decodeProjectSettings, decodeReportProvenancePage, validJobReportInput, validReportPrompt } from "../lib/job-completion-reports.ts";
 import { decodePhase12Cursor, decimalString } from "../lib/activity-cursors.ts";
 import { allowedQueryKeys, invalidMutationBody, phase12ResponseLimitBytes } from "../lib/proxy-policy.ts";
 import { classifyMutationResponse } from "../lib/mutation-responses.ts";
@@ -37,8 +37,17 @@ test("settings are exact revisioned aggregates with independent editable prompt 
   assert.ok(validReportPrompt(settings.job_completion_report_prompt));
   for (const prompt of [" ","x\u206f","x\0","x".repeat(8001),"🙂".repeat(4097)]) assert.equal(validReportPrompt(prompt),false);
   const path=`projects/${f.project}/settings`;
-  for (const payload of [{expected_revision:"3",recall_pointer_template:null},{expected_revision:"3",job_completion_report_prompt:null},{expected_revision:"3",job_completion_report_prompt:"Write clearly."},{expected_revision:"3",recall_pointer_template:"Recall",job_completion_report_prompt:"Write clearly."}]) assert.equal(invalidMutationBody(path,"PATCH",payload),null);
-  for (const payload of [{expected_revision:3,job_completion_report_prompt:"Text"},{job_completion_report_prompt:"Text"},{expected_revision:"3"},{expected_revision:"3",job_completion_report_prompt:" "}]) assert.match(invalidMutationBody(path,"PATCH",payload),/allowlist/);
+  for (const payload of [{expected_revision:"3",recall_pointer_template:null},{expected_revision:"3",job_completion_report_prompt:null},{expected_revision:"3",job_completion_report_prompt:"Write clearly."}]) assert.equal(invalidMutationBody(path,"PATCH",payload),null);
+  for (const payload of [{expected_revision:"3",recall_pointer_template:"Recall",job_completion_report_prompt:"Write clearly."},{expected_revision:3,job_completion_report_prompt:"Text"},{job_completion_report_prompt:"Text"},{expected_revision:"3"},{expected_revision:"3",job_completion_report_prompt:" "}]) assert.match(invalidMutationBody(path,"PATCH",payload),/allowlist/);
+});
+
+test("macro-expanded report instructions retain exact work text beyond template limits", () => {
+  const authoring_prompt = "🧠".repeat(5000) + " Work title with \u202e retained text.";
+  assert.equal(validReportPrompt(authoring_prompt), false);
+  assert.equal(decodeReportDetail({ ...f.envelope, report: { ...f.report, authoring_prompt } }, f.project, f.reportId).report.authoring_prompt, authoring_prompt);
+  assert.throws(() => decodeReportDetail({ ...f.envelope, report: { ...f.report, authoring_prompt: "x".repeat(100001) } }, f.project, f.reportId));
+  assert.throws(() => decodeReportDetail({ ...f.envelope, report: { ...f.report, authoring_prompt: "Bad\0text" } }, f.project, f.reportId));
+  assert.equal(phase12ResponseLimitBytes(`projects/${f.project}/job-completion-reports/${f.reportId}`), 4 * 1024 * 1024);
 });
 
 test("report pagination rejects wrong cursors, scope, filters, reordered sequences and stale high water", () => {

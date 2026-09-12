@@ -26,6 +26,11 @@ class Settings(BaseSettings):
             "MNEMONIC_WORK_SUMMARY_MAX_CHARS", "work_summary_max_chars"
         ),
     )
+    prompt_root: Path = Field(
+        default=Path("/var/lib/mnemonic/prompts"),
+        validation_alias=AliasChoices("MNEMONIC_PROMPT_ROOT", "prompt_root"),
+    )
+
     artifact_root: Path = Field(
         default=Path("/var/lib/mnemonic/artifacts"),
         validation_alias=AliasChoices("MNEMONIC_ARTIFACT_ROOT", "artifact_root"),
@@ -87,7 +92,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("MNEMONIC_TRANSCRIPT_INDEX_DIR", "transcript_index_dir"),
     )
 
-    @field_validator("transcript_index_dir", "transcript_source_dir", mode="before")
+    @field_validator("prompt_root", "transcript_index_dir", "transcript_source_dir", mode="before")
     @classmethod
     def transcript_directory(cls, value):
         if value is None or value == "":
@@ -96,7 +101,7 @@ class Settings(BaseSettings):
         if (not directory.is_absolute() or directory == Path("/")
                 or ".." in directory.parts or str(directory).startswith("//")
                 or "\x00" in str(directory)):
-            raise ValueError("Transcript directories must be absolute dedicated paths")
+            raise ValueError("Storage directories must be absolute dedicated paths")
         return directory
 
     transcript_search_max_bytes: int = Field(

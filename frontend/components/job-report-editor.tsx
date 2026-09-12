@@ -6,8 +6,9 @@ import { api, errorMessage } from "@/lib/api";
 import { decodeProjectSettings, type JobReportDraft } from "@/lib/job-completion-reports";
 import type { ProjectSettings } from "@/lib/types";
 
-export default function JobReportEditor({ projectId, draft, onChange, disabled = false }: {
+export default function JobReportEditor({ projectId, workItemId, draft, onChange, disabled = false }: {
   projectId: string;
+  workItemId: string;
   draft: JobReportDraft;
   onChange: (draft: JobReportDraft) => void;
   disabled?: boolean;
@@ -25,7 +26,7 @@ export default function JobReportEditor({ projectId, draft, onChange, disabled =
     const controller = new AbortController();
     setLoading(true);
     setError("");
-    api<unknown>(`/projects/${projectId}/settings`, { signal: controller.signal })
+    api<unknown>(`/projects/${projectId}/settings?work_item_id=${encodeURIComponent(workItemId)}`, { signal: controller.signal })
       .then((value) => {
         const next = decodeProjectSettings(value, projectId);
         if (controller.signal.aborted) return;
@@ -36,8 +37,8 @@ export default function JobReportEditor({ projectId, draft, onChange, disabled =
       }).catch((failure) => { if (!controller.signal.aborted) setError(errorMessage(failure)); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [projectId, refresh]);
-  useFailedReadRetry({ scope: `report-prompt:${projectId}`, failed: Boolean(error), busy: loading, retry: () => setRefresh((value) => value + 1) });
+  }, [projectId, workItemId, refresh]);
+  useFailedReadRetry({ scope: `report-prompt:${projectId}:${workItemId}`, failed: Boolean(error), busy: loading, retry: () => setRefresh((value) => value + 1) });
   const stale = settings && draft.promptRevision !== null && settings.revision !== draft.promptRevision;
   return <fieldset className="job-report-editor form-stack" disabled={disabled}>
     <legend>Human-facing job completion report</legend>

@@ -8,13 +8,14 @@ ENV PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     MNEMONIC_EMBEDDING_CACHE=/app/.embedding-cache \
     HF_HUB_DISABLE_TELEMETRY=1 \
-    PATH="/app/.venv/bin:$PATH"
-WORKDIR /app
-COPY pyproject.toml uv.lock ./
+    PATH="/app/backend/.venv/bin:$PATH"
+WORKDIR /app/backend
+COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
-COPY src ./src
-COPY alembic ./alembic
-COPY alembic.ini ./
+COPY backend/src ./src
+COPY backend/alembic ./alembic
+COPY backend/alembic.ini ./
+COPY prompts /app/prompts
 RUN uv sync --frozen --no-dev && \
     python -c 'from mnemonic_api.semantic import warm_embedding_model; warm_embedding_model()'
 # Match the transcript owner for private (0600) host files. Keep the default

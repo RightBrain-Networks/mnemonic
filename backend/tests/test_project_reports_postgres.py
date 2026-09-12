@@ -5,6 +5,8 @@ from uuid import uuid4
 
 import pytest
 
+from mnemonic_api.prompt_storage import default_prompt
+
 pytestmark = pytest.mark.postgres
 
 
@@ -177,7 +179,8 @@ def test_dismiss_and_follow_up_keep_provenance_and_exact_retry(
 def test_settings_are_independent_revisioned_and_noop_is_quiet(api, project):
     base = f"/api/v1/projects/{project['id']}"
     initial = api.get(base + "/settings").json()
-    assert initial["revision"] == "1" and initial["recall_pointer_template"] is None
+    assert initial["revision"] == "1"
+    assert initial["recall_pointer_template"] == default_prompt("recall-pointer")
     assert "multitasking" in initial["job_completion_report_prompt"]
     saved = api.patch(
         base + "/settings",

@@ -199,6 +199,13 @@ _CATALOG_DIGEST_SQL = """
 """
 
 
+@pytest.fixture(scope="session", autouse=True)
+def isolated_prompt_storage(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    with pytest.MonkeyPatch.context() as environment:
+        environment.setenv("MNEMONIC_PROMPT_ROOT", str(tmp_path_factory.mktemp("prompts")))
+        yield
+
+
 @pytest.fixture(scope="session")
 def postgres_engine() -> Iterator[Engine]:
     raw_url = os.environ.get("TEST_DATABASE_URL")

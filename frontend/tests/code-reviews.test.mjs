@@ -7,8 +7,7 @@ import {
   validReviewThreshold,
 } from "../lib/code-review-policy.ts";
 import {
-  coldReviewPrompt,
-  warmReviewDirective,
+  validateColdReviewPointer,
 } from "../lib/code-review-prompts.ts";
 import {
   validReviewHandoff,
@@ -196,7 +195,7 @@ test("handoff enforces immutable complete scope, Unicode and independent byte li
   );
 });
 
-test("cold prompt allowlist excludes every contextual canary and fixes adversarial/coordination boundaries", () => {
+test("cold prompt routing requires exact valid review identity and pinned repository scope", () => {
   const pointer = {
     project_id: f.project,
     work_item_id: f.work,
@@ -205,48 +204,11 @@ test("cold prompt allowlist excludes every contextual canary and fixes adversari
     scope_sha256: r.review.scope_sha256,
     scope: r.handoff.scope,
   };
-  const text = coldReviewPrompt({
-    ...pointer,
-    title: "TITLE_CANARY",
-    priority: 987654,
-    handoff: r.handoff.handoff,
-    policy: r.policy,
-    result: { summary: "RESULT_CANARY" },
-    external_references: [{ label: "ISSUE_CANARY" }],
-  });
-  for (const canary of [
-    "TITLE_CANARY",
-    "987654",
-    "HANDOFF_CANARY",
-    "DECISION_CANARY",
-    "RESULT_CANARY",
-    "ISSUE_CANARY",
-  ])
-    assert.ok(!text.includes(canary));
-  for (const required of [
-    "COLD, ADVERSARIAL",
-    "claim_work ONLY",
-    "get_work with status_only=true",
-    "lease_minutes=lease_settings.default_minutes",
-    "time remaining in this session",
-    "Do not use claim_and_recall",
-    "Do not query Mnemonic",
-    "commit messages",
-    "Do not fix code",
-    "ONE linked remediation",
-    "Unknown outcomes require exact retries",
-  ])
-    assert.ok(text.includes(required), required);
-  assert.ok(text.includes(r.handoff.scope.repositories[0].base_commit));
-  assert.ok(text.indexOf("Immediately query Mnemonic get_work") < text.indexOf("claim_work ONLY"));
-  assert.match(warmReviewDirective(r.review), /WARM, ADVERSARIAL/);
-  assert.match(warmReviewDirective(r.review), /get_work with status_only=true/);
-  assert.match(warmReviewDirective(r.review), /lease_minutes=lease_settings.default_minutes/);
-  assert.match(warmReviewDirective(r.review), /time remaining in this session/);
-  assert.match(
-    warmReviewDirective(r.review),
-    /handoff is the author's account, not proof/,
-  );
+  assert.doesNotThrow(() => validateColdReviewPointer(pointer));
+  for (const override of [
+    { project_id: "wrong" }, { work_item_id: "wrong" }, { code_review_id: "wrong" },
+    { review_version: 0 }, { scope_sha256: "wrong" }, { scope: { repositories: [] } }
+  ]) assert.throws(() => validateColdReviewPointer({ ...pointer, ...override }));
 });
 
 test("durable negative answers survive source deletion and review detail never guesses cross-linked entities", () => {

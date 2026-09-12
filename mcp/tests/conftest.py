@@ -1,3 +1,7 @@
+import json
+from pathlib import Path
+
+import httpx
 import pytest
 
 from mnemonic_mcp.config import Settings
@@ -414,3 +418,12 @@ def active_work_context(work_context, claim_receipt):
             "source_lease_state": "active",
         },
     }
+
+
+@pytest.fixture
+def rendered_resume_prompt():
+    return (Path(__file__).resolve().parents[2] / "prompts/resume-work.md").read_text()
+
+
+def stream_json(document, status=200):
+    return httpx.Response(status, stream=httpx.ByteStream(json.dumps(document).encode()))

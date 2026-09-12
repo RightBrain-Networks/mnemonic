@@ -1,3 +1,4 @@
+import { decodePromptResponse } from "@/lib/prompts";
 import {
   DEFINITIVE_PROXY_ERRORS,
   allowedQueryKeys,
@@ -129,7 +130,7 @@ async function proxy(request: Request, context: Context): Promise<Response> {
       request.method
     );
     let body: string | undefined;
-    if (request.method === "POST" || request.method === "PATCH") {
+    if (request.method === "POST" || request.method === "PATCH" || request.method === "PUT") {
       const result = await readBody(request, route, requestSignal);
       if (result instanceof Response) return result;
       body = result;
@@ -174,7 +175,8 @@ async function proxy(request: Request, context: Context): Promise<Response> {
           responseBody = phase12ResponseLimitBytes(route, request.method) !== null
             ? await readBoundedBytes(upstream, phase12ResponseLimitBytes(route, request.method)!)
             : await upstream.arrayBuffer();
-          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(responseBody));
+          const decoded: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(responseBody));
+          if (upstream.ok) decodePromptResponse(route, request.method, decoded);
         }
       } catch {
         return fail(502, "Mnemonic's API returned an incomplete response.", evidenceRoute);
@@ -195,4 +197,4 @@ async function proxy(request: Request, context: Context): Promise<Response> {
   }
 }
 
-export { proxy as GET, proxy as POST, proxy as PATCH, proxy as DELETE };
+export { proxy as GET, proxy as POST, proxy as PATCH, proxy as PUT, proxy as DELETE };

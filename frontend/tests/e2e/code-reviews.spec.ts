@@ -86,12 +86,19 @@ async function configure(
   values: Partial<ProjectSettings>,
 ) {
   const path = `/api/v1/projects/${id}/settings`;
-  const current = (await (await api.get(path)).json()) as ProjectSettings;
-  const response = await api.patch(path, {
-    data: { expected_revision: current.revision, ...values },
-  });
-  expect(response.ok(), await response.text()).toBe(true);
-  return (await response.json()) as ProjectSettings;
+  let current = (await (await api.get(path)).json()) as ProjectSettings;
+  const promptFields = new Set(["recall_pointer_template", "job_completion_report_prompt"]);
+  const prompts = Object.entries(values).filter(([key]) => promptFields.has(key));
+  const policy = Object.fromEntries(Object.entries(values).filter(([key]) => !promptFields.has(key)));
+  const updates = [...prompts.map(([key, value]) => ({ [key]: value })), ...(Object.keys(policy).length ? [policy] : [])];
+  for (const update of updates) {
+    const response = await api.patch(path, {
+      data: { expected_revision: current.revision, ...update },
+    });
+    expect(response.ok(), await response.text()).toBe(true);
+    current = (await response.json()) as ProjectSettings;
+  }
+  return current;
 }
 async function create(api: APIRequestContext, id: string, title: string) {
   const response = await api.post(`/api/v1/projects/${id}/work-items`, {

@@ -7,6 +7,8 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect, text
 
+from mnemonic_api.prompt_storage import default_prompt
+
 from .conftest import BACKEND_DIR
 
 pytestmark = pytest.mark.postgres
@@ -84,10 +86,10 @@ def test_project_crud_counts_and_conflict(api, project):
     assert api.get(f"/api/v1/projects/{uuid4()}").status_code == 404
 
 
-def test_project_settings_are_exact_nullable_and_project_local(api, project):
+def test_project_settings_are_exact_resettable_and_project_local(api, project):
     endpoint = f"/api/v1/projects/{project['id']}/settings"
     unset = api.get(endpoint).json()
-    assert unset["recall_pointer_template"] is None
+    assert unset["recall_pointer_template"] == default_prompt("recall-pointer")
     assert unset["revision"] == "1"
     assert "multitasking" in unset["job_completion_report_prompt"]
 
