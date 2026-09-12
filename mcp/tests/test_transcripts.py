@@ -43,8 +43,9 @@ def page(**changes):
             "indexing_incomplete": False, **changes}
 
 
+@pytest.mark.parametrize("client", ["claude_code", "codex"])
 @pytest.mark.parametrize("tool", ["claim_work", "claim_and_recall"])
-async def test_claim_requires_explicit_location_or_null_and_forwards_exactly(settings, tool):
+async def test_claim_requires_explicit_location_or_null_and_forwards_exactly(settings, tool, client):
     calls = []
 
     class CapturingAPI:
@@ -59,7 +60,7 @@ async def test_claim_requires_explicit_location_or_null_and_forwards_exactly(set
     with pytest.raises(ToolError, match=r"session_transcript \(missing\)"):
         await server.call_tool(tool, arguments)
     assert calls == []
-    for assertion in (None, LOCATION):
+    for assertion in (None, {**LOCATION, "client": client}):
         with pytest.raises(ToolError, match="captured assertion"):
             await server.call_tool(tool, {**arguments, "session_transcript": assertion})
         assert calls[-1]["session_transcript"] == assertion
@@ -89,8 +90,9 @@ def test_unknown_clients_reach_backend_disposition_and_subagents_are_distinct():
             adapter.validate_python(invalid)
 
 
+@pytest.mark.parametrize("client", ["claude_code", "codex"])
 @pytest.mark.parametrize("tool", ["complete_work", "merge_work", "delete_work"])
-async def test_closeout_preserves_omitted_assertion_and_retries_preserve_order(settings, tool):
+async def test_closeout_preserves_omitted_assertion_and_retries_preserve_order(settings, tool, client):
     calls = []
 
     class CapturingAPI:
@@ -104,7 +106,8 @@ async def test_closeout_preserves_omitted_assertion_and_retries_preserve_order(s
     with pytest.raises(ToolError, match="captured assertion"):
         await server.call_tool(tool, args)
     assert "subagent_transcripts" not in calls.pop()
-    args["subagent_transcripts"] = [SUBAGENT, {**SUBAGENT, "path": "/transcripts/second.jsonl"}]
+    child = {**SUBAGENT, "client": client}
+    args["subagent_transcripts"] = [child, {**child, "path": "/transcripts/second.jsonl"}]
     for _ in range(2):
         with pytest.raises(ToolError, match="captured assertion"):
             await server.call_tool(tool, copy.deepcopy(args))

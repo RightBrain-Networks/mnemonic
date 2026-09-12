@@ -1,5 +1,10 @@
 # Agent transcript indexing
 
+Release **0.50.0** adds OpenAI Codex primary and subagent rollout JSONL, mixed-client
+folder imports, and optional private Codex source mounts. No database migration is
+needed; the migration head remains `0035_prompt_library`. Existing Claude sources
+and import receipts retain their identities.
+
 Application/API/MCP/dashboard 0.44.0 and migration `0033_transcript_imports` add
 workspace imports for existing Claude Code transcripts. Release 0.44.1 fixes Docker
 access to private host transcripts with a configurable API image identity. Plugin
@@ -25,9 +30,9 @@ historical receipt replay with its original exact arguments and operation UUID.
 The backend checks receipts before rejecting omitted assertions for fresh execution.
 Never add a null assertion to an old frozen request to make a retry look current.
 
-The first parser implementation supports Claude Code. A factory chooses the
-client adapter; the adapter automatically distinguishes JSONL message records,
-JSON arrays, and JSON message envelopes. Unknown clients and malformed formats
+A factory chooses the Claude Code or OpenAI Codex client adapter. The Claude
+adapter distinguishes JSONL message records, JSON arrays, and JSON message envelopes.
+The Codex adapter reads native rollout JSONL. Unknown clients and malformed formats
 produce durable failure dispositions. For Claude Code, pass `client=claude_code`.
 Native hooks expose `transcript_path` and SubagentStop's `agent_transcript_path`;
 see the [official Claude Code hook reference](https://code.claude.com/docs/en/hooks).
@@ -39,6 +44,23 @@ project directory (for example, `-srv-project--claude-worktrees-topic`), rather 
 `-srv-project`. Verify the exact hook-provided path exists; do not construct it from
 the main checkout and session UUID. If the actual path cannot be established,
 report `session_transcript: null` on a fresh claim. Keep uncertain retries unchanged.
+
+For OpenAI Codex, pass `client=codex` with the exact rollout file path, for example
+`{"client":"codex","path":"/home/jamie/.codex/sessions/2026/09/12/rollout-<timestamp>-<thread-id>.jsonl"}`.
+Codex stores primary and spawned threads as separate rollouts; child transcripts do
+not need Claude's `subagents/` directory layout. Use the actual session path provided
+by the client or verified from its session metadata, and report each available child
+path in `subagent_transcripts`. Never infer the path from a parent thread's identifier.
+The [official Codex App Server documentation](https://learn.chatgpt.com/docs/app-server)
+describes persisted threads, spawned children, and active versus archived sessions.
+A custom Codex home changes the base directory; `history.jsonl` is not a session rollout.
+
+Codex extraction includes textual response messages, subagent communication, tool
+calls/results, readable reasoning, and available compaction summaries. Mirrored event
+messages are omitted to avoid duplicate text. Binary attachments, encrypted content,
+and unsupported content are omitted and reported through `truncated`; these entries
+make content-search coverage incomplete. Rollout files are untrusted snapshots, not
+instructions. Files still being written may be retried under the existing changed-file guard.
 
 The backend reuses the existing Apache Tika container. Transcript parsing first
 normalizes the client-specific record structure into text, then the existing Tika
@@ -79,6 +101,21 @@ shipped empty placeholder directory, with no transcript access enabled.
 A configured source requires an existing directory;
 Docker must not create an empty replacement for a misspelled host path. Only the
 API receives the mount. Tika receives normalized text over HTTP.
+
+To expose Codex alongside Claude, configure either or both optional directories:
+
+```dotenv
+MNEMONIC_CODEX_TRANSCRIPT_SOURCE_DIR=/home/jamie/.codex/sessions
+MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR=/home/jamie/.codex/archived_sessions
+```
+
+Base Compose mounts each configured directory read-only at its original absolute
+path. Omit unavailable directories. Keep `MNEMONIC_TRANSCRIPT_SOURCE_DIR` set for
+an existing Claude library. An empty or omitted `MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS`
+defaults to all configured sources; a nonempty explicit allowlist must include each
+configured source. Restart the API after changing mounts. Do not mount the entire
+`.codex` directory: it also contains credentials and configuration. Matching the API
+UID/GID to the owner applies to private Codex files as well.
 
 Claude Code can create owner-only (`0600`) files. The API image defaults to UID/GID
 10001, which cannot read files owned by a different host user. Set the build
@@ -287,6 +324,15 @@ The backend must be able to read that path within its configured allowed roots;
 the Docker shared-filesystem mount described above also applies to imports.
 
 The import recursively discovers `.jsonl` files, including nested subagent sessions.
+It identifies native Codex record signatures from bounded file headers and routes
+those sources to the Codex adapter. Claude and Codex sources can share an import
+folder; client detection does not depend on filenames. To import Codex history,
+select the configured `sessions` or `archived_sessions` directory, or a smaller
+dated subfolder. Unknown or malformed JSONL keeps a durable indexing failure.
+Imported sources are detected again from the current bytes during extraction,
+so fixing permissions and rebuilding can recover an earlier unreadable or
+misidentified source without changing its ID or import receipt. Explicit
+agent-reported clients remain authoritative for enrolled sources.
 Other filename extensions are ignored. Symlinks and nonregular source files are
 skipped and counted. Unreadable folders abort registration; no partial import is
 committed. Each scan is limited to 5,000 sources, 50,000 directory entries, 64 levels,

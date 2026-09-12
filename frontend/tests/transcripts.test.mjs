@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decodeTranscriptProxyRejection, decodeTranscript, decodeTranscriptPage, decodeTranscriptSettings, decodeTranscriptText, transcriptContentPath, transcriptLibraryPath, transcriptRequest, TRANSCRIPT_JSON_MAX_BYTES, TRANSCRIPT_MAX_BYTES } from "../lib/transcripts.ts";
+import { decodeTranscriptProxyRejection, decodeTranscript, decodeTranscriptPage, decodeTranscriptSettings, decodeTranscriptText, transcriptContentPath, transcriptLibraryPath, transcriptRequest, transcriptClientLabel, TRANSCRIPT_JSON_MAX_BYTES, TRANSCRIPT_MAX_BYTES } from "../lib/transcripts.ts";
 import { proxyTranscript, readTranscriptMutationBody, transcriptRoute, validTranscriptQuery } from "../lib/transcript-proxy.ts";
 const project = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const id = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
@@ -202,4 +202,12 @@ test("import confirmation binds counts, project, folder and operation", async ()
   assert.equal(decodeTranscriptImportRejection(422, rejection), rejection.detail.message);
   assert.equal(decodeTranscriptImportRejection(500, rejection), null);
   assert.equal(decodeTranscriptImportRejection(409, { detail: { code: "transcript_import_conflict", message: "Conflict" } }), null);
+});
+
+test("Codex transcripts retain client metadata and display their provider name", () => {
+  const codex = { ...row, client: "codex", format: "codex-jsonl" };
+  assert.equal(decodeTranscript(codex, project).client, "codex");
+  assert.equal(transcriptClientLabel(codex.client), "OpenAI Codex");
+  assert.equal(transcriptClientLabel("claude_code"), "Claude Code");
+  assert.equal(transcriptClientLabel("future-client"), "future-client");
 });

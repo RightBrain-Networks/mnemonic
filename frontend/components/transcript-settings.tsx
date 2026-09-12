@@ -116,7 +116,7 @@ export default function TranscriptSettingsPanel({ projectId, onPendingChange }: 
         void runOperation(Object.freeze({ action: "import", operationId, directory, body: JSON.stringify({ client_operation_id: operationId, directory }) }));
       }}>
         <h3>Import existing transcripts</h3>
-        <p className="settings-intro">Import Claude Code .jsonl files from a shared folder, including subfolders and subagent sessions. Sources already registered for this project are skipped.</p>
+        <p className="settings-intro">Import Claude Code and OpenAI Codex .jsonl files from a shared folder, including subfolders and subagent sessions. Sources already registered for this project are skipped.</p>
         <label className="field" htmlFor="transcript-import-directory">Transcript folder<input id="transcript-import-directory" type="text" value={directory} placeholder="/home/jamie/.claude/projects/-srv-fishfood" autoComplete="off" spellCheck={false} disabled={loading || busy || Boolean(pending) || !settings.allowed_roots.length} onChange={(event) => setDirectory(event.target.value)} /><span className="field-hint">Use the absolute path in one of the shared folders above. Up to 5,000 transcript files per import.</span></label>
         <button type="submit" className="button button-secondary" disabled={loading || busy || Boolean(pending) || dirty || uncertainSave || !settings.allowed_roots.length || !validTranscriptDirectory(directory)}>Import transcripts</button>
         {!settings.allowed_roots.length && <p className="field-hint">Configure a shared transcript folder before importing.</p>}

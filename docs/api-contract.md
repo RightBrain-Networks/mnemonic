@@ -3,7 +3,7 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.49.0`, plugin `0.29.0`, and migration
+This is application/API/MCP/dashboard `0.50.0`, plugin `0.29.0`, and migration
 `0035_prompt_library`. The catalog has exactly 54 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations

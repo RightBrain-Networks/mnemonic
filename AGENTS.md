@@ -83,9 +83,9 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.48.0`, Claude plugin
-`0.28.0`, and Alembic head `0034_variable_work_leases`. The catalog is exactly
-54 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 20 protected
+The current application/API/MCP/dashboard release is `0.50.0`, Claude plugin
+`0.29.0`, and Alembic head `0035_prompt_library`. The catalog is exactly
+54 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
 only in the existing closeout mutations; do not add standalone agent writes.
@@ -132,7 +132,7 @@ three facets, all work statuses, metadata-only file/transcript matching and rele
 Offset/limit apply after mixed ranking or explicit facet groups. Report coverage;
 sensitive artifact filters never grant agent content access. See `docs/search.md`.
 
-Transcripts use exact agent-reported shared-filesystem paths and a Claude Code format factory.
+Transcripts use exact agent-reported shared-filesystem paths and a client format factory for Claude Code and OpenAI Codex.
 MCP claims require `session_transcript` (explicit null when unavailable); closeouts require
 `subagent_transcripts` (explicit null when inapplicable) for fresh execution; unchanged
 sparse historical requests remain parseable exclusively for permanent receipt replay.
@@ -144,7 +144,7 @@ the derived index in the private `MNEMONIC_TRANSCRIPT_INDEX_DIR` bind; the searc
 content budget uses `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES`. Native processes with
 no index directory retain a RAM cache. Rebuilds have their own
 `transcript_rebuilds` receipt journal; preserve the operation UUID across uncertain retries.
-Workspace imports recursively discover existing Claude Code JSONL beneath allowed roots.
+Workspace imports recursively discover existing Claude Code and Codex JSONL beneath allowed roots.
 Imports are project-owned, deduplicated by normalized source path against enrolled sources,
 and reused by later enrollment. Import receipts retain exact folders and operation UUIDs.
 The API only reads regular files beneath operator-configured allowed roots. Corrected

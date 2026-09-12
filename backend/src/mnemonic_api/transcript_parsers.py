@@ -1,4 +1,4 @@
-"""Factories detect native Claude parent/subagent JSONL and JSON/stream exports.
+"""Factories detect Claude exports and native Claude/Codex parent/subagent JSONL.
 
 Source content remains untrusted. Binary attachments are omitted, text is bounded,
 JSONL is decoded one record at a time, and exported JSON has a lower memory cap.
@@ -225,13 +225,207 @@ def _collect_metadata(row: dict, sessions: set[str], models: set[str]) -> None:
         models.add(normalize_extracted_text(model)[:120])
 
 
+def _codex_block_text(block: object, maximum: int, depth: int = 0) -> TextFragment:
+    if isinstance(block, str):
+        return _normalized_fragment(block, maximum)
+    if depth > 12:
+        return TextFragment("[nested content omitted]"[:maximum], True)
+    if isinstance(block, list):
+        return _codex_list_text(block, maximum, depth)
+    if not isinstance(block, dict):
+        return TextFragment("", block is not None)
+    kind = block.get("type")
+    if isinstance(kind, str) and kind in {
+        "input_text", "output_text", "text", "summary_text", "reasoning_text",
+    }:
+        value = block.get("text")
+        return (_normalized_fragment(value, maximum) if isinstance(value, str)
+                else TextFragment("", True))
+    # Images, audio, encrypted reasoning, and future content blocks are not text.
+    return TextFragment("", True)
+
+
+def _codex_list_text(blocks: list, maximum: int, depth: int) -> TextFragment:
+    parts = []
+    remaining = maximum
+    truncated = False
+    for block in blocks:
+        if remaining <= 0:
+            truncated = True
+            break
+        fragment = _codex_block_text(block, remaining, depth + 1)
+        if fragment.text:
+            parts.append(fragment.text)
+            remaining -= len(fragment.text) + 1
+        truncated |= fragment.truncated
+    return TextFragment("\n".join(parts)[:maximum], truncated)
+
+
+def _codex_labeled_text(label: str, content: object, maximum: int) -> TextFragment:
+    fragment = _codex_block_text(content, maximum)
+    text = f"{label}: {fragment.text}" if fragment.text else ""
+    return TextFragment(text, fragment.truncated)
+
+
+def _codex_tool_call(payload: dict, maximum: int) -> TextFragment:
+    name = payload.get("name")
+    label = normalize_extracted_text(name) if isinstance(name, str) else "tool"
+    field = "arguments" if payload.get("type") == "function_call" else "input"
+    value = payload.get(field)
+    if not isinstance(value, str):
+        return TextFragment(label[:maximum], True)
+    fragment = _normalized_fragment(value, maximum)
+    return TextFragment(
+        f"tool call {label}: {fragment.text}",
+        fragment.truncated or bool(payload.get("encrypted_function_args")),
+    )
+
+
+def _codex_reasoning(payload: dict, maximum: int) -> TextFragment:
+    blocks = [payload.get("summary"), payload.get("content")]
+    fragment = _codex_labeled_text("reasoning", blocks, maximum)
+    return TextFragment(fragment.text, fragment.truncated or bool(payload.get("encrypted_content")))
+
+
+def _codex_response_text(payload: dict, maximum: int) -> tuple[TextFragment, bool]:
+    kind = payload.get("type")
+    if not isinstance(kind, str):
+        return TextFragment("", True), False
+    if kind == "message":
+        if payload.get("content") is None:
+            return TextFragment("", True), False
+        role = payload.get("role")
+        if not isinstance(role, str) or role not in {"user", "assistant", "system", "developer"}:
+            return TextFragment("", True), False
+        return _codex_labeled_text(role, payload.get("content"), maximum), True
+    if kind == "agent_message":
+        return _codex_labeled_text("agent", payload.get("content"), maximum), True
+    if kind in {"function_call", "custom_tool_call"}:
+        return _codex_tool_call(payload, maximum), True
+    if kind in {"function_call_output", "custom_tool_call_output"}:
+        return _codex_labeled_text("tool result", payload.get("output"), maximum), True
+    if kind == "reasoning":
+        return _codex_reasoning(payload, maximum), True
+    # Compaction response items contain encrypted state, not readable summaries.
+    return TextFragment("", True), kind == "compaction"
+
+
+
+# These completed UI items mirror the canonical response items already read above.
+# SubAgentActivity contains lifecycle metadata rather than authored text.
+_CODEX_MIRRORED_ITEMS = frozenset({
+    "UserMessage", "AgentMessage", "Reasoning", "CommandExecution", "DynamicToolCall",
+    "CollabAgentToolCall", "WebSearch", "ImageView", "ImageGeneration", "FileChange",
+    "McpToolCall", "ContextCompaction", "SubAgentActivity",
+})
+
+
+def _codex_completed_item(payload: dict, maximum: int) -> tuple[TextFragment, bool]:
+    item = payload.get("item")
+    if not isinstance(item, dict):
+        return TextFragment("", True), False
+    kind = item.get("type")
+    if kind == "Plan":
+        text = item.get("text")
+        if not isinstance(text, str):
+            return TextFragment("", True), True
+        return _codex_labeled_text("plan", text, maximum), True
+    if kind == "FunctionCallOutput":
+        output = item.get("output")
+        if output is None:
+            return TextFragment("", True), True
+        name = item.get("name")
+        label = normalize_extracted_text(name) if isinstance(name, str) else "tool"
+        return _codex_labeled_text(f"tool result {label}", output, maximum), True
+    mirrored = isinstance(kind, str) and kind in _CODEX_MIRRORED_ITEMS
+    return TextFragment("", not mirrored), False
+
+
+def _codex_event_text(payload: dict, maximum: int) -> tuple[TextFragment, bool]:
+    if payload.get("type") == "item_completed":
+        # Codex persists Plan and FunctionCallOutput because they do not have a
+        # lossless raw ResponseItem counterpart, including in legacy rollouts.
+        return _codex_completed_item(payload, maximum)
+    return TextFragment(""), False
+
+
+def _codex_message_text(row: dict, maximum: int) -> tuple[TextFragment, bool]:
+    payload = row.get("payload")
+    if not isinstance(payload, dict):
+        return TextFragment(""), False
+    kind = row.get("type")
+    if kind == "response_item":
+        return _codex_response_text(payload, maximum)
+    if kind == "event_msg":
+        return _codex_event_text(payload, maximum)
+    if kind == "compacted":
+        fragment = _codex_labeled_text("summary", payload.get("message"), maximum)
+        # Replacement history repeats existing conversation context and may carry
+        # encrypted state. It is not a second set of authored transcript messages.
+        omitted = not fragment.text and bool(payload.get("replacement_history"))
+        return TextFragment(fragment.text, fragment.truncated or omitted), True
+    # Telemetry and settings are not conversation text. Never index arbitrary
+    # payload fields as a fallback.
+    return TextFragment(""), False
+
+
+def _collect_codex_metadata(row: dict, sessions: set[str], models: set[str]) -> None:
+    payload = row.get("payload")
+    if not isinstance(payload, dict):
+        return
+    if row.get("type") == "session_meta":
+        session = payload.get("id")
+        if isinstance(session, str) and len(sessions) < 8:
+            sessions.add(normalize_extracted_text(session)[:200])
+    if row.get("type") == "turn_context":
+        model = payload.get("model")
+        if isinstance(model, str) and len(models) < 8:
+            models.add(normalize_extracted_text(model)[:120])
+
+
+class CodexParser:
+    """Read native rollout JSONL shared by Codex CLI, app, and their subagents."""
+
+    def parse(self, content: bytes, maximum_chars: int) -> ParsedTranscript:
+        parts: list[str] = []
+        remaining, recognized = maximum_chars, 0
+        truncated = False
+        sessions: set[str] = set()
+        models: set[str] = set()
+        for row in _jsonl(content):
+            fragment, known = _codex_message_text(row, remaining + 1)
+            recognized += known
+            clean = normalize_extracted_text(fragment.text)
+            truncated |= fragment.truncated or len(clean) > remaining
+            if clean and remaining:
+                parts.append(clean[:remaining])
+                remaining = max(0, remaining - len(clean) - 2)
+            _collect_codex_metadata(row, sessions, models)
+        if not recognized:
+            raise ExtractionError("transcript_unsupported_format")
+        metadata = {"transcript:message_count": [str(recognized)]}
+        if sessions:
+            metadata["transcript:session_id"] = sorted(sessions)
+        if models:
+            metadata["transcript:model"] = sorted(models)
+        return ParsedTranscript("\n\n".join(parts)[:maximum_chars], "codex-jsonl",
+                                "application/x-ndjson", metadata, truncated)
+
+
 class TranscriptParserFactory:
     """Client dispatch is explicit; each adapter independently detects its formats."""
 
-    _clients: dict[str, type[ClaudeCodeParser]] = {
+    _clients: dict[str, type[ClaudeCodeParser] | type[CodexParser]] = {
         "claude-code": ClaudeCodeParser,
         "claude_code": ClaudeCodeParser,
         "claude code": ClaudeCodeParser,
+        "codex": CodexParser,
+        "openai-codex": CodexParser,
+        "openai_codex": CodexParser,
+        "openai codex": CodexParser,
+        "codex-cli": CodexParser,
+        "codex_cli": CodexParser,
+        "codex cli": CodexParser,
     }
 
     @classmethod

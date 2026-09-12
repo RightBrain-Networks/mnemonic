@@ -8,7 +8,7 @@ import { reportForFixture } from "./job-report-fixture";
 const execFileAsync = promisify(execFile);
 const transcriptRoot = "/var/lib/mnemonic/artifacts/transcripts";
 
-async function fixture(api: APIRequestContext) {
+async function fixture(api: APIRequestContext, client = "claude-code") {
   const runId = crypto.randomUUID();
   const projectResponse = await api.post("/api/v1/projects", { data: { name: `Transcript library ${runId.slice(0, 8)}` } });
   expect(projectResponse.ok(), await projectResponse.text()).toBe(true);
@@ -19,7 +19,11 @@ async function fixture(api: APIRequestContext) {
   const folder = `${transcriptRoot}/${runId}`;
   const primary = `${folder}/${runId}.jsonl`;
   const subagent = `${folder}/${runId}/subagents/agent-${runId}.jsonl`;
-  const rows = [
+  const rows = client === "codex" ? [
+    { type: "session_meta", payload: { id: runId, source: "cli" } },
+    { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Investigate the magenta otter indexing fixture." }] } },
+    { type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "The magenta otter result is ready. <script>window.transcriptExecuted = true</script>" }] } }
+  ] : [
     { type: "user", sessionId: runId, uuid: crypto.randomUUID(), parentUuid: null, isSidechain: false, message: { role: "user", content: "Investigate the magenta otter indexing fixture." } },
     { type: "assistant", sessionId: runId, uuid: crypto.randomUUID(), parentUuid: null, isSidechain: false, message: { role: "assistant", model: "fixture-model", content: [{ type: "text", text: "The magenta otter result is ready. <script>window.transcriptExecuted = true</script>" }] } }
   ];
@@ -32,20 +36,21 @@ async function apiContext() {
   return request.newContext({ baseURL: process.env.MNEMONIC_E2E_API_URL, extraHTTPHeaders: { Authorization: `Bearer ${process.env.MNEMONIC_E2E_API_KEY}` } });
 }
 
-test("transcripts index after closeout and support search, metadata, safe preview, download and rebuild", async ({ page }, testInfo) => {
+for (const client of ["claude-code", "codex"]) {
+test(`${client} transcripts index after closeout and support search, metadata, safe preview, download and rebuild`, async ({ page }, testInfo) => {
   test.setTimeout(120000);
   if (testInfo.project.name === "chromium-desktop") await page.setViewportSize({ width: 1280, height: 1000 });
   const api = await apiContext();
   try {
-    const { project, work, runId, primary, subagent } = await fixture(api);
+    const { project, work, runId, primary, subagent } = await fixture(api, client);
     const workPath = `/api/v1/projects/${project.id}/work-items/${work.id}`;
-    const claim = await api.post(`${workPath}/claim`, { data: { holder_client: "claude-code", holder_session_id: runId, claim_request_id: crypto.randomUUID(), session_transcript: { client: "claude-code", path: primary } } });
+    const claim = await api.post(`${workPath}/claim`, { data: { holder_client: "claude-code", holder_session_id: runId, claim_request_id: crypto.randomUUID(), session_transcript: { client, path: primary } } });
     expect(claim.ok(), await claim.text()).toBe(true);
     const lease = await claim.json() as { lease_token: string };
     const collection = `/api/v1/projects/${project.id}/transcripts`;
     const waiting = await api.get(collection);
     expect(await waiting.json()).toMatchObject({ total: 1, items: [{ status: "waiting", kind: "primary" }] });
-    const completed = await api.post(`${workPath}/complete`, { data: { expected_version: work.version, lease_token: lease.lease_token, client_operation_id: crypto.randomUUID(), checkpoint: { prompt: "Verified transcript fixtures.", source_client: "claude-code", source_session_id: runId }, job_completion_report: await reportForFixture(api, project.id), subagent_transcripts: [{ client: "claude-code", path: subagent }] } });
+    const completed = await api.post(`${workPath}/complete`, { data: { expected_version: work.version, lease_token: lease.lease_token, client_operation_id: crypto.randomUUID(), checkpoint: { prompt: "Verified transcript fixtures.", source_client: "claude-code", source_session_id: runId }, job_completion_report: await reportForFixture(api, project.id), subagent_transcripts: [{ client, path: subagent }] } });
     expect(completed.ok(), await completed.text()).toBe(true);
     await expect.poll(async () => {
       const response = await api.get(collection);
@@ -54,6 +59,7 @@ test("transcripts index after closeout and support search, metadata, safe previe
     await page.goto(`/transcripts?project=${project.id}`);
     await expect(page.getByRole("region", { name: "Transcript library", exact: true })).toBeVisible();
     await expect(page.locator(".transcript-table tbody tr")).toHaveCount(2);
+    await expect(page.locator(".artifact-type").first()).toContainText(client === "codex" ? "OpenAI Codex" : "Claude Code");
     await expect(page.getByRole("switch", { name: "Include contents" })).not.toBeChecked();
     await page.keyboard.press("/");
     const search = page.getByRole("searchbox", { name: "Search transcript metadata and content" });
@@ -106,6 +112,7 @@ test("transcripts index after closeout and support search, metadata, safe previe
     await testInfo.attach("Transcript settings and rebuild", { path: testInfo.outputPath("transcript-settings.png"), contentType: "image/png" });
   } finally { await api.dispose(); }
 });
+}
 
 test("transcript rebuild retries preserve the request and block navigation after an uncertain response", async ({ page }) => {
   const api = await apiContext();
