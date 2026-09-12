@@ -104,38 +104,25 @@ test("all closeout outcomes appear in Summaries and a human follow-up retains bo
   } finally { await api.dispose(); }
 });
 
-test("report prompt and recall content save and reset independently with visible revision conflicts", async ({ page }, testInfo) => {
+test("report and recall prompts save independently in their project library", async ({ page }) => {
   const api = await client();
   try {
     const project = await createProject(api);
-    const initial = await (await api.get(`/api/v1/projects/${project.id}/settings`)).json() as ProjectSettings;
-    expect(initial.job_completion_report_prompt).toContain("only LLM output");
     await page.goto("/settings/prompts");
     await page.locator("#project-select").selectOption(project.id);
-    const recall = page.locator(".settings-card").filter({ has: page.getByRole("heading", { name: "Recall pointer content", exact: true }) });
-    const reports = page.locator(".settings-card").filter({ has: page.getByRole("heading", { name: "Job completion report prompt", exact: true }) });
-    await expect(reports.getByRole("textbox")).toHaveValue(initial.job_completion_report_prompt);
-    await page.screenshot({ path: testInfo.outputPath("report-prompt-settings.png"), fullPage: true });
-    await recall.getByRole("textbox").fill("Recall $WORK_ITEM_ID for this project.");
-    await recall.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(recall.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
-    await reports.getByRole("textbox").fill("Write a concise human summary. Assume no other LLM output was read. Mention optional decisions in FYIs.");
-    await reports.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(reports.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
-    await recall.getByRole("button", { name: "Clear", exact: true }).click();
-    await expect(recall.getByRole("button", { name: "Clear", exact: true })).toBeDisabled();
-    let settings = await (await api.get(`/api/v1/projects/${project.id}/settings`)).json() as ProjectSettings;
-    expect(settings.recall_pointer_template).toBeNull();
-    expect(settings.job_completion_report_prompt).toContain("Mention optional decisions");
-    await reports.getByRole("button", { name: "Reset to default" }).click();
-    await expect(reports.getByRole("textbox")).toHaveValue(initial.job_completion_report_prompt);
-    await reports.getByRole("textbox").fill("A human draft that must survive another settings change.");
-    settings = await (await api.get(`/api/v1/projects/${project.id}/settings`)).json() as ProjectSettings;
-    const competing = await api.patch(`/api/v1/projects/${project.id}/settings`, { data: { expected_revision: settings.revision, recall_pointer_template: "Another editor’s recall content." } });
-    expect(competing.ok()).toBe(true);
-    await expect(page.getByText("Review the latest saved settings before applying your draft.", { exact: false })).toBeVisible();
-    await expect(reports.getByRole("textbox")).toHaveValue("A human draft that must survive another settings change.");
-    await expect(reports.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Recall pointer", exact: true }).click();
+    const drawer = page.getByRole("dialog");
+    await drawer.getByRole("textbox", { name: "Prompt content" }).fill("Recall $WORK_ITEM_ID for $PROJECT_NAME.");
+    await drawer.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(drawer.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+    await drawer.getByRole("button", { name: "Close prompt" }).click();
+    await page.getByRole("button", { name: "Job completion report", exact: true }).click();
+    await drawer.getByRole("textbox", { name: "Prompt content" }).fill("Write a concise human summary for $PROJECT_NAME. Mention optional decisions in FYIs.");
+    await drawer.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(drawer.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+    const settings = await (await api.get(`/api/v1/projects/${project.id}/settings`)).json() as ProjectSettings;
+    expect(settings.recall_pointer_template).toBe("Recall $WORK_ITEM_ID for $PROJECT_NAME.");
+    expect(settings.job_completion_report_prompt).toBe(`Write a concise human summary for ${project.name}. Mention optional decisions in FYIs.`);
   } finally { await api.dispose(); }
 });
 
@@ -202,12 +189,12 @@ test("recovering another report action preserves an unrelated follow-up draft", 
       else await route.fulfill({response});
     });
     await openSummaries(page, project.id);
-    await page.getByRole("article", {name:"Report for Dashboard font promoted",exact:true}).getByRole("button", {name:"Dismiss",exact:true}).click();
-    await expect(page.getByText("Dismiss summary · outcome unknown", {exact:true})).toBeVisible();
     await page.getByRole("article", {name:"Report for Dashboard font done",exact:true}).getByRole("button", {name:"Create Follow-up",exact:true}).click();
     const form=page.getByRole("form", {name:"Create Follow-up"});
     await form.getByLabel("Title", {exact:true}).fill("Keep this separate font decision");
     await form.getByRole("textbox", { name: "Work summary", exact: true }).fill("This draft belongs to the other report.");
+    await page.getByRole("article", {name:"Report for Dashboard font promoted",exact:true}).getByRole("button", {name:"Dismiss",exact:true}).click();
+    await expect(page.getByText("Dismiss summary · outcome unknown", {exact:true})).toBeVisible();
     await page.getByRole("button", {name:"Retry exact request",exact:true}).click();
     await expect.poll(() => attempts).toBe(2);
     await expect(page.locator(".mutation-recovery-global")).toHaveCount(0);
@@ -504,7 +491,7 @@ test("closeout submissions wait for their project prompt revision without losing
       if (request.method() === "POST" && url.pathname.endsWith(`/${complete.id}/complete`)
         || request.method() === "PATCH" && url.pathname.endsWith(`/${retire.id}`)) closeoutWrites += 1;
     });
-    await page.route(`**/api/mnemonic/projects/${project.id}/settings`, async (route) => {
+    await page.route(`**/api/mnemonic/projects/${project.id}/settings{,?*}`, async (route) => {
       await settingsReady;
       await route.continue();
     });

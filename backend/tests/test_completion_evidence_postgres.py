@@ -32,6 +32,7 @@ from mnemonic_api.models import (
     WorkEvent,
     WorkItem,
 )
+from mnemonic_api.prompt_storage import default_prompt
 from mnemonic_api.schemas import (
     COMPLETION_EXPECTED_VERSION_MAX,
     WorkCompletionCreate,
@@ -417,6 +418,7 @@ def _insert_direct_completion_event(
     event_id: int | None = None,
     seal_report: bool = True,
     seal_review_policy: bool = True,
+    prompt_library: bool = True,
 ) -> int:
     columns = ""
     values = ""
@@ -457,27 +459,34 @@ def _insert_direct_completion_event(
     )
     assert isinstance(inserted, int)
     if seal_report:
+        template_column = "prompt_template_sha256," if prompt_library else ""
+        template_value = "settings.job_completion_report_prompt_sha256," if prompt_library else ""
+        prompt_value = (
+            ":authoring_prompt" if prompt_library else "settings.job_completion_report_prompt"
+        )
         connection.execute(
             text(
-                """
+                f"""
                 INSERT INTO job_completion_reports (
                     id, project_id, work_item_id, closeout_event_id,
                     closeout_work_version, closeout_status, completion_checkpoint_id,
                     work_title_at_closeout, summary, fyi_items, prompt_revision,
-                    prompt_text, prompt_sha256, actor_client, actor_session_id
+                    prompt_text, prompt_sha256, {template_column}
+                    actor_client, actor_session_id
                 ) SELECT CAST(:report_id AS uuid), work.project_id, work.id, :event_id,
                          work.version, work.status, CAST(:checkpoint_id AS uuid),
                          work.title, 'Completed and reviewed the requested work.',
-                         '{}'::text[], settings.revision, settings.job_completion_report_prompt,
-                         encode(sha256(convert_to(settings.job_completion_report_prompt,
-                                                 'UTF8')), 'hex'),
+                         '{{}}'::text[], settings.revision, {prompt_value},
+                         encode(sha256(convert_to({prompt_value}, 'UTF8')), 'hex'),
+                         {template_value}
                          'pytest', 'direct-sql-completion'
                   FROM work_items work
                   JOIN project_settings settings ON settings.project_id = work.project_id
                   WHERE work.id = CAST(:work_item_id AS uuid)
                 """
             ),
-            {**parameters, "event_id": inserted},
+            {**parameters, "event_id": inserted,
+             "authoring_prompt": default_prompt("job-completion-report")},
         )
         if not seal_review_policy:
             return inserted

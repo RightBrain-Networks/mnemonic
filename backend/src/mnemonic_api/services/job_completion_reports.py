@@ -52,6 +52,7 @@ from mnemonic_api.services.activity_cursors import (
     invalid_cursor,
 )
 from mnemonic_api.services.project_activity import activity_head
+from mnemonic_api.services.prompts import render_prompt, storage_for, synchronize_settings
 from mnemonic_api.services.work_context import checkpoint_read
 from mnemonic_api.services.work_events import database_now
 from mnemonic_api.services.work_items import create_work_records
@@ -79,7 +80,10 @@ def report_read(report: JobCompletionReport, *, detail: bool = False) -> JobComp
     data["closeout_event_id"] = str(report.closeout_event_id)
     data["prompt_revision"] = str(report.prompt_revision)
     if detail:
-        return JobCompletionReportDetailRead(**data, authoring_prompt=report.prompt_text)
+        return JobCompletionReportDetailRead(
+            **data,
+            authoring_prompt=report.prompt_text,
+        )
     return JobCompletionReportRead(**data)
 
 
@@ -101,10 +105,21 @@ def prepare_closeout_report(
         raise ApplicationError(
             503, "job_completion_report_unavailable", "Report settings are unavailable."
         )
+    synchronize_settings(database, settings)
     if int(payload.prompt_revision) != settings.revision:
         raise conflict(
             "job_report_prompt_changed", "Project settings changed. Review the current prompt."
         )
+    template = storage_for(database).read(work_item.project_id, "job-completion-report")
+    if template.revision != settings.job_completion_report_prompt_sha256:
+        raise conflict("job_report_prompt_changed", "The report prompt changed before closeout.")
+    database.info[("authoring_prompt", work_item.id)] = render_prompt(
+        database,
+        work_item.project_id,
+        "job-completion-report",
+        work_item_id=work_item.id,
+        template=template.content,
+    )
     return settings
 
 
@@ -118,6 +133,11 @@ def seal_closeout_report(
     actor: MutationActor,
     checkpoint_id: UUID | None = None,
 ) -> JobCompletionReport:
+    template = storage_for(database).read(work_item.project_id, "job-completion-report")
+    if template.revision != settings.job_completion_report_prompt_sha256:
+        raise conflict("job_report_prompt_changed", "The report prompt changed before closeout.")
+    rendered = database.info.pop(("authoring_prompt", work_item.id))
+    digest = hashlib.sha256(rendered.encode()).hexdigest()
     report = JobCompletionReport(
         id=report_id,
         project_id=work_item.project_id,
@@ -130,8 +150,9 @@ def seal_closeout_report(
         summary=payload.summary,
         fyi_items=payload.fyi_items,
         prompt_revision=settings.revision,
-        prompt_text=settings.job_completion_report_prompt,
-        prompt_sha256=hashlib.sha256(settings.job_completion_report_prompt.encode()).hexdigest(),
+        prompt_template_sha256=template.revision,
+        prompt_text=rendered,
+        prompt_sha256=digest,
         **actor.model_dump(),
     )
     database.add(report)
@@ -419,14 +440,9 @@ def _decode_work_provenance_cursor(
         last = int(value["l"])
         if str(upper) != value["u"] or str(last) != value["l"]:
             raise ValueError
-        if (
-            upper < 0
-            or upper > provenance_last_sequence
-            or last < 1
-            or last > upper
-        ):
+        if upper < 0 or upper > provenance_last_sequence or last < 1 or last > upper:
             raise ValueError
-    except (AttributeError, KeyError, TypeError, UnicodeError, ValueError):
+    except AttributeError, KeyError, TypeError, UnicodeError, ValueError:
         raise invalid_cursor("report") from None
     return upper, last
 
@@ -446,9 +462,7 @@ def _work_provenance_page(
     table = JobCompletionReportFollowUp
     column = table.follow_up_work_item_id if direction == "origin" else table.source_work_item_id
     sequence = (
-        table.follow_up_work_sequence
-        if direction == "origin"
-        else table.source_work_sequence
+        table.follow_up_work_sequence if direction == "origin" else table.source_work_sequence
     )
     provenance_head = database.get(WorkReportProvenanceHead, work_item_id)
     current_upper = provenance_head.last_sequence if provenance_head is not None else 0

@@ -46,7 +46,7 @@ no other LLM output. It asks for one concise, self-contained paragraph, usually
 50–100 words, with minimal jargon, and zero or more useful FYIs. Each FYI is a
 single bullet, preferably one or two sentences and never more than three.
 Blocking questions remain in Needs Attention. The canonical initial prompt is
-[`job_report_defaults.py`](../backend/src/mnemonic_api/job_report_defaults.py).
+[`job-completion-report.md`](../prompts/job-completion-report.md).
 There is no server-side LLM invocation or automatic completion text generator.
 
 The fixed schema bounds summaries to 2,000 characters/8,000 UTF-8 bytes and
@@ -58,7 +58,7 @@ rejected. Sentence count and good human writing remain authoring requirements.
 A closeout atomically commits its work version, event, report, review row,
 activity entries, and permanent retry receipt. Reports retain the exact work
 identity/title/version, actor assertion, closeout event, prompt revision, text,
-and hash. Report, dismissal, and follow-up creation times are independently
+and hash. These immutable authoring-prompt snapshots remain in the database. Report, dismissal, and follow-up creation times are independently
 assigned by PostgreSQL; they need not equal a checkpoint or work timestamp.
 Project activity sequence, rather than wall-clock time, orders changes.
 
@@ -81,7 +81,7 @@ optional override; null report prompt restores the stored canonical default.
 Effective changes increment revision once; no-ops do not create activity.
 Concurrent edits fail with `project_settings_changed` until reviewed.
 
-The `/settings/prompts` dashboard contains both prompt editors. `/summaries` sits
+The `/settings/prompts` dashboard contains the [file-backed prompt library](prompts.md). `/summaries` sits
 immediately below Needs Attention and displays undismissed reports. Report text
 renders Markdown through the shared dashboard renderer as of `0.15.0`, as do
 FYIs and Needs Attention questions. Summaries and individual FYIs remain single

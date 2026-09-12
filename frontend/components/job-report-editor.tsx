@@ -1,43 +1,48 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState, type Dispatch, type SetStateAction } from "react";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { api, errorMessage } from "@/lib/api";
 import { decodeProjectSettings, type JobReportDraft } from "@/lib/job-completion-reports";
 import type { ProjectSettings } from "@/lib/types";
 
-export default function JobReportEditor({ projectId, draft, onChange, disabled = false }: {
+export default function JobReportEditor({ projectId, workItemId, draft, onChange, disabled = false }: {
   projectId: string;
+  workItemId: string;
   draft: JobReportDraft;
-  onChange: (draft: JobReportDraft) => void;
+  onChange: Dispatch<SetStateAction<JobReportDraft>>;
   disabled?: boolean;
 }) {
   const id = useId();
-  const [settings, setSettings] = useState<ProjectSettings | null>(null);
+  const [loaded, setLoaded] = useState<{ workItemId: string; settings: ProjectSettings } | null>(null);
+  const settings = loaded?.workItemId === workItemId && loaded.settings.project_id === projectId
+    ? loaded.settings : null;
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
-  const draftRef = useRef(draft);
-  const changeRef = useRef(onChange);
-  draftRef.current = draft;
-  changeRef.current = onChange;
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError("");
-    api<unknown>(`/projects/${projectId}/settings`, { signal: controller.signal })
+    api<unknown>(`/projects/${projectId}/settings?work_item_id=${encodeURIComponent(workItemId)}`, { signal: controller.signal })
       .then((value) => {
         const next = decodeProjectSettings(value, projectId);
         if (controller.signal.aborted) return;
-        setSettings(next);
-        if (draftRef.current.promptRevision === null) {
-          changeRef.current({ ...draftRef.current, promptRevision: next.revision });
-        }
+        setLoaded({ workItemId, settings: next });
       }).catch((failure) => { if (!controller.signal.aborted) setError(errorMessage(failure)); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [projectId, refresh]);
-  useFailedReadRetry({ scope: `report-prompt:${projectId}`, failed: Boolean(error), busy: loading, retry: () => setRefresh((value) => value + 1) });
+  }, [projectId, workItemId, refresh]);
+  // Text edits can land between the settings response and its React render.
+  // Reconcile an uninitialized revision from the successful current-work read;
+  // an already-authored revision still requires the explicit review action below.
+  useEffect(() => {
+    if (settings && !loading && !error && draft.promptRevision === null) {
+      onChange((current) => current.promptRevision === null
+        ? { ...current, promptRevision: settings.revision } : current);
+    }
+  }, [settings, loading, error, draft.promptRevision, onChange]);
+  useFailedReadRetry({ scope: `report-prompt:${projectId}:${workItemId}`, failed: Boolean(error), busy: loading, retry: () => setRefresh((value) => value + 1) });
   const stale = settings && draft.promptRevision !== null && settings.revision !== draft.promptRevision;
   return <fieldset className="job-report-editor form-stack" disabled={disabled}>
     <legend>Human-facing job completion report</legend>
@@ -51,23 +56,24 @@ export default function JobReportEditor({ projectId, draft, onChange, disabled =
     {stale && <p role="alert">Project instructions changed. Review the latest instructions and your report before accepting this revision.</p>}
     <div className="settings-actions">
       <button type="button" className="button button-secondary" disabled={disabled || loading} onClick={() => setRefresh((value) => value + 1)}>Review current prompt</button>
-      {stale && <button type="button" className="button button-secondary" onClick={() => onChange({ ...draft, promptRevision: settings.revision })}>Use reviewed revision {settings.revision}</button>}
+      {stale && <button type="button" className="button button-secondary" onClick={() => onChange((current) => ({ ...current, promptRevision: settings.revision }))}>Use reviewed revision {settings.revision}</button>}
     </div>
     <label className="field" htmlFor={`${id}-summary`}>Human summary
       <textarea id={`${id}-summary`} rows={4} value={draft.summary}
-        onChange={(event) => onChange({ ...draft, summary: event.target.value })}
+        onChange={(event) => { const summary = event.target.value; onChange((current) => ({ ...current, summary })); }}
         aria-describedby={`${id}-summary-help`} />
       <span className="field-hint" id={`${id}-summary-help`}>One paragraph, usually 50–100 words; at most 2,000 characters and 8,000 UTF-8 bytes. Stored exactly as entered.</span>
     </label>
     {draft.fyiItems.map((item, index) => <div className="report-fyi-field" key={index}>
       <label className="field" htmlFor={`${id}-fyi-${index}`}>FYI {index + 1}
-        <textarea id={`${id}-fyi-${index}`} rows={2} value={item} onChange={(event) => onChange({
-          ...draft, fyiItems: draft.fyiItems.map((text, position) => position === index ? event.target.value : text)
-        })} />
+        <textarea id={`${id}-fyi-${index}`} rows={2} value={item} onChange={(event) => {
+          const value = event.target.value;
+          onChange((current) => ({ ...current, fyiItems: current.fyiItems.map((text, position) => position === index ? value : text) }));
+        }} />
         <span className="field-hint">One bullet; at most 600 characters and 2,400 UTF-8 bytes.</span>
       </label>
-      <button type="button" className="button button-secondary" aria-label={`Remove FYI ${index + 1}`} onClick={() => onChange({ ...draft, fyiItems: draft.fyiItems.filter((_, position) => position !== index) })}>Remove</button>
+      <button type="button" className="button button-secondary" aria-label={`Remove FYI ${index + 1}`} onClick={() => onChange((current) => ({ ...current, fyiItems: current.fyiItems.filter((_, position) => position !== index) }))}>Remove</button>
     </div>)}
-    <button type="button" className="button button-secondary" disabled={disabled || draft.fyiItems.length >= 10} onClick={() => onChange({ ...draft, fyiItems: [...draft.fyiItems, ""] })}>Add FYI</button>
+    <button type="button" className="button button-secondary" disabled={disabled || draft.fyiItems.length >= 10} onClick={() => onChange((current) => ({ ...current, fyiItems: [...current.fyiItems, ""] }))}>Add FYI</button>
   </fieldset>;
 }

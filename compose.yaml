@@ -19,7 +19,8 @@ services:
 
   api:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
       args:
         MNEMONIC_API_UID: ${MNEMONIC_API_UID:-10001}
         MNEMONIC_API_GID: ${MNEMONIC_API_GID:-10001}
@@ -29,6 +30,7 @@ services:
       MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_DASHBOARD_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS: ${MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS:-10}
       MNEMONIC_ARTIFACT_ROOT: /var/lib/mnemonic/artifacts
+      MNEMONIC_PROMPT_ROOT: /var/lib/mnemonic/prompts
       # The configured source supplies the default allowlist in API settings.
       MNEMONIC_TRANSCRIPT_SOURCE_DIR: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:-}
       MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS: ${MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS:-[]}
@@ -50,6 +52,11 @@ services:
       MNEMONIC_DUPLICATE_SUGGESTION_FULL_POPULATION_CEILING: ${MNEMONIC_DUPLICATE_SUGGESTION_FULL_POPULATION_CEILING:-10000}
       MNEMONIC_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS: ${MNEMONIC_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS:-60}
     volumes:
+      - type: bind
+        source: ${MNEMONIC_PROMPT_DIR:-./prompts/runtime}
+        target: /var/lib/mnemonic/prompts
+        bind:
+          create_host_path: false
       - type: bind
         source: ${MNEMONIC_ARTIFACT_DIR:-./artifacts}
         target: /var/lib/mnemonic/artifacts

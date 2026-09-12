@@ -3,8 +3,8 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.48.0`, plugin `0.28.0`, and migration
-`0034_variable_work_leases`. The catalog has exactly 54 MCP tools, 17
+This is application/API/MCP/dashboard `0.49.0`, plugin `0.29.0`, and migration
+`0035_prompt_library`. The catalog has exactly 54 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
 with filesystem recovery journals, and two transcript operations (rebuild and import). See
@@ -278,6 +278,27 @@ override; null report prompt resets its effective nonblank default. Omission
 preserves each omitted field. A real change increments revision once, and stale
 edits fail with `project_settings_changed`. These human settings writes remain
 outside the receipt ledger. New projects have a saved default report prompt.
+
+## Prompt library
+
+See [the prompt library](prompts.md) for the seven Markdown templates, storage,
+migration, and macro behavior. No editable prompt text is stored in PostgreSQL.
+
+- `GET /projects/{project_id}/prompts` returns `{items, macros}`. Each item has
+  `id`, `name`, `description`, `size_bytes`, `created_at`, `updated_at`, and the
+  content SHA-256 `revision`.
+- `GET /projects/{project_id}/prompts/{prompt_id}` adds the exact `content`.
+- `PUT /projects/{project_id}/prompts/{prompt_id}` accepts `content` and
+  `expected_revision`, returning the saved detail. Stale writes return
+  `prompt_changed`. This human configuration write uses compare-and-set,
+  outside the permanent work-mutation receipt ledger.
+- `POST /projects/{project_id}/prompts/{prompt_id}/render` accepts optional
+  `work_item_id` and `code_review_id`, and returns `{content}`. It is a safe
+  rendering read, not an agent write or LLM invocation.
+
+Settings GET additionally accepts an optional `work_item_id` for report macros.
+Existing settings prompt fields remain a file-backed wire interface. Each
+template PATCH must be submitted separately from other settings fields.
 
 ## Canonical work-item routes
 

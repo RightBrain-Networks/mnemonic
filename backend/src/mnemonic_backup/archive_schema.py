@@ -13,7 +13,7 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0034_variable_work_leases"
+HEAD = "0035_prompt_library"
 TABLES = tuple(sorted(Base.metadata.tables))
 MAX_ARCHIVE_IDENTITY = 2**53 - 1
 IDENTITY_COLUMNS = tuple(

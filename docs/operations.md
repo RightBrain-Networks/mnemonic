@@ -140,14 +140,19 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.48.0`, plugin `0.28.0`,
-and Alembic `0034_variable_work_leases`. Inventory exactly 54 MCP tools,
+The current coordinated boundary is API/MCP/dashboard `0.49.0`, plugin `0.29.0`,
+and Alembic `0035_prompt_library`. Inventory exactly 54 MCP tools,
 17 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
 revision checks, and relationship endpoint identity, adjacency, graph guards,
 event attribution, and move eligibility now span projects. Permanent historical
 receipts remain recoverable with their exact old request; do not manufacture missing reports or evidence for historical work.
+
+Migration `0035_prompt_library` exports editable project prompt templates
+to the private prompt bind directory. Immutable report history stays in PostgreSQL. Create
+`MNEMONIC_PROMPT_DIR` with the API owner before upgrading and back it up together
+with PostgreSQL. See [prompt storage and migration](prompts.md).
 
 Migration `0034_variable_work_leases` adds per-project lease settings with Default
 15, Minimum 10, and Maximum 120 minutes. Configure them in Workspace → Project
@@ -1023,7 +1028,7 @@ from the same revision: the frozen digests and the code that computes them are
 one unit, and a mismatched pair reports drift against an unchanged schema.
 `scripts/audit_code_reviews.py` additionally provides
 focused review operational counts. Alert on any blocking finding or runtime
-failure, and inventory deployed `0.48.0` clients and plugin `0.28.0` together.
+failure, and inventory deployed `0.49.0` clients and plugin `0.29.0` together.
 The historical audit below applies only to its explicitly named older heads.
 
 All three audits pin the PostgreSQL session settings that decide how the server

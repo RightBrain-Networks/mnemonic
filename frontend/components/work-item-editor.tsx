@@ -3,7 +3,7 @@ import ExternalReferencesEditor from "@/components/external-references-editor";
 import ExternalReferences from "@/components/external-references";
 import JobReportEditor from "@/components/job-report-editor";
 import type { JobReportDraft } from "@/lib/job-completion-reports";
-import type { FormEvent } from "react";
+import type { Dispatch, FormEvent, SetStateAction } from "react";
 import type { WorkItem, WorkStatus, ExternalReference } from "@/lib/types";
 import { statusLabels } from "@/components/work-item-card";
 import { editableLifecycleStatuses } from "@/lib/work-item-view";
@@ -22,7 +22,7 @@ export function draftFromWork(work: WorkItem): WorkEditDraft {
 
 type Props = {
   jobReportDraft: JobReportDraft;
-  onJobReportDraft: (draft: JobReportDraft) => void;
+  onJobReportDraft: Dispatch<SetStateAction<JobReportDraft>>;
   work: WorkItem;
   draft: WorkEditDraft;
   setDraft: (updater: (draft: WorkEditDraft) => WorkEditDraft) => void;
@@ -70,7 +70,7 @@ export default function WorkItemEditor({
       ? "Terminal lifecycle changes stay unavailable until every human question is resolved. Nonterminal fields remain editable."
       : work.status === "pending" ? "Done is available only through the completion workflow. Use the card’s Defer action to hold work out of the queue." : work.status === "deferred" ? "Only a human can defer work. Moving it to Pending restores that lifecycle, but blockers or human gates can still keep it out of ready discovery." : `${statusLabels[work.status]} work can only remain there or reopen as Pending.`}</span></label>
     <ExternalReferencesEditor value={draft.externalReferences} disabled={blocked || saving} onChange={(externalReferences) => setDraft((value) => ({ ...value, externalReferences }))} />
-    {requiresReport && <JobReportEditor projectId={work.project_id} draft={jobReportDraft} onChange={onJobReportDraft} disabled={blocked || saving} />}
+    {requiresReport && <JobReportEditor projectId={work.project_id} workItemId={work.id} draft={jobReportDraft} onChange={onJobReportDraft} disabled={blocked || saving} />}
     {error && <div className="error-notice" role="alert"><p>{error}</p>{!conflict && <button type="button" className="button button-secondary" onClick={onLoadCurrent}>Load current version</button>}</div>}
     {conflict && <section className="conflict-panel"><h3>Current saved version · v{conflict.version}</h3><pre>{JSON.stringify({ title: conflict.title, summary: conflict.summary, priority: conflict.priority, status: conflict.status }, null, 2)}</pre><h4>Current external references</h4><ExternalReferences references={conflict.external_references} />{!conflict.external_references?.length && <p>No references</p>}<h4>Attempted external references</h4><ExternalReferences references={draft.externalReferences} />{!draft.externalReferences.length && <p>No references (clear)</p>}<p>Reconcile your ordered replacement with the current list before resubmitting. Nothing is combined automatically.</p><button type="button" className="button button-secondary" disabled={blocked} onClick={onUseCurrentVersion}>Use my reconciled edits on version {conflict.version}</button></section>}
     <div className="dialog-actions sticky-actions">

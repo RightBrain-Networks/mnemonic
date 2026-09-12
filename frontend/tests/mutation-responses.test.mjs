@@ -1051,6 +1051,20 @@ test("every shared definitive proxy rejection is classified without retaining th
   }
 });
 
+test("definitive prompt rendering validation releases a closeout while unavailable files keep its outcome unresolved", async () => {
+  const spec = request("complete_work", "POST", `/projects/${project}/work-items/${work}/complete`, {
+    expected_version: 1, checkpoint: checkpointInput()
+  });
+  for (const code of ["prompt_render_too_large", "invalid_prompt"]) {
+    const detail = { code, message: "Correct the project prompt before completing.", context: {} };
+    assert.equal((await classify(spec, 422, { detail })).type, "rejected");
+    assert.equal((await classify(spec, 503, { detail })).type, "unresolved");
+  }
+  assert.equal((await classify(spec, 503, { detail: {
+    code: "prompt_unavailable", message: "Prompt file unavailable.", context: {}
+  } })).type, "unresolved");
+});
+
 test("finite error envelopes distinguish rejection, safety conflict, and unknown outcome", async () => {
   const spec = request("delete_work", "POST", `/projects/${project}/work-items/${work}/delete`, {
     expected_version: 1,

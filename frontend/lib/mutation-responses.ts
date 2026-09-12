@@ -196,6 +196,7 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "duplicate_relationship_frozen"
   ])],
   [422, new Set([
+    "prompt_render_too_large", "invalid_prompt",
     "event_secret_echo", "client_operation_secret_echo", "gate_secret_echo",
     "code_review_handoff_required", "code_review_handoff_not_applicable", "work_follow_up_answer_invalid", "code_review_scope_mismatch", "code_review_coverage_incomplete",
     "merge_secret_echo", "job_completion_report_required", "job_completion_report_not_applicable", "client_operation_id_required",

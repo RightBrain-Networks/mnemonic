@@ -15,7 +15,9 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.job_report_defaults import DEFAULT_JOB_COMPLETION_REPORT_PROMPT
 from mnemonic_api.models import Checkpoint, JobCompletionReport, Project, WorkItem
+from mnemonic_api.prompt_storage import default_prompt
 from mnemonic_api.schemas import MutationActor
+from mnemonic_api.services.prompts import storage_for
 from mnemonic_api.services.work_events import (
     database_now,
     stage_work_changed,
@@ -107,6 +109,9 @@ def _close(
         fyi_items=[],
         prompt_revision=1,
         prompt_text=DEFAULT_JOB_COMPLETION_REPORT_PROMPT,
+        prompt_template_sha256=hashlib.sha256(
+            DEFAULT_JOB_COMPLETION_REPORT_PROMPT.encode()
+        ).hexdigest(),
         prompt_sha256=hashlib.sha256(DEFAULT_JOB_COMPLETION_REPORT_PROMPT.encode()).hexdigest(),
         actor_client="dashboard",
         actor_session_id="phase12-proof",
@@ -317,49 +322,52 @@ def test_dismissal_is_monotonic_and_follow_up_retains_exact_provenance(postgres_
 
 
 @pytest.mark.usefixtures("pristine_postgres_engine")
-def test_settings_defaults_noop_changes_and_reset_independence(postgres_engine: Engine):
+def test_settings_hash_defaults_noop_changes_and_reset_independence(postgres_engine: Engine):
     with Session(postgres_engine) as database, database.begin():
         project_id = _project(database)
+    recall_hash = hashlib.sha256(default_prompt("recall-pointer").encode()).hexdigest()
+    report_hash = hashlib.sha256(DEFAULT_JOB_COMPLETION_REPORT_PROMPT.encode()).hexdigest()
+    custom_hash = hashlib.sha256(b"Custom prompt").hexdigest()
     with postgres_engine.begin() as connection:
         assert connection.execute(
             text(
-                "SELECT recall_pointer_template,job_completion_report_prompt,revision "
+                "SELECT recall_pointer_sha256,job_completion_report_prompt_sha256,revision "
                 "FROM project_settings WHERE project_id=:p"
             ),
             {"p": project_id},
-        ).one() == (None, DEFAULT_JOB_COMPLETION_REPORT_PROMPT, 1)
+        ).one() == (recall_hash, report_hash, 1)
         connection.execute(
             text(
-                "UPDATE project_settings SET recall_pointer_template='Exact {{title}}', "
+                "UPDATE project_settings SET recall_pointer_sha256=:hash, "
                 "revision=revision+1 WHERE project_id=:p"
             ),
-            {"p": project_id},
+            {"p": project_id, "hash": hashlib.sha256(b"Exact {{title}}").hexdigest()},
         )
         connection.execute(
             text(
-                "UPDATE project_settings SET job_completion_report_prompt='Custom prompt', "
+                "UPDATE project_settings SET job_completion_report_prompt_sha256=:hash, "
                 "revision=revision+1 WHERE project_id=:p"
             ),
-            {"p": project_id},
+            {"p": project_id, "hash": custom_hash},
         )
         connection.execute(
             text(
-                "UPDATE project_settings SET recall_pointer_template=NULL, "
+                "UPDATE project_settings SET recall_pointer_sha256=:hash, "
                 "revision=revision+1 WHERE project_id=:p"
             ),
-            {"p": project_id},
+            {"p": project_id, "hash": recall_hash},
         )
         connection.execute(
-            text("UPDATE project_settings SET recall_pointer_template=NULL WHERE project_id=:p"),
-            {"p": project_id},
+            text("UPDATE project_settings SET recall_pointer_sha256=:hash WHERE project_id=:p"),
+            {"p": project_id, "hash": recall_hash},
         )
         assert connection.execute(
             text(
-                "SELECT job_completion_report_prompt,revision "
+                "SELECT job_completion_report_prompt_sha256,revision "
                 "FROM project_settings WHERE project_id=:p"
             ),
             {"p": project_id},
-        ).one() == ("Custom prompt", 4)
+        ).one() == (custom_hash, 4)
         assert (
             connection.execute(
                 text(
@@ -462,9 +470,9 @@ def test_preuse_upgrade_downgrade_preserves_custom_recall(empty_phase6_migration
             text("INSERT INTO project_settings VALUES(:p,' exact {{title}} \n')"), {"p": project_id}
         )
         command.upgrade(config, "head")
-        assert (
-            connection.scalar(text("SELECT recall_pointer_template FROM project_settings"))
-            == " exact {{title}} \n"
+        assert storage_for().read(project_id, "recall-pointer").content == " exact {{title}} \n"
+        assert connection.scalar(text("SELECT recall_pointer_sha256 FROM project_settings")) == (
+            hashlib.sha256(b" exact {{title}} \n").hexdigest()
         )
         assert connection.scalar(text("SELECT count(*) FROM job_completion_reports")) == 0
         command.downgrade(config, "0019_structured_completion_evidence")

@@ -108,11 +108,7 @@ def activity_elements(*, reports: bool = True, movable_work: bool = False) -> li
         _fk(["project_id"], ["project_activity_heads.project_id"], "fk_project_activity_head"),
         _fk(
             ["work_item_id"] if movable_work else ["project_id", "work_item_id"],
-            (
-                ["work_items.id"]
-                if movable_work
-                else ["work_items.project_id", "work_items.id"]
-            ),
+            (["work_items.id"] if movable_work else ["work_items.project_id", "work_items.id"]),
             "fk_project_activity_work",
         ),
         _fk(
@@ -196,7 +192,9 @@ def _actor_columns(prefix: str = "actor_") -> list[SchemaItem]:
     ]
 
 
-def report_elements(*, movable_work: bool = False) -> list[SchemaItem]:
+def report_elements(
+    *, movable_work: bool = False, prompt_library: bool = False
+) -> list[SchemaItem]:
     return [
         sa.Column("id", sa.UUID(), primary_key=True),
         sa.Column("project_id", sa.UUID(), nullable=False),
@@ -211,6 +209,11 @@ def report_elements(*, movable_work: bool = False) -> list[SchemaItem]:
         sa.Column("prompt_revision", sa.BigInteger(), nullable=False),
         sa.Column("prompt_sha256", sa.String(64), nullable=False),
         sa.Column("prompt_text", sa.Text(), nullable=False),
+        *(
+            [sa.Column("prompt_template_sha256", sa.String(64), nullable=False)]
+            if prompt_library
+            else []
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -238,11 +241,7 @@ def report_elements(*, movable_work: bool = False) -> list[SchemaItem]:
         ),
         _fk(
             ["work_item_id"] if movable_work else ["project_id", "work_item_id"],
-            (
-                ["work_items.id"]
-                if movable_work
-                else ["work_items.project_id", "work_items.id"]
-            ),
+            (["work_items.id"] if movable_work else ["work_items.project_id", "work_items.id"]),
             "fk_job_reports_work",
         ),
         _fk(
@@ -277,11 +276,28 @@ def report_elements(*, movable_work: bool = False) -> list[SchemaItem]:
             "mnemonic_job_report_fyis_valid_v1(summary, fyi_items)", name="fyis_valid"
         ),
         sa.CheckConstraint(
-            "mnemonic_job_report_text_valid_v1(prompt_text, 8000, 16384, true)", name="prompt_valid"
-        ),
-        sa.CheckConstraint(
             "prompt_sha256 = encode(sha256(convert_to(prompt_text, 'UTF8')), 'hex')",
             name="prompt_hash_valid",
+        ),
+        *(
+            [
+                sa.CheckConstraint(
+                    "prompt_template_sha256 ~ '^[a-f0-9]{64}$'", name="prompt_template_hash"
+                ),
+                sa.CheckConstraint(
+                    "length(prompt_text) BETWEEN 1 AND 100000 AND "
+                    "octet_length(prompt_text) <= 400000 AND "
+                    "mnemonic_has_non_whitespace(prompt_text)",
+                    name="prompt_valid",
+                ),
+            ]
+            if prompt_library
+            else [
+                sa.CheckConstraint(
+                    "mnemonic_job_report_text_valid_v1(prompt_text, 8000, 16384, true)",
+                    name="prompt_valid",
+                ),
+            ]
         ),
     ]
 
@@ -443,9 +459,7 @@ def follow_up_elements(
             ["follow_up_work_item_id"]
             if movable_work
             else ["project_id", "follow_up_work_item_id"],
-            ["work_items.id"]
-            if movable_work
-            else ["work_items.project_id", "work_items.id"],
+            ["work_items.id"] if movable_work else ["work_items.project_id", "work_items.id"],
             "fk_job_report_follow_ups_work",
         ),
         _fk(

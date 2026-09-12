@@ -201,7 +201,7 @@ def main() -> None:
         (source / "existing.jsonl").write_bytes(b"synthetic transcript\n")
         (source / "existing.jsonl").chmod(0o600)
         (source / "linked.jsonl").symlink_to(source / "existing.jsonl")
-        for name in ("artifacts", "backups", "transcript-index"):
+        for name in ("artifacts", "backups", "transcript-index", "prompts"):
             (directory / name).mkdir(mode=0o700)
         env = {key: value for key, value in os.environ.items()
                if not key.startswith(("MNEMONIC_", "COMPOSE_", "POSTGRES_"))}
@@ -213,6 +213,7 @@ def main() -> None:
             "MNEMONIC_API_UID": str(os.getuid()), "MNEMONIC_API_GID": str(os.getgid()),
             "MNEMONIC_TRANSCRIPT_SOURCE_DIR": str(source),
             "MNEMONIC_ARTIFACT_DIR": str(directory / "artifacts"),
+            "MNEMONIC_PROMPT_DIR": str(directory / "prompts"),
             "MNEMONIC_TRANSCRIPT_INDEX_DIR": str(directory / "transcript-index"),
             "MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES": "1048576",
             "MNEMONIC_BACKUP_DIR": str(directory / "backups"),

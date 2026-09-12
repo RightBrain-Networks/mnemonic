@@ -18,6 +18,7 @@ from conftest import (
     RELATIONSHIP_ID,
     WORK_ID,
     expected_validation_message,
+    stream_json,
 )
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
@@ -3050,7 +3051,7 @@ async def test_checkpoint_tools_preserve_immutable_context_and_page_history(
 
 
 async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority_warning(
-    settings, work_context, human_gate, resolved_human_gate
+    settings, work_context, human_gate, resolved_human_gate, rendered_resume_prompt
 ):
     calls = []
     gated_context = {
@@ -3082,6 +3083,10 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
     }
 
     def handler(request):
+        if request.url.path.endswith("/prompts/resume-work/render"):
+            assert request.method == "POST"
+            assert json.loads(request.content) == {"work_item_id": WORK_ID}
+            return stream_json({"content": rendered_resume_prompt})
         calls.append(dict(request.url.params))
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/context"
         return httpx.Response(200, json=gated_context)
@@ -4927,13 +4932,15 @@ def _duplicate_context(work_context):
 
 
 async def test_exact_alias_get_recall_resource_and_prompt_never_redirect(
-    settings, work_context
+    settings, work_context, rendered_resume_prompt
 ):
     alias_context = _duplicate_context(work_context)
     calls = []
 
     def handler(request):
         calls.append(request.url.path)
+        if request.url.path.endswith("/prompts/resume-work/render"):
+            return stream_json({"content": rendered_resume_prompt})
         if request.url.path.endswith("/context"):
             return httpx.Response(200, json=alias_context)
         return httpx.Response(
@@ -4982,6 +4989,7 @@ async def test_exact_alias_get_recall_resource_and_prompt_never_redirect(
         f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/context",
         f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/context",
         f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/context",
+        f"/api/v1/projects/{PROJECT_ID}/prompts/resume-work/render",
     ]
 
 

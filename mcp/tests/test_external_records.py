@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from conftest import PROJECT_ID
+from conftest import PROJECT_ID, stream_json
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import TypeAdapter, ValidationError
 from test_duplicate_suggestions import adapter, required_arguments, structured, suggestion_page
@@ -320,10 +320,14 @@ async def test_create_sends_references_and_requires_exact_correspondence(setting
         await adapter(settings, handler).call_tool('create_work', args)
 
 
-async def test_resource_and_resume_prompt_expose_observed_references(settings, work_context):
+async def test_resource_and_resume_prompt_expose_observed_references(
+    settings, work_context, rendered_resume_prompt,
+):
     work_context['work_item']['external_references'] = [REFERENCE]
 
     def handler(req):
+        if req.url.path.endswith('/prompts/resume-work/render'):
+            return stream_json({'content': rendered_resume_prompt})
         return httpx.Response(200, json=work_context)
 
     server = adapter(settings, handler)

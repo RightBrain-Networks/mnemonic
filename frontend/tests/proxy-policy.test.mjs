@@ -65,7 +65,7 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.deepEqual(allowedQueryKeys("projects", "GET"), ["limit", "offset"]);
   assert.deepEqual(allowedQueryKeys("projects", "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}`, "PATCH"), []);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/settings`, "GET"), []);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/settings`, "GET"), ["work_item_id"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/settings`, "PATCH"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "GET"), ["q", "semantic", "status", "sort", "tag", "source_client", "external_url", "source_session_id", "view", "duplicate_scope", "canonical_work_item_id", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "POST"), []);
@@ -212,6 +212,7 @@ test("project settings require a revision for independent recall-pointer patches
   }), null);
   for (const body of [
     {},
+    { expected_revision: "1", recall_pointer_template: "Recall", code_review_required_min_priority: 0 },
     { recall_pointer_template: 17 },
     { recall_pointer_template: { nested: "value" } },
     { recall_pointer_template: " \r\n\t" },
