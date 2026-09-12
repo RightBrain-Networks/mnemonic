@@ -1,6 +1,6 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.50.0`, plugin `0.29.0`, and current migration
+Application/API/MCP/dashboard `0.51.0`, plugin `0.30.0`, and current migration
 `0035_prompt_library` support files outside Git and local full-text search. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
@@ -78,7 +78,7 @@ context (`X-Artifact-Access: human-dashboard`, set by its server proxy), permit
 human previews/downloads/searches, and are audited. This header and the approval
 assertion are policy signals, not separate authentication credentials.
 
-Upgrade API, MCP and dashboard together to `0.50.0`, plugin `0.29.0`, and migration
+Upgrade API, MCP and dashboard together to `0.51.0`, plugin `0.30.0`, and migration
 `0035_prompt_library`. Migration 0029 initially marked older artifacts
 non-sensitive; migration 0030 preserves their current sensitivity. No new
 configuration is required. Downgrade refuses populated artifact state; fix forward.
@@ -306,6 +306,20 @@ History accepts `q`, `limit`, and `offset`, returning independent `revisions` an
 `audit` pages. These directory/history reads include extracted metadata but never
 match body text.
 
+### Transfer local files without base64 in agent context
+
+Agents should run the [direct upload client](artifact-upload-client.md) for local
+uploads and replacements. It prepares a private snapshot and immutable request
+metadata, then streams bytes to the existing REST endpoint and prints a compact
+validated receipt. The helper ships in the plugin and portable skill exports as
+well as the repository. MCP upload/replacement tools still accept base64 for
+programmatic callers; agents should not read that encoding into their sessions.
+
+For downloads, run the bundled [download client](artifact-download-client.md)
+with `--dest` pointing into the agent's actual scratchpad. It streams and verifies
+raw bytes locally and prints only a compact transfer summary. All three skills
+and portable exports route local downloads through this helper.
+
 ### Read extracted text
 
 Call `get_artifact` to obtain the current revision, then
@@ -338,7 +352,9 @@ requires no operation UUID or local PDF parser.
 MCP `download_artifact` retains its base64 transfer format. For bytes on the
 client's filesystem without passing the payload through model context, use the
 standard-library [download client](artifact-download-client.md),
-`scripts/download_artifact.py`. Its process receives an explicitly provisioned
+`scripts/download_artifact.py`, also bundled with installed plugins and portable
+skills. Set `--dest` to a new file in the agent's scratchpad. Its process receives
+an explicitly provisioned
 `MNEMONIC_API_KEY` and a reachable API origin through `--api-url` or
 `MNEMONIC_API_URL`. The API origin may use a different port from the MCP endpoint;
 do not derive it from the MCP port or an internal container address. The binary

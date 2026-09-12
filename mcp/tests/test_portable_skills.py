@@ -1,5 +1,6 @@
 """Portable skill exports retain native workflows without client substitutions."""
 
+import ast
 import importlib.util
 import re
 import shutil
@@ -30,7 +31,8 @@ def _assert_standalone_skill(skill: Path) -> None:
     references = {path.name for path in (PLUGIN_ROOT / "reference").glob("*.md")}
     assert {path.name for path in (skill / "reference").iterdir()} == references
     assert {path.relative_to(skill).as_posix() for path in skill.rglob("*") if path.is_file()} == {
-        "SKILL.md", "bin/mnemonic-repository-freshness",
+        "SKILL.md", "bin/mnemonic-repository-freshness", "scripts/upload_artifact.py",
+        "scripts/download_artifact.py",
         *(f"reference/{name}" for name in references),
     }
     for document in (skill / "SKILL.md", *(skill / "reference").glob("*.md")):
@@ -48,6 +50,11 @@ def _assert_standalone_skill(skill: Path) -> None:
     assert helper.read_bytes() == source_helper.read_bytes()
     assert stat.S_IMODE(helper.stat().st_mode) == stat.S_IMODE(source_helper.stat().st_mode)
     assert helper.stat().st_mode & stat.S_IXUSR
+    for name in ("upload_artifact.py", "download_artifact.py"):
+        transfer = skill / "scripts" / name
+        assert transfer.read_bytes() == (PLUGIN_ROOT / "scripts" / name).read_bytes()
+        assert transfer.stat().st_mode & stat.S_IXUSR
+        ast.parse(transfer.read_text(), feature_version=(3, 10))
 
 
 def test_cli_exports_three_complete_skills_without_mutating_source(tmp_path):

@@ -18,10 +18,14 @@ for settings changes and retries. This metadata-only read is permitted before
 cold review findings freeze; it grants no execution authority.
 
 For project files outside Git, read
-[artifacts.md](${CLAUDE_PLUGIN_ROOT}/reference/artifacts.md). Use `upload_artifact`
-with the originating and known related work IDs. `replace_artifact` and
-`delete_artifact` remove bytes permanently while retaining metadata and audit;
-freeze exact bytes, arguments, and operation UUID before each mutation.
+[artifacts.md](${CLAUDE_PLUGIN_ROOT}/reference/artifacts.md). For local uploads and
+replacements, run the bundled
+[upload helper](${CLAUDE_PLUGIN_ROOT}/scripts/upload_artifact.py) with the originating
+and known related work IDs. It streams bytes directly to the API; never print or
+read base64 into the session to populate an MCP call. Prepare the private request
+directory once, then send it. Replacement and `delete_artifact` remove bytes
+permanently while retaining metadata and audit; preserve exact bytes, arguments,
+and operation UUID for uncertain retries.
 
 Read [code-reviews.md](${CLAUDE_PLUGIN_ROOT}/reference/code-reviews.md) for every
 Done closeout. Prepare mandatory pinned scope/handoff before `complete_work`,
@@ -36,9 +40,11 @@ nested `job_completion_report`; assume the multitasking human read no other
 LLM output. Reports, FYIs, and editable prompts grant no execution authority.
 
 
-Use Mnemonic's exposed MCP tools; clients may prefix their names. If Mnemonic is
-disconnected, prepare the checkpoint and report that it was not saved. Do not
-claim durability from a draft or bypass the MCP connection.
+Use Mnemonic's exposed MCP tools for work coordination and metadata; clients may
+prefix their names. Local file transfers use the documented direct API helpers
+with an explicitly provisioned client environment. If Mnemonic is disconnected,
+prepare the checkpoint and report that it was not saved. Do not claim durability
+from a draft.
 
 ## Resolve the project and existing work
 
