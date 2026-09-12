@@ -11,6 +11,7 @@ from mnemonic_api.errors import ApplicationError
 
 from .code_review_fixtures import claim_review, mandatory
 from .test_leases_postgres import claim_payload, create_work, expire_lease, item_path
+from .test_variable_leases_postgres import change_policy
 
 pytestmark = pytest.mark.postgres
 
@@ -42,13 +43,14 @@ def renewals(engine, work_id):
 
 
 @pytest.mark.parametrize("kind", ["events", "context", "progress"])
-def test_progress_renews_once_with_configured_ttl_and_replays_after_takeover(
+def test_progress_retains_custom_duration_once_and_replays_after_takeover(
     api, project, work_payload, postgres_engine, kind,
 ):
-    api.app.state.settings.lease_ttl_seconds = 123
     work = create_work(api, project, work_payload)["work_item"]
     endpoint = item_path(project, work)
-    claim = api.post(endpoint + "/claim", json=claim_payload("progress-liveness")).json()
+    claim = api.post(endpoint + "/claim", json={
+        **claim_payload("progress-liveness"), "lease_minutes": 120,
+    }).json()
     before = retained(postgres_engine, work["id"])
     route, body = progress_request(kind)
     url = f"{endpoint}/{route}"
@@ -62,7 +64,7 @@ def test_progress_renews_once_with_configured_ttl_and_replays_after_takeover(
     assert responses[0].json() == responses[1].json()
     after = retained(postgres_engine, work["id"])
     assert after["renewed_at"] > before["renewed_at"]
-    assert (after["expires_at"] - after["renewed_at"]).total_seconds() == 123
+    assert (after["expires_at"] - after["renewed_at"]).total_seconds() == 120 * 60
     assert after["expires_at"] > before["expires_at"]
     for key in before.keys() - {"renewed_at", "expires_at"}:
         assert after[key] == before[key]
@@ -136,3 +138,61 @@ def test_progress_cannot_renew_review_capability(
     assert response.json()["detail"]["code"] == "lease_purpose_mismatch"
     assert retained(postgres_engine, work["id"]) == before
     assert renewals(postgres_engine, work["id"]) == 0
+
+
+@pytest.mark.parametrize("kind", ["events", "context", "progress"])
+def test_progress_uses_explicit_renewal_duration_and_clamps_current_bounds(
+    api, project, work_payload, postgres_engine, kind,
+):
+    work = create_work(api, project, work_payload)["work_item"]
+    endpoint = item_path(project, work)
+    claim = api.post(endpoint + "/claim", json={
+        **claim_payload("selected-duration"), "lease_minutes": 120,
+    }).json()
+    renewed = api.post(endpoint + "/renew-claim", json={
+        "lease_token": claim["lease_token"], "lease_minutes": 105,
+    })
+    assert renewed.status_code == 200, renewed.text
+    route, body = progress_request(kind)
+    body["lease_token"] = claim["lease_token"]
+    assert api.post(f"{endpoint}/{route}", json=body).status_code == 201
+    after = retained(postgres_engine, work["id"])
+    assert (after["expires_at"] - after["renewed_at"]).total_seconds() == 105 * 60
+    assert change_policy(api, project, lease_maximum_minutes=60).status_code == 200
+    assert retained(postgres_engine, work["id"]) == after
+    bounded = {**body, "client_operation_id": str(uuid4())}
+    result = api.post(f"{endpoint}/{route}", json=bounded)
+    assert result.status_code == 201, result.text
+    after = retained(postgres_engine, work["id"])
+    assert (after["expires_at"] - after["renewed_at"]).total_seconds() == 60 * 60
+    assert change_policy(api, project, lease_minimum_minutes=90, lease_default_minutes=90,
+                         lease_maximum_minutes=180).status_code == 200
+    assert api.post(f"{endpoint}/{route}", json=bounded).json() == result.json()
+    assert retained(postgres_engine, work["id"]) == after
+    assert api.post(f"{endpoint}/{route}", json=body).status_code == 201
+    after = retained(postgres_engine, work["id"])
+    assert (after["expires_at"] - after["renewed_at"]).total_seconds() == 90 * 60
+    assert change_policy(api, project, lease_minimum_minutes=10, lease_default_minutes=15,
+                         lease_maximum_minutes=240).status_code == 200
+    assert api.post(f"{endpoint}/{route}", json=body).status_code == 201
+    after = retained(postgres_engine, work["id"])
+    assert (after["expires_at"] - after["renewed_at"]).total_seconds() == 90 * 60
+
+
+def test_progress_preserves_in_range_historical_fractional_minute_duration(
+    api, project, work_payload, postgres_engine,
+):
+    assert change_policy(api, project, lease_minimum_minutes=1).status_code == 200
+    work = create_work(api, project, work_payload)["work_item"]
+    endpoint = item_path(project, work)
+    claim = api.post(endpoint + "/claim", json=claim_payload("historical-seconds")).json()
+    with postgres_engine.begin() as connection:
+        connection.execute(
+            text("UPDATE work_leases SET expires_at=renewed_at+interval '123 seconds' "
+                 "WHERE work_item_id=:id"), {"id": work["id"]},
+        )
+    route, body = progress_request("events")
+    response = api.post(f"{endpoint}/{route}", json={**body, "lease_token": claim["lease_token"]})
+    assert response.status_code == 201, response.text
+    after = retained(postgres_engine, work["id"])
+    assert (after["expires_at"] - after["renewed_at"]).total_seconds() == 123

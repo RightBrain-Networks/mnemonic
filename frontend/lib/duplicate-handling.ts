@@ -1,3 +1,4 @@
+import { decodeLeaseSettings } from "./work-lease-settings.ts";
 import { validSparseReferences, referenceKeys } from "./external-references.ts";
 import { decodeArtifact } from "./artifacts.ts";
 import { decodeCodeReviewContext } from "./code-reviews.ts";
@@ -42,7 +43,7 @@ const PROJECTION_FIELDS = [
   "path",
   "duplicate_member_count"
 ] as const;
-const DETAIL_FIELDS = ["work_item", "canonical"] as const;
+const DETAIL_FIELDS = ["work_item", "canonical", "lease_settings", "readiness"] as const;
 const COUNTS_FIELDS = ["incoming", "outgoing", "undirected", "total"] as const;
 const ELIGIBILITY_FIELDS = [
   "incident_blocks_count",
@@ -55,6 +56,7 @@ const ADJACENT_FIELDS = [
 ] as const;
 const WORK_POINTER_FIELDS = ["id", "project_id", "title", "status", "readiness"] as const;
 const CONTEXT_FIELDS = [
+  "lease_settings",
   "artifacts",
   "artifact_total",
   "omitted_artifact_count",
@@ -196,6 +198,8 @@ export function decodeWorkItemDetail(
   return {
     work_item: workItem,
     canonical: decodeCanonicalWorkProjection(detail.canonical, workItem),
+    lease_settings: decodeLeaseSettings(detail.lease_settings),
+    readiness: decodeReadiness(detail.readiness, workItem.status, workItem.id),
     ...(Object.hasOwn(detail, "code_review_context") ? { code_review_context: decodeCodeReviewContext(detail.code_review_context, projectId, workItemId) } : {})
   };
 }
@@ -566,6 +570,7 @@ export function decodeWorkContext(
   return {
     work_item: workItem,
     artifacts,
+    lease_settings: decodeLeaseSettings(context.lease_settings),
     artifact_total: context.artifact_total,
     omitted_artifact_count: context.omitted_artifact_count,
     merge_review_revision: revision,

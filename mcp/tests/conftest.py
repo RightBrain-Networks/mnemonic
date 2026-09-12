@@ -222,6 +222,7 @@ def work_summary(work_item, checkpoint, readiness):
 @pytest.fixture
 def work_context(work_item, checkpoint, readiness):
     return {
+        "lease_settings": {"default_minutes": 15, "minimum_minutes": 10, "maximum_minutes": 120},
         "work_item": work_item,
         "merge_review_revision": {
             "work_version": work_item["version"],

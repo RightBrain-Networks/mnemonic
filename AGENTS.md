@@ -83,12 +83,20 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.47.0`, Claude plugin
-`0.27.0`, and Alembic head `0033_transcript_imports`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.48.0`, Claude plugin
+`0.28.0`, and Alembic head `0034_variable_work_leases`. The catalog is exactly
 54 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 20 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
 only in the existing closeout mutations; do not add standalone agent writes.
+Project lease settings default to 15 minutes, minimum 10, maximum 120; humans edit
+them in Workspace Project details. Immediately read assigned work with
+`get_work(status_only=true)` for current status and `lease_settings`; this context-free
+read is allowed before cold findings freeze. Request Default minutes for startup
+and investigation, then estimate remaining session time within current bounds.
+Claim/renew `lease_minutes` is optional and omission uses the current project default.
+Preserve its exact value or omission across uncertain claim retries. Settings changes
+do not alter active expiry. `MNEMONIC_LEASE_TTL_SECONDS` is retired.
 Fresh work starts pending. Every actual Done, Won’t do, or Promoted closeout
 requires a report and operation UUID. Sparse historical requests remain
 parseable exclusively for permanent receipt replay before fresh domain guards.
@@ -154,7 +162,8 @@ is unavailable for every work item.
 Optional closeout questions are durable originating-session follow-ups, not
 human gates. Cold reviewers must not load context before freezing findings.
 Fresh token-bearing `append_event` and `add_checkpoint` writes renew an active
-implementation lease atomically using the configured TTL; exact receipt replays
+implementation lease atomically using its last granted duration, clamped to current
+project minimum/maximum; exact receipt replays
 and token-free writes do not renew it. Review leases still use `renew_claim`.
 New remediation summaries describe finding count, primary file, and finding titles.
 One completed review creates zero or one remediation containing all findings;

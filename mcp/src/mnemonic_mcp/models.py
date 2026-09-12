@@ -58,6 +58,7 @@ from .external_records import (
     OmissionOnlyExternalReferences,
     validate_external_page,
 )
+from .lease_models import LeaseSettingsRead
 from .phase12_models import JobCompletionReportRead, reject_null_report
 from .response_validation import validate_page_bounds, validate_page_items
 
@@ -2097,8 +2098,31 @@ class CanonicalWorkProjection(CanonicalResponse):
         return self
 
 
+class WorkStatusRead(CanonicalResponse):
+    """Coordination metadata safe to read before an independent cold review."""
+
+    work_item_id: UUID
+    project_id: UUID
+    status: Status
+    version: Annotated[StrictInt, Field(ge=1, le=2147483647)]
+    readiness: Readiness
+    lease_settings: LeaseSettingsRead
+
+    @model_validator(mode="after")
+    def enforce_status_contract(self) -> Self:
+        if self.readiness.lifecycle_status != self.status:
+            raise ValueError("Readiness must describe the selected lifecycle status.")
+        if not self.readiness.is_duplicate and (
+            self.readiness.canonical_work_item_id != self.work_item_id
+        ):
+            raise ValueError("Canonical readiness must identify the selected work item.")
+        return self
+
+
 class WorkItemDetailRead(CanonicalResponse):
     work_item: WorkItemRead
+    readiness: Readiness
+    lease_settings: LeaseSettingsRead
     canonical: CanonicalWorkProjection
     code_review_context: CodeReviewContext | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
@@ -2119,6 +2143,12 @@ class WorkItemDetailRead(CanonicalResponse):
         ):
             raise ValueError("A canonical root projection must identify the requested work item.")
         return self
+
+
+class WorkRead(RootModel[WorkItemDetailRead | WorkStatusRead]):
+    """Preserve object-shaped MCP output for either exact-work read mode."""
+
+    model_config = ConfigDict(json_schema_extra={"type": "object"})
 
 
 class WorkPointer(CanonicalResponse):
@@ -2939,6 +2969,7 @@ class WorkContext(CanonicalResponse):
         default=None, exclude_if=lambda value: value is None,
     )
     work_item: WorkItemRead
+    lease_settings: LeaseSettingsRead
     merge_review_revision: MergeReviewRevision
     canonical: CanonicalWorkProjection
     duplicate_members: list[WorkIdentityPointer] = Field(max_length=20)

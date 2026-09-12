@@ -229,8 +229,12 @@ There is no automatic redirect, unmerge, transfer, or safe replacement operation
 
 This durable mutation workflow is separate from lease acquisition.
 `claim_work` and `claim_and_recall` use `claim_request_id` only while the same
-retained lease remains active; `renew_claim` is time-relative and not
-idempotent. Never rename, exchange, or infer one identifier from the other.
+retained lease remains active. Retain `lease_minutes` exactly, including omission,
+with all claim arguments across uncertain retries; never substitute a refreshed
+default or estimate into the same claim request. Follow the
+[project lease guidance](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#choose-a-project-configured-lease)
+for initial Default requests and later duration estimates. `renew_claim` is
+time-relative and not idempotent. Never rename, exchange, or infer one identifier from the other.
 
 ## Checkpoints and events have different jobs
 

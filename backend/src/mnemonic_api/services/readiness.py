@@ -500,3 +500,15 @@ def ready_work_page(
         limit=filters.limit,
         offset=filters.offset,
     )
+
+
+def work_readiness(database: Session, work_item: WorkItem) -> Readiness:
+    """Read status and coordination facts without loading checkpoints or review prose."""
+    ids = [work_item.id]
+    blockers, gates, leases, dropped, canonical = readiness_inputs(database, ids)
+    return readiness(
+        work_item, leases.get(work_item.id), blockers.get(work_item.id, 0),
+        work_item.id in dropped, gates.get(work_item.id, 0),
+        canonical_work_item_id=canonical.get(work_item.id, work_item.id),
+        review_status=review_statuses(database, ids).get(work_item.id),
+    )

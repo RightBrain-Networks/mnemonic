@@ -2908,7 +2908,7 @@ async def test_append_event_validation_and_unknown_outcome_are_value_free(settin
     assert marker not in str(caught.value)
     assert len(requests) == 1
 
-async def test_get_and_update_work_use_identity_endpoint(settings, work_item):
+async def test_get_and_update_work_use_identity_endpoint(settings, work_item, work_context):
     seen = []
 
     def handler(request):
@@ -2938,6 +2938,8 @@ async def test_get_and_update_work_use_identity_endpoint(settings, work_item):
             200,
             json={
                 "work_item": work_item,
+                "readiness": work_context["readiness"],
+                "lease_settings": work_context["lease_settings"],
                 "canonical": {
                     "is_duplicate": False,
                     "direct_destination": None,
@@ -4879,10 +4881,12 @@ async def test_phase9_core_catalog_exposes_exact_merge_and_search_contracts(sett
     assert search["duplicate_scope"]["default"] == "canonical"
     assert search["duplicate_scope"]["enum"] == ["canonical", "aliases", "all"]
     assert "minimal" not in json.dumps(tools["search_work"].inputSchema)
-    assert set(tools["get_work"].outputSchema["properties"]) == {
+    assert set(tools["get_work"].outputSchema["$defs"]["WorkItemDetailRead"]["properties"]) == {
         "work_item",
         "canonical",
         "code_review_context",
+        "readiness",
+        "lease_settings",
     }
     assert tools["get_work"].outputSchema["$defs"]["CanonicalWorkProjection"][
         "additionalProperties"
@@ -4937,6 +4941,8 @@ async def test_exact_alias_get_recall_resource_and_prompt_never_redirect(
             json={
                 "work_item": work_context["work_item"],
                 "canonical": alias_context["canonical"],
+                "readiness": alias_context["readiness"],
+                "lease_settings": alias_context["lease_settings"],
             },
         )
 
@@ -5461,6 +5467,8 @@ async def test_exact_work_reads_reject_a_different_response_identity(
         response = {
             "work_item": response["work_item"],
             "canonical": response["canonical"],
+            "readiness": response["readiness"],
+            "lease_settings": response["lease_settings"],
         }
     returned_work = response["work_item"]
     returned_work[scope_field] = (
@@ -5605,5 +5613,7 @@ async def test_append_event_transports_optional_liveness_token(settings, progres
     assert len(seen) == 1
     tools = {tool.name: tool for tool in await server.list_tools()}
     for name in ("append_event", "add_checkpoint"):
-        assert "configured TTL in the same transaction" in tools[name].description
+        assert "last granted duration clamped to the current project minimum and maximum" in (
+            tools[name].description
+        )
         assert "exact receipt replays do not renew a lease" in tools[name].description

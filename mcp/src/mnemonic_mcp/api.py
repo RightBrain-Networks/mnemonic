@@ -126,6 +126,15 @@ _APPLICATION_ERRORS = {
     "lease_held": "This work item has an active claim.",
     "work_move_active_lease": "Active work cannot move until its claim is released or expires.",
     "lease_expired": "This work claim has expired. Reconcile only after resolving any unknown outcome. Cold review permits a minimal same-scope claim, never a contextual reread.",
+    "lease_minutes_out_of_range": (
+        "The requested lease duration is outside this project's current minimum and maximum. "
+        "Read get_work with status_only=true for current lease_settings before a new request."
+    ),
+    "invalid_lease_settings": "Lease durations must satisfy minimum <= default <= maximum.",
+    "claim_request_mismatch": (
+        "That claim request ID was already used with different lease arguments. "
+        "Recover the exact original arguments; do not change the duration on a retry."
+    ),
     "lease_token_mismatch": "The work claim does not match the current active claim.",
     "claim_request_expired": (
         "That claim request can no longer be resumed. Claim again with a new claim_request_id."
@@ -189,7 +198,8 @@ _APPLICATION_ERRORS = {
 }
 UNKNOWN_CLAIM_OUTCOME = (
     "Mnemonic API could not confirm the response; the claim outcome is unknown. Retry promptly "
-    "with the exact same claim_request_id from this call. A new request ID can conflict, and search "
+    "with the exact same claim_request_id and all arguments, including lease_minutes, from this "
+    "call. A new request ID can conflict, and search "
     "or recall cannot recover the lease token."
 )
 UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME = (

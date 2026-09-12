@@ -44,7 +44,16 @@ export interface Project {
   updated_at: string;
 }
 
+export interface LeaseSettings {
+  default_minutes: number;
+  minimum_minutes: number;
+  maximum_minutes: number;
+}
+
 export interface ProjectSettings {
+  lease_default_minutes: number;
+  lease_minimum_minutes: number;
+  lease_maximum_minutes: number;
   project_id: string;
   recall_pointer_template: string | null;
   job_completion_report_prompt: string;
@@ -168,6 +177,8 @@ export interface CanonicalWorkProjection {
 }
 
 export interface WorkItemDetailRead {
+  readiness: Readiness;
+  lease_settings: LeaseSettings;
   code_review_context?: CodeReviewContext;
   work_item: WorkItem;
   canonical: CanonicalWorkProjection;
@@ -472,6 +483,7 @@ export interface HumanGateResolutionInput extends ClientOperationInput {
 }
 
 export interface WorkContext {
+  lease_settings: LeaseSettings;
   artifacts: import("./artifacts.ts").Artifact[];
   artifact_total: number;
   omitted_artifact_count: number;

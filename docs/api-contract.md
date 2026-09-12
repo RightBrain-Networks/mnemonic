@@ -3,8 +3,8 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.47.0`, plugin `0.27.0`, and migration
-`0033_transcript_imports`. The catalog has exactly 54 MCP tools, 17
+This is application/API/MCP/dashboard `0.48.0`, plugin `0.28.0`, and migration
+`0034_variable_work_leases`. The catalog has exactly 54 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
 with filesystem recovery journals, and two transcript operations (rebuild and import). See
@@ -265,10 +265,17 @@ lowercase, and hyphen-separated; omitting one derives it from the name.
 
 Project settings use `GET /projects/{project_id}/settings` and PATCH at the same
 path. GET returns `{project_id, recall_pointer_template,
-job_completion_report_prompt, revision}`. PATCH requires decimal-string
-`expected_revision` and one or both editable fields. Null recall clears its
+job_completion_report_prompt, revision, code_review_required_min_priority,
+code_review_optional_min_priority, allow_remediation_code_reviews,
+lease_default_minutes, lease_minimum_minutes, lease_maximum_minutes}`.
+Lease defaults are 15, 10, and 120 minutes respectively for new and migrated projects.
+The Workspace Project details card edits these durations. Values are strict whole
+minutes from 1 through 2147483647, with minimum <= default <= maximum. PATCH
+requires decimal-string `expected_revision` and at least one editable field.
+Partial lease edits are checked against the saved values before committing; null
+lease values are invalid and inconsistent bounds return `invalid_lease_settings`. Null recall clears its
 override; null report prompt resets its effective nonblank default. Omission
-preserves the other field. A real change increments revision once, and stale
+preserves each omitted field. A real change increments revision once, and stale
 edits fail with `project_settings_changed`. These human settings writes remain
 outside the receipt ledger. New projects have a saved default report prompt.
 
@@ -281,7 +288,12 @@ Base path: `/projects/{project_id}/work-items`.
 - `GET /` browses or searches `WorkSearchHit` rows, grouping aliases under
   their canonical root by default.
 - `GET /{work_item_id}` returns `WorkItemDetailRead`, containing the exact
-  `WorkItemRead` plus an explicit canonical projection.
+  `WorkItemRead`, an explicit canonical projection, current `readiness`, and
+  `lease_settings: {default_minutes, minimum_minutes, maximum_minutes}`.
+  `?status_only=true` returns `WorkStatusRead` containing only `work_item_id`,
+  `project_id`, `status`, `version`, `readiness`, and `lease_settings`. It contains
+  no authored prose or history, so cold reviewers may use it before findings freeze.
+  `WorkContext` also includes the current project `lease_settings`.
 - `PATCH /{work_item_id}` performs a version-protected work identity or
   lifecycle edit.
 - `POST /{work_item_id}/defer` is the human control-plane action that parks
@@ -323,8 +335,9 @@ Base path: `/projects/{project_id}/work-items`.
 
 Fresh checkpoint and progress-event appends with an active implementation
 `lease_token` renew that same lease atomically. The server captures database time
-after locking the lease and sets expiry to that time plus
-`MNEMONIC_LEASE_TTL_SECONDS`; the existing `lease_renewed` project activity entry
+after locking the lease and sets expiry to that time plus the last granted
+duration, clamped to the current project minimum/maximum. The existing
+`lease_renewed` project activity entry
 records the change. MCP `append_event` now accepts the optional `lease_token`
 argument, as `add_checkpoint` already does. Token-free appends and exact permanent
 receipt replays do not renew a lease. Invalid, expired, or review-purpose tokens
@@ -559,12 +572,21 @@ Both claim routes accept this strict JSON body:
 {
   "holder_client": "claude-code",
   "holder_session_id": "opaque-current-session",
-  "claim_request_id": "client-generated-unique-attempt-id"
+  "claim_request_id": "client-generated-unique-attempt-id",
+  "lease_minutes": 15,
+  "session_transcript": null
 }
 ```
 
-The server chooses expiry from `MNEMONIC_LEASE_TTL_SECONDS`; callers supply no
-absolute time or duration. A successful claim returns `ClaimReceipt`:
+Claims and renewals accept optional `lease_minutes`. Omission uses the current
+project default; an explicit value is granted exactly when it lies within the
+current project minimum and maximum (inclusive). Otherwise the server returns
+`lease_minutes_out_of_range`. The server computes expiry from database time;
+callers never supply an absolute timestamp. The first lease may use any allowed
+duration. Skills recommend the Default for startup and investigation, then an
+estimate of remaining session time for later requests. Changes to project settings
+leave active expiry timestamps unchanged and apply to fresh claims and renewals.
+`MNEMONIC_LEASE_TTL_SECONDS` is retired. A successful claim returns `ClaimReceipt`:
 
 ```text
 work_item_id, holder_client, holder_session_id, claim_request_id,
@@ -578,16 +600,19 @@ or browser data. `claim-and-recall` returns a `ClaimAndRecall` object containing
 the `ClaimReceipt` under `lease` and bounded `WorkContext` under `context`.
 
 While retained and active, an identical holder/session/request replay returns
-the same token and timestamps without extending expiry, even if a blocker was
-added after acquisition. A different tuple returns `work_blocked` when an
+the retained token and timestamps without extending expiry, even if a blocker was
+added or project lease settings changed after acquisition. Preserve the exact
+`lease_minutes` argument (including omission) across claim retries; changing it
+for the same active claim returns `claim_request_mismatch`. A different tuple returns `work_blocked` when an
 unresolved blocker also exists and otherwise `lease_held`. Once that retained
 request has expired, the identical
 request returns `claim_request_expired`; a new request ID can replace the row
 and acquire a fresh lease. This is bounded lost-response recovery, not general
 idempotency.
 
-`renew-claim` accepts `{"lease_token": "..."}` and requires a matching
-unexpired row. It returns the same token/request ID with database-timed renewal
+`renew-claim` accepts `{"lease_token": "...", "lease_minutes": 30}` (duration
+optional) and requires a matching unexpired row. Renewal replaces expiry with
+database time plus the requested duration; it does not add time to the old expiry. It returns the same token/request ID with database-timed renewal
 and expiry values. `release-claim` accepts
 `{lease_token, client_operation_id?,
 actor?: {actor_client, actor_session_id, actor_model?}}`.
@@ -1565,7 +1590,6 @@ currently selected project/list/attention/open-context views as applicable.
 ## Runtime configuration
 
 API: `DATABASE_URL`, `MNEMONIC_API_KEY` (required, at least 32 characters),
-`MNEMONIC_LEASE_TTL_SECONDS` (default 900, allowed 60 through 3600),
 `MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS` (default 10, allowed 1 through 10),
 `MNEMONIC_EMBEDDING_CACHE`, and `MNEMONIC_DASHBOARD_ORIGINS` for exact
 browser/WebSocket origins. Advisory settings are

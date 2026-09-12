@@ -14,10 +14,12 @@ from mnemonic_api.schemas import (
     CanonicalWorkProjection,
     DuplicateMergeEligibility,
     WorkItemDetailRead,
+    WorkItemRead,
     WorkMergeResult,
 )
 from mnemonic_api.semantic import EmbeddingCandidate, rank_embedding_candidates
 from mnemonic_api.services.duplicates import validate_project_duplicate_graph
+from mnemonic_api.services.readiness import readiness
 from tests.test_client_operations import response_vector_cases
 
 
@@ -140,6 +142,15 @@ def _work_item(
     }
 
 
+def _detail_coordination(work_item: dict, canonical_id: UUID | None = None) -> dict:
+    return {
+        "readiness": readiness(
+            WorkItemRead.model_validate(work_item), canonical_work_item_id=canonical_id,
+        ),
+        "lease_settings": {"default_minutes": 15, "minimum_minutes": 10, "maximum_minutes": 120},
+    }
+
+
 def test_alias_projection_rejects_member_count_shorter_than_its_path() -> None:
     payload = _valid_alias_projection()
     assert CanonicalWorkProjection.model_validate(payload).duplicate_member_count == 2
@@ -185,6 +196,7 @@ def test_root_detail_binds_its_full_canonical_identity(
     work_item = _work_item(1, "Canonical root")
     pointer = _pointer(1, "Canonical root")
     payload = {
+        **_detail_coordination(work_item),
         "work_item": work_item,
         "canonical": {
             "is_duplicate": False,
@@ -217,7 +229,8 @@ def test_alias_detail_rejects_requested_identity_anywhere_in_path() -> None:
 
     with pytest.raises(ValidationError, match="cannot contain its requested source"):
         WorkItemDetailRead.model_validate(
-            {"work_item": requested, "canonical": projection}
+            {"work_item": requested, "canonical": projection,
+             **_detail_coordination(requested, UUID(int=3))}
         )
 
 

@@ -310,6 +310,11 @@ button { touch-action: manipulation; }
 .field .settings-template { min-height: 230px; padding: 17px; font-size: 12px; line-height: 1.8; tab-size: 2; }
 .settings-actions { display: flex; align-items: center; gap: 10px; margin: 17px 0 30px; }
 .settings-project-form .settings-actions { margin-bottom: 0; }
+.work-lease-settings { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line); }
+.work-lease-settings h3 { margin: 0; font: 700 18px/1.4 var(--display); }
+.work-lease-settings .settings-intro { margin: 10px 0 20px; }
+.work-lease-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 16px; }
+.work-lease-settings .settings-actions { margin-bottom: 0; }
 .project-backups { min-width: 0; }
 .project-backups .settings-card-heading { flex-wrap: wrap; }
 .backup-actions { flex-wrap: wrap; margin-bottom: 20px; }

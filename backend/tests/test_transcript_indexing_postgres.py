@@ -481,7 +481,7 @@ def test_uncommitted_renewal_is_observed_before_transcript_claim(
             with project_mutation(database, UUID(project["id"])):
                 row = database.scalar(select(WorkItem).where(
                     WorkItem.id == UUID(work["id"])).with_for_update())
-                renew_lease_record(database, row, receipt["lease_token"], 900)
+                renew_lease_record(database, row, receipt["lease_token"], lease_minutes=15)
                 renewed.set()
                 assert release.wait(5)
                 database.commit()

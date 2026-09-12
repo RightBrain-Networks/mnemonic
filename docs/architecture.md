@@ -3,8 +3,8 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This architecture describes application/API/MCP `0.47.0`, Claude plugin `0.27.0`,
-and Alembic head `0033_transcript_imports`.
+This architecture describes application/API/MCP `0.48.0`, Claude plugin `0.28.0`,
+and Alembic head `0034_variable_work_leases`.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
 An isolated Apache Tika 4 service extracts normalized current text and document
@@ -281,18 +281,24 @@ that locks and revalidates before already-authorized execution.
 - Appending a checkpoint updates work activity but does not increment the work
   version. Independent appenders do not contend through optimistic versioning.
 - Work edits, completion, and soft deletion require the version last read.
+- Project settings retain whole-minute default, minimum, and maximum lease
+  durations (initially 15/10/120). Claims and renewals choose their duration within
+  the current project bounds; omission uses the project default. Settings edits
+  leave active expiry unchanged. Status-only work reads return readiness and policy
+  without authored context, including during cold review. Exact claim replay retains
+  the original requested duration assertion and never extends expiry.
 - At most one retained lease row exists per work item. PostgreSQL row locks and
   database time arbitrate acquisition, replay, renewal, expiry, and replacement.
-- The server chooses lease duration. A client-generated `claim_request_id`
+- The server validates the requested lease duration against project bounds.
+  A client-generated `claim_request_id`
   recovers the same active claim receipt after an unknown outcome without
   extending it; it is not general mutation idempotency.
 - A lease token is a capability for renewal, release, and terminal lifecycle
   mutation while the lease is active. It appears only in lease receipts and
   JSON request bodies, never ordinary reads, errors, URLs, or browser data.
-- Manual dashboard activation constructs a dashboard-owned lease but returns
-  only `LeasePublic`. Manual Pending locks and removes only the exact public
-  active lease the person reviewed, or the observed Dropped row. Neither route
-  accepts or returns a token; both require dashboard human provenance.
+- Manual Active is unavailable. Manual Pending locks and removes only the exact
+  public active lease the person reviewed, or the observed Dropped row. This route
+  requires dashboard human provenance and never accepts or returns a token.
 - Lease operations never change work version or activity time. Checkpoint
   append remains open because it records an observation rather than ownership.
 - Completion, retirement, promotion, and deletion require the matching token

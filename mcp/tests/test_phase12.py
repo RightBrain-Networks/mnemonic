@@ -200,6 +200,7 @@ async def test_four_safe_reads_and_strict_projection_boundaries(settings):
     detail = envelope(detail=True)
     assert await call(settings, "get_job_completion_report", detail, {"report_id": REPORT_ID}) == detail
     settings_response = {
+        "lease_default_minutes": 15, "lease_minimum_minutes": 10, "lease_maximum_minutes": 120,
         "code_review_required_min_priority": 100, "code_review_optional_min_priority": 100,
         "allow_remediation_code_reviews": False,
         "project_id": PROJECT_ID, "revision": "3", "recall_pointer_template": None,

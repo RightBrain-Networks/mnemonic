@@ -493,9 +493,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.27.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.27.0` install
-plus a `0.18.0 -> 0.27.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.28.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.28.0` install
+plus a `0.18.0 -> 0.28.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -819,11 +819,13 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.47.0`, plugin is `0.27.0`,
-and Alembic head is `0033_transcript_imports`. Validate all surfaces
-together with the existing regression suites. Release 0.47.0 adds descriptive
-remediation summaries and atomic lease renewal on token-bearing progress writes.
-The migration head and tool counts are unchanged.
+Current application/API/MCP/dashboard versions are `0.48.0`, plugin is `0.28.0`,
+and Alembic head is `0034_variable_work_leases`. Validate all surfaces
+together with the existing regression suites. This release adds per-project
+Default/Minimum/Maximum lease settings and agent-requested claim/renew durations.
+Validate settings revisions, bounds, project isolation, custom initial durations,
+claim replay after policy edits, context-free status reads, and portable skill exports.
+The existing transcript library and workspace index settings remain covered.
 Validate lease expiry/release, closeout receipts, allowed filesystem roots, parser
 failures, rebuild races, and snapshot-bound retrieval. See [transcripts](transcripts.md).
 In-place human question revisions and horizontal history tabs continue using the

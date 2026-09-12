@@ -36,7 +36,7 @@ def test_populated_transcript_data_blocks_downgrade(
     with postgres_engine.connect() as connection:
         assert connection.scalar(text(f"SELECT count(*) FROM {populated}")) == before
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0033_transcript_imports"
+            == "0034_variable_work_leases"
 
 
 def test_empty_transcript_schema_downgrades_and_upgrades(pristine_postgres_engine):
@@ -63,7 +63,7 @@ def test_import_receipts_and_sources_prevent_downgrade(api, project, tmp_path,
         assert connection.scalar(text("SELECT count(*) FROM transcript_imports")) == 1
         assert connection.scalar(text("SELECT count(*) FROM transcripts")) == int(with_sources)
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0033_transcript_imports"
+            == "0034_variable_work_leases"
     assert import_folder(api, project, tmp_path, receipt["client_operation_id"]).json() == receipt
 
 

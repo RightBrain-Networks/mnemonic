@@ -6871,9 +6871,46 @@
         "title": "LeaseReleaseCreate",
         "type": "object"
       },
+      "LeaseSettingsRead": {
+        "additionalProperties": false,
+        "properties": {
+          "default_minutes": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Default Minutes",
+            "type": "integer"
+          },
+          "maximum_minutes": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Maximum Minutes",
+            "type": "integer"
+          },
+          "minimum_minutes": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Minimum Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "default_minutes",
+          "minimum_minutes",
+          "maximum_minutes"
+        ],
+        "title": "LeaseSettingsRead",
+        "type": "object"
+      },
       "LeaseTokenCreate": {
         "additionalProperties": false,
         "properties": {
+          "lease_minutes": {
+            "description": "Requested whole minutes from renewal; omission uses the project default.",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Lease Minutes",
+            "type": "integer"
+          },
           "lease_token": {
             "maxLength": 200,
             "minLength": 1,
@@ -7801,6 +7838,24 @@
             ],
             "title": "Job Completion Report Prompt"
           },
+          "lease_default_minutes": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Lease Default Minutes",
+            "type": "integer"
+          },
+          "lease_maximum_minutes": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Lease Maximum Minutes",
+            "type": "integer"
+          },
+          "lease_minimum_minutes": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Lease Minimum Minutes",
+            "type": "integer"
+          },
           "recall_pointer_template": {
             "anyOf": [
               {
@@ -7846,6 +7901,24 @@
             "title": "Job Completion Report Prompt",
             "type": "string"
           },
+          "lease_default_minutes": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Lease Default Minutes",
+            "type": "integer"
+          },
+          "lease_maximum_minutes": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Lease Maximum Minutes",
+            "type": "integer"
+          },
+          "lease_minimum_minutes": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Lease Minimum Minutes",
+            "type": "integer"
+          },
           "project_id": {
             "format": "uuid",
             "title": "Project Id",
@@ -7870,6 +7943,9 @@
           }
         },
         "required": [
+          "lease_default_minutes",
+          "lease_minimum_minutes",
+          "lease_maximum_minutes",
           "project_id",
           "recall_pointer_template",
           "job_completion_report_prompt",
@@ -9822,6 +9898,13 @@
             "title": "Holder Session Id",
             "type": "string"
           },
+          "lease_minutes": {
+            "description": "Requested whole minutes; omission uses the current project default.",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Lease Minutes",
+            "type": "integer"
+          },
           "mode": {
             "enum": [
               "cold",
@@ -10186,6 +10269,9 @@
           "initial_checkpoint": {
             "$ref": "#/components/schemas/CheckpointRead"
           },
+          "lease_settings": {
+            "$ref": "#/components/schemas/LeaseSettingsRead"
+          },
           "merge_review_revision": {
             "$ref": "#/components/schemas/MergeReviewRevision"
           },
@@ -10288,6 +10374,7 @@
           }
         },
         "required": [
+          "lease_settings",
           "work_item",
           "merge_review_revision",
           "canonical",
@@ -11446,11 +11533,19 @@
             "$ref": "#/components/schemas/CodeReviewContext",
             "title": "Code Review Context"
           },
+          "lease_settings": {
+            "$ref": "#/components/schemas/LeaseSettingsRead"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/Readiness"
+          },
           "work_item": {
             "$ref": "#/components/schemas/WorkItemRead"
           }
         },
         "required": [
+          "readiness",
+          "lease_settings",
           "work_item",
           "canonical"
         ],
@@ -12464,6 +12559,53 @@
         "title": "WorkStatusMetadata",
         "type": "object"
       },
+      "WorkStatusRead": {
+        "additionalProperties": false,
+        "properties": {
+          "lease_settings": {
+            "$ref": "#/components/schemas/LeaseSettingsRead"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/Readiness"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "work_item_id",
+          "project_id",
+          "status",
+          "version",
+          "readiness",
+          "lease_settings"
+        ],
+        "title": "WorkStatusRead",
+        "type": "object"
+      },
       "WorkSummary": {
         "additionalProperties": false,
         "properties": {
@@ -12654,7 +12796,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.47.0"
+    "version": "0.48.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -16563,6 +16705,16 @@
               "title": "Work Item Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "status_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Status Only",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -16570,7 +16722,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WorkItemDetailRead"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/WorkItemDetailRead"
+                    },
+                    {
+                      "$ref": "#/components/schemas/WorkStatusRead"
+                    }
+                  ],
+                  "title": "Response Get Work Api V1 Projects  Project Id  Work Items  Work Item Id  Get"
                 }
               }
             },

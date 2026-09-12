@@ -22,6 +22,7 @@ from mnemonic_api.schemas import (
     ReleaseResult,
     WorkClaimCreate,
 )
+from mnemonic_api.services.lease_settings import lease_settings, requested_lease_minutes
 from mnemonic_api.services.readiness import require_fresh_claim_eligible
 from mnemonic_api.services.work_events import (
     stage_work_claimed,
@@ -107,7 +108,6 @@ def claim_lease_record(
     database: Session,
     work_item: WorkItem,
     payload: WorkClaimCreate,
-    ttl_seconds: int,
 ) -> ClaimReceipt:
     """Acquire, replay, or replace one lease while the work row is locked."""
     from mnemonic_api.services.duplicates import require_canonical_work_item
@@ -135,17 +135,19 @@ def claim_lease_record(
 
     if lease is None:
         _fresh_claim_eligible(database, work_item, payload)
+        minutes = requested_lease_minutes(database, work_item.project_id, payload.lease_minutes)
         lease = WorkLease(
             work_item_id=work_item.id,
             holder_client=payload.holder_client,
             holder_session_id=payload.holder_session_id,
             claim_request_id=payload.claim_request_id,
+            claim_lease_minutes=payload.lease_minutes,
             purpose=payload.purpose, code_review_id=payload.code_review_id, mode=payload.mode,
             lease_token=secrets.token_urlsafe(32),
             lease_generation_id=uuid4(),
             acquired_at=database_now,
             renewed_at=database_now,
-            expires_at=database_now + timedelta(seconds=ttl_seconds),
+            expires_at=database_now + timedelta(minutes=minutes),
         )
         database.add(lease)
         database.flush()
@@ -171,6 +173,11 @@ def claim_lease_record(
     )
     if lease.expires_at > database_now:
         if retained_identity == requested_identity:
+            if lease.claim_lease_minutes != payload.lease_minutes:
+                raise conflict(
+                    "claim_request_mismatch",
+                    "This claim request was already used with a different lease duration.",
+                )
             require_same_claim_transcript(database, lease, payload.session_transcript)
             return claim_receipt(lease, database)
         _fresh_claim_eligible(database, work_item, payload)
@@ -189,6 +196,8 @@ def claim_lease_record(
 
     _fresh_claim_eligible(database, work_item, payload)
 
+    minutes = requested_lease_minutes(database, work_item.project_id, payload.lease_minutes)
+    lease.claim_lease_minutes = payload.lease_minutes
     lease.holder_client = payload.holder_client
     lease.holder_session_id = payload.holder_session_id
     lease.claim_request_id = payload.claim_request_id
@@ -201,7 +210,7 @@ def claim_lease_record(
     lease.lease_token = secrets.token_urlsafe(32)
     lease.acquired_at = database_now
     lease.renewed_at = database_now
-    lease.expires_at = database_now + timedelta(seconds=ttl_seconds)
+    lease.expires_at = database_now + timedelta(minutes=minutes)
     database.flush()
     stage_work_claimed(
         database,
@@ -227,7 +236,7 @@ def renew_lease_record(
     database: Session,
     work_item: WorkItem,
     lease_token: str,
-    ttl_seconds: int,
+    lease_minutes: int | None = None,
 ) -> ClaimReceipt:
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
@@ -247,8 +256,9 @@ def renew_lease_record(
         assert lease.code_review_id is not None
         review = require_review(database, work_item.project_id, work_item.id, lease.code_review_id)
         require_requested(database, work_item, review)
+    minutes = requested_lease_minutes(database, work_item.project_id, lease_minutes)
     lease.renewed_at = database_now
-    lease.expires_at = database_now + timedelta(seconds=ttl_seconds)
+    lease.expires_at = database_now + timedelta(minutes=minutes)
     database.flush()
     return claim_receipt(lease, database)
 
@@ -368,13 +378,13 @@ def validate_optional_lease_token(
     lease_token: str | None,
     *,
     lock: bool = False,
-    renew_ttl_seconds: int | None = None,
+    renew_for_progress: bool = False,
 ) -> None:
     """Validate an optional implementation token and renew it for a progress write."""
     if lease_token is None:
         return
     statement = select(WorkLease).where(WorkLease.work_item_id == work_item_id)
-    if lock or renew_ttl_seconds is not None:
+    if lock or renew_for_progress:
         statement = statement.with_for_update()
     lease = database.scalar(statement)
     database_now = _database_now(database)
@@ -386,10 +396,21 @@ def validate_optional_lease_token(
         )
     if lease.expires_at <= database_now:
         _expired()
-    if renew_ttl_seconds is not None:
+    if renew_for_progress:
+        duration = _progress_lease_duration(database, lease)
         lease.renewed_at = database_now
-        lease.expires_at = database_now + timedelta(seconds=renew_ttl_seconds)
+        lease.expires_at = database_now + duration
         database.flush()
+
+
+def _progress_lease_duration(database: Session, lease: WorkLease) -> timedelta:
+    """Retain the last granted duration, bounded by the project's current policy."""
+    work = database.get(WorkItem, lease.work_item_id)
+    assert work is not None
+    policy = lease_settings(database, work.project_id)
+    return max(timedelta(minutes=policy.minimum_minutes), min(
+        lease.expires_at - lease.renewed_at, timedelta(minutes=policy.maximum_minutes),
+    ))
 
 
 def require_no_active_lease(database: Session, work_item_id: UUID) -> None:

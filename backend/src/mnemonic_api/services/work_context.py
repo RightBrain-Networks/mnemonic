@@ -753,7 +753,10 @@ def assemble_work_context(
     artifacts, artifact_total = (
         work_artifacts(database, project_id, work_item_id) if include_artifacts else ([], 0)
     )
+    from mnemonic_api.services.lease_settings import lease_settings
+
     return WorkContext(
+        lease_settings=lease_settings(database, project_id),
         artifacts=artifacts,
         artifact_total=artifact_total,
         omitted_artifact_count=artifact_total - len(artifacts),

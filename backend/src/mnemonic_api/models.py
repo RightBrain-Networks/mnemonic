@@ -73,6 +73,10 @@ class ProjectSettings(Base):
     __tablename__ = "project_settings"
     __table_args__ = (
         CheckConstraint("revision > 0", name="revision_positive"),
+        CheckConstraint(
+            "lease_minimum_minutes > 0 AND lease_minimum_minutes <= lease_default_minutes "
+            "AND lease_default_minutes <= lease_maximum_minutes", name="lease_minutes_order",
+        ),
         CheckConstraint("code_review_required_min_priority BETWEEN 0 AND 100 AND "
                         "code_review_required_min_priority % 5 = 0 AND "
                         "code_review_optional_min_priority BETWEEN 0 AND 100 AND "
@@ -94,6 +98,9 @@ class ProjectSettings(Base):
     project_id: Mapped[UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="RESTRICT"), primary_key=True
     )
+    lease_default_minutes: Mapped[int] = mapped_column(Integer, default=15, server_default="15")
+    lease_minimum_minutes: Mapped[int] = mapped_column(Integer, default=10, server_default="10")
+    lease_maximum_minutes: Mapped[int] = mapped_column(Integer, default=120, server_default="120")
     recall_pointer_template: Mapped[str | None] = mapped_column(Text)
     job_completion_report_prompt: Mapped[str] = mapped_column(Text)
     revision: Mapped[int] = mapped_column(BigInteger, default=1, server_default="1")
@@ -657,6 +664,7 @@ class WorkLease(Base):
         CheckConstraint("length(btrim(holder_client)) > 0", name="holder_client_nonblank"),
         CheckConstraint("length(btrim(holder_session_id)) > 0", name="holder_session_id_nonblank"),
         CheckConstraint("length(btrim(claim_request_id)) > 0", name="claim_request_id_nonblank"),
+        CheckConstraint("claim_lease_minutes > 0", name="claim_lease_minutes_positive"),
         CheckConstraint("length(btrim(lease_token)) > 0", name="lease_token_nonblank"),
         CheckConstraint(
             "acquired_at <= renewed_at AND renewed_at < expires_at",
@@ -678,6 +686,7 @@ class WorkLease(Base):
     holder_client: Mapped[str] = mapped_column(String(80))
     holder_session_id: Mapped[str] = mapped_column(String(200))
     claim_request_id: Mapped[str] = mapped_column(String(200))
+    claim_lease_minutes: Mapped[int | None] = mapped_column(Integer)
     lease_token: Mapped[str] = mapped_column(String(200))
     lease_generation_id: Mapped[UUID] = mapped_column(
         default=uuid4,

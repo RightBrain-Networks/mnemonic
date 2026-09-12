@@ -98,8 +98,26 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
     assert initial["created_at"].endswith("Z")
     assert "affected_paths" not in initial
 
+    expected_readiness = {
+        "lifecycle_status": "pending",
+        "is_duplicate": False,
+        "canonical_work_item_id": work_item["id"],
+        "is_terminal": False,
+        "has_active_lease": False,
+        "has_dropped_lease": False,
+        "active_lease": None,
+        "unresolved_blocker_count": 0,
+        "is_blocked": False,
+        "unresolved_gate_count": 0,
+        "is_gated": False,
+        "is_ready": True,
+        "display_state": "pending",
+    }
+
     detail = api.get(item_path(project, work_item)).json()
     assert detail == {
+        "readiness": expected_readiness,
+        "lease_settings": {"default_minutes": 15, "minimum_minutes": 10, "maximum_minutes": 120},
         "work_item": work_item,
         "code_review_context": {
             "remediation_depth": 0,
@@ -135,21 +153,7 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
     assert "prompt" not in summary["current_context"]
     assert "source_metadata" not in summary["current_context"]
     assert summary["current_context"]["id"] == initial["id"]
-    assert summary["readiness"] == {
-        "lifecycle_status": "pending",
-        "is_duplicate": False,
-        "canonical_work_item_id": work_item["id"],
-        "is_terminal": False,
-        "has_active_lease": False,
-        "has_dropped_lease": False,
-        "active_lease": None,
-        "unresolved_blocker_count": 0,
-        "is_blocked": False,
-        "unresolved_gate_count": 0,
-        "is_gated": False,
-        "is_ready": True,
-        "display_state": "pending",
-    }
+    assert summary["readiness"] == expected_readiness
 
     context = api.get(f"{item_path(project, work_item)}/context").json()
     assert context["work_item"] == work_item

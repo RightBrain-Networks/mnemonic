@@ -25,6 +25,8 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
+from .lease_models import LeaseMinutes
+
 MAX_SIGNED_64 = 9223372036854775807
 MAX_WORK_VERSION = 2147483647
 _BIDI_CONTROLS = frozenset(
@@ -189,6 +191,9 @@ class JobCompletionReportDetailRead(JobCompletionReportRead):
 
 
 class ProjectSettingsRead(Phase12Wire):
+    lease_default_minutes: LeaseMinutes
+    lease_minimum_minutes: LeaseMinutes
+    lease_maximum_minutes: LeaseMinutes
     code_review_required_min_priority: Annotated[StrictInt, Field(ge=0, le=100, multiple_of=5)]
     code_review_optional_min_priority: Annotated[StrictInt, Field(ge=0, le=100, multiple_of=5)]
     allow_remediation_code_reviews: StrictBool
@@ -196,6 +201,12 @@ class ProjectSettingsRead(Phase12Wire):
     recall_pointer_template: Annotated[StrictStr, Field(min_length=1, max_length=100000)] | None
     job_completion_report_prompt: ReportPrompt
     revision: PositiveDecimalString
+
+    @model_validator(mode="after")
+    def enforce_lease_durations(self) -> Self:
+        if not self.lease_minimum_minutes <= self.lease_default_minutes <= self.lease_maximum_minutes:
+            raise ValueError("Lease durations must satisfy minimum <= default <= maximum.")
+        return self
 
     @field_validator("recall_pointer_template")
     @classmethod

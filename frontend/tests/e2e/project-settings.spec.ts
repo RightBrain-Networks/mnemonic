@@ -79,7 +79,6 @@ test("project details can be edited on the Workspace settings route", async ({ p
   await page.locator("#project-select").selectOption(state.projectId);
 
   const cards = page.locator(".settings-card");
-  await expect(cards).toHaveCount(1);
   const details = cards.filter({ has: page.getByRole("heading", { name: "Project details", exact: true }) });
   await expect(details).toBeVisible();
 
@@ -145,6 +144,7 @@ test("a background settings refresh cannot disable or overwrite a save", async (
               project_id: state.projectId,
               revision: String(patchCount + 1), job_completion_report_prompt: "Write a concise human summary.",
               code_review_required_min_priority: 100, code_review_optional_min_priority: 100, allow_remediation_code_reviews: false,
+          lease_default_minutes: 15, lease_minimum_minutes: 10, lease_maximum_minutes: 120,
           recall_pointer_template: responseTemplate
             })
           });
@@ -162,6 +162,7 @@ test("a background settings refresh cannot disable or overwrite a save", async (
           project_id: state.projectId,
           revision: String(patchCount + 1), job_completion_report_prompt: "Write a concise human summary.",
           code_review_required_min_priority: 100, code_review_optional_min_priority: 100, allow_remediation_code_reviews: false,
+          lease_default_minutes: 15, lease_minimum_minutes: 10, lease_maximum_minutes: 120,
           recall_pointer_template: responseTemplate
         })
       });
@@ -179,6 +180,7 @@ test("a background settings refresh cannot disable or overwrite a save", async (
           project_id: state.projectId,
           revision: String(patchCount + 1), job_completion_report_prompt: "Write a concise human summary.",
           code_review_required_min_priority: 100, code_review_optional_min_priority: 100, allow_remediation_code_reviews: false,
+          lease_default_minutes: 15, lease_minimum_minutes: 10, lease_maximum_minutes: 120,
           recall_pointer_template: storedTemplate
         })
       });
@@ -342,9 +344,8 @@ test("project recall pointer settings drive card and detail clipboard content", 
     await expect(restoredCard).toHaveCount(1);
     await restoredCard.getByRole("button", { name: /Copy recall pointer/ }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
-      `Recall the mnemonic work item "${title}" (project_id ${state.projectId}, work_item_id ${seededWork.id}) using \`recall_work\`. Verify its premises and, if confirmed, proceed with the work as described.
-
-If the stated premises are refuted or you determine that no work is needed, close the issue as "won't do" with a detailed disposition explanation. If you acquire a work lease, create a background task to remind you to renew it prior to expiration. Reset the timer upon work release renewal.`
+      DEFAULT_RECALL_POINTER_TEMPLATE.replaceAll("$WORK_ITEM_TITLE", title)
+        .replaceAll("$PROJECT_ID", state.projectId).replaceAll("$WORK_ITEM_ID", seededWork.id)
     );
   } finally {
     await clearRecallPointerTemplate(client);

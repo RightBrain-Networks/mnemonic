@@ -5,6 +5,18 @@ description: Save Mnemonic work, hand-offs, follow-ups, project artifact files o
 
 # Save Mnemonic work
 
+When assigned an existing work item, immediately call
+`get_work(project_id, work_item_id, status_only=true)` before investigating or
+acting. Assess its current status/readiness and the returned `lease_settings`:
+`default_minutes`, `minimum_minutes`, and `maximum_minutes`. For the initial
+session startup and investigation claim, explicitly request
+`lease_minutes=default_minutes`. For subsequent claims or renewals, estimate how
+many more minutes this session needs to finish and request that duration within
+the project's current minimum and maximum. Read the shared
+[lease guidance](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#choose-a-project-configured-lease)
+for settings changes and retries. This metadata-only read is permitted before
+cold review findings freeze; it grants no execution authority.
+
 For project files outside Git, read
 [artifacts.md](${CLAUDE_PLUGIN_ROOT}/reference/artifacts.md). Use `upload_artifact`
 with the originating and known related work IDs. `replace_artifact` and
@@ -321,9 +333,11 @@ keys and request-known secret echoes are rejected, but other sensitive text is
 stored and returned exactly to authorized history readers.
 Supply the active implementation `lease_token` as a separate tool argument on a
 fresh `append_event` or `add_checkpoint` to renew the lease in the same transaction
-using server time and the configured TTL. Token-free writes and exact receipt
-replays do not renew ownership. Freeze the token with all other retry arguments;
-use `renew_claim` when no new progress needs recording.
+from server time using its last granted duration, clamped to the current project
+minimum and maximum. Token-free writes and exact receipt replays do not renew
+ownership. Freeze the token with all other retry arguments. Use `renew_claim`
+with an in-range `lease_minutes` estimate when remaining session time changes
+or no new progress needs recording before expiry.
 
 ## Persist and report
 
