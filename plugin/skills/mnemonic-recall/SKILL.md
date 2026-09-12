@@ -307,7 +307,10 @@ During ordinary implementation recall, inspect linked `artifacts` and their
 omitted count; use `list_artifacts` with the work ID to page the full library.
 Read [artifacts.md](${CLAUDE_PLUGIN_ROOT}/reference/artifacts.md) before reading
 or changing file content. `get_artifact_text` pages normalized text at a required
-current revision; the client download helper streams original bytes to local disk.
+current revision. For a local copy, run the bundled
+[download helper](${CLAUDE_PLUGIN_ROOT}/scripts/download_artifact.py) with `--dest`
+pointing to a new file in your actual scratchpad; only a compact transfer summary
+enters the session. Do not fetch base64 or extracted text just to save the file.
 For local uploads/replacements, use the bundled
 [upload helper](${CLAUDE_PLUGIN_ROOT}/scripts/upload_artifact.py) described in that
 reference; keep bytes and base64 out of the session. `download_artifact` returns

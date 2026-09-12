@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from mnemonic_api.artifact_storage import ArtifactStorage
 
 from .conftest import TEST_API_KEY
+from .test_artifact_download_cli import SCRIPT as DOWNLOAD_SCRIPT
 from .test_artifact_upload_cli import cli
 
 pytestmark = pytest.mark.postgres
@@ -29,11 +30,11 @@ class APIHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         pass
 
-    def do_POST(self) -> None:
+    def relay(self, content: bytes | None = None) -> None:
         response = self.server.api.request(
             self.command,
             self.path,
-            content=self.rfile.read(int(self.headers["Content-Length"])),
+            content=content,
             headers=dict(self.headers),
         )
         self.send_response(response.status_code)
@@ -41,6 +42,12 @@ class APIHandler(BaseHTTPRequestHandler):
             self.send_header(key, value)
         self.end_headers()
         self.wfile.write(response.content)
+
+    def do_POST(self) -> None:
+        self.relay(self.rfile.read(int(self.headers["Content-Length"])))
+
+    def do_GET(self) -> None:
+        self.relay()
 
     do_PUT = do_POST
 
@@ -51,7 +58,9 @@ def read_result(result: subprocess.CompletedProcess[str]) -> dict:
     return json.loads(result.stdout)
 
 
-def test_upload_replay_and_replace_with_real_receipts(api, project, tmp_path: Path) -> None:
+def test_upload_replay_replace_and_scratchpad_download_with_real_receipts(
+    api, project, tmp_path: Path
+) -> None:
     api.app.state.artifact_storage = ArtifactStorage(tmp_path / "artifacts", max_bytes=1024)
     api.app.state.settings.artifact_max_bytes = 1024
     with APIBridge(api) as bridge:
@@ -122,7 +131,32 @@ def exercise_client(api, project, tmp_path: Path, port: int) -> None:
     current = api.get(path).json()
     assert current["description"] == "Résumé"
     assert current["sha256"] == replaced["sha256"]
-    assert api.get(path + "/content").content == b"second\x00\xfe"
+    scratchpad = tmp_path / "agent scratchpad"
+    scratchpad.mkdir(mode=0o700)
+    destination = scratchpad / "download.bin"
+    downloaded = read_result(
+        cli(
+            "--api-url",
+            origin,
+            "--project-id",
+            project["id"],
+            "--artifact-id",
+            created["artifact_id"],
+            "--expected-revision",
+            "2",
+            "--agent-session-id",
+            "downloading-session",
+            "--actor-client",
+            "pytest",
+            "--dest",
+            str(destination),
+            script=DOWNLOAD_SCRIPT,
+            api_key=TEST_API_KEY,
+        )
+    )
+    assert downloaded["path"] == str(destination)
+    assert downloaded["sha256"] == replaced["sha256"]
+    assert destination.read_bytes() == b"second\x00\xfe"
     history = api.get(path + "/history").json()
     assert history["revisions"]["total"] == 2
     assert [item["action"] for item in history["audit"]["items"]].count("uploaded") == 1

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -15,6 +16,7 @@ from typing import Any
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "download_artifact.py"
+PLUGIN_SCRIPT = SCRIPT.parents[1] / "plugin/scripts/download_artifact.py"
 PROJECT_ID = "c1b684d5-aa2a-450a-80e3-e1296f806ceb"
 ARTIFACT_ID = "79ec5f12-d1eb-42bb-bd65-867be242aaee"
 API_KEY = "local-fixture-artifact-key"
@@ -330,7 +332,7 @@ def deadline_client(tmp_path: Path, *, setup: str = "") -> Path:
     wrapper = tmp_path / "deadline_client.py"
     wrapper.write_text(
         "import runpy\n"
-        f"main = runpy.run_path({str(SCRIPT)!r})['main']\n"
+        f"main = runpy.run_path({str(PLUGIN_SCRIPT)!r})['main']\n"
         "main.__globals__['REQUEST_SECONDS'] = 0.25\n"
         "main.__globals__['SOCKET_SECONDS'] = 1.0\n"
         + setup + "raise SystemExit(main())\n"
@@ -448,3 +450,43 @@ def test_uncertain_approved_transfer_requires_fresh_human_approval(
     assert "token may already be consumed" in result.stderr
     assert "HUMAN APPROVAL REQUIRED" in result.stderr
     assert len(server.requests) == 2
+
+
+@pytest.mark.parametrize("client", ["checkout", "installed", "exported"])
+def test_download_to_scratchpad_omits_large_body_from_session(
+    server: DownloadServer, tmp_path: Path, client: str,
+) -> None:
+    script = SCRIPT
+    if client == "installed":
+        script = tmp_path / "installed plugin/scripts/download_artifact.py"
+        script.parent.mkdir(parents=True)
+        shutil.copy2(PLUGIN_SCRIPT, script)
+    elif client == "exported":
+        destination = tmp_path / "portable skills"
+        subprocess.run(
+            [sys.executable, str(SCRIPT.parent / "export_agent_skills.py"), str(destination)],
+            check=True, capture_output=True,
+        )
+        script = destination / "mnemonic-recall/scripts/download_artifact.py"
+    scratchpad = tmp_path / "agent scratchpad"
+    scratchpad.mkdir(mode=0o700)
+    dest = scratchpad / "artifact.bin"
+    # This exceeds the MCP binary-transfer ceiling, and must still return only metadata.
+    server.content = b"private-scratchpad-content\n" * (3 * 1024 * 1024)
+    assert len(server.content) > 64 * 1024 * 1024
+    result = run_client(server, dest, script=script)
+    assert result.returncode == 0, result.stderr
+    assert not result.stderr
+    assert len(result.stdout) < 600
+    assert "private-scratchpad-content" not in result.stdout
+    assert "content_base64" not in result.stdout
+    assert API_KEY not in result.stdout
+    metadata = json.loads(result.stdout)
+    assert metadata["path"] == str(dest)
+    assert metadata["sha256"] == hashlib.sha256(server.content).hexdigest()
+    assert metadata["size_bytes"] == len(server.content)
+    with dest.open("rb") as downloaded:
+        assert hashlib.file_digest(downloaded, "sha256").hexdigest() == metadata["sha256"]
+    assert dest.stat().st_mode & 0o777 == 0o600
+    assert len(server.requests) == 2
+    assert not list(scratchpad.glob(".mnemonic-download-*"))

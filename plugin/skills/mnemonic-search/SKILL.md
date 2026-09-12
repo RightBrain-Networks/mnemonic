@@ -42,6 +42,10 @@ Sensitive artifact filters never approve content access. Unified agent search
 withholds sensitive bodies and extracted properties, even for an exact artifact ID.
 For the request-bound explicit human approval workflow and specialized artifact
 reads, read [artifacts.md](${CLAUDE_PLUGIN_ROOT}/reference/artifacts.md).
+To save a found artifact locally, use the bundled
+[download helper](${CLAUDE_PLUGIN_ROOT}/scripts/download_artifact.py) with `--dest`
+in your actual scratchpad. It streams bytes directly from the API and returns
+only a small summary; do not retrieve base64 into the session to save a file.
 For transcript retrieval, read [transcripts.md](${CLAUDE_PLUGIN_ROOT}/reference/transcripts.md).
 
 Read [job-completion-reports.md](${CLAUDE_PLUGIN_ROOT}/reference/job-completion-reports.md)

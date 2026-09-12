@@ -30,6 +30,7 @@ REFERENCE_FILES = {
 BIN_FILES = {"mnemonic-repository-freshness"}
 PLUGIN_PAYLOAD_FILES = {
     "scripts/upload_artifact.py",
+    "scripts/download_artifact.py",
     "reference/artifacts.md",
     "reference/transcripts.md",
     "reference/code-reviews.md",

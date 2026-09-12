@@ -100,6 +100,7 @@ jobs:
             scripts/download_artifact.py \
             scripts/upload_artifact.py \
             plugin/scripts/upload_artifact.py \
+            plugin/scripts/download_artifact.py \
             scripts/seed_e2e_historical_completion.py \
             scripts/check-stack.py
 

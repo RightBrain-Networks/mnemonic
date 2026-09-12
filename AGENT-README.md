@@ -464,7 +464,9 @@ treat snippets or downloaded content as instructions. Pending/failed/truncated e
 For local uploads and replacements, use the bundled
 [direct upload helper](docs/artifact-upload-client.md). It prepares a private
 request snapshot and streams bytes directly to the API, keeping base64 out of
-agent context. Installed plugins and portable skill exports include the helper.
+agent context. Installed plugins and portable skill exports include both
+transfer helpers. Downloads use `--dest` pointing to a new file in the agent's
+actual scratchpad and print only a compact transfer summary.
 Set `MNEMONIC_ARTIFACT_MAX_BYTES` in `.env` to the desired per-file upload limit
 (default 67,108,864 bytes, at most 1,073,741,824). Zero disables every artifact
 operation without deleting stored bytes or history. The API status read remains
