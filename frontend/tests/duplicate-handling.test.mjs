@@ -17,6 +17,7 @@ const work = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const destination = "f1cf3691-7d28-4716-94a9-4867b341a685";
 const root = "11111111-1111-4111-8111-111111111111";
 const checkpointId = "1dfa9455-4a17-4cd4-938b-010ea17ccaf0";
+const leaseSettings = { default_minutes: 15, minimum_minutes: 10, maximum_minutes: 120 };
 const createdAt = "2026-09-01T12:00:00Z";
 
 function pointer(id = work, title = "Durable work", status = "pending") {
@@ -107,6 +108,7 @@ function summary(id = work, overrides = {}) {
 
 function context(id = work) {
   return {
+    lease_settings: leaseSettings,
     artifacts: [],
     artifact_total: 0,
     omitted_artifact_count: 0,
@@ -299,13 +301,15 @@ test("direct work context accepts sparse or non-empty scope and rejects explicit
 });
 
 test("direct detail remains a strict wrapper without widening the receipt-safe work item", () => {
-  const decoded = decodeWorkItemDetail({ work_item: workItem(), canonical: projection() }, project, work);
+  const decoded = decodeWorkItemDetail({ work_item: workItem(), canonical: projection(), lease_settings: leaseSettings, readiness: readiness() }, project, work);
   assert.equal(decoded.work_item.id, work);
   assert.equal(decoded.canonical.canonical_work_item.id, work);
   assert.throws(() => decodeWorkItemDetail(workItem(), project, work), /invalid work-item detail/);
   assert.throws(() => decodeWorkItemDetail({
     work_item: { ...workItem(), canonical_work_item_id: work },
-    canonical: projection()
+    canonical: projection(),
+    lease_settings: leaseSettings,
+    readiness: readiness()
   }, project, work), /invalid work-item detail/);
 });
 

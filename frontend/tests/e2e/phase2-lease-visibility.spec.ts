@@ -23,6 +23,7 @@ test("an active lease is visible without exposing its capability and refreshes a
     extraHTTPHeaders: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" }
   });
   let workItemId = "";
+  let leaseExpiresAt = "";
   try {
     const created = await client.post(`/api/v1/projects/${state.projectId}/work-items`, {
       data: {
@@ -54,6 +55,7 @@ test("an active lease is visible without exposing its capability and refreshes a
       }
     });
     if (!claimed.ok()) throw new Error(`Could not claim lease fixture (${claimed.status()}): ${await claimed.text()}`);
+    leaseExpiresAt = (await claimed.json() as { expires_at: string }).expires_at;
   } finally {
     await client.dispose();
   }
@@ -141,7 +143,7 @@ test("an active lease is visible without exposing its capability and refreshes a
   await expect(page.getByRole("button", { name: /^(?:claim(?: work)?|force release(?: work)?)$/i })).toHaveCount(0);
 
   await expireLease(state.projectId, workItemId);
-  await page.clock.fastForward(61 * 1000);
+  await page.clock.fastForward(Math.max(0, Date.parse(leaseExpiresAt) - Date.now()) + 1000);
   await expect(card).toHaveCount(0);
 
   await closeDetail(page);

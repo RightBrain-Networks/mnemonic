@@ -271,7 +271,6 @@ def claim_work(
             holder_session_id="phase78-claim",
             claim_request_id=request_id,
         ),
-        ttl_seconds=300,
     )
 
 
@@ -284,7 +283,7 @@ def checkpoint_work(
 ) -> object:
     work = require_work_item(database, project_id, work_item_id, lock=True)
     return append_checkpoint_record(
-        database, work, checkpoint_payload(work_payload, label), lease_ttl_seconds=300,
+        database, work, checkpoint_payload(work_payload, label),
     )
 
 
@@ -361,7 +360,6 @@ def progress_work(
             actor=actor(label),
         ),
         bearer_key="mnemonic-integration-test-key-32-characters",
-        lease_ttl_seconds=300,
     )
 
 

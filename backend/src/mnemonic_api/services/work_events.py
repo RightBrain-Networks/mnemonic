@@ -545,7 +545,6 @@ def append_progress_event(
     payload: ProgressEventCreate,
     *,
     bearer_key: str,
-    lease_ttl_seconds: int,
 ) -> WorkEventRead:
     """Lock work first, validate any capability, then update activity and append."""
     from mnemonic_api.services.leases import validate_optional_lease_token
@@ -561,7 +560,7 @@ def append_progress_event(
         database,
         work_item.id,
         payload.lease_token,
-        renew_ttl_seconds=lease_ttl_seconds,
+        renew_for_progress=True,
     )
     activity_update = database.execute(
         update(WorkItem)

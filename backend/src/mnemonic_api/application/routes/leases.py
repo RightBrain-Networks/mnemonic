@@ -3,7 +3,7 @@
 The token appears only in a claim receipt and in request bodies: never in a
 query string (the package-wide ``reject_lease_token_query`` guard plus this
 router's ``reject_lease_operation_query``), never in a log line, never in an
-error. The TTL is the server's (``MNEMONIC_LEASE_TTL_SECONDS``). Claim,
+error. Durations are requested within the current project lease bounds. Claim,
 claim-and-recall, and renew are not receipt-protected; a lost claim receipt is
 recovered through ``claim_request_id`` instead. Release is receipt-protected
 like the other state-changing writes, and releasing a lease that is no longer
@@ -55,7 +55,7 @@ def claim_work(
     with project_mutation(database, project_id):
         work_item = require_work_item(database, project_id, work_item_id, lock=True)
         receipt = claim_lease_record(
-            database, work_item, payload, settings_of(request).lease_ttl_seconds
+            database, work_item, payload
         )
         database.commit()
         return receipt
@@ -100,7 +100,7 @@ def claim_and_recall(
     with project_mutation(database, project_id):
         work_item = require_work_item(database, project_id, work_item_id, lock=True)
         receipt = claim_lease_record(
-            database, work_item, payload, settings_of(request).lease_ttl_seconds
+            database, work_item, payload
         )
         context = assemble_work_context(
             database,
@@ -128,7 +128,7 @@ def renew_claim(
     with project_mutation(database, project_id):
         work_item = require_work_item(database, project_id, work_item_id, lock=True)
         receipt = renew_lease_record(
-            database, work_item, payload.lease_token, settings_of(request).lease_ttl_seconds
+            database, work_item, payload.lease_token, payload.lease_minutes
         )
         database.commit()
         return receipt

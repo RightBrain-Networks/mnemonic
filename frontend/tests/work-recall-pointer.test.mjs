@@ -24,19 +24,16 @@ const summary = {
   }
 };
 
-test("the default template preserves the canonical recall pointer", () => {
-  assert.equal(
-    DEFAULT_RECALL_POINTER_TEMPLATE,
-    `Recall the mnemonic work item "$WORK_ITEM_TITLE" (project_id $PROJECT_ID, work_item_id $WORK_ITEM_ID) using \`recall_work\`. Verify its premises and, if confirmed, proceed with the work as described.
-
-If the stated premises are refuted or you determine that no work is needed, close the issue as "won't do" with a detailed disposition explanation. If you acquire a work lease, create a background task to remind you to renew it prior to expiration. Reset the timer upon work release renewal.`
-  );
-  assert.equal(
-    workRecallPointer(summary),
-    `Recall the mnemonic work item "Investigate proxy policy" (project_id ${projectId}, work_item_id ${workId}) using \`recall_work\`. Verify its premises and, if confirmed, proceed with the work as described.
-
-If the stated premises are refuted or you determine that no work is needed, close the issue as "won't do" with a detailed disposition explanation. If you acquire a work lease, create a background task to remind you to renew it prior to expiration. Reset the timer upon work release renewal.`
-  );
+test("the default pointer queries current status and project lease policy before investigation", () => {
+  const text = workRecallPointer(summary);
+  assert.ok(text.startsWith(`Immediately query the mnemonic work item "Investigate proxy policy" (project_id ${projectId}, work_item_id ${workId})`));
+  assert.ok(DEFAULT_RECALL_POINTER_TEMPLATE.startsWith('Immediately query the mnemonic work item "$WORK_ITEM_TITLE"'));
+  for (const required of ["get_work", "status_only=true", "current status", "readiness", "lease_settings",
+    "claim_and_recall", "lease_minutes=lease_settings.default_minutes", "initial startup and investigation",
+    "estimate how much longer this session needs", "minimum and maximum", "Reset the timer after each renewal"]) {
+    assert.ok(text.includes(required), required);
+  }
+  assert.ok(text.indexOf("get_work") < text.indexOf("claim_and_recall"));
 });
 
 test("macro metadata describes every supported legend entry", () => {

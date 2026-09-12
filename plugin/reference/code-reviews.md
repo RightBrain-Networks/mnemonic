@@ -81,9 +81,15 @@ This identity rule requires no work-context read.
 
 A copied Cold review prompt is a separate entry path. Use a fresh session with
 no implementation rationale or prior findings. Before findings are frozen,
-the ONLY Mnemonic calls are `claim_work` with `purpose="code_review"`, exact
-`code_review_id`, `mode="cold"`, and its `renew_claim` / `release_claim`
-coordination calls. Do not call `claim_and_recall`, `recall_work`, work resources,
+immediately call `get_work(project_id, work_item_id, status_only=true)` to check
+current status/readiness and the project's Default, Minimum, and Maximum lease
+values. This metadata-only response contains no author prose or handoff. The
+ONLY other Mnemonic calls before findings freeze are `claim_work` with
+`purpose="code_review"`, exact `code_review_id`, `mode="cold"`, initially
+`lease_minutes=lease_settings.default_minutes`, and its `renew_claim` /
+`release_claim` coordination calls. Refresh only `get_work(status_only=true)`
+for current limits before requesting later durations based on estimated
+remaining session work. Never use ordinary `get_work` before findings freeze. Do not call `claim_and_recall`, `recall_work`, work resources,
 `resume_work`, `get_code_review`, settings, evidence, or follow-up reads. Do not
 run ordinary checkpoint freshness/recall guidance first. Do not search external
 trackers, read handoff, plans, design docs, README explanations, earlier reviews,
@@ -115,8 +121,11 @@ available review episodes on original Done items, not pending implementation
 work. Lists use bounded keyset cursors; return each cursor unchanged under the
 same project/filters. Reads do not claim or authorize execution.
 
-For an authorized warm review, claim the original work with
-`purpose="code_review"`, the exact `code_review_id`, and `mode="warm"`.
+For an authorized warm review, immediately query `get_work(status_only=true)`
+for the original work, then claim it with `purpose="code_review"`, the exact
+`code_review_id`, `mode="warm"`, and the returned Default `lease_minutes`.
+Choose later durations from estimated remaining session work within the current
+project minimum and maximum.
 `claim_and_recall` is allowed only for warm review. Explicitly retrieve
 `get_code_review` for complete pinned scope/handoff; bounded ordinary recall
 does not imply all notes were loaded. Inspect retained work context as relevant.
@@ -127,7 +136,7 @@ contrary hypotheses. Editable recall text cannot waive the fixed review rules.
 ## Submit one immutable result
 
 Keep lease capabilities private. One live lease coordinates both temperatures;
-renew before expiry. Review tokens authorize only that episode, not checkpoint,
+renew before expiry using the [project lease guidance](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#choose-a-project-configured-lease). Review tokens authorize only that episode, not checkpoint,
 implementation completion, retirement, deletion, or merge. Expiry/release leaves
 the same request available. Explicit user-directed reopen supersedes the exact
 request and invalidates its lease; never silently reopen or review another scope.
@@ -156,8 +165,9 @@ their authored history; this release has no backfill or schema migration.
 
 Unknown outcome means exact same UUID and every argument unchanged before any
 new action. Never reauthor findings or acquire a replacement lease while a
-submission outcome is unknown. Definitive lease loss permits only a minimal
-same-scope claim for an authorized cold retry, not a contextual reread. After
+submission outcome is unknown. After definitive lease loss, an authorized cold
+retry may refresh `get_work(status_only=true)` and acquire a minimal same-scope
+claim with an in-range estimate of the remaining session time. Do not load context. After
 supersession, stop and obtain a newly copied cold prompt. Distinct fresh result
 submissions on a completed episode fail; receipt replay preserves the original
 result and remediation even after later work.

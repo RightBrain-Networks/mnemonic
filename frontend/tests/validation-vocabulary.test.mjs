@@ -46,3 +46,12 @@ for (const item of corpus.cases) {
     }
   });
 }
+
+
+test("browser lease validation messages retain the configurable field names", () => {
+  for (const field of ["lease_default_minutes", "lease_minimum_minutes", "lease_maximum_minutes"]) {
+    assert.deepEqual(detailMessage([{ loc: ["body", field], msg: "Must be a positive whole number." }]), {
+      message: `${field}: Must be a positive whole number.`
+    });
+  }
+});

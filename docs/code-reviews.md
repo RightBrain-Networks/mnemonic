@@ -120,9 +120,13 @@ prompt contains routing IDs, revision, scope hash and pinned repository ranges,
 but no source title, summary, handoff, report, priority, external references or
 prior findings. It explicitly asks for a fresh **adversarial** cold read.
 
-Before findings freeze, a cold reviewer may only use `claim_work` with purpose
-`code_review`, exact `code_review_id`, mode `cold`, and its renew/release
-coordination calls. Do not use `claim_and_recall`, contextual Mnemonic reads,
+Immediately query the assigned work with `get_work(status_only=true)` for current
+status, readiness, and project `lease_settings`; this response contains no authored
+prose or history. Before findings freeze, a cold reviewer may use only that status
+read, `claim_work` with purpose `code_review`, exact `code_review_id`, mode `cold`,
+and its renew/release coordination calls. Request `lease_minutes=default_minutes`
+for startup/investigation. For later claims or renewals, refresh policy through the
+status-only read and estimate remaining session time within the configured bounds. Do not use `claim_and_recall`, contextual Mnemonic reads,
 external issue trackers, handoff, design docs, README explanations, PR discussion
 or commit-message rationale. Governing repository instructions needed for safe
 operation remain applicable. Review pinned source/tests/dependencies, protect

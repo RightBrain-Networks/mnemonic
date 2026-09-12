@@ -319,7 +319,7 @@ def test_plugin_cold_branch_precedes_all_ordinary_context_in_installed_payload()
     recall = (PLUGIN_ROOT / "skills/mnemonic-recall/SKILL.md").read_text()
     assert recall.index("Choose review or implementation") < recall.index("# View, or claim")
     protocol = (PLUGIN_ROOT / "reference/code-reviews.md").read_text()
-    for expected in ("ONLY Mnemonic calls", 'purpose="code_review"', 'mode="cold"',
+    for expected in ("ONLY other Mnemonic calls", 'purpose="code_review"', 'mode="cold"',
                      "Do not call `claim_and_recall`", "ADVERSARIAL", "ONE linked remediation",
                      "Second-generation remediation can never", "originating client/session"):
         assert expected in protocol

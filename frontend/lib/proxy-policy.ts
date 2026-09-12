@@ -1,3 +1,4 @@
+import { LEASE_SETTINGS_FIELDS, validLeaseMinutes } from "./work-lease-settings.ts";
 import { validSearchRequest } from "./search-request.ts";
 import { validExternalCandidates, validExternalReferences } from "./external-references.ts";
 import { validHumanGateRevision, validMergeReviewRevision } from "./revision-codecs.ts";
@@ -655,11 +656,12 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   }
   if (PROJECT_SETTINGS.test(path) && method === "PATCH") {
     if (
-      !allowedKeys(body, ["expected_revision", "recall_pointer_template", "job_completion_report_prompt", "code_review_required_min_priority", "code_review_optional_min_priority", "allow_remediation_code_reviews"])
+      !allowedKeys(body, ["expected_revision", "recall_pointer_template", "job_completion_report_prompt", "code_review_required_min_priority", "code_review_optional_min_priority", "allow_remediation_code_reviews", ...LEASE_SETTINGS_FIELDS])
       || !decimalString(body.expected_revision, true)
-      || !["recall_pointer_template", "job_completion_report_prompt", "code_review_required_min_priority", "code_review_optional_min_priority", "allow_remediation_code_reviews"].some((field) => Object.hasOwn(body, field))
+      || !["recall_pointer_template", "job_completion_report_prompt", "code_review_required_min_priority", "code_review_optional_min_priority", "allow_remediation_code_reviews", ...LEASE_SETTINGS_FIELDS].some((field) => Object.hasOwn(body, field))
       || (Object.hasOwn(body, "code_review_required_min_priority") && !validReviewThreshold(body.code_review_required_min_priority))
       || (Object.hasOwn(body, "code_review_optional_min_priority") && !validReviewThreshold(body.code_review_optional_min_priority))
+      || LEASE_SETTINGS_FIELDS.some((field) => Object.hasOwn(body, field) && !validLeaseMinutes(body[field]))
       || (Object.hasOwn(body, "allow_remediation_code_reviews") && typeof body.allow_remediation_code_reviews !== "boolean")
       || (Object.hasOwn(body, "recall_pointer_template") && body.recall_pointer_template !== null
         && !boundedText(body.recall_pointer_template, 100000))

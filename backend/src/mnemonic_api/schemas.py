@@ -1333,7 +1333,31 @@ class ProjectRead(Timestamps):
     repository_url: str | None
 
 
+LeaseMinutes = Annotated[StrictInt, Field(ge=1, le=2**31 - 1)]
+
+
+class LeaseSettingsRead(APIModel):
+    default_minutes: LeaseMinutes
+    minimum_minutes: LeaseMinutes
+    maximum_minutes: LeaseMinutes
+
+    @model_validator(mode="after")
+    def ordered_minutes(self) -> Self:
+        if not self.minimum_minutes <= self.default_minutes <= self.maximum_minutes:
+            raise ValueError("Lease durations must satisfy minimum <= default <= maximum")
+        return self
+
+
 class ProjectSettingsPatch(APIModel):
+    lease_default_minutes: LeaseMinutes | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    lease_minimum_minutes: LeaseMinutes | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    lease_maximum_minutes: LeaseMinutes | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     expected_revision: PositiveRevision
     recall_pointer_template: RecallPointerTemplate | None = None
     job_completion_report_prompt: AuthoringPrompt | None = None
@@ -1352,7 +1376,8 @@ class ProjectSettingsPatch(APIModel):
     def review_settings_are_nonnull(cls, data: object) -> object:
         return _reject_explicit_null(data, "code_review_required_min_priority",
                                      "code_review_optional_min_priority",
-                                     "allow_remediation_code_reviews")
+                                     "allow_remediation_code_reviews", "lease_default_minutes",
+                                     "lease_minimum_minutes", "lease_maximum_minutes")
 
     @model_validator(mode="after")
     def editable_setting(self) -> Self:
@@ -1362,6 +1387,9 @@ class ProjectSettingsPatch(APIModel):
 
 
 class ProjectSettingsRead(APIModel):
+    lease_default_minutes: LeaseMinutes
+    lease_minimum_minutes: LeaseMinutes
+    lease_maximum_minutes: LeaseMinutes
     project_id: UUID
     recall_pointer_template: str | None
     job_completion_report_prompt: AuthoringPrompt
@@ -1715,6 +1743,10 @@ class WorkDeletionCreate(APIModel):
 
 
 class WorkClaimCreate(APIModel):
+    lease_minutes: LeaseMinutes | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Requested whole minutes; omission uses the current project default.",
+    )
     session_transcript: TranscriptLocation | None = Field(
         default=None,
         description="Primary transcript location; MCP callers must assert null if unknown.",
@@ -1735,7 +1767,7 @@ class WorkClaimCreate(APIModel):
     @model_validator(mode="before")
     @classmethod
     def review_identity_is_nonnull(cls, data: object) -> object:
-        return _reject_explicit_null(data, "purpose", "code_review_id", "mode")
+        return _reject_explicit_null(data, "purpose", "code_review_id", "mode", "lease_minutes")
 
     @model_validator(mode="after")
     def review_claim_identity(self) -> Self:
@@ -1749,6 +1781,15 @@ class WorkClaimCreate(APIModel):
 
 class LeaseTokenCreate(APIModel):
     lease_token: LeaseToken = Field(repr=False)
+    lease_minutes: LeaseMinutes | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Requested whole minutes from renewal; omission uses the project default.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def duration_is_nonnull(cls, data: object) -> object:
+        return _reject_explicit_null(data, "lease_minutes")
 
 
 class LeaseReleaseCreate(APIModel):
@@ -2559,7 +2600,18 @@ class CanonicalWorkProjection(APIModel):
         return self
 
 
+class WorkStatusRead(APIModel):
+    work_item_id: UUID
+    project_id: UUID
+    status: Status
+    version: Annotated[StrictInt, Field(ge=1)]
+    readiness: Readiness
+    lease_settings: LeaseSettingsRead
+
+
 class WorkItemDetailRead(APIModel):
+    readiness: Readiness
+    lease_settings: LeaseSettingsRead
     work_item: WorkItemRead
     canonical: CanonicalWorkProjection
     code_review_context: CodeReviewContext | SkipJsonSchema[None] = Field(
@@ -3660,6 +3712,7 @@ class WorkMergeResult(APIModel):
 
 
 class WorkContext(APIModel):
+    lease_settings: LeaseSettingsRead
     artifacts: list[ArtifactRead] = Field(default_factory=list, max_length=20)
     artifact_total: int = Field(default=0, ge=0)
     omitted_artifact_count: int = Field(default=0, ge=0)

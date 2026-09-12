@@ -567,22 +567,6 @@ def test_settings_require_long_key_and_postgres():
     assert settings.database_url.get_secret_value().startswith("postgresql+psycopg://")
     assert "secret" not in repr(settings)
     assert "x" * 32 not in repr(settings)
-    assert settings.lease_ttl_seconds == 900
-    assert (
-        Settings(
-            database_url="postgresql://localhost/mnemonic",
-            api_key="x" * 32,
-            lease_ttl_seconds=60,
-        ).lease_ttl_seconds
-        == 60
-    )
-    for invalid_ttl in [59, 3601]:
-        with pytest.raises(ValidationError):
-            Settings(
-                database_url="postgresql://localhost/mnemonic",
-                api_key="x" * 32,
-                lease_ttl_seconds=invalid_ttl,
-            )
 
 
 def test_lease_request_models_are_strict_and_bounded():
@@ -1174,3 +1158,32 @@ def test_completion_evidence_validation_locations_are_public(segment: str):
             "msg": "Value is invalid.",
         }
     ]
+
+
+@pytest.mark.parametrize("minutes", [None, True, False, "15", 15.0, 1.5, 0, -1, 2**31])
+def test_lease_minutes_reject_non_strict_or_out_of_storage_range(minutes):
+    from mnemonic_api.schemas import ProjectSettingsPatch
+
+    payloads = [
+        (WorkClaimCreate, {"holder_client": "agent", "holder_session_id": "session",
+                           "claim_request_id": "duration", "lease_minutes": minutes}),
+        (LeaseTokenCreate, {"lease_token": "token", "lease_minutes": minutes}),
+    ]
+    payloads.extend((ProjectSettingsPatch, {"expected_revision": "1", field: minutes})
+                    for field in ("lease_default_minutes", "lease_minimum_minutes",
+                                  "lease_maximum_minutes"))
+    for model, payload in payloads:
+        with pytest.raises(ValidationError):
+            model.model_validate(payload)
+
+
+@pytest.mark.parametrize("minutes", [1, 120, 240, 2**31 - 1])
+def test_lease_minutes_accept_full_integer_storage_range(minutes):
+    from mnemonic_api.schemas import ProjectSettingsPatch
+
+    claim = WorkClaimCreate(holder_client="agent", holder_session_id="session",
+                            claim_request_id="duration", lease_minutes=minutes)
+    assert claim.lease_minutes == minutes
+    assert LeaseTokenCreate(lease_token="token", lease_minutes=minutes).lease_minutes == minutes
+    settings = ProjectSettingsPatch(expected_revision="1", lease_default_minutes=minutes)
+    assert settings.lease_default_minutes == minutes

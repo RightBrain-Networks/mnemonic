@@ -1,7 +1,7 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.47.0`, plugin `0.27.0`, and current migration
-`0033_transcript_imports` support files outside Git and local full-text search. Each artifact belongs permanently
+Application/API/MCP/dashboard `0.48.0`, plugin `0.28.0`, and current migration
+`0034_variable_work_leases` support files outside Git and local full-text search. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
 can have the same filename without colliding.
@@ -78,8 +78,8 @@ context (`X-Artifact-Access: human-dashboard`, set by its server proxy), permit
 human previews/downloads/searches, and are audited. This header and the approval
 assertion are policy signals, not separate authentication credentials.
 
-Upgrade API, MCP and dashboard together to `0.47.0`, plugin `0.27.0`, and migration
-`0033_transcript_imports`. Migration 0029 initially marked older artifacts
+Upgrade API, MCP and dashboard together to `0.48.0`, plugin `0.28.0`, and migration
+`0034_variable_work_leases`. Migration 0029 initially marked older artifacts
 non-sensitive; migration 0030 preserves their current sensitivity. No new
 configuration is required. Downgrade refuses populated artifact state; fix forward.
 Database backups retain extracted text and approval/audit metadata; sensitivity

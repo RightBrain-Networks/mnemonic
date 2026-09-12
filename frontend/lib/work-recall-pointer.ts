@@ -1,9 +1,9 @@
 import type { Project, WorkSummary } from "@/lib/types";
 
 export const DEFAULT_RECALL_POINTER_TEMPLATE =
-  `Recall the mnemonic work item "$WORK_ITEM_TITLE" (project_id $PROJECT_ID, work_item_id $WORK_ITEM_ID) using \`recall_work\`. Verify its premises and, if confirmed, proceed with the work as described.
+  `Immediately query the mnemonic work item "$WORK_ITEM_TITLE" (project_id $PROJECT_ID, work_item_id $WORK_ITEM_ID) using \`get_work\` with \`status_only=true\` to check its current status, readiness, and \`lease_settings\`. Respect its current status and holds. For authorized work, use \`claim_and_recall\` with \`lease_minutes=lease_settings.default_minutes\` to acquire your initial startup and investigation lease and load its context before investigating. Verify its premises and, if confirmed, proceed with the work as described.
 
-If the stated premises are refuted or you determine that no work is needed, close the issue as "won't do" with a detailed disposition explanation. If you acquire a work lease, create a background task to remind you to renew it prior to expiration. Reset the timer upon work release renewal.`;
+If the stated premises are refuted or you determine that no work is needed, close the issue as "won't do" with a detailed disposition explanation. For subsequent lease requests, estimate how much longer this session needs and choose minutes within the current project minimum and maximum. After acquiring a work lease, create a background task to remind you to renew it prior to expiration. Reset the timer after each renewal.`;
 
 export const RECALL_POINTER_MACROS = [
   { macro: "$WORK_ITEM_TITLE", description: "The work item's title." },

@@ -45,6 +45,25 @@ receipts make exact retries safe for the covered write surface. Use the
 canonical tools and prepare the immutable client operation intent described
 below before every protected MCP mutation.
 
+## Check assigned work immediately
+
+When assigned a Mnemonic work item, immediately call
+`get_work(project_id, work_item_id, status_only=true)` before local investigation,
+ordinary recall, discovery, or claiming. The response contains current lifecycle
+`status`, `readiness` (including Active/Dropped/Waiting), and project
+`lease_settings: {default_minutes, minimum_minutes, maximum_minutes}`. This read
+contains no authored prose or history and is permitted for cold review. Resolve
+missing routing IDs explicitly before reading the assigned item. Respect current
+status and holds; a status read grants no execution authority.
+
+Request `lease_minutes=default_minutes` for initial session startup and
+investigation. Subsequent claims or renewals should request your estimate of the
+remaining session work, within the current minimum and maximum. Refresh the
+status/policy before choosing a later duration. The API accepts any in-range
+initial duration; the startup Default is skill guidance. Omission uses the current
+project default. Humans configure these values in Workspace → Project details;
+the initial Default/Minimum/Maximum is 15/10/120 minutes.
+
 ## Create or continue work
 
 1. Resolve the project explicitly with `list_projects`, comparing its
@@ -506,7 +525,8 @@ canonical ID as if the caller had supplied it.
 
 When the user has authorized execution, generate a fresh opaque
 `claim_request_id` and call `claim_and_recall` with the selected project/work
-IDs plus the truthful current `holder_client` and `holder_session_id`. It
+IDs, `lease_minutes` chosen from the status response, and the truthful current
+`holder_client` and `holder_session_id`. It
 atomically returns both the lease receipt and bounded context. A successful
 claim prevents cooperative sessions from starting the same work; it does not
 grant authority beyond the user's request. A blocked item rejects new claims;
@@ -528,7 +548,10 @@ but never the request ID or token. Call it an active lease or session, not an
 assignee.
 
 If `claim_work` or `claim_and_recall` has an unknown outcome, retry promptly
-with the exact same holder tuple and `claim_request_id`. An active identical
+with the exact same holder tuple, `claim_request_id`, and `lease_minutes` value
+(or omission). Changing duration under the same active request returns
+`claim_request_mismatch`; policy changes do not invalidate an exact active replay.
+An active identical
 request returns the original token without extending expiry. Do not generate a
 new request ID or use recall to infer a lost token. `claim_request_expired`
 means that bounded recovery window is over; a later acquisition needs a new
@@ -620,10 +643,11 @@ state that limitation in the checkpoint text. Freeze the ordered declaration
 with the rest of the protected mutation intent.
 
 Use `renew_claim` and the active token when long-running work needs renewal
-without a new progress fact or checkpoint. Successful token-bearing progress
-already renews the lease; ordinary edits do not. Read the public active lease in
-`recall_work` for its current expiry.
-Renewal uses database time and returns the same token/request ID with a new
+without a new progress fact or checkpoint. Choose `lease_minutes` from your
+estimate of remaining session work within current project bounds. Token-bearing
+progress renews using the last granted duration, adjusted to current project
+bounds; ordinary edits do not. Read `get_work(status_only=true)` for current
+expiry and policy. Renewal uses database time and returns the same token/request ID with a new
 expiry. If it reports expiry or mismatch, stop treating the session as holder
 and reconcile current state before continuing.
 

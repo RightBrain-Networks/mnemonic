@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import WorkLeaseSettings from "@/components/work-lease-settings";
 import TranscriptSettingsPanel from "@/components/transcript-settings";
 import CodeReviewSettingsPanel from "@/components/code-review-settings";
 import ProjectBackupsPanel from "@/components/project-backups";
@@ -378,6 +379,9 @@ export default function ProjectSettingsPanel({
           </button>
         </div>
       </form>
+      <WorkLeaseSettings key={selectedProject.id} projectId={selectedProject.id}
+        settings={settings} loading={loading} loadError={loadError}
+        onSaved={onSaved} onRetry={onRetry} onNotice={onNotice} />
     </section>}
     {section === "workspace" && <TranscriptSettingsPanel key={selectedProject.id} projectId={selectedProject.id} onPendingChange={onTranscriptPendingChange} />}
     {section === "prompts" && <>

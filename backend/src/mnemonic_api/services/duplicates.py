@@ -263,8 +263,12 @@ def work_item_detail(
     work_item: WorkItem,
 ) -> WorkItemDetailRead:
     from mnemonic_api.services.code_review_reads import review_context
+    from mnemonic_api.services.lease_settings import lease_settings
+    from mnemonic_api.services.readiness import work_readiness
 
     return WorkItemDetailRead(
+        lease_settings=lease_settings(database, project_id),
+        readiness=work_readiness(database, work_item),
         code_review_context=review_context(database, work_item.id),
         work_item=WorkItemRead.model_validate(work_item),
         canonical=canonical_projection(database, project_id, work_item),

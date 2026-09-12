@@ -38,6 +38,7 @@ from mnemonic_api.schemas import (
     WorkItemRead,
     WorkMoveCreate,
     WorkMoveRead,
+    WorkStatusRead,
     WorkUpdateRead,
 )
 from mnemonic_api.services.completion_evidence import hydrate_completion_evidence
@@ -111,11 +112,23 @@ def create_work(
 
 @router.get(
     "/projects/{project_id}/work-items/{work_item_id}",
-    response_model=WorkItemDetailRead,
+    response_model=WorkItemDetailRead | WorkStatusRead,
 )
-def get_work(project_id: UUID, work_item_id: UUID, database: Database) -> WorkItemDetailRead:
+def get_work(
+    project_id: UUID, work_item_id: UUID, database: Database, status_only: bool = False,
+) -> WorkItemDetailRead | WorkStatusRead:
     begin_coherent_read(database)
     work_item = require_work_item(database, project_id, work_item_id)
+    if status_only:
+        from mnemonic_api.services.lease_settings import lease_settings
+        from mnemonic_api.services.readiness import work_readiness
+
+        return WorkStatusRead(
+            work_item_id=work_item.id, project_id=work_item.project_id,
+            status=work_item.status, version=work_item.version,
+            readiness=work_readiness(database, work_item),
+            lease_settings=lease_settings(database, project_id),
+        )
     return work_item_detail(database, project_id, work_item)
 
 

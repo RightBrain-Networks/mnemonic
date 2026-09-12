@@ -90,6 +90,9 @@ test("all priority/threshold/toggle/depth combinations obey sentinel, inclusive 
 
 test("settings parse exact strict thresholds and independent fields", () => {
   const settings = {
+    lease_default_minutes: 15,
+    lease_minimum_minutes: 10,
+    lease_maximum_minutes: 120,
     project_id: f.project,
     revision: "3",
     recall_pointer_template: null,
@@ -223,6 +226,9 @@ test("cold prompt allowlist excludes every contextual canary and fixes adversari
   for (const required of [
     "COLD, ADVERSARIAL",
     "claim_work ONLY",
+    "get_work with status_only=true",
+    "lease_minutes=lease_settings.default_minutes",
+    "time remaining in this session",
     "Do not use claim_and_recall",
     "Do not query Mnemonic",
     "commit messages",
@@ -232,7 +238,11 @@ test("cold prompt allowlist excludes every contextual canary and fixes adversari
   ])
     assert.ok(text.includes(required), required);
   assert.ok(text.includes(r.handoff.scope.repositories[0].base_commit));
+  assert.ok(text.indexOf("Immediately query Mnemonic get_work") < text.indexOf("claim_work ONLY"));
   assert.match(warmReviewDirective(r.review), /WARM, ADVERSARIAL/);
+  assert.match(warmReviewDirective(r.review), /get_work with status_only=true/);
+  assert.match(warmReviewDirective(r.review), /lease_minutes=lease_settings.default_minutes/);
+  assert.match(warmReviewDirective(r.review), /time remaining in this session/);
   assert.match(
     warmReviewDirective(r.review),
     /handoff is the author's account, not proof/,

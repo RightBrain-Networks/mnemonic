@@ -122,7 +122,7 @@ Apply these rules in order:
    changes, also set `MNEMONIC_DASHBOARD_ORIGINS` to the exact comma-separated browser origins with
    the new port, normally both `http://localhost:<port>` and `http://127.0.0.1:<port>`.
 5. **Other settings:** Use the user's IANA time-zone name for `TIMEZONE` when known; otherwise keep
-   `America/Detroit`. Keep the lease duration, client-operation wait, backup interval, and backup
+   `America/Detroit`. Keep the client-operation wait, backup interval, and backup
    directory defaults unless the user states an operational requirement.
 6. **Client:** Prefer an already-installed client the user names. Use Streamable HTTP at
    `http://127.0.0.1:<MNEMONIC_MCP_PORT>/mcp` with
@@ -216,7 +216,6 @@ Review `.env` locally without reproducing secret values in output. These keys MU
 | `MNEMONIC_API_PORT` | REST/API-docs host port; default `8000`. |
 | `MNEMONIC_MCP_PORT` | MCP host port; default `8001`. |
 | `MNEMONIC_DASHBOARD_ORIGINS` | Exact dashboard browser origins; MUST match the web port. |
-| `MNEMONIC_LEASE_TTL_SECONDS` | `60` through `3600`; default `900`. |
 | `MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS` | `1` through `10`; default `10`. |
 | `MNEMONIC_BACKUP_DIR` | Private host directory; default `./backups`. |
 | `MNEMONIC_BACKUP_INTERVAL_SECONDS` | Seconds between dumps; default `86400`. No automatic deletion. |
@@ -423,10 +422,19 @@ item separately:
 
 ## Current release boundary
 
-Application/API/MCP/dashboard 0.42.0, plugin 0.25.0 and Alembic
-`0032_agent_transcripts` ship together: 53 MCP tools, 17
+Work leases are configured per project in Workspace → Project details, with
+initial Default 15, Minimum 10, and Maximum 120 minutes. The former
+`MNEMONIC_LEASE_TTL_SECONDS` environment setting is retired. Agents immediately
+read assigned work through `get_work(status_only=true)`, which includes current
+status and `lease_settings` without authored context. Request Default during
+startup/investigation and estimate remaining session time for later lease requests
+within the current project bounds. Preserve exact `lease_minutes` arguments on
+uncertain claim retries.
+
+Application/API/MCP/dashboard 0.48.0, plugin 0.28.0 and Alembic
+`0034_variable_work_leases` ship together: 54 MCP tools, 17
 receipt-protected MCP writes,
-23 REST receipt kinds, 20 protected browser mutations, 24 event types and three
+24 REST receipt kinds, 21 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
 do not infer historical review requests. `search_work(status="to-review")` finds
 Done implementation with a requested review or pending recommendation; `done`
@@ -434,7 +442,7 @@ excludes that work. The dashboard presents it through normal lifecycle surfaces.
 Quiesce old writers, take a verified
 backup, migrate, and deploy every coordinated surface together. Run both
 read-only `scripts/audit_project_activity.py` and
-`scripts/audit_code_reviews.py` at 0030; the activity audit also supports its
+`scripts/audit_code_reviews.py` at the current head; the activity audit also supports its
 explicit historical-head preflights.
 
 Before starting the new Compose stack, create the private artifact host bind

@@ -5,13 +5,26 @@ description: Retrieve or safely continue saved Mnemonic work through MCP - recal
 
 # Recall Mnemonic work
 
+When assigned an existing work item, immediately call
+`get_work(project_id, work_item_id, status_only=true)` before investigating or
+acting. Assess its current status/readiness and the returned `lease_settings`:
+`default_minutes`, `minimum_minutes`, and `maximum_minutes`. For the initial
+session startup and investigation claim, explicitly request
+`lease_minutes=default_minutes`. For subsequent claims or renewals, estimate how
+many more minutes this session needs to finish and request that duration within
+the project's current minimum and maximum. Read the shared
+[lease guidance](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#choose-a-project-configured-lease)
+for settings changes and retries. This metadata-only read is permitted before
+cold review findings freeze; it grants no execution authority.
+
 ## Choose review or implementation before loading context
 
 For a copied **Cold review** prompt, read only the fixed protocol in
 [code-reviews.md](${CLAUDE_PLUGIN_ROOT}/reference/code-reviews.md), then follow
 its cold branch. Before independent findings freeze, do not run the ordinary
-recall, settings, checkpoint-freshness, or evidence steps below: only minimal
-`claim_work` and renew/release coordination are allowed. Do not read author
+recall, settings, checkpoint-freshness, or evidence steps below: only metadata-only
+`get_work(status_only=true)`,
+minimal `claim_work`, and renew/release coordination are allowed. Do not read author
 handoff, plans/docs, external trackers, or prior findings. Be adversarial.
 
 A warm review may recall, but must claim the exact original Done work with
@@ -120,7 +133,7 @@ or automatically copy filenames into a checkpoint or event.
 Before beginning execution the user has already authorized, generate a fresh
 opaque `claim_request_id` for this attempt and call
 `claim_and_recall(project_id, work_item_id, holder_client, holder_session_id,
-claim_request_id, session_transcript)` with this agent's established client/session pair. Prefer a
+claim_request_id, session_transcript, lease_minutes=default_minutes)` with this agent's established client/session pair. Prefer a
 distinct host-exposed session ID; otherwise generate and privately retain one
 `mnemonic-<UUID>` for this independent agent, as described in
 [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
@@ -144,8 +157,8 @@ Read the refusals as facts, not obstacles:
   human instruction names that item; terminal work is not reopened implicitly.
 
 If the outcome of a claim is unknown because the connection failed, retry
-promptly with the exact same `claim_request_id`, holder client, and holder
-session. That bounded replay recovers the original token while the retained
+promptly with the exact same `claim_request_id`, holder client, holder
+session, `session_transcript`, and `lease_minutes` (including whether omitted). That bounded replay recovers the original token while the retained
 lease remains active, even if a gate or blocker was added later; recovery is
 not approval to continue past them. `claim_request_expired` means that window
 is over; generate a new request ID only for a new acquisition attempt. Never
@@ -299,12 +312,16 @@ current revision; the client download helper streams original bytes to local dis
 data. Cold review still forbids loading this context
 before independent findings freeze.
 
-Supply the active implementation `lease_token` with each new `append_event` or
-`add_checkpoint` to renew the lease atomically using server time and the configured
-TTL. Exact receipt replays and token-free writes do not renew it; ordinary edits
-do not renew it either. Read `recall_work` for the public current expiry. When no
-new progress needs recording, call `renew_claim` before expiry and retain the
-returned unchanged token plus new expiry. Review leases use `renew_claim`. If renewal
+Supply the active implementation `lease_token` with each fresh `append_event`
+or `add_checkpoint` to renew atomically from server time using the last granted
+duration, clamped to the current project minimum and maximum. Exact receipt
+replays, token-free writes, and ordinary edits do not renew it. Read
+`get_work(status_only=true)` for the public current expiry and current bounds.
+When your estimate of the remaining session time changes, or no new progress
+needs recording before expiry, call `renew_claim` with the active token and your
+chosen in-range `lease_minutes`. Retain the returned unchanged token plus new
+expiry; the duration runs from renewal time. Review leases use `renew_claim`.
+If renewal
 reports expiry or mismatch, stop treating the session as the holder, preserve
 useful observations in a checkpoint when safe, and reconcile current state
 before proceeding.

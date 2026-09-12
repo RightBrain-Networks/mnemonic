@@ -2,8 +2,8 @@
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.47.0 uses migration
-`0033_transcript_imports` and also searches [imported transcripts](transcripts.md#import-existing-transcripts).
+configuration was required for that release. Current release 0.48.0 uses migration
+`0034_variable_work_leases` and also searches [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
 Their searches use the shared API, including the work semantic toggle. Hierarchy
 and file-directory browsing retain their existing endpoints and sort controls.

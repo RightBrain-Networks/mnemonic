@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 
 from mnemonic_api.application.mutations import run_registered_mutation
-from mnemonic_api.application.state import api_key_of, settings_of
+from mnemonic_api.application.state import api_key_of
 from mnemonic_api.database import Database
 from mnemonic_api.models import Checkpoint
 from mnemonic_api.schemas import (
@@ -84,7 +84,6 @@ def add_checkpoint(
         work_item = require_work_item(database, project_id, work_item_id, lock=True)
         checkpoint = append_checkpoint_record(
             database, work_item, domain_payload,
-            lease_ttl_seconds=settings_of(request).lease_ttl_seconds,
         )
         database.refresh(checkpoint)
         return checkpoint_read(checkpoint)
@@ -132,7 +131,6 @@ def append_event(
             work_item_id,
             domain_payload,
             bearer_key=api_key_of(request),
-            lease_ttl_seconds=settings_of(request).lease_ttl_seconds,
         )
 
     return run_registered_mutation(

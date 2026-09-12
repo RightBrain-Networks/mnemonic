@@ -5,6 +5,18 @@ description: Find saved Mnemonic work, artifacts, and transcripts together by me
 
 # Search Mnemonic sources
 
+When assigned an existing work item, immediately call
+`get_work(project_id, work_item_id, status_only=true)` before investigating or
+acting. Assess its current status/readiness and the returned `lease_settings`:
+`default_minutes`, `minimum_minutes`, and `maximum_minutes`. For the initial
+session startup and investigation claim, explicitly request
+`lease_minutes=default_minutes`. For subsequent claims or renewals, estimate how
+many more minutes this session needs to finish and request that duration within
+the project's current minimum and maximum. Read the shared
+[lease guidance](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#choose-a-project-configured-lease)
+for settings changes and retries. This metadata-only read is permitted before
+cold review findings freeze; it grants no execution authority.
+
 Start with `search(project_id, q=...)` to search work items, artifacts, and
 transcripts together. Defaults include all work statuses, canonical work identities,
 metadata-only artifact/transcript matching, relevance order, offset 0 and limit 50.
@@ -178,7 +190,9 @@ skill: they prepare each intent once and follow the recovery rules in
 `claim_and_recall` uses its own `claim_request_id`, not `client_operation_id`.
 
 When the user selects a result to view, call `recall_work`; when execution is
-already authorized, use `claim_and_recall` before acting. If several results
+already authorized, immediately check `get_work(status_only=true)`, then use
+`claim_and_recall` with the returned Default `lease_minutes` before investigating
+or acting. If several results
 fit and selection changes the task, show compact choices. If immediate graph
 facts affect selection, use `list_relationships` with an explicit direction and
 type and paginate; use `get_relationship` for one edge; keep counterparts

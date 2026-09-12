@@ -48,7 +48,8 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     limitations findings finding_key severity location_side start_line end_line problem
     triggering_conditions impact evidence recommended_verification result availability
     code_review_required_min_priority code_review_optional_min_priority
-    allow_remediation_code_reviews
+    allow_remediation_code_reviews lease_minutes lease_default_minutes
+    lease_minimum_minutes lease_maximum_minutes status_only
     """.split()
 )
 

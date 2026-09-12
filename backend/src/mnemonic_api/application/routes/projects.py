@@ -113,6 +113,9 @@ def get_project_settings(project_id: UUID, database: Database) -> ProjectSetting
 def settings_read(settings: ProjectSettings) -> ProjectSettingsRead:
     return ProjectSettingsRead(
         project_id=settings.project_id,
+        lease_default_minutes=settings.lease_default_minutes,
+        lease_minimum_minutes=settings.lease_minimum_minutes,
+        lease_maximum_minutes=settings.lease_maximum_minutes,
         recall_pointer_template=settings.recall_pointer_template,
         job_completion_report_prompt=settings.job_completion_report_prompt,
         revision=str(settings.revision),
@@ -138,6 +141,9 @@ def update_project_settings(
             raise conflict(
                 "project_settings_changed", "Project settings changed. Reload before saving."
             )
+        from mnemonic_api.services.lease_settings import validate_settings_patch
+
+        validate_settings_patch(settings, payload)
         changed = False
         for field in payload.model_fields_set - {"expected_revision"}:
             value = getattr(payload, field)

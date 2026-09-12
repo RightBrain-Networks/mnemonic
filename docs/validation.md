@@ -1,5 +1,25 @@
 # Mnemonic validation record
 
+## Variable work leases (0.48.0)
+
+Workspace → Project details now configures each project's Default, Minimum, and
+Maximum lease durations, initially 15, 10, and 120 minutes. Claims and renewals
+accept whole-minute requests within the current project bounds; any valid initial
+duration is accepted. Omitting the duration uses the project default. Settings
+changes leave active lease expirations unchanged. Token-bearing progress writes
+renew using the last granted duration, clamped to the current project bounds.
+
+Migration `0034_variable_work_leases` adds the settings and retains each claim's
+original duration assertion for lost-response recovery. Exact active replay keeps
+the same expiry even after a policy change. The global lease TTL environment
+setting is retired. API, MCP, and dashboard ship at 0.48.0 with plugin 0.28.0.
+
+All three skills and portable exports instruct assigned agents to immediately
+read status and lease policy, use Default for startup/investigation, and estimate
+remaining time for later requests. The status-only response contains no authored
+context, allowing the same protocol during cold review. Copied dashboard prompts
+follow this protocol too.
+
 ## Remediation search summaries and progress lease renewal (0.47.0)
 
 New review remediation work stores the finding count, primary repository/file,

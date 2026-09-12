@@ -136,3 +136,13 @@ def test_unified_search_models_match_published_openapi_shape():
         assert name in components, name
         assert set(schema.get("properties", {})) == set(components[name].get("properties", {})), name
         assert set(schema.get("required", [])) == set(components[name].get("required", [])), name
+
+
+def test_project_lease_settings_match_published_openapi_shape():
+    from mnemonic_mcp.lease_models import LeaseSettingsRead
+
+    document = json.loads((REPOSITORY_ROOT / "docs/openapi.json").read_text())
+    expected = document["components"]["schemas"]["LeaseSettingsRead"]
+    actual = LeaseSettingsRead.model_json_schema()
+    assert set(actual["properties"]) == set(expected["properties"])
+    assert set(actual["required"]) == set(expected["required"])

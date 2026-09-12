@@ -63,10 +63,11 @@ provenance metadata, lease identities, or tokens.
 
 A ready row is not a reservation, lease, instruction, or grant of execution
 authority. Concurrent changes can shift offset pages and invalidate a choice.
-After selecting one item whose execution the user already authorized, call
-`claim_and_recall`. Every fresh acquisition atomically rechecks lifecycle,
+After selecting one item whose execution the user already authorized, immediately
+call `get_work(status_only=true)` to assess current status and lease settings, then
+`claim_and_recall` with the project Default `lease_minutes`. Every fresh acquisition atomically rechecks lifecycle,
 blockers, lease time, and unresolved human gates. An identical still-active
-claim request replays its original receipt even if a blocker or gate was added
+claim request replays its retained receipt even if a blocker or gate was added
 after acquisition. This recovers the existing capability; it does not make
 blocked or waiting work safe to continue. Inspect the returned question, stop
 dependent work, and release when appropriate.
@@ -77,6 +78,52 @@ lease so an unexpectedly terminated session remains visible. Deferred is a
 persisted, intentional human hold and never appears in ready discovery. Do not
 return Deferred work to Pending unless the current human instruction explicitly
 selects it for work.
+
+## Choose a project-configured lease
+
+Immediately query assigned work through
+`get_work(project_id, work_item_id, status_only=true)`. Its `status`, `version`,
+and `readiness` describe the selected item; `lease_settings` contains the current
+project `default_minutes`, `minimum_minutes`, and `maximum_minutes`. This response
+contains no title, summary, checkpoints, handoff, or history and is safe for cold
+reviewers before findings freeze. Ordinary `get_work` and `recall_work` also
+include the same lease settings, but remain contextual reads.
+
+For initial session startup and investigation, explicitly pass the returned
+`default_minutes` as `lease_minutes` to `claim_work` or `claim_and_recall`.
+This is agent workflow guidance: Mnemonic accepts any requested whole-minute
+duration inside the project's inclusive minimum and maximum, including for an
+initial claim. Omission uses the current project default; explicit null is invalid.
+Initial project settings are Default 15, Minimum 10, and Maximum 120 minutes;
+never assume those values still apply or treat 120 as a universal maximum.
+
+For each subsequent claim or `renew_claim`, estimate the remaining time this
+session needs to finish, refresh `get_work(status_only=true)` for current settings,
+and choose a whole-minute duration within those limits. A renewal calculates
+expiry from the renewal time; it does not add minutes to the old expiry. Renew
+before expiry, and release when pausing or ending early. A settings change does
+not change an already-issued expiry. If the server definitively rejects an
+out-of-range duration, refresh settings and prepare a corrected request.
+
+Fresh `append_event` and `add_checkpoint` writes with the matching active
+implementation `lease_token` also renew the lease atomically from server time.
+They reuse the last granted duration, clamped to the current project minimum
+and maximum; they do not choose a new estimate. Call `renew_claim` explicitly
+with your new `lease_minutes` estimate when remaining session time changes.
+Read `get_work(status_only=true)` for the resulting public expiry. Token-free
+writes, ordinary edits, and exact mutation receipt replays do not renew leases.
+Review leases use explicit `renew_claim`; do not manufacture progress to extend
+a lease or add implementation checkpoints during review.
+
+For an uncertain claim outcome, preserve the exact `lease_minutes`, including
+whether omitted, alongside every other argument and `claim_request_id`. Retry
+that retained request unchanged to recover the active receipt; do not replace
+its duration with a new estimate or refreshed default. An active exact replay
+returns the retained expiry without extending it, even after project settings
+change; a successful renewal may already have changed that retained expiry.
+A changed claim duration is a new intent and needs a new request ID only after the prior
+outcome is known. Renewals are time-relative and non-idempotent; inspect current
+safe coordination state after uncertainty before deciding on another renewal.
 
 ## Structural parentage and discovery are independent
 
