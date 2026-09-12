@@ -1,5 +1,37 @@
 # Mnemonic validation record
 
+## Artifact directory sorting preserves scroll (0.46.0)
+
+Sorting previously cleared the loaded artifact page before requesting the new order.
+With a scrolled directory, removing the rows shortened its scrollable content and
+forced the viewport upward. A held-response Firefox regression reproduced a change
+from `scrollTop=506` to `109` before the replacement rows arrived.
+
+The directory now retains its loaded rows during sorting and pagination, marked
+`aria-busy` until the response arrives. The displayed range follows the loaded page
+until its replacement arrives. Project and filter changes still clear old results;
+status failures, disabled storage and request errors retain their existing clearing
+behavior. No schema or configuration changes are required. The coordinated
+application/API/MCP/dashboard version is `0.46.0`; plugin and migration versions
+remain unchanged.
+
+Research considered Firefox scroll anchoring as well as scroll-range reduction.
+[MDN explains Firefox anchoring diagnostics](https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Scroll_anchoring/Overview),
+and the [CSSOM View scrolling algorithm](https://drafts.csswg.org/cssom-view/#scroll-an-element)
+bounds scroll positions by the available scrolling area. The held-response
+reproduction isolates the row-removal step, so the fix preserves the table rather
+than disabling scroll anchoring throughout the dashboard.
+
+Browser regression coverage exercises all five headers in both directions, mouse
+and keyboard activation, scroll position while a response is held and after rows
+reorder, horizontal scrolling on narrow screens, sorting from a later page,
+accurate pending pagination labels, and clearing rows when filters change.
+The sorting regression passes in Firefox, desktop Chromium and narrow Chromium.
+The 432 frontend unit tests, TypeScript check, production build, 61 focused MCP
+checks, API OpenAPI snapshot check and Gitleaks scan also pass.
+
+![Firefox artifact directory after sorting](images/artifact-sort-scroll-firefox.png)
+
 ## Transcript startup without a source overlay (0.45.1)
 
 Base Compose now mounts `MNEMONIC_TRANSCRIPT_SOURCE_DIR` read-only at its exact

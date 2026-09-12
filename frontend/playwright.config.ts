@@ -22,7 +22,7 @@ export default defineConfig({
     { name: "chromium-desktop", use: { ...devices["Desktop Chrome"] } },
     {
       name: "firefox-motion",
-      grep: /external API writes appear through live browser sync|loaded empty view visible during background invalidation|eases live additions and removals|respects reduced motion and project changes|summary Dismiss|configurable work summary|settings menu|resources menu|sidebar navigation/,
+      grep: /artifact sorting preserves scroll position|external API writes appear through live browser sync|loaded empty view visible during background invalidation|eases live additions and removals|respects reduced motion and project changes|summary Dismiss|configurable work summary|settings menu|resources menu|sidebar navigation/,
       use: { ...devices["Desktop Firefox"], permissions: [] }
     },
     { name: "chromium-narrow", use: { ...devices["Desktop Chrome"], viewport: { width: 390, height: 844 } } }
