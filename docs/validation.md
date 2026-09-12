@@ -20,6 +20,15 @@ remaining time for later requests. The status-only response contains no authored
 context, allowing the same protocol during cold review. Copied dashboard prompts
 follow this protocol too.
 
+The 36 repeated Playwright settings checks pass across desktop and narrow Chromium,
+including bounds, persistence, project isolation, stale revisions, duplicate refresh
+recovery, and a save whose response arrives after live invalidation. The isolated
+backup-service acceptance checks pass. Frontend units, typecheck, production build,
+OpenAPI/vocabulary checks, skill validation, and Gitleaks pass.
+
+![Desktop lease duration settings](images/workspace-variable-leases-chromium-desktop.png)
+![Narrow lease duration settings](images/workspace-variable-leases-chromium-narrow.png)
+
 ## Remediation search summaries and progress lease renewal (0.47.0)
 
 New review remediation work stores the finding count, primary repository/file,
