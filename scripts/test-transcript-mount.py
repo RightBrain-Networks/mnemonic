@@ -126,8 +126,19 @@ def check_config(
     assert index_mount["source"] == index_root and not index_mount.get("read_only", False)
     assert not index_mount["bind"].get("create_host_path", False)
     private_mounts = {*map(str, sources.values()), index_root}
+    worker = services["worker"]
+    assert "backup" not in services
+    for source in sources.values():
+        mount = next(m for m in worker["volumes"] if m["target"] == str(source))
+        assert mount["source"] == str(source) and mount["read_only"]
+        assert not mount["bind"].get("create_host_path", False)
+    copy_mount = next(m for m in worker["volumes"]
+                      if m["target"] == "/var/lib/mnemonic/transcripts")
+    assert copy_mount["source"] == env["MNEMONIC_TRANSCRIPT_DIR"]
+    assert not copy_mount.get("read_only", False)
+    assert not copy_mount["bind"].get("create_host_path", False)
     for name, service in services.items():
-        if name != "api":
+        if name not in {"api", "worker"}:
             assert all(m["source"] not in private_mounts for m in service.get("volumes", []))
     origins = api["environment"]["MNEMONIC_DASHBOARD_ORIGINS"]
     assert ("https://transcript-test.invalid" in origins) == tls
@@ -218,7 +229,7 @@ def main() -> None:
             (source / "existing.jsonl").write_bytes(b"synthetic transcript\n")
             (source / "existing.jsonl").chmod(0o600)
             (source / "linked.jsonl").symlink_to(source / "existing.jsonl")
-        for name in ("artifacts", "backups", "transcript-index", "prompts"):
+        for name in ("artifacts", "backups", "transcript-index", "transcripts", "prompts"):
             (directory / name).mkdir(mode=0o700)
         env = {key: value for key, value in os.environ.items()
                if not key.startswith(("MNEMONIC_", "COMPOSE_", "POSTGRES_"))}
@@ -232,12 +243,14 @@ def main() -> None:
             "MNEMONIC_ARTIFACT_DIR": str(directory / "artifacts"),
             "MNEMONIC_PROMPT_DIR": str(directory / "prompts"),
             "MNEMONIC_TRANSCRIPT_INDEX_DIR": str(directory / "transcript-index"),
+            "MNEMONIC_TRANSCRIPT_DIR": str(directory / "transcripts"),
             "MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES": "1048576",
             "MNEMONIC_BACKUP_DIR": str(directory / "backups"),
             "MNEMONIC_TLS_HOST": "transcript-test.invalid",
             "POSTGRES_PASSWORD": "synthetic-mount-test",
             "MNEMONIC_API_KEY": "synthetic-mount-test-key-long-enough",
             "MNEMONIC_BACKUP_TOKEN": "synthetic-mount-test-backup-long-enough",
+            "MNEMONIC_RABBITMQ_PASSWORD": "synthetic-mount-test-broker",
         })
         env_file = directory / "compose.env"
         env_file.write_text("COMPOSE_FILE=" + json.dumps(env.pop("COMPOSE_FILE")) + "\n")

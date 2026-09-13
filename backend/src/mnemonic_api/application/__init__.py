@@ -36,7 +36,6 @@ from mnemonic_api.live_sync import LiveSyncHub
 from mnemonic_api.schemas import COMPLETION_EVENT_ID_MAX
 from mnemonic_api.semantic import Embedder, FastembedEmbedder
 from mnemonic_api.services.artifact_search import ArtifactSearchIndex
-from mnemonic_api.transcript_indexing import transcript_indexing_loop
 from mnemonic_api.transcript_storage import check_transcript_source
 
 __all__ = ["create_app"]
@@ -58,9 +57,6 @@ def create_app(
         app.state.transcript_search_index.start()
         maintenance = None
         extraction = None
-        transcript_indexing = asyncio.create_task(transcript_indexing_loop(
-            app.state.session_factory, config, TikaExtractor(config),
-        ))
         if config.artifact_max_bytes > 0:
             maintenance = asyncio.create_task(artifact_maintenance_loop(
                 app.state.session_factory, app.state.artifact_storage
@@ -72,7 +68,7 @@ def create_app(
         try:
             yield
         finally:
-            for task in (maintenance, extraction, transcript_indexing):
+            for task in (maintenance, extraction):
                 if task is not None:
                     task.cancel()
                     with suppress(asyncio.CancelledError):
@@ -84,7 +80,7 @@ def create_app(
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.51.0",
+        version="0.52.0",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )

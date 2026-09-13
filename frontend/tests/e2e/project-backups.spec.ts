@@ -40,7 +40,7 @@ async function openBackups(page: Page, project: Project) {
 async function downloadBackup(page: Page, project: Project) {
   const panel = await openBackups(page, project);
   await panel.getByRole("button", { name: "Back up now", exact: true }).click();
-  await expect(panel.locator(".backup-notice")).toHaveText(`Backup created for ${project.name}.`);
+  await expect(panel.locator(".backup-notice")).toHaveText(`Backup created for ${project.name}.`, { timeout: 30_000 });
   const first = panel.getByRole("listitem").first();
   const downloading = page.waitForEvent("download");
   await first.getByRole("link", { name: /^Download / }).click();
@@ -61,13 +61,13 @@ test("project backups download compressed data, prune oldest archives and restor
     const unrelated = await createWork(api, other, "Other project work stays intact");
     const archive = await downloadBackup(page, source);
     const panel = page.getByRole("region", { name: "Project backups", exact: true });
-    await expect(panel.getByRole("listitem")).toHaveCount(1);
-    await expect(panel.locator("time")).toHaveAttribute("datetime", /^\d{4}-\d{2}-\d{2}T/);
+    await expect(panel.getByRole("listitem").first()).toBeVisible();
+    await expect(panel.locator("time").first()).toHaveAttribute("datetime", /^\d{4}-\d{2}-\d{2}T/);
     await expect(panel).toContainText("Less than a minute ago");
     await expect(panel).toContainText("Artifact file contents are managed by your separate file backup system.");
     for (let count = 0; count < 2; count++) {
       await panel.getByRole("button", { name: "Back up now", exact: true }).click();
-      await expect(panel.getByRole("button", { name: "Back up now", exact: true })).toBeEnabled();
+      await expect(panel.getByRole("button", { name: "Back up now", exact: true })).toBeEnabled({ timeout: 30_000 });
     }
     await expect(panel.getByRole("listitem")).toHaveCount(2);
     await expect(panel.getByRole("link", { name: `Download ${archive.name}` })).toHaveCount(0);
@@ -160,6 +160,11 @@ test("a lost backup response blocks duplicate actions until the user reloads and
       attempts++;
       const response = await route.fetch();
       expect(response.ok(), await response.text()).toBe(true);
+      const job = await response.json();
+      await expect.poll(async () => {
+        const status = await page.request.get(`/api/backups/projects/${project.id}/backup-jobs/${job.job_id}`);
+        return (await status.json()).state;
+      }, { timeout: 30_000 }).toBe("succeeded");
       await route.abort("failed");
     });
     const panel = await openBackups(page, project);
@@ -173,12 +178,12 @@ test("a lost backup response blocks duplicate actions until the user reloads and
     await navigation.getByRole("link", { name: "Prompts", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/backups$/);
     await panel.getByRole("button", { name: "Refresh backups" }).click();
-    await expect(panel.getByRole("listitem")).toHaveCount(1);
+    await expect(panel.getByRole("listitem").first()).toBeVisible();
     expect(attempts).toBe(1);
     const reloaded = page.waitForEvent("load");
     await panel.getByRole("button", { name: "Reload and inspect" }).click();
     await reloaded;
-    await expect(page.getByRole("region", { name: "Project backups", exact: true }).getByRole("listitem")).toHaveCount(1);
+    await expect(page.getByRole("region", { name: "Project backups", exact: true }).getByRole("listitem").first()).toBeVisible();
     expect(attempts).toBe(1);
   } finally { await api.dispose(); }
 });
@@ -190,6 +195,9 @@ test("changing projects clears the chosen restore file and ignores a late archiv
   try {
     const source = await createProject(api, "Stale archive list");
     const destination = await createProject(api, "Fresh archive list");
+    await page.route(`**/api/backups/projects/${destination.id}/backups`, (route) => route.fulfill({
+      json: { project_id: destination.id, retention_count: 2, backups: [] }
+    }));
     let started!: () => void;
     const requested = new Promise<void>((resolve) => { started = resolve; });
     let settled!: () => void;

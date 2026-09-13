@@ -249,17 +249,19 @@ def pristine_postgres_engine(postgres_engine: Engine) -> Engine:
 
 
 @pytest.fixture
-def api(postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+def api(postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch,
+        tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
     async def idle_extraction(*_args):
         # Parser IO is exercised through the explicit extraction worker and Tika
         # suites; ordinary API tests must not depend on an external parser.
         await asyncio.Event().wait()
 
     monkeypatch.setattr("mnemonic_api.application.artifact_extraction_loop", idle_extraction)
-    monkeypatch.setattr("mnemonic_api.application.transcript_indexing_loop", idle_extraction)
     reset_disposable_schema(postgres_engine)
     settings = Settings(
-        database_url=postgres_engine.url.render_as_string(hide_password=False), api_key=TEST_API_KEY
+        database_url=postgres_engine.url.render_as_string(hide_password=False),
+        api_key=TEST_API_KEY,
+        transcript_root=tmp_path_factory.mktemp("transcript-copies"),
     )
     with TestClient(create_app(settings, engine=postgres_engine)) as client:
         client.headers["Authorization"] = f"Bearer {TEST_API_KEY}"

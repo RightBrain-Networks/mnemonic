@@ -1,5 +1,45 @@
 # Mnemonic validation record
 
+## Durable transcript copies and shared RabbitMQ jobs (0.52.0)
+
+Migrations `0036_transcript_copies` and `0037_background_jobs` retain immutable
+raw transcript snapshots and a PostgreSQL job ledger. RabbitMQ delivers copy,
+index, and scheduled/manual backup jobs to the shared worker; the dedicated
+backup container is removed. The plugin and all tool/receipt catalogs are
+unchanged. See [the coordinated upgrade and backfill procedure](transcript-jobs.md).
+
+Two independent cold adversarial reviews included a dedicated RabbitMQ review.
+Findings were fixed and regression-tested: retry dedupe after allowlist repair,
+retention of readable text during failed replacement indexing, and stale copy
+publication across project restore. Final reviews found no remaining blockers.
+Additional tests cover real broker transport loss during a blocked handler,
+heartbeat ownership, duplicate delivery, stale generation claims, abrupt process
+exit after file publication, and SIGKILL during partial-file staging.
+
+A populated PostgreSQL migration test upgrades actual ready/failed/processing
+rows from 0035 to 0037, preserving historical text and metadata while invalidating
+old processing claims and scheduling copies. New frozen catalog entries were
+generated from fresh migrations and independent PostgreSQL dump/restore schemas;
+all older frozen entries remain unchanged. Backup restore and integrity-audit
+regressions pass.
+
+Local checks include 2,685 passing backend tests with real PostgreSQL/RabbitMQ,
+the additional populated-upgrade regression, Python Ruff/ty,
+1,540 MCP tests plus 147 focused strict-consumer tests after the response update,
+438 dashboard tests, Node 24 type checking, and Docker production builds. The
+private-source mount probe passes base, TLS, and saved-overlay configurations.
+Desktop/narrow backup browser checks and all six backup fault-harness groups pass,
+including storage permissions, retention, isolation, restore boundaries, and
+database-lock retry recovery. Source-deletion transcript acceptance covers both
+Claude Code and Codex primary/subagent snapshots. Gitleaks passes.
+
+These checks use disposable databases, containers, and synthetic transcript files.
+They are not evidence that production has been deployed or its historical files
+have been migrated; retain the live backfill/checksum report separately.
+
+![Queued project backups](images/background-backups-desktop.png)
+![Retained transcript copy metadata](images/transcript-copies-desktop.png)
+
 ## Direct local artifact transfers (0.51.0)
 
 Local uploads and replacements now use a standard-library client that streams raw

@@ -68,8 +68,11 @@ def register_transcripts(
 
 def transcript_read(record: Transcript, project_id: UUID) -> TranscriptRead:
     fields = {name: getattr(record, name) for name in TranscriptRead.model_fields
-              if name not in {"project_id", "filename", "metadata", "snippet", "score"}}
+              if name not in {"project_id", "filename", "metadata", "snippet", "score",
+                              "index_status", "index_error_code"}}
+    fields["index_status"] = record.reindex_status or record.status
     return TranscriptRead(**fields, project_id=project_id,
+                          index_error_code=record.reindex_error_code or record.error_code,
                           filename=PurePosixPath(record.source_path).name,
                           metadata=record.extracted_metadata)
 
@@ -169,7 +172,8 @@ def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSea
     if filters.work_item_id is not None:
         statement = statement.where(Transcript.work_item_id == filters.work_item_id)
     incomplete = bool(database.scalar(select(func.count()).select_from(statement.where(
-        (Transcript.status != "ready") | Transcript.truncated).subquery())))
+        (Transcript.status != "ready") | (Transcript.copy_status != "ready")
+        | Transcript.reindex_status.is_not(None) | Transcript.truncated).subquery())))
     if filters.query and filters.query.strip():
         return _searched_page(database, project_id, filters, index, statement, incomplete,
                               maximum_content_bytes)
@@ -290,12 +294,23 @@ def rebuild_transcripts(database: Session, project_id: UUID, operation_id: UUID)
     receipt = database.get(TranscriptRebuild, (project_id, operation_id))
     if receipt is not None:
         return receipt.queued
+    retained = Transcript.status == "ready"
+    snapshot = {name: case((retained, getattr(Transcript, name)),
+                          else_=literal(value, type_=getattr(Transcript, name).type))
+                for name, value in empty_transcript_snapshot().items()}
     result = database.execute(update(Transcript).where(Transcript.id.in_(
         transcript_query(project_id).with_only_columns(Transcript.id))).values(
-            **empty_transcript_snapshot(), generation=Transcript.generation + 1,
-            status="waiting", lease_token=None, lease_expires_at=None,
-            indexing_started_at=None, indexing_completed_at=None, error_code=None,
+            **snapshot, generation=Transcript.generation + 1,
+            status=case((retained, "ready"), else_="waiting"),
+            reindex_status=case((retained, "pending"), else_=None), reindex_error_code=None,
+            lease_token=None, lease_expires_at=None,
+            indexing_started_at=case((retained, Transcript.indexing_started_at), else_=None),
+            indexing_completed_at=case((retained, Transcript.indexing_completed_at), else_=None),
+            error_code=None,
             attempts=0, next_attempt_at=datetime.now(UTC),
+            copy_status=case((Transcript.copy_status == "ready", "ready"), else_="pending"),
+            copy_error_code=None, copy_attempts=0, copy_next_attempt_at=datetime.now(UTC),
+            copy_lease_token=None, copy_lease_expires_at=None,
         ).execution_options(synchronize_session=False))
     queued = rows_affected(result)
     database.add(TranscriptRebuild(project_id=project_id, client_operation_id=operation_id,

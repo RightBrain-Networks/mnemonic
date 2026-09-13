@@ -37,7 +37,7 @@ historical summaries exceed the former 1,000-character limit.
 
 ## Configuration
 
-`python scripts/setup.py` creates three independent random secrets in `.env`,
+`python scripts/setup.py` creates four independent random secrets in `.env`,
 refuses to overwrite an existing file, and never prints secrets. Keep that file
 private. On Unix it is created with mode 0600; on Windows use account-private
 filesystem access controls.
@@ -140,8 +140,10 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.51.0`, plugin `0.30.0`,
-and Alembic `0035_prompt_library`. Inventory exactly 54 MCP tools,
+The current coordinated boundary is API/MCP/dashboard `0.52.0`, plugin `0.30.0`,
+and Alembic `0037_background_jobs`. Follow [the transcript/job migration](transcript-jobs.md)
+to provision RabbitMQ, the shared worker, retained copies, and backup ownership.
+Inventory exactly 54 MCP tools,
 17 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
@@ -167,8 +169,8 @@ lost-response recovery. Project backups retain the settings and lease metadata.
 Transcript migration `0032_agent_transcripts` follows `0031_review_decisions`. Stop
 older API/MCP/dashboard writers before upgrading together. Configure the read-only
 shared source mount and allowed roots in [transcript deployment](transcripts.md#filesystem-deployment);
-the existing Tika service is reused. Workspace rebuilds reread current client files,
-so preserve source access during extraction. Backups include retained transcript text,
+the existing Tika service is reused. Workspace rebuilds now read retained copies;
+source access is needed for new captures. Backups include retained transcript text,
 provenance, settings, rebuild receipts and import receipts. Migration
 `0033_transcript_imports` adds project-owned imports without invented work leases;
 it preserves existing enrollment records and rejects downgrades with import data. Populated transcript state cannot be
@@ -297,13 +299,17 @@ pool or routing cutover. Upgrade the schema, API, MCP, dashboard, and plugin as
 one release boundary; do not deliberately restart an older writer against a
 newer contract.
 
+For the initial transition from the dedicated backup container to release
+0.52.0, follow [the transcript-copy migration runbook](transcript-jobs.md) first;
+the commands below use the new shared worker service.
+
 1. Confirm the current stack is healthy, then create fresh compressed project
    database archives while it is still serving:
 
    ```sh
    docker compose ps
-   docker compose exec backup python -m mnemonic_backup once
-   docker compose logs --tail=20 backup
+   docker compose exec worker python -m mnemonic_backup once
+   docker compose logs --tail=20 worker
    ```
 
    Download and copy the completed project archives to another device or
@@ -314,7 +320,7 @@ newer contract.
    clients before proceeding:
 
    ```sh
-   docker compose stop web mcp api backup
+   docker compose stop web mcp api worker
    ```
 
 3. Optionally run migration as a separate visible step. API startup repeats it
@@ -1273,7 +1279,7 @@ Archives include project database records, immutable histories, leases,
 relationships, settings, reports, artifact metadata, normalized extracted text,
 retained Tika document properties and completed operation
 receipts. **Artifact file contents are excluded.** A separate backup system owns
-those files. No artifact storage directory is mounted in the backup container.
+those files. Raw transcript copies are also separate filesystem backup data.
 
 The service holds bounded database locks for a coherent export or transactional
 restore; active writers can briefly wait or receive their ordinary busy error.
@@ -1289,16 +1295,21 @@ contract, MCP tools, agent context and plugin skills.
 For operator access:
 
 ```sh
-docker compose exec backup python -m mnemonic_backup once
-docker compose exec backup python -m mnemonic_backup once --project PROJECT_UUID
-docker compose logs --tail=20 backup
+docker compose exec worker python -m mnemonic_backup once
+docker compose exec worker python -m mnemonic_backup once --project PROJECT_UUID
+docker compose logs --tail=20 worker
 ```
 
-The scheduler retries failures after 60 seconds. Container health reports whether
-a complete scheduled cycle has succeeded recently. Archives and receipts contain
+Scheduled and dashboard jobs retry transient failures after 60 seconds. The explicit
+operator commands above run synchronously. Container health reports broker and
+dispatcher availability; inspect backup job results for export failures. Archives and receipts contain
 private project content; use private storage and keep downloads private.
 
 ### Upgrading the backup service
+
+Release 0.52.0 replaces the dedicated backup container with the shared worker.
+Follow [the coordinated migration](transcript-jobs.md#deployment-and-existing-transcript-migration)
+for RabbitMQ credentials, storage ownership, and transcript backfill.
 
 Add a fresh independently generated `MNEMONIC_BACKUP_TOKEN` of at least 32
 characters to the private `.env`, plus
@@ -1310,11 +1321,11 @@ Stop the legacy backup container before removing legacy archives. Inspect the
 exact configured directory and delete only the intended old archives. The new
 service never executes or imports old `.dump` files and does not automatically
 delete arbitrary files in its root. Prepare the configured bind directory with
-owner/group 10001 and mode 0700; for the default path:
+the configured API/worker UID/GID and mode 0700; for the default identity and path:
 
 ```sh
 sudo install -d -m 0700 -o 10001 -g 10001 ./backups
-docker compose up -d --build --wait backup web
+docker compose up -d --build --wait worker web
 ```
 
 The compressed upload/archive limit defaults to 67108864 bytes (64 MiB);
@@ -1349,7 +1360,7 @@ the server may already have committed the restore.
 The explicit operator equivalent is:
 
 ```sh
-docker compose exec backup python -m mnemonic_backup restore \
+docker compose exec worker python -m mnemonic_backup restore \
   --project PROJECT_UUID --confirm-project PROJECT_UUID \
   --file /backups/PROJECT_UUID/ARCHIVE.json.bz2
 ```

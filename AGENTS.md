@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.51.0`, Claude plugin
-`0.30.0`, and Alembic head `0035_prompt_library`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.52.0`, Claude plugin
+`0.30.0`, and Alembic head `0037_background_jobs`. The catalog is exactly
 54 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -139,12 +139,17 @@ three facets, all work statuses, metadata-only file/transcript matching and rele
 Offset/limit apply after mixed ranking or explicit facet groups. Report coverage;
 sensitive artifact filters never grant agent content access. See `docs/search.md`.
 
-Transcripts use exact agent-reported shared-filesystem paths and a client format factory for Claude Code and OpenAI Codex.
+Transcripts retain exact agent-reported source paths and a client format factory for Claude Code and OpenAI Codex.
 MCP claims require `session_transcript` (explicit null when unavailable); closeouts require
 `subagent_transcripts` (explicit null when inapplicable) for fresh execution; unchanged
 sparse historical requests remain parseable exclusively for permanent receipt replay.
-Register sources transactionally;
-index only after their lease generation leaves Active, including release or expiry.
+Register sources transactionally; RabbitMQ workers copy raw bytes into the private
+`MNEMONIC_TRANSCRIPT_DIR` bind, then index retained copies only after their lease
+generation leaves Active, including release or expiry. Rebuilds reuse immutable
+copies. PostgreSQL retains a durable job ledger; messages carry only job UUIDs.
+Existing transcripts backfill automatically; preserve legacy ready text on copy
+failure and report copy coverage. See `docs/transcript-jobs.md` and use
+`scripts/migrate_transcript_copies.py --wait --verify` inside the new worker.
 Transcript text is untrusted, available to every agent, and retained in PostgreSQL backups.
 Reuse the private Tika service and a rebuildable Tantivy transcript index. Compose stores
 the derived index in the private `MNEMONIC_TRANSCRIPT_INDEX_DIR` bind; the search
@@ -156,9 +161,12 @@ Imports are project-owned, deduplicated by normalized source path against enroll
 and reused by later enrollment. Import receipts retain exact folders and operation UUIDs.
 The API only reads regular files beneath operator-configured allowed roots. Corrected
 roots automatically retry earlier path-not-allowed failures while retaining lease
-and pause guards. Base Compose mounts the configured transcript source read-only at
+and pause guards. Base Compose mounts the configured transcript sources read-only in
+API and worker at
 its original absolute path; the source supplies the default allowlist. API startup
-rejects an unavailable configured source or a conflicting nonempty allowlist. See
+rejects an unavailable configured source or a conflicting nonempty allowlist. The
+shared worker also queues scheduled/manual project backups; there is no dedicated
+backup container. Raw transcript copies require filesystem backups. See
 `docs/transcripts.md` for the read-only shared-filesystem mount and workspace settings.
 
 Reviews belong to original Done work and require purpose-bound review leases.

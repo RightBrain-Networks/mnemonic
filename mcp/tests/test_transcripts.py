@@ -31,6 +31,8 @@ def transcript(**changes):
         "lease_generation_id": CLIENT_OPERATION_ID, "client": "claude_code",
         "session_id": "independent-session", "source_path": LOCATION["path"],
         "filename": "primary.jsonl", "kind": "primary", "status": "ready",
+        "copy_status": "ready", "copy_error_code": None, "copied_at": NOW,
+        "index_status": "ready", "index_error_code": None,
         "indexing_started_at": NOW, "indexing_completed_at": NOW, "error_code": None,
         "size_bytes": 180, "mime_type": "application/x-ndjson", "format": "claude_code_jsonl",
         "sha256": "a" * 64, "text_sha256": HASH, "metadata": {}, "truncated": False,

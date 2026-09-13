@@ -21,6 +21,7 @@ from mnemonic_backup.archive_schema import (
     read_rows,
     reject_pending,
     replace_rows,
+    reset_transcript_jobs,
     schema_signature,
     validate_foreign_keys,
     validate_identities,
@@ -79,6 +80,7 @@ def restore_project(
                                   "The archive and database schemas do not match.")
             current = read_rows(connection, project, max_bytes=max_bytes)
             reject_pending(current)
+            reset_transcript_jobs(connection, current, restored)
             replace_rows(connection, current, restored)
             validate_foreign_keys(connection)
             validate_integrity(connection)

@@ -1,6 +1,7 @@
 """Private compressed archive publication, locking, and per-project retention."""
 
 import fcntl
+import json
 import os
 import re
 import stat
@@ -141,20 +142,79 @@ class BackupStore:
                 except FileNotFoundError:
                     pass
 
-    def publish(self, project_id: UUID, output: BinaryIO, directory: int, partial: str) -> dict:
+    def job_result(self, project_id: UUID, job_id: UUID) -> dict | None:
+        """Recover publication after a worker died before recording its database result."""
+        with self.directory(project_id) as directory:
+            name = f".job-{job_id.hex}.json"
+            try:
+                descriptor = os.open(name, os.O_RDONLY | FILE_FLAGS, dir_fd=directory)
+            except FileNotFoundError:
+                # Publication precedes the receipt. A crash in that narrow window
+                # leaves a recognizable archive that must never be exported again.
+                suffix = f"-{job_id.hex}.json.bz2"
+                matches = [item for item in self.list_archives(project_id)
+                           if item["filename"].endswith(suffix)]
+                if not matches:
+                    return None
+                result = matches[0]
+                self._record_job(directory, job_id, result)
+                return result
+            with os.fdopen(descriptor, "rb") as receipt:
+                info = _check_file(receipt.fileno())
+                if info.st_size > 1024:
+                    raise BackupError(503, "storage_unavailable", "Backup receipt is invalid.")
+                try:
+                    result = json.load(receipt)
+                except (ValueError, UnicodeError):
+                    raise BackupError(503, "storage_unavailable",
+                                      "Backup receipt is invalid.") from None
+            if (not isinstance(result, dict)
+                    or not isinstance(result.get("filename"), str)
+                    or not ARCHIVE_NAME.fullmatch(result["filename"])
+                    or not result["filename"].endswith(f"-{job_id.hex}.json.bz2")
+                    or not isinstance(result.get("created_at"), str)
+                    or type(result.get("size_bytes")) is not int
+                    or result["size_bytes"] < 1):
+                raise BackupError(503, "storage_unavailable", "Backup receipt is invalid.")
+            return result
+
+    @staticmethod
+    def _record_job(directory: int, job_id: UUID, result: dict) -> None:
+        # Small durable receipts outlive archive retention. Replaying an old
+        # delivery must not create another archive or prune another backup.
+        temporary = f".receipt-{job_id.hex}.partial"
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | FILE_FLAGS,
+                             0o600, dir_fd=directory)
+        with os.fdopen(descriptor, "wb") as receipt:
+            _check_file(receipt.fileno())
+            receipt.write(json.dumps(result, separators=(",", ":")).encode())
+            receipt.flush()
+            os.fsync(receipt.fileno())
+        os.replace(temporary, f".job-{job_id.hex}.json",
+                   src_dir_fd=directory, dst_dir_fd=directory)
+        os.fsync(directory)
+
+    def publish(self, project_id: UUID, output: BinaryIO, directory: int, partial: str,
+                *, job_id: UUID | None = None) -> dict:
         output.flush()
         os.fsync(output.fileno())
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-        name = f"project-{stamp}-{uuid4().hex}.json.bz2"
+        name = f"project-{stamp}-{(job_id or uuid4()).hex}.json.bz2"
         # Hard-link publication never overwrites a previous successful backup.
         os.link(partial, name, src_dir_fd=directory, dst_dir_fd=directory,
                 follow_symlinks=False)
         os.fsync(directory)
         result = metadata(name, os.fstat(output.fileno()))
+        if job_id is not None:
+            self._record_job(directory, job_id, result)
         # A backward clock adjustment must never evict the backup just created.
         previous = [entry for entry in self.list_archives(project_id)
                     if entry["filename"] != name]
         for entry in previous[self.retention_count - 1:]:
+            # Another worker may have crashed after publishing this older file.
+            # Preserve its operation result before retention removes the evidence.
+            previous_job = UUID(hex=entry["filename"].removesuffix(".json.bz2").rsplit("-", 1)[1])
+            self.job_result(project_id, previous_job)
             os.unlink(entry["filename"], dir_fd=directory)
         os.fsync(directory)
         return result

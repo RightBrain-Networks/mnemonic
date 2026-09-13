@@ -130,7 +130,7 @@ def test_project_activity_audit_accepts_review_events_and_checks_review_facts(
     close_work(api, project, question_work, checkpoint_fields, review=False)
     report = _audit(postgres_engine)
     assert report["result"] == "pass", report["blocking_findings"]
-    assert report["expected_head"] == "0035_prompt_library"
+    assert report["expected_head"] == "0037_background_jobs"
 
 
 def test_project_and_review_audits_keep_supported_0024_boundary(postgres_engine: Engine):

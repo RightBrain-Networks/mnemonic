@@ -1,9 +1,12 @@
 """Downgrade cannot erase durable transcript provenance, settings, or receipts."""
 
-from uuid import uuid4
+import hashlib
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
+
+from mnemonic_api.transcript_job_queue import enqueue_transcript_jobs
 
 from .test_artifact_extraction_migration_postgres import migrate
 from .test_leases_postgres import expire_lease
@@ -36,7 +39,7 @@ def test_populated_transcript_data_blocks_downgrade(
     with postgres_engine.connect() as connection:
         assert connection.scalar(text(f"SELECT count(*) FROM {populated}")) == before
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0035_prompt_library"
+            == "0037_background_jobs"
 
 
 def test_empty_transcript_schema_downgrades_and_upgrades(pristine_postgres_engine):
@@ -63,11 +66,11 @@ def test_import_receipts_and_sources_prevent_downgrade(api, project, tmp_path,
         assert connection.scalar(text("SELECT count(*) FROM transcript_imports")) == 1
         assert connection.scalar(text("SELECT count(*) FROM transcripts")) == int(with_sources)
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0035_prompt_library"
+            == "0037_background_jobs"
     assert import_folder(api, project, tmp_path, receipt["client_operation_id"]).json() == receipt
 
 
-def test_import_migration_preserves_existing_enrollment_bytes_and_receipts(
+def test_copy_migration_blocks_rollback_without_changing_enrollment_or_receipts(
     api, project, work_payload, tmp_path, postgres_engine,
 ):
     from .test_transcript_indexing_postgres import read
@@ -80,8 +83,80 @@ def test_import_migration_preserves_existing_enrollment_bytes_and_receipts(
     response = api.post(collection(project) + "/rebuild", json=rebuild).json()
     assert run(api)
     before = read(api, project, record)
-    migrate(postgres_engine, "0032_agent_transcripts", downgrade=True)
-    migrate(postgres_engine, "head")
+    with pytest.raises(RuntimeError, match="transcript copies cannot be safely downgraded"):
+        migrate(postgres_engine, "0032_agent_transcripts", downgrade=True)
     assert read(api, project, record) == before
     assert before["sha256"] == original["sha256"]
     assert api.post(collection(project) + "/rebuild", json=rebuild).json() == response
+
+
+def test_populated_0035_upgrade_queues_every_source_and_preserves_ready_evidence(
+    api, project, postgres_engine, tmp_path,
+):
+    migrate(postgres_engine, "0035_prompt_library", downgrade=True)
+    identities = {status: uuid4() for status in ("ready", "failed", "processing")}
+    retained_text = "user: Legacy evidence must survive the storage migration."
+    retained_hash = hashlib.sha256(retained_text.encode()).hexdigest()
+    with postgres_engine.begin() as connection:
+        for status, identity in identities.items():
+            connection.execute(text("""
+                INSERT INTO transcripts(
+                    id, import_project_id, kind, client, source_path, status, generation, attempts,
+                    indexing_started_at, indexing_completed_at, error_code, size_bytes,
+                    mime_type, format, sha256, text_sha256, normalized_text, extracted_metadata,
+                    lease_token, lease_expires_at
+                ) VALUES (
+                    :id, :project, 'imported', 'claude_code', :path, CAST(:status AS text), 4, 2,
+                    clock_timestamp() - interval '5 minutes',
+                    CASE WHEN :status = 'processing' THEN NULL ELSE clock_timestamp() END,
+                    CASE WHEN :status = 'failed' THEN 'transcript_io_error' ELSE NULL END,
+                    CASE WHEN :status = 'ready' THEN 128 ELSE NULL END,
+                    CASE WHEN :status = 'ready' THEN 'application/x-ndjson' ELSE NULL END,
+                    CASE WHEN :status = 'ready' THEN 'claude-code-jsonl' ELSE NULL END,
+                    CASE WHEN :status = 'ready' THEN repeat('a', 64) ELSE NULL END,
+                    CASE WHEN :status = 'ready' THEN :hash ELSE NULL END,
+                    CASE WHEN :status = 'ready' THEN :body ELSE NULL END,
+                    '{"legacy":["retained property"]}'::jsonb,
+                    CASE WHEN :status = 'processing' THEN :token ELSE NULL END,
+                    CASE WHEN :status = 'processing'
+                         THEN clock_timestamp() + interval '1 hour' ELSE NULL END
+                )
+            """), {"id": identity, "project": project["id"], "status": status,
+                   "path": str(tmp_path / f"legacy-{status}.jsonl"), "hash": retained_hash,
+                   "body": retained_text, "token": uuid4()})
+        before = {row["id"]: dict(row) for row in connection.execute(
+            text("SELECT * FROM transcripts")).mappings()}
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
+            == "0035_prompt_library"
+    migrate(postgres_engine, "head")
+    with postgres_engine.connect() as connection:
+        after = {row["id"]: dict(row) for row in connection.execute(
+            text("SELECT * FROM transcripts")).mappings()}
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
+            == "0037_background_jobs"
+        assert connection.scalar(text("SELECT count(*) FROM background_jobs")) == 0
+    for status, identity in identities.items():
+        row = after[identity]
+        expected = before[identity]
+        if status == "processing":
+            expected = expected | {"status": "pending", "lease_token": None,
+                                   "lease_expires_at": None}
+        assert {name: row[name] for name in expected} == expected
+        assert isinstance(row["snapshot_id"], UUID)
+        assert row["copy_status"] == "pending" and row["copy_attempts"] == 0
+        assert row["copy_next_attempt_at"] is not None
+        assert all(row[name] is None for name in (
+            "storage_key", "copy_sha256", "copy_size_bytes", "copied_at", "copy_error_code",
+            "copy_lease_token", "copy_lease_expires_at", "reindex_status", "reindex_error_code",
+        ))
+    assert len({row["snapshot_id"] for row in after.values()}) == 3
+    response = api.get(collection(project) + f"/{identities['ready']}/content")
+    assert response.status_code == 200 and response.text == retained_text
+    assert api.get(collection(project)).json()["indexing_incomplete"]
+    with api.app.state.session_factory.begin() as database:
+        assert enqueue_transcript_jobs(database, api.app.state.settings) == 3
+        jobs = database.execute(text("SELECT kind, payload FROM background_jobs")).all()
+    assert all(row.kind == "transcript_copy" for row in jobs)
+    assert {row.payload["transcript_id"] for row in jobs} == {
+        str(identity) for identity in identities.values()
+    }

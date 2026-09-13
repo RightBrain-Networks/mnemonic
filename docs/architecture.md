@@ -3,8 +3,12 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This architecture describes application/API/MCP `0.51.0`, Claude plugin `0.30.0`,
-and Alembic head `0035_prompt_library`.
+This architecture describes application/API/MCP `0.52.0`, Claude plugin `0.30.0`,
+and Alembic head `0037_background_jobs`.
+
+Transcript copying, indexing, and project backups run in a shared RabbitMQ worker.
+PostgreSQL retains job intent and outcomes; raw transcripts live in a private bind
+and survive source moves. See [background jobs and migration](transcript-jobs.md).
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
 An isolated Apache Tika 4 service extracts normalized current text and document

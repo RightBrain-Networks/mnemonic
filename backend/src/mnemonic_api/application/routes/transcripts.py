@@ -71,7 +71,9 @@ def import_transcripts(project_id: UUID, payload: TranscriptImportRequest,
         return replay
     # Do not hold database locks or a read transaction while walking the filesystem.
     database.rollback()
-    scan = discover_transcripts(payload.directory, settings_of(request).transcript_allowed_roots)
+    settings = settings_of(request)
+    scan = discover_transcripts(payload.directory, settings.transcript_allowed_roots,
+                                excluded_roots=(settings.transcript_root,))
     with project_mutation(database, project_id):
         result = transcript_imports.import_transcripts(database, project_id, payload, scan)
         database.commit()

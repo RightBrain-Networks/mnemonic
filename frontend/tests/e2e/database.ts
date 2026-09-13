@@ -93,7 +93,7 @@ function parseMigrationProof(serialized: string): Phase11MigrationProof {
   }
   const row = value as MigrationProofRow;
   if (
-    row.revision !== "0035_prompt_library"
+    row.revision !== "0037_background_jobs"
     || typeof row.completion_event_id !== "string"
     || !/^[1-9][0-9]*$/.test(row.completion_event_id)
     || typeof row.completion_generation !== "string"
@@ -150,7 +150,7 @@ export async function seedMigratedHistoricalCompletion(): Promise<E2EState> {
   const composeProject = requireDisposableE2EComposeProject("Offline historical migration acceptance");
   const count = await queryDatabase(composeProject, "SELECT count(*) FROM projects;");
   if (count !== "0") throw new Error("Historical E2E setup requires a fresh disposable database with no projects.");
-  await runCompose(composeProject, ["stop", "web", "backup", "api"]);
+  await runCompose(composeProject, ["stop", "web", "worker", "api"]);
   try {
     await runCompose(composeProject, ["run", "--rm", "--no-deps", "api", "alembic", "downgrade", "0018_repository_freshness"]);
     const output = await runCompose(composeProject, [
@@ -213,6 +213,6 @@ export async function seedMigratedHistoricalCompletion(): Promise<E2EState> {
     const proof = parseMigrationProof(serializedProof);
     return { ...seed, historicalCompletion: { ...seed.historicalCompletion, ...proof } };
   } finally {
-    await runCompose(composeProject, ["up", "-d", "--wait", "api", "backup", "web"]);
+    await runCompose(composeProject, ["up", "-d", "--wait", "api", "worker", "web"]);
   }
 }

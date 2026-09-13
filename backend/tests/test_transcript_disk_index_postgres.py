@@ -68,5 +68,6 @@ def test_rebuild_clears_disk_snapshot_and_keeps_configured_storage(
         assert response.status_code == 200, response.text
         assert not (tmp_path / "snapshot").exists()
         assert client.app.state.transcript_search_index is index
-        assert search(client, project).json()["total"] == 0
+        retained = search(client, project).json()
+        assert retained["total"] == 1 and retained["indexing_incomplete"]
         assert (tmp_path / "snapshot" / "meta.json").exists()

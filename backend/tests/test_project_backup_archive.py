@@ -3,12 +3,15 @@
 import bz2
 import io
 import json
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session
 
 from mnemonic_api.artifact_storage import ArtifactStorage
+from mnemonic_api.models import Transcript
 from mnemonic_backup.archive import BackupError, export_project, restore_project
 from mnemonic_backup.archive_format import read_archive, write_archive
 from mnemonic_backup.archive_schema import (
@@ -17,6 +20,12 @@ from mnemonic_backup.archive_schema import (
     advance_sequences,
     read_rows,
 )
+from mnemonic_backup.config import BackupSettings
+from mnemonic_backup.jobs import backup_job, schedule_backups
+from mnemonic_backup.service import BackupService
+from mnemonic_jobs import enqueue_job
+from mnemonic_jobs.ledger import claim_job
+from mnemonic_jobs.models import BackgroundJob
 
 from .code_review_fixtures import claim_review, finding, mandatory, result_payload, result_url
 from .conftest import _catalog_digest, _disposable_schema
@@ -91,6 +100,58 @@ def test_restore_missing_project_from_archive(api, project, postgres_engine):
                            {"id": project["id"]})
     restore_project(postgres_engine, UUID(project["id"]), io.BytesIO(content))
     assert api.get(f"/api/v1/projects/{project['id']}").status_code == 200
+
+
+def test_restore_requeues_inflight_transcript_beyond_retained_delivery_generations(
+    api, project, postgres_engine,
+):
+    identifier, snapshot = uuid4(), uuid4()
+    with Session(postgres_engine) as database, database.begin():
+        database.add(Transcript(
+            id=identifier, import_project_id=UUID(project["id"]), client="claude_code",
+            source_path="/synthetic/transcript.jsonl", kind="imported", generation=2,
+            status="processing", lease_token=uuid4(),
+            lease_expires_at=datetime.now(UTC) + timedelta(minutes=2),
+            snapshot_id=snapshot, copy_status="processing", copy_lease_token=uuid4(),
+            copy_lease_expires_at=datetime.now(UTC) + timedelta(minutes=2),
+        ))
+        job = enqueue_job(database, "transcript_copy", f"historical:{identifier}",
+                          {"transcript_id": str(identifier), "generation": 9})
+    content = _export(postgres_engine, project)
+    _header, exported = read_archive(io.BytesIO(content), 10_000_000)
+    assert "background_jobs" not in exported
+    restore_project(postgres_engine, UUID(project["id"]), io.BytesIO(content))
+    with Session(postgres_engine) as database:
+        restored = database.get(Transcript, identifier)
+        assert restored.generation == 10
+        assert restored.snapshot_id != snapshot
+        assert restored.status == restored.copy_status == "pending"
+        assert restored.lease_token is restored.copy_lease_token is None
+        assert restored.lease_expires_at is restored.copy_lease_expires_at is None
+        assert database.get(BackgroundJob, job).payload["generation"] == 9
+
+
+def test_durable_scheduled_backups_and_manual_handler_replay(
+    project, postgres_engine, tmp_path,
+):
+    settings = BackupSettings(DATABASE_URL="postgresql+psycopg://unused",
+                              token="unit-test-backup-token-at-least32chars", root=tmp_path)
+    service = BackupService(settings, postgres_engine)
+    with Session(postgres_engine) as database, database.begin():
+        schedule_backups(database, settings)
+    with Session(postgres_engine) as database, database.begin():
+        schedule_backups(database, settings)
+        jobs = list(database.scalars(select(BackgroundJob)))
+        assert len(jobs) == 1
+        job = jobs[0].id
+        context = claim_job(database, job)
+    result = service.handle_job(context)
+    assert service.handle_job(context) == result
+    assert service.store.list_archives(UUID(project["id"])) == [result]
+    with Session(postgres_engine) as database:
+        with pytest.raises(BackupError) as wrong_project:
+            backup_job(database, uuid4(), job)
+        assert wrong_project.value.code == "backup_job_not_found"
 
 
 def test_artifact_bytes_excluded_and_files_unchanged(api, project, postgres_engine, tmp_path):

@@ -17,13 +17,14 @@ type Environment = {
   MNEMONIC_BACKUP_MAX_BYTES?: string;
 };
 
-export function backupRoute(path: string[], method: string): "list" | "create" | "download" | "restore" | null {
+export function backupRoute(path: string[], method: string): "list" | "create" | "download" | "restore" | "job" | null {
   if (path[0] !== "projects" || !validUuid(path[1])) return null;
   if (path.length === 3 && path[2] === "backups") {
     if (method === "GET") return "list";
     if (method === "POST") return "create";
   }
   if (path.length === 4 && path[2] === "backups" && BACKUP_FILENAME.test(path[3]) && method === "GET") return "download";
+  if (path.length === 4 && path[2] === "backup-jobs" && validUuid(path[3]) && method === "GET") return "job";
   if (path.length === 3 && path[2] === "restore" && method === "POST") return "restore";
   return null;
 }
@@ -62,7 +63,7 @@ export async function proxyBackup(request: Request, path: string[], environment:
   if (!token || token.length < 32) return fail(503, "The dashboard backup connection is not configured.");
   let base: URL;
   try {
-    base = new URL(environment.MNEMONIC_BACKUP_URL ?? "http://backup:8002");
+    base = new URL(environment.MNEMONIC_BACKUP_URL ?? "http://worker:8002");
     if (!["http:", "https:"].includes(base.protocol) || base.username || base.password || base.pathname !== "/" || base.search || base.hash) throw new Error();
   } catch { return fail(503, "The backup service address is not configured correctly."); }
   const encoding = request.headers.get("content-encoding");

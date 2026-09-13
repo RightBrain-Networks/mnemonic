@@ -91,11 +91,13 @@ MNEMONIC_E2E_BACKUP_DIR=$(mktemp -d /tmp/mnemonic-e2e-backups.XXXXXXXX)
 MNEMONIC_E2E_PROMPT_DIR=$(mktemp -d /tmp/mnemonic-e2e-prompts.XXXXXXXX)
 export MNEMONIC_E2E_PROMPT_DIR
 MNEMONIC_E2E_TRANSCRIPT_INDEX_DIR=$(mktemp -d /tmp/mnemonic-e2e-index.XXXXXXXX)
+MNEMONIC_E2E_TRANSCRIPT_DIR=$(mktemp -d /tmp/mnemonic-e2e-transcripts.XXXXXXXX)
+export MNEMONIC_E2E_TRANSCRIPT_DIR
 export MNEMONIC_E2E_ARTIFACT_DIR MNEMONIC_E2E_BACKUP_DIR MNEMONIC_E2E_TRANSCRIPT_INDEX_DIR
 
 clean_disposable_directory() {
   local directory="$1"
-  if [[ ! "$directory" =~ ^/tmp/mnemonic-e2e-(prompts|artifacts|backups|index)\.[[:alnum:]]{8}$ ]] \
+  if [[ ! "$directory" =~ ^/tmp/mnemonic-e2e-(prompts|artifacts|backups|index|transcripts)\.[[:alnum:]]{8}$ ]] \
     || [[ ! -d "$directory" || -L "$directory" ]]; then
     echo "Refusing to clean an unexpected E2E storage directory." >&2
     return 2
@@ -110,13 +112,14 @@ cleanup() {
   local status=$?
   trap - EXIT INT TERM
   if (( status != 0 )); then
-    docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" logs --no-color --tail 200 api web backup || true
+    docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" logs --no-color --tail 200 api web worker rabbitmq || true
   fi
   docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" down -v --remove-orphans >/dev/null 2>&1 || true
   clean_disposable_directory "$MNEMONIC_E2E_ARTIFACT_DIR" || true
   clean_disposable_directory "$MNEMONIC_E2E_BACKUP_DIR" || true
   clean_disposable_directory "$MNEMONIC_E2E_PROMPT_DIR" || true
   clean_disposable_directory "$MNEMONIC_E2E_TRANSCRIPT_INDEX_DIR" || true
+  clean_disposable_directory "$MNEMONIC_E2E_TRANSCRIPT_DIR" || true
   exit "$status"
 }
 trap cleanup EXIT
@@ -127,14 +130,15 @@ docker run --rm --user 0 \
   --mount "type=bind,source=$MNEMONIC_E2E_BACKUP_DIR,target=/backups" \
   --mount "type=bind,source=$MNEMONIC_E2E_PROMPT_DIR,target=/prompts" \
   --mount "type=bind,source=$MNEMONIC_E2E_TRANSCRIPT_INDEX_DIR,target=/index" \
-  postgres:17-alpine chown 10001:10001 /prompts /artifacts /backups /index
+  --mount "type=bind,source=$MNEMONIC_E2E_TRANSCRIPT_DIR,target=/transcripts" \
+  postgres:17-alpine chown 10001:10001 /prompts /artifacts /backups /index /transcripts
 
-services=(api backup tika)
+services=(api worker tika rabbitmq)
 if [[ "$run_browser" == true ]]; then
   services+=(web)
 fi
 if ! docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" up -d --build --wait "${services[@]}"; then
-  docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" logs --no-color api web backup
+  docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" logs --no-color api web worker rabbitmq
   exit 1
 fi
 if [[ "$run_browser" == true ]]; then
@@ -146,4 +150,4 @@ fi
 docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" exec -T --user 0 \
   -e "MNEMONIC_TEST_API_KEY=$MNEMONIC_E2E_API_KEY" \
   -e "MNEMONIC_E2E_COMPOSE_PROJECT=$MNEMONIC_E2E_COMPOSE_PROJECT" \
-  backup python - < "$repo_root/scripts/test_project_backups.py"
+  worker python - < "$repo_root/scripts/test_project_backups.py"

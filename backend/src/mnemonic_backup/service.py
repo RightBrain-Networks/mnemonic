@@ -1,13 +1,12 @@
 """Dashboard-only HTTP and scheduled PostgreSQL project backups."""
 
-import asyncio
 import errno
 import logging
 import os
 import secrets
 import time
-from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from typing import BinaryIO
 from uuid import UUID
 
@@ -16,11 +15,14 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from mnemonic_backup.archive import BackupError, export_project, restore_project
 from mnemonic_backup.config import BackupSettings
+from mnemonic_backup.jobs import backup_job, enqueue_backup
 from mnemonic_backup.store import BackupStore
+from mnemonic_jobs import JobContext, PermanentJobError, RetryJob
 
 logger = logging.getLogger(__name__)
 
@@ -39,14 +41,18 @@ class BackupService:
         if exists is None:
             raise BackupError(404, "project_not_found", "Project not found.")
 
-    def create_locked(self, project_id: UUID) -> dict:
+    def create_locked(self, project_id: UUID, *, job_id: UUID | None = None) -> dict:
+        if job_id is not None:
+            existing = self.store.job_result(project_id, job_id)
+            if existing is not None:
+                return existing
         with self.store.staging(project_id) as (output, directory, partial):
             export_project(self.engine, project_id, output,
                            max_bytes=self.settings.expanded_max_bytes)
             if output.tell() > self.settings.max_bytes:
                 raise BackupError(413, "backup_too_large",
                                   "The compressed backup exceeds the limit.")
-            return self.store.publish(project_id, output, directory, partial)
+            return self.store.publish(project_id, output, directory, partial, job_id=job_id)
 
     def create(self, project_id: UUID) -> dict:
         with self.store.operation():
@@ -67,15 +73,31 @@ class BackupService:
                 raise BackupError(503, "backup_incomplete", "Some scheduled backups failed.")
             self.last_success = time.monotonic()
 
-    async def schedule(self) -> None:
-        while True:
-            delay = self.settings.interval_seconds
-            try:
-                await run_in_threadpool(self.cycle)
-            except (BackupError, OSError, SQLAlchemyError) as error:
-                logger.warning("Scheduled backups unavailable (%s)", type(error).__name__)
-                delay = 60
-            await asyncio.sleep(delay)
+    def handle_job(self, context: JobContext) -> dict:
+        try:
+            project_id = UUID(context.payload["project_id"])
+        except (KeyError, TypeError, ValueError):
+            raise PermanentJobError("invalid_backup_job") from None
+        try:
+            with self.store.operation():
+                with Session(self.engine) as database:
+                    context.assert_owned(database)
+                return self.create_locked(project_id, job_id=context.job_id)
+        except BackupError as error:
+            if error.status in {400, 404, 413, 422} or error.code == "backup_schema_mismatch":
+                raise PermanentJobError(error.code) from None
+            raise RetryJob(error.code, delay_seconds=60) from None
+        except (OSError, SQLAlchemyError):
+            raise RetryJob("backup_unavailable", delay_seconds=60) from None
+
+    def enqueue(self, project_id: UUID) -> dict:
+        self.require_project(project_id)
+        with Session(self.engine) as database, database.begin():
+            return enqueue_backup(database, project_id)
+
+    def job(self, project_id: UUID, job_id: UUID) -> dict:
+        with Session(self.engine) as database:
+            return backup_job(database, project_id, job_id)
 
 
 def _error(status: int, code: str, message: str) -> JSONResponse:
@@ -124,8 +146,11 @@ async def _receive_upload(request: Request, output: BinaryIO, limit: int) -> Non
     output.seek(0)
 
 
-def create_app(settings: BackupSettings | None = None, *, engine: Engine | None = None,
-               scheduled: bool = True) -> FastAPI:
+def create_app(
+    settings: BackupSettings | None = None, *, engine: Engine | None = None,
+    worker_lifespan: Callable[[FastAPI], AbstractAsyncContextManager[None]] | None = None,
+    health_check: Callable[[], bool] | None = None,
+) -> FastAPI:
     settings = settings or BackupSettings()  # type: ignore[call-arg]
     owns_engine = engine is None
     engine = engine or create_engine(settings.database_url.get_secret_value(), pool_pre_ping=True,
@@ -133,24 +158,20 @@ def create_app(settings: BackupSettings | None = None, *, engine: Engine | None 
     service = BackupService(settings, engine)
 
     @asynccontextmanager
-    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        task = asyncio.create_task(service.schedule()) if scheduled else None
+    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         try:
-            yield
+            async with AsyncExitStack() as stack:
+                if worker_lifespan:
+                    await stack.enter_async_context(worker_lifespan(application))
+                yield
         finally:
-            if task:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
             if owns_engine:
                 engine.dispose()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.backup_service = service
     _install_handlers(app, settings)
-    _install_routes(app, service)
+    _install_routes(app, service, health_check)
     return app
 
 
@@ -183,12 +204,12 @@ def _install_handlers(app: FastAPI, settings: BackupSettings) -> None:
                       "The database is busy or unavailable. Refresh before retrying.")
 
 
-def _install_routes(app: FastAPI, service: BackupService) -> None:
+def _install_routes(app: FastAPI, service: BackupService,
+                    health_check: Callable[[], bool] | None) -> None:
     @app.get("/healthz")
     def health():
-        age = None if service.last_success is None else time.monotonic() - service.last_success
-        if age is None or age > service.settings.interval_seconds + 300:
-            return _error(503, "backup_unhealthy", "Scheduled backups have not completed recently.")
+        if health_check is not None and not health_check():
+            return _error(503, "jobs_unhealthy", "Background jobs are unavailable.")
         return {"status": "ok"}
 
     @app.get("/projects/{project_id}/backups")
@@ -197,9 +218,13 @@ def _install_routes(app: FastAPI, service: BackupService) -> None:
         return {"project_id": str(project_id), "retention_count": service.settings.retention_count,
                 "backups": service.store.list_archives(project_id)}
 
-    @app.post("/projects/{project_id}/backups", status_code=201)
+    @app.post("/projects/{project_id}/backups", status_code=202)
     def create_backup(project_id: UUID):
-        return service.create(project_id)
+        return service.enqueue(project_id)
+
+    @app.get("/projects/{project_id}/backup-jobs/{job_id}")
+    def get_backup_job(project_id: UUID, job_id: UUID):
+        return service.job(project_id, job_id)
 
     @app.get("/projects/{project_id}/backups/{filename}")
     def download_backup(project_id: UUID, filename: str):

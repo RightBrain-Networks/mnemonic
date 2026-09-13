@@ -1326,5 +1326,5 @@ def test_title_key_function_and_partial_expression_index_are_frozen(postgres_eng
                 """
             )
         ).one()
-        assert head == "0035_prompt_library"
+        assert head == "0037_background_jobs"
         assert capacity == 64

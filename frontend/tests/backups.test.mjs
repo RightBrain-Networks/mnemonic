@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { backupRoute, boundedBackupStream, proxyBackup } from "../lib/backup-proxy.ts";
-import { backupAge, backupMaximumBytes, backupSize, decodeBackup, decodeBackups, definitiveBackupFailure } from "../lib/backups.ts";
+import { backupAge, backupMaximumBytes, backupSize, decodeBackup, decodeBackupJob, decodeBackups, definitiveBackupFailure } from "../lib/backups.ts";
 
 const project = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const root = `projects/${project}/backups`;
@@ -21,14 +21,28 @@ const upload = (headers = {}, body = "BZh") => request(restore, "POST", {
   "content-type": "application/octet-stream", "X-Confirm-Project": project, ...headers
 }, body);
 
-test("backup routes are project scoped and allow only four dashboard operations", () => {
+test("backup routes are project scoped including read-only job progress", () => {
   assert.equal(backupRoute(root.split("/"), "GET"), "list");
   assert.equal(backupRoute(root.split("/"), "POST"), "create");
   assert.equal(backupRoute(`${root}/${filename}`.split("/"), "GET"), "download");
   assert.equal(backupRoute(restore.split("/"), "POST"), "restore");
+  assert.equal(backupRoute(`projects/${project}/backup-jobs/${project}`.split("/"), "GET"), "job");
+  assert.equal(backupRoute(`projects/${project}/backup-jobs/${project}`.split("/"), "POST"), null);
   for (const [path, method] of [[root, "DELETE"], [restore, "GET"], ["backups", "POST"], ["projects/invalid/backups", "GET"], [`${root}/../private.bz2`, "GET"], [`${root}/%2e%2e.bz2`, "GET"], [`${root}/uncompressed.sql`, "GET"], [`${root}/x.bz2/extra`, "GET"]]) {
     assert.equal(backupRoute(path.split("/"), method), null);
   }
+});
+
+test("backup jobs validate project, operation identity, terminal results and failures", () => {
+  const job = { project_id: project, job_id: project, state: "pending" };
+  assert.deepEqual(decodeBackupJob(job, project), job);
+  assert.deepEqual(decodeBackupJob({ ...job, state: "succeeded", result: archive }, project).result, archive);
+  for (const value of [{ ...job, state: "unknown" }, { ...job, job_id: "bad" },
+    { ...job, state: "succeeded" }, { ...job, state: "failed", error: {} }]) {
+    assert.throws(() => decodeBackupJob(value, project));
+  }
+  assert.throws(() => decodeBackupJob(job, "another"));
+  assert.throws(() => decodeBackupJob(job, project, "another"));
 });
 
 test("backup decoders verify project identity, filenames, ages, counts and compressed byte sizes", () => {

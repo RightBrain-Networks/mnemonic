@@ -1,8 +1,14 @@
 # Agent transcript indexing
 
+Release **0.52.0** copies transcripts into a private durable bind before indexing.
+RabbitMQ delivers copy, index, and backup jobs to the shared worker. Existing
+records are backfilled automatically, and rebuilds reuse retained raw bytes.
+Read [the deployment and migration guide](transcript-jobs.md) before upgrading
+to migrations `0036_transcript_copies` and `0037_background_jobs`.
+
 Release **0.50.0** adds OpenAI Codex primary and subagent rollout JSONL, mixed-client
 folder imports, and optional private Codex source mounts. No database migration is
-needed; the migration head remains `0035_prompt_library`. Existing Claude sources
+needed for that release; its migration head was `0035_prompt_library`. Existing Claude sources
 and import receipts retain their identities.
 
 Application/API/MCP/dashboard 0.44.0 and migration `0033_transcript_imports` add
@@ -20,7 +26,7 @@ An MCP claim records an explicit primary transcript location or null. Every fres
 completion, retirement, merge, deletion, or review completion reports additional
 subagent locations or explicitly asserts null. `release_claim` also accepts known subagent
 locations when pausing. Release, expiry, and terminal lifecycle transitions make
-waiting transcripts eligible for indexing. Files are snapshots at indexing time;
+waiting transcripts eligible for copying and indexing. Files are snapshots at copy time;
 there is no continuous tailing while work is Active.
 
 `subagent_transcripts` accepts a nonempty list of at most 100 distinct file paths,
@@ -76,7 +82,7 @@ and work/lease provenance. Metadata includes indexing start/completion timestamp
 status and failure code, original byte size and MIME type, detected format, source
 SHA-256, normalized-text SHA-256, and truncation. Tantivy holds a rebuildable search cache in the configured private directory
 (or RAM for native processes without an index directory).
-Original transcript bytes remain client-managed files; normalized text retrieval
+Original transcript bytes are retained in the private transcript bind; normalized text retrieval
 and download use the indexed snapshot rather than rereading its source path.
 Database backups therefore include transcript content.
 
@@ -94,13 +100,13 @@ input or an instruction to read arbitrary server files.
 
 For Docker, set `MNEMONIC_TRANSCRIPT_SOURCE_DIR` to the host directory containing
 allowed transcripts. Base `compose.yaml` binds that directory read-only into the
-API at the same absolute path. No additional transcript overlay is required.
+API and worker at the same absolute path. No additional transcript overlay is required.
 The retained `compose.transcripts.yaml` is empty, so existing `COMPOSE_FILE` lists
 can continue including it. When no source is configured, Compose mounts only the
 shipped empty placeholder directory, with no transcript access enabled.
 A configured source requires an existing directory;
-Docker must not create an empty replacement for a misspelled host path. Only the
-API receives the mount. Tika receives normalized text over HTTP.
+Docker must not create an empty replacement for a misspelled host path. The
+API and worker receive the source mounts. Tika receives normalized text over HTTP.
 
 To expose Codex alongside Claude, configure either or both optional directories:
 
@@ -159,9 +165,9 @@ docker compose up -d --wait api
 
 Use the configured `MNEMONIC_ARTIFACT_DIR` if different. Keep private artifact modes
 (`0700` directories, `0600` files); a fresh installation can use
-`sudo install -d -m 0700 -o 1026 -g 1000 ./artifacts`. Backup storage retains its
-separate UID/GID 10001 and must not be changed. A coordinated application/schema
-upgrade still requires stopping older API/MCP/dashboard/backup processes before
+`sudo install -d -m 0700 -o 1026 -g 1000 ./artifacts`. Backup storage now uses the
+shared worker UID/GID; migrate ownership from the old service's 10001 if needed.
+A coordinated application/schema upgrade requires stopping older API/MCP/dashboard/backup processes before
 migration, as described below; the commands above cover an identity-only change.
 
 Verify the live configuration without printing credentials:
@@ -181,10 +187,10 @@ host home directory or Claude credentials.
 roots (including an empty root list). Missing files, missing mounts and denied
 filesystem permissions within an allowed root produce `transcript_io_error`.
 After fixing deployment access, use **Rebuild index** in workspace settings to
-retry previously failed records. Rebuild discards indexed snapshots and schedules
-all known project sources again; active lease generations still wait until they
-end. A source that has been deleted must be recovered at its original path before
-it can be indexed. If an agent reported the wrong directory, rebuilding preserves
+retry previously failed records. Rebuild regenerates extracted text from retained
+copies and retries uncopied sources; active lease generations still wait until
+they end. An uncopied source that has been deleted must be recovered before
+capture. If an agent reported the wrong directory, rebuilding preserves
 that original assertion and will still fail. Use the actual path for future claims;
 existing files can be recovered through **Import existing transcripts** using their
 real folder. Import keeps the original failed enrollment history intact.

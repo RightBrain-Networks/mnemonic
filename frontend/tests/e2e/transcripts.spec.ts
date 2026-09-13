@@ -76,6 +76,7 @@ test(`${client} transcripts index after closeout and support search, metadata, s
     const details = page.getByRole("dialog", { name: filename, exact: true });
     await expect(details).toContainText("Indexing started");
     await expect(details).toContainText("Indexing completed");
+    await expect(details).toContainText("Copy status");
     await expect(details).toContainText(primary);
     await expect(details.getByRole("link", { name: work.id })).toHaveAttribute("href", `/?work=${work.id}`);
     await expect(details.getByRole("button", { name: "Close details" })).toBeFocused();
@@ -105,8 +106,16 @@ test(`${client} transcripts index after closeout and support search, metadata, s
     await settings.getByRole("checkbox", { name: "Enable transcript indexing" }).check();
     await settings.getByRole("button", { name: "Save transcript settings" }).click();
     await expect(settings.getByRole("button", { name: "Rebuild index", exact: true })).toBeEnabled();
+    // Only remove these two synthetic fixtures. Rebuilding must use retained
+    // snapshots even after both the primary and subagent sources disappear.
+    await execFileAsync("docker", ["compose", "-p", requireDisposableE2EComposeProject("Transcript source removal"), "-f", resolve(process.cwd(), "../compose.e2e.yaml"), "exec", "-T", "api", "python", "-c", "import pathlib,sys; [pathlib.Path(path).unlink() for path in sys.argv[1:]]", primary, subagent]);
     await settings.getByRole("button", { name: "Rebuild index", exact: true }).click();
     await expect(settings.getByText(/2 transcripts queued for rebuilding/)).toBeVisible();
+    await expect.poll(async () => {
+      const response = await api.get(collection);
+      const { items } = await response.json() as { items: { status: string; copy_status: string; index_status: string }[] };
+      return items.map((item) => [item.status, item.copy_status, item.index_status]);
+    }, { timeout: 60000 }).toEqual([["ready", "ready", "ready"], ["ready", "ready", "ready"]]);
     await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
     await page.screenshot({ path: testInfo.outputPath("transcript-settings.png"), fullPage: true, animations: "disabled" });
     await testInfo.attach("Transcript settings and rebuild", { path: testInfo.outputPath("transcript-settings.png"), contentType: "image/png" });

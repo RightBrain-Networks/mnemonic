@@ -20,12 +20,13 @@ from typing import Any
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0035_prompt_library"
+HEAD = "0037_background_jobs"
 EXTRACTION_HEAD = "0027_artifact_fulltext"
 EXTRACTION_HEADS = (
     EXTRACTION_HEAD, "0028_work_summary_limit", "0029_artifact_links_sensitive",
     "0030_question_versions", "0031_review_decisions", "0032_agent_transcripts",
-    "0033_transcript_imports", "0034_variable_work_leases", HEAD,
+    "0033_transcript_imports", "0034_variable_work_leases", "0035_prompt_library",
+    "0036_transcript_copies", HEAD,
 )
 ARTIFACT_HEAD = "0026_artifact_library"
 ARTIFACT_HEADS = (ARTIFACT_HEAD, *EXTRACTION_HEADS)

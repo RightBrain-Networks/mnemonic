@@ -1,4 +1,4 @@
-# Isolated, disposable database for tests. Does not read the application .env.
+# Isolated, disposable services for tests. Does not read the application .env.
 name: mnemonic-test
 services:
   postgres:
@@ -16,3 +16,17 @@ services:
       interval: 2s
       timeout: 5s
       retries: 20
+  rabbitmq:
+    image: rabbitmq:4.2-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: mnemonic_test
+      RABBITMQ_DEFAULT_PASS: mnemonic_test_only
+    ports:
+      - '127.0.0.1:5673:5672'
+    tmpfs:
+      - /var/lib/rabbitmq
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 2s
+      timeout: 5s
+      retries: 30

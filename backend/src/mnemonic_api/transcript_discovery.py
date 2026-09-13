@@ -25,6 +25,7 @@ class TranscriptDiscovery:
     skipped: int = 0
     entries: int = 0
     deadline: float = field(default_factory=lambda: monotonic() + SCAN_SECONDS)
+    excluded_roots: tuple[Path, ...] = ()
 
     def check(self, depth: int) -> None:
         if (len(self.paths) > MAX_IMPORT_FILES or self.entries > MAX_IMPORT_ENTRIES
@@ -39,6 +40,8 @@ def _visit(descriptor: int, directory: Path, scan: TranscriptDiscovery, depth: i
         for entry in entries:
             scan.entries += 1
             scan.check(depth)
+            if any((directory / entry.name).is_relative_to(root) for root in scan.excluded_roots):
+                continue
             if entry.is_symlink():
                 scan.skipped += 1
             elif entry.is_dir(follow_symlinks=False):
@@ -76,9 +79,13 @@ def _source_client(name: str, directory_descriptor: int) -> str:
     return "claude_code"
 
 
-def discover_transcripts(directory: str, roots: list[Path]) -> TranscriptDiscovery:
-    scan = TranscriptDiscovery()
+def discover_transcripts(directory: str, roots: list[Path], *,
+                         excluded_roots: tuple[Path, ...] = ()) -> TranscriptDiscovery:
+    scan = TranscriptDiscovery(excluded_roots=excluded_roots)
     try:
+        if any(Path(canonical_source_path(directory)).is_relative_to(root)
+               for root in excluded_roots):
+            raise ExtractionError("transcript_path_not_allowed")
         descriptor = _open_source(directory, roots, directory=True)
         try:
             _visit(descriptor, Path(canonical_source_path(directory)), scan, 0)
