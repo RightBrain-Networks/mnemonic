@@ -9509,6 +9509,39 @@
             "title": "Client",
             "type": "string"
           },
+          "copied_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Copied At"
+          },
+          "copy_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Copy Error Code"
+          },
+          "copy_status": {
+            "enum": [
+              "pending",
+              "processing",
+              "ready",
+              "failed"
+            ],
+            "title": "Copy Status",
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -9543,6 +9576,28 @@
           "id": {
             "format": "uuid",
             "title": "Id",
+            "type": "string"
+          },
+          "index_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Error Code"
+          },
+          "index_status": {
+            "enum": [
+              "waiting",
+              "pending",
+              "processing",
+              "ready",
+              "failed"
+            ],
+            "title": "Index Status",
             "type": "string"
           },
           "indexing_completed_at": {
@@ -9725,6 +9780,11 @@
           "filename",
           "kind",
           "status",
+          "copy_status",
+          "copy_error_code",
+          "copied_at",
+          "index_status",
+          "index_error_code",
           "indexing_started_at",
           "indexing_completed_at",
           "error_code",
@@ -13007,7 +13067,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.51.0"
+    "version": "0.52.0"
   },
   "openapi": "3.1.0",
   "paths": {

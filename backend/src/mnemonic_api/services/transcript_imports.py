@@ -11,7 +11,7 @@ from mnemonic_api.models import Transcript, TranscriptImport
 from mnemonic_api.services.work_items import require_project
 from mnemonic_api.transcript_discovery import TranscriptDiscovery
 from mnemonic_api.transcript_schemas import TranscriptImportRead, TranscriptImportRequest
-from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
+from mnemonic_api.transcript_snapshots import empty_transcript_snapshot, new_transcript_copy
 from mnemonic_api.transcript_storage import canonical_source_path
 
 
@@ -60,7 +60,7 @@ def take_imported_transcript(database: Session, project_id: UUID, source: str) -
     if record is not None:
         # Enrollment takes ownership of the same public record. Invalidate any
         # extraction in flight and wait for this agent's new lease generation.
-        for name, value in empty_transcript_snapshot().items():
+        for name, value in (empty_transcript_snapshot() | new_transcript_copy()).items():
             setattr(record, name, value)
         record.import_project_id = None
         record.generation += 1
@@ -68,6 +68,7 @@ def take_imported_transcript(database: Session, project_id: UUID, source: str) -
         record.lease_token = record.lease_expires_at = None
         record.indexing_started_at = record.indexing_completed_at = None
         record.error_code = None
+        record.reindex_status = record.reindex_error_code = None
         record.attempts = 0
         record.next_attempt_at = datetime.now(UTC)
     return record

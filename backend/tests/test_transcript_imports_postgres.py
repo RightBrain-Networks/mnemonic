@@ -11,12 +11,19 @@ from sqlalchemy import select
 
 from mnemonic_api.artifact_tika import ExtractionError
 from mnemonic_api.models import Transcript
-from mnemonic_api.transcript_indexing import claim_transcript_job, complete_transcript_job
+from mnemonic_api.transcript_indexing import complete_transcript_job
 from mnemonic_backup.archive import restore_project
 
 from .test_leases_postgres import create_work, expire_lease, item_path
 from .test_project_backup_archive import _export, _snapshot
-from .test_transcript_indexing_postgres import Parser, collection, read, register, run
+from .test_transcript_indexing_postgres import (
+    Parser,
+    claim_transcript_job,
+    collection,
+    read,
+    register,
+    run,
+)
 from .test_transcript_lifecycle_postgres import claim
 
 pytestmark = pytest.mark.postgres
@@ -250,6 +257,8 @@ def test_imports_obey_pause_limits_scope_search_rebuild_and_backup(
     path.unlink()
     restore_project(postgres_engine, UUID(project["id"]), io.BytesIO(archive))
     restored = _snapshot(postgres_engine, project)
+    assert restored["transcripts"][0]["generation"] > original["transcripts"][0]["generation"]
+    original["transcripts"][0]["generation"] = restored["transcripts"][0]["generation"]
     for table in ("transcripts", "transcript_imports"):
         assert restored[table] == original[table]
     assert import_folder(api, project, tmp_path, operation).json() == imported

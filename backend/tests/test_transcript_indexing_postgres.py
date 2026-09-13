@@ -18,8 +18,11 @@ from mnemonic_api.models import Transcript, WorkItem, WorkLease
 from mnemonic_api.services import transcripts as transcript_service
 from mnemonic_api.services.leases import renew_lease_record
 from mnemonic_api.services.project_mutations import project_mutation
+from mnemonic_api.transcript_copying import copy_next_transcript
 from mnemonic_api.transcript_indexing import (
-    claim_transcript_job,
+    claim_transcript_job as claim_index_job,
+)
+from mnemonic_api.transcript_indexing import (
     complete_transcript_job,
     index_next_transcript,
     transcript_indexing_loop,
@@ -70,8 +73,15 @@ def register(api, project, work_payload, tmp_path, *, client="claude-code"):
 
 
 def run(api, parser=None):
-    return index_next_transcript(api.app.state.session_factory, api.app.state.settings,
-                                 parser or Parser())
+    copied = copy_next_transcript(api.app.state.session_factory, api.app.state.settings)
+    indexed = index_next_transcript(api.app.state.session_factory, api.app.state.settings,
+                                    parser or Parser())
+    return copied or indexed
+
+
+def claim_transcript_job(factory, settings):
+    copy_next_transcript(factory, settings)
+    return claim_index_job(factory, settings)
 
 
 def read(api, project, record):
@@ -150,7 +160,7 @@ def test_rebuild_receipt_retries_do_not_reset_inflight_or_publish_old_claim(
     assert not run(api)
 
 
-def test_rebuild_during_tika_call_discards_result_and_clears_old_search(
+def test_rebuild_during_tika_call_discards_result_and_retains_old_search(
     api, project, work_payload, tmp_path, postgres_engine,
 ):
     work, _, record, _ = register(api, project, work_payload, tmp_path)
@@ -163,9 +173,10 @@ def test_rebuild_during_tika_call_discards_result_and_clears_old_search(
                         json={"client_operation_id": str(uuid4())})
     assert rebuild().status_code == 200
     assert run(api, Parser(callback=rebuild))
-    assert read(api, project, record)["status"] == "waiting"
+    current = read(api, project, record)
+    assert current["status"] == "ready" and current["index_status"] == "pending"
     assert api.get(collection(project), params={"query": "needle", "fulltext": True})\
-        .json()["total"] == 0
+        .json()["total"] == 1
 
 
 @pytest.mark.parametrize("failure,code", [
@@ -187,6 +198,14 @@ def test_failures_have_terminal_metadata_and_do_not_poison_queue(
     parser = Parser(error=ExtractionError("extraction_parse_failed")) if failure == "tika" else None
     assert run(api, parser)
     failed = read(api, project, record)
+    if failure == "missing":
+        while failed["copy_status"] == "pending":
+            with api.app.state.session_factory() as database:
+                database.execute(update(Transcript).values(
+                    copy_next_attempt_at=datetime.now(UTC) - timedelta(seconds=1)))
+                database.commit()
+            assert run(api, parser)
+            failed = read(api, project, record)
     assert failed["status"] == "failed"
     assert failed["error_code"] == code
     assert failed["indexing_started_at"] <= failed["indexing_completed_at"]
@@ -394,9 +413,11 @@ def test_populated_transcript_archive_restores_snapshots_settings_and_rebuild_re
                     json={"client_operation_id": str(uuid4())}).status_code == 200
     source.unlink()
     assert run(api)
-    assert read(api, project, record)["status"] == "failed"
+    assert read(api, project, record)["status"] == "ready"
     restore_project(postgres_engine, UUID(project["id"]), io.BytesIO(archive))
     restored = _snapshot(postgres_engine, project)
+    assert restored["transcripts"][0]["generation"] > original["transcripts"][0]["generation"]
+    original["transcripts"][0]["generation"] = restored["transcripts"][0]["generation"]
     for table in ("transcripts", "transcript_settings", "transcript_rebuilds"):
         assert restored[table] == original[table]
     assert api.post(collection(project) + "/rebuild", json=payload).json() == receipt
@@ -434,6 +455,9 @@ def test_actual_background_loop_survives_bad_tool_input_and_indexes_following_wo
     expire_lease(postgres_engine, bad_work["id"])
     expire_lease(postgres_engine, good_work["id"])
     factory = api.app.state.session_factory
+
+    assert copy_next_transcript(factory, api.app.state.settings)
+    assert copy_next_transcript(factory, api.app.state.settings)
 
     async def exercise():
         task = asyncio.create_task(transcript_indexing_loop(
@@ -556,7 +580,7 @@ def test_list_counts_and_items_share_snapshot_across_concurrent_mutation(
 
 
 @pytest.mark.parametrize("replacement", ["malformed", "missing"])
-def test_retry_replaces_all_provenance_when_source_changes(
+def test_index_retry_reuses_copied_provenance_when_source_changes(
     api, project, work_payload, tmp_path, postgres_engine, replacement,
 ):
     work, _, record, source = register(api, project, work_payload, tmp_path)
@@ -570,27 +594,24 @@ def test_retry_replaces_all_provenance_when_source_changes(
     assert first["format"] is not None and first["mime_type"] is not None
     if replacement == "malformed":
         source.write_bytes(b'{"unfinished":')
-        expected_hash = hashlib.sha256(source.read_bytes()).hexdigest()
-        expected_size = source.stat().st_size
     else:
         source.unlink()
-        expected_hash = expected_size = None
     with api.app.state.session_factory() as database:
         database.execute(update(Transcript).where(Transcript.id == UUID(record["id"])).values(
             next_attempt_at=datetime.now(UTC) - timedelta(seconds=1)))
         database.commit()
     assert run(api)
     current = read(api, project, record)
-    assert current["status"] == "failed"
-    assert current["sha256"] == expected_hash
-    assert current["size_bytes"] == expected_size
-    assert current["format"] is None and current["mime_type"] is None
-    assert current["metadata"] == {}
-    assert current["text_sha256"] is None
+    assert current["status"] == "ready"
+    assert current["sha256"] == first["sha256"]
+    assert current["size_bytes"] == first["size_bytes"]
+    assert current["format"] == first["format"] and current["mime_type"] == first["mime_type"]
+    assert current["metadata"] == first["metadata"] | {"dc:creator": ["Synthetic Author"]}
+    assert current["text_sha256"] is not None
     assert not current["truncated"]
     page = api.get(collection(project), params={"query": "obsoleteprovenancetoken"})
     assert page.status_code == 200, page.text
-    assert page.json()["total"] == 0
+    assert page.json()["total"] == 1
 
 
 def test_new_attempt_and_rebuild_clear_all_previous_snapshot_fields(
@@ -622,9 +643,9 @@ def test_new_attempt_and_rebuild_clear_all_previous_snapshot_fields(
     assert response.status_code == 200, response.text
     waiting = read(api, project, record)
     for field in ("sha256", "size_bytes", "mime_type", "format", "text_sha256"):
-        assert waiting[field] is None
-    assert waiting["metadata"] == {}
-    assert waiting["status"] == "waiting"
+        assert waiting[field] is not None
+    assert waiting["metadata"]
+    assert waiting["status"] == "ready" and waiting["index_status"] == "pending"
 
 
 def test_bulk_rebuild_updates_without_materializing_transcripts_and_fences_old_worker(

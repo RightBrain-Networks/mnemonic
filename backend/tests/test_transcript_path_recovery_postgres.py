@@ -101,7 +101,8 @@ def test_recovery_matches_exact_roots_and_posix_aliases(api, project, tmp_path, 
     with factory() as database:
         database.add(Transcript(id=identity, import_project_id=UUID(project["id"]), kind="imported",
             client="claude-code", source_path=paths[source_kind], status="failed",
-            error_code="transcript_path_not_allowed", attempts=1))
+            error_code="transcript_path_not_allowed", attempts=1, copy_status="failed",
+            copy_error_code="transcript_path_not_allowed", copy_attempts=1))
         database.commit()
     api.app.state.settings.transcript_allowed_roots = [root]
     eligible = source_kind in {"plain", "aliases"}

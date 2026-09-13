@@ -4,7 +4,6 @@ import asyncio
 import bz2
 import errno
 import io
-import logging
 import os
 import time
 from collections.abc import Iterator
@@ -20,6 +19,7 @@ from starlette.requests import Request
 
 from mnemonic_backup.archive import BackupError
 from mnemonic_backup.config import BackupSettings
+from mnemonic_backup.jobs import schedule_backups
 from mnemonic_backup.service import BackupService, _receive_upload, create_app
 from mnemonic_backup.store import BackupStore
 
@@ -50,7 +50,7 @@ def backup_app(tmp_path: Path) -> Iterator[FastAPI]:
     settings = BackupSettings(DATABASE_URL="sqlite://", token=TEST_TOKEN, root=tmp_path / "backup")
     engine = create_engine("sqlite://")
     try:
-        yield create_app(settings, engine=engine, scheduled=False)
+        yield create_app(settings, engine=engine)
     finally:
         engine.dispose()
 
@@ -86,8 +86,6 @@ def test_authentication_and_no_discoverable_documentation(backup_app: FastAPI):
             assert TEST_TOKEN not in denied.text
         for path in ("/openapi.json", "/docs", "/redoc"):
             assert client.get(path, headers=AUTHORIZATION).status_code == 404
-        assert client.get("/healthz").status_code == 503
-        backup_app.state.backup_service.last_success = time.monotonic()
         assert client.get("/healthz").status_code == 200
 
 
@@ -182,6 +180,7 @@ def test_disk_full_after_export_preserves_archives_and_cleans_partial(
         raise OSError(errno.ENOSPC, "sensitive-database-or-storage-path")
 
     monkeypatch.setattr(f"mnemonic_backup.store.os.{failure}", disk_full)
+    monkeypatch.setattr(service, "enqueue", service.create)
     with TestClient(backup_app, headers=AUTHORIZATION) as client:
         response = client.post(f"/projects/{project}/backups")
     assert response.status_code == 507
@@ -271,36 +270,111 @@ def test_chunked_upload_limit_does_not_depend_on_content_length():
     assert output.getvalue() == b"BZh9"
 
 
-def test_scheduler_retries_failed_cycle_without_logging_sensitive_details(
+def test_scheduler_reuses_the_same_durable_slot_after_restart(
     backup_app: FastAPI,
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
 ):
     service: BackupService = backup_app.state.backup_service
-    # Migration fixtures configure logging with disable_existing_loggers=True.
-    # Restore this test's logger explicitly so collection order cannot mute it.
-    monkeypatch.setattr(logging.getLogger("mnemonic_backup.service"), "disabled", False)
-    caplog.set_level(logging.WARNING, logger="mnemonic_backup.service")
-    attempts, sleeps = [], []
+    project = str(uuid4())
+    with service.engine.begin() as connection:
+        connection.execute(text("CREATE TABLE projects (id TEXT PRIMARY KEY)"))
+        connection.execute(text("INSERT INTO projects VALUES (:id)"), {"id": project})
+    calls = []
+    monkeypatch.setattr("mnemonic_backup.jobs.enqueue_job",
+                        lambda _session, **values: calls.append(values))
+    with service.engine.connect() as connection:
+        schedule_backups(connection, service.settings)
+        schedule_backups(connection, service.settings)
+    assert calls[0] == calls[1]
+    assert calls[0]["kind"] == "backup_create"
+    assert calls[0]["payload"] == {"project_id": project}
 
-    def cycle():
-        attempts.append(True)
-        if len(attempts) == 1:
-            raise OSError(errno.ENOSPC, "secret-project-name-and-database-password")
 
-    async def sleep(delay):
-        sleeps.append(delay)
-        if len(sleeps) == 2:
-            raise asyncio.CancelledError
+def test_job_replay_after_retention_does_not_export_or_prune_again(
+    backup_app: FastAPI, monkeypatch: pytest.MonkeyPatch,
+):
+    service: BackupService = backup_app.state.backup_service
+    service.store.retention_count = 1
+    exports = []
 
-    monkeypatch.setattr(service, "cycle", cycle)
-    monkeypatch.setattr("mnemonic_backup.service.asyncio.sleep", sleep)
-    with pytest.raises(asyncio.CancelledError):
-        asyncio.run(service.schedule())
-    assert sleeps == [60, service.settings.interval_seconds]
-    assert len(attempts) == 2
-    assert "Scheduled backups unavailable" in caplog.text
-    assert "secret-project" not in caplog.text
+    def export(_engine, _project, output, **_kwargs):
+        exports.append(True)
+        output.write(bz2.compress(b"exact project data"))
+
+    monkeypatch.setattr("mnemonic_backup.service.export_project", export)
+    project, first_job, second_job = uuid4(), uuid4(), uuid4()
+    with service.store.operation():
+        first = service.create_locked(project, job_id=first_job)
+        second = service.create_locked(project, job_id=second_job)
+        assert service.create_locked(project, job_id=first_job) == first
+    assert len(exports) == 2
+    assert service.store.list_archives(project) == [second]
+
+
+def test_job_recovery_between_archive_publication_and_receipt(
+    backup_app: FastAPI, monkeypatch: pytest.MonkeyPatch,
+):
+    service: BackupService = backup_app.state.backup_service
+    project, job = uuid4(), uuid4()
+    exports = []
+
+    def export(_engine, _project, output, **_kwargs):
+        exports.append(True)
+        output.write(bz2.compress(b"exact project data"))
+
+    monkeypatch.setattr("mnemonic_backup.service.export_project", export)
+    record = service.store._record_job
+    monkeypatch.setattr(service.store, "_record_job", lambda *_args: (_ for _ in ()).throw(
+        OSError(errno.EIO, "interrupted receipt")))
+    with service.store.operation(), pytest.raises(OSError):
+        service.create_locked(project, job_id=job)
+    published = service.store.list_archives(project)
+    assert len(published) == 1
+    monkeypatch.setattr(service.store, "_record_job", record)
+    with service.store.operation():
+        assert service.create_locked(project, job_id=job) == published[0]
+    assert len(exports) == 1
+
+
+def test_retention_recovers_an_interrupted_older_jobs_receipt(
+    backup_app: FastAPI, monkeypatch: pytest.MonkeyPatch,
+):
+    service: BackupService = backup_app.state.backup_service
+    service.store.retention_count = 1
+    project, first_job, next_job = uuid4(), uuid4(), uuid4()
+    calls = []
+
+    def export(_engine, _project, output, **_kwargs):
+        calls.append(True)
+        output.write(bz2.compress(b"synthetic archive"))
+
+    monkeypatch.setattr("mnemonic_backup.service.export_project", export)
+    record = service.store._record_job
+    monkeypatch.setattr(service.store, "_record_job", lambda *_args: None)
+    with service.store.operation():
+        first = service.create_locked(project, job_id=first_job)
+    monkeypatch.setattr(service.store, "_record_job", record)
+    with service.store.operation():
+        latest = service.create_locked(project, job_id=next_job)
+        assert service.create_locked(project, job_id=first_job) == first
+    assert len(calls) == 2
+    assert service.store.list_archives(project) == [latest]
+
+
+def test_queue_http_and_project_scoped_status(backup_app: FastAPI,
+                                            monkeypatch: pytest.MonkeyPatch):
+    service: BackupService = backup_app.state.backup_service
+    project, job = uuid4(), uuid4()
+    queued = {"project_id": str(project), "job_id": str(job), "state": "pending"}
+    monkeypatch.setattr(service, "enqueue", lambda _project: queued)
+    monkeypatch.setattr(service, "job", lambda _project, _job: queued)
+    with TestClient(backup_app, headers=AUTHORIZATION) as client:
+        response = client.post(f"/projects/{project}/backups")
+        assert response.status_code == 202
+        assert response.json() == queued
+        response = client.get(f"/projects/{project}/backup-jobs/{job}")
+        assert response.status_code == 200
+        assert response.json() == queued
 
 
 def test_failed_project_does_not_skip_others_or_mark_cycle_success(

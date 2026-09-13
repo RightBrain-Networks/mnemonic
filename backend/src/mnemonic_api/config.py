@@ -112,9 +112,13 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("MNEMONIC_TRANSCRIPT_INDEX_DIR", "transcript_index_dir"),
     )
+    transcript_root: Path = Field(
+        default=Path("/var/lib/mnemonic/transcripts"),
+        validation_alias=AliasChoices("MNEMONIC_TRANSCRIPT_ROOT", "transcript_root"),
+    )
 
     @field_validator(
-        "prompt_root", "transcript_index_dir", "transcript_source_dir",
+        "prompt_root", "transcript_root", "transcript_index_dir", "transcript_source_dir",
         "codex_transcript_source_dir", "codex_archived_transcript_source_dir", mode="before",
     )
     @classmethod

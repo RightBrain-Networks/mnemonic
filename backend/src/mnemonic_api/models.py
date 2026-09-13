@@ -33,6 +33,7 @@ from sqlalchemy.schema import conv
 from mnemonic_api import code_review_db_tables as reviews
 from mnemonic_api import phase12_db_tables as phase12
 from mnemonic_api import transcript_db_tables as transcripts
+from mnemonic_api.background_job_db import job_elements
 
 # The work lifecycle vocabulary. WorkItem's status_valid check constraint is the
 # database guard for the same five values.
@@ -2150,6 +2151,19 @@ class Transcript(Base):
     next_attempt_at: Mapped[datetime]
     lease_token: Mapped[UUID | None]
     lease_expires_at: Mapped[datetime | None]
+    snapshot_id: Mapped[UUID]
+    copy_status: Mapped[str]
+    storage_key: Mapped[str | None]
+    copy_sha256: Mapped[str | None]
+    copy_size_bytes: Mapped[int | None]
+    copied_at: Mapped[datetime | None]
+    copy_error_code: Mapped[str | None]
+    copy_attempts: Mapped[int]
+    copy_next_attempt_at: Mapped[datetime]
+    copy_lease_token: Mapped[UUID | None]
+    copy_lease_expires_at: Mapped[datetime | None]
+    reindex_status: Mapped[str | None]
+    reindex_error_code: Mapped[str | None]
 
 
 class TranscriptSettings(Base):
@@ -2180,3 +2194,24 @@ class TranscriptImport(Base):
     existing: Mapped[int]
     skipped: Mapped[int]
     created_at: Mapped[datetime]
+
+
+class BackgroundJob(Base):
+    __table__ = Table("background_jobs", Base.metadata, *job_elements())
+
+    id: Mapped[UUID]
+    kind: Mapped[str]
+    dedupe_key: Mapped[str]
+    payload: Mapped[dict[str, Any]]
+    status: Mapped[str]
+    attempts: Mapped[int]
+    max_attempts: Mapped[int]
+    due_at: Mapped[datetime]
+    publish_after: Mapped[datetime]
+    lease_token: Mapped[UUID | None]
+    lease_expires_at: Mapped[datetime | None]
+    result: Mapped[dict[str, Any] | None]
+    error_code: Mapped[str | None]
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+    completed_at: Mapped[datetime | None]

@@ -1,5 +1,20 @@
 # Disposable browser and backup acceptance stack. Invoke through scripts/test-e2e.sh.
 services:
+  rabbitmq:
+    image: rabbitmq:4.2-alpine
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: mnemonic_e2e
+      RABBITMQ_DEFAULT_PASS: mnemonic_e2e_only
+    tmpfs:
+      - /var/lib/rabbitmq
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: "no"
+
   postgres:
     image: postgres:17-alpine
     environment:
@@ -16,7 +31,7 @@ services:
     restart: "no"
 
   api:
-    build:
+    build: &backend-build
       context: .
       dockerfile: backend/Dockerfile
     environment:
@@ -31,12 +46,14 @@ services:
       MNEMONIC_ARTIFACT_MAX_BYTES: 67108864
       MNEMONIC_ARTIFACT_TIKA_URL: http://tika:9998
     volumes:
-      - type: bind
+      - &prompt-mount
+        type: bind
         source: ${MNEMONIC_E2E_PROMPT_DIR:?Run through the isolated test runner}
         target: /var/lib/mnemonic/prompts
         bind:
           create_host_path: false
-      - type: bind
+      - &artifact-mount
+        type: bind
         source: ${MNEMONIC_E2E_ARTIFACT_DIR:?Run through the isolated test runner}
         target: /var/lib/mnemonic/artifacts
         bind:
@@ -94,7 +111,7 @@ services:
       MNEMONIC_ARTIFACT_MAX_BYTES: 67108864
       MNEMONIC_API_URL: http://api:8000
       MNEMONIC_API_KEY: ${MNEMONIC_E2E_API_KEY:?Run through scripts/test-e2e.sh}
-      MNEMONIC_BACKUP_URL: http://backup:8002
+      MNEMONIC_BACKUP_URL: http://worker:8002
       MNEMONIC_BACKUP_TOKEN: ${MNEMONIC_E2E_BACKUP_TOKEN:?Run through scripts/test-e2e.sh}
       MNEMONIC_BACKUP_MAX_BYTES: 2097152
       MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_DASHBOARD_ORIGINS:?Run through scripts/test-e2e.sh}
@@ -103,7 +120,7 @@ services:
     depends_on:
       api:
         condition: service_healthy
-      backup:
+      worker:
         condition: service_healthy
     healthcheck:
       test: [CMD, node, -e, 'fetch("http://127.0.0.1:3000/healthz").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))']
@@ -115,18 +132,31 @@ services:
     restart: "no"
     security_opt: [no-new-privileges:true]
 
-  backup:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile.backup
+  worker:
+    build: *backend-build
+    command: [uvicorn, 'mnemonic_api.job_worker:create_app', --factory, --host, 0.0.0.0, --port, '8002', --no-access-log]
     environment:
       DATABASE_URL: postgresql+psycopg://mnemonic_e2e:mnemonic_e2e_only@postgres:5432/mnemonic_e2e
+      MNEMONIC_API_KEY: ${MNEMONIC_E2E_API_KEY:?Run through scripts/test-e2e.sh}
+      MNEMONIC_RABBITMQ_URL: amqp://mnemonic_e2e:mnemonic_e2e_only@rabbitmq:5672/
+      MNEMONIC_PROMPT_ROOT: /var/lib/mnemonic/prompts
+      MNEMONIC_TRANSCRIPT_ROOT: /var/lib/mnemonic/transcripts
+      MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS: '["/var/lib/mnemonic/artifacts/transcripts"]'
+      MNEMONIC_ARTIFACT_TIKA_URL: http://tika:9998
       MNEMONIC_BACKUP_TOKEN: ${MNEMONIC_E2E_BACKUP_TOKEN:?Run through scripts/test-e2e.sh}
       MNEMONIC_BACKUP_ROOT: /backups
       MNEMONIC_BACKUP_RETENTION_COUNT: 2
       MNEMONIC_BACKUP_INTERVAL_SECONDS: 86400
       MNEMONIC_BACKUP_MAX_BYTES: 2097152
     volumes:
+      - *prompt-mount
+      - <<: *artifact-mount
+        read_only: true
+      - type: bind
+        source: ${MNEMONIC_E2E_TRANSCRIPT_DIR:?Run through the isolated test runner}
+        target: /var/lib/mnemonic/transcripts
+        bind:
+          create_host_path: false
       - type: bind
         source: ${MNEMONIC_E2E_BACKUP_DIR:?Run through the isolated test runner}
         target: /backups
@@ -135,6 +165,11 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      tika:
+        condition: service_healthy
+    networks: [default, artifact_parser]
     healthcheck:
       test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8002/healthz", timeout=3)']
       interval: 5s

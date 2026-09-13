@@ -1,6 +1,23 @@
 name: mnemonic
 
 services:
+  rabbitmq:
+    image: rabbitmq:4.2-alpine
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: mnemonic
+      RABBITMQ_DEFAULT_PASS: ${MNEMONIC_RABBITMQ_PASSWORD:?Configure a private RabbitMQ password in .env}
+    volumes:
+      - mnemonic_rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+
   postgres:
     image: postgres:17-alpine
     environment:
@@ -18,7 +35,7 @@ services:
     restart: unless-stopped
 
   api:
-    build:
+    build: &backend-build
       context: .
       dockerfile: backend/Dockerfile
       args:
@@ -54,7 +71,8 @@ services:
       MNEMONIC_DUPLICATE_SUGGESTION_FULL_POPULATION_CEILING: ${MNEMONIC_DUPLICATE_SUGGESTION_FULL_POPULATION_CEILING:-10000}
       MNEMONIC_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS: ${MNEMONIC_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS:-60}
     volumes:
-      - type: bind
+      - &prompt-mount
+        type: bind
         source: ${MNEMONIC_PROMPT_DIR:-./prompts/runtime}
         target: /var/lib/mnemonic/prompts
         bind:
@@ -65,20 +83,23 @@ services:
         bind:
           create_host_path: false
       # Without a configured source, expose only the shipped empty placeholder.
-      - type: bind
+      - &claude-source
+        type: bind
         source: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:-./deploy/empty-transcripts}
         target: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:-/var/lib/mnemonic/transcript-source-disabled}
         read_only: true
         bind:
           create_host_path: false
       # Mount Codex session directories only; its parent can contain credentials.
-      - type: bind
+      - &codex-source
+        type: bind
         source: ${MNEMONIC_CODEX_TRANSCRIPT_SOURCE_DIR:-./deploy/empty-transcripts}
         target: ${MNEMONIC_CODEX_TRANSCRIPT_SOURCE_DIR:-/var/lib/mnemonic/codex-transcript-source-disabled}
         read_only: true
         bind:
           create_host_path: false
-      - type: bind
+      - &codex-archived-source
+        type: bind
         source: ${MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR:-./deploy/empty-transcripts}
         target: ${MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR:-/var/lib/mnemonic/codex-archived-transcript-source-disabled}
         read_only: true
@@ -165,7 +186,7 @@ services:
       MNEMONIC_ARTIFACT_MAX_BYTES: ${MNEMONIC_ARTIFACT_MAX_BYTES:-67108864}
       MNEMONIC_API_URL: http://api:8000
       MNEMONIC_API_KEY: ${MNEMONIC_API_KEY}
-      MNEMONIC_BACKUP_URL: http://backup:8002
+      MNEMONIC_BACKUP_URL: http://worker:8002
       MNEMONIC_BACKUP_TOKEN: ${MNEMONIC_BACKUP_TOKEN:?Configure the private dashboard backup token in .env}
       MNEMONIC_BACKUP_MAX_BYTES: ${MNEMONIC_BACKUP_MAX_BYTES:-67108864}
       MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_DASHBOARD_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
@@ -184,12 +205,23 @@ services:
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
 
-  backup:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile.backup
+  worker:
+    build: *backend-build
+    command: [uvicorn, 'mnemonic_api.job_worker:create_app', --factory, --host, 0.0.0.0, --port, '8002', --no-access-log]
     environment:
       DATABASE_URL: postgresql+psycopg://mnemonic:${POSTGRES_PASSWORD}@postgres:5432/mnemonic
+      MNEMONIC_API_KEY: ${MNEMONIC_API_KEY}
+      MNEMONIC_RABBITMQ_URL: amqp://mnemonic:${MNEMONIC_RABBITMQ_PASSWORD}@rabbitmq:5672/
+      MNEMONIC_PROMPT_ROOT: /var/lib/mnemonic/prompts
+      MNEMONIC_TRANSCRIPT_ROOT: /var/lib/mnemonic/transcripts
+      MNEMONIC_TRANSCRIPT_SOURCE_DIR: ${MNEMONIC_TRANSCRIPT_SOURCE_DIR:-}
+      MNEMONIC_CODEX_TRANSCRIPT_SOURCE_DIR: ${MNEMONIC_CODEX_TRANSCRIPT_SOURCE_DIR:-}
+      MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR: ${MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR:-}
+      MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS: ${MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS:-[]}
+      MNEMONIC_TRANSCRIPT_MAX_BYTES: ${MNEMONIC_TRANSCRIPT_MAX_BYTES:-67108864}
+      MNEMONIC_ARTIFACT_TIKA_URL: http://tika:9998
+      MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS: ${MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS:-2000000}
+      MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS: ${MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS:-60}
       MNEMONIC_BACKUP_TOKEN: ${MNEMONIC_BACKUP_TOKEN:?Configure the private dashboard backup token in .env}
       MNEMONIC_BACKUP_ROOT: /backups
       MNEMONIC_BACKUP_INTERVAL_SECONDS: ${MNEMONIC_BACKUP_INTERVAL_SECONDS:-86400}
@@ -197,6 +229,15 @@ services:
       MNEMONIC_BACKUP_MAX_BYTES: ${MNEMONIC_BACKUP_MAX_BYTES:-67108864}
       MNEMONIC_BACKUP_EXPANDED_MAX_BYTES: ${MNEMONIC_BACKUP_EXPANDED_MAX_BYTES:-268435456}
     volumes:
+      - *prompt-mount
+      - *claude-source
+      - *codex-source
+      - *codex-archived-source
+      - type: bind
+        source: ${MNEMONIC_TRANSCRIPT_DIR:-/var/lib/mnemonic/transcripts}
+        target: /var/lib/mnemonic/transcripts
+        bind:
+          create_host_path: false
       - type: bind
         source: ${MNEMONIC_BACKUP_DIR:-./backups}
         target: /backups
@@ -205,6 +246,11 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      tika:
+        condition: service_healthy
+    networks: [default, artifact_parser]
     healthcheck:
       test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8002/healthz", timeout=3)']
       interval: 60s
@@ -217,6 +263,7 @@ services:
 
 volumes:
   mnemonic_data:
+  mnemonic_rabbitmq:
 
 networks:
   artifact_parser:

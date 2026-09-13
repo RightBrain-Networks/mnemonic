@@ -18,6 +18,8 @@ def main() -> None:
         "POSTGRES_PASSWORD=\n", f"POSTGRES_PASSWORD={secrets.token_hex(32)}\n"
     ).replace("MNEMONIC_API_KEY=\n", f"MNEMONIC_API_KEY={secrets.token_hex(32)}\n").replace(
         "MNEMONIC_BACKUP_TOKEN=\n", f"MNEMONIC_BACKUP_TOKEN={secrets.token_hex(32)}\n"
+    ).replace(
+        "MNEMONIC_RABBITMQ_PASSWORD=\n", f"MNEMONIC_RABBITMQ_PASSWORD={secrets.token_hex(32)}\n"
     )
     # O_EXCL also protects against another initializer creating the file meanwhile.
     try:
@@ -33,6 +35,7 @@ def main() -> None:
     print("  sudo install -d -m 0700 -o 10001 -g 10001 ./prompts/runtime")
     print("  sudo install -d -m 0700 -o 10001 -g 10001 ./backups")
     print("  sudo install -d -m 0700 -o 10001 -g 10001 /var/lib/mnemonic/transcript-index")
+    print("  sudo install -d -m 0700 -o 10001 -g 10001 /var/lib/mnemonic/transcripts")
     print("Start Mnemonic: docker compose up --build -d --wait")
 
 

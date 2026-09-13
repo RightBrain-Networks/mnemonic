@@ -1,4 +1,4 @@
-"""HTTP/fault acceptance checks, executed only inside the disposable backup container.
+"""HTTP/fault acceptance checks, executed only inside the disposable worker container.
 
 The runner creates the database and backup bind, supplies an ephemeral API key,
 and destroys both afterwards. No host or production service URL is accepted.
@@ -65,7 +65,29 @@ def listed(project: str) -> list[dict]:
 
 
 def backup(project: str) -> dict:
-    return json.loads(expect((200, 201), request(f"/projects/{project}/backups", method="POST")))
+    job = json.loads(expect(202, request(f"/projects/{project}/backups", method="POST")))
+    return completed_job(project, job)
+
+
+def completed_job(project: str, job: dict) -> dict:
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        current = json.loads(expect(200, request(
+            f"/projects/{project}/backup-jobs/{job['job_id']}")))
+        if current["state"] == "succeeded":
+            return current["result"]
+        assert current["state"] != "failed", current
+        time.sleep(0.2)
+    raise AssertionError("The queued backup did not finish")
+
+
+def wait_for_scheduled_backup(project: str) -> None:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if listed(project):
+            return
+        time.sleep(0.2)
+    raise AssertionError("The scheduled backup did not finish")
 
 
 def check_authentication_and_missing(project: str) -> None:
@@ -82,7 +104,9 @@ def check_authentication_and_missing(project: str) -> None:
 
 
 def check_retention_and_concurrency(project: str, other: str) -> bytes:
-    assert listed(project) == []
+    wait_for_scheduled_backup(project)
+    wait_for_scheduled_backup(other)
+    other_archives = listed(other)
     first = backup(project)
     filename = first["filename"]
     raw = expect(200, request(f"/projects/{project}/backups/{filename}"))
@@ -96,16 +120,15 @@ def check_retention_and_concurrency(project: str, other: str) -> bytes:
     current = listed(project)
     assert {item["filename"] for item in current} == {second["filename"], third["filename"]}
     expect(404, request(f"/projects/{project}/backups/{filename}"))
-    assert listed(other) == [], "Project retention must not create or prune another project"
+    assert listed(other) == other_archives, "Project retention must not prune another project"
     expect(404, request(f"/projects/{other}/backups/{third['filename']}"))
     with ThreadPoolExecutor(max_workers=4) as pool:
         responses = list(
             pool.map(lambda _: request(f"/projects/{project}/backups", method="POST"), range(4))
         )
-    successes = [json.loads(body) for status, body in responses if status in (200, 201)]
-    assert successes, responses
+    assert all(status == 202 for status, _ in responses), responses
+    successes = [completed_job(project, json.loads(body)) for _status, body in responses]
     assert len({item["filename"] for item in successes}) == len(successes)
-    assert all(status in (200, 201, 409) for status, _ in responses), responses
     assert len(listed(project)) == 2
     for item in listed(project):
         content = expect(200, request(f"/projects/{project}/backups/{item['filename']}"))
@@ -128,7 +151,21 @@ def check_unwritable_destination(project: str) -> None:
         # Simulate a bind mount restored by a root-owned host backup program.
         # The service remains UID 10001, even though this fault harness is root.
         os.chown(directory, 0, 0)
-        expect((500, 503, 507), request(f"/projects/{project}/backups", method="POST"))
+        queued = json.loads(expect(202, request(f"/projects/{project}/backups", method="POST")))
+        engine = create_engine(os.environ["DATABASE_URL"])
+        try:
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                with engine.connect() as connection:
+                    failed_attempt = connection.scalar(text(
+                        "SELECT error_code FROM background_jobs WHERE id=CAST(:id AS uuid)"
+                    ), {"id": queued["job_id"]})
+                if failed_attempt:
+                    break
+                time.sleep(0.2)
+            assert failed_attempt, "Unwritable storage should durably schedule a retry"
+        finally:
+            engine.dispose()
     finally:
         os.chown(directory, owner.st_uid, owner.st_gid)
     after = {
@@ -139,7 +176,7 @@ def check_unwritable_destination(project: str) -> None:
         item for item in directory.iterdir() if item.is_file() and not item.name.startswith(".")
     ]
     assert {item.name for item in files} == set(after), "Failed backup left a partial archive"
-    backup(project)
+    completed_job(project, queued)
     print(
         "PASS unwritable storage preserves previous backups and recovers after permissions return",
         flush=True,
@@ -203,12 +240,11 @@ def check_restore_success(project: str, other: str, archive: bytes) -> None:
     restored = json.loads(expect(200, request(f"/projects/{project}", api=True)))
     assert original == restored, "Restore must recover exactly the archived project data"
     assert expect(200, request(f"/projects/{other}", api=True)) == untouched
-    assert not Path("/var/lib/mnemonic/artifacts").exists()
     print("PASS HTTP upload restores PostgreSQL data and preserves another project", flush=True)
 
 
 def wait_for_service_lock() -> None:
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + 20
     with (Path("/backups") / ".operation-lock").open("rb") as lock:
         while time.monotonic() < deadline:
             try:
@@ -224,17 +260,16 @@ def check_database_contention(project: str) -> None:
     before = listed(project)
     engine = create_engine(os.environ["DATABASE_URL"])
     try:
-        with ThreadPoolExecutor(max_workers=1) as pool, engine.begin() as connection:
-            connection.execute(text("LOCK TABLE projects IN ACCESS EXCLUSIVE MODE"))
-            pending = pool.submit(request, f"/projects/{project}/backups", method="POST")
+        with engine.begin() as connection:
+            connection.execute(text("LOCK TABLE client_operations IN ACCESS EXCLUSIVE MODE"))
+            job = json.loads(expect(202, request(f"/projects/{project}/backups", method="POST")))
             wait_for_service_lock()
-            expect(409, request(f"/projects/{project}/backups", method="POST"))
-            expect(409, pending.result(timeout=30))
+            time.sleep(11)
     finally:
         engine.dispose()
     assert listed(project) == before, "A busy database must not prune successful archives"
-    backup(project)
-    print("PASS database lock timeout, concurrent operation rejection and recovery", flush=True)
+    completed_job(project, job)
+    print("PASS queued database lock timeout and durable retry recovery", flush=True)
 
 
 def main() -> None:
@@ -245,9 +280,6 @@ def main() -> None:
     assert os.environ["MNEMONIC_BACKUP_ROOT"] == "/backups"
     assert os.environ["MNEMONIC_BACKUP_RETENTION_COUNT"] == "2"
     assert os.environ["MNEMONIC_BACKUP_MAX_BYTES"] == "2097152"
-    assert not Path("/var/lib/mnemonic/artifacts").exists(), (
-        "Backup service must not mount artifacts"
-    )
     project, other = create_project("faults"), create_project("untouched")
     check_authentication_and_missing(project)
     archive = check_retention_and_concurrency(project, other)

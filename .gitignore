@@ -213,6 +213,7 @@ node_modules/
 *.json.bz2
 /artifacts/
 /transcript-index/
+/transcripts/
 .local/
 test-results/
 playwright-report/

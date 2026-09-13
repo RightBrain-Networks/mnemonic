@@ -7,14 +7,19 @@ This interoperable integer range leaves PostgreSQL bigint sequences more than
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0035_prompt_library"
-TABLES = tuple(sorted(Base.metadata.tables))
+HEAD = "0037_background_jobs"
+# Infrastructure delivery state is neither project data nor a restore target.
+# The reconciler derives transcript jobs anew from the restored domain rows.
+INFRASTRUCTURE_TABLES = frozenset({"background_jobs"})
+TABLES = tuple(sorted(set(Base.metadata.tables) - INFRASTRUCTURE_TABLES))
 MAX_ARCHIVE_IDENTITY = 2**53 - 1
 IDENTITY_COLUMNS = tuple(
     (name, column.name) for name in TABLES for column in Base.metadata.tables[name].c
@@ -74,7 +79,7 @@ def schema_signature(connection: Connection) -> str:
           AND table_name <> 'alembic_version'
         ORDER BY table_name, ordinal_position
     """)).all()
-    if {row[0] for row in catalog} != set(TABLES):
+    if {row[0] for row in catalog} != set(TABLES) | INFRASTRUCTURE_TABLES:
         raise BackupError(409, "backup_schema_mismatch", "The database table catalog changed.")
     return hashlib.sha256(canonical([list(row) for row in catalog])).hexdigest()
 
@@ -198,6 +203,39 @@ def replace_rows(connection: Connection, current: dict, restored: dict) -> None:
                                        for row in restored[name]])
     _invalidate_restored_approvals(connection, restored)
     connection.execute(text("SET LOCAL session_replication_role = 'origin'"))
+
+
+def reset_transcript_jobs(connection: Connection, current: dict, restored: dict) -> None:
+    rows = restored["transcripts"]
+    if not rows:
+        return
+    # A restored pending row must not collide with a completed delivery receipt,
+    # including receipts whose domain row is no longer present in the database.
+    generations = {row["id"]: row["generation"] for row in current["transcripts"]}
+    previous_jobs = connection.execute(text("""
+        SELECT payload->>'transcript_id', max((payload->>'generation')::integer)
+        FROM background_jobs WHERE kind IN ('transcript_copy', 'transcript_index')
+          AND payload->>'transcript_id' = ANY(CAST(:ids AS text[]))
+        GROUP BY payload->>'transcript_id'
+    """), {"ids": [row["id"] for row in rows]})
+    for identifier, generation in previous_jobs:
+        generations[identifier] = max(generations.get(identifier, 0), generation)
+    now = datetime.now(UTC).isoformat()
+    for row in rows:
+        row["generation"] = max(row["generation"], generations.get(row["id"], 0)) + 1
+        if row.get("reindex_status") == "processing":
+            row.update(reindex_status="pending", lease_token=None, lease_expires_at=None,
+                       next_attempt_at=now)
+        if row["status"] == "processing":
+            row.update(status="pending", lease_token=None, lease_expires_at=None,
+                       next_attempt_at=now)
+        if row["copy_status"] == "processing":
+            row.update(copy_status="pending", copy_lease_token=None, copy_lease_expires_at=None,
+                       copy_next_attempt_at=now)
+        if row["copy_status"] != "ready":
+            # An old in-flight copier may still publish after the DB fence.
+            # Restored Active sessions must never adopt that uncommitted file.
+            row["snapshot_id"] = str(uuid4())
 
 
 def _invalidate_restored_approvals(connection: Connection, restored: dict) -> None:

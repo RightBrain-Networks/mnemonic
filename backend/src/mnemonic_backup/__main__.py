@@ -22,7 +22,7 @@ def main() -> None:
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
     if args.command == "serve":
-        uvicorn.run("mnemonic_backup.service:create_app", factory=True, host="0.0.0.0", port=8002,
+        uvicorn.run("mnemonic_api.job_worker:create_app", factory=True, host="0.0.0.0", port=8002,
                     access_log=False)
         return
     settings = BackupSettings()  # type: ignore[call-arg]

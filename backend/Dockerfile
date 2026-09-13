@@ -16,6 +16,8 @@ COPY backend/src ./src
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./
 COPY prompts /app/prompts
+COPY scripts/migrate_transcript_copies.py /app/scripts/migrate_transcript_copies.py
+COPY scripts/audit_project_activity.py scripts/audit_duplicate_handling.py scripts/audit_code_reviews.py /app/scripts/
 RUN uv sync --frozen --no-dev && \
     python -c 'from mnemonic_api.semantic import warm_embedding_model; warm_embedding_model()'
 # Match the transcript owner for private (0600) host files. Keep the default

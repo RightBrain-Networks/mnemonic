@@ -17,6 +17,11 @@ export interface Transcript {
   filename: string;
   kind: "primary" | "subagent" | "imported";
   status: TranscriptStatus;
+  index_status: TranscriptStatus;
+  index_error_code: string | null;
+  copy_status: "pending" | "processing" | "ready" | "failed";
+  copy_error_code: string | null;
+  copied_at: string | null;
   indexing_started_at: string | null;
   indexing_completed_at: string | null;
   error_code: string | null;
@@ -73,6 +78,9 @@ export function decodeTranscript(value: unknown, projectId: string, transcriptId
     || !boundedText(row.client, 200) || !nullableText(row.session_id, 200)
     || !boundedText(row.source_path, 4096) || !boundedText(row.filename, 4096)
     || !["primary", "subagent", "imported"].includes(row.kind as string) || !statuses.includes(row.status as string)
+    || !statuses.includes(row.index_status as string) || !nullableText(row.index_error_code, 200)
+    || !["pending", "processing", "ready", "failed"].includes(row.copy_status as string)
+    || !nullableText(row.copy_error_code, 200) || !(row.copied_at === null || timestamp(row.copied_at))
     || !(row.indexing_started_at === null || timestamp(row.indexing_started_at))
     || !(row.indexing_completed_at === null || timestamp(row.indexing_completed_at))
     || !nullableText(row.error_code, 200) || !(row.size_bytes === null || finiteInteger(row.size_bytes))
@@ -152,6 +160,13 @@ export async function transcriptRequest(path: string, init: RequestInit = {}): P
   return value;
 }
 export function transcriptStatusLabel(transcript: Transcript): string {
+  if (transcript.copy_status === "failed") return transcript.status === "ready" ? "Indexed · Copy failed" : "Copy failed";
+  if (transcript.copy_status === "processing") return transcript.status === "ready" ? "Indexed · Copying" : "Copying";
+  if (transcript.copy_status === "pending" && transcript.status !== "waiting") return transcript.status === "ready" ? "Indexed · Copy queued" : "Copy queued";
+  if (transcript.status === "ready" && transcript.index_status !== "ready") {
+    const replacement = { waiting: "Reindex queued", pending: "Reindex queued", processing: "Reindexing", failed: "Reindex failed" };
+    return `Indexed · ${replacement[transcript.index_status]}`;
+  }
   const labels = { waiting: transcript.kind === "imported" ? "Queued" : "Waiting for work to leave Active", pending: "Queued", processing: "Indexing", ready: "Indexed", failed: "Failed" };
   return `${labels[transcript.status]}${transcript.truncated ? " · Truncated" : ""}`;
 }

@@ -3,8 +3,10 @@
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
+from mnemonic_api.transcript_copy_db import INDEX_LEASE_CHECK
 
-def transcript_elements(*, include_imports: bool = True) -> list:
+
+def transcript_elements(*, include_imports: bool = True, include_copies: bool = True) -> list:
     elements = [
         sa.Column("id", UUID, primary_key=True),
         sa.Column("work_item_id", UUID, sa.ForeignKey("work_items.id", ondelete="RESTRICT"),
@@ -45,7 +47,8 @@ def transcript_elements(*, include_imports: bool = True) -> list:
         sa.CheckConstraint("size_bytes IS NULL OR size_bytes BETWEEN 0 AND 268435456",
                            name="size_valid"),
         sa.CheckConstraint("left(source_path, 1) = '/'", name="path_absolute"),
-        sa.CheckConstraint("(status = 'processing' AND lease_token IS NOT NULL "
+        sa.CheckConstraint(INDEX_LEASE_CHECK if include_imports and include_copies else
+                           "(status = 'processing' AND lease_token IS NOT NULL "
                            "AND lease_expires_at IS NOT NULL) OR "
                            "(status <> 'processing' AND lease_token IS NULL "
                            "AND lease_expires_at IS NULL)", name="lease_valid"),
@@ -65,6 +68,11 @@ def transcript_elements(*, include_imports: bool = True) -> list:
             sa.UniqueConstraint("import_project_id", "source_path",
                                 name="uq_transcripts_import_source"),
         ])
+    # The historical 0032 migration requests the pre-import table explicitly.
+    if include_imports and include_copies:
+        from mnemonic_api.transcript_copy_db import copy_elements
+
+        elements.extend(copy_elements())
     return elements
 
 

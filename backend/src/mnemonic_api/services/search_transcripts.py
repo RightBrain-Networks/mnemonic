@@ -61,7 +61,9 @@ def _source(
         score=hits[identity].score if request.q else 0.0,
     ) for identity, record in records.items() if not request.q or identity in hits]
     coverage = TranscriptSearchCoverage(indexing_incomplete=any(
-        record.status != "ready" or record.truncated for record in rows
+        record.status != "ready" or record.copy_status != "ready"
+        or record.reindex_status is not None or record.truncated
+        for record in rows
     ))
 
     def hydrate(page: list[SearchCandidate]) -> dict[UUID, SearchHit]:

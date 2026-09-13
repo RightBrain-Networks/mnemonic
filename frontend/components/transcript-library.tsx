@@ -71,10 +71,10 @@ export default function TranscriptLibrary({ projectId, refreshSignal }: { projec
         <div className="artifact-search-actions"><button className="button button-primary" type="submit">Search</button>{(query || search) && <button className="button button-secondary" type="button" onClick={() => { setQuery(""); setSearch(""); setOffset(0); searchInput.current?.focus(); }}>Clear</button>}</div>
       </form>
     </div>
-    <p className="artifact-filter-note">Session and subagent transcripts are indexed automatically after work leaves Active. <a href="/settings/workspace">Index settings</a></p>
+    <p className="artifact-filter-note">Session and subagent transcripts are copied and indexed automatically after work leaves Active. <a href="/settings/workspace">Index settings</a></p>
     {workFilter && <p className="artifact-filter-note">Showing transcripts for work item <code>{workFilter}</code>. <button className="text-button" onClick={() => { setWorkFilter(""); setOffset(0); window.history.replaceState(null, "", transcriptLibraryPath(projectId)); }}>Show all project transcripts</button></p>}
     <div className="artifact-directory-heading"><h2>{search ? "Search results" : "Project transcripts"}{page && <span className="artifact-count">{page.total}</span>}</h2><button type="button" className="button button-secondary" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>Refresh</button></div>
-    {page?.indexing_incomplete && <div className="artifact-search-status" role="status"><p>Content results are incomplete. Some transcripts are waiting, indexing, failed, or truncated. Available metadata remains searchable.</p></div>}
+    {page?.indexing_incomplete && <div className="artifact-search-status" role="status"><p>Content results are incomplete. Some transcripts are waiting, copying, indexing, failed, or truncated. Available metadata remains searchable.</p></div>}
     {error ? <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" onClick={() => setRefresh((value) => value + 1)}>Retry loading transcripts</button></div> : <>
       <div className="artifact-table-scroll" aria-busy={loading} tabIndex={0} role="region" aria-label="Transcript directory">
         <table className="artifact-table transcript-table"><thead><tr>{["Name", "Size", "Session", "Indexing", "Completed", "Actions"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>{page?.items.map((transcript) => <tr key={transcript.id}>
@@ -118,6 +118,9 @@ function TranscriptDetails({ transcript: initial, onClose }: { transcript: Trans
   }, [initial]);
   const rows: [string, ReactNode][] = [
     ["Disposition", transcriptStatusLabel(transcript)], ["Error", transcript.error_code || "None"],
+    ["Copy status", transcript.copy_status], ["Copy error", transcript.copy_error_code || "None"],
+    ["Index status", transcript.index_status], ["Index error", transcript.index_error_code || "None"],
+    ["Copied", transcript.copied_at ? formatDateTime(transcript.copied_at) : "Not copied"],
     ["Indexing started", transcript.indexing_started_at ? formatDateTime(transcript.indexing_started_at) : "Not started"],
     ["Indexing completed", transcript.indexing_completed_at ? formatDateTime(transcript.indexing_completed_at) : "Not completed"],
     ["Content size", transcript.size_bytes === null ? "Not recorded" : formatArtifactSize(transcript.size_bytes)],

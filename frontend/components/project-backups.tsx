@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { detailMessage, errorMessage } from "@/lib/api";
-import { backupAge, backupPath, backupSize, decodeBackup, decodeBackups, definitiveBackupFailure, type ProjectBackups } from "@/lib/backups";
+import { backupAge, backupPath, backupSize, decodeBackupJob, decodeBackups, definitiveBackupFailure, type BackupJob, type ProjectBackups } from "@/lib/backups";
 import { readBoundedJson } from "@/lib/bounded-json";
 import { formatDateTime } from "@/lib/display-time";
 import type { Project } from "@/lib/types";
@@ -81,6 +81,22 @@ export default function ProjectBackupsPanel({ project, maximumBytes, refreshSign
     window.location.reload();
   }
 
+  async function completedBackup(initial: BackupJob): Promise<BackupJob> {
+    let job = initial;
+    const deadline = Date.now() + 30 * 60_000;
+    while (job.state === "pending" || job.state === "running") {
+      if (!mounted.current || Date.now() >= deadline) throw new Error("The backup is still queued or running.");
+      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      const response = await fetch(`${backupPath(project.id)}/backup-jobs/${encodeURIComponent(job.job_id)}`, {
+        cache: "no-store", signal: AbortSignal.timeout(30_000)
+      });
+      const value = await readBoundedJson(response, 4 * 1024 * 1024);
+      if (!response.ok) throw new Error(responseMessage(value, "Unable to check backup progress."));
+      job = decodeBackupJob(value, project.id, initial.job_id);
+    }
+    return job;
+  }
+
   async function execute(action: "backup" | "restore") {
     if (inFlight.current || uncertain || action === "restore" && (!file || confirmation !== project.slug)) return;
     inFlight.current = true;
@@ -99,7 +115,13 @@ export default function ProjectBackupsPanel({ project, maximumBytes, refreshSign
         outcomeUncertain = !definitiveBackupFailure(response.status, value);
         throw new Error(responseMessage(value, "The backup action failed."));
       }
-      if (action === "backup") decodeBackup(value);
+      if (action === "backup") {
+        const job = await completedBackup(decodeBackupJob(value, project.id));
+        if (job.state === "failed") {
+          outcomeUncertain = false;
+          throw new Error(job.error!.message);
+        }
+      }
       else if (!value || typeof value !== "object" || (value as { project_id?: unknown }).project_id !== project.id
         || (value as { restored?: unknown }).restored !== true) throw new Error("The restore response could not be verified.");
       outcomeUncertain = false;
@@ -130,7 +152,7 @@ export default function ProjectBackupsPanel({ project, maximumBytes, refreshSign
       <div><span className="section-label">RECOVERY</span><h2 id="project-backups-title">Project backups</h2></div>
       {catalog && <span className="settings-state">Keep latest {catalog.retention_count}</span>}
     </div>
-    <p className="settings-intro">Back up {project.name} and download its compressed archives. Each archive contains this project's PostgreSQL data, including artifact metadata. Artifact file contents are managed by your separate file backup system.</p>
+    <p className="settings-intro">Back up {project.name} and download its compressed archives. Each archive contains this project's PostgreSQL data, including artifact metadata and extracted transcript text. Artifact file contents are managed by your separate file backup system. Include the transcript storage directory in that file backup system too.</p>
     <div className="settings-actions backup-actions">
       <button type="button" className="button button-primary" disabled={disabled} onClick={() => void execute("backup")}>{busy === "backup" ? "Creating backup…" : "Back up now"}</button>
       <button type="button" className="button button-secondary" disabled={loading || busy !== null} onClick={() => setRefresh((value) => value + 1)}>Refresh backups</button>
@@ -168,6 +190,6 @@ export default function ProjectBackupsPanel({ project, maximumBytes, refreshSign
       </label>
       <div className="settings-actions backup-actions"><button type="submit" className="button button-danger" disabled={disabled || !file || confirmation !== project.slug}>{busy === "restore" ? "Restoring project…" : "Upload and restore"}</button></div>
     </form>
-    {busy && <p className="field-hint" role="status">{busy === "backup" ? "The backup is running." : "The project is being restored."} Large projects can take several minutes. Keep this page open.</p>}
+    {busy && <p className="field-hint" role="status">{busy === "backup" ? "The backup is queued or running." : "The project is being restored."} Large projects can take several minutes. Keep this page open.</p>}
   </section>;
 }

@@ -87,6 +87,11 @@ class TranscriptRead(TranscriptModel):
     filename: Annotated[str, Field(max_length=4096)]
     kind: Literal["primary", "subagent", "imported"]
     status: TranscriptStatus
+    index_status: TranscriptStatus
+    index_error_code: Annotated[str, Field(max_length=100)] | None
+    copy_status: Literal["pending", "processing", "ready", "failed"]
+    copy_error_code: Annotated[str, Field(max_length=100)] | None
+    copied_at: datetime | None
     indexing_started_at: datetime | None
     indexing_completed_at: datetime | None
     error_code: Annotated[str, Field(max_length=100)] | None

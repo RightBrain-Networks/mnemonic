@@ -1,9 +1,16 @@
-import { objectValue, validUtcDateTime } from "./wire-guards.ts";
+import { objectValue, validUtcDateTime, validUuid } from "./wire-guards.ts";
 
 export const BACKUP_DEFAULT_MAX_BYTES = 67_108_864;
 export const BACKUP_FILENAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}\.bz2$/;
 
 export type ProjectBackup = { filename: string; created_at: string; size_bytes: number };
+export type BackupJob = {
+  project_id: string;
+  job_id: string;
+  state: "pending" | "running" | "succeeded" | "failed";
+  result?: ProjectBackup;
+  error?: { code: string; message: string };
+};
 export type ProjectBackups = {
   project_id: string;
   retention_count: number;
@@ -24,6 +31,23 @@ export function decodeBackup(value: unknown): ProjectBackup {
     || typeof backup.size_bytes !== "number" || !Number.isSafeInteger(backup.size_bytes)
     || backup.size_bytes < 1) throw new Error("The backup service returned an invalid archive.");
   return backup as ProjectBackup;
+}
+
+export function decodeBackupJob(value: unknown, projectId: string, jobId?: string): BackupJob {
+  const job = objectValue(value);
+  if (!job || job.project_id !== projectId || !validUuid(job.job_id)
+    || jobId !== undefined && job.job_id !== jobId
+    || !["pending", "running", "succeeded", "failed"].includes(String(job.state))) {
+    throw new Error("The backup service returned an invalid job.");
+  }
+  if (job.state === "succeeded") decodeBackup(job.result);
+  if (job.state === "failed") {
+    const error = objectValue(job.error);
+    if (!error || typeof error.code !== "string" || typeof error.message !== "string") {
+      throw new Error("The backup service returned an invalid job failure.");
+    }
+  }
+  return job as BackupJob;
 }
 
 export function decodeBackups(value: unknown, projectId: string): ProjectBackups {
