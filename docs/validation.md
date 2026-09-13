@@ -37,6 +37,13 @@ macOS-only check reserved for CI. Node 24 passes all 437 frontend tests,
 type-checking and production build. The stack verifier accepts the 55-tool
 catalog; local Gitleaks passes.
 
+The first CI run exposed a pre-existing EOF race in the stdio semantic-error
+test. Holding stdin open reproduced the SDK's fixed error notification on both
+untouched main and this branch. The assertion now permits only that exact safe
+notification, still requires the sole response to belong to the valid initialize
+request, and checks both output streams for caller-content leakage. Production
+stdio handling and terminal transport-invalid rejection remain unchanged.
+
 ## Audited historical transcript path recovery (0.52.1)
 
 Migration `0038_transcript_recovery` retains original path assertions and adds an

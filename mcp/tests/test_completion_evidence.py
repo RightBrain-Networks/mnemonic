@@ -1783,10 +1783,24 @@ def test_real_stdio_semantic_error_emits_no_response_and_never_logs_caller_conte
         env=_stdio_subprocess_environment(),
     )
     assert completed.returncode == 0
-    records = completed.stdout.splitlines()
-    assert len(records) == 1
-    assert json.loads(records[0])["id"] == 2
-    assert marker.encode() not in completed.stderr
+    records = [json.loads(line) for line in completed.stdout.splitlines()]
+    responses = [record for record in records if "id" in record]
+    assert len(responses) == 1 and responses[0]["id"] == 2
+    assert "result" in responses[0]
+    # The pinned SDK may flush this fixed notification before EOF cancels its
+    # handlers. It is never a correlated response to the invalid request.
+    safe_notification = {
+        "jsonrpc": "2.0",
+        "method": "notifications/message",
+        "params": {
+            "level": "error",
+            "logger": "mcp.server.exception_handler",
+            "data": "Internal Server Error",
+        },
+    }
+    assert len(records) in {1, 2}
+    assert all(record in [responses[0], safe_notification] for record in records)
+    assert marker.encode() not in completed.stdout + completed.stderr
     assert b"MCP stream message was invalid." in completed.stderr
 
 
