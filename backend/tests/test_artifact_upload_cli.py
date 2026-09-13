@@ -166,7 +166,7 @@ def prepare(server: UploadServer, tmp_path: Path, *args: str, script: Path = SCR
     )
     assert result.returncode == 0, result.stderr
     assert not server.requests
-    assert len(result.stdout) < 800
+    assert len(result.stdout) < 1800  # Includes exact metadata for MCP grant issuance.
     return request_dir
 
 
@@ -416,7 +416,7 @@ def test_empty_and_above_mcp_limit_files_stay_out_of_output(
         "pytest",
     )
     assert result.returncode == 0, result.stderr
-    assert len(result.stdout) < 800
+    assert len(result.stdout) < 1800  # Includes exact metadata for MCP grant issuance.
     source.unlink()
     result = cli("send", "--request-dir", str(request_dir))
     assert result.returncode == 0, result.stderr

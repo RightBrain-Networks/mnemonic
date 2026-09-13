@@ -39,7 +39,8 @@ async def _status(api: MnemonicAPI) -> ArtifactToolStatus:
             f"Artifact library enabled. Configured upload limit: {status.max_bytes} bytes "
             f"(MNEMONIC_ARTIFACT_MAX_BYTES). MCP transfer limit: {MCP_ARTIFACT_MAX_BYTES} "
             f"bytes (64 MiB); effective new MCP upload limit: {effective} bytes. "
-            "Use the authenticated binary API/dashboard for larger configured transfers. "
+            "Use the raw upload helper with authorize_artifact_upload, or the authenticated "
+            "binary API/dashboard, for larger configured transfers. "
             "Existing downloads and exact receipt replay are not subject to a lowered "
             "positive upload limit; the MCP transfer limit still applies."
         ),

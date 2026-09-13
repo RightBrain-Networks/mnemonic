@@ -665,6 +665,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "get_transcript_text", "download_transcript",
         "list_artifacts", "get_artifact", "get_artifact_text",
         "list_artifact_history", "download_artifact",
+        "authorize_artifact_upload",
         "search_artifact_contents", "upload_artifact", "replace_artifact", "delete_artifact", "update_artifact",
         "list_code_reviews", "get_code_review", "complete_code_review",
         "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
@@ -773,7 +774,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 54
+    assert len(tools) == 55
     for name in mutating:
         assert tools[name].annotations.idempotentHint is (name in protected)
     for name in tools.keys() - mutating:
@@ -825,8 +826,12 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
     assert project_page_schema["additionalProperties"] is False
     assert project_page_schema["$defs"]["Project"]["additionalProperties"] is False
 
-    for name in tools.keys() - {"list_projects", "create_project"}:
+    for name in tools.keys() - {"list_projects", "create_project", "authorize_artifact_upload"}:
         assert "project_id" in tools[name].inputSchema["required"]
+    grant_schema = tools["authorize_artifact_upload"].inputSchema
+    assert grant_schema["required"] == ["intent"]
+    assert "project_id" in grant_schema["$defs"]["UploadIntent"]["required"]
+    assert "client_operation_id" in grant_schema["$defs"]["UploadIntent"]["required"]
 
     claim_fields = {
         "session_transcript",

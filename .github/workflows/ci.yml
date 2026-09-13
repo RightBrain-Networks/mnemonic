@@ -180,6 +180,8 @@ jobs:
           cache-dependency-glob: backend/uv.lock
       - name: Install backend
         run: uv sync --project backend --frozen
+      - name: Install separate MCP environment for upload integration
+        run: uv sync --project mcp --frozen
       - name: Run backend tests
         working-directory: backend
         # Each xdist worker is its own process, so the session fixture hands it

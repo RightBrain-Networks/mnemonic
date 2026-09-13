@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare a private file snapshot, then stream it directly to the Mnemonic API."""
+"""Prepare a private file snapshot, then stream it using an MCP upload grant."""
 
 from __future__ import annotations
 
@@ -12,8 +12,10 @@ import signal
 import stat
 import sys
 import tempfile
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from email.message import Message
 from http.client import HTTPException, HTTPResponse
 from pathlib import Path
@@ -30,6 +32,8 @@ MAX_CONTENT_BYTES = 1024 * 1024 * 1024
 MAX_JSON_BYTES = 64 * 1024
 REQUEST_SECONDS = 180
 SOCKET_SECONDS = 30
+GRANTED_REQUEST_SECONDS = 330
+GRANTED_SOCKET_SECONDS = 310
 PRESERVE_REQUEST = (
     "Keep the prepared request directory unchanged; never generate a new operation UUID "
     "for this intent. After an unknown outcome, send that same directory at most once more, "
@@ -62,19 +66,25 @@ def api_origin(value: str | None) -> str:
         valid = (
             parsed.scheme in {"http", "https"}
             and parsed.hostname
-            and (parsed.username is None and parsed.password is None and parsed.port != 0)
+            and (
+                parsed.username is None and parsed.password is None and parsed.port != 0
+            )
         )
     except ValueError:
         valid = False
     if not valid or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
-        raise UploadError("The API URL must be an HTTP(S) origin without credentials or a path.")
+        raise UploadError(
+            "The API URL must be an HTTP(S) origin without credentials or a path."
+        )
     return value.rstrip("/")
 
 
 def credential() -> str:
     key = os.environ.get("MNEMONIC_API_KEY", "")
     if not key or any(ord(char) <= 32 or ord(char) > 126 for char in key):
-        raise UploadError("Provision MNEMONIC_API_KEY in the client process environment.")
+        raise UploadError(
+            "Provision MNEMONIC_API_KEY in the client process environment."
+        )
     return key
 
 
@@ -110,13 +120,23 @@ def metadata_of(args: argparse.Namespace) -> dict[str, Any]:
         ("actor_client", 80),
     ):
         value = values[field]
-        if not value.strip() or len(value) > limit or any(ord(char) < 32 for char in value):
-            raise UploadError(f"{field} must be nonblank, control-free, at most {limit} chars.")
+        if (
+            not value.strip()
+            or len(value) > limit
+            or any(ord(char) < 32 for char in value)
+        ):
+            raise UploadError(
+                f"{field} must be nonblank, control-free, at most {limit} chars."
+            )
     if "/" in values["filename"] or "\\" in values["filename"]:
-        raise UploadError("Filename must be a basename; the API validates its storage policy.")
+        raise UploadError(
+            "Filename must be a basename; the API validates its storage policy."
+        )
     if args.description is not None:
         if len(args.description) > 4000 or "\x00" in args.description:
-            raise UploadError("Description must be at most 4000 characters without NUL.")
+            raise UploadError(
+                "Description must be at most 4000 characters without NUL."
+            )
         values["description"] = args.description
     for field in (
         "work_item_id",
@@ -152,7 +172,9 @@ def regular_file(path: Path) -> Iterator[BinaryIO]:
     descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
     with os.fdopen(descriptor, "rb") as source:
         if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
-            raise UploadError("Source and prepared request files must be regular files.")
+            raise UploadError(
+                "Source and prepared request files must be regular files."
+            )
         yield source
 
 
@@ -161,7 +183,9 @@ def copy_content(source: BinaryIO, destination: BinaryIO) -> tuple[int, str]:
     while chunk := source.read(CHUNK_BYTES):
         size += len(chunk)
         if size > MAX_CONTENT_BYTES:
-            raise UploadError("This client supports files up to 1 GiB; API limits may be lower.")
+            raise UploadError(
+                "This client supports files up to 1 GiB; API limits may be lower."
+            )
         destination.write(chunk)
         digest.update(chunk)
     destination.flush()
@@ -169,7 +193,7 @@ def copy_content(source: BinaryIO, destination: BinaryIO) -> tuple[int, str]:
 
 
 def prepare(args: argparse.Namespace) -> dict[str, Any]:
-    origin = api_origin(args.api_url)
+    origin = api_origin(args.api_url) if args.api_url else None
     if (args.artifact_id is None) != (args.expected_revision is None) or (
         args.expected_revision is not None and args.expected_revision < 1
     ):
@@ -213,7 +237,12 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
-    return {"status": "prepared", "request_dir": str(request_dir), **summary(manifest)}
+    return {
+        "status": "prepared",
+        "request_dir": str(request_dir),
+        "upload_intent": upload_intent(manifest),
+        **summary(manifest),
+    }
 
 
 def summary(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -239,7 +268,8 @@ def load_request(request_dir: Path) -> dict[str, Any]:
     if len(raw) > MAX_JSON_BYTES:
         raise UploadError("Prepared request metadata exceeds its limit.")
     manifest = decode_json(raw)
-    api_origin(manifest["api_origin"])
+    if manifest["api_origin"] is not None:
+        api_origin(manifest["api_origin"])
     for field in ("project_id", "client_operation_id"):
         if str(UUID(manifest[field])) != manifest[field]:
             raise ValueError("Noncanonical request identity")
@@ -263,7 +293,9 @@ def load_request(request_dir: Path) -> dict[str, Any]:
 def header(response: HTTPResponse, name: str) -> str | None:
     values = response.headers.get_all(name, [])
     if len(values) > 1:
-        raise UploadError("The API returned ambiguous response headers. " + PRESERVE_REQUEST)
+        raise UploadError(
+            "The API returned ambiguous response headers. " + PRESERVE_REQUEST
+        )
     return values[0] if values else None
 
 
@@ -279,7 +311,10 @@ def response_json(response: HTTPResponse) -> dict[str, Any]:
     length = header(response, "Content-Length")
     if length is not None and (
         not re.fullmatch(r"[0-9]{1,12}", length)
-        or (int(length) > MAX_JSON_BYTES or header(response, "Transfer-Encoding") is not None)
+        or (
+            int(length) > MAX_JSON_BYTES
+            or header(response, "Transfer-Encoding") is not None
+        )
     ):
         raise ValueError("Invalid response framing")
     raw = response.read(MAX_JSON_BYTES + 1)
@@ -324,7 +359,10 @@ def verify_receipt(response: HTTPResponse, manifest: dict[str, Any]) -> dict[str
         raise ValueError("Unexpected receipt headers")
     result = response_json(response)
     for field in ("project_id", "revision", "size_bytes", "sha256"):
-        if type(result.get(field)) is not type(expected[field]) or result[field] != expected[field]:
+        if (
+            type(result.get(field)) is not type(expected[field])
+            or result[field] != expected[field]
+        ):
             raise ValueError("Receipt identity mismatch")
     if (
         result.get("id") != expected["artifact_id"]
@@ -345,21 +383,26 @@ def http_failure(error: HTTPError) -> UploadError:
         code = detail.get("code")
     except (ValueError, TypeError, AttributeError, RecursionError, UploadError):
         code = None
-    if error.code == 503 and code == "artifact_storage_unavailable":
-        message = "Artifact storage needs operator repair. Stop retries until it is repaired. "
+    if error.code == 401 and code == "artifact_upload_grant_invalid":
+        message = "Upload grant expired or invalid. Reauthorize the exact upload_intent via MCP. "
+    elif code == "artifact_upload_content_mismatch":
+        message = "Transferred bytes did not match the grant. Stop and reconcile. "
+    elif error.code == 503 and code == "artifact_storage_unavailable":
+        boundary = detail.get("context", {})
+        local = isinstance(boundary, dict) and boundary.get("storage_boundary") == "mcp_upload_staging"
+        location = "MCP temporary upload storage" if local else "Artifact storage"
+        message = f"{location} needs operator repair. Stop retries until it is repaired. "
     elif error.code == 409 and code == "artifact_revision_conflict":
+        message = "Artifact revision changed. Read current metadata before a new replacement intent. "
+    elif error.code == 409 and code in {"artifact_operation_conflict", "client_operation_conflict"}:
         message = (
-            "Artifact revision changed. Read current metadata before a new replacement intent. "
+            "Operation UUID conflicts with a different request. Stop this intent. "
         )
-    elif error.code == 409 and code == "artifact_operation_conflict":
-        message = "Operation UUID conflicts with a different request. Stop this intent. "
     elif error.code in {413, 503} and code in {
         "artifact_too_large",
         "artifact_library_disabled",
     }:
-        message = (
-            "The API size/availability policy refused the upload. Read /api/v1/artifacts/status. "
-        )
+        message = "The API size/availability policy refused the upload. Read /api/v1/artifacts/status. "
     elif 300 <= error.code < 400:
         message = "The API redirected the request; redirects are refused. "
     else:
@@ -368,22 +411,27 @@ def http_failure(error: HTTPError) -> UploadError:
 
 
 def deadline_expired(signum: int, frame: FrameType | None) -> None:
-    raise UploadError("Upload outcome is unknown: request time limit exceeded. " + PRESERVE_REQUEST)
+    raise UploadError(
+        "Upload outcome is unknown: request time limit exceeded. " + PRESERVE_REQUEST
+    )
 
 
 @contextmanager
-def request_deadline() -> Iterator[None]:
+def request_deadline(seconds: int = REQUEST_SECONDS) -> Iterator[None]:
     if (
         os.name != "posix"
         or not hasattr(signal, "setitimer")
-        or (current_thread() is not main_thread() or any(signal.getitimer(signal.ITIMER_REAL)))
+        or (
+            current_thread() is not main_thread()
+            or any(signal.getitimer(signal.ITIMER_REAL))
+        )
     ):
         raise UploadError(
             "Run this client on Linux/macOS in the main thread without an active timer."
         )
     previous = signal.signal(signal.SIGALRM, deadline_expired)
     try:
-        signal.setitimer(signal.ITIMER_REAL, REQUEST_SECONDS)
+        signal.setitimer(signal.ITIMER_REAL, seconds)
         yield
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
@@ -393,7 +441,9 @@ def request_deadline() -> Iterator[None]:
 def transmit(manifest: dict[str, Any], content: BinaryIO, key: str) -> dict[str, Any]:
     metadata = validate_metadata(manifest["metadata"])
     if key in encode_json(manifest):
-        raise UploadError("Prepared request metadata must not contain the API credential.")
+        raise UploadError(
+            "Prepared request metadata must not contain the API credential."
+        )
     url = f"{manifest['api_origin']}/api/v1/projects/{manifest['project_id']}/artifacts"
     headers = {
         "Authorization": f"Bearer {key}",
@@ -408,11 +458,112 @@ def transmit(manifest: dict[str, Any], content: BinaryIO, key: str) -> dict[str,
         url += f"/{manifest['artifact_id']}/content"
         method = "PUT"
         headers["X-Artifact-Expected-Revision"] = str(manifest["expected_revision"])
-    opener = build_opener(ProxyHandler({}), NoRedirects())
     request = Request(url, data=content, headers=headers, method=method)
-    with request_deadline():
+    return transmit_request(request, manifest)
+
+
+def upload_intent(manifest: dict[str, Any]) -> dict[str, Any]:
+    return {
+        field: manifest[field]
+        for field in (
+            "project_id",
+            "client_operation_id",
+            "artifact_id",
+            "expected_revision",
+            "size_bytes",
+            "sha256",
+            "metadata",
+        )
+    }
+
+
+def load_grant(path: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    with regular_file(path) as source:
+        if os.fstat(source.fileno()).st_mode & 0o077:
+            raise UploadError(
+                "Grant file must have owner-only permissions (chmod 600)."
+            )
+        raw = source.read(MAX_JSON_BYTES + 1)
+    if len(raw) > MAX_JSON_BYTES:
+        raise UploadError("Upload grant exceeds its limit.")
+    grant = decode_json(raw)
+    if set(grant) != {
+        "upload_url",
+        "upload_token",
+        "expires_at",
+        "intent",
+        "artifact_library",
+    }:
+        raise UploadError(
+            "Save the exact structured authorize_artifact_upload result as the grant."
+        )
+    requested = json.dumps(upload_intent(manifest), sort_keys=True, ensure_ascii=True)
+    granted = json.dumps(grant["intent"], sort_keys=True, ensure_ascii=True)
+    if requested != granted:
+        raise UploadError(
+            "Grant does not match the frozen upload intent. " + PRESERVE_REQUEST
+        )
+    url = urlsplit(grant["upload_url"])
+    if (
+        url.scheme not in {"http", "https"}
+        or not url.hostname
+        or url.port == 0
+        or url.username is not None
+        or url.password is not None
+        or not url.path
+        or url.query
+        or url.fragment
+        or any(ord(char) <= 32 or ord(char) >= 127 for char in grant["upload_url"])
+    ):
+        raise UploadError(
+            "Grant must supply an HTTP(S) MCP endpoint without credentials or query."
+        )
+    token = grant["upload_token"]
+    if not isinstance(token, str) or not re.fullmatch(
+        r"v1\.[0-9]{1,12}\.[0-9a-f]{64}", token
+    ):
+        raise UploadError("Invalid upload grant token.")
+    expires = datetime.fromisoformat(grant["expires_at"].replace("Z", "+00:00"))
+    if expires.tzinfo is None or expires.timestamp() != int(token.split(".")[1]):
+        raise UploadError("Invalid upload grant expiry.")
+    if expires.timestamp() <= time.time():
+        raise UploadError(
+            "Upload grant expired. Reauthorize the exact upload_intent through MCP; "
+            "keep the prepared directory and operation UUID unchanged."
+        )
+    if token in encode_json(manifest):
+        raise UploadError("Frozen request metadata must not contain the upload token.")
+    return grant
+
+
+def transmit_granted(
+    manifest: dict[str, Any],
+    content: BinaryIO,
+    grant: dict[str, Any],
+) -> dict[str, Any]:
+    headers = {
+        "Authorization": f"MnemonicUpload {grant['upload_token']}",
+        "X-Artifact-Upload-Intent": encode_json(upload_intent(manifest)),
+        "Accept-Encoding": "identity",
+        "Content-Type": "application/octet-stream",
+        "Content-Length": str(manifest["size_bytes"]),
+    }
+    request = Request(grant["upload_url"], data=content, headers=headers, method="POST")
+    return transmit_request(request, manifest, granted=True)
+
+
+def transmit_request(
+    request: Request,
+    manifest: dict[str, Any],
+    *,
+    granted: bool = False,
+) -> dict[str, Any]:
+    opener = build_opener(ProxyHandler({}), NoRedirects())
+    deadline = GRANTED_REQUEST_SECONDS if granted else REQUEST_SECONDS
+    socket_timeout = GRANTED_SOCKET_SECONDS if granted else SOCKET_SECONDS
+    with request_deadline(deadline):
         try:
-            with opener.open(request, timeout=SOCKET_SECONDS) as response:
+            with opener.open(request, timeout=socket_timeout) as response:
                 return verify_receipt(response, manifest)
         except HTTPError as error:
             try:
@@ -423,7 +574,13 @@ def transmit(manifest: dict[str, Any], content: BinaryIO, key: str) -> dict[str,
 
 def send(args: argparse.Namespace) -> dict[str, Any]:
     manifest = load_request(args.request_dir)
-    key = credential()
+    grant = load_grant(args.grant_file, manifest) if args.grant_file else None
+    if grant is None and manifest["api_origin"] is None:
+        raise UploadError(
+            "Authorize the prepared upload_intent with authorize_artifact_upload "
+            "and supply its private --grant-file. No API key is needed."
+        )
+    key = credential() if grant is None else None
     # Verify and send a private per-attempt copy. The source path is never revisited,
     # and changing the retained snapshot during HTTP cannot change transmitted bytes.
     with (
@@ -432,8 +589,13 @@ def send(args: argparse.Namespace) -> dict[str, Any]:
     ):
         size, digest = copy_content(source, content)
         if size != manifest["size_bytes"] or digest != manifest["sha256"]:
-            raise UploadError("Prepared content changed. Stop; do not regenerate this request.")
+            raise UploadError(
+                "Prepared content changed. Stop; do not regenerate this request."
+            )
         content.seek(0)
+        if grant is not None:
+            return transmit_granted(manifest, content, grant)
+        assert key is not None
         return transmit(manifest, content, key)
 
 
@@ -444,12 +606,16 @@ def main() -> int:
         "prepare", help="Freeze bytes and metadata locally; no HTTP calls"
     )
     staging.add_argument("--api-url", default=os.environ.get("MNEMONIC_API_URL"))
-    staging.add_argument("--request-dir", type=Path, required=True, help="New private directory")
+    staging.add_argument(
+        "--request-dir", type=Path, required=True, help="New private directory"
+    )
     staging.add_argument(
         "--source", type=Path, required=True, help="Local regular file; never printed"
     )
     staging.add_argument("--project-id", type=UUID, required=True)
-    staging.add_argument("--client-operation-id", type=UUID, help="Default: generate once locally")
+    staging.add_argument(
+        "--client-operation-id", type=UUID, help="Default: generate once locally"
+    )
     staging.add_argument("--agent-session-id", required=True)
     staging.add_argument("--actor-client", required=True)
     staging.add_argument(
@@ -466,13 +632,22 @@ def main() -> int:
     staging.add_argument(
         "--related-artifact-id", dest="related_artifact_ids", type=UUID, action="append"
     )
-    staging.add_argument("--sensitive", action=argparse.BooleanOptionalAction, default=None)
-    staging.add_argument("--artifact-id", type=UUID, help="Replace this existing artifact")
-    staging.add_argument("--expected-revision", type=int, help="Revision just read for replacement")
+    staging.add_argument(
+        "--sensitive", action=argparse.BooleanOptionalAction, default=None
+    )
+    staging.add_argument(
+        "--artifact-id", type=UUID, help="Replace this existing artifact"
+    )
+    staging.add_argument(
+        "--expected-revision", type=int, help="Revision just read for replacement"
+    )
     sending = commands.add_parser(
         "send", help="Send prepared bytes once; never retries automatically"
     )
     sending.add_argument("--request-dir", type=Path, required=True)
+    sending.add_argument(
+        "--grant-file", type=Path, help="Private MCP upload grant JSON"
+    )
     args = parser.parse_args()
     try:
         result = prepare(args) if args.command == "prepare" else send(args)

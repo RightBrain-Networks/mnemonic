@@ -9,14 +9,14 @@ runs in the background, independently of upload completion.
 
 ## Availability and limits
 
-Every artifact tool checks the library's status first. Successful results add
+Artifact tools preflight the library configuration. Successful results add
 `artifact_library` with `enabled`, `max_bytes` (the configured upload limit),
 `mcp_transfer_max_bytes`, `effective_upload_max_bytes`, and an explicit message.
 Do not assume the default 64 MiB upload limit: the operator sets
 `MNEMONIC_ARTIFACT_MAX_BYTES` in `.env`. MCP also has a separate 64 MiB decoded
 transfer ceiling because base64 and SDK responses consume additional memory.
 Use the reported effective limit for new MCP uploads; larger configured files
-require the authenticated binary API/dashboard.
+can use the grant-based raw upload helper or authenticated binary API/dashboard.
 Check with a metadata-only call before preparing a large transfer. Malformed or
 over-90-MiB protocol frames can be refused before tool dispatch; some clients
 surface only connection closure or HTTP 413 at that hard transport boundary.
@@ -192,45 +192,52 @@ stops on the same challenge. After explicit human approval only, repeat it with
 
 ## Save and replace
 
-For a local file, run the bundled
-[upload helper](${CLAUDE_PLUGIN_ROOT}/scripts/upload_artifact.py) with Python 3.10+
-on Linux/macOS. Resolve its absolute path from this resource link first. The same
-helper is available as `scripts/upload_artifact.py` in the Mnemonic checkout.
-It streams original bytes directly to the API, keeping base64 out of the agent's
-session. Never print/base64-encode a file into tool output or read encoded content
-to populate `upload_artifact` or `replace_artifact` arguments. Those MCP tools are
-for clients that can supply bytes programmatically outside model context.
+For a local file, resolve the bundled
+[upload helper](${CLAUDE_PLUGIN_ROOT}/scripts/upload_artifact.py) and run it with
+Python 3.10+ on Linux/macOS. No API origin or standing API key is needed for this
+workflow. Never inspect client credential files or print/read base64 into context.
 
-Use the operator's reachable API origin and explicitly provisioned
-`MNEMONIC_API_KEY` environment, as for direct downloads. Do not infer the API port
-from the MCP URL or inspect client credential files. If this environment is
-missing, ask the operator to provision it.
-
-Run the helper's `prepare` command with `--api-url` (or `MNEMONIC_API_URL`),
-`--project-id`, `--source`, `--request-dir` pointing to a new private directory
-outside Git, and truthful `--agent-session-id` and `--actor-client`. The parent
-directory must exist. Include a brief `--description` and originating
-`--work-item-id` where applicable; repeat `--related-work-item-id` and
-`--related-artifact-id` only for known relationships. Use `--sensitive` when the
-human-approval hint applies. `--filename` defaults to the source basename.
-Preparation freezes bytes and metadata locally and generates one operation UUID;
-it makes no API calls and does not mean the artifact was saved. Then run:
+1. Run `prepare` with `--project-id`, `--source`, `--request-dir` naming a new
+   private directory outside Git, and truthful `--agent-session-id` and
+   `--actor-client`. Its parent must exist. Include a brief `--description`,
+   originating `--work-item-id`, and known `--related-work-item-id` /
+   `--related-artifact-id` relationships. `--sensitive` sets the human-approval
+   classification; `--filename` defaults to the safe source basename.
+2. Pass the exact returned `upload_intent` to
+   `authorize_artifact_upload(intent=...)` through the connected MCP server.
+   This authorizes one immutable upload/replacement; it does not upload bytes.
+3. Save the exact structured grant result as a mode-0600 JSON file outside the
+   frozen request directory. Keep its token out of command arguments, URLs,
+   checkpoints and logs. Run:
 
 ```sh
-python3 /absolute/path/to/upload_artifact.py send --request-dir /private/prepared-request
+python3 /absolute/path/to/upload_artifact.py send \
+  --request-dir /private/prepared-request --grant-file /private/upload-grant.json
 ```
 
-`send` uses the frozen API origin, sends one authenticated raw-byte request, and
-prints only validated receipt IDs, revision, size, checksum and replay status.
-The helper never retries automatically. Retain the whole request directory for
-an uncertain retry; the source file can change without changing this request.
-The directory contains private file bytes, so never commit it, print its content,
-or delete it while the outcome is uncertain. After the outcome is settled and no
-retry is needed, remove it. This client supports up to 1 GiB subject to the API's
-configured maximum. Preserve safe original filenames;
-the server rejects paths, controls, hidden/reserved names, and unsafe punctuation.
-If rejected, choose an explicit safe filename for the local source before upload.
-Do not claim that a MIME guess proves a file safe.
+The helper streams raw prepared bytes to the returned MCP endpoint, verifies the
+receipt, and prints only IDs, revision, size, checksum and replay status. It never
+retries automatically. The grant lasts five minutes and cannot authorize another
+project, bytes, metadata, operation, or any read. For an expired grant, authorize
+the same frozen intent again and save a new private grant file. This does not
+reset the one-exact-retry budget for an uncertain send.
+
+Retain the whole prepared directory unchanged for an uncertain retry; never
+rerun `prepare` or replace its operation UUID/bytes. The original source may
+change without changing this request. After the outcome is settled and no exact
+retry is needed, remove the private snapshot and grants. The helper/gateway
+support up to 1 GiB, subject to the API's configured fresh-upload maximum.
+Programmatic MCP `upload_artifact`/`replace_artifact` remain available only when
+their base64 payload is assembled outside model context.
+
+If authorization reports that a reverse proxy or stdio adapter needs
+`MNEMONIC_MCP_PUBLIC_URL`, ask the operator to configure the deployment's
+client-reachable HTTP MCP endpoint. Never guess an API port or obtain its key.
+Existing explicitly provisioned direct-API prepared requests retain their original
+retry workflow; do not convert or regenerate an uncertain request.
+
+Preserve safe original filenames; the server rejects unsafe basenames. A MIME
+guess does not prove a file safe.
 
 Read `get_artifact` before replacement, then prepare a new request with
 `--artifact-id`, the just-read `--expected-revision`, and `--filename` set to the
@@ -256,8 +263,8 @@ Upload, metadata update, replacement, and deletion each require a new `client_op
 a new intent. Retain the operation UUID and the complete exact request arguments,
 including bytes, before the first attempt. After a timeout, disconnect, or malformed
 success, make at most one exact retry with the same UUID and unchanged arguments.
-For direct uploads/replacements, repeat only `send --request-dir` against the same
-unchanged prepared directory; never rerun `prepare` for that uncertain intent.
+For local uploads/replacements, repeat `send --request-dir` with the matching grant
+against the unchanged prepared directory; never rerun `prepare` for that uncertain intent.
 If it remains unknown, stop retrying and reconcile with safe metadata/history reads.
 Never substitute a new UUID for the same uncertain intent. A replay returns the
 original receipt, so reread current metadata before further edits. After a definitive

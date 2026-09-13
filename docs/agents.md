@@ -7,7 +7,7 @@ For code reviews, branch by temperature before ordinary recall: the
 [code-review protocol](code-reviews.md) governs mandatory handoff, durable
 originating-session recommendation answers, minimal cold coordination, warm
 adversarial review and one atomic remediation. Reviews are not implementation
-closeouts. The current catalog is 54 tools and seventeen protected writes.
+closeouts. The current catalog is 55 tools and seventeen protected writes.
 The [artifact library](artifacts.md) adds project file upload/download, atomic
 replacement, permanent content deletion, and searchable retained metadata/audit.
 Use `get_artifact_text` to page normalized text at a required current revision;
@@ -17,7 +17,7 @@ Link originating and related work during upload so ordinary recall discovers fil
 
 Mnemonic Phase 12 requires an agent-authored human report on every fresh Done,
 Won’t do, or Promoted closeout. Read current project settings before authoring,
-then submit the report inside the existing closeout intent. The 54-tool MCP
+then submit the report inside the existing closeout intent. The 55-tool MCP
 catalog adds four safe reads for settings, durable project activity, and report
 history; reviews add four reads and two protected writes, totaling sixteen. Human dismissal and manual
 follow-ups belong in the dashboard’s Summaries page, immediately below Needs
@@ -156,7 +156,7 @@ mixed-client workflow.
 
 ## Protect mutation intents and recover unknown outcomes
 
-The sixteen protected MCP mutations require a caller-generated UUID in the
+The seventeen protected MCP mutations require a caller-generated UUID in the
 top-level `client_operation_id` argument:
 
 - `create_work`;
@@ -174,7 +174,8 @@ top-level `client_operation_id` argument:
 - `complete_code_review`;
 - `upload_artifact`;
 - `replace_artifact`;
-- `delete_artifact`.
+- `delete_artifact`;
+- `update_artifact`.
 
 Before the first attempt, generate one fresh random UUID and retain it together
 with the complete, exact tool name and argument object in private client-local
@@ -880,3 +881,13 @@ A worker that never consults Mnemonic is uncoordinated; exact lookup is optional
 consumer practice, not cross-system mutual exclusion. External and internal
 suggestions are separate advisory lists; missing or failed comparison still allows
 Create anyway and external records never go to `merge_work`.
+
+## Local artifact upload authorization
+
+For a local file, run the bundled upload helper's `prepare`, call
+`authorize_artifact_upload` with its exact `upload_intent`, save the returned
+structured grant privately, and run `send --grant-file`. No API credential or
+origin is required in the client shell. Preparation and grant issuance are not
+upload success; wait for the helper's verified receipt. Preserve the frozen
+request, operation UUID and one uncertain-retry budget even if an expired grant
+must be refreshed. See [the upload workflow](artifact-upload-client.md).
