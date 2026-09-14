@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from mnemonic_api.application import create_app
 
+from .test_transcript_disk_index import snapshot_directory
 from .test_transcript_indexing_postgres import collection
 from .test_transcript_search_postgres import body_reads, search, seed_transcripts
 from .test_transcript_search_postgres import (
@@ -30,7 +31,7 @@ def disk_api(api, engine, directory, *, limit=536_870_912):
 def test_large_library_uses_configured_disk_directory(api, project, postgres_engine, tmp_path):
     with disk_api(api, postgres_engine, tmp_path) as client:
         check_large(client, project, postgres_engine)
-        assert (tmp_path / "snapshot" / "meta.json").is_file()
+        assert (snapshot_directory(tmp_path) / "meta.json").is_file()
 
 
 def test_restart_reuses_validated_corpus_but_still_enforces_configured_budget(
@@ -62,7 +63,7 @@ def test_rebuild_clears_disk_snapshot_and_keeps_configured_storage(
     with disk_api(api, postgres_engine, tmp_path) as client:
         assert search(client, project).status_code == 200
         index = client.app.state.transcript_search_index
-        assert (tmp_path / "snapshot" / "meta.json").exists()
+        assert (snapshot_directory(tmp_path) / "meta.json").exists()
         response = client.post(collection(project) + "/rebuild",
                                json={"client_operation_id": str(uuid4())})
         assert response.status_code == 200, response.text
@@ -70,4 +71,4 @@ def test_rebuild_clears_disk_snapshot_and_keeps_configured_storage(
         assert client.app.state.transcript_search_index is index
         retained = search(client, project).json()
         assert retained["total"] == 1 and retained["indexing_incomplete"]
-        assert (tmp_path / "snapshot" / "meta.json").exists()
+        assert (snapshot_directory(tmp_path) / "meta.json").exists()

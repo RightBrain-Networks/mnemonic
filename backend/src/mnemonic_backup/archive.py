@@ -13,6 +13,7 @@ from sqlalchemy.exc import DBAPIError
 
 from mnemonic_backup.archive_format import FORMAT, read_archive, write_archive
 from mnemonic_backup.archive_integrity import validate_integrity
+from mnemonic_backup.archive_recovery import validate_recovery_rows
 from mnemonic_backup.archive_schema import (
     HEAD,
     BackupError,
@@ -67,6 +68,10 @@ def restore_project(
     validate_ownership(restored, project)
     validate_identities(restored)
     reject_pending(restored)
+    # Check the authored approval against the archived generation before its
+    # delivery fence advances; a future forged approval must not become valid
+    # merely because restore creates a fresh job generation.
+    validate_recovery_rows(restored)
     # A restored sequence prefix is a new stream, even when its last sequence
     # happens to equal a previously issued cursor. Other projects keep theirs.
     for head in restored["project_activity_heads"]:

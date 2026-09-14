@@ -12,14 +12,14 @@ import os
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0037_background_jobs"
+HEAD = "0038_transcript_recovery"
 REVIEW_HEAD = "0024_code_reviews"
 SUPPORTED_HEADS = (REVIEW_HEAD, "0025_cross_project_relationships", "0026_artifact_library",
                    "0027_artifact_fulltext", "0028_work_summary_limit",
                    "0029_artifact_links_sensitive", "0030_question_versions",
                    "0031_review_decisions", "0032_agent_transcripts", "0033_transcript_imports",
                    "0034_variable_work_leases", "0035_prompt_library",
-                   "0036_transcript_copies", HEAD)
+                   "0036_transcript_copies", "0037_background_jobs", HEAD)
 CHECKS = {
     "lifecycle_event_witness_mismatch": """
         SELECT count(*) FROM work_events event
@@ -241,7 +241,9 @@ HUMAN_DECISION_CHECKS = {
 
 def checks_for_head(schema_head: str) -> dict[str, str]:
     human_decision_heads = {
-        "0031_review_decisions", "0032_agent_transcripts", "0033_transcript_imports", HEAD,
+        "0031_review_decisions", "0032_agent_transcripts", "0033_transcript_imports",
+        "0034_variable_work_leases", "0035_prompt_library", "0036_transcript_copies",
+        "0037_background_jobs", HEAD,
     }
     return {**CHECKS, **(HUMAN_DECISION_CHECKS if schema_head in human_decision_heads else {})}
 

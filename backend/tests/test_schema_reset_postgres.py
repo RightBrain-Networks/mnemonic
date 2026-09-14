@@ -3,7 +3,7 @@
 import json
 import runpy
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import alembic.command
 import pytest
@@ -13,6 +13,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError
 
 from mnemonic_api.artifact_storage import ArtifactStorage
+from mnemonic_api.services import transcript_recoveries as recovery
 
 from .conftest import (
     _RESET_PLANS,
@@ -90,6 +91,7 @@ _GUARDED_TABLES = (
     "job_completion_report_reviews",
     "job_completion_report_follow_ups",
     "project_job_completion_report_counts",
+    "transcript_recoveries",
 )
 _POPULATED_TABLES = (
     *(table for table in _GUARDED_TABLES if table not in {
@@ -106,7 +108,7 @@ _POPULATED_TABLES = (
         "work_item_moves",
         "work_report_provenance_heads",
     }),
-    "checkpoints", "projects", "work_items",
+    "checkpoints", "projects", "work_items", "transcripts", "transcript_imports", "background_jobs",
 )
 
 
@@ -189,7 +191,7 @@ def _row_counts(engine: Engine) -> dict[str, int]:
         }
 
 
-def _complete_with_evidence(api: TestClient, work_payload: dict) -> None:
+def _complete_with_evidence(api: TestClient, work_payload: dict) -> UUID:
     """Populate every table a completion touches, guarded history included."""
     project = api.post("/api/v1/projects", json={"name": "Schema reset fixture"})
     assert project.status_code == 201, project.text
@@ -239,6 +241,36 @@ def _complete_with_evidence(api: TestClient, work_payload: dict) -> None:
         })},
     )
     assert uploaded.status_code == 201, uploaded.text
+    return UUID(project.json()["id"])
+
+
+def _recover_transcript(api: TestClient, project_id: UUID, directory: Path) -> None:
+    """Populate real recovery history and its outbox through the guarded operator service."""
+    directory.mkdir()
+    original, replacement = directory / "original.jsonl", directory / "replacement.jsonl"
+    original.write_bytes(b'{"role":"user","content":"Synthetic reset recovery evidence"}\n')
+    settings, factory = api.app.state.settings, api.app.state.session_factory
+    settings.transcript_allowed_roots = [directory]
+    collection = f"/api/v1/projects/{project_id}/transcripts"
+    imported = api.post(collection + "/import", json={
+        "directory": str(directory), "client_operation_id": str(uuid4()),
+    })
+    assert imported.status_code == 200 and imported.json()["imported"] == 1, imported.text
+    records = api.get(collection)
+    assert records.status_code == 200, records.text
+    target = recovery.inspect_recovery_target(
+        factory, settings, UUID(records.json()["items"][0]["id"]), project_id)
+    original.rename(replacement)
+    fingerprint = recovery.describe_recovery_source(
+        settings, str(replacement), target.maximum_bytes)
+    recovery.apply_transcript_recovery(factory, settings, recovery.TranscriptRecoveryRequest(
+        operation_id=uuid4(), transcript_id=target.transcript_id, project_id=project_id,
+        original_source_path=target.original_source_path, replacement_path=str(replacement),
+        expected_generation=target.generation, expected_snapshot_id=target.snapshot_id,
+        expected_sha256=fingerprint.sha256, expected_size_bytes=fingerprint.size_bytes,
+        reason="Recover moved synthetic reset fixture",
+        evidence="The test moved the exact original file and verified its SHA-256 and size.",
+    ))
 
 
 def test_reset_of_an_intact_schema_never_replays_the_migration_chain(
@@ -303,7 +335,8 @@ def test_reset_empties_every_table_but_keeps_the_migration_head(
     api: TestClient, postgres_engine: Engine, work_payload: dict, tmp_path: Path
 ) -> None:
     api.app.state.artifact_storage = ArtifactStorage(tmp_path / "artifacts", max_bytes=1024)
-    _complete_with_evidence(api, work_payload)
+    project_id = _complete_with_evidence(api, work_payload)
+    _recover_transcript(api, project_id, tmp_path / "transcripts")
     seeded = _row_counts(postgres_engine)
     assert all(seeded[table] > 0 for table in _POPULATED_TABLES), seeded
 
@@ -328,10 +361,14 @@ def test_reset_rearms_every_truncate_guard(api: TestClient, postgres_engine: Eng
     after = _truncate_guards(postgres_engine)
     assert after == before
     assert set(after.values()) == {"O"}, after
-    with pytest.raises(DBAPIError) as rejected:
-        with postgres_engine.begin() as connection:
-            connection.execute(text("TRUNCATE work_events CASCADE"))
-    assert "authoritative event and receipt history cannot be truncated" in str(rejected.value)
+    for table, message in (
+        ("work_events", "authoritative event and receipt history cannot be truncated"),
+        ("transcript_recoveries", "transcript recovery history is immutable"),
+    ):
+        with pytest.raises(DBAPIError) as rejected:
+            with postgres_engine.begin() as connection:
+                connection.execute(text(f"TRUNCATE {table} CASCADE"))
+        assert message in str(rejected.value)
 
 
 def test_a_failed_reset_leaves_the_guards_armed(

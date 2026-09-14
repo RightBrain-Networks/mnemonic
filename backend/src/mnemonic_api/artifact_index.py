@@ -188,7 +188,9 @@ class ArtifactSearchIndex:
         )
 
     def _load_or_build(self, key: str, documents: Callable[[], Iterable[SearchDocument]]):
-        storage_key = f"{version('tantivy')}:schema1:{key}"
+        # Generation-isolated disk layout invalidates the old flat derived
+        # cache; PostgreSQL documents remain the source of truth.
+        storage_key = f"{version('tantivy')}:schema1:generation1:{key}"
         if self._storage is not None and self._storage.reusable(storage_key):
             try:
                 # The constructor's reuse=True also creates an empty index
@@ -201,6 +203,7 @@ class ArtifactSearchIndex:
                 return index
             except (OSError, ValueError):
                 # A damaged/incompatible derived index can be reconstructed.
+                index = None
                 self._storage.discard()
         try:
             index = self._build(documents())

@@ -1,8 +1,11 @@
 # Durable transcript copies and background jobs
 
-Application/API/MCP/dashboard 0.52.0 uses migrations `0036_transcript_copies`
-and `0037_background_jobs`. Upgrade all application processes together. The MCP
-tool catalog and agent transcript assertions are unchanged.
+Application/API/MCP/dashboard 0.52.1 uses migrations `0036_transcript_copies`,
+`0037_background_jobs`, and `0038_transcript_recovery`. Upgrade all application
+processes together. The MCP tool catalog and agent transcript assertion shape
+are unchanged. For incorrect historical paths, use the separate
+[audited recovery workflow](transcript-recovery.md); rebuilding alone cannot
+correct an agent's original assertion.
 
 ```mermaid
 flowchart LR

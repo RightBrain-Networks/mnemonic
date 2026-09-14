@@ -130,7 +130,7 @@ def test_project_activity_audit_accepts_review_events_and_checks_review_facts(
     close_work(api, project, question_work, checkpoint_fields, review=False)
     report = _audit(postgres_engine)
     assert report["result"] == "pass", report["blocking_findings"]
-    assert report["expected_head"] == "0037_background_jobs"
+    assert report["expected_head"] == "0038_transcript_recovery"
 
 
 def test_project_and_review_audits_keep_supported_0024_boundary(postgres_engine: Engine):
@@ -148,6 +148,27 @@ def test_project_and_review_audits_keep_supported_0024_boundary(postgres_engine:
         assert aggregate["expected_head"] == "0024_code_reviews"
         assert review["ok"], review
         assert review["schema_head"] == "0024_code_reviews"
+    finally:
+        with postgres_engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "head")
+
+
+@pytest.mark.parametrize("head", [
+    "0035_prompt_library", "0036_transcript_copies", "0037_background_jobs",
+])
+def test_advancing_head_retains_prompt_library_and_review_audits(postgres_engine: Engine, head):
+    reset_disposable_schema(postgres_engine)
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    try:
+        with postgres_engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.downgrade(config, head)
+        aggregate = _audit(postgres_engine, head)
+        review = _review_audit(postgres_engine)
+        assert aggregate["result"] == "pass", aggregate
+        assert review["ok"], review
+        assert "human_closed_review_has_lease" in review["findings"]
     finally:
         with postgres_engine.begin() as connection:
             config.attributes["connection"] = connection

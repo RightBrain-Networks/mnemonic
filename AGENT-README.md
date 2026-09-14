@@ -431,8 +431,8 @@ startup/investigation and estimate remaining session time for later lease reques
 within the current project bounds. Preserve exact `lease_minutes` arguments on
 uncertain claim retries.
 
-Application/API/MCP/dashboard 0.51.0, plugin 0.30.0 and Alembic
-`0035_prompt_library` ship together: 54 MCP tools, 17
+Application/API/MCP/dashboard 0.52.1, plugin 0.30.1 and Alembic
+`0038_transcript_recovery` ship together: 54 MCP tools, 17
 receipt-protected MCP writes,
 24 REST receipt kinds, 21 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
@@ -518,6 +518,17 @@ Codex agents report the exact verified rollout path using `client: "codex"` in
 `subagent_transcripts` at closeout. Use explicit null when a path is unavailable;
 do not guess filenames or change uncertain retry arguments. Primary and subagent
 rollouts use the same native JSONL format and need not share a directory.
+For either client, verify a regular native transcript file, not a workflow
+directory or temporary task output link. Claude worktree sessions may reside in
+the worktree's encoded project directory, not the main checkout's directory.
+If the real file cannot be established, use explicit null on a fresh request;
+never change a frozen assertion during an uncertain retry.
+
+After the lease ends, RabbitMQ jobs copy the file to a private durable bind and
+index the retained bytes. Rebuilds reuse that copy. Incorrect historical paths
+require [explicit operator recovery](docs/transcript-recovery.md), preserving the
+original assertion and an immutable byte-pinned approval; agents cannot silently
+correct historical paths or widen the source allowlist.
 
 The operator can mount Codex `sessions` and `archived_sessions` privately alongside
 Claude transcripts. Workspace folder imports identify both clients automatically;

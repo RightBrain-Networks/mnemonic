@@ -34,6 +34,7 @@ from mnemonic_api import code_review_db_tables as reviews
 from mnemonic_api import phase12_db_tables as phase12
 from mnemonic_api import transcript_db_tables as transcripts
 from mnemonic_api.background_job_db import job_elements
+from mnemonic_api.transcript_recovery_db import recovery_elements
 
 # The work lifecycle vocabulary. WorkItem's status_valid check constraint is the
 # database guard for the same five values.
@@ -2164,6 +2165,26 @@ class Transcript(Base):
     copy_lease_expires_at: Mapped[datetime | None]
     reindex_status: Mapped[str | None]
     reindex_error_code: Mapped[str | None]
+    recovery_operation_id: Mapped[UUID | None]
+
+
+class TranscriptRecovery(Base):
+    __table__ = Table("transcript_recoveries", Base.metadata, *recovery_elements())
+
+    operation_id: Mapped[UUID]
+    transcript_id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    original_source_path: Mapped[str]
+    replacement_path: Mapped[str]
+    expected_generation: Mapped[int]
+    expected_snapshot_id: Mapped[UUID]
+    expected_sha256: Mapped[str]
+    expected_size_bytes: Mapped[int]
+    reason: Mapped[str]
+    evidence: Mapped[str]
+    resulting_generation: Mapped[int]
+    resulting_snapshot_id: Mapped[UUID]
+    created_at: Mapped[datetime]
 
 
 class TranscriptSettings(Base):

@@ -12,12 +12,13 @@ from mnemonic_api.config import Settings
 from mnemonic_api.models import Transcript, TranscriptSettings, WorkItem
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.transcripts import transcript_project_id
-from mnemonic_api.transcript_copies import TranscriptCopy, TranscriptStorage
+from mnemonic_api.transcript_copies import TranscriptCopy, TranscriptCopyPin, TranscriptStorage
 from mnemonic_api.transcript_indexing import (
     _active_generation,
     _lock_claim_candidate,
     _resolved_path_errors,
 )
+from mnemonic_api.transcript_recovery_sources import approved_copy_source
 from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
 from mnemonic_jobs.ledger import JobContext
 
@@ -32,6 +33,7 @@ class TranscriptCopyJob:
     lease_token: UUID
     source_path: str
     maximum_bytes: int
+    expected: TranscriptCopyPin | None = None
 
 
 def claimable_copies(settings: Settings):
@@ -61,9 +63,15 @@ def _start_copy(database: Session, row, settings: Settings) -> TranscriptCopyJob
     record.copy_error_code = None
     record.copy_lease_token = uuid4()
     record.copy_lease_expires_at = now + timedelta(minutes=10)
+    try:
+        source, expected = approved_copy_source(database, record)
+    except ExtractionError as error:
+        record.copy_lease_token = record.copy_lease_expires_at = None
+        _copy_failure(record, error, now)
+        return None
     return TranscriptCopyJob(record.id, record.generation, record.snapshot_id,
-        record.copy_lease_token, record.source_path,
-        min(maximum or settings.transcript_max_bytes, settings.transcript_max_bytes))
+        record.copy_lease_token, source,
+        min(maximum or settings.transcript_max_bytes, settings.transcript_max_bytes), expected)
 
 
 def claim_transcript_copy(
@@ -167,7 +175,8 @@ def copy_next_transcript(factory: sessionmaker[Session], settings: Settings,
     copy, error = None, None
     try:
         copy = TranscriptStorage(settings.transcript_root, job.maximum_bytes).capture(
-            job.transcript_id, job.snapshot_id, job.source_path, settings.transcript_allowed_roots)
+            job.transcript_id, job.snapshot_id, job.source_path, settings.transcript_allowed_roots,
+            expected=job.expected)
     except ExtractionError as failure:
         error = failure
     complete_transcript_copy(factory, job, copy, error, context)

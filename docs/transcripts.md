@@ -1,5 +1,11 @@
 # Agent transcript indexing
 
+Release **0.52.1** adds [audited operator path recovery](transcript-recovery.md)
+for incorrect historical assertions. Migration `0038_transcript_recovery`
+preserves the reported path and records each approved replacement independently.
+Plugin **0.30.1** and portable skills require verified native file paths and warn
+against guessed worktree paths, workflow directories, and temporary task output.
+
 Release **0.52.0** copies transcripts into a private durable bind before indexing.
 RabbitMQ delivers copy, index, and backup jobs to the shared worker. Existing
 records are backfilled automatically, and rebuilds reuse retained raw bytes.
@@ -192,8 +198,10 @@ copies and retries uncopied sources; active lease generations still wait until
 they end. An uncopied source that has been deleted must be recovered before
 capture. If an agent reported the wrong directory, rebuilding preserves
 that original assertion and will still fail. Use the actual path for future claims;
-existing files can be recovered through **Import existing transcripts** using their
-real folder. Import keeps the original failed enrollment history intact.
+an operator can use [audited path recovery](transcript-recovery.md) to attach a
+verified replacement to the original enrollment without rewriting its assertion.
+**Import existing transcripts** can instead enroll a real folder independently;
+it does not repair the failed enrollment or its work linkage.
 
 The deployment follows Docker's [read-only bind mount documentation](https://docs.docker.com/engine/storage/bind-mounts/)
 and [build argument reference](https://docs.docker.com/build/building/variables/).

@@ -24,6 +24,7 @@ from mnemonic_api.services.transcripts import transcript_project_id
 from mnemonic_api.transcript_copies import TranscriptCopy, TranscriptStorage
 from mnemonic_api.transcript_detection import detect_transcript_client
 from mnemonic_api.transcript_parsers import TranscriptParserFactory
+from mnemonic_api.transcript_recovery_sources import effective_copy_path
 from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
 from mnemonic_api.transcript_storage import canonical_source_path
 from mnemonic_jobs.ledger import JobContext
@@ -64,7 +65,8 @@ def _active_generation():
 def _resolved_path_errors(settings: Settings, *, copying: bool = False):
     # Compare POSIX aliases without changing the exact agent assertion. The
     # normal reader still enforces regular files and refuses all symlinks.
-    path = func.regexp_replace(Transcript.source_path, r"/\.(?=/|$)", "", "g")
+    source_path = effective_copy_path() if copying else Transcript.source_path
+    path = func.regexp_replace(source_path, r"/\.(?=/|$)", "", "g")
     path = func.regexp_replace(path, "/+", "/", "g")
     # Path() also removes trailing separators; the root itself is not a file.
     path = func.rtrim(path, "/")

@@ -1,15 +1,30 @@
 """Private, exclusively owned disk storage for one rebuildable search snapshot."""
 
+import errno
 import fcntl
 import os
 import shutil
 import stat
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from uuid import UUID, uuid4
 
 _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _FILE = os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
 _FORMAT = b"mnemonic-transcript-search-v1\n"
 _ENTRIES = {".lock", ".format", ".key", ".key.pending", "snapshot"}
+
+
+def _generation(name: str) -> bool:
+    try:
+        return str(UUID(name)) == name
+    except ValueError:
+        return False
+
+
+def _retired(name: str) -> bool:
+    return name.startswith(".retired-") and _generation(name.removeprefix(".retired-"))
 
 
 def _private(descriptor: int, *, directory: bool = False) -> None:
@@ -37,6 +52,7 @@ class SearchIndexStorage:
         self.directory = directory
         self._root: int | None = None
         self._lock: int | None = None
+        self._snapshot: str | None = None
 
     def open(self) -> None:
         if self._root is not None:
@@ -51,6 +67,7 @@ class SearchIndexStorage:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             self._root, self._lock = root, lock
             self._identify()
+            self._cleanup_retired()
         except BaseException:
             self._root = self._lock = None
             if lock is not None:
@@ -65,7 +82,8 @@ class SearchIndexStorage:
             if entries != {".lock"}:
                 raise OSError("Index storage must be an empty dedicated directory")
             self._write(".format", _FORMAT, exclusive=True)
-        if entries - _ENTRIES or self._read(".format") != _FORMAT:
+        if any(not _retired(name) for name in entries - _ENTRIES) \
+                or self._read(".format") != _FORMAT:
             raise OSError("Index storage is not a recognized transcript cache")
 
     def _read(self, name: str) -> bytes | None:
@@ -91,10 +109,12 @@ class SearchIndexStorage:
 
     @property
     def path(self) -> str:
-        assert self._root is not None
+        assert self._root is not None and self._snapshot is not None
         # Start at the checked inode; the engine canonicalizes this path, so
         # open() also validates its ancestors before any indexed text is written.
-        return f"/proc/self/fd/{self._root}/snapshot"
+        # Never reuse an engine's canonical generation path: its queued reader
+        # callbacks can outlive config_reader(Manual), close(), and corruption.
+        return f"/proc/self/fd/{self._root}/snapshot/{self._snapshot}"
 
     def reusable(self, key: str) -> bool:
         self.open()
@@ -109,15 +129,36 @@ class SearchIndexStorage:
         return True
 
     def _check_snapshot(self) -> None:
-        descriptor = os.open("snapshot", _DIRECTORY, dir_fd=self._root)
-        try:
-            _private(descriptor, directory=True)
+        with self._snapshot_directory() as parent:
+            names = os.listdir(parent)
+            if len(names) != 1 or not _generation(names[0]):
+                raise FileNotFoundError("Missing index generation")
+            self._snapshot = names[0]
+        with self._generation_directory() as descriptor:
             for name in os.listdir(descriptor):
                 child = os.open(name, os.O_RDONLY | _FILE, dir_fd=descriptor)
                 try:
                     _private(child)
                 finally:
                     os.close(child)
+
+    @contextmanager
+    def _snapshot_directory(self) -> Iterator[int]:
+        descriptor = os.open("snapshot", _DIRECTORY, dir_fd=self._root)
+        try:
+            _private(descriptor, directory=True)
+            yield descriptor
+        finally:
+            os.close(descriptor)
+
+    @contextmanager
+    def _generation_directory(self) -> Iterator[int]:
+        assert self._snapshot is not None
+        with self._snapshot_directory() as parent:
+            descriptor = os.open(self._snapshot, _DIRECTORY, dir_fd=parent)
+        try:
+            _private(descriptor, directory=True)
+            yield descriptor
         finally:
             os.close(descriptor)
 
@@ -125,14 +166,16 @@ class SearchIndexStorage:
         self.open()
         self.discard()
         os.mkdir("snapshot", 0o700, dir_fd=self._root)
+        self._snapshot = str(uuid4())
+        with self._snapshot_directory() as descriptor:
+            os.mkdir(self._snapshot, 0o700, dir_fd=descriptor)
         return self.path
 
     def publish(self, key: str) -> None:
         assert self._root is not None
         # Tantivy has finished all writer threads. Private parents protect the
         # files during creation; seal final modes before publishing the key.
-        descriptor = os.open("snapshot", _DIRECTORY, dir_fd=self._root)
-        try:
+        with self._generation_directory() as descriptor:
             for name in os.listdir(descriptor):
                 child = os.open(name, os.O_RDONLY | _FILE, dir_fd=descriptor)
                 try:
@@ -142,8 +185,6 @@ class SearchIndexStorage:
                     os.fchmod(child, 0o600)
                 finally:
                     os.close(child)
-        finally:
-            os.close(descriptor)
         self._write(".key.pending", key.encode())
         os.replace(".key.pending", ".key", src_dir_fd=self._root, dst_dir_fd=self._root)
         os.fsync(self._root)
@@ -156,11 +197,39 @@ class SearchIndexStorage:
                 os.unlink(name, dir_fd=self._root)
             except FileNotFoundError:
                 pass
+        self._snapshot = None
         try:
-            # fd-relative rmtree does not follow a replaced directory/symlink.
-            shutil.rmtree("snapshot", dir_fd=self._root)
+            with self._snapshot_directory():
+                pass
         except FileNotFoundError:
             pass
+        else:
+            # Detach before walking files. A late automatic-reader callback may
+            # create .tantivy-meta.lock, even after the manual reader replaced it.
+            # Once detached, its unique canonical path never exists again.
+            os.rename("snapshot", f".retired-{uuid4()}",
+                      src_dir_fd=self._root, dst_dir_fd=self._root)
+        self._cleanup_retired()
+
+    def _cleanup_retired(self) -> None:
+        assert self._root is not None
+        for name in os.listdir(self._root):
+            if not _retired(name):
+                continue
+            descriptor = os.open(name, _DIRECTORY, dir_fd=self._root)
+            try:
+                _private(descriptor, directory=True)
+            finally:
+                os.close(descriptor)
+            try:
+                # No symlink traversal. An already-started kernel operation can
+                # finish creating a lock during retirement; defer only ENOTEMPTY
+                # in detached garbage until the next open/discard, without
+                # blocking the new snapshot or retrying its database loader.
+                shutil.rmtree(name, dir_fd=self._root)
+            except OSError as error:
+                if error.errno != errno.ENOTEMPTY:
+                    raise
 
     def close(self) -> None:
         if self._lock is not None:

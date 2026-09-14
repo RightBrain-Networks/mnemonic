@@ -160,3 +160,14 @@ def test_cli_requires_destination_and_reports_refusal(tmp_path):
         assert result.returncode != 0
         assert result.stdout == ""
     assert not list(tmp_path.iterdir())
+
+
+def test_exported_transcript_guidance_keeps_verified_paths_and_frozen_retries(exporter, tmp_path):
+    exported = exporter.export_skills(tmp_path / "verified-transcript-skills")
+    reference = (PLUGIN_ROOT / "reference/transcripts.md").read_text()
+    for name in SKILL_NAMES:
+        assert (exported / name / "reference/transcripts.md").read_text() == reference
+    for guard in ("Do not construct Claude paths from the main checkout", "regular transcript file",
+                  "task stdout `.output` path", "operator-approved source root", "explicit `null`",
+                  "client=codex", "never change frozen retry arguments"):
+        assert guard in reference
