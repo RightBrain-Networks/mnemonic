@@ -33,6 +33,16 @@ class TranscriptCopy:
     size_bytes: int
 
 
+@dataclass(frozen=True)
+class TranscriptCopyPin:
+    sha256: str
+    size_bytes: int
+
+    def require(self, sha256: str, size_bytes: int) -> None:
+        if (sha256, size_bytes) != (self.sha256, self.size_bytes):
+            raise ExtractionError("transcript_recovery_content_changed")
+
+
 def _transient(error: BaseException) -> bool:
     return ((isinstance(error, OSError) and error.errno in _TRANSIENT_ERRNOS)
             or (isinstance(error, ExtractionError) and error.retryable))
@@ -84,7 +94,10 @@ class TranscriptStorage(ArtifactStorage):
                 digest.update(chunk)
         return TranscriptCopy(storage_key, digest.hexdigest(), size)
 
-    def _publish_once(self, staged: StagedArtifact) -> TranscriptCopy:
+    def _publish_once(self, staged: StagedArtifact,
+                      expected: TranscriptCopyPin | None = None) -> TranscriptCopy:
+        if expected is not None:
+            expected.require(staged.sha256, staged.size_bytes)
         identity, snapshot, filename = staged.relative_path.split("/")
         temporary = staged.temporary_path.rsplit("/", 1)[1]
         with self._directory(identity, snapshot) as directory:
@@ -98,37 +111,43 @@ class TranscriptStorage(ArtifactStorage):
                     os.rename(temporary, filename, src_dir_fd=directory, dst_dir_fd=directory)
                     os.fsync(directory)
                     return TranscriptCopy(staged.relative_path, staged.sha256, staged.size_bytes)
+                if expected is not None:
+                    expected.require(retained.sha256, retained.size_bytes)
                 os.fsync(directory)
                 return retained
             finally:
                 fcntl.flock(directory, fcntl.LOCK_UN)
 
     def _capture_once(self, transcript_id: UUID, snapshot_id: UUID,
-                      source: str, roots: list[Path]) -> TranscriptCopy:
+                      source: str, roots: list[Path],
+                      expected: TranscriptCopyPin | None = None) -> TranscriptCopy:
         key = self.key(transcript_id, snapshot_id)
         try:
             retained = self.describe(key)
         except FileNotFoundError:
             pass
         else:
+            if expected is not None:
+                expected.require(retained.sha256, retained.size_bytes)
             with self._directory(str(transcript_id), str(snapshot_id)) as directory:
                 os.fsync(directory)
             return retained
         staged = self.stage(transcript_id, snapshot_id, "transcript.jsonl",
                             _source_chunks(source, roots, self.max_bytes))
         try:
-            return self._publish_once(staged)
+            return self._publish_once(staged, expected)
         finally:
             self.discard(staged)
 
     def capture(self, transcript_id: UUID, snapshot_id: UUID,
-                source: str, roots: list[Path]) -> TranscriptCopy:
+                source: str, roots: list[Path], *,
+                expected: TranscriptCopyPin | None = None) -> TranscriptCopy:
         try:
             for attempt in Retrying(stop=stop_after_attempt(3),
                                     wait=wait_random_exponential(multiplier=0.1, max=1),
                                     retry=retry_if_exception(_transient), reraise=True):
                 with attempt:
-                    return self._capture_once(transcript_id, snapshot_id, source, roots)
+                    return self._capture_once(transcript_id, snapshot_id, source, roots, expected)
         except ArtifactTooLarge as error:
             raise ExtractionError("transcript_too_large") from error
         except ArtifactContentUnavailable as error:

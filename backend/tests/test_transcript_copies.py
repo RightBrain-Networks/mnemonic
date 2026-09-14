@@ -10,7 +10,7 @@ import pytest
 
 from mnemonic_api import transcript_copies
 from mnemonic_api.artifact_tika import ExtractionError
-from mnemonic_api.transcript_copies import TranscriptStorage
+from mnemonic_api.transcript_copies import TranscriptCopyPin, TranscriptStorage
 
 
 def test_copy_survives_source_disappearance_and_reuses_published_file(tmp_path):
@@ -104,3 +104,40 @@ def test_permissions_retry_durably_without_three_immediate_attempts(tmp_path, mo
     with pytest.raises(ExtractionError) as failure:
         TranscriptStorage(tmp_path, 1024).capture(uuid4(), uuid4(), "/source", [])
     assert failure.value.retryable and len(attempts) == 1
+
+
+@pytest.mark.parametrize("mismatch", ["hash", "size"])
+def test_pinned_recovery_rejects_changed_stage_before_rename(tmp_path, mismatch):
+    source = tmp_path / "approved.jsonl"
+    source.write_bytes(b"operator-approved source")
+    digest, size = hashlib.sha256(source.read_bytes()).hexdigest(), source.stat().st_size
+    pin = TranscriptCopyPin("0" * 64 if mismatch == "hash" else digest,
+                            size + 1 if mismatch == "size" else size)
+    store = TranscriptStorage(tmp_path / "private", 1024)
+    with pytest.raises(ExtractionError, match="transcript_recovery_content_changed") as failure:
+        store.capture(uuid4(), uuid4(), str(source), [tmp_path], expected=pin)
+    assert not failure.value.retryable
+    assert not list(store.root.rglob("transcript.jsonl"))
+    assert not list(store.root.rglob(".pending-*"))
+
+
+def test_pinned_recovery_rechecks_competing_retained_file_at_publication(tmp_path):
+    approved, unapproved = tmp_path / "approved.jsonl", tmp_path / "unapproved.jsonl"
+    approved.write_bytes(b"approved source")
+    unapproved.write_bytes(b"unexpected competitor")
+    identity, snapshot = uuid4(), uuid4()
+    root = tmp_path / "private"
+    pin = TranscriptCopyPin(hashlib.sha256(approved.read_bytes()).hexdigest(),
+                            approved.stat().st_size)
+
+    class CompetingStorage(TranscriptStorage):
+        def _publish_once(self, staged, expected=None):
+            TranscriptStorage(root, 1024).capture(identity, snapshot, str(unapproved), [tmp_path])
+            return super()._publish_once(staged, expected)
+
+    with pytest.raises(ExtractionError, match="transcript_recovery_content_changed"):
+        CompetingStorage(root, 1024).capture(identity, snapshot, str(approved), [tmp_path],
+                                            expected=pin)
+    store = TranscriptStorage(root, 1024)
+    assert store.read_copy(store.describe(store.key(identity, snapshot))) == unapproved.read_bytes()
+    assert not list(root.rglob(".pending-*"))

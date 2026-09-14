@@ -140,8 +140,8 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.52.0`, plugin `0.30.0`,
-and Alembic `0037_background_jobs`. Follow [the transcript/job migration](transcript-jobs.md)
+The current coordinated boundary is API/MCP/dashboard `0.52.1`, plugin `0.30.1`,
+and Alembic `0038_transcript_recovery`. Follow [the transcript/job migration](transcript-jobs.md)
 to provision RabbitMQ, the shared worker, retained copies, and backup ownership.
 Inventory exactly 54 MCP tools,
 17 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations,

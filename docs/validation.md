@@ -1,5 +1,38 @@
 # Mnemonic validation record
 
+## Audited historical transcript path recovery (0.52.1)
+
+Migration `0038_transcript_recovery` retains original path assertions and adds an
+immutable operator approval journal. The private prepare/apply helper freezes
+replacement paths and SHA-256/size without copying inline; normal RabbitMQ jobs
+perform capture and indexing. No public mutation or tool catalog changes.
+Plugin 0.30.1 and portable skills require verified native files, reject guessed
+worktree paths/directories/task-output aliases, and retain exact uncertain retries.
+
+Independent cold adversarial reviews covered the recovery/backup/CLI surface and
+a dedicated RabbitMQ integration scope. A reproduced lost-commit-response finding
+was fixed: sanitized 503 responses now stop the batch as an unknown outcome and
+require replay of its unchanged private intent. Permanent PostgreSQL tests cover
+lost replies on the first and second batch entries and verify single receipts/jobs
+after whole-batch replay. Review rechecks found no remaining blockers.
+
+A permanent real-broker regression disconnects the worker after fsynced recovered
+file publication, removes its source, fences the stale database result, recovers
+the pinned copy, and observes five duplicate deliveries without duplicate indexing.
+Copy tests reject wrong SHA/size before rename and before retained-copy adoption.
+Restore tests retain immutable approvals and validate source/owner/generation/byte
+witnesses before and after privileged loading. The 0038 frozen catalog was generated
+from fresh migration and independent PostgreSQL 17 dump/restore; older entries are
+unchanged. Historical 0035–0037 audit regressions preserve their actual boundaries.
+
+Targeted PostgreSQL recovery, migration, backup, CLI, and RabbitMQ checks pass.
+The complete MCP suite passes 1,541 tests; the dashboard passes 438 tests and Node
+24 type checking. Python lint/type checks and all three skill validators pass.
+The independent post-freeze instruction walkthrough covers worktree paths, output
+links, ambiguous directories, Codex child rollouts, and frozen historical retries.
+Required CI remains the merge/deployment gate. Production migration counts and
+checksums belong in the private deployment record, not this synthetic test record.
+
 ## Durable transcript copies and shared RabbitMQ jobs (0.52.0)
 
 Migrations `0036_transcript_copies` and `0037_background_jobs` retain immutable

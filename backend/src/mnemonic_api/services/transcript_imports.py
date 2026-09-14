@@ -3,11 +3,11 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, exists, func, select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import conflict
-from mnemonic_api.models import Transcript, TranscriptImport
+from mnemonic_api.models import Transcript, TranscriptImport, TranscriptRecovery
 from mnemonic_api.services.work_items import require_project
 from mnemonic_api.transcript_discovery import TranscriptDiscovery
 from mnemonic_api.transcript_schemas import TranscriptImportRead, TranscriptImportRequest
@@ -63,6 +63,7 @@ def take_imported_transcript(database: Session, project_id: UUID, source: str) -
         for name, value in (empty_transcript_snapshot() | new_transcript_copy()).items():
             setattr(record, name, value)
         record.import_project_id = None
+        record.recovery_operation_id = None
         record.generation += 1
         record.status = "waiting"
         record.lease_token = record.lease_expires_at = None
@@ -94,4 +95,8 @@ def remove_imports_for_moved_work(
     database.execute(delete(Transcript).where(
         Transcript.import_project_id == target_project_id,
         Transcript.source_path.in_(sources),
+        # Operator recovery receipts are immutable historical provenance. A
+        # redundant imported record with such history must not be coalesced away.
+        ~exists(select(TranscriptRecovery.operation_id).where(
+            TranscriptRecovery.transcript_id == Transcript.id)),
     ).execution_options(synchronize_session=False))

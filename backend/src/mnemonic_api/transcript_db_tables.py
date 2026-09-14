@@ -6,7 +6,8 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from mnemonic_api.transcript_copy_db import INDEX_LEASE_CHECK
 
 
-def transcript_elements(*, include_imports: bool = True, include_copies: bool = True) -> list:
+def transcript_elements(*, include_imports: bool = True, include_copies: bool = True,
+                        include_recovery: bool = True) -> list:
     elements = [
         sa.Column("id", UUID, primary_key=True),
         sa.Column("work_item_id", UUID, sa.ForeignKey("work_items.id", ondelete="RESTRICT"),
@@ -73,6 +74,10 @@ def transcript_elements(*, include_imports: bool = True, include_copies: bool = 
         from mnemonic_api.transcript_copy_db import copy_elements
 
         elements.extend(copy_elements())
+        if include_recovery:
+            from mnemonic_api.transcript_recovery_db import recovery_pointer_elements
+
+            elements.extend(recovery_pointer_elements())
     return elements
 
 

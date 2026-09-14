@@ -3,12 +3,14 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This architecture describes application/API/MCP `0.52.0`, Claude plugin `0.30.0`,
-and Alembic head `0037_background_jobs`.
+This architecture describes application/API/MCP `0.52.1`, Claude plugin `0.30.1`,
+and Alembic head `0038_transcript_recovery`.
 
 Transcript copying, indexing, and project backups run in a shared RabbitMQ worker.
 PostgreSQL retains job intent and outcomes; raw transcripts live in a private bind
 and survive source moves. See [background jobs and migration](transcript-jobs.md).
+Incorrect historical assertions can receive an explicit operator-approved
+[recovery path](transcript-recovery.md), with immutable audit and byte verification.
 [Project artifacts](artifacts.md) store current bytes on a configurable filesystem
 and retain revision metadata, work links, audit and recovery journals in PostgreSQL.
 An isolated Apache Tika 4 service extracts normalized current text and document
@@ -16,8 +18,8 @@ properties into PostgreSQL. One background worker handles durable revision-bound
 jobs; Tantivy maintains one rebuildable corpus per library inside the API. Artifact
 indexes remain in RAM; transcript indexes use the configured private directory in
 Compose and can reopen a matching snapshot after restart.
-No broker, search service, search volume or second authoritative data store is
-needed. Metadata search is the default; content matching is an explicit opt-in.
+No separate search service or second authoritative data store is needed.
+Metadata search is the default; content matching is an explicit opt-in.
 Replace/delete clears extracted body text and fences stale workers; revision
 properties remain durable. Database backups therefore include sensitive extracted
 text, although original artifact files remain outside the database.

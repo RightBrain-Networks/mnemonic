@@ -19,8 +19,8 @@ _PUBLISHED_EXIT = 73
 
 def _exit_after_publication(root, source, identity, snapshot):
     class AbruptStorage(TranscriptStorage):
-        def _publish_once(self, staged):
-            super()._publish_once(staged)
+        def _publish_once(self, staged, expected=None):
+            super()._publish_once(staged, expected)
             # No Python finally blocks, staging cleanup, or result delivery run.
             # The rename and its containing directory fsync already completed.
             os._exit(_PUBLISHED_EXIT)
