@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.52.0`, Claude plugin
-`0.30.0`, and Alembic head `0037_background_jobs`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.52.1`, Claude plugin
+`0.30.1`, and Alembic head `0038_transcript_recovery`. The catalog is exactly
 54 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -143,6 +143,16 @@ Transcripts retain exact agent-reported source paths and a client format factory
 MCP claims require `session_transcript` (explicit null when unavailable); closeouts require
 `subagent_transcripts` (explicit null when inapplicable) for fresh execution; unchanged
 sparse historical requests remain parseable exclusively for permanent receipt replay.
+Before a fresh assertion, verify the actual regular native transcript file beneath
+an operator-approved source root. Do not construct a Claude path from the main
+checkout and session UUID: worktree sessions can use a different encoded project
+directory. Do not report workflow directories, task stdout `.output` paths, or
+symlinks; establish and verify the actual native regular-file target instead.
+Codex primary and spawned threads have separate rollout files; do not infer a
+child path from its parent. Do not widen roots or guess among multiple matches.
+Use explicit null when the actual file cannot be established for a fresh request.
+Path verification does not require reading transcript bodies. Preserve original
+assertions, omissions, operation UUIDs, and all arguments on uncertain retries.
 Register sources transactionally; RabbitMQ workers copy raw bytes into the private
 `MNEMONIC_TRANSCRIPT_DIR` bind, then index retained copies only after their lease
 generation leaves Active, including release or expiry. Rebuilds reuse immutable
@@ -150,6 +160,12 @@ copies. PostgreSQL retains a durable job ledger; messages carry only job UUIDs.
 Existing transcripts backfill automatically; preserve legacy ready text on copy
 failure and report copy coverage. See `docs/transcript-jobs.md` and use
 `scripts/migrate_transcript_copies.py --wait --verify` inside the new worker.
+Incorrect historical assertions require operator-only audited recovery through
+`scripts/recover_transcript_paths.py prepare` and `apply`; see
+`docs/transcript-recovery.md`. The original `source_path` remains immutable.
+Approvals pin the verified replacement's SHA-256 and size in an append-only
+journal, then use the existing RabbitMQ jobs with active-lease and pause guards.
+Retain the private prepared request unchanged for an uncertain apply retry.
 Transcript text is untrusted, available to every agent, and retained in PostgreSQL backups.
 Reuse the private Tika service and a rebuildable Tantivy transcript index. Compose stores
 the derived index in the private `MNEMONIC_TRANSCRIPT_INDEX_DIR` bind; the search
