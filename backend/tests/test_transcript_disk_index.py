@@ -1,12 +1,16 @@
 """Real disk-index persistence, containment, failure cleanup and exclusive ownership."""
 
+import errno
 import os
 import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from importlib.metadata import version
+from uuid import UUID, uuid4
 
 import pytest
+import tantivy
 
 from mnemonic_api.artifact_index import ArtifactSearchIndex, SearchDocument
 from mnemonic_api.errors import ApplicationError
@@ -35,13 +39,21 @@ def no_load():
     pytest.fail("A current disk snapshot must reopen without loading bodies")
 
 
+def snapshot_directory(directory):
+    generations = list((directory / "snapshot").iterdir())
+    assert len(generations) == 1
+    generation = generations[0]
+    assert generation.is_dir() and str(UUID(generation.name)) == generation.name
+    return generation
+
+
 def test_disk_cache_survives_restart_and_keeps_files_private(directory):
     docs = [SearchDocument("one", "Report", "café needle"),
             SearchDocument("two", "Needle", "unrelated")]
     index = ArtifactSearchIndex(directory)
     try:
         expected = search(index, docs, "needle", fulltext=True).hits
-        assert (directory / "snapshot" / "meta.json").is_file()
+        assert (snapshot_directory(directory) / "meta.json").is_file()
         assert all(path.stat().st_mode & 0o777 == (0o700 if path.is_dir() else 0o600)
                    for path in directory.rglob("*"))
     finally:
@@ -60,10 +72,10 @@ def test_disk_cache_survives_restart_and_keeps_files_private(directory):
 
 def test_changed_corpus_and_explicit_clear_discard_old_disk_cache(index, directory):
     old = search(index, [SearchDocument("one", "file", "oldneedle")], "oldneedle", fulltext=True)
-    old_files = {path.name for path in (directory / "snapshot").glob("*.store")}
+    old_files = {path.name for path in snapshot_directory(directory).glob("*.store")}
     current = [SearchDocument("two", "file", "newneedle")]
     assert not search(index, current, "oldneedle", fulltext=True, key="changed").hits
-    current_files = {path.name for path in (directory / "snapshot").glob("*.store")}
+    current_files = {path.name for path in snapshot_directory(directory).glob("*.store")}
     assert not old_files.intersection(current_files)
     # A response already being hydrated keeps its immutable searcher after eviction.
     assert index.snippet("oldneedle", "oldneedle", old.searcher) == "oldneedle"
@@ -98,15 +110,16 @@ def test_failed_build_is_never_reused_and_next_search_recovers(index, directory,
 def test_corrupt_completed_index_rebuilds_from_current_database_documents(index, directory, damage):
     docs = [SearchDocument("one", "report", "needle")]
     assert search(index, docs, "needle", fulltext=True).hits
+    snapshot = snapshot_directory(directory)
     index.close()
     if damage == "metadata":
-        (directory / "snapshot" / "meta.json").write_text("broken derived index")
+        (snapshot / "meta.json").write_text("broken derived index")
     elif damage == "missing_snapshot":
         shutil.rmtree(directory / "snapshot")
     elif damage == "missing_metadata":
-        (directory / "snapshot" / "meta.json").unlink()
+        (snapshot / "meta.json").unlink()
     else:
-        next((directory / "snapshot").glob(f"*.{damage}")).write_bytes(b"")
+        next(snapshot.glob(f"*.{damage}")).write_bytes(b"")
     assert (directory / ".key").is_file()
     loads = []
 
@@ -209,7 +222,7 @@ def test_configuration_directory_changes_where_the_index_is_created(tmp_path):
             assert search(index, [SearchDocument("one", "needle")], "needle").hits
         finally:
             index.close()
-        assert (location / "snapshot" / "meta.json").exists()
+        assert (snapshot_directory(location) / "meta.json").exists()
     assert first.stat().st_ino != second.stat().st_ino
 
 
@@ -251,3 +264,215 @@ def test_persistent_query_failure_rebuilds_at_most_once(index, directory, monkey
     assert not (directory / "snapshot").exists()
     monkeypatch.setattr(index, "_query", original_query)
     assert search(index, [SearchDocument("one", "needle")], "needle").hits
+
+
+def test_corrupt_position_recovery_detaches_before_a_late_reader_callback(
+    index, directory, monkeypatch,
+):
+    """Tantivy's queued automatic-reader reload may recreate its metadata lock.
+
+    Opening a truncated positions segment succeeds; its first query fails.
+    Even after switching to Manual, an already-dispatched reload can still
+    execute OpenOptions.create(true) for .tantivy-meta.lock during cleanup.
+    """
+    docs = [SearchDocument("one", "report", "needle")]
+    assert search(index, docs, "needle", fulltext=True).hits
+    snapshot = snapshot_directory(directory)
+    index.close()
+    next(snapshot.glob("*.pos")).write_bytes(b"")
+    original_rmdir = os.rmdir
+    callbacks = []
+
+    def late_callback(path, *args, **kwargs):
+        if not callbacks:
+            try:
+                descriptor = os.open(snapshot / ".tantivy-meta.lock",
+                                     os.O_WRONLY | os.O_CREAT, 0o600)
+            except FileNotFoundError:
+                callbacks.append("detached")
+            else:
+                os.close(descriptor)
+                callbacks.append("recreated")
+        return original_rmdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "rmdir", late_callback)
+    recovered = ArtifactSearchIndex(directory)
+    try:
+        result = search(recovered, docs, "needle", fulltext=True)
+        assert [hit.identity for hit in result.hits] == ["one"]
+        assert callbacks == ["detached"]
+    finally:
+        recovered.close()
+
+
+def test_late_reader_cannot_reach_replacement_and_old_searcher_stays_readable(index, directory):
+    old = search(index, [SearchDocument("one", "report", "oldneedle")],
+                 "oldneedle", fulltext=True)
+    old_path = snapshot_directory(directory).resolve()
+    current = search(index, [SearchDocument("two", "report", "newneedle")],
+                     "newneedle", fulltext=True, key="new-corpus")
+    replacement = snapshot_directory(directory).resolve()
+    assert replacement != old_path
+    with pytest.raises(FileNotFoundError):
+        os.open(old_path / ".tantivy-meta.lock", os.O_WRONLY | os.O_CREAT, 0o600)
+    assert [hit.identity for hit in current.hits] == ["two"]
+    assert old.searcher is not None
+    old_hits = old.searcher.search(tantivy.Query.all_query(), limit=1).hits
+    assert old.searcher.doc(old_hits[0][1]).get_first("identity") == "one"
+    assert index.snippet("oldneedle", "oldneedle", old.searcher) == "oldneedle"
+    assert index.search("new-corpus", no_load, query="newneedle", fulltext=True, count=1).hits
+
+
+def test_old_flat_production_cache_rebuilds_once_and_reopens_without_database_reload(
+    index, directory,
+):
+    assert search(index, [SearchDocument("old", "obsolete")], "obsolete").hits
+    generation = snapshot_directory(directory)
+    index.close()
+    staging = directory / "flat-cache"
+    generation.rename(staging)
+    (directory / "snapshot").rmdir()
+    staging.rename(directory / "snapshot")
+    (directory / ".key").write_text(f"{version('tantivy')}:schema1:project:revision")
+    assert (directory / "snapshot" / "meta.json").is_file()
+    loads = []
+
+    def current_documents():
+        loads.append(True)
+        return [SearchDocument("current", "needle")]
+
+    replacement = ArtifactSearchIndex(directory)
+    try:
+        result = replacement.search("project:revision", current_documents,
+                                     query="needle", fulltext=False, count=1)
+        assert [hit.identity for hit in result.hits] == ["current"] and loads == [True]
+        assert (snapshot_directory(directory) / "meta.json").is_file()
+    finally:
+        replacement.close()
+    reopened = ArtifactSearchIndex(directory)
+    try:
+        assert reopened.search("project:revision", no_load,
+                               query="needle", fulltext=False, count=1).hits == result.hits
+    finally:
+        reopened.close()
+
+
+def test_inflight_lock_creation_defers_only_retired_cleanup_until_restart(
+    index, directory, monkeypatch,
+):
+    assert search(index, [SearchDocument("old", "needle")], "needle").hits
+    generation = snapshot_directory(directory)
+    retained_parent = os.open(generation, os.O_RDONLY | os.O_DIRECTORY)
+    original_rmdir = os.rmdir
+    callbacks = []
+
+    def finishing_callback(path, *args, **kwargs):
+        if not callbacks:
+            # Model an open already past parent-path resolution when retirement
+            # started: its retained parent inode can still receive the lock.
+            descriptor = os.open(".tantivy-meta.lock", os.O_WRONLY | os.O_CREAT,
+                                 0o600, dir_fd=retained_parent)
+            os.close(descriptor)
+            callbacks.append(True)
+        return original_rmdir(path, *args, **kwargs)
+
+    try:
+        monkeypatch.setattr(os, "rmdir", finishing_callback)
+        index.clear()
+        assert callbacks == [True]
+        assert not (directory / "snapshot").exists() and not (directory / ".key").exists()
+        assert len(list(directory.glob(".retired-*"))) == 1
+    finally:
+        os.close(retained_parent)
+        index.close()
+    reopened = ArtifactSearchIndex(directory)
+    loads = []
+
+    def current_documents():
+        loads.append(True)
+        return [SearchDocument("current", "needle")]
+
+    try:
+        reopened.start()
+        assert not list(directory.glob(".retired-*"))
+        result = reopened.search("current", current_documents,
+                                  query="needle", fulltext=False, count=1)
+        assert [hit.identity for hit in result.hits] == ["current"] and loads == [True]
+    finally:
+        reopened.close()
+
+
+@pytest.mark.parametrize("condition", ["symlink", "public", "file", "owner"])
+def test_retired_cache_cleanup_rejects_unsafe_entries_without_following_them(
+    index, directory, tmp_path, condition, monkeypatch,
+):
+    index.close()
+    external = tmp_path / "external"
+    external.mkdir(mode=0o700)
+    sentinel = external / "source.jsonl"
+    sentinel.write_bytes(b"unrelated source bytes")
+    retired = directory / f".retired-{uuid4()}"
+    if condition == "symlink":
+        retired.symlink_to(external, target_is_directory=True)
+    elif condition == "public":
+        retired.mkdir(mode=0o755)
+        retired.chmod(0o755)
+    elif condition == "file":
+        retired.write_bytes(b"not a retired directory")
+    else:
+        retired.mkdir(mode=0o700)
+        inode = retired.stat().st_ino
+        original_fstat = os.fstat
+
+        def other_owner(descriptor):
+            info = original_fstat(descriptor)
+            if info.st_ino == inode:
+                fields = list(info)
+                fields[4] = info.st_uid + 1
+                return os.stat_result(fields)
+            return info
+
+        monkeypatch.setattr(os, "fstat", other_owner)
+    reopened = ArtifactSearchIndex(directory)
+    try:
+        with pytest.raises(ApplicationError) as rejected:
+            reopened.start()
+        assert rejected.value.detail["code"] == "transcript_index_unavailable"
+        assert sentinel.read_bytes() == b"unrelated source bytes"
+        assert retired.exists()
+    finally:
+        reopened.close()
+
+
+def test_retired_cleanup_permission_failure_remains_explicit(index, directory, monkeypatch):
+    assert search(index, [SearchDocument("old", "needle")], "needle").hits
+
+    def denied(*_args, **_kwargs):
+        raise PermissionError(errno.EACCES, "private cleanup failure")
+
+    monkeypatch.setattr(shutil, "rmtree", denied)
+    with pytest.raises(ApplicationError) as rejected:
+        index.clear()
+    assert rejected.value.detail["code"] == "transcript_index_unavailable"
+    assert not (directory / "snapshot").exists() and not (directory / ".key").exists()
+    assert len(list(directory.glob(".retired-*"))) == 1
+
+
+def test_cached_generation_symlink_is_never_followed(index, directory, tmp_path):
+    assert search(index, [SearchDocument("old", "needle")], "needle").hits
+    generation = snapshot_directory(directory)
+    index.close()
+    shutil.rmtree(generation)
+    external = tmp_path / "external-generation"
+    external.mkdir(mode=0o700)
+    sentinel = external / "source.jsonl"
+    sentinel.write_bytes(b"unrelated bytes")
+    generation.symlink_to(external, target_is_directory=True)
+    reopened = ArtifactSearchIndex(directory)
+    try:
+        with pytest.raises(ApplicationError):
+            reopened.search("project:revision", no_load, query="needle", fulltext=False, count=1)
+        assert sentinel.read_bytes() == b"unrelated bytes"
+        assert generation.is_symlink()
+    finally:
+        reopened.close()
