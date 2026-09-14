@@ -3,7 +3,7 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This architecture describes application/API/MCP `0.52.1`, Claude plugin `0.30.1`,
+This architecture describes application/API/MCP `0.53.0`, Claude plugin `0.31.0`,
 and Alembic head `0038_transcript_recovery`.
 
 Transcript copying, indexing, and project backups run in a shared RabbitMQ worker.
@@ -370,15 +370,15 @@ The MCP service is a typed HTTP adapter. Its seventeen protected mutation tools
 require the caller to prepare and retain one operation UUID plus the complete
 arguments; the adapter sends only one HTTP attempt. Its other tools use work,
 checkpoint, lease, relationship, human-gate, evidence, and duplicate terminology. Its exact
-54-tool
+55-tool
 catalog includes request, attention, and gate-history operations but deliberately
 no resolution, dismissal, or report-follow-up write tools; Phase 12 adds four safe
 reads for activity, project settings, report lists, and report detail,
 `merge_work` is its only authoritative duplicate mutation,
 while `suggest_duplicate_work` is an independently retryable safe read.
 Full checkpoint models transport non-empty `affected_paths` declarations;
-compact pointers remain scope-free. The adapter has no Git, subprocess,
-filesystem, repository-root, branch-resolution, or freshness-result surface.
+compact pointers remain scope-free. The adapter has no Git, subprocess, client-selected filesystem, repository-root,
+branch-resolution, or freshness-result surface.
 It never executes evidence or dereferences external completion-evidence URLs.
 The explicit `download_artifact` tool retrieves project-library bytes through
 the authenticated API and validates their revision/checksum. MCP download/search
@@ -954,3 +954,15 @@ serialize rewrites and answers. Database guards reject replacement, removal,
 or reordering of retained history and reject changes after resolution.
 The dashboard shows version tabs and a direct answer form. Agents supply revised
 prose when related facts change; no background text generator is configured.
+
+## Local artifact upload grants
+
+The authenticated MCP connection issues a short-lived capability for an exact
+prepared upload/replacement intent. The standalone helper sends raw bytes to the
+same reachable HTTP MCP endpoint without a standing API credential. The gateway
+spools at most two private files, each bounded to 1 GiB and a 300-second request,
+verifies size/checksum before forwarding, and uses the server credential only
+against its configured API. Existing artifact operation receipts govern exact
+replays, including reauthorization after expiry. No client path is sent to the
+server, and no base64 enters agent context. See the
+[protocol and security boundary](artifact-upload-grants.md).

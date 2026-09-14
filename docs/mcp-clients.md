@@ -70,6 +70,13 @@ reads the binary content endpoint with the current caller's client/session
 attribution, validates the revision, size and SHA-256, and refuses to overwrite
 an existing destination. It does not inspect client configuration files.
 
+Local uploads/replacements use the [upload helper](artifact-upload-client.md)
+and `authorize_artifact_upload` through the connected MCP service. The helper
+receives a five-minute grant for the frozen intent; no API origin or standing
+key is required in its environment. HTTP connections discover the endpoint from
+their authenticated request. Proxies and stdio adapters configure the deployment
+HTTP endpoint once with `MNEMONIC_MCP_PUBLIC_URL`.
+
 ## Install the complete workflow
 
 For Claude Code, keep the marketplace/plugin installation documented in

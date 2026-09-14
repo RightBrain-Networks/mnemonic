@@ -13,8 +13,10 @@ class Settings:
     port: int = 8001
     allowed_hosts: tuple[str, ...] = ()
     allowed_origins: tuple[str, ...] = ()
+    public_url: str | None = None
 
     def __post_init__(self) -> None:
+        self._validate_public_url()
         if (
             len(self.api_key) < 32
             or not self.api_key.isascii()
@@ -65,6 +67,13 @@ class Settings:
             ):
                 raise ValueError("MNEMONIC_MCP_ALLOWED_ORIGINS must contain HTTP(S) origins without paths.")
 
+    def _validate_public_url(self) -> None:
+        from .upload_grants import valid_upload_url
+
+        if self.public_url is not None and not valid_upload_url(self.public_url):
+            raise ValueError("MNEMONIC_MCP_PUBLIC_URL must be an HTTP(S) MCP endpoint without "
+                             "credentials, query or fragment.")
+
     @classmethod
     def from_env(cls) -> Settings:
         def entries(name: str) -> tuple[str, ...]:
@@ -81,4 +90,5 @@ class Settings:
             port=port,
             allowed_hosts=entries("MNEMONIC_MCP_ALLOWED_HOSTS"),
             allowed_origins=entries("MNEMONIC_MCP_ALLOWED_ORIGINS"),
+            public_url=os.getenv("MNEMONIC_MCP_PUBLIC_URL") or None,
         )

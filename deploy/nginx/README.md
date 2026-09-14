@@ -58,7 +58,9 @@ The default allowlist trusts loopback and `192.168.0.0/16`. **Everyone on an
 allowed network can read, edit, and delete all prompts in the dashboard.** There
 is no application login. Tighten that subnet to your actual trusted clients, or
 enable the dashboard's optional Basic authentication below. MCP always requires
-the existing bearer API key, in addition to the network allowlist.
+the existing bearer API key for RPCs, in addition to the network allowlist.
+Local artifact transfers can use an exact-operation upload grant issued through
+that authenticated connection; it grants no general RPC or REST access.
 
 The example's custom Docker pool, `198.51.100.0/24`, is a documentation
 placeholder and is commented out deliberately: it sits outside the RFC 1918
@@ -232,3 +234,15 @@ Directive behavior was checked against nginx's official
 [proxy documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html),
 [geo documentation](https://nginx.org/en/docs/http/ngx_http_geo_module.html), and
 [HTTPS configuration guide](https://nginx.org/en/docs/http/configuring_https_servers.html).
+
+## Local artifact upload grants
+
+The TLS Compose overlay sets `MNEMONIC_MCP_PUBLIC_URL` from the configured
+`MNEMONIC_TLS_HOST` and this proxy's exact `/mcp` route. An explicit
+`MNEMONIC_MCP_PUBLIC_URL` overrides that default for a custom endpoint.
+Refresh the installed nginx configuration when upgrading to 0.52.0: this route
+allows up to 1 GiB of granted raw bytes with request buffering disabled and a
+310-second response wait. Ordinary MCP JSON requests still meet the adapter's
+90-MiB protocol bound. Existing header buffers accommodate the signed intent.
+The gateway validates each grant before receiving bytes and forwards only its
+verified immutable intent. See the [upload workflow](../../docs/artifact-upload-client.md).

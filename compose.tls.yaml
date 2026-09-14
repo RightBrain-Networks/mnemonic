@@ -10,6 +10,7 @@ services:
       MNEMONIC_DASHBOARD_ORIGINS: '${MNEMONIC_DASHBOARD_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000},https://${MNEMONIC_TLS_HOST:-mnemonic.example.com}'
   mcp:
     environment:
+      MNEMONIC_MCP_PUBLIC_URL: '${MNEMONIC_MCP_PUBLIC_URL:-https://${MNEMONIC_TLS_HOST:-mnemonic.example.com}/mcp}'
       MNEMONIC_MCP_ALLOWED_HOSTS: 'localhost:${MNEMONIC_MCP_PORT:-8001},127.0.0.1:${MNEMONIC_MCP_PORT:-8001},[::1]:${MNEMONIC_MCP_PORT:-8001},127.0.0.1:8001,mcp:8001,${MNEMONIC_TLS_HOST:-mnemonic.example.com}'
       MNEMONIC_MCP_ALLOWED_ORIGINS: 'http://localhost:${MNEMONIC_MCP_PORT:-8001},http://127.0.0.1:${MNEMONIC_MCP_PORT:-8001},https://${MNEMONIC_TLS_HOST:-mnemonic.example.com}'
   web:

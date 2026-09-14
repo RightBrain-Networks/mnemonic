@@ -3,6 +3,10 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
+The PostgreSQL upload-grant integration test starts the MCP adapter in its own
+process. Install both environments before running the backend suite:
+`uv sync --project backend --frozen` and `uv sync --project mcp --frozen`.
+
 The Python services are independent packages with separate `pyproject.toml` and
 `uv.lock` files. Do not combine their environments: the API and MCP SDK can
 require different Starlette versions. Docker builds use frozen lockfiles. The
@@ -417,7 +421,7 @@ uv run ruff check .
 uv run ty check src/mnemonic_mcp
 ```
 
-The MCP suite verifies the exact 54-tool canonical catalog, strict unknown-field
+The MCP suite verifies the exact 55-tool canonical catalog, strict unknown-field
 rejection, nested checkpoint request bodies, canonical/grouped search hits,
 compact ready results, bounded recall, deterministic checkpoint/event
 pagination, versioned mutation receipts, typed graph and lease behavior, the
@@ -493,9 +497,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.30.1`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.30.1` install
-plus a `0.18.0 -> 0.30.1` marketplace/plugin update. Use an
+The inner plugin manifest is `0.31.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.31.0` install
+plus a `0.18.0 -> 0.31.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -819,9 +823,10 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.52.1`, plugin is `0.30.1`,
+Current application/API/MCP/dashboard versions are `0.53.0`, plugin is `0.31.0`,
 and Alembic head is `0038_transcript_recovery`. Validate all surfaces
-together with the existing regression suites. This release adds per-project
+together with the existing regression suites. This release adds MCP-issued local
+upload grants and raw transfers through the MCP endpoint. It retains per-project
 Default/Minimum/Maximum lease settings and agent-requested claim/renew durations.
 Validate settings revisions, bounds, project isolation, custom initial durations,
 claim replay after policy edits, context-free status reads, and portable skill exports.
@@ -907,7 +912,7 @@ questions, cold/warm lease isolation, one atomic remediation and hard depth ceil
 exact historical and new receipt replay, protected lineage under direct SQL,
 bounded discovery/history, backup/restore audit, and both dashboard Done paths.
 Run `scripts/audit_code_reviews.py` read-only from a private database environment.
-The current inventory is 54 MCP tools, 17 protected MCP writes, 24 REST receipt
+The current inventory is 55 MCP tools, 17 protected MCP writes, 24 REST receipt
 kinds, 21 protected browser mutations and 24 work-event types. See
 [code reviews](code-reviews.md) for client and deployment rules.
 
@@ -932,7 +937,7 @@ Run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 54-tool
+Read-only mode verifies REST/MCP health, authentication, the exact 55-tool
 catalog, the exact seventeen protected schemas and annotations, the absence of an MCP
 resolution tool, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, settings/activity/report read contracts, and the

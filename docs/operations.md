@@ -140,16 +140,20 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.52.1`, plugin `0.30.1`,
+The current coordinated boundary is API/MCP/dashboard `0.53.0`, plugin `0.31.0`,
 and Alembic `0038_transcript_recovery`. Follow [the transcript/job migration](transcript-jobs.md)
 to provision RabbitMQ, the shared worker, retained copies, and backup ownership.
-Inventory exactly 54 MCP tools,
+Inventory exactly 55 MCP tools,
 17 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
 revision checks, and relationship endpoint identity, adjacency, graph guards,
 event attribution, and move eligibility now span projects. Permanent historical
 receipts remain recoverable with their exact old request; do not manufacture missing reports or evidence for historical work.
+
+Release `0.53.0` adds MCP-authorized local uploads without a schema migration.
+Refresh the installed skills and MCP catalog; reverse proxies and stdio adapters
+must follow [the upload endpoint configuration](artifact-upload-client.md).
 
 Migration `0035_prompt_library` exports editable project prompt templates
 to the private prompt bind directory. Immutable report history stays in PostgreSQL. Create

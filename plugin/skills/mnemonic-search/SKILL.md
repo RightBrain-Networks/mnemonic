@@ -46,6 +46,11 @@ To save a found artifact locally, use the bundled
 [download helper](${CLAUDE_PLUGIN_ROOT}/scripts/download_artifact.py) with `--dest`
 in your actual scratchpad. It streams bytes directly from the API and returns
 only a small summary; do not retrieve base64 into the session to save a file.
+For a requested local upload or replacement after discovery, follow the save
+workflow in [artifacts.md](${CLAUDE_PLUGIN_ROOT}/reference/artifacts.md): the helper
+prepares an intent, authorize_artifact_upload grants that exact intent, and send
+uses a private grant file. It needs no helper API URL/key; discovery itself does
+not authorize a mutation.
 For transcript retrieval, read [transcripts.md](${CLAUDE_PLUGIN_ROOT}/reference/transcripts.md).
 
 Read [job-completion-reports.md](${CLAUDE_PLUGIN_ROOT}/reference/job-completion-reports.md)

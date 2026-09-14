@@ -2116,6 +2116,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
     from .code_review_tools import register_code_review_tools
     from .search_tools import register_search_tool
     from .transcript_tools import register_transcript_tools
+    from .upload_grants import register_upload_grants
 
     install_sdk_validation_log_filter()
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -2140,6 +2141,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
     register_phase12_tools(server, api)
     register_code_review_tools(server, api)
     register_artifact_tools(server, api)
+    register_upload_grants(server, api)
     register_transcript_tools(server, api)
     register_search_tool(server, api)
     _register_discovery_tools(server, api)
@@ -2156,10 +2158,11 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
 
 def create_app(settings: Settings | None = None, api: MnemonicAPI | None = None) -> Starlette:
     settings = settings or Settings.from_env()
+    api = api or MnemonicAPI(settings)
     server = build_server(settings, api)
     app = server.streamable_http_app()
     app.add_middleware(BoundedMCPIngressMiddleware)
-    app.add_middleware(LocalAccessMiddleware, settings=settings)
+    app.add_middleware(LocalAccessMiddleware, settings=settings, upload_api=api)
     app.state.mcp = server
     return app
 
@@ -2183,6 +2186,7 @@ def main() -> None:
             port=settings.port,
             proxy_headers=False,
             access_log=False,
+            h11_max_incomplete_event_size=64 * 1024,
         )
 
 

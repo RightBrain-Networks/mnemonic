@@ -29,7 +29,7 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 Phases 1–12, identity-preserving work moves, cross-project relationships,
 first-class code reviews, artifacts, and agent transcript indexing are implemented. The current
-release is application/API/MCP/dashboard `0.52.1`, plugin `0.30.1`, and migration
+release is application/API/MCP/dashboard `0.53.0`, plugin `0.31.0`, and migration
 `0038_transcript_recovery`. [Human review actions](code-reviews.md#human-review-decisions-0410)
 allow deferral, manual closeout and return to To review. [Needs Attention](attention.md) keeps current questions
 under their original IDs with previous wording in tabs. [Artifacts](artifacts.md) add project-scoped file uploads,
@@ -40,6 +40,8 @@ Tika extraction, PostgreSQL text/properties and Tantivy full-text search are shi
 with opt-in content matching in MCP and the dashboard. Revision-pinned text reads,
 compact MCP search/download summaries, and a client helper for direct binary
 transfer are available; see [artifact reads](artifacts.md#read-extracted-text).
+[Local upload grants](artifact-upload-client.md) let authenticated MCP sessions
+upload or replace files without provisioning a standing API key in the helper.
 Reviews add project thresholds, durable
 optional questions, cold/warm review leases and one remediation with a hard
 ancestry ceiling; see [code reviews](code-reviews.md). Production-target

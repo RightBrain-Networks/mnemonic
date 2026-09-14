@@ -1,5 +1,49 @@
 # Mnemonic validation record
 
+## MCP-authorized local artifact transfers (0.53.0)
+
+Local uploads and replacements now prepare an immutable request, obtain a
+five-minute grant through the authenticated MCP connection, and stream raw bytes
+to that same reachable MCP endpoint. The helper needs no standing API key or API
+origin. Grants bind project, operation UUID, target/revision, exact supplied
+metadata, size and checksum; existing artifact receipts permit only an exact
+replay of the one mutation. Expired-grant refresh preserves the frozen intent and
+uncertain retry budget. The gateway limits private staging, verifies bytes before
+forwarding, validates receipts, reconstructs controlled error envelopes and stops
+for repair on classified pre-forward storage failures.
+
+All three shipped skills and portable exports describe prepare/authorize/send.
+The TLS Compose overlay supplies its known public MCP endpoint, and the nginx
+example accepts the raw 1-GiB transport while MCP JSON remains bounded to 90 MiB.
+API/MCP/dashboard are 0.53.0 and plugin is 0.31.0. There are 55 MCP tools, with
+17 protected MCP mutations and 24 REST receipt kinds unchanged; no migration.
+
+Validation includes the full PostgreSQL backend suite (2,615 passed), full MCP
+suite (1,598 passed), and 27 gateway failure-boundary checks after the final
+buffered-cleanup correction. Actual HTTP tests cover lost-response replay, frozen
+source changes, standalone uploads above 64 MiB, preserved metadata omissions,
+and slow forwarding. The real API/database integration verifies receipt replay
+after a limit reduction and replacement without a client API environment.
+An isolated nginx smoke test using the shipped MCP location transferred 96 MiB
+with a signed intent larger than 8 KiB, forwarded headers and no helper API
+credentials. TLS Compose interpolation and explicit URL override were checked.
+Two independent cold adversarial reviews completed; their findings and cleanup
+follow-up were corrected and independently verified.
+
+Both Python packages and operational scripts pass Ruff and ty where applicable.
+The helpers parse as Python 3.10, and a generated grant loads on Python 3.10.20.
+All three skills validate. The plugin runtime suite passes 71 tests with its one
+macOS-only check reserved for CI. Node 24 passes all 437 frontend tests,
+type-checking and production build. The stack verifier accepts the 55-tool
+catalog; local Gitleaks passes.
+
+The first CI run exposed a pre-existing EOF race in the stdio semantic-error
+test. Holding stdin open reproduced the SDK's fixed error notification on both
+untouched main and this branch. The assertion now permits only that exact safe
+notification, still requires the sole response to belong to the valid initialize
+request, and checks both output streams for caller-content leakage. Production
+stdio handling and terminal transport-invalid rejection remain unchanged.
+
 ## Audited historical transcript path recovery (0.52.1)
 
 Migration `0038_transcript_recovery` retains original path assertions and adds an

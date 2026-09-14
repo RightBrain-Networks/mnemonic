@@ -3,8 +3,8 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.52.1`, plugin `0.30.1`, and migration
-`0038_transcript_recovery`. The catalog has exactly 54 MCP tools, 17
+This is application/API/MCP/dashboard `0.53.0`, plugin `0.31.0`, and migration
+`0038_transcript_recovery`. The catalog has exactly 55 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
 with filesystem recovery journals, and two transcript operations (rebuild and import). See
@@ -1335,7 +1335,7 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 54 tools:
+The catalog is exactly 55 tools:
 
 `search` is the shared safe read over work, artifacts and transcripts; see
 [the request, ranking, facet, pagination and coverage contract](search.md).
@@ -1347,7 +1347,7 @@ require `session_transcript: {client, path} | null`; agent closeouts require
 for indexing dispositions, paging, shared-filesystem limits, settings and rebuild receipts.
 
 Artifact tools: `list_artifacts`, `get_artifact`, `list_artifact_history`,
-`upload_artifact`, `replace_artifact`, `download_artifact`, `delete_artifact`,
+`authorize_artifact_upload`, `upload_artifact`, `replace_artifact`, `download_artifact`, `delete_artifact`,
 `get_artifact_text`, `update_artifact`, and `search_artifact_contents`. The four artifact
 writes use retained operation UUIDs and their own durable filesystem recovery receipts.
 `download_artifact` requires the current caller's `agent_session_id` and
@@ -1356,7 +1356,7 @@ The download audit records asserted caller context at content opening, not proof
 of delivery or authenticated identity. Downloads remain safe reads without an
 operation UUID. Old two-argument MCP calls must supply both actor fields; direct
 REST/browser attribution remains optional. See [download attribution](artifacts.md#download-attribution).
-All ten tools check the authenticated status endpoint before artifact access.
+All eleven tools check the authenticated status endpoint before artifact access.
 Enabled results include `artifact_library` with `enabled`, `max_bytes`,
 `mcp_transfer_max_bytes`, `effective_upload_max_bytes`, and an explicit explanatory
 message. The effective new MCP upload maximum is the smaller of the configured
@@ -1385,6 +1385,18 @@ same revision. Non-ready extraction has null text/count/next offset; ready empty
 text is `""` with a zero count. Replacement conflicts and deletion refuses the
 read. Truncation still means incomplete extraction after the last page.
 See [extracted text](artifacts.md#read-extracted-text).
+
+For local uploads/replacements, the [upload helper](artifact-upload-client.md)
+freezes bytes and exact metadata, then the authenticated
+`authorize_artifact_upload(intent)` tool issues a five-minute operation grant.
+Its response carries the unchanged intent, `upload_url`, `upload_token`,
+`expires_at`, and `artifact_library`. Save that result privately and pass its file
+with `send --grant-file`; the helper needs no standing API key or API origin.
+The gateway streams verified raw bytes to the existing REST mutation. The grant
+binds project, operation UUID, target/revision, exact supplied metadata, size and
+SHA-256; only its exact receipt may replay. It is stateless issuance, not an
+additional protected mutation. See [the protocol](artifact-upload-grants.md)
+for resource bounds, expiry and proxy/stdio deployment configuration.
 
 The [client download helper](artifact-download-client.md) streams original bytes
 from the existing binary REST content route to a new local destination, with
