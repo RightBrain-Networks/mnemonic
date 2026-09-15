@@ -497,9 +497,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.31.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.31.0` install
-plus a `0.18.0 -> 0.31.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.32.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.32.0` install
+plus a `0.18.0 -> 0.32.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -823,8 +823,8 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.53.0`, plugin is `0.31.0`,
-and Alembic head is `0038_transcript_recovery`. Validate all surfaces
+Current application/API/MCP/dashboard versions are `0.54.0`, plugin is `0.32.0`,
+and Alembic head is `0039_manual_review_requests`. Validate all surfaces
 together with the existing regression suites. This release adds MCP-issued local
 upload grants and raw transfers through the MCP endpoint. It retains per-project
 Default/Minimum/Maximum lease settings and agent-requested claim/renew durations.

@@ -173,7 +173,7 @@ export function workMoveDisabledReason(
 ): string | null {
   if (!context) return "Wait for the current work context before moving this item.";
   if (mutationBlocked) return "Resolve the pending mutation before moving this work item.";
-  if (context.code_review_context?.current_review || context.code_review_context?.pending_follow_up
+  if (context.work_item.manual_review_request || context.code_review_context?.current_review || context.code_review_context?.pending_follow_up
     || (context.code_review_context?.remediation_depth ?? 0) > 0) {
     return "Work with code review or remediation history must remain in its original project.";
   }

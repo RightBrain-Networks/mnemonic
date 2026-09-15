@@ -1,5 +1,31 @@
 # Mnemonic validation record
 
+## Human-requested code reviews (0.54.0)
+
+The Defer split menu now offers Review on queue and detail cards. Done work
+enters To review immediately; other work retains a human-authored earmark until
+its next Done completion. Human request attribution remains immutable when an
+agent completes implementation or establishes the missing Git scope through its
+first warm review claim. Agent-requested reviews retain their existing provenance.
+
+PostgreSQL regression coverage includes current and historical Done work, all
+priority policies, preserved active leases and non-Done states, receipt replay,
+agent/human attribution, immutable scope preparation, declined recommendations,
+human review dispositions, reopening, duplicate history, and schema/audit parity.
+The catalog is checked against both fresh migration and PostgreSQL dump/restore,
+including retained function permissions. Full backend tests run in required CI.
+
+Local verification passes 1,603 MCP tests, 440 frontend tests, all 20 review
+Playwright cases across desktop and narrow Chromium, Python lint/types, frontend
+types and production build, and Gitleaks. Selected [menu](images/manual-review/menu.png)
+and [queued review](images/manual-review/queued.png) screenshots document the UI.
+
+API/MCP/dashboard are 0.54.0, plugin is 0.32.0, and migration head is
+`0039_manual_review_requests`. Catalog and receipt counts are unchanged. Upgrade
+coordinated writers together; migration creates no inferred historical review or
+policy and refuses downgrade after a human request has been retained. Repository
+merge does not deploy the running services or database.
+
 ## MCP-authorized local artifact transfers (0.53.0)
 
 Local uploads and replacements now prepare an immutable request, obtain a

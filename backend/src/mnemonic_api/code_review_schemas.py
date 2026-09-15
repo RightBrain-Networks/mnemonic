@@ -315,6 +315,16 @@ class HumanReviewDecisionRead(HumanReviewDecision):
     resource_id: UUID
 
 
+class ManualReviewRequest(ReviewTimestamp):
+    id: UUID
+    actor_client: Literal["dashboard"]
+    actor_session_id: SessionID
+    actor_model: None
+    event_id: PositiveRevision
+    work_version: Annotated[StrictInt, Field(ge=1)]
+    priority: Annotated[StrictInt, Field(ge=0, le=100)]
+
+
 class CodeReviewRead(ReviewTimestamp):
     human_decision: HumanReviewDecision | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
@@ -324,16 +334,19 @@ class CodeReviewRead(ReviewTimestamp):
     work_item_id: UUID
     completion_checkpoint_id: UUID
     completion_event_id: PositiveRevision
-    policy_decision_id: UUID
+    policy_decision_id: UUID | None
     answer_id: UUID | None
-    request_reason: Literal["mandatory", "recommended"]
+    request_reason: Literal["mandatory", "recommended", "manual"]
     schema_version: Literal[1]
     version: ReviewVersion
     state: Literal["requested", "completed", "superseded"]
     requesting_client: ClientName
     requesting_session_id: SessionID
     requesting_model: ModelName | None
-    scope_sha256: ScopeHash
+    scope_sha256: ScopeHash | None
+    manual_request: ManualReviewRequest | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     created_event_id: PositiveRevision
     created_sequence: PositiveRevision
     result_id: UUID | None
@@ -349,6 +362,20 @@ class CodeReviewRead(ReviewTimestamp):
             raise ValueError("Review completion and result disagree")
         if (self.state == "superseded") != (self.superseded_by_event_id is not None):
             raise ValueError("Review supersession witness disagrees")
+        if (self.request_reason == "manual") != (self.manual_request is not None):
+            raise ValueError("Manual reviews require their human request")
+        if self.manual_request is not None and (
+            self.requesting_client != self.manual_request.actor_client
+            or self.requesting_session_id != self.manual_request.actor_session_id
+            or self.requesting_model is not None
+        ):
+            raise ValueError("Manual review authorship must match the human request")
+        if self.request_reason != "manual" and (
+            self.scope_sha256 is None or self.policy_decision_id is None
+        ):
+            raise ValueError("Automatic reviews require a policy and pinned scope")
+        if self.state == "completed" and self.scope_sha256 is None:
+            raise ValueError("Completed reviews require pinned scope")
         if (self.request_reason == "recommended") != (self.answer_id is not None):
             raise ValueError("Review recommendation witness disagrees")
         return self
@@ -549,9 +576,9 @@ class ReviewSourceState(ReviewModel):
 
 class CodeReviewDetail(ReviewModel):
     review: CodeReviewRead
-    policy_decision: ReviewPolicyRead
-    scope: CodeReviewScopeInput
-    handoff: CodeReviewHandoffNotes
+    policy_decision: ReviewPolicyRead | None
+    scope: CodeReviewScopeInput | None
+    handoff: CodeReviewHandoffNotes | None
     result: CodeReviewResultRead | None
     remediation: CodeReviewRemediationRead | None
     source_work_state: ReviewSourceState
@@ -573,7 +600,7 @@ class ReviewQueueRow(ReviewTimestamp):
     state: Literal["pending", "answered", "requested", "completed", "superseded"]
     version: ReviewVersion
     created_sequence: PositiveRevision
-    request_reason: Literal["mandatory", "recommended"] | None
+    request_reason: Literal["mandatory", "recommended", "manual"] | None
     kind: Literal["code_review_recommendation"] | None
     remediation_depth: Annotated[StrictInt, Field(ge=0, le=2)]
     review_available: StrictBool

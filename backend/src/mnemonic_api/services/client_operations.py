@@ -1017,17 +1017,30 @@ def _update_work_matches(
         "lease_token",
         "actor",
         "client_operation_id",
-        "job_completion_report", "review_decision", "subagent_transcripts",
+        "job_completion_report", "review_decision", "request_code_review", "subagent_transcripts",
         "supersede_code_review_id", "expected_code_review_version",
         "supersede_follow_up_id", "expected_follow_up_version",
     }
     return (
         _report_matches(result.job_completion_report, request.job_completion_report, request.actor)
         and _review_decision_matches(result, request)
+        and _manual_review_matches(result, request)
         and result.project_id == project_id
         and str(result.id) == target_envelope.get("work_item_id")
         and result.version == request.expected_version + 1
         and all(getattr(result, field) == getattr(request, field) for field in changed_fields)
+    )
+
+
+def _manual_review_matches(result: WorkUpdateRead, request: WorkItemPatch) -> bool:
+    if request.request_code_review is None:
+        return True
+    actual, actor = result.manual_review_request, request.actor
+    return actual is not None and actor is not None and (
+        actual.work_version == result.version and actual.created_at == result.updated_at
+        and actual.actor_client == actor.actor_client
+        and actual.actor_session_id == actor.actor_session_id
+        and actual.actor_model == actor.actor_model
     )
 
 

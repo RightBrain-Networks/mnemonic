@@ -11,6 +11,7 @@ export type ManualStatusAction =
   | "defer"
   | "pending"
   | "to-review"
+  | "review"
   | "done"
   | "wont-do"
   | "promoted";
@@ -18,6 +19,7 @@ export type AlternateStatusAction = Exclude<ManualStatusAction, "defer">;
 
 export const alternateStatusActions = [
   { value: "pending", label: "Pending" },
+  { value: "review", label: "Review" },
   { value: "done", label: "Done" },
   { value: "wont-do", label: "Won’t Do" },
   { value: "promoted", label: "Promote" }
@@ -40,13 +42,15 @@ export function currentManualStatusAction(
 
 export function availableStatusActions(
   status: WorkStatus,
-  readiness: Readiness
+  readiness: Readiness,
+  requested = false
 ): { value: AlternateStatusAction; label: string }[] {
   const current = currentManualStatusAction(status, readiness);
   const review = readiness.review_status || readiness.display_state === "to-review";
   const actions = alternateStatusActions.map((action) => review && action.value === "pending"
     ? { value: "to-review" as const, label: "To review" } : action);
-  return actions.filter((action) => action.value !== current);
+  return actions.filter((action) => action.value !== current
+    && (action.value !== "review" || (!review && !requested)));
 }
 
 export function statusActionDisabledReason(

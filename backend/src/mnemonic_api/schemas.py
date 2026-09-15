@@ -40,6 +40,7 @@ from mnemonic_api.code_review_schemas import (
     CodeReviewResultRead,
     HumanReviewDecisionInput,
     HumanReviewDecisionRead,
+    ManualReviewRequest,
     ReviewMode,
     ReviewPolicyRead,
     ReviewThreshold,
@@ -1504,6 +1505,10 @@ class RelationshipCreate(APIModel):
 
 
 class WorkItemPatch(APIModel):
+    request_code_review: Literal[True] | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Dashboard human request; queues Done work or earmarks its next completion.",
+    )
     review_decision: HumanReviewDecisionInput | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -1528,7 +1533,7 @@ class WorkItemPatch(APIModel):
     @model_validator(mode="before")
     @classmethod
     def supersession_is_nonnull(cls, data: object) -> object:
-        return _reject_explicit_null(data, "supersede_code_review_id",
+        return _reject_explicit_null(data, "request_code_review", "supersede_code_review_id",
                                      "expected_code_review_version", "supersede_follow_up_id",
                                      "expected_follow_up_version")
 
@@ -1747,6 +1752,10 @@ class WorkDeletionCreate(APIModel):
 
 
 class WorkClaimCreate(APIModel):
+    code_review_handoff: CodeReviewHandoffInput | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Pin a manual review with its first warm claim; retain exact retries.",
+    )
     lease_minutes: LeaseMinutes | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
         description="Requested whole minutes; omission uses the current project default.",
@@ -1771,10 +1780,16 @@ class WorkClaimCreate(APIModel):
     @model_validator(mode="before")
     @classmethod
     def review_identity_is_nonnull(cls, data: object) -> object:
-        return _reject_explicit_null(data, "purpose", "code_review_id", "mode", "lease_minutes")
+        return _reject_explicit_null(
+            data, "purpose", "code_review_id", "mode", "lease_minutes", "code_review_handoff",
+        )
 
     @model_validator(mode="after")
     def review_claim_identity(self) -> Self:
+        if self.code_review_handoff is not None and (
+            self.purpose != "code_review" or self.mode != "warm"
+        ):
+            raise ValueError("Scope preparation requires a warm review claim")
         supplied = self.code_review_id is not None and self.mode is not None
         if (self.purpose == "code_review") != supplied:
             raise ValueError("Review claims require exact review ID and mode")
@@ -2039,6 +2054,9 @@ class HumanGateRead(APIModel):
 
 
 class WorkItemRead(Timestamps):
+    manual_review_request: ManualReviewRequest | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     external_references: ExternalReferences = Field(
         default_factory=list, exclude_if=lambda value: not value,
     )
@@ -3921,11 +3939,19 @@ class WorkCompletionRead(APIModel):
                 or policy.settings_revision != self.job_completion_report.prompt_revision
                 or policy.completion_event_id != self.job_completion_report.closeout_event_id):
             raise ValueError("Review policy does not match completion")
-        if (policy.decision == "mandatory") != (self.code_review_request is not None):
+        manual = (self.code_review_request is not None
+                  and self.code_review_request.request_reason == "manual")
+        if not manual and (policy.decision == "mandatory") != (
+            self.code_review_request is not None
+        ):
             raise ValueError("Mandatory completion requires its review request")
-        if (policy.decision == "mandatory") != (self.code_review_handoff is not None):
+        if not manual and (policy.decision == "mandatory") != (
+            self.code_review_handoff is not None
+        ):
             raise ValueError("Mandatory completion requires its accepted handoff snapshot")
-        if (policy.decision == "ask_recommendation") != (self.agent_follow_ups is not None):
+        if (not manual and policy.decision == "ask_recommendation") != (
+            self.agent_follow_ups is not None
+        ):
             raise ValueError("Optional completion requires its question")
         self._check_review_resources(policy)
 
@@ -3933,13 +3959,15 @@ class WorkCompletionRead(APIModel):
         if self.code_review_request is not None:
             request = self.code_review_request
             if (request.policy_decision_id != policy.id or request.state != "requested"
-                    or request.request_reason != "mandatory"
+                    or request.request_reason not in {"mandatory", "manual"}
+                    or (request.request_reason == "manual"
+                        and request.manual_request != self.work_item.manual_review_request)
                     or request.project_id != policy.project_id
                     or request.work_item_id != policy.work_item_id
                     or request.completion_checkpoint_id != policy.completion_checkpoint_id
                     or request.completion_event_id != policy.completion_event_id
-                    or self.code_review_handoff is None
-                    or request.scope_sha256 != scope_hash(self.code_review_handoff.scope)):
+                    or request.scope_sha256 != (scope_hash(self.code_review_handoff.scope)
+                                                if self.code_review_handoff else None)):
                 raise ValueError("Completion review snapshot is inconsistent")
         if self.agent_follow_ups is not None:
             question = self.agent_follow_ups[0]

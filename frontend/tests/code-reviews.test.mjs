@@ -521,3 +521,17 @@ test("review leases never offer manual Active or Pending actions", () => {
   assert.equal(currentManualStatusAction("done", readiness), "done");
   assert.equal(statusActionDisabledReason("done", readiness, true), null);
 });
+
+test("manual review reads retain the human request while Git scope is unprepared", () => {
+  const request = { id: r.followId, actor_client: "dashboard", actor_session_id: "human-tab",
+    actor_model: null, created_at: f.timestamp, event_id: "7", work_version: 3, priority: 5 };
+  const value = { ...r.reviewDetail, policy_decision: null, scope: null, handoff: null,
+    review: { ...r.review, policy_decision_id: null, request_reason: "manual", scope_sha256: null,
+      requesting_client: "dashboard", requesting_session_id: "human-tab", requesting_model: null,
+      manual_request: request } };
+  const parsed = decodeCodeReviewDetail(value, f.project, f.work, r.reviewId);
+  assert.deepEqual(parsed.review.manual_request, request);
+  assert.equal(parsed.scope, null);
+  assert.throws(() => decodeCodeReviewDetail({ ...value, review: { ...value.review, requesting_client: "agent" } }, f.project, f.work, r.reviewId));
+  assert.throws(() => decodeCodeReviewDetail({ ...value, scope: r.handoff.scope }, f.project, f.work, r.reviewId));
+});

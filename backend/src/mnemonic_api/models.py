@@ -31,6 +31,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, deferred, mapped_column
 from sqlalchemy.schema import conv
 
 from mnemonic_api import code_review_db_tables as reviews
+from mnemonic_api import manual_review_db as manual_reviews
 from mnemonic_api import phase12_db_tables as phase12
 from mnemonic_api import transcript_db_tables as transcripts
 from mnemonic_api.background_job_db import job_elements
@@ -300,6 +301,9 @@ class WorkItem(Base):
     remediation_id: Mapped[UUID | None] = mapped_column()
     completion_review_checkpoint_id: Mapped[UUID | None] = mapped_column()
     completion_review_policy_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    manual_review_request: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True),
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -1722,7 +1726,7 @@ class WorkAgentFollowUpAnswer(Base):
 class CodeReview(Base):
     human_decisions: Mapped[list[dict[str, Any]]]
 
-    __table__ = Table("code_reviews", Base.metadata, *reviews.review_elements(),
+    __table__ = Table("code_reviews", Base.metadata, *manual_reviews.review_elements(),
         Column("human_decisions", JSONB, nullable=False, server_default=text("'[]'::jsonb")))
 
     id: Mapped[UUID]
@@ -1730,7 +1734,9 @@ class CodeReview(Base):
     work_item_id: Mapped[UUID]
     completion_checkpoint_id: Mapped[UUID]
     completion_event_id: Mapped[int]
-    policy_decision_id: Mapped[UUID]
+    manual_request: Mapped[dict[str, Any] | None]
+    scope_preparation: Mapped[dict[str, Any] | None]
+    policy_decision_id: Mapped[UUID | None]
     answer_id: Mapped[UUID | None]
     request_reason: Mapped[str]
     schema_version: Mapped[int]
@@ -1739,7 +1745,7 @@ class CodeReview(Base):
     requesting_client: Mapped[str]
     requesting_session_id: Mapped[str]
     requesting_model: Mapped[str | None]
-    scope_sha256: Mapped[str]
+    scope_sha256: Mapped[str | None]
     created_event_id: Mapped[int | None]
     created_sequence: Mapped[int | None]
     result_id: Mapped[UUID | None]

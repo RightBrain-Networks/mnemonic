@@ -1,6 +1,7 @@
 """Canonical work/checkpoint mutations without transaction-boundary commits."""
 
 from copy import deepcopy
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, update
@@ -296,12 +297,25 @@ def update_work_record(database: Session, work_item: WorkItem, payload: WorkItem
 
     require_canonical_work_item(database, work_item)
     require_version(work_item, payload.expected_version)
+    if payload.request_code_review is not None:
+        from mnemonic_api.services.manual_reviews import request_manual_review
+
+        request_manual_review(database, work_item, payload)
+        return
     if payload.review_decision is not None:
         from mnemonic_api.services.review_decisions import record_human_review_decision
 
         record_human_review_decision(database, work_item, payload)
         return
     _update_implementation_record(database, work_item, payload)
+
+
+def _apply_implementation_changes(work_item: WorkItem, changes: dict[str, Any]) -> None:
+    previous_status = work_item.status
+    for field, value in changes.items():
+        setattr(work_item, field, value)
+    if previous_status == "done" and work_item.status == "pending":
+        work_item.manual_review_request = None
 
 
 def _update_implementation_record(
@@ -319,7 +333,8 @@ def _update_implementation_record(
         mode="json",
         exclude_unset=True,
         exclude={"expected_version", "lease_token", "actor", "client_operation_id",
-                 "job_completion_report", "review_decision", "subagent_transcripts",
+                 "job_completion_report", "review_decision", "request_code_review",
+                 "subagent_transcripts",
                  *SUPERSESSION_FIELDS},
     )
     before = {
@@ -370,8 +385,7 @@ def _update_implementation_record(
         require_no_subagent_transcripts(payload.subagent_transcripts)
         validate_optional_lease_token(database, work_item.id, payload.lease_token, lock=True)
     mutation_time = database_now(database)
-    for field, value in changes.items():
-        setattr(work_item, field, value)
+    _apply_implementation_changes(work_item, changes)
     work_item.version += 1
     work_item.updated_at = mutation_time
     database.flush()

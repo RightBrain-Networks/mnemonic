@@ -71,6 +71,7 @@ export interface Page<T> {
 }
 
 export interface WorkItem {
+  manual_review_request?: import("./manual-reviews.ts").ManualReviewRequest;
   external_references?: ExternalReference[];
   id: string;
   project_id: string;
@@ -791,6 +792,7 @@ export interface RelationshipRemovalInput extends ClientOperationInput {
 }
 
 export interface WorkUpdate extends WorkItem {
+  request_code_review?: true;
   review_decision?: import("./code-reviews.ts").HumanReviewDecision & { resource_id: string };
   job_completion_report?: JobCompletionReport;
 }

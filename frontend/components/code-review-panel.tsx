@@ -36,7 +36,7 @@ function ReviewResult({
     <article className="review-record">
       <div className="review-section-heading">
         <h4>
-          {review.request_reason === "mandatory" ? "Mandatory" : "Recommended"}{" "}
+          {review.request_reason === "manual" ? "Human-requested" : review.request_reason === "mandatory" ? "Mandatory" : "Recommended"}{" "}
           review
         </h4>
         <span className={`review-state review-state-${review.state}`}>
@@ -45,7 +45,7 @@ function ReviewResult({
       </div>
       <p>
         Requested {formatDateTime(review.created_at)} ·{" "}
-        {review.requesting_client}
+        {review.requesting_client === "dashboard" && review.requesting_model === null ? "Human operator" : `Agent · ${review.requesting_client}`}
         {result ? ` · ${result.mode} review (reviewer reported)` : ""}
       </p>
       {detail.source_work_state.deleted && (
@@ -62,7 +62,8 @@ function ReviewResult({
         <p>A person marked this review {review.human_decision.status} · {formatDateTime(review.human_decision.created_at)}</p>
         {review.human_decision.job_completion_report && <p className="review-prose">{review.human_decision.job_completion_report.summary}</p>}
       </section>}
-      <details>
+      {!detail.scope && <p className="field-hint">Ready for review. Use Copy recall pointer to ask an agent to establish the Git scope and perform a warm review.</p>}
+      {detail.scope && <details>
         <summary>Pinned repository scope</summary>
         {detail.scope.repositories.map((row) => (
           <dl className="review-scope metadata-grid" key={row.repository_key}>
@@ -86,8 +87,8 @@ function ReviewResult({
             </div>
           </dl>
         ))}
-      </details>
-      <details className="review-handoff">
+      </details>}
+      {handoff && <details className="review-handoff">
         <summary>Warm review handoff</summary>
         <p className="review-prose">{handoff.change_summary}</p>
         {(
@@ -114,7 +115,7 @@ function ReviewResult({
         ))}
         <h5>Validation and limitations</h5>
         <p className="review-prose">{handoff.validation_summary}</p>
-      </details>
+      </details>}
       {result && (
         <section className="review-findings">
           <h4>Review result</h4>
@@ -575,8 +576,10 @@ export default function CodeReviewPanel({
       {review && <ReviewResult detail={review} onOpen={onOpen} />}
       {!loading && !error && !review && !follow && (
         <p>
-          No code review has been requested for this work item.
-          {origin?.depth !== 2 &&
+          {context.work_item.manual_review_request
+            ? "A human operator requested a code review. It will be queued when this work is Done."
+            : "No code review has been requested for this work item."}
+          {!context.work_item.manual_review_request && origin?.depth !== 2 &&
             " Future Done closeouts follow project review settings."}
         </p>
       )}

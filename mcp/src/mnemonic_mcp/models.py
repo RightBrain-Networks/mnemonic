@@ -43,6 +43,7 @@ from .code_review_models import (
     CodeReviewRemediationRead,
     CodeReviewResultRead,
     HumanReviewDecisionRead,
+    ManualReviewRequest,
     ReviewMode,
     ReviewModel,
     ReviewPolicyRead,
@@ -1911,6 +1912,9 @@ def _expected_display_state(readiness: Readiness) -> DisplayState:
 
 
 class WorkItemRead(CanonicalResponse):
+    manual_review_request: ManualReviewRequest | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     external_references: ExternalReferences = Field(
         default_factory=list, exclude_if=lambda value: not value,
     )
@@ -3655,11 +3659,13 @@ def _validate_completion_review(response: WorkCompletion) -> None:
 def _validate_completion_review_effects(response: WorkCompletion) -> None:
     policy = response.review_policy_decision
     assert policy is not None
-    if (policy.decision == "mandatory") != (response.code_review_request is not None):
+    manual = (response.code_review_request is not None
+              and response.code_review_request.request_reason == "manual")
+    if not manual and (policy.decision == "mandatory") != (response.code_review_request is not None):
         raise ValueError("Mandatory policy and request disagree.")
-    if (response.code_review_request is None) != (response.code_review_handoff is None):
+    if not manual and (response.code_review_request is None) != (response.code_review_handoff is None):
         raise ValueError("Review creation requires its exact handoff snapshot.")
-    if (policy.decision == "ask_recommendation") != (response.agent_follow_ups is not None):
+    if (not manual and policy.decision == "ask_recommendation") != (response.agent_follow_ups is not None):
         raise ValueError("Optional policy and question disagree.")
     if response.code_review_request is not None:
         _validate_completion_review_request(response, response.code_review_request)
@@ -3675,10 +3681,13 @@ def _validate_completion_review_request(response: WorkCompletion, review: CodeRe
         or review.policy_decision_id != policy.id
         or review.completion_checkpoint_id != policy.completion_checkpoint_id
         or review.completion_event_id != policy.completion_event_id
-        or review.request_reason != "mandatory" or review.state != "requested"
-        or (review.requesting_client, review.requesting_session_id, review.requesting_model)
-        != (response.checkpoint.source_client, response.checkpoint.source_session_id,
-            response.checkpoint.source_model)
+        or review.request_reason not in {"mandatory", "manual"} or review.state != "requested"
+        or (review.request_reason != "manual" and
+            (review.requesting_client, review.requesting_session_id, review.requesting_model)
+            != (response.checkpoint.source_client, response.checkpoint.source_session_id,
+                response.checkpoint.source_model))
+        or (review.request_reason == "manual"
+            and review.manual_request != response.work_item.manual_review_request)
     ):
         raise ValueError("Mandatory request does not belong to this originating closeout.")
 

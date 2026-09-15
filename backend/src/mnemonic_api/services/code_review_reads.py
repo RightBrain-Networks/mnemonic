@@ -59,11 +59,12 @@ def review_detail(
     database: Session, project_id: UUID, work_id: UUID, review_id: UUID
 ) -> CodeReviewDetail:
     review = require_review(database, project_id, work_id, review_id)
-    policy = database.get(WorkCompletionReviewPolicy, review.policy_decision_id)
+    policy = (database.get(WorkCompletionReviewPolicy, review.policy_decision_id)
+              if review.policy_decision_id else None)
     scope = database.get(CodeReviewScope, review.id)
     handoff = database.get(CodeReviewHandoff, review.id)
     work = database.get(WorkItem, work_id)
-    assert policy is not None and scope is not None and handoff is not None and work is not None
+    assert work is not None
     result = database.get(CodeReviewResult, review.result_id) if review.result_id else None
     association = database.scalar(
         select(CodeReviewRemediation).where(
@@ -73,9 +74,9 @@ def review_detail(
     return bounded(
         CodeReviewDetail(
             review=review_read(review),
-            policy_decision=policy_read(policy),
-            scope=CodeReviewScopeInput(repositories=scope.repositories),
-            handoff=CodeReviewHandoffNotes.model_validate(handoff),
+            policy_decision=policy_read(policy) if policy else None,
+            scope=CodeReviewScopeInput(repositories=scope.repositories) if scope else None,
+            handoff=CodeReviewHandoffNotes.model_validate(handoff) if handoff else None,
             result=result_read(database, result) if result else None,
             remediation=remediation_read(association) if association else None,
             source_work_state=source_state(work),

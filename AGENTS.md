@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.53.0`, Claude plugin
-`0.31.0`, and Alembic head `0038_transcript_recovery`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.54.0`, Claude plugin
+`0.32.0`, and Alembic head `0039_manual_review_requests`. The catalog is exactly
 55 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -188,6 +188,11 @@ shared worker also queues scheduled/manual project backups; there is no dedicate
 backup container. Raw transcript copies require filesystem backups. See
 `docs/transcripts.md` for the read-only shared-filesystem mount and workspace settings.
 
+Humans can earmark work with `update_work.request_code_review=true`; Done work queues
+immediately and other work queues at completion. Preserve human requester provenance.
+Unscoped manual reviews require a verified handoff with their first warm claim;
+preserve that handoff and all claim arguments on uncertain retries. Later claims
+omit it. Cold review requires an already pinned scope.
 Reviews belong to original Done work and require purpose-bound review leases.
 Dashboard humans can defer, close, or return the review episode to To review through
 `update_work.review_decision`; its append-only history preserves implementation Done.

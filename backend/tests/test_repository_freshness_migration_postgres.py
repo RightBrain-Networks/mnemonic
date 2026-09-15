@@ -409,6 +409,7 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
                 defer(WorkItem.remediation_id),
                 defer(WorkItem.completion_review_checkpoint_id),
                 defer(WorkItem.completion_review_policy_snapshot),
+                defer(WorkItem.manual_review_request),
             ),
         )
         destination = database.get(
@@ -422,6 +423,7 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
                 defer(WorkItem.remediation_id),
                 defer(WorkItem.completion_review_checkpoint_id),
                 defer(WorkItem.completion_review_policy_snapshot),
+                defer(WorkItem.manual_review_request),
             ),
         )
         relationship = database.get(WorkRelationship, merge.duplicate_relationship_id)

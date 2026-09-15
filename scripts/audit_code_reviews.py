@@ -12,14 +12,14 @@ import os
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0038_transcript_recovery"
+HEAD = "0039_manual_review_requests"
 REVIEW_HEAD = "0024_code_reviews"
 SUPPORTED_HEADS = (REVIEW_HEAD, "0025_cross_project_relationships", "0026_artifact_library",
                    "0027_artifact_fulltext", "0028_work_summary_limit",
                    "0029_artifact_links_sensitive", "0030_question_versions",
                    "0031_review_decisions", "0032_agent_transcripts", "0033_transcript_imports",
                    "0034_variable_work_leases", "0035_prompt_library",
-                   "0036_transcript_copies", "0037_background_jobs", HEAD)
+                   "0036_transcript_copies", "0037_background_jobs", "0038_transcript_recovery", HEAD)
 CHECKS = {
     "lifecycle_event_witness_mismatch": """
         SELECT count(*) FROM work_events event
@@ -239,13 +239,80 @@ HUMAN_DECISION_CHECKS = {
 }
 
 
+MANUAL_REQUEST_CHECKS = {
+    "manual_request_event_mismatch": """
+        SELECT count(*) FROM (
+            SELECT id work_id,project_id,manual_review_request request FROM work_items
+            WHERE manual_review_request IS NOT NULL
+            UNION ALL SELECT work_item_id,project_id,manual_request FROM code_reviews
+            WHERE manual_request IS NOT NULL
+        ) requests LEFT JOIN work_events e ON e.id=(request->>'event_id')::bigint
+        WHERE e.id IS NULL OR e.work_item_id<>work_id OR e.project_id<>requests.project_id
+          OR e.event_type<>'progress' OR e.actor_client IS DISTINCT FROM 'dashboard'
+          OR e.actor_model IS NOT NULL
+          OR e.actor_session_id IS DISTINCT FROM request->>'actor_session_id'
+          OR e.created_at IS DISTINCT FROM (request->>'created_at')::timestamptz
+          OR request->>'actor_client' IS DISTINCT FROM 'dashboard'
+          OR request->'actor_model' IS DISTINCT FROM 'null'::jsonb
+          OR e.metadata IS DISTINCT FROM jsonb_build_object(
+              'manual_review_request_id',request->>'id','work_version',request->'work_version')
+    """,
+    "manual_request_unfulfilled": """
+        SELECT count(*) FROM work_items w WHERE w.status='done' AND w.deleted_at IS NULL
+        AND w.manual_review_request IS NOT NULL AND NOT EXISTS(
+            SELECT 1 FROM code_reviews r WHERE r.work_item_id=w.id
+              AND r.manual_request=w.manual_review_request
+              AND EXISTS(SELECT 1 FROM checkpoints c WHERE c.id=r.completion_checkpoint_id
+                AND c.work_item_id=w.id AND c.completion_generation=w.completion_generation))
+    """,
+    "manual_request_missing_receipt": """
+        SELECT count(*) FROM work_events e WHERE e.event_type='progress'
+          AND e.metadata ? 'manual_review_request_id' AND NOT EXISTS(
+            SELECT 1 FROM client_operations o WHERE o.project_id=e.project_id
+              AND o.operation_kind='update_work' AND o.state='completed'
+              AND o.response_body#>>'{manual_review_request,id}'
+                  =e.metadata->>'manual_review_request_id')
+    """,
+    "manual_review_actor_mismatch": """
+        SELECT count(*) FROM code_reviews r WHERE r.request_reason='manual' AND (
+            r.manual_request IS NULL OR r.requesting_client IS DISTINCT FROM 'dashboard'
+            OR r.requesting_model IS NOT NULL OR r.requesting_session_id
+                IS DISTINCT FROM r.manual_request->>'actor_session_id')
+    """,
+    "manual_scope_preparation_mismatch": """
+        SELECT count(*) FROM code_reviews r LEFT JOIN work_events e
+          ON e.id=(r.scope_preparation->>'event_id')::bigint
+        WHERE r.scope_preparation IS NOT NULL AND (r.request_reason<>'manual'
+          OR r.scope_sha256 IS NULL OR e.id IS NULL OR e.code_review_id<>r.id
+          OR e.work_item_id<>r.work_item_id OR e.project_id<>r.project_id
+          OR e.event_type<>'work_claimed' OR e.metadata->>'mode'<>'warm')
+    """,
+}
+
+
 def checks_for_head(schema_head: str) -> dict[str, str]:
     human_decision_heads = {
         "0031_review_decisions", "0032_agent_transcripts", "0033_transcript_imports",
         "0034_variable_work_leases", "0035_prompt_library", "0036_transcript_copies",
-        "0037_background_jobs", HEAD,
+        "0037_background_jobs", "0038_transcript_recovery", HEAD,
     }
-    return {**CHECKS, **(HUMAN_DECISION_CHECKS if schema_head in human_decision_heads else {})}
+    checks = {**CHECKS, **(HUMAN_DECISION_CHECKS if schema_head in human_decision_heads else {})}
+    if schema_head == HEAD:
+        checks.update(MANUAL_REQUEST_CHECKS)
+        checks["review_resource_mismatch"] = checks["review_resource_mismatch"].replace(
+            "WHERE scope.review_id IS NULL OR handoff.review_id IS NULL",
+            "WHERE (review.scope_sha256 IS NOT NULL AND "
+            "(scope.review_id IS NULL OR handoff.review_id IS NULL)) "
+            "OR (review.scope_sha256 IS NULL AND (review.request_reason<>'manual' "
+            "OR review.state='completed' OR scope.review_id IS NOT NULL "
+            "OR handoff.review_id IS NOT NULL))",
+        )
+        checks["review_lease_mismatch"] = checks["review_lease_mismatch"].replace(
+            "review.completion_checkpoint_id IS DISTINCT FROM work.completion_review_checkpoint_id",
+            "NOT mnemonic_code_review_current_work(work.id,review.completion_checkpoint_id) "
+            "OR review.scope_sha256 IS NULL",
+        )
+    return checks
 
 
 def audit(connection: Connection) -> dict:

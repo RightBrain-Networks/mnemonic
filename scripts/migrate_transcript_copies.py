@@ -1,6 +1,6 @@
 """Wait for the resumable worker backfill; optionally verify retained raw bytes.
 
-Run inside the shared worker after upgrading to 0038_transcript_recovery.
+Run inside the shared worker after upgrading to 0039_manual_review_requests.
 This command never reads transcript bodies into its output or rewrites provenance.
 """
 
@@ -24,8 +24,8 @@ from sqlalchemy.orm import Session
 
 def report(database: Session) -> dict:
     head = database.scalar(text("SELECT version_num FROM alembic_version"))
-    if head != "0038_transcript_recovery":
-        raise RuntimeError("Upgrade all application processes to 0038_transcript_recovery first")
+    if head != "0039_manual_review_requests":
+        raise RuntimeError("Upgrade all application processes to 0039_manual_review_requests first")
     rows = database.execute(select(
         Transcript.copy_status, Transcript.copy_error_code, func.count(),
     ).group_by(Transcript.copy_status, Transcript.copy_error_code)).all()

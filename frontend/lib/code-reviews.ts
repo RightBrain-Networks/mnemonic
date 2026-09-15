@@ -1,3 +1,4 @@
+import { decodeManualReviewRequest } from "./manual-reviews.ts";
 import { validJobReportInput } from "./job-completion-reports.ts";
 import type { JobCompletionReportInput, LeasePublic, MutationActor, WorkStatus } from "./types.ts";
 import { decimalString } from "./activity-cursors.ts";
@@ -69,22 +70,23 @@ export interface HumanReviewDecision {
 }
 
 export interface CodeReview {
+  manual_request?: import("./manual-reviews.ts").ManualReviewRequest;
   human_decision?: HumanReviewDecision;
   id: string;
   project_id: string;
   work_item_id: string;
   completion_checkpoint_id: string;
   completion_event_id: string;
-  policy_decision_id: string;
+  policy_decision_id: string | null;
   answer_id: string | null;
-  request_reason: "mandatory" | "recommended";
+  request_reason: "mandatory" | "recommended" | "manual";
   schema_version: 1;
   version: number;
   state: "requested" | "completed" | "superseded";
   requesting_client: string;
   requesting_session_id: string;
   requesting_model: string | null;
-  scope_sha256: string;
+  scope_sha256: string | null;
   created_event_id: string;
   created_sequence: string;
   result_id: string | null;
@@ -196,9 +198,9 @@ export interface ReviewSourceState {
 }
 export interface CodeReviewDetail {
   review: CodeReview;
-  policy_decision: ReviewPolicy;
-  scope: CodeReviewScope;
-  handoff: CodeReviewNotes;
+  policy_decision: ReviewPolicy | null;
+  scope: CodeReviewScope | null;
+  handoff: CodeReviewNotes | null;
   result: CodeReviewResult | null;
   remediation: ReviewRemediation | null;
   source_work_state: ReviewSourceState;
@@ -553,30 +555,37 @@ export function decodeCodeReview(
     "result_id",
     "superseded_by_event_id",
     "created_at",
-  ], ["human_decision"]);
+  ], ["human_decision", "manual_request"]);
   if ("human_decision" in row) decodeHumanReviewDecision(row.human_decision);
   identity(row, projectId, workId);
   actor(row, "requesting");
   if (
     !validUuid(row.completion_checkpoint_id) ||
-    !validUuid(row.policy_decision_id) ||
+    !(row.request_reason === "manual" ? nullableId(row.policy_decision_id) : validUuid(row.policy_decision_id)) ||
     !nullableId(row.answer_id) ||
     !sequence(row.completion_event_id) ||
     !sequence(row.created_event_id) ||
     !sequence(row.created_sequence) ||
     !version(row.version) ||
     row.schema_version !== 1 ||
-    !hash(row.scope_sha256) ||
+    !(row.request_reason === "manual" && row.scope_sha256 === null || hash(row.scope_sha256)) ||
     !["requested", "completed", "superseded"].includes(String(row.state)) ||
-    !["mandatory", "recommended"].includes(String(row.request_reason)) ||
+    !["mandatory", "recommended", "manual"].includes(String(row.request_reason)) ||
     (row.request_reason === "recommended") !== (row.answer_id !== null) ||
     !nullableId(row.result_id) ||
     !nullableSequence(row.superseded_by_event_id) ||
     (row.state === "completed") !== (row.result_id !== null) ||
+    (row.state === "completed" && row.scope_sha256 === null) ||
     (row.state === "superseded") !== (row.superseded_by_event_id !== null) ||
     (row.state === "requested" ? row.version !== 1 : row.version !== 2)
   )
     fail();
+  if ((row.request_reason === "manual") !== Object.hasOwn(row, "manual_request")) fail();
+  if (row.request_reason === "manual") {
+    const request = decodeManualReviewRequest(row.manual_request);
+    if (row.requesting_client !== request.actor_client || row.requesting_session_id !== request.actor_session_id
+      || row.requesting_model !== null) fail();
+  }
   return row as unknown as CodeReview;
 }
 export function decodeWorkFollowUp(
@@ -1013,40 +1022,38 @@ export function decodeCodeReviewDetail(
     "source_work_state",
   ]);
   const review = decodeCodeReview(row.review, projectId, workId);
-  const policy = decodeReviewPolicy(row.policy_decision, projectId, workId);
-  const scope = decodeReviewScope(row.scope);
+  const policy = row.policy_decision === null ? null : decodeReviewPolicy(row.policy_decision, projectId, workId);
+  const scope = row.scope === null ? null : decodeReviewScope(row.scope);
+  if ((scope === null) !== (row.handoff === null) || (scope === null) !== (review.scope_sha256 === null)) fail();
+  if (row.result !== null && !scope) fail();
   const result =
-    row.result === null ? null : decodeResult(row.result, review, scope);
+    row.result === null ? null : decodeResult(row.result, review, scope!);
   const remediation =
     row.remediation === null
       ? null
       : decodeRemediation(row.remediation, projectId);
   if (
     !sameUuid(review.id, id) ||
-    !sameUuid(review.policy_decision_id, policy.id) ||
-    !sameUuid(
-      review.completion_checkpoint_id,
-      policy.completion_checkpoint_id,
-    ) ||
-    review.completion_event_id !== policy.completion_event_id ||
-    policy.decision !==
-      (review.request_reason === "mandatory"
-        ? "mandatory"
-        : "ask_recommendation") ||
+    (policy === null ? review.policy_decision_id !== null : (
+      !sameUuid(review.policy_decision_id, policy.id)
+      || !sameUuid(review.completion_checkpoint_id, policy.completion_checkpoint_id)
+      || review.completion_event_id !== policy.completion_event_id
+      || review.request_reason !== "manual" && policy.decision !==
+        (review.request_reason === "mandatory" ? "mandatory" : "ask_recommendation"))) ||
     (review.state === "completed") !== Boolean(result) ||
     Boolean(result?.findings.length) !== Boolean(remediation) ||
     (remediation &&
       (!sameUuid(remediation.review_id, id) ||
         !sameUuid(remediation.result_id, result?.id) ||
         !sameUuid(remediation.source_work_item_id, workId) ||
-        remediation.depth !== policy.remediation_depth + 1))
+        remediation.depth !== (policy?.remediation_depth ?? 0) + 1))
   )
     fail();
   return {
     review,
     policy_decision: policy,
     scope,
-    handoff: decodeReviewNotes(row.handoff),
+    handoff: row.handoff === null ? null : decodeReviewNotes(row.handoff),
     result,
     remediation,
     source_work_state: decodeSource(row.source_work_state, workId),
@@ -1102,7 +1109,7 @@ export function decodeReviewQueuePage(
         ? ["requested", "completed", "superseded"].includes(
             String(row.state),
           ) &&
-          ["mandatory", "recommended"].includes(String(row.request_reason)) &&
+          ["mandatory", "recommended", "manual"].includes(String(row.request_reason)) &&
           row.kind === null
         : ["pending", "answered", "superseded"].includes(String(row.state)) &&
           row.kind === "code_review_recommendation" &&

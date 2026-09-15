@@ -158,6 +158,7 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "job_report_prompt_changed", "project_settings_changed",
     "work_follow_up_changed", "work_follow_up_superseded", "work_follow_up_origin_mismatch", "work_follow_up_already_answered",
     "review_decision_requires_human", "review_decision_invalid", "review_decision_unchanged",
+    "review_request_requires_human", "review_request_invalid", "code_review_already_requested",
     "code_review_not_requested", "code_review_superseded", "code_review_changed", "code_review_already_completed",
     "code_review_depth_forbidden", "code_review_remediation_disabled", "lease_purpose_mismatch",
     "code_review_obligation_outstanding", "code_review_provenance_merge_forbidden",
@@ -580,6 +581,15 @@ function decodeSuccess<K extends MutationKind>(
     if (Object.hasOwn(body, "review_decision") !== Object.hasOwn(raw, "review_decision")) {
       throw new Error("Mnemonic returned an incoherent review decision.");
     }
+    if (body.request_code_review === true) {
+      const request = workItem.manual_review_request;
+      const actor = objectValue(body.actor);
+      if (!request || !actor || request.work_version !== workItem.version
+        || request.actor_client !== actor.actor_client || request.actor_session_id !== actor.actor_session_id
+        || request.actor_model !== (actor.actor_model ?? null) || request.created_at !== workItem.updated_at) {
+        throw new Error("Mnemonic returned an incoherent human review request.");
+      }
+    }
     if (decision !== undefined) {
       const returned = objectValue(decision);
       const expected = objectValue(body.review_decision);
@@ -669,14 +679,18 @@ function decodeSuccess<K extends MutationKind>(
       const review = result.code_review_request === undefined ? undefined : decodeCodeReview(result.code_review_request, path.projectId, path.workItemId);
       const followUps = result.agent_follow_ups === undefined ? undefined : Array.isArray(result.agent_follow_ups)
         ? result.agent_follow_ups.map((entry) => decodeWorkFollowUp(entry, path.projectId, path.workItemId)) : null;
-      if ((policy.decision === "mandatory") !== Boolean(review)
-        || (policy.decision === "ask_recommendation") !== Boolean(followUps)
+      const manual = review?.request_reason === "manual";
+      if ((!manual && policy.decision === "mandatory") !== Boolean(review && !manual)
+        || (!manual && policy.decision === "ask_recommendation") !== Boolean(followUps)
         || followUps && (followUps.length !== 1 || !sameUuid(followUps[0]!.kind_data.policy_decision_id, policy.id)
           || !sameUuid(followUps[0]!.completion_checkpoint_id, checkpoint.id) || followUps[0]!.state !== "pending")
         || review && (!sameUuid(review.policy_decision_id, policy.id) || !sameUuid(review.completion_checkpoint_id, checkpoint.id)
-          || review.state !== "requested" || review.request_reason !== "mandatory" || !Object.hasOwn(body, "code_review_handoff"))
-        || Boolean(review) !== Object.hasOwn(result, "code_review_handoff")
-        || review && (!validReviewHandoff(result.code_review_handoff) || !jsonEqual(result.code_review_handoff, body.code_review_handoff))) {
+          || review.state !== "requested" || !["mandatory", "manual"].includes(review.request_reason)
+          || !manual && !Object.hasOwn(body, "code_review_handoff"))
+        || (!manual && Boolean(review)) !== (!manual && Object.hasOwn(result, "code_review_handoff"))
+        || manual && !jsonEqual(review?.manual_request, workItem.manual_review_request)
+        || (Object.hasOwn(result, "code_review_handoff") && !validReviewHandoff(result.code_review_handoff))
+        || !jsonEqual(result.code_review_handoff ?? null, body.code_review_handoff ?? null)) {
         throw new Error("Mnemonic returned incoherent completion review resources.");
       }
       Object.assign(decoded as CompletionResult, { review_policy_decision: policy, ...(review ? { code_review_request: review, code_review_handoff: result.code_review_handoff } : {}), ...(followUps ? { agent_follow_ups: followUps } : {}) });
