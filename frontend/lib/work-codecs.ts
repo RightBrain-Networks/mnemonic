@@ -1,3 +1,4 @@
+import { decodeManualReviewRequest } from "./manual-reviews.ts";
 import { validSparseReferences, referenceKeys } from "./external-references.ts";
 import type { WorkIdentityPointer, WorkItem, WorkStatus, WorkSummary } from "./types.ts";
 import { decodeCheckpointPointer } from "./checkpoint-codecs.ts";
@@ -14,7 +15,7 @@ import {
 
 const WORK_ITEM_FIELDS = [
   "id", "project_id", "title", "summary", "status", "priority", "initial_checkpoint_id",
-  "version", "created_at", "updated_at", "external_references"
+  "version", "created_at", "updated_at", "external_references", "manual_review_request"
 ] as const;
 
 const WORK_STATUSES = new Set<WorkStatus>([
@@ -43,7 +44,7 @@ export function decodeWorkItem(
   if (
     !item
     || !validSparseReferences(item)
-    || !exactKeys(item, referenceKeys(item, WORK_ITEM_FIELDS.filter((key) => key !== "external_references")))
+    || !exactKeys(item, referenceKeys(item, WORK_ITEM_FIELDS.filter((key) => key !== "external_references" && (key !== "manual_review_request" || Object.hasOwn(item, key)))))
     || !validUuid(item.id)
     || !sameUuid(item.project_id, projectId)
     || (workItemId !== undefined && !sameUuid(item.id, workItemId))
@@ -57,6 +58,10 @@ export function decodeWorkItem(
     || !validUtcDateTime(item.created_at)
     || !validUtcDateTime(item.updated_at)
   ) throw new Error(errorMessage);
+  if (Object.hasOwn(item, "manual_review_request")) {
+    const request = decodeManualReviewRequest(item.manual_review_request);
+    if (request.work_version > Number(item.version)) throw new Error(errorMessage);
+  }
   return item as unknown as WorkItem;
 }
 

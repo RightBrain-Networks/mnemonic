@@ -3,8 +3,8 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.53.0`, plugin `0.31.0`, and migration
-`0038_transcript_recovery`. The catalog has exactly 55 MCP tools, 17
+This is application/API/MCP/dashboard `0.54.0`, plugin `0.32.0`, and migration
+`0039_manual_review_requests`. The catalog has exactly 55 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
 with filesystem recovery journals, and two transcript operations (rebuild and import). See
@@ -1995,3 +1995,26 @@ agent provenance, `review_decision_invalid` rejects mixed work edits,
 `review_decision_unchanged` rejects an identical fresh status, and
 `code_review_changed` rejects stale episode/decision identities. Existing report
 required/prompt-changed and work version conflicts apply unchanged.
+
+### Human-requested code reviews
+
+`WorkItemPatch.request_code_review=true` is a dashboard-human-only, standalone
+field inside the existing `update_work` operation. It requires `expected_version`,
+`actor`, and `client_operation_id`; no other edits belong in that request. Its
+response includes `manual_review_request`, also returned on ordinary work reads.
+A request on Done work creates its code review immediately; other lifecycle states
+retain an earmark until Done. Review requests carry `request_reason="manual"` and
+the immutable `manual_request` authorship snapshot. A historical completion without
+a stored policy has `policy_decision_id=null` and `policy_decision=null`.
+
+Manual reviews may have null `scope_sha256`, scope, and handoff before preparation.
+The first warm `WorkClaimCreate` supplies `code_review_handoff` to pin these in the
+claim transaction. Exact retries must retain it; subsequent claims omit it. The
+claim response always contains a pinned scope hash. `code_review_scope_required`
+rejects claims and cold prompts without scope. Changed retry handoffs return
+`claim_request_mismatch`; attempts to replace a pinned scope with another claim
+return `code_review_scope_already_pinned`. Fresh human requests reject nonhuman
+provenance (`review_request_requires_human`), mixed fields (`review_request_invalid`),
+and an already requested/currently reviewed episode (`code_review_already_requested`).
+Remediation depth and eligibility limits remain enforced. See [human review
+requests](code-reviews.md#human-review-requests-0540) for the full workflow.

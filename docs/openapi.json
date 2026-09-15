@@ -2054,10 +2054,24 @@
         "additionalProperties": false,
         "properties": {
           "handoff": {
-            "$ref": "#/components/schemas/CodeReviewHandoffNotes"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CodeReviewHandoffNotes"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "policy_decision": {
-            "$ref": "#/components/schemas/ReviewPolicyRead"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewPolicyRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "remediation": {
             "anyOf": [
@@ -2083,7 +2097,14 @@
             "$ref": "#/components/schemas/CodeReviewRead"
           },
           "scope": {
-            "$ref": "#/components/schemas/CodeReviewScopeInput"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CodeReviewScopeInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "source_work_state": {
             "$ref": "#/components/schemas/ReviewSourceState"
@@ -2343,10 +2364,21 @@
             "title": "Id",
             "type": "string"
           },
+          "manual_request": {
+            "$ref": "#/components/schemas/ManualReviewRequest",
+            "title": "Manual Request"
+          },
           "policy_decision_id": {
-            "format": "uuid",
-            "title": "Policy Decision Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Decision Id"
           },
           "project_id": {
             "format": "uuid",
@@ -2356,7 +2388,8 @@
           "request_reason": {
             "enum": [
               "mandatory",
-              "recommended"
+              "recommended",
+              "manual"
             ],
             "title": "Request Reason",
             "type": "string"
@@ -2404,9 +2437,16 @@
             "type": "integer"
           },
           "scope_sha256": {
-            "pattern": "^[0-9a-f]{64}$",
-            "title": "Scope Sha256",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Sha256"
           },
           "state": {
             "enum": [
@@ -6924,6 +6964,64 @@
         "title": "LeaseTokenCreate",
         "type": "object"
       },
+      "ManualReviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_client": {
+            "const": "dashboard",
+            "title": "Actor Client",
+            "type": "string"
+          },
+          "actor_model": {
+            "title": "Actor Model",
+            "type": "null"
+          },
+          "actor_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Actor Session Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "priority": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "work_version": {
+            "minimum": 1.0,
+            "title": "Work Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created_at",
+          "id",
+          "actor_client",
+          "actor_session_id",
+          "actor_model",
+          "event_id",
+          "work_version",
+          "priority"
+        ],
+        "title": "ManualReviewRequest",
+        "type": "object"
+      },
       "MergeReviewRevision": {
         "additionalProperties": false,
         "description": "Exact, commit-visible context reviewed before an irreversible merge.",
@@ -9016,7 +9114,8 @@
               {
                 "enum": [
                   "mandatory",
-                  "recommended"
+                  "recommended",
+                  "manual"
                 ],
                 "type": "string"
               },
@@ -10151,6 +10250,11 @@
             "minLength": 1,
             "title": "Claim Request Id",
             "type": "string"
+          },
+          "code_review_handoff": {
+            "$ref": "#/components/schemas/CodeReviewHandoffInput",
+            "description": "Pin a manual review with its first warm claim; retain exact retries.",
+            "title": "Code Review Handoff"
           },
           "code_review_id": {
             "format": "uuid",
@@ -11905,6 +12009,12 @@
             ],
             "title": "Priority"
           },
+          "request_code_review": {
+            "const": true,
+            "description": "Dashboard human request; queues Done work or earmarks its next completion.",
+            "title": "Request Code Review",
+            "type": "boolean"
+          },
           "review_decision": {
             "$ref": "#/components/schemas/HumanReviewDecisionInput",
             "title": "Review Decision"
@@ -12063,6 +12173,10 @@
             "format": "uuid",
             "title": "Initial Checkpoint Id",
             "type": "string"
+          },
+          "manual_review_request": {
+            "$ref": "#/components/schemas/ManualReviewRequest",
+            "title": "Manual Review Request"
           },
           "priority": {
             "title": "Priority",
@@ -12981,6 +13095,10 @@
             "$ref": "#/components/schemas/JobCompletionReportRead",
             "title": "Job Completion Report"
           },
+          "manual_review_request": {
+            "$ref": "#/components/schemas/ManualReviewRequest",
+            "title": "Manual Review Request"
+          },
           "priority": {
             "title": "Priority",
             "type": "integer"
@@ -13067,7 +13185,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.53.0"
+    "version": "0.54.0"
   },
   "openapi": "3.1.0",
   "paths": {

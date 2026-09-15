@@ -25,7 +25,7 @@ const DEFAULTED_RESPONSE_FIELDS = {
   "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": ["code_review_context"],
   "frontend/lib/work-events.ts:EVENT_FIELDS": ["code_review_id", "code_review_result_id", "work_follow_up_id", "work_follow_up_answer_id"],
   "frontend/lib/external-references.ts:decodeExternalReference": ["label", "state_observed_at"],
-  "frontend/lib/work-codecs.ts:decodeWorkItem": ["external_references"],
+  "frontend/lib/work-codecs.ts:decodeWorkItem": ["external_references", "manual_review_request"],
   "frontend/lib/duplicate-handling.ts:decodeWorkPointer": ["external_references"],
   "frontend/lib/duplicate-suggestions.ts:decodeDuplicateCandidateSummary": ["external_references"],
   "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestionPage": ["external_items", "external_candidate_count", "external_scope"],

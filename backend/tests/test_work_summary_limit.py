@@ -118,12 +118,13 @@ def test_suggestion_uses_same_summary_limit(configured_api, project):
 def test_migration_preserves_summary_receipt_and_search(
     api, project, work_payload, postgres_engine,
 ):
-    migrate(postgres_engine, "0027_artifact_fulltext", downgrade=True)
     path = work_path(project)
     body = {**work_payload, "summary": "migration searchable summary " + "x" * 970,
             "client_operation_id": str(uuid4())}
     created = api.post(path, json=body)
     assert created.status_code == 201, created.text
+    # Keep current services on the current schema; migrate the retained rows offline.
+    migrate(postgres_engine, "0027_artifact_fulltext", downgrade=True)
     migrate(postgres_engine, "head")
     assert api.post(path, json=body).json() == created.json()
     found = api.get(path, params={"q": "searchable", "view": "full"})

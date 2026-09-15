@@ -120,7 +120,7 @@ def _review_values(
             raise
         return {}
     scope = database.get(CodeReviewScope, review.id)
-    if scope is None:
+    if scope is None and review.request_reason != "manual":
         raise ApplicationError(503, "prompt_unavailable", "Review scope is unavailable.")
     allowed = {
         "repository_key",
@@ -131,7 +131,8 @@ def _review_values(
         "head_commit",
     }
     repositories = [
-        {key: value for key, value in row.items() if key in allowed} for row in scope.repositories
+        {key: value for key, value in row.items() if key in allowed}
+        for row in (scope.repositories if scope else [])
     ]
     routing = {
         "project_id": str(project_id),
@@ -145,7 +146,7 @@ def _review_values(
         "$CODE_REVIEW_ID": str(review.id),
         "$WORK_ITEM_ID": str(review.work_item_id),
         "$REVIEW_VERSION": str(review.version),
-        "$REVIEW_SCOPE_SHA256": review.scope_sha256,
+        "$REVIEW_SCOPE_SHA256": review.scope_sha256 or "unprepared",
         "$REVIEW_ROUTING": json.dumps(routing, indent=2),
         "$REVIEW_SCOPE": json.dumps({"repositories": repositories}, indent=2),
     }
@@ -205,6 +206,9 @@ def render_prompt(
         values.update(_work_values(database, project_id, work_item_id))
     if prompt_id == "cold-code-review" and "$CODE_REVIEW_ID" not in values:
         raise conflict("code_review_changed", "A current review is required for a cold prompt.")
+    manual_prompt = _unprepared_review_prompt(prompt_id, values)
+    if manual_prompt is not None:
+        return manual_prompt
     values.update(extra or {})
     body = (
         template
@@ -224,3 +228,33 @@ def render_prompt(
                 422, "prompt_render_too_large", "Expanded review recommendation exceeds its limits."
             ) from None
     return rendered
+
+
+
+def _manual_review_prompt(values: dict[str, str]) -> str:
+    return (
+        "A human operator requested a code review. Routing: " + values["$REVIEW_ROUTING"]
+        + "\nImmediately call get_work(status_only=true) for current status and lease_settings. "
+        "This review has no pinned Git scope yet. Establish its exact implementation range from "
+        "the retained work context and repository history; get_code_review exposes its request. "
+        "Do not guess commits or invent validation evidence. Prepare code_review_handoff with "
+        "verified repository locators, base/head commits, and truthful handoff notes. Then call "
+        "claim_work with purpose=code_review, this code_review_id, mode=warm, that "
+        "code_review_handoff, your independent holder identity, a retained claim_request_id, "
+        "session_transcript (explicit null if unavailable), and the project default lease minutes. "
+        "Retain every exact argument on uncertain retries. The first claim pins scope immutably; "
+        "use the scope hash from its receipt. Perform a WARM ADVERSARIAL review of that range, "
+        "challenge claimed behavior, and submit complete_code_review with evidence-backed findings "
+        "and honest limitations. Zero findings is valid. "
+        "Never re-complete or reopen implementation. "
+        "If the range cannot be established, leave the request queued and report the missing facts."
+    )
+
+
+
+def _unprepared_review_prompt(prompt_id: str, values: dict[str, str]) -> str | None:
+    if values.get("$REVIEW_SCOPE_SHA256") != "unprepared":
+        return None
+    if prompt_id == "cold-code-review":
+        raise conflict("code_review_scope_required", "Prepare scope with a warm claim first.")
+    return _manual_review_prompt(values) if prompt_id == "warm-code-review" else None

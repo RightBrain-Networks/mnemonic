@@ -80,6 +80,8 @@ def prepare_review_policy(
         settings.allow_remediation_code_reviews,
         work.remediation_depth,
     )
+    if work.manual_review_request is not None:
+        return decision
     if decision == "mandatory" and handoff is None:
         raise ApplicationError(
             422, "code_review_handoff_required", "Mandatory review needs a handoff."
@@ -171,7 +173,11 @@ def seal_review_policy(
     )
     database.add(policy)
     database.flush()
-    if decision == "mandatory":
+    if work.manual_review_request is not None:
+        from mnemonic_api.services.manual_reviews import create_manual_review
+
+        create_manual_review(database, work, handoff)
+    elif decision == "mandatory":
         assert handoff is not None
         _create_review(database, work, policy, handoff, actor)
     elif decision == "ask_recommendation":
@@ -224,15 +230,15 @@ def completion_review_fields(database: Session, checkpoint_id: UUID) -> dict[str
     if policy is None:
         return {}
     values: dict[str, Any] = {"review_policy_decision": policy_read(policy)}
-    if policy.decision == "mandatory":
-        review = database.scalar(
-            select(CodeReview).where(CodeReview.policy_decision_id == policy.id)
-        )
-        assert review is not None
+    review = database.scalar(
+        select(CodeReview).where(CodeReview.completion_checkpoint_id == checkpoint_id)
+    )
+    if review is not None:
         values["code_review_request"] = review_read(review)
         scope = database.get(CodeReviewScope, review.id)
         notes = database.get(CodeReviewHandoff, review.id)
-        assert scope is not None and notes is not None
+        if scope is None or notes is None:
+            return values
         values["code_review_handoff"] = CodeReviewHandoffInput(
             scope=CodeReviewScopeInput(repositories=scope.repositories),
             handoff=CodeReviewHandoffNotes.model_validate(notes),
@@ -358,10 +364,10 @@ def require_no_review_history_for_move(database: Session, work: WorkItem) -> Non
             )
         )
     )
-    if retained or work.remediation_depth > 0:
+    if retained or work.remediation_depth > 0 or work.manual_review_request is not None:
         raise conflict(
             "work_move_review_history_conflict",
-            "Work with retained review policy, questions, reviews or remediation "
+            "Work with retained review requests, policy, questions, reviews or remediation "
             "cannot move projects.",
         )
 
@@ -591,8 +597,9 @@ def _create_remediation(
     from mnemonic_api.services.work_events import stage_relationship_events
     from mnemonic_api.services.work_items import create_work_records
 
-    policy = database.get(WorkCompletionReviewPolicy, review.policy_decision_id)
-    assert policy is not None
+    policy = (database.get(WorkCompletionReviewPolicy, review.policy_decision_id)
+              if review.policy_decision_id else None)
+    priority = policy.priority_at_closeout if policy else (review.manual_request or {})["priority"]
     from mnemonic_api.summary_limits import DEFAULT_WORK_SUMMARY_MAX_CHARS
 
     summary_maximum = database.info.get("work_summary_max_chars", DEFAULT_WORK_SUMMARY_MAX_CHARS)
@@ -609,7 +616,7 @@ def _create_remediation(
         WorkItemCreate(
             title=("Remediate review: " + work.title)[:200],
             summary=remediation_summary(payload.result.findings, summary_maximum),
-            priority=policy.priority_at_closeout,
+            priority=priority,
             initial_checkpoint=initial,
         ),
         remediation_id=association_id,

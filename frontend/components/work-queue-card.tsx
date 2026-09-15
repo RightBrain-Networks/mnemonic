@@ -144,6 +144,7 @@ export default function WorkQueueCard({ summary, presentation, depth = 0 }: Prop
     <p className="queue-card-summary">{work.summary}</p>
     <div className="queue-card-footer">
       {presentation && descendants > 0 && <span className="queue-chip" title={descendantChipTitle(presentation, depth)}>{descendants} descendant{descendants === 1 ? "" : "s"}</span>}
+      {work.manual_review_request && <span className="queue-chip" title={work.status === "done" ? "Code review requested by a human operator" : "A human requested code review when this work becomes Done"}>Review requested</span>}
       {attention > 0 && <span className="queue-chip queue-chip-attention">{attention} needs attention</span>}
       <span className="queue-card-arrow" aria-hidden="true">→</span>
       <div className="queue-card-actions">

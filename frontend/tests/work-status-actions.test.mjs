@@ -45,7 +45,7 @@ function readiness(overrides = {}) {
 test("the status menu has the requested order and excludes the current state", () => {
   assert.deepEqual(
     availableStatusActions("pending", readiness()).map((item) => item.label),
-    ["Done", "Won’t Do", "Promote"]
+    ["Review", "Done", "Won’t Do", "Promote"]
   );
   const active = readiness({
     has_active_lease: true,
@@ -62,7 +62,7 @@ test("the status menu has the requested order and excludes the current state", (
   assert.equal(currentManualStatusAction("pending", active), "active");
   assert.deepEqual(
     availableStatusActions("pending", active).map((item) => item.label),
-    ["Pending", "Done", "Won’t Do", "Promote"]
+    ["Pending", "Review", "Done", "Won’t Do", "Promote"]
   );
   const dropped = readiness({
     has_dropped_lease: true,
@@ -72,7 +72,7 @@ test("the status menu has the requested order and excludes the current state", (
   assert.equal(currentManualStatusAction("pending", dropped), null);
   assert.deepEqual(
     availableStatusActions("pending", dropped).map((item) => item.label),
-    ["Pending", "Done", "Won’t Do", "Promote"]
+    ["Pending", "Review", "Done", "Won’t Do", "Promote"]
   );
   assert.deepEqual(
     availableStatusActions("done", readiness({
@@ -81,7 +81,7 @@ test("the status menu has the requested order and excludes the current state", (
       is_ready: false,
       display_state: "done"
     })).map((item) => item.label),
-    ["Pending", "Won’t Do", "Promote"]
+    ["Pending", "Review", "Won’t Do", "Promote"]
   );
   assert.equal(currentManualStatusAction("deferred", readiness({
     lifecycle_status: "deferred",
@@ -143,4 +143,13 @@ test("manual Pending responses are exact and bound to the selected work item", (
   assert.throws(() => decodeLeaseReleaseResult({
     work_item_id: work.id, released: true, token: "leaked"
   }, work.id), /invalid manual Pending/);
+});
+
+test("Review is available across implementation states and disappears once earmarked", () => {
+  for (const status of ["pending", "deferred", "done", "wont-do", "promoted"]) {
+    assert.ok(availableStatusActions(status, readiness()).some(({ value }) => value === "review"));
+    assert.ok(!availableStatusActions(status, readiness(), true).some(({ value }) => value === "review"));
+  }
+  assert.equal(statusActionDisabledReason("review", readiness({ is_gated: true, is_blocked: true }), false), null);
+  assert.ok(!availableStatusActions("done", readiness({ review_status: "to-review" })).some(({ value }) => value === "review"));
 });

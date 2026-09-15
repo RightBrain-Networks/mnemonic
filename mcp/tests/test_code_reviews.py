@@ -442,3 +442,44 @@ async def test_review_unknown_outcome_retries_identical_frozen_call(settings):
     result = await server.call_tool("complete_code_review", complete_arguments())
     assert result[1] == completion_response()
     assert len(requests) == 2 and requests[0].content == requests[1].content
+
+
+def manual_request():
+    return {
+        "id": QUESTION_ID, "actor_client": "dashboard", "actor_session_id": "human-tab",
+        "actor_model": None, "created_at": NOW, "event_id": "2", "work_version": 3,
+        "priority": 5,
+    }
+
+
+async def test_manual_review_can_be_read_without_inferred_scope_or_historical_policy(settings):
+    response = review_detail()
+    response.update(policy_decision=None, scope=None, handoff=None)
+    response["review"] = review(
+        request_reason="manual", requesting_client="dashboard", requesting_session_id="human-tab",
+        manual_request=manual_request(), policy_decision_id=None, scope_sha256=None,
+    )
+    arguments = {"project_id": PROJECT_ID, "work_item_id": WORK_ID, "review_id": REVIEW_ID}
+    actual, requests = await call(settings, "get_code_review", arguments, response)
+    assert actual == response
+    assert len(requests) == 1
+    response["review"]["requesting_session_id"] = "agent-impersonation"
+    with pytest.raises(ToolError):
+        await call(settings, "get_code_review", arguments, response)
+
+
+async def test_first_manual_scope_claim_transmits_exact_handoff_and_checks_receipt(settings):
+    arguments = {
+        "session_transcript": None, "project_id": PROJECT_ID, "work_item_id": WORK_ID,
+        "holder_client": "review-test", "holder_session_id": "actual-session",
+        "claim_request_id": "retained-claim", "purpose": "code_review", "code_review_id": REVIEW_ID,
+        "mode": "warm", "code_review_handoff": handoff(),
+    }
+    response = {**claim_response(), "mode": "warm"}
+    actual, requests = await call(settings, "claim_work", arguments, response)
+    assert actual == response
+    assert json.loads(requests[0].content)["code_review_handoff"] == handoff()
+    with pytest.raises(ToolError, match="Scope preparation requires a warm"):
+        await call(settings, "claim_work", {**arguments, "mode": "cold"}, response)
+    with pytest.raises(ToolError, match="incoherent scope preparation receipt"):
+        await call(settings, "claim_work", arguments, {**response, "scope_sha256": "f" * 64})

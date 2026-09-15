@@ -249,3 +249,56 @@ Upgrade API, MCP and dashboard together to 0.41.0 and migration
 The migration adds empty decision histories without changing existing episodes.
 Back up and quiesce writers before upgrading. Downgrade is refused after human
 review decisions have been written.
+
+## Human review requests (0.54.0)
+
+![Review action in the Defer menu](images/manual-review/menu.png)
+
+![Human-requested review queued for an agent](images/manual-review/queued.png)
+
+Choose **Review** from the Defer split menu on either a queue card or the detail
+card. The action leaves implementation status, priority, blockers, questions, and
+active leases intact. Done work enters **To review** immediately. Other work is
+marked for review and enters To review atomically with its next actual Done
+completion, regardless of the priority thresholds. A mandatory or optional
+project policy does not create a second request or recommendation question.
+Second-generation remediation remains ineligible; first-generation remediation
+requires the project's remediation-review setting when the human requests it.
+
+The work retains `manual_review_request` with the human's dashboard session,
+timestamp, work version, and event witness. The resulting review has
+`request_reason="manual"` and preserves that request and its human authorship,
+even when an agent later completes implementation or supplies the scope. Existing
+mandatory/recommended reviews retain their original agent or dashboard authorship.
+One completed implementation episode still has at most one code review. Existing
+review dispositions use **To review** to resume an episode instead of creating a
+second review. Reopening Done work consumes its earmark; the original request and
+review remain in history.
+
+A human need not supply Git commits or handoff notes. A manual request can start
+with `scope_sha256`, scope, and handoff set to null. **Copy recall pointer** gives
+an agent the preparation workflow. The agent checks current status, uses retained
+work context and repository history to establish the actual range, then includes
+`code_review_handoff` in its first `claim_work` or `claim_and_recall` call with
+`purpose="code_review"` and `mode="warm"`. The claim atomically pins scope and
+handoff and returns the scope hash. Scope preparation is witnessed by that agent's
+claim event; it does not change who requested review. Cold claims/prompts require
+an already pinned scope. If the range cannot be established, leave the request
+queued and report the missing facts.
+
+Preserve the claim ID, complete handoff, transcript assertion, lease duration or
+omission, and every other argument on an uncertain first-claim retry. Later claims
+omit the handoff and use the immutable scope. Implementation closeouts may provide
+the handoff for an earmarked review directly; when omitted, the same preparation
+workflow applies. Historical Done work can acquire a new manual request without
+inventing a historical completion policy.
+
+The browser uses `request_code_review=true` inside receipt-protected `update_work`,
+with a work version, dashboard actor, and operation UUID. This field is human-only
+and must be submitted alone. Exact retries return their original response. There
+are no new MCP tools, protected writes, receipt kinds, or work-event types.
+Upgrade API/MCP/dashboard to 0.54.0, plugin to 0.32.0, and Alembic to
+`0039_manual_review_requests` together. Quiesce writers and back up first. Existing
+requests and receipts are unchanged; no reviews are inferred by migration.
+Downgrade is refused once human requests have been recorded. Run both integrity
+audits on the new schema, including after a restore.

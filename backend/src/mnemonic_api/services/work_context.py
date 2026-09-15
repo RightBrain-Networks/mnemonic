@@ -407,6 +407,7 @@ def assemble_work_context(
                     'id', w.id, 'project_id', w.project_id,
                     'title', w.title, 'summary', w.summary,
                     'external_references', w.external_references,
+                    'manual_review_request', w.manual_review_request,
                     'status', w.status, 'priority', w.priority,
                     'initial_checkpoint_id', w.initial_checkpoint_id,
                     'version', w.version, 'created_at', w.created_at, 'updated_at', w.updated_at

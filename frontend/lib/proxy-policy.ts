@@ -616,7 +616,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
   if (WORK_ITEM.test(path) && method === "PATCH") {
     if (
       !allowedKeys(body, [
-        "expected_version", "title", "summary", "priority", "status", "actor", "job_completion_report", "external_references", "review_decision",
+        "expected_version", "title", "summary", "priority", "status", "actor", "job_completion_report", "external_references", "review_decision", "request_code_review",
         "supersede_code_review_id", "expected_code_review_version", "supersede_follow_up_id", "expected_follow_up_version",
         "subagent_transcripts", CLIENT_OPERATION_FIELD
       ])
@@ -625,8 +625,11 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !validActor(body.actor)
       || (Object.hasOwn(body, "job_completion_report") && !validJobReportInput(body.job_completion_report))
       || !validReviewSupersession(body)
+      || ("request_code_review" in body && (body.request_code_review !== true
+        || !allowedKeys(body, ["expected_version", "actor", "client_operation_id", "request_code_review"])
+        || jsonObject(body.actor)?.actor_client !== "dashboard" || jsonObject(body.actor)?.actor_model != null))
       || ("review_decision" in body && !validHumanReviewDecision(body))
-      || !["title", "summary", "priority", "status", "external_references", "review_decision"].some((key) => key in body)
+      || !["title", "summary", "priority", "status", "external_references", "review_decision", "request_code_review"].some((key) => key in body)
       || (Object.hasOwn(body, "external_references") && !validExternalReferences(body.external_references))
       || (body.title !== undefined && !boundedText(body.title, 200))
       || (body.summary !== undefined && !boundedText(body.summary, Infinity))

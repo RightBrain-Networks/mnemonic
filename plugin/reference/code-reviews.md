@@ -21,7 +21,11 @@ Second-generation remediation can never be reviewed, including after reopen.
 Never try to remove provenance, merge remediation, or copy it into ordinary work
 to defeat that boundary.
 
-For mandatory review, include `code_review_handoff` in the original
+For an existing human earmark (`manual_review_request`), handoff is optional at
+closeout, regardless of policy. Its review queues at Done; a warm reviewer can
+establish scope afterward. See **Human-requested reviews** below.
+
+For mandatory review without a human earmark, include `code_review_handoff` in the original
 `complete_work` intent, alongside checkpoint, report, and optional evidence.
 It contains separate `scope` and `handoff` objects. Scope is an ordered
 `repositories` array of one to ten ranges, each with a unique ASCII
@@ -179,3 +183,26 @@ are applicable or available. These are location assertions, not context reads;
 cold reviewers must not search or read transcripts before findings freeze. See
 [the transcript reference](transcripts.md) for shared filesystem requirements and
 exact retry handling.
+
+## Human-requested reviews
+
+A dashboard human may earmark any eligible work for review regardless of priority.
+`work_item.manual_review_request` records that human decision. On Done it produces
+one review with `request_reason="manual"`, preserving the human as requester even
+when an agent completes the work. Supply a truthful `code_review_handoff` at
+closeout when available. If omitted, completion queues the review without scope.
+Do not replace the request, alter priority to simulate it, or answer an optional
+recommendation on the human's behalf.
+
+For a manual review with `scope_sha256=null`, immediately read
+`get_work(status_only=true)`, then establish the actual range from retained work
+context and repository history. This preparation is warm. Do not invent commits
+or validation evidence. Pass the verified `code_review_handoff` with the first
+`claim_work` or `claim_and_recall`, `purpose="code_review"`, exact review ID, and
+`mode="warm"`. The claim pins scope/notes immutably and returns their scope hash.
+Retain the exact handoff and all original claim arguments on uncertain retries,
+including transcript assertion and lease duration or omission. Later claims omit
+handoff. Cold claims are available only after scope has been pinned, to a fresh
+reviewer who has not loaded implementation context. If scope cannot be established,
+leave the request queued and explain what is missing. Requester attribution remains
+human; the scope preparer's claim and the eventual result identify their agents.

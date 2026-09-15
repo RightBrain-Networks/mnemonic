@@ -4,7 +4,7 @@ import argparse
 import json
 import logging
 import re
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 import uvicorn
@@ -481,7 +481,9 @@ def _completion_review_matches_request(
     response: WorkCompletion, handoff: CodeReviewHandoffInput | None,
 ) -> bool:
     if handoff is None:
-        return response.code_review_request is None and response.code_review_handoff is None
+        return response.code_review_handoff is None and (response.code_review_request is None
+            or response.code_review_request.request_reason == "manual"
+            and response.code_review_request.scope_sha256 is None)
     return (
         response.code_review_request is not None and response.code_review_handoff is not None
         and response.code_review_request.scope_sha256 == scope_hash(handoff.scope)
@@ -1493,6 +1495,24 @@ def _supersession_payload(
     return result
 
 
+def _prepared_review_claim_payload(
+    purpose: str, review_id: UUID | None, mode: str | None,
+    handoff: CodeReviewHandoffInput | None,
+) -> dict[str, Any]:
+    payload = _review_claim_payload(purpose, review_id, mode)
+    if handoff is not None:
+        if purpose != "code_review" or mode != "warm":
+            raise ToolError("Scope preparation requires a warm code review claim.")
+        payload["code_review_handoff"] = handoff.model_dump(mode="json")
+    return payload
+
+
+def _ensure_prepared_scope(receipt: ClaimReceipt, handoff: CodeReviewHandoffInput | None) -> None:
+    if handoff is not None and receipt.scope_sha256 != scope_hash(handoff.scope):
+        raise ToolError("Mnemonic returned an incoherent scope preparation receipt; "
+                        "retry the exact original claim and handoff.")
+
+
 def _register_claim_tools(server: FastMCP, api: MnemonicAPI) -> None:
     @server.tool(annotations=MUTATE)
     async def claim_work(
@@ -1506,9 +1526,12 @@ def _register_claim_tools(server: FastMCP, api: MnemonicAPI) -> None:
         purpose: Literal["implementation", "code_review"] = "implementation",
         code_review_id: ReviewIDArgument = None,
         mode: ReviewModeArgument = None,
+        code_review_handoff: CodeReviewHandoffArgument = None,
     ) -> ClaimReceipt:
-        """First call get_work(status_only=true) for current status and project lease_settings. Request lease_minutes=default_minutes for initial session startup and investigation; choose later durations from estimated remaining session work within minimum_minutes and maximum_minutes. Any in-range whole-minute request is accepted; omission uses the project default. Preserve the exact lease_minutes argument, including omission, across uncertain claim retries. Explicitly supply session_transcript={client, path} using an absolute path visible to the Mnemonic backend, or null when unavailable. Claude Code uses client=claude_code; its JSON/JSONL format is auto-detected. Retain this assertion unchanged on claim retries. Acquire an expiring exclusive lease for already-authorized work. Implementation requires pending work; deferred work needs explicit human direction before moving to pending. Code review instead claims the original Done item with purpose=code_review, exact code_review_id and mode=cold|warm; do not reopen it. This minimal response contains coordination only, never context/handoff. Cold attempts must use this tool, never claim_and_recall or contextual reads before findings freeze. holder_client names the actual client; holder_session_id is this independent agent's native session ID or one generated-and-retained Mnemonic session UUID. Never work around another session's active claim. Keep lease_token in private active-session state, never checkpoints/logs/chat. Identical active requests replay without extending expiry; capability recovery grants no new authority. Human gates still prohibit implementation. After unknown outcome retry promptly with exactly the same claim_request_id and arguments."""
-        review_scope = _review_claim_payload(purpose, code_review_id, mode)
+        """First call get_work(status_only=true) for current status and project lease_settings. Request lease_minutes=default_minutes for initial session startup and investigation; choose later durations from estimated remaining session work within minimum_minutes and maximum_minutes. Any in-range whole-minute request is accepted; omission uses the project default. Preserve the exact lease_minutes argument, including omission, across uncertain claim retries. Explicitly supply session_transcript={client, path} using an absolute path visible to the Mnemonic backend, or null when unavailable. Claude Code uses client=claude_code; its JSON/JSONL format is auto-detected. Retain this assertion unchanged on claim retries. Acquire an expiring exclusive lease for already-authorized work. Implementation requires pending work; deferred work needs explicit human direction before moving to pending. Code review instead claims the original Done item with purpose=code_review, exact code_review_id and mode=cold|warm; do not reopen it. For a manual review with no scope, first establish the range from retained context and supply code_review_handoff with mode=warm; preserve it on exact retries. Later claims omit handoff. This minimal response contains coordination only, never context/handoff. Cold attempts must use this tool, never claim_and_recall or contextual reads before findings freeze. holder_client names the actual client; holder_session_id is this independent agent's native session ID or one generated-and-retained Mnemonic session UUID. Never work around another session's active claim. Keep lease_token in private active-session state, never checkpoints/logs/chat. Identical active requests replay without extending expiry; capability recovery grants no new authority. Human gates still prohibit implementation. After unknown outcome retry promptly with exactly the same claim_request_id and arguments."""
+        review_scope = _prepared_review_claim_payload(
+            purpose, code_review_id, mode, code_review_handoff,
+        )
         receipt = cast(
             ClaimReceipt,
             await api.request(
@@ -1528,6 +1551,7 @@ def _register_claim_tools(server: FastMCP, api: MnemonicAPI) -> None:
             ),
         )
         _ensure_review_claim_scope(receipt, purpose, code_review_id, mode)
+        _ensure_prepared_scope(receipt, code_review_handoff)
         return _ensure_claim_receipt(
             receipt,
             work_item_id=work_item_id,
@@ -1548,9 +1572,12 @@ def _register_claim_tools(server: FastMCP, api: MnemonicAPI) -> None:
         purpose: Literal["implementation", "code_review"] = "implementation",
         code_review_id: ReviewIDArgument = None,
         mode: ReviewModeArgument = None,
+        code_review_handoff: CodeReviewHandoffArgument = None,
     ) -> ClaimAndRecall:
-        """First call get_work(status_only=true) for current status and project lease_settings. Request lease_minutes=default_minutes for initial session startup and investigation; choose later durations from estimated remaining session work within minimum_minutes and maximum_minutes. Any in-range whole-minute request is accepted; omission uses the project default. Preserve the exact lease_minutes argument, including omission, across uncertain claim retries. Explicitly supply session_transcript={client, path} using an absolute path visible to the Mnemonic backend, or null when unavailable. Claude Code uses client=claude_code; its JSON/JSONL format is auto-detected. Retain this assertion unchanged on claim retries. Atomically acquire an expiring lease and bounded context before already-authorized execution. For WARM adversarial review claim the original Done item with purpose=code_review, exact code_review_id and mode=warm; independently challenge the handoff using the pinned scope. Cold mode is forbidden here: use minimal claim_work. Implementation requires pending work; deferred work needs explicit human direction before moving to pending. A claim grants no authority beyond the user's request. Keep lease_token private, never checkpoints/logs/chat. holder_client names the actual client; holder_session_id is this independent agent's native session ID or one generated-and-retained Mnemonic session UUID. Never work around an active claim. Unknown outcome retries retain exactly the same claim_request_id and arguments. Exact active replay may expose new human gates; stop at unresolved decisions, never infer, time out, self-approve or resolve them, and release when safe."""
-        review_scope = _review_claim_payload(purpose, code_review_id, mode)
+        """First call get_work(status_only=true) for current status and project lease_settings. Request lease_minutes=default_minutes for initial session startup and investigation; choose later durations from estimated remaining session work within minimum_minutes and maximum_minutes. Any in-range whole-minute request is accepted; omission uses the project default. Preserve the exact lease_minutes argument, including omission, across uncertain claim retries. Explicitly supply session_transcript={client, path} using an absolute path visible to the Mnemonic backend, or null when unavailable. Claude Code uses client=claude_code; its JSON/JSONL format is auto-detected. Retain this assertion unchanged on claim retries. Atomically acquire an expiring lease and bounded context before already-authorized execution. For WARM adversarial review claim the original Done item with purpose=code_review, exact code_review_id and mode=warm; independently challenge the handoff using the pinned scope. For a manual review with no scope, establish its range and include code_review_handoff in the first warm claim; retain it on exact retries and omit it on later claims. Cold mode is forbidden here: use minimal claim_work. Implementation requires pending work; deferred work needs explicit human direction before moving to pending. A claim grants no authority beyond the user's request. Keep lease_token private, never checkpoints/logs/chat. holder_client names the actual client; holder_session_id is this independent agent's native session ID or one generated-and-retained Mnemonic session UUID. Never work around an active claim. Unknown outcome retries retain exactly the same claim_request_id and arguments. Exact active replay may expose new human gates; stop at unresolved decisions, never infer, time out, self-approve or resolve them, and release when safe."""
+        review_scope = _prepared_review_claim_payload(
+            purpose, code_review_id, mode, code_review_handoff,
+        )
         if mode == "cold":
             raise ToolError("Cold review must use minimal claim_work, never claim_and_recall.")
         result = cast(
@@ -1572,6 +1599,7 @@ def _register_claim_tools(server: FastMCP, api: MnemonicAPI) -> None:
             ),
         )
         _ensure_review_claim_scope(result.lease, purpose, code_review_id, mode)
+        _ensure_prepared_scope(result.lease, code_review_handoff)
         _ensure_claim_receipt(
             result.lease,
             work_item_id=work_item_id,

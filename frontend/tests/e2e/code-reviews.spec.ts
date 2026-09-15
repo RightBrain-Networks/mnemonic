@@ -896,3 +896,44 @@ test("human review actions work on summary and detail cards without reopening im
     await api.dispose();
   }
 });
+
+test("human Review queues Done immediately and earmarks unfinished work", async ({ page }, testInfo) => {
+  const api = await client();
+  try {
+    const p = await project(api);
+    const done = await create(api, p.id, "Human review of completed work");
+    await completeApi(api, p.id, done, false);
+    const pending = await create(api, p.id, "Human review after completion");
+    let pane = await open(page, p.id, done.title, "Done");
+    await pane.getByRole("button", { name: `Choose an action for ${done.title}` }).click();
+    await expect(pane.getByRole("menuitem", { name: `Review ${done.title}`, exact: true })).toBeVisible();
+    await captureReviewScreen(page, testInfo.outputPath("human-review-menu.png"));
+    await pane.getByRole("menuitem", { name: `Review ${done.title}`, exact: true }).click();
+    await expect(page.getByText("Code review requested by a human operator and queued in To review.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    pane = await open(page, p.id, done.title, "To review");
+    await openTab(pane, "Code review");
+    await expect(pane.getByText("Human-requested review", { exact: true })).toBeVisible();
+    await expect(pane.getByText(/Human operator/)).toBeVisible();
+    await expect(pane.getByRole("button", { name: "Copy cold review prompt" })).toHaveCount(0);
+    await pane.getByRole("button", { name: "Copy recall pointer", exact: true }).click();
+    await expect(pane.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
+    await captureReviewScreen(page, testInfo.outputPath("human-review-queued.png"));
+    await closeDetail(page);
+    await page.getByRole("group", { name: "Filter work items" })
+      .getByRole("button", { name: "Pending", exact: true }).click();
+    const card = workCard(page, pending.title);
+    await card.getByRole("button", { name: `Choose an action for ${pending.title}` }).click();
+    await card.getByRole("menuitem", { name: `Review ${pending.title}`, exact: true }).click();
+    pane = await selectWork(page, pending.title);
+    await expect(pane.getByText(/Code review requested by a human operator\. It will enter/)).toBeVisible();
+    await manualDone(pane, pending.title);
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("To review");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    pane = await open(page, p.id, pending.title, "To review");
+    await openTab(pane, "Code review");
+    await expect(pane.getByText("Human-requested review", { exact: true })).toBeVisible();
+  } finally {
+    await api.dispose();
+  }
+});

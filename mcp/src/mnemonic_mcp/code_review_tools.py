@@ -64,12 +64,14 @@ def _detail_matches(detail: CodeReviewDetail, project: UUID, work: UUID, review_
     review, policy = detail.review, detail.policy_decision
     return (
         (review.project_id, review.work_item_id, review.id) == (project, work, review_id)
-        and (policy.project_id, policy.work_item_id, policy.id)
-        == (project, work, review.policy_decision_id)
-        and policy.completion_checkpoint_id == review.completion_checkpoint_id
-        and policy.completion_event_id == review.completion_event_id
+        and (review.policy_decision_id is None if policy is None else (
+            (policy.project_id, policy.work_item_id, policy.id)
+            == (project, work, review.policy_decision_id)
+            and policy.completion_checkpoint_id == review.completion_checkpoint_id
+            and policy.completion_event_id == review.completion_event_id))
         and detail.source_work_state.work_item_id == work
-        and scope_hash(detail.scope) == review.scope_sha256
+        and (scope_hash(detail.scope) if detail.scope else None) == review.scope_sha256
+        and (detail.scope is None) == (detail.handoff is None)
         and _detail_result_matches(detail)
     )
 
@@ -84,6 +86,8 @@ def _detail_result_matches(detail: CodeReviewDetail) -> bool:
         review.project_id, review.work_item_id, review.id, review.result_id, review.scope_sha256,
     ):
         return False
+    if detail.scope is None:
+        return False
     actual = [entry.model_dump(mode="json") for entry in result.coverage]
     expected = [entry.model_dump(mode="json", include={"repository_key", "base_commit", "head_commit"})
                 for entry in detail.scope.repositories]
@@ -94,7 +98,8 @@ def _detail_result_matches(detail: CodeReviewDetail) -> bool:
         and remediation.result_id == result.id
         and remediation.source_work_item_id == review.work_item_id
         and remediation.completion_checkpoint_id == review.completion_checkpoint_id
-        and remediation.depth == detail.policy_decision.remediation_depth + 1
+        and remediation.depth == (detail.policy_decision.remediation_depth
+                              if detail.policy_decision else 0) + 1
     )
 
 

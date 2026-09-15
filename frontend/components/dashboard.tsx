@@ -1897,7 +1897,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         if (recordRequest.current !== selection) return;
         handleProjectSettingsSaved(latestSettings);
         const decision = codeReviewDecision(latestSettings, context.work_item.priority, context.code_review_context?.remediation_depth ?? 0);
-        if (decision === "mandatory" && !handoff) {
+        if (decision === "mandatory" && !handoff && !context.work_item.manual_review_request) {
           setReviewCloseout({ mode: "checkpoint", summary: summaryWithContext(opened!, context), revision: latestSettings.revision });
           if (reviewDraftWorkId.current !== context.work_item.id) setReviewHandoff(emptyReviewHandoff(project?.repository_url));
           reviewDraftWorkId.current = context.work_item.id; setReviewCloseoutError("");
@@ -2343,6 +2343,23 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       const latestValue = await api<unknown>(`${basePath}/context?recent_limit=0&recent_event_limit=0`);
       const latestContext = decodeWorkContext(latestValue, work.project_id, work.id);
       if (latestContext.work_item.version !== work.version) throw new Error("This work item changed. Refresh it before making a status decision.");
+      if (action === "review") {
+        await mutationRegistry.execute({
+          kind: "update_work", slot: `update-work:${work.project_id}:${work.id}`,
+          projectId: work.project_id, conflictKeys, method: "PATCH", path: basePath,
+          payload: { expected_version: work.version, actor, request_code_review: true }
+        });
+        setNotice({ message: work.status === "done"
+          ? "Code review requested by a human operator and queued in To review."
+          : "Code review requested by a human operator. It will enter To review when this work is Done." });
+        setEventRefresh((value) => value + 1);
+        setRefresh((value) => value + 1);
+        if (actionSourceIsStillOpened()) {
+          await reloadOpenContext();
+          if (work.status === "done" && actionSourceIsStillOpened()) setTab("reviews");
+        }
+        return;
+      }
       const review = latestContext.code_review_context?.current_review
         ?? latestContext.code_review_context?.pending_follow_up;
       if (review) {
@@ -2379,7 +2396,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         settings = decodeProjectSettings(await api<unknown>(`/projects/${work.project_id}/settings?work_item_id=${work.id}`), work.project_id);
         handleProjectSettingsSaved(settings);
         const decision = codeReviewDecision(settings, work.priority, latestContext.code_review_context?.remediation_depth ?? 0);
-        if (decision === "mandatory" && !handoff) {
+        if (decision === "mandatory" && !handoff && !work.manual_review_request) {
           setReviewCloseout({ mode: "manual", summary: summaryWithContext(summary, latestContext), revision: settings.revision });
           if (reviewDraftWorkId.current !== work.id) setReviewHandoff(emptyReviewHandoff(projects.find((item) => item.id === work.project_id)?.repository_url));
           reviewDraftWorkId.current = work.id; setReviewCloseoutError("");
@@ -2709,6 +2726,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       if (detail.review.state !== "requested" || detail.review.version !== review.version || detail.review.scope_sha256 !== review.scope_sha256) {
         setContextRefresh((value) => value + 1); throw new Error("The review changed. Refresh the work item before copying its prompt.");
       }
+      if (!review.scope_sha256 || !detail.scope) throw new Error("This review needs its Git scope prepared first. Use Copy recall pointer.");
       validateColdReviewPointer({ project_id: review.project_id, work_item_id: review.work_item_id, code_review_id: review.id,
         review_version: review.version, scope_sha256: review.scope_sha256, scope: detail.scope });
       const prompt = await renderedPrompt(review.project_id, "cold-code-review", review.work_item_id, review.id);

@@ -120,6 +120,9 @@ def claim_lease_record(
         review = require_review(database, work_item.project_id, work_item.id,
                                  payload.code_review_id, lock=True)
         require_requested(database, work_item, review)
+        from mnemonic_api.services.manual_reviews import require_claim_scope
+
+        require_claim_scope(database, review, payload)
     elif work_item.status != "pending":
         raise conflict("work_not_pending", "Only pending work can be claimed.")
     lease = _locked_lease(database, work_item.id)
@@ -163,6 +166,9 @@ def claim_lease_record(
         )
         database.flush()
         register_claim_transcript(database, work_item, lease, payload.session_transcript)
+        from mnemonic_api.services.manual_reviews import seal_claim_scope
+
+        seal_claim_scope(database, lease, payload)
         return claim_receipt(lease, database)
 
     retained_identity = (
@@ -224,6 +230,9 @@ def claim_lease_record(
     )
     database.flush()
     register_claim_transcript(database, work_item, lease, payload.session_transcript)
+    from mnemonic_api.services.manual_reviews import seal_claim_scope
+
+    seal_claim_scope(database, lease, payload)
     return claim_receipt(lease, database)
 
 
