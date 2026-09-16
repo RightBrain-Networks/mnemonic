@@ -18,11 +18,9 @@ from mnemonic_api.database import Database, begin_coherent_read
 from mnemonic_api.errors import ApplicationError, semantic_unavailable
 from mnemonic_api.models import WorkItem
 from mnemonic_api.schemas import (
-    HierarchySummary,
-    Page,
     WorkIdentityPointer,
     WorkItemListQuery,
-    WorkSearchHit,
+    WorkSearchPage,
 )
 from mnemonic_api.semantic import (
     Embedder,
@@ -45,6 +43,7 @@ from mnemonic_api.services.work_search import (
     _validate_root_filter,
     provenance_conditions,
     status_conditions,
+    work_search_disclosure,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,17 +52,20 @@ router = APIRouter()
 
 @router.get(
     "/projects/{project_id}/work-items",
-    response_model=Page[WorkSearchHit | HierarchySummary],
+    response_model=WorkSearchPage,
 )
 def search_work(
     project_id: UUID,
     filters: Annotated[WorkItemListQuery, Query()],
     request: Request,
     database: Database,
-) -> Page[WorkSearchHit | HierarchySummary]:
+) -> WorkSearchPage:
     if filters.view == "roots":
         roots, total = hierarchy_page(database, project_id, filters)
-        return Page(items=roots, total=total, limit=filters.limit, offset=filters.offset)
+        return WorkSearchPage(
+            items=roots, total=total, limit=filters.limit, offset=filters.offset,
+            **work_search_disclosure(project_id, filters).model_dump(),
+        )
 
     query = (filters.q or "").strip()
     embedder = embedder_of(request)
@@ -143,7 +145,7 @@ def search_work(
         item.id: WorkIdentityPointer.model_validate(item)
         for item in all_visible
     }
-    return _page(filters, page, summaries, pointers, total)
+    return _page(project_id, filters, page, summaries, pointers, total)
 
 
 def _semantic_response(
@@ -158,7 +160,7 @@ def _semantic_response(
     query_vector: Sequence[float],
     embedder: Embedder,
     as_of: datetime,
-) -> Page[WorkSearchHit | HierarchySummary]:
+) -> WorkSearchPage:
     semantic_pool = all_visible if filters.duplicate_scope == "canonical" else scoped
     captured: list[EmbeddingCandidate] = capture_embedding_candidates(
         database,
@@ -204,7 +206,7 @@ def _semantic_response(
         item.id: WorkIdentityPointer.model_validate(item)
         for item in all_visible
     }
-    return _page(filters, page, page_summaries, pointers, total)
+    return _page(project_id, filters, page, page_summaries, pointers, total)
 
 
 def _semantic_unavailable(exc: Exception) -> ApplicationError:

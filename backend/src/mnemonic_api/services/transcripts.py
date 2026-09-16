@@ -24,6 +24,7 @@ from mnemonic_api.database import rows_affected
 from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.models import Transcript, TranscriptRebuild, TranscriptSettings, WorkItem
 from mnemonic_api.search_diagnostics import TermDiagnostic, TermMatchCounts
+from mnemonic_api.search_disclosure import TranscriptAppliedFilters, search_disclosure
 from mnemonic_api.services.work_items import require_project
 from mnemonic_api.transcript_schemas import (
     TranscriptPage,
@@ -184,6 +185,12 @@ def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSea
         .order_by(Transcript.created_at.desc(), Transcript.id).offset(filters.offset)
         .limit(filters.limit))
     return TranscriptPage(items=[transcript_read(row, project_id) for row in records],
+                          **search_disclosure(
+                              project_id, filters.query, fulltext=filters.fulltext,
+                              transcripts=TranscriptAppliedFilters(
+                                  work_item_id=filters.work_item_id,
+                              ),
+                          ).model_dump(),
                           total=total, limit=filters.limit, offset=filters.offset,
                           indexing_incomplete=incomplete)
 
@@ -210,6 +217,12 @@ def _searched_page_locked(database, project_id, filters, index, statement, incom
                           index, result.searcher)
              for hit in result.hits[filters.offset:filters.offset + filters.limit]]
     return TranscriptPage(items=items, total=len(result.hits), limit=filters.limit,
+                          **search_disclosure(
+                              project_id, filters.query, fulltext=filters.fulltext,
+                              transcripts=TranscriptAppliedFilters(
+                                  work_item_id=filters.work_item_id,
+                              ),
+                          ).model_dump(),
                           offset=filters.offset, indexing_incomplete=incomplete,
                           term_diagnostics=[TermDiagnostic(
                               term=term, matches=TermMatchCounts(transcripts=count),

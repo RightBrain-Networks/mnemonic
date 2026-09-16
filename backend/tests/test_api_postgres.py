@@ -240,7 +240,8 @@ def test_pagination_and_combined_filters(api, project, work_payload):
     save(api, project, work_payload, status="promoted", tags=["cache"])
     result = api.get(
         path(project),
-        params={"q": "cache", "tag": " CACHE ", "source_client": "claude-code", "limit": 1},
+        params={"q": "cache", "tag": " CACHE ", "source_client": "claude-code",
+                "status": "pending", "limit": 1},
     ).json()
     assert result["total"] == 2
     assert result["items"][0]["summary"]["work_item"]["id"] == second["id"]
@@ -250,6 +251,7 @@ def test_pagination_and_combined_filters(api, project, work_payload):
             "q": "cache",
             "tag": "cache",
             "source_client": "claude-code",
+            "status": "pending",
             "limit": 1,
             "offset": 1,
         },
@@ -261,7 +263,7 @@ def test_pagination_and_combined_filters(api, project, work_payload):
     ).json()
     assert scoped["total"] == 1
     assert scoped["items"][0]["summary"]["work_item"]["id"] == first["id"]
-    assert api.get(path(project), params={"q": " \n "}).json()["total"] == 3
+    assert api.get(path(project), params={"q": " \n "}).json()["total"] == 4
     assert api.get(path(project), params={"status": "all", "offset": 200}).json()["total"] == 4
     assert api.get(path(project), params={"status": "all", "offset": 200}).json()["items"] == []
 

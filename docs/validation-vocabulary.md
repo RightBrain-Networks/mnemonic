@@ -39,3 +39,12 @@ reviewed mistakes: top-level `search.sources` directs callers to `facets`, and
 `client_operation_id` on either claim tool directs callers to `claim_request_id`.
 These exact matches select static text; they never interpolate arbitrary unknown
 keys or values. Nested unknown names retain the existing redacted parent path.
+
+## Reviewed validation rules
+
+Search cross-field validation uses the fixed rule catalog in
+`validation-vocabulary.json` (`rules`). The backend, MCP, and browser map these
+codes to reviewed messages and known field paths. Model-level view conflicts
+name `view`, and a missing HTTP(S) scheme names the submitted URL field. Raw
+Pydantic messages, inputs, contexts, and unknown field names remain suppressed.
+The same rule applies to local MCP validation and forwarded API rejections.

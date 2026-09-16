@@ -8,6 +8,7 @@ from pydantic import Field, field_validator
 from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
 from mnemonic_api.artifact_schemas import ArtifactModel, ArtifactRead
 from mnemonic_api.search_diagnostics import TermDiagnostics
+from mnemonic_api.search_disclosure import SearchDisclosure
 
 
 class ArtifactSearchRequest(ArtifactAccessRequest):
@@ -42,7 +43,7 @@ class ArtifactSearchMatch(ArtifactModel):
     matched_fields: list[Literal["metadata", "content"]]
 
 
-class ArtifactSearchPage(ArtifactModel):
+class ArtifactSearchPage(ArtifactModel, SearchDisclosure):
     match_mode: Literal["all_terms"] = "all_terms"
     term_diagnostics: TermDiagnostics
     items: list[ArtifactSearchMatch]

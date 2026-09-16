@@ -2,7 +2,7 @@
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.55.0 uses migration
+configuration was required for that release. Current release 0.56.0 uses migration
 `0039_manual_review_requests` and also searches [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
 Their searches use the shared API, including the work semantic toggle. Hierarchy
@@ -213,3 +213,23 @@ per finding title. Long paths and clauses are abbreviated to the configured work
 summary limit; the initial checkpoint retains every full finding. Search uses
 this stored summary. Existing remediation summaries and permanent receipts retain
 their authored history; this release has no backfill or schema migration.
+
+## Effective search behavior (0.56.0)
+
+Every unified and dedicated search response, including empty results, includes
+`applied_filters`, `query_interpretation`, and `warnings`. The filter block names
+the project and each actually searched source; null means the source was not
+searched. Source filters include effective defaults and normalized tag spelling.
+Work discovery now defaults to all statuses in both search front doors; pass
+`status=pending` explicitly when that narrower view is intended. Ready-work
+selection remains a separate read.
+
+Query interpretation distinguishes PostgreSQL plain-term/substr matching, hybrid
+work ranking, and literal all-term artifact/transcript matching. It names the
+searched fields and content inclusion; work uses null for `fulltext` because its
+checkpoint/provenance fields are always searched. Literal quote characters
+produce the static `phrase_operators_ignored` warning until phrase support ships.
+These disclosures apply before pagination, including empty offset pages.
+
+The current work payload remains a summary with readiness and context metadata.
+Compact discovery is a subsequent slice; use explicit small limits when needed.

@@ -1,3 +1,4 @@
+import { VALIDATION_RULES } from "./validation-rules.ts";
 import {
   decodeCompletionEvidencePage,
   readIdentityEvidenceJson
@@ -200,9 +201,10 @@ export function detailMessage(detail: unknown): { message: string; code?: string
     return {
       message: detail.map((item) => {
         if (!item || typeof item !== "object") return "Invalid value";
-        const issue = item as { loc?: unknown; msg?: string };
-        const field = safeValidationLocation(issue.loc);
-        return `${field ? `${field}: ` : ""}${issue.msg || "Invalid value"}`;
+        const issue = item as { loc?: unknown; msg?: string; type?: unknown };
+        const rule = typeof issue.type === "string" && Object.hasOwn(VALIDATION_RULES, issue.type) ? VALIDATION_RULES[issue.type] : undefined;
+        const field = rule?.[0] ?? safeValidationLocation(issue.loc);
+        return `${field ? `${field}: ` : ""}${rule?.[1] ?? issue.msg ?? "Invalid value"}`;
       }).join(". ")
     };
   }

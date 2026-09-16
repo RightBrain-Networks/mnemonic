@@ -101,14 +101,17 @@ evidence that the project has no saved work.
 
 ## Specialized work retrieval
 
-3. Call `search_work(project_id, q, status="pending")`. Canonical scope is the default: it returns
+3. Call `search_work(project_id, q)`. Canonical scope is the default: it returns
    one current root per duplicate group. Include distinctive
    symptoms, symbols, paths, IDs, or session IDs and try a relevant alternate
    term. Omit `q` to browse. Optional `tag`, `source_client`, and
    `source_session_id` match any checkpoint. Use `semantic=true` only when
-   hybrid lexical/vector retrieval is useful. `status` defaults to `pending`,
-   which excludes active and dropped leases; pass `active`, `dropped`,
-   `deferred`, `done`, `wont-do`, `promoted`, or `all` deliberately.
+   hybrid lexical/vector retrieval is useful. `status` defaults to `all`.
+   Pass `pending`, `active`, `dropped`, `deferred`, `done`, `wont-do`, or
+   `promoted` to narrow it; Pending excludes active and dropped leases.
+   Every search echoes `applied_filters`, source-specific `query_interpretation`,
+   and warnings. Quoted phrases currently produce `phrase_operators_ignored`;
+   word adjacency is not enforced. A filtered zero does not prove absence.
 4. `view` defaults to `full`. Every result is a `WorkSearchHit`: `summary` is the returned root or
    audit row, while `matched_member` names the exact group member whose text won the match. This is
    search evidence only, not permission to merge or substitute IDs. Use `view="roots"` only for a
@@ -121,8 +124,9 @@ evidence that the project has no saved work.
    checkpoint count, and relevant age. Do not fetch every checkpoint, event, or
    question body into unrelated work.
 
-Search and ready results are compact pointers and do not carry declared
-`affected_paths`. They cannot support a repository freshness assessment. When
+Search currently returns work summaries and readiness; use a small `limit`
+until selecting an exact record. Ready results are compact pointers. Neither
+search nor ready results carry declared `affected_paths`. They cannot support a repository freshness assessment. When
 the user will rely on a result for repository work, recall that exact ID's full
 governing checkpoint and follow
 [repository-freshness.md](${CLAUDE_PLUGIN_ROOT}/reference/repository-freshness.md)

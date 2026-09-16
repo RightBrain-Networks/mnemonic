@@ -60,6 +60,7 @@ export function useCanonicalWorkSearch({
         const page = decodeUnifiedWorkSearchPage(value, projectId, {
           duplicateScope: "canonical",
           query: trimmedQuery,
+          expectedFilters: { status: "all" },
           expectedLimit: limit,
           expectedOffset: 0
         });

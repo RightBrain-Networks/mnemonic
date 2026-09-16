@@ -1,0 +1,19 @@
+# Search improvement delivery status
+
+The owner authorized execution of [the complete plan](search-improvement-plan.md) on 2026-09-16.
+The work is tracked by Mnemonic item `e0e3debd-87b9-4059-8435-bbc83d3e6c9e`.
+
+| Item | Scope | Status |
+| --- | --- | --- |
+| 1 | Effective filters, status defaults, query interpretation, useful validation | Implementing in `work/search-contract` |
+| 2 | Compact search output | Implementing in `work/search-compact` |
+| 3 | Shared structured transcript normalization | Implementing in `work/transcript-normalization` |
+| 4 | Phrase/literal queries and supporting snippets | Pending |
+| 5 | Work match evidence and field scope | Pending |
+| 6 | Tags, date filters, positive-result diagnostics | Pending |
+| 7 | Ranking interpretation and semantic availability/latency | Pending |
+| 8 | Transcript content-kind filtering and segment retrieval | Foundation in item 3; consumer integration pending |
+| 9 | Chunk-level semantic artifact retrieval | Pending |
+| 10 | Explicit multi-project discovery | Pending |
+
+Tests, release versions, migration steps, and pull request links will be recorded with each delivered slice.

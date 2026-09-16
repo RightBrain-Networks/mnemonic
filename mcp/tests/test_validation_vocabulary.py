@@ -60,3 +60,11 @@ def test_mcp_formatter_rechecks_paths_and_error_types_at_its_own_boundary():
         ["PRIVATE_ERROR_TYPE"],
     )
     assert message == "Mnemonic rejected the input. Check: body.title (value_error)."
+
+
+def test_reviewed_rule_codes_and_static_messages_match_public_catalog():
+    from mnemonic_mcp.validation_rules import VALIDATION_RULES
+
+    assert VALIDATION_RULES == {
+        code: (rule["field"], rule["message"]) for code, rule in VOCABULARY["rules"].items()
+    }

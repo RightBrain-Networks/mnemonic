@@ -565,7 +565,7 @@ def test_deferral_is_dedicated_nonterminal_and_excluded_from_agent_claims(
     assert context["readiness"]["is_terminal"] is False
     assert context["readiness"]["is_ready"] is False
     assert context["readiness"]["display_state"] == "deferred"
-    assert api.get(collection(project)).json()["total"] == 0
+    assert api.get(collection(project), params={"status": "pending"}).json()["total"] == 0
     assert api.get(collection(project), params={"status": "deferred"}).json()["total"] == 1
     assert api.get(f"/api/v1/projects/{project['id']}/ready-work").json()["total"] == 0
 

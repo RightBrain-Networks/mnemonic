@@ -4,7 +4,7 @@ import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, errorMessage, workItemPath } from "@/lib/api";
 import { decodeUnifiedWorkSearchPage, unifiedSearchPath, workSearchRequest } from "@/lib/unified-search";
-import { decodeHierarchyPage } from "@/lib/hierarchy-presentation";
+import { decodeHierarchySearchPage } from "@/lib/hierarchy-presentation";
 import type { DuplicateScope, Page, StatusFilter, WorkSort } from "@/lib/types";
 import { isFlatWorkSearch, workSearchParams } from "@/lib/work-item-search";
 import {
@@ -119,10 +119,12 @@ export function useWorkQueuePages({
         duplicateScope,
         canonicalWorkItemId: canonicalWorkItemId || undefined,
         query: search,
+        semantic: Boolean(search.trim() && semantic),
+        expectedFilters: { status, tag: tag.trim() || null, source_client: sourceClient.trim() || null, source_session_id: sourceSessionId.trim() || null },
         expectedLimit: WORK_PAGE_SIZE,
         expectedOffset: offset
       })
-      : decodeHierarchyPage(value, projectId, WORK_PAGE_SIZE, offset);
+      : decodeHierarchySearchPage(value, projectId, WORK_PAGE_SIZE, offset, { status, tag: tag.trim() || null, source_client: sourceClient.trim() || null, source_session_id: sourceSessionId.trim() || null });
   }, [
     canonicalWorkItemId,
     duplicateScope,

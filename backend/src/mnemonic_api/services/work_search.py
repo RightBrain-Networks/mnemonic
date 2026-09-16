@@ -12,13 +12,13 @@ from sqlalchemy.orm import Session
 from mnemonic_api.errors import work_duplicate
 from mnemonic_api.models import Checkpoint, WorkItem, WorkLease
 from mnemonic_api.schemas import (
-    HierarchySummary,
-    Page,
     WorkIdentityPointer,
     WorkItemListQuery,
     WorkSearchHit,
+    WorkSearchPage,
     WorkSummary,
 )
+from mnemonic_api.search_disclosure import SearchDisclosure, WorkAppliedFilters, search_disclosure
 from mnemonic_api.services.hierarchy import ancestor_paths
 from mnemonic_api.services.readiness import review_status_clause
 from mnemonic_api.services.work_context import work_summaries
@@ -248,12 +248,13 @@ def _summaries_with_ancestry(
 
 
 def _page(
+    project_id: UUID,
     filters: WorkItemListQuery,
     selections: Sequence[SearchSelection],
     summaries: Sequence[WorkSummary],
     pointers: dict[UUID, WorkIdentityPointer],
     total: int,
-) -> Page[WorkSearchHit | HierarchySummary]:
+) -> WorkSearchPage:
     summary_by_id = {summary.work_item.id: summary for summary in summaries}
     items = [
         WorkSearchHit(
@@ -262,4 +263,16 @@ def _page(
         )
         for selection in selections
     ]
-    return Page(items=items, total=total, limit=filters.limit, offset=filters.offset)
+    return WorkSearchPage(
+        items=items, total=total, limit=filters.limit, offset=filters.offset,
+        **work_search_disclosure(project_id, filters).model_dump(),
+    )
+
+
+def work_search_disclosure(project_id: UUID, filters: WorkItemListQuery) -> SearchDisclosure:
+    return search_disclosure(
+        project_id, filters.q, semantic=filters.semantic,
+        work_items=WorkAppliedFilters.model_validate(
+            filters.model_dump(include=set(WorkAppliedFilters.model_fields)),
+        ),
+    )

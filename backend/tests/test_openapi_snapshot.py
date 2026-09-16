@@ -19,7 +19,7 @@ MCP_COMPONENT_OVERRIDES = {
     "RelationshipPage": "Page_AdjacentRelationshipRead_",
     "WorkCompletion": "WorkCompletionRead",
     "WorkDeletionResult": "WorkDeletionRead",
-    "WorkPage": "Page_Union_WorkSearchHit__HierarchySummary__",
+    "WorkPage": "WorkSearchPage",
 }
 
 FRONTEND_PROPERTY_SETS = {
@@ -79,7 +79,7 @@ FRONTEND_PROPERTY_SETS = {
     "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": "WorkItemDetailRead",
     "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage:item": "WorkSearchHit",
     "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": (
-        "Page_Union_WorkSearchHit__HierarchySummary__"
+        "WorkSearchPage"
     ),
     "frontend/lib/duplicate-suggestions.ts:decodeDuplicateCandidateSummary": (
         "DuplicateCandidateSummary"
@@ -88,9 +88,8 @@ FRONTEND_PROPERTY_SETS = {
     "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestionPage": (
         "DuplicateSuggestionPage"
     ),
-    "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage": (
-        "Page_Union_WorkSearchHit__HierarchySummary__"
-    ),
+    "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage": "Page_HierarchySummary_",
+    "frontend/lib/hierarchy-presentation.ts:decodeHierarchySearchPage": "WorkSearchPage",
     "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage:item": "HierarchySummary",
     "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPresentation": ("HierarchyPresentation"),
 }

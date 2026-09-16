@@ -1,3 +1,4 @@
+import { disclosure } from "./search-disclosure-fixtures.mjs";
 import { decodeMergeReviewRevision } from "../lib/revision-codecs.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -318,14 +319,14 @@ test("search guards enforce canonical, alias, group, and matched-member modes", 
     summary: summary(),
     matched_member: pointer(destination, "Matching immutable member")
   };
-  const page = { items: [canonicalHit], total: 1, limit: 20, offset: 0 };
+  const page = { ...disclosure(project, ["work_items"], { q: "member" }), items: [canonicalHit], total: 1, limit: 20, offset: 0 };
   assert.equal(decodeWorkSearchPage(page, project, {
     duplicateScope: "canonical",
     query: "member",
     expectedLimit: 20,
     expectedOffset: 0
   }).items[0].matched_member.id, destination);
-  assert.throws(() => decodeWorkSearchPage(page, project, {
+  assert.throws(() => decodeWorkSearchPage({ ...page, ...disclosure(project, ["work_items"]) }, project, {
     duplicateScope: "canonical",
     query: ""
   }), /incoherent work search hit/);
@@ -335,6 +336,7 @@ test("search guards enforce canonical, alias, group, and matched-member modes", 
     readiness: alias.readiness
   });
   const aliasPage = {
+    ...disclosure(project, ["work_items"], { filters: { work_items: { duplicate_scope: "aliases", canonical_work_item_id: root } } }),
     items: [{ summary: aliasSummary, matched_member: pointer(work) }],
     total: 1,
     limit: 20,
@@ -347,6 +349,7 @@ test("search guards enforce canonical, alias, group, and matched-member modes", 
   }).items[0].summary.readiness.display_state, "duplicate");
   assert.throws(() => decodeWorkSearchPage({
     ...aliasPage,
+    ...disclosure(project, ["work_items"], { q: "work", filters: { work_items: { duplicate_scope: "aliases", canonical_work_item_id: root } } }),
     items: [{ ...aliasPage.items[0], matched_member: pointer(destination) }]
   }, project, {
     duplicateScope: "aliases",
@@ -355,6 +358,7 @@ test("search guards enforce canonical, alias, group, and matched-member modes", 
   }), /incoherent work search hit/);
   assert.throws(() => decodeWorkSearchPage({
     ...aliasPage,
+    ...disclosure(project, ["work_items"], { q: "work", filters: { work_items: { duplicate_scope: "aliases" } } }),
     items: [aliasPage.items[0], aliasPage.items[0]],
     total: 2
   }, project, { duplicateScope: "aliases", query: "work" }), /repeated work search hits/);
@@ -363,7 +367,7 @@ test("search guards enforce canonical, alias, group, and matched-member modes", 
     total: 5,
     offset: 10
   }, project, { duplicateScope: "aliases", query: "work" }), /invalid work search page/);
-  assert.throws(() => decodeWorkSearchPage(aliasPage, project, {
+  assert.throws(() => decodeWorkSearchPage({ ...aliasPage, ...disclosure(project, ["work_items"], { q: "work" }) }, project, {
     duplicateScope: "canonical",
     query: "work"
   }), /incoherent work search hit/);

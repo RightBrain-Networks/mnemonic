@@ -56,12 +56,14 @@ from a draft.
    established project ID, or an unambiguous repository/slug match. Paginate
    when needed. Never default to the first project. Ask only if ambiguity
    remains. `create_project` creates a Mnemonic project, not a repository.
-2. Call `search_work(project_id, q, status="pending")` before creating work. Search
+2. Call `search_work(project_id, q, status="all")` before creating work. Search
    for the failure shape and distinctive symbols, paths, or identifiers. Search
    is lexical by default; `semantic=true` opts into hybrid retrieval. Try a
-   useful alternate term when a narrow query misses. Search non-Pending history
-   (`status="all"`) when the likely duplicate may be Deferred, Waiting, or done.
-3. Search returns compact pointers, not checkpoint bodies. Call
+   useful alternate term when a narrow query misses. All statuses are searched by
+   default. Inspect `applied_filters`, `query_interpretation`, and `warnings`;
+   an explicitly filtered zero does not establish absence from project history.
+3. Search currently returns work summaries and readiness, without checkpoint bodies.
+   Use a small `limit` while investigating candidates, then call
    `recall_work(project_id, work_item_id)` for likely duplicates. If several
    results fit and the choice matters, ask instead of guessing.
 4. Create a new work item only for a distinct durable objective. For the same

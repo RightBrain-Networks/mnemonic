@@ -20,6 +20,7 @@ from pydantic import (
     model_validator,
 )
 from pydantic.json_schema import SkipJsonSchema
+from pydantic_core import PydanticCustomError
 
 ExternalState = Literal["open", "closed", "merged", "unknown"]
 _PCHAR = r"[A-Za-z0-9._~!$&'()*+,;=:@%-]"
@@ -37,6 +38,10 @@ _BIDI = frozenset(
 
 
 def external_url(value: str) -> str:
+    if not value.lower().startswith(("http://", "https://")):
+        raise PydanticCustomError(
+            "absolute_http_url_required", "Include an absolute http:// or https:// URL.",
+        )
     if not 1 <= len(value) <= 2000 or not value.isascii() or not _URL.fullmatch(value):
         raise ValueError("External URLs must use the bounded ASCII HTTP(S) URI grammar")
     if re.search(r"%(?![0-9A-Fa-f]{2})", value):

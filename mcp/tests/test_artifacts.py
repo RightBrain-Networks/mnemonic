@@ -6,6 +6,7 @@ import httpx
 import pytest
 from conftest import CLIENT_OPERATION_ID, NOW, PROJECT_ID, WORK_ID
 from mcp.server.fastmcp.exceptions import ToolError
+from search_fixtures import disclosed_response
 
 from mnemonic_mcp.api import UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME, MnemonicAPI
 from mnemonic_mcp.artifact_transport import decode_content
@@ -67,7 +68,7 @@ async def call(settings, name, arguments, handler, *, maximum=67108864, status_r
                            "message": "API policy"},
             )
         else:
-            response = handler(request)
+            response = disclosed_response(request, handler(request))
         if "X-Client-Operation-ID" in request.headers:
             response.headers["X-Client-Operation-ID"] = request.headers["X-Client-Operation-ID"]
         elif request.method == "PATCH" and "/artifacts/" in request.url.path:

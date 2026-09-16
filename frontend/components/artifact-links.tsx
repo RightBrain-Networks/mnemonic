@@ -28,7 +28,7 @@ export function ArtifactPicker({ projectId, excludedIds, disabled, onSelect, wor
         }) : await fetch(`${artifactPath(projectId)}?${params}`, { cache: "no-store", signal: controller.signal });
         if (!response.ok) throw new Error("Unable to find artifacts. Try another search.");
         const value = await readBoundedJson(response, 1024 * 1024);
-        const matches = search ? decodeUnifiedArtifactSearchPage(value, projectId, false, 10, 0) : null;
+        const matches = search ? decodeUnifiedArtifactSearchPage(value, projectId, false, 10, 0, false, undefined, search) : null;
         const page = matches ? { ...matches, items: matches.items.map((match) => match.artifact) } : decodeArtifactPage(value, projectId);
         if (!controller.signal.aborted) setState({ scope, items: page.items, total: page.total, error: "" });
       } catch (cause) { if (!controller.signal.aborted) setState({ scope, items: [], total: 0, error: errorMessage(cause) }); }

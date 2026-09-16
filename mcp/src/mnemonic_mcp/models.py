@@ -62,6 +62,7 @@ from .external_records import (
 from .lease_models import LeaseSettingsRead
 from .phase12_models import JobCompletionReportRead, reject_null_report
 from .response_validation import validate_page_bounds, validate_page_items
+from .search_disclosure import SearchDisclosure
 
 Status = Literal["pending", "deferred", "done", "wont-do", "promoted"]
 EventStatus = Literal["open", "pending", "deferred", "done", "wont-do", "promoted"]
@@ -2479,7 +2480,7 @@ class HierarchySummary(CanonicalResponse):
         return self
 
 
-class WorkPage(CanonicalResponse):
+class WorkPage(CanonicalResponse, SearchDisclosure):
     items: list[WorkSearchHit | HierarchySummary]
     total: StrictInt = Field(ge=0)
     limit: StrictInt = Field(ge=1, le=100)
