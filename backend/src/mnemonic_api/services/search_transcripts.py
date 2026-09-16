@@ -76,7 +76,9 @@ def _source(
             rendered[item.id] = TranscriptFacetHit(**item.fields(), transcript=transcript)
         return rendered
 
-    return SearchSource(candidates, hydrate), coverage
+    return SearchSource(
+        candidates, hydrate, lambda terms: index.term_counts(terms, fulltext, searcher),
+    ), coverage
 
 
 @contextmanager

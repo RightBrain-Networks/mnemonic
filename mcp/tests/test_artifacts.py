@@ -200,7 +200,7 @@ async def test_metadata_search_scopes_project_and_work(settings):
 
 
 def search_page(**overrides):
-    return {"items": [], "total": 0, "limit": 50, "offset": 0, "fulltext": False,
+    return {"match_mode": "all_terms", "term_diagnostics": [], "items": [], "total": 0, "limit": 50, "offset": 0, "fulltext": False,
             "sensitive_content_withheld": 0,
             "indexing": {"ready": 0, "pending": 0, "failed": 0, "truncated": 0}, **overrides}
 

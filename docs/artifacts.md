@@ -1,6 +1,6 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.54.0`, plugin `0.32.0`, and current migration
+Application/API/MCP/dashboard `0.55.0`, plugin `0.33.0`, and current migration
 `0039_manual_review_requests` support files outside Git and local full-text search. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
@@ -78,7 +78,7 @@ context (`X-Artifact-Access: human-dashboard`, set by its server proxy), permit
 human previews/downloads/searches, and are audited. This header and the approval
 assertion are policy signals, not separate authentication credentials.
 
-Upgrade API, MCP and dashboard together to `0.54.0`, plugin `0.32.0`, and migration
+Upgrade API, MCP and dashboard together to `0.55.0`, plugin `0.33.0`, and migration
 `0039_manual_review_requests`. Migration 0029 initially marked older artifacts
 non-sensitive; migration 0030 preserves their current sensitivity. No new
 configuration is required. Downgrade refuses populated artifact state; fix forward.
@@ -401,7 +401,8 @@ True includes current extracted body text as well. Optional `artifact_id` and
 `work_item_id` narrow the project scope; `include_deleted` defaults false. Deleted
 artifacts can match retained metadata only. `limit` is 1–100 and `offset` is
 0–1,000,000. No operation UUID is used. MCP exposes the same request with `query`
-instead of `q` and includes the usual `artifact_library` policy summary.
+as canonical and also accepts `q` as an alias; supply exactly one. It includes
+the usual `artifact_library` policy summary.
 
 All query terms are required, with case/accent folding and punctuation as word
 boundaries. There is no wildcard, phrase, field-selector, regex or Boolean query
@@ -410,7 +411,13 @@ score descending with artifact UUID as the stable tie-breaker. This endpoint
 searches current metadata, not revision/audit history; use directory/history `q`
 for the latter. Changing directory column sort does not change relevance ranking.
 
-The response contains `items`, `total`, `limit`, `offset`, `fulltext` and `indexing`.
+The response contains `items`, `total`, `limit`, `offset`, `fulltext`, `indexing`,
+`match_mode="all_terms"` and `term_diagnostics`. On zero matches, the diagnostic
+list reports each normalized term and `matches.artifacts` under the same filters,
+fulltext setting and access rules; work/transcript counts are null (unsearched).
+A positive total returns an empty diagnostic list, including an empty offset page.
+All terms may match separate files without co-occurring; inspect per-term counts
+and coverage before drawing absence conclusions. See [search diagnostics](search.md#empty-conjunctions-and-source-scope).
 Each item has `artifact`, numerical `score`, `matched_fields` (`metadata`
 and/or `content`) and a plain-text `snippet` for content matches (otherwise null).
 REST search retains the full artifact model for the dashboard. MCP search hits

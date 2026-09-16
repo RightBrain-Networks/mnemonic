@@ -35,7 +35,11 @@ def work_hit(work_summary):
 
 
 def page(items=(), **changes):
-    return {"items": list(items), "total": len(items), "limit": 50, "offset": 0,
+    return {"search_scope": {"searched_facets": FACETS, "transcripts": "searched",
+                             "transcript_search_hint": (
+                                 'Agent sessions can be searched by explicitly including "transcripts" '
+                                 'in facets or calling search_transcript_contents.')},
+            "term_diagnostics": [], "items": list(items), "total": len(items), "limit": 50, "offset": 0,
             "facet_totals": {facet: sum(item["facet"] == facet for item in items) for facet in FACETS},
             "coverage": {"artifacts": {"enabled": True, "indexing": {
                 "pending": 0, "ready": sum(item["facet"] == "artifacts" for item in items),
@@ -53,7 +57,7 @@ async def test_defaults_search_every_facet_and_status_in_one_safe_post(settings,
         body = json.loads(request.content)
         assert request.method == "POST"
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/search"
-        assert body["q"] == "report" and body["facets"] == FACETS
+        assert body["q"] == "report" and "facets" not in body
         assert body["fulltext"] is False
         assert body["filters"]["work_items"]["status"] == "all"
         assert body["filters"]["work_items"]["duplicate_scope"] == "canonical"
@@ -126,6 +130,7 @@ async def test_unavailable_and_sensitive_coverage_is_preserved(settings):
 async def test_disabled_artifacts_do_not_block_other_source_results(settings):
     response = page([transcript_hit()])
     response["coverage"]["artifacts"]["enabled"] = False
+    response["search_scope"]["searched_facets"] = ["work_items", "transcripts"]
     response["indexing_incomplete"] = True
     result = await call(settings, "search", {"project_id": PROJECT_ID},
                         lambda request: httpx.Response(200, json=response))
@@ -250,7 +255,7 @@ async def test_search_tool_schema_and_cold_review_guidance(settings):
     tool = tools["search"]
     properties = tool.inputSchema["properties"]
     assert tool.inputSchema["required"] == ["project_id"]
-    assert properties["facets"]["default"] == FACETS
+    assert "default" not in properties["facets"]
     assert properties["q"]["default"] == "" and properties["fulltext"]["default"] is False
     assert properties["offset"]["default"] == 0 and properties["limit"]["default"] == 50
     assert tool.annotations.readOnlyHint is True and tool.annotations.idempotentHint is True

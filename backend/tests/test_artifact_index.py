@@ -98,3 +98,17 @@ def test_busy_index_returns_explicit_bounded_error():
 def test_search_query_validation(query):
     with pytest.raises(ValueError):
         ArtifactSearchRequest(q=query)
+
+
+def test_term_counts_use_retained_snapshot_without_reloading_or_paging_hits():
+    index = ArtifactSearchIndex()
+    documents = [SearchDocument("one", "café", "needle needle"),
+                 SearchDocument("two", "other", "needle")]
+    result = search(index, documents, "cafe absent", fulltext=True)
+    assert not result.hits
+    search(index, [SearchDocument("new", "absent", "replacement")], "absent", key="new")
+    assert index.term_counts(["café", "cafe", "needle", "absent"], True, result.searcher) == {
+        "café": 1, "cafe": 1, "needle": 2, "absent": 0,
+    }
+    assert index.term_counts(["needle"], False, result.searcher) == {"needle": 0}
+    assert index.term_counts(["needle", "absent"], True, None) == {"needle": 0, "absent": 0}

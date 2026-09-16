@@ -1,5 +1,6 @@
 import { decodeArtifactSearchPage, type ArtifactSearchPage } from "./artifacts.ts";
 import { decodeWorkSearchPage } from "./duplicate-handling.ts";
+import { decodeTermDiagnostics, validateSingleFacetScope } from "./search-diagnostics.ts";
 import { decodeTranscriptPage, TRANSCRIPT_PAGE_SIZE, type TranscriptPage } from "./transcripts.ts";
 import { finiteInteger, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
 import type { WorkSearchOptions } from "./work-item-search.ts";
@@ -71,7 +72,10 @@ function facetPage(value: unknown, facet: SearchFacet, limit: number, offset: nu
     return payload;
   });
   if (new Set(ids).size !== ids.length) throw new Error("Mnemonic returned duplicate unified search results.");
-  return { items, total: page.total, limit, offset, coverage };
+  const searched = facet === "artifacts" && objectValue(coverage.artifacts)?.enabled === false ? [] : [facet];
+  validateSingleFacetScope(page.search_scope, facet, searched);
+  const term_diagnostics = decodeTermDiagnostics(page.term_diagnostics, page.total as number, searched);
+  return { items, total: page.total, limit, offset, coverage, term_diagnostics };
 }
 
 export function decodeUnifiedWorkSearchPage(value: unknown, projectId: string, options: Parameters<typeof decodeWorkSearchPage>[2] = {}): Page<WorkSearchHit> {
@@ -83,7 +87,7 @@ export function decodeUnifiedArtifactSearchPage(value: unknown, projectId: strin
   const page = facetPage(value, "artifacts", limit, offset);
   const coverage = objectValue(page.coverage.artifacts);
   if (!coverage || typeof coverage.enabled !== "boolean") throw new Error("Mnemonic returned invalid artifact search coverage.");
-  const result = decodeArtifactSearchPage({ items: page.items, total: page.total, limit, offset, fulltext, indexing: coverage.indexing, sensitive_content_withheld: coverage.sensitive_content_withheld }, projectId, fulltext, limit, offset);
+  const result = decodeArtifactSearchPage({ items: page.items, total: page.total, limit, offset, fulltext, match_mode: "all_terms", term_diagnostics: page.term_diagnostics, indexing: coverage.indexing, sensitive_content_withheld: coverage.sensitive_content_withheld }, projectId, fulltext, limit, offset, coverage.enabled);
   if (result.items.some(({ artifact }) => !includeDeleted && artifact.deleted_at !== null
     || workItemId && !sameUuid(artifact.originating_work_item_id, workItemId) && !artifact.related_work_item_ids.some((id) => sameUuid(id, workItemId)))) throw new Error("Mnemonic returned artifacts outside the requested search scope.");
   return result;
@@ -92,5 +96,5 @@ export function decodeUnifiedArtifactSearchPage(value: unknown, projectId: strin
 export function decodeUnifiedTranscriptSearchPage(value: unknown, projectId: string, offset = 0, fulltext = false, workItemId?: string): TranscriptPage {
   const page = facetPage(value, "transcripts", TRANSCRIPT_PAGE_SIZE, offset);
   const coverage = objectValue(page.coverage.transcripts);
-  return decodeTranscriptPage({ items: page.items, total: page.total, limit: page.limit, offset, indexing_incomplete: coverage?.indexing_incomplete }, projectId, offset, fulltext, workItemId);
+  return decodeTranscriptPage({ items: page.items, total: page.total, limit: page.limit, offset, term_diagnostics: page.term_diagnostics, indexing_incomplete: coverage?.indexing_incomplete }, projectId, offset, fulltext, workItemId);
 }

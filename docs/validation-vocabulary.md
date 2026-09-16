@@ -32,3 +32,10 @@ The catalog deliberately does not unify sanitizer behavior:
 Surface-only fields preserve existing boundaries, such as the MCP `changes`
 argument. Unknown names, including free-form metadata keys, retain each
 sanitizer's existing fallback behavior.
+
+The MCP surface also approves `query`, including its appearance as an upstream
+HTTP location root. Local input refusals add fixed corrective hints for two
+reviewed mistakes: top-level `search.sources` directs callers to `facets`, and
+`client_operation_id` on either claim tool directs callers to `claim_request_id`.
+These exact matches select static text; they never interpolate arbitrary unknown
+keys or values. Nested unknown names retain the existing redacted parent path.

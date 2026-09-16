@@ -90,3 +90,19 @@ another human approval. Challenge, rejection, approval assertion and sensitive
 access events are audited without retaining the raw token. This is an explicit
 LLM policy hint; the assertion is not authenticated proof of human consent.
 Never unset sensitivity or switch routes to bypass the approval requirement.
+
+## Helper discovery and large text artifacts
+
+Transfer helpers ship in Claude plugins 0.30.0+ and portable skill exports. From
+server instructions alone, invoke `mnemonic:mnemonic-search` in Claude Code, or
+load the installed `mnemonic-search` skill in another client, and resolve its
+helper resource link. This is a discovery route through a loaded skill; the
+server cannot supply a remote client's absolute plugin installation path. Do not
+assume plugin-root expansion in server-returned instructions or guess cache versions.
+
+For all occurrences in a large text/Markdown artifact, download its pinned
+revision into the actual scratchpad and use `rg -n -F -- "term" /absolute/scratch/file.md`.
+Read a bounded local window around relevant lines. Those raw-file positions are
+not Unicode character offsets into normalized `get_artifact_text` output. Binary
+formats need an appropriate local reader. Download environment provisioning and
+sensitive-content approval requirements still apply.

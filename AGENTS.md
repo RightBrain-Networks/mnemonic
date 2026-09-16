@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.54.0`, Claude plugin
-`0.32.0`, and Alembic head `0039_manual_review_requests`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.55.0`, Claude plugin
+`0.33.0`, and Alembic head `0039_manual_review_requests`. The catalog is exactly
 55 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -137,8 +137,12 @@ Sensitive artifact agent reads require a fresh explicit human approval and five-
 single-use request-bound token; never infer consent, reuse it, or clear sensitivity to bypass.
 Broad content searches withhold sensitive bodies and report incomplete coverage.
 
-Unified REST `POST /projects/{project_id}/search` and MCP `search` default to all
-three facets, all work statuses, metadata-only file/transcript matching and relevance.
+Unified REST `POST /projects/{project_id}/search` and MCP `search` default multi-term queries to work
+and artifacts; transcripts require explicit inclusion in facets. Blank/single-term
+queries retain all three facets. Defaults retain all work statuses, metadata-only
+file/transcript matching and relevance. Zero-hit queries report per-term counts
+per searched source, with null for unsearched sources; search_scope states transcript
+omission and how to opt into session search.
 Offset/limit apply after mixed ranking or explicit facet groups. Report coverage;
 sensitive artifact filters never grant agent content access. See `docs/search.md`.
 

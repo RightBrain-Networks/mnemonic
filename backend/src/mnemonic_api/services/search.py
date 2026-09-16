@@ -7,9 +7,10 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from mnemonic_api.artifact_index import ArtifactSearchIndex
+from mnemonic_api.artifact_index import ArtifactSearchIndex, literal_terms
 from mnemonic_api.config import DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES
 from mnemonic_api.errors import semantic_unavailable
+from mnemonic_api.search_diagnostics import SearchScope, TermDiagnostic, TermMatchCounts
 from mnemonic_api.search_schemas import (
     ArtifactSearchCoverage,
     FacetTotals,
@@ -72,6 +73,25 @@ def order_candidates(sources: dict[SearchFacet, SearchSource], request: SearchRe
     return candidates
 
 
+def _term_diagnostics(sources: dict[SearchFacet, SearchSource], query: str) -> list[TermDiagnostic]:
+    if not query or any(source.candidates for source in sources.values()):
+        return []
+    terms = literal_terms(query, fold_accents=False)
+    counts = {facet: source.term_counts(terms) for facet, source in sources.items()}
+    return [TermDiagnostic(term=term, matches=TermMatchCounts(**{
+        facet: matches[term] for facet, matches in counts.items()
+    })) for term in terms]
+
+
+def _scope(sources: dict[SearchFacet, SearchSource], request: SearchRequest) -> SearchScope:
+    transcripts = "not_selected"
+    if "transcripts" in sources:
+        transcripts = "searched"
+    elif "facets" not in request.model_fields_set:
+        transcripts = "omitted_by_default"
+    return SearchScope(searched_facets=list(sources), transcripts=transcripts)
+
+
 def _page(
     sources: dict[SearchFacet, SearchSource], request: SearchRequest, coverage: SearchCoverage,
 ) -> SearchPage:
@@ -94,6 +114,8 @@ def _page(
         or coverage.transcripts.indexing_incomplete
     )
     return SearchPage(
+        search_scope=_scope(sources, request),
+        term_diagnostics=_term_diagnostics(sources, request.q),
         items=[results[(item.facet, item.id)] for item in selected], total=len(ordered),
         limit=request.limit, offset=request.offset,
         facet_totals=FacetTotals(**{facet: len(source.candidates)

@@ -113,4 +113,9 @@ def work_source(
             matched_member=pointers[by_id[item.id].matched_member_id],
         )) for item in page}
 
-    return SearchSource(candidates, hydrate), updates
+    def term_counts(terms: list[str]) -> dict[str, int]:
+        return {term: len(_lexical_selections(
+            scoped, filters, projections, _lexical_rows(database, term, pool), term,
+        )) for term in terms}
+
+    return SearchSource(candidates, hydrate, term_counts), updates

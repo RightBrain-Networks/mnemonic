@@ -1,4 +1,5 @@
 import { readBoundedJson } from "./bounded-json.ts";
+import { decodeTermDiagnostics, type TermDiagnostic } from "./search-diagnostics.ts";
 import { boundedText, exactKeys, finiteInteger, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
 
 export const TRANSCRIPT_JSON_MAX_BYTES = 16 * 1024 * 1024;
@@ -37,6 +38,7 @@ export interface Transcript {
   score?: number | null;
 }
 export interface TranscriptPage {
+  term_diagnostics: TermDiagnostic[];
   items: Transcript[];
   total: number;
   limit: number;
@@ -103,6 +105,7 @@ export function decodeTranscriptPage(value: unknown, projectId: string, offset =
   if (!page || !Array.isArray(page.items) || !finiteInteger(page.total) || page.limit !== TRANSCRIPT_PAGE_SIZE
     || page.offset !== offset || page.items.length !== Math.min(page.limit, Math.max(0, page.total - offset))
     || typeof page.indexing_incomplete !== "boolean") throw new Error("Mnemonic returned an invalid transcript listing.");
+  decodeTermDiagnostics(page.term_diagnostics, page.total as number, ["transcripts"]);
   const items = page.items.map((item) => decodeTranscript(item, projectId));
   if (new Set(items.map((item) => item.id.toLowerCase())).size !== items.length
     || !fulltext && items.some((item) => item.snippet != null)

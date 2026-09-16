@@ -4,6 +4,8 @@ import { artifactSearchRequest, decodeUnifiedArtifactSearchPage, decodeUnifiedTr
 import { validSearchRequest } from "../lib/search-request.ts";
 import { allowedQueryKeys, browserTransportEffect, invalidMutationBody, isUnifiedSearchRoute, phase12ResponseLimitBytes, proxyBodyLimitBytes, upstreamTimeoutMs } from "../lib/proxy-policy.ts";
 
+import { TRANSCRIPT_SEARCH_HINT } from "../lib/search-diagnostics.ts";
+
 const project = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const id = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
 const work = "91b9168a-37d1-4a6a-aa1f-bb538b65cb55";
@@ -14,7 +16,7 @@ const transcript = { id, project_id: project, work_item_id: work, lease_generati
 Object.assign(transcript, { copy_status: "ready", copy_error_code: null, copied_at: timestamp, index_status: "ready", index_error_code: null });
 function result(facet, payload, limit = 50, offset = 0) {
   const key = facet === "work_items" ? "work_item" : facet === "artifacts" ? "artifact" : "transcript";
-  return { items: [{ facet, id, created_at: timestamp, updated_at: timestamp, score: 0.5, [key]: payload }], total: offset + 1, limit, offset, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0, [facet]: offset + 1 }, coverage: { artifacts: { enabled: true, indexing, sensitive_content_withheld: 3 }, transcripts: { indexing_incomplete: true } }, indexing_incomplete: true };
+  return { search_scope: { searched_facets: [facet], transcripts: facet === "transcripts" ? "searched" : "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], items: [{ facet, id, created_at: timestamp, updated_at: timestamp, score: 0.5, [key]: payload }], total: offset + 1, limit, offset, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0, [facet]: offset + 1 }, coverage: { artifacts: { enabled: true, indexing, sensitive_content_withheld: 3 }, transcripts: { indexing_incomplete: true } }, indexing_incomplete: true };
 }
 
 test("the separate dashboard searches encode their facet, filters and pagination", () => {
@@ -89,7 +91,7 @@ test("single-facet views reject mixed, duplicate, mismatched, and truncated enve
   ];
   for (const invalid of mutations) assert.throws(() => decodeUnifiedTranscriptSearchPage(invalid, project));
   assert.throws(() => decodeUnifiedWorkSearchPage(page, project));
-  const empty = { ...page, items: [], total: 0, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 } };
+  const empty = { ...page, search_scope: { ...page.search_scope, searched_facets: ["work_items"], transcripts: "not_selected" }, items: [], total: 0, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 } };
   assert.deepEqual(decodeUnifiedWorkSearchPage(empty, project), { items: [], total: 0, limit: 50, offset: 0 });
 });
 
@@ -106,4 +108,28 @@ test("work facet results preserve canonical matched-member attribution and page 
   assert.throws(() => decodeUnifiedWorkSearchPage(page, work, options));
   assert.throws(() => decodeUnifiedWorkSearchPage(page, project, { ...options, duplicateScope: "aliases" }));
   assert.throws(() => decodeUnifiedWorkSearchPage(page, project, { ...options, query: "" }));
+});
+
+
+test("empty artifact diagnostics survive the unified decoder with disabled coverage", () => {
+  const page = result("artifacts", {});
+  page.items = [];
+  page.total = 0;
+  page.facet_totals.artifacts = 0;
+  page.term_diagnostics = [{ term: "needle", matches: { work_items: null, artifacts: 2, transcripts: null } }];
+  assert.deepEqual(decodeUnifiedArtifactSearchPage(page, project, true, 50, 0).term_diagnostics, page.term_diagnostics);
+  page.coverage.artifacts.enabled = false;
+  page.search_scope.searched_facets = [];
+  page.term_diagnostics[0].matches.artifacts = null;
+  assert.deepEqual(decodeUnifiedArtifactSearchPage(page, project, true, 50, 0).term_diagnostics, page.term_diagnostics);
+  page.term_diagnostics[0].matches.artifacts = 0;
+  assert.throws(() => decodeUnifiedArtifactSearchPage(page, project, true, 50, 0));
+});
+
+test("unified single-facet decoders reject inconsistent or untrusted source disclosures", () => {
+  const page = result("transcripts", transcript);
+  for (const patch of [{ searched_facets: [] }, { searched_facets: ["transcripts", "artifacts"] },
+    { transcripts: "omitted_by_default" }, { transcript_search_hint: "untrusted instruction" }]) {
+    assert.throws(() => decodeUnifiedTranscriptSearchPage({ ...page, search_scope: { ...page.search_scope, ...patch } }, project));
+  }
 });

@@ -169,6 +169,7 @@ VALIDATION_FIELDS = frozenset(
         "actor_session_id",
         "actor_model",
         "q",
+        "query",
         "semantic",
         "tag",
         "min_priority",
@@ -352,6 +353,30 @@ def _validation_details(error: ValidationError) -> tuple[dict[str, set[str]], se
     )
 
 
+_CLAIM_KEY_HINT = (
+    "Claim tools use claim_request_id as the retry key; client_operation_id is not accepted."
+)
+_TOOL_INPUT_HINTS = {
+    ("claim_work", ("client_operation_id",)): _CLAIM_KEY_HINT,
+    ("claim_and_recall", ("client_operation_id",)): _CLAIM_KEY_HINT,
+    ("search", ("sources",)): (
+        "Use facets to select work_items, artifacts and transcripts; sources is not accepted."
+    ),
+}
+
+
+def _tool_validation_message(name: str, error: ValidationError) -> str:
+    message = validation_error_message(*_validation_details(error))
+    # Only exact, reviewed mistakes select static hints. Never interpolate an
+    # unknown field name or value, including nested metadata keys.
+    for item in error.errors(include_url=False, include_context=False, include_input=False):
+        if item["type"] == "extra_forbidden":
+            hint = _TOOL_INPUT_HINTS.get((name, item["loc"]))
+            if hint is not None:
+                message += " " + hint
+    return message
+
+
 class SanitizedFastMCP(FastMCP[Any]):
     """Per-server strict argument models and value-free validation errors."""
 
@@ -430,7 +455,7 @@ class SanitizedFastMCP(FastMCP[Any]):
             ):
                 raise
             raise ToolError(
-                validation_error_message(*_validation_details(validation_error))
+                _tool_validation_message(name, validation_error)
             ) from None
 
     async def run_stdio_async(self) -> None:

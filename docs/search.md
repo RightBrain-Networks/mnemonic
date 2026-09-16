@@ -2,7 +2,7 @@
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.54.0 uses migration
+configuration was required for that release. Current release 0.55.0 uses migration
 `0039_manual_review_requests` and also searches [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
 Their searches use the shared API, including the work semantic toggle. Hierarchy
@@ -15,7 +15,13 @@ Call MCP `search(project_id, q="cache invalidation")` or REST
 {"q": "cache invalidation"}
 ```
 
-Defaults are all three facets, all work statuses, canonical work identities,
+Multi-term queries default to the work_items and artifacts facets. Agent transcripts
+are omitted by default to avoid their corpus-loading and indexing cost. Explicitly
+set `facets=["work_items", "artifacts", "transcripts"]` to include agent sessions,
+or select `facets=["transcripts"]` for sessions alone. Blank and single-term queries
+retain the default of all three facets. Transcript filters and facet ordering do
+not implicitly opt in: include transcripts in `facets`. Other defaults are all
+work statuses, canonical work identities,
 metadata-only artifact/transcript matching, relevance descending, offset 0 and
 limit 50. An empty query browses all selected sources. Work matching includes
 checkpoint prose and provenance as before. To match text inside artifact or
@@ -35,6 +41,57 @@ transcript filters or raise the content budget with sufficient server memory.
 `MNEMONIC_TRANSCRIPT_INDEX_DIR` selects the private disk directory and its API bind
 mount in Compose. A matching cached corpus reopens after restart; the database
 remains authoritative. See [transcript search deployment](transcripts.md#dashboard-settings-and-retrieval).
+
+## Empty conjunctions and source scope
+
+Artifact and transcript queries require every normalized literal term to match
+within one record, across metadata and (when opted in) content. They are not
+natural-language or Boolean query parsers. Case and accents fold, punctuation
+separates words, duplicate terms collapse, and overlong tokens are discarded by
+the existing index analyzer. More than one resulting term selects the lighter
+unified default above. Work retains its PostgreSQL lexical matching and optional
+semantic ranking; a diagnostic work count uses its lexical matching rules.
+
+Every unified response includes `search_scope.searched_facets`, a
+`search_scope.transcripts` disposition (`searched`, `omitted_by_default`, or
+`not_selected`), and `transcript_search_hint` explaining the explicit session-search
+option. Disabled artifacts are absent from searched facets and remain visible in
+coverage. Omitted sources do not make the selected sources' indexing incomplete;
+they are explicitly outside the search's scope.
+
+When the complete query has zero matches before pagination, `term_diagnostics`
+reports document counts for each case-normalized term under the same filters and
+`fulltext` setting. Diagnostic labels preserve accents: work lexical search can
+distinguish `café` from `cafe`, while artifact/transcript matching folds both to
+the same index term. Each source applies its own matching rules to the displayed term. For example, `q="FastAPI AsyncSession", fulltext=true` can return:
+
+```json
+{
+  "total": 0,
+  "search_scope": {
+    "searched_facets": ["work_items", "artifacts"],
+    "transcripts": "omitted_by_default",
+    "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+  },
+  "term_diagnostics": [
+    {"term": "fastapi", "matches": {"work_items": 2, "artifacts": 1, "transcripts": null}},
+    {"term": "asyncsession", "matches": {"work_items": 0, "artifacts": 0, "transcripts": null}}
+  ]
+}
+```
+
+This is an excerpt; ordinary page and coverage fields remain present. Null means
+that source was not searched, while zero is a measured count in searchable data.
+Counts are documents, not occurrences, and canonical work groups are counted once.
+Every term can have matches while the conjunction has none because the terms occur
+in different records. Pending, failed, truncated or withheld content still limits
+what these counts establish. A fully ready index and a failed conjunction do not
+prove the subject absent. Positive totals (including an empty offset page) and
+blank queries return an empty diagnostic list.
+
+Artifact/transcript diagnostics reuse the immutable search snapshot without
+reloading bodies. Work diagnostics reuse its filtered corpus and canonical
+selection. An omitted transcript source performs no transcript search or count.
 
 ## Facets and filters
 
