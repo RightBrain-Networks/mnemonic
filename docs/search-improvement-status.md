@@ -11,9 +11,9 @@ The work is tracked by Mnemonic item `e0e3debd-87b9-4059-8435-bbc83d3e6c9e`.
 | 4 | Phrase/literal queries and supporting snippets | Implementing in `work/query-intent` |
 | 5 | Work match evidence and field scope | Implementing in `work/query-intent` |
 | 6 | Tags, date filters, positive-result diagnostics | Implementing in `work/search-exploration` |
-| 7 | Ranking interpretation and semantic availability/latency | Pending |
+| 7 | Ranking interpretation and semantic availability/latency | Implementing in `work/query-intent`; focused backend checks pass |
 | 8 | Transcript content-kind filtering and segment retrieval | Implemented with item 3; combined backend, MCP, and browser validation complete |
 | 9 | Chunk-level semantic artifact retrieval | Implementing in `work/artifact-semantic` |
-| 10 | Explicit multi-project discovery | Pending |
+| 10 | Explicit multi-project discovery | Implementing in `work/multi-project-search`; backend and MCP scope checks pass |
 
 Tests, release versions, migration steps, and pull request links will be recorded with each delivered slice.
